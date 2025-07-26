@@ -9,7 +9,7 @@
 ```mermaid
 graph TB
     %% Frontend
-    App[Android App<br/>React Native + TypeScript]
+    App[Android App<br/>Flutter + Dart]
     
     %% API Gateway
     APIM[Azure API Management<br/>認証・レート制限・監視]
@@ -22,7 +22,7 @@ graph TB
     BlobStorage[(Azure Blob Storage<br/>画像ファイル保存)]
     
     %% AI Services
-    OpenAIVision[OpenAI Vision API<br/>GPT-4 Vision<br/>植物識別AI]
+    OpenAIVision[Azure OpenAI Service<br/>GPT-4o Vision<br/>植物識別AI]
     
     %% Monitoring
     AppInsights[Application Insights<br/>監視・ログ・分析]
@@ -56,20 +56,24 @@ graph TB
 
 ### 3.1 フロントエンド（モバイルアプリ）
 
-#### 選定：React Native + TypeScript
+#### 選定：Flutter + Dart
 - **理由**:
-  - クロスプラットフォーム対応（iOS展開時の拡張性）
-  - TypeScriptによる型安全性
-  - 豊富なライブラリとコミュニティサポート
-  - Azureとの親和性が高い
+  - **UI品質**: Material Design 3.0による美しいネイティブ級UI
+  - **パフォーマンス**: ネイティブコンパイルによる60fps保証
+  - **画像処理**: 植物図鑑に最適な高速画像レンダリング
+  - **アニメーション**: 滑らかな画面遷移とマイクロインタラクション
+  - **クロスプラットフォーム**: iOS展開時の拡張性
+  - **開発効率**: ホットリロードによる高速開発サイクル
 
-#### 主要ライブラリ
-- **React Native CLI**: 0.72.x
-- **TypeScript**: 5.x
-- **React Navigation**: 画面遷移管理
-- **react-native-image-picker**: 画像選択・撮影
-- **@azure/storage-blob**: Blob Storage連携
-- **react-native-vector-icons**: アイコン表示
+#### 主要パッケージ
+- **Flutter SDK**: 3.16.x (安定版)
+- **Dart**: 3.2.x
+- **flutter/material**: Material Design 3.0 UI
+- **image_picker**: 画像選択・カメラ撮影
+- **http**: HTTP通信・Azure API連携
+- **shared_preferences**: 設定データ永続化
+- **flutter_secure_storage**: APIキーのセキュア保存
+- **cached_network_image**: 画像キャッシュ・表示最適化
 
 ### 3.2 バックエンド
 
@@ -178,44 +182,68 @@ graph TB
 - **openai**: OpenAI Vision API連携
 - **multer**: ファイルアップロード処理
 
-### 4.2 React Native アプリ構成
+### 4.2 Flutter アプリ構成
 
 #### フォルダ構造
 ```
-src/
-├── components/     # 共通コンポーネント
-├── screens/        # 画面コンポーネント（設定画面含む）
-├── services/       # API通信・ビジネスロジック
-├── types/          # TypeScript型定義
-├── utils/          # ユーティリティ関数
-├── security/       # セキュア保存・認証管理
-└── navigation/     # 画面遷移設定
+lib/
+├── main.dart              # アプリエントリーポイント
+├── models/                # データモデル・型定義
+│   ├── plant.dart
+│   ├── identification_result.dart
+│   └── api_response.dart
+├── screens/               # 画面ウィジェット
+│   ├── plant_list_screen.dart
+│   ├── camera_screen.dart
+│   ├── identification_screen.dart
+│   ├── plant_detail_screen.dart
+│   └── settings_screen.dart
+├── widgets/               # 共通ウィジェット
+│   ├── plant_card.dart
+│   ├── identification_card.dart
+│   └── custom_app_bar.dart
+├── services/              # API通信・ビジネスロジック
+│   ├── api_service.dart
+│   ├── storage_service.dart
+│   └── camera_service.dart
+├── utils/                 # ユーティリティ関数
+│   ├── constants.dart
+│   ├── helpers.dart
+│   └── validators.dart
+├── theme/                 # テーマ・スタイル
+│   ├── app_theme.dart
+│   └── colors.dart
+└── navigation/            # 画面遷移管理
+    └── app_router.dart
 ```
 
 #### セキュリティ関連パッケージ
-- **@react-native-async-storage/async-storage**: 設定データ保存
-- **react-native-keychain**: APIキーのセキュア保存
-- **@react-native-community/netinfo**: ネットワーク状態監視
+- **shared_preferences**: 設定データ保存
+- **flutter_secure_storage**: APIキーのセキュア保存
+- **connectivity_plus**: ネットワーク状態監視
 
 #### API通信設定
+- **http package**: REST API通信
 - **認証**: Function Keyをクエリパラメータで送信
 - **エラーハンドリング**: 401認証エラーの適切な処理
 - **リトライ機能**: ネットワークエラー時の自動再試行
+- **JSON変換**: dart:convert による型安全なシリアライゼーション
 
 ### 4.3 データフロー
 
 #### 植物識別フロー
-1. **認証確認**: 設定画面からAPIキー取得
-2. **画像選択**: React Native → Blob Storage (Function Key認証)
-3. **AI識別**: Azure Functions → OpenAI Vision API (Function Key認証)
-4. **結果表示**: API Response → React Native
-5. **データ保存**: React Native → Azure Functions → Cosmos DB (Function Key認証)
+1. **認証確認**: 設定画面からAPIキー取得（flutter_secure_storage）
+2. **画像選択**: Flutter image_picker → 画像選択・撮影
+3. **画像アップロード**: Flutter http → Azure Functions → Blob Storage (Function Key認証)
+4. **AI識別**: Azure Functions → Azure OpenAI Service → GPT-4o Vision (SAS URL対応)
+5. **結果表示**: API Response → Flutter UI (Material Design)
+6. **データ保存**: Flutter → Azure Functions → Cosmos DB (Function Key認証)
 
 #### 認証フロー
 1. **初回設定**: ユーザーが設定画面でAPIキー入力
-2. **セキュア保存**: Keychainにキーを暗号化保存
+2. **セキュア保存**: flutter_secure_storage にキーを暗号化保存
 3. **API呼び出し**: 全リクエストでクエリパラメータに認証キー付与
-4. **エラー処理**: 401エラー時は設定画面への誘導
+4. **エラー処理**: 401エラー時は設定画面への誘導（Navigator.push）
 
 ## 5. コスト見積もり（月額・東日本リージョン）
 
