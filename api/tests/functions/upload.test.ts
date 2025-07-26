@@ -93,8 +93,10 @@ describe('画像アップロード・植物判定統合API', () => {
       }
     };
     
-    const MockedOpenAI = jest.requireMock('openai').default;
-    MockedOpenAI.mockImplementation(() => mockOpenAI);
+    const MockedOpenAI = jest.requireMock('openai');
+    if (MockedOpenAI && typeof MockedOpenAI.mockImplementation === 'function') {
+      MockedOpenAI.mockImplementation(() => mockOpenAI);
+    }
 
     // 環境変数設定
     process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=key;EndpointSuffix=core.windows.net';

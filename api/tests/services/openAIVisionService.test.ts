@@ -3,7 +3,7 @@ import { OpenAIVisionService } from '../../src/services/openAIVisionService';
 // 外部依存のみモック
 jest.mock('openai');
 
-const MockedOpenAI = jest.requireMock('openai').default;
+const MockedOpenAI = jest.requireMock('openai');
 
 describe('OpenAIVisionService', () => {
   let service: OpenAIVisionService;
@@ -18,7 +18,9 @@ describe('OpenAIVisionService', () => {
         }
       }
     };
-    MockedOpenAI.mockImplementation(() => mockOpenAI);
+    if (MockedOpenAI && typeof MockedOpenAI.mockImplementation === 'function') {
+      MockedOpenAI.mockImplementation(() => mockOpenAI);
+    }
 
     // 環境変数設定
     process.env.OPENAI_API_KEY = 'test-api-key';
@@ -83,7 +85,7 @@ describe('OpenAIVisionService', () => {
 
       expect(result).toEqual(expectedResult);
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith({
-        model: 'gpt-4-vision-preview',
+        model: 'gpt-4o',
         messages: [
           {
             role: 'user',
@@ -287,7 +289,9 @@ describe('OpenAIVisionService', () => {
         }
       };
 
-      MockedOpenAI.mockImplementation(() => mockAzureOpenAI);
+      if (MockedOpenAI && typeof MockedOpenAI.mockImplementation === 'function') {
+        MockedOpenAI.mockImplementation(() => mockAzureOpenAI);
+      }
 
       // Azure設定でサービスを再初期化
       service = new OpenAIVisionService();

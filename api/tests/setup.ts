@@ -57,9 +57,10 @@ jest.mock('openai', () => {
     }
   }));
   
-  return {
-    default: mockOpenAI
-  };
+  // Default export for ES6 modules
+  (mockOpenAI as any).default = mockOpenAI;
+  
+  return mockOpenAI;
 });
 
 // Console.log を無効化（テスト実行時のノイズ削減）

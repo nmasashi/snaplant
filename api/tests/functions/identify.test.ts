@@ -1,11 +1,10 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { identifyPlantHandler } from '../../src/functions/identify';
 import { PlantCandidate } from '../../src/types/plant';
-import OpenAI from 'openai';
 
 // 外部依存のみモック
 jest.mock('openai');
-const MockedOpenAI = OpenAI as jest.MockedClass<typeof OpenAI>;
+const MockedOpenAI = jest.requireMock('openai');
 
 describe('植物識別API', () => {
   let mockContext: InvocationContext;
@@ -29,7 +28,9 @@ describe('植物識別API', () => {
       }
     };
 
-    MockedOpenAI.mockImplementation(() => mockClient as any);
+    if (MockedOpenAI && typeof MockedOpenAI.mockImplementation === 'function') {
+      MockedOpenAI.mockImplementation(() => mockClient as any);
+    }
     
     // 環境変数設定
     process.env.OPENAI_API_KEY = 'test-key';
@@ -110,7 +111,7 @@ describe('植物識別API', () => {
       });
 
       expect(mockChatCompletions.create).toHaveBeenCalledWith({
-        model: 'gpt-4-vision-preview',
+        model: 'gpt-4o',
         messages: [{
           role: 'user',
           content: [
