@@ -1,4 +1,4 @@
-import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import { BlobServiceClient, BlockBlobClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { v4 as uuidv4 } from 'uuid';
 import { FILE_UPLOAD } from '../constants/validation';
 
@@ -6,11 +6,24 @@ export class StorageService {
   private blobServiceClient: BlobServiceClient;
   private containerName: string;
   private tempContainerName: string;
+  private storageAccountName: string;
+  private storageAccountKey: string;
 
   constructor() {
     const connectionString = process.env.STORAGE_CONNECTION_STRING!;
     this.containerName = process.env.STORAGE_CONTAINER_NAME!;
     this.tempContainerName = process.env.TEMP_STORAGE_CONTAINER_NAME || 'temp';
+    
+    // Connection stringから account name と key を抽出
+    const accountNameMatch = connectionString.match(/AccountName=([^;]+)/);
+    const accountKeyMatch = connectionString.match(/AccountKey=([^;]+)/);
+    
+    if (!accountNameMatch || !accountKeyMatch) {
+      throw new Error('Storage connection string format is invalid');
+    }
+    
+    this.storageAccountName = accountNameMatch[1];
+    this.storageAccountKey = accountKeyMatch[1];
     
     this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
   }
@@ -40,8 +53,8 @@ export class StorageService {
         }
       });
       
-      // アップロードされた画像のURLを返す
-      return blockBlobClient.url;
+      // SAS URLを生成して返す（外部アクセス用）
+      return this.generateSasUrl(blockBlobClient.url, this.containerName);
       
     } catch (error: any) {
       throw new Error(`画像のアップロードに失敗しました: ${error.message}`);
@@ -73,8 +86,8 @@ export class StorageService {
         }
       });
       
-      // アップロードされた画像のURLを返す
-      return blockBlobClient.url;
+      // SAS URLを生成して返す（外部アクセス用）
+      return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
       
     } catch (error: any) {
       throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
@@ -119,8 +132,8 @@ export class StorageService {
       // 一時ファイルを削除
       await tempBlockBlobClient.delete();
 
-      // 永続保存された画像のURLを返す
-      return permanentBlockBlobClient.url;
+      // SAS URLを生成して返す（外部アクセス用）
+      return this.generateSasUrl(permanentBlockBlobClient.url, this.containerName);
 
     } catch (error: any) {
       throw new Error(`画像の永続保存への移動に失敗しました: ${error.message}`);
@@ -209,6 +222,56 @@ export class StorageService {
         return false;
       }
       throw error;
+    }
+  }
+
+  /**
+   * SAS URLを生成する（外部からのアクセス用）
+   * @param blobUrl 元のBlob URL
+   * @param containerName コンテナ名
+   * @param expiryHours 有効期限（時間、デフォルト: 24時間）
+   * @returns SAS URL
+   */
+  private generateSasUrl(blobUrl: string, containerName: string, expiryHours: number = 24): string {
+    try {
+      // URLからファイル名を抽出
+      const fileName = this.extractFileNameFromUrl(blobUrl);
+      if (!fileName) {
+        throw new Error('URLからファイル名を抽出できません');
+      }
+
+      // SAS権限を設定（読み取りのみ）
+      const permissions = new BlobSASPermissions();
+      permissions.read = true;
+
+      // 有効期限を設定
+      const expiryTime = new Date();
+      expiryTime.setHours(expiryTime.getHours() + expiryHours);
+
+      // 認証情報を作成
+      const sharedKeyCredential = new StorageSharedKeyCredential(
+        this.storageAccountName,
+        this.storageAccountKey
+      );
+
+      // SASクエリパラメータを生成
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName,
+          blobName: fileName,
+          permissions,
+          expiresOn: expiryTime,
+        },
+        sharedKeyCredential
+      ).toString();
+
+      // SAS URLを構築
+      return `${blobUrl}?${sasToken}`;
+
+    } catch (error: any) {
+      // SAS URL生成に失敗した場合は元のURLを返す（フォールバック）
+      console.warn(`SAS URL generation failed, falling back to original URL: ${error.message}`);
+      return blobUrl;
     }
   }
 
