@@ -44,12 +44,17 @@ jobs:
     - name: Install dependencies
       run: |
         cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-        npm ci --only=production
+        npm ci
 
     - name: Build for production
       run: |
         cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
         npm run build
+
+    - name: Clean dev dependencies
+      run: |
+        cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        npm prune --production
 
     - name: Deploy to Azure Functions
       id: deploy
