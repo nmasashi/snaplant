@@ -109,13 +109,13 @@ export class OpenAIVisionService {
 							type: "image_url",
 							image_url: {
 								url: imageUrl,
-								detail: "high", // 高品質な分析のため
+								detail: "low", // トークン消費を抑制
 							},
 						},
 					],
 				},
 			],
-			max_tokens: 2000,
+			max_tokens: 1000,
 			temperature: 0.1, // 一貫性を重視
 			response_format: { type: "json_object" }, // JSON形式を強制
 		});
