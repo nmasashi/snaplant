@@ -8,8 +8,10 @@ process.env.COSMOS_DB_DATABASE = 'test-db';
 process.env.COSMOS_DB_CONTAINER = 'test-plants';
 process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=test==;EndpointSuffix=core.windows.net';
 process.env.STORAGE_CONTAINER_NAME = 'test-images';
-process.env.COMPUTER_VISION_ENDPOINT = 'https://test-vision.cognitiveservices.azure.com/';
-process.env.COMPUTER_VISION_KEY = 'test-vision-key';
+process.env.TEMP_STORAGE_CONTAINER_NAME = 'test-temp';
+process.env.AZURE_OPENAI_ENDPOINT = 'https://test-openai.openai.azure.com/';
+process.env.AZURE_OPENAI_API_KEY = 'test-openai-key';
+process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'gpt-4o';
 
 // Azure SDK のモック
 jest.mock('@azure/cosmos', () => ({
@@ -46,12 +48,19 @@ jest.mock('@azure/storage-blob', () => ({
   }
 }));
 
-jest.mock('@azure/cognitiveservices-computervision', () => ({
-  ComputerVisionClient: jest.fn().mockImplementation(() => ({
-    analyzeImage: jest.fn(),
-    analyzeImageInStream: jest.fn()
-  }))
-}));
+jest.mock('openai', () => {
+  const mockOpenAI = jest.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: jest.fn()
+      }
+    }
+  }));
+  
+  return {
+    default: mockOpenAI
+  };
+});
 
 // Console.log を無効化（テスト実行時のノイズ削減）
 global.console = {
