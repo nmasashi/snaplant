@@ -1,4 +1,4 @@
-import { AzureFunction, Context, HttpRequest } from '@azure/functions';
+import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { CosmosService } from '../services/cosmosService';
 import { 
   createSuccessResponse, 
@@ -11,7 +11,7 @@ import { HttpStatusCode, ErrorCode } from '../types/api';
  * 植物一覧取得 API
  * GET /api/plants?code={FUNCTION_KEY}
  */
-const httpTrigger: AzureFunction = async function (context: Context, req: HttpRequest): Promise<void> {
+export async function getPlantsHandler(_request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('植物一覧取得リクエストを受信');
 
   try {
@@ -23,7 +23,7 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
     
     context.log(`植物一覧取得成功: ${plants.length}件`);
     
-    context.res = createSuccessResponse({
+    return createSuccessResponse({
       plants,
       total: plants.length
     });
@@ -33,17 +33,22 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
     
     // Cosmos DB関連エラー
     if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      context.res = createErrorResponse(
+      return createErrorResponse(
         ErrorCode.DATABASE_ERROR,
         'データベースに接続できません',
         HttpStatusCode.SERVICE_UNAVAILABLE,
         error.message
       );
-      return;
     }
 
-    context.res = createInternalError('植物一覧の取得に失敗しました', error.message);
+    return createInternalError('植物一覧の取得に失敗しました', error.message);
   }
-};
+}
 
-export default httpTrigger;
+// Azure Functions への登録
+app.http('plants', {
+  methods: ['GET'],
+  authLevel: 'function',
+  route: 'plants',
+  handler: getPlantsHandler
+});

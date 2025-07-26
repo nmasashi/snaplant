@@ -1,4 +1,4 @@
-import { HttpRequest, InvocationContext } from '@azure/functions';
+import { InvocationContext, HttpRequest } from '@azure/functions';
 import { getPlantsHandler } from '../../src/functions/plants';
 import { PlantSummary } from '../../src/types/plant';
 import { CosmosClient, Database, Container } from '@azure/cosmos';
@@ -15,10 +15,10 @@ describe('植物一覧取得API', () => {
   let mockItems: any;
 
   beforeEach(() => {
-    // InvocationContextのモック
+    // Contextのモック
     mockContext = {
       log: Object.assign(jest.fn(), { error: jest.fn() }),
-      error: jest.fn()
+      res: {}
     } as any;
 
     // Cosmos DB SDKのモック
