@@ -120,12 +120,12 @@ describe('植物識別API', () => {
               type: 'image_url',
               image_url: {
                 url: 'https://example.com/sakura.jpg',
-                detail: 'high'
+                detail: 'low'
               }
             }
           ]
         }],
-        max_tokens: 2000,
+        max_tokens: 1000,
         temperature: 0.1,
         response_format: { type: 'json_object' }
       });
