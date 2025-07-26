@@ -15,18 +15,17 @@ export async function getPlantsHandler(_request: HttpRequest, context: Invocatio
   context.log('植物一覧取得リクエストを受信');
 
   try {
-    // 環境変数の確認
-    context.log('Environment variables check:');
-    context.log('COSMOS_DB_ENDPOINT:', process.env.COSMOS_DB_ENDPOINT ? 'SET' : 'NOT SET');
-    context.log('COSMOS_DB_KEY:', process.env.COSMOS_DB_KEY ? 'SET' : 'NOT SET');
-    context.log('COSMOS_DB_DATABASE:', process.env.COSMOS_DB_DATABASE);
-    context.log('COSMOS_DB_CONTAINER:', process.env.COSMOS_DB_CONTAINER);
-
-    // 一時的にCosmos DBアクセスをスキップして、基本的な応答を返す
+    // Cosmos DBサービス初期化
+    const cosmosService = new CosmosService();
+    
+    // 植物一覧取得
+    const plants = await cosmosService.getPlants();
+    
+    context.log(`植物一覧取得成功: ${plants.length}件`);
+    
     return createSuccessResponse({
-      plants: [],
-      total: 0,
-      message: "Test response - Cosmos DB access skipped"
+      plants,
+      total: plants.length
     });
 
   } catch (error: any) {
