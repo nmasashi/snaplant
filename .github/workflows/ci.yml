@@ -1,0 +1,112 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'api/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'api/**'
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  test:
+    name: Test and Build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: api/package-lock.json
+
+    - name: Install dependencies
+      run: |
+        cd api
+        npm ci
+
+    - name: Run linting (if available)
+      run: |
+        cd api
+        if npm run lint --silent; then
+          npm run lint
+        else
+          echo "No lint script found, skipping..."
+        fi
+      continue-on-error: true
+
+    - name: Run tests
+      run: |
+        cd api
+        npm test
+
+    - name: Generate test coverage
+      run: |
+        cd api
+        npm run test:coverage
+
+    - name: Upload coverage to Codecov (optional)
+      uses: codecov/codecov-action@v3
+      with:
+        directory: ./api/coverage
+        fail_ci_if_error: false
+      continue-on-error: true
+
+    - name: Build application
+      run: |
+        cd api
+        npm run build
+
+    - name: Archive build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          api/dist/
+          api/package.json
+          api/package-lock.json
+          api/host.json
+        retention-days: 7
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: api/package-lock.json
+
+    - name: Install dependencies
+      run: |
+        cd api
+        npm ci
+
+    - name: Run npm audit
+      run: |
+        cd api
+        npm audit --audit-level=high
+      continue-on-error: true
+
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript
+        
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3

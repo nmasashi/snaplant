@@ -1,0 +1,31 @@
+# Project configuration
+project_name = "snaplant"
+location     = "Japan East"
+
+# Cosmos DB configuration
+cosmos_db_consistency_level = "Session"
+cosmos_db_throughput       = 400  # Free tier limit
+
+# Azure Functions configuration
+functions_plan_tier = "Y1"  # Consumption plan (cheapest)
+
+# Cognitive Services configuration
+cognitive_services_sku = "F0"  # Free tier
+
+# Storage configuration
+storage_account_tier     = "Standard"
+storage_replication_type = "LRS"  # Locally redundant storage (cheapest)
+
+# Application Insights configuration
+application_insights_type = "web"
+
+# OpenAI configuration
+openai_api_key = "YOUR_OPENAI_API_KEY_HERE"
+
+# Tags for resource management
+tags = {
+  Project     = "SnapPlant"
+  ManagedBy   = "Terraform"
+  CostCenter  = "Development"
+  Environment = "Production"
+}

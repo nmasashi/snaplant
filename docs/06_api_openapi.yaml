@@ -1,0 +1,715 @@
+openapi: 3.0.3
+info:
+  title: SnapPlant API
+  description: 植物図鑑アプリ「SnapPlant」のREST API仕様書
+  version: 1.0.0
+  contact:
+    name: SnapPlant Development Team
+  license:
+    name: MIT
+    
+servers:
+  - url: https://func-snaplant-mk0w7s38.azurewebsites.net/api
+    description: Production server (West Europe)
+
+security:
+  - FunctionKey: []
+
+paths:
+  /plants:
+    get:
+      summary: 植物一覧取得
+      description: 登録済みの植物データを作成日時降順で取得
+      tags:
+        - Plants
+      parameters:
+        - $ref: '#/components/parameters/FunctionKey'
+      responses:
+        '200':
+          description: 植物一覧の取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plants:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlantSummary'
+                  total:
+                    type: integer
+                    description: 総件数
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+    post:
+      summary: 植物新規登録
+      description: 識別結果から選択した植物を図鑑に保存
+      tags:
+        - Plants
+      parameters:
+        - $ref: '#/components/parameters/FunctionKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlantCreateRequest'
+      responses:
+        '201':
+          description: 植物の登録成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plant:
+                    $ref: '#/components/schemas/Plant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/PlantAlreadyExists'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /plants/{id}:
+    get:
+      summary: 植物詳細取得
+      description: 指定されたIDの植物詳細情報を取得
+      tags:
+        - Plants
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 植物ID (UUID)
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/FunctionKey'
+      responses:
+        '200':
+          description: 植物詳細の取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plant:
+                    $ref: '#/components/schemas/Plant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PlantNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+    put:
+      summary: 植物情報更新
+      description: 既存植物の画像と信頼度を更新（重複時の画像置き換え）
+      tags:
+        - Plants
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 植物ID (UUID)
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/FunctionKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlantUpdateRequest'
+      responses:
+        '200':
+          description: 植物情報の更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plant:
+                    $ref: '#/components/schemas/Plant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PlantNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+    delete:
+      summary: 植物削除
+      description: 指定されたIDの植物を削除
+      tags:
+        - Plants
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 植物ID (UUID)
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/FunctionKey'
+      responses:
+        '200':
+          description: 植物の削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "植物が正常に削除されました"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PlantNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /plants/identify:
+    post:
+      summary: 植物識別実行
+      description: アップロードされた画像から植物を識別
+      tags:
+        - Plants
+      parameters:
+        - $ref: '#/components/parameters/FunctionKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentifyRequest'
+      responses:
+        '200':
+          description: 植物識別の実行成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    $ref: '#/components/schemas/IdentificationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          $ref: '#/components/responses/AIServiceError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /plants/check-duplicate:
+    get:
+      summary: 重複確認
+      description: 同名の植物が既に登録されているかチェック
+      tags:
+        - Plants
+      parameters:
+        - name: name
+          in: query
+          required: true
+          description: 植物名
+          schema:
+            type: string
+          example: "桜"
+        - $ref: '#/components/parameters/FunctionKey'
+      responses:
+        '200':
+          description: 重複確認の実行成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/DuplicateCheckResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /images/upload:
+    post:
+      summary: 画像アップロード
+      description: 植物画像をBlob Storageにアップロード
+      tags:
+        - Images
+      parameters:
+        - $ref: '#/components/parameters/FunctionKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 画像ファイル (JPEG, PNG)
+      responses:
+        '200':
+          description: 画像アップロード成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imagePath:
+                    type: string
+                    format: uri
+                    description: アップロードされた画像のURL
+                    example: "https://snaplant.blob.core.windows.net/images/12345678-uuid.jpg"
+                  message:
+                    type: string
+                    example: "画像が正常にアップロードされました"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/FileTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /health:
+    get:
+      summary: ヘルスチェック
+      description: APIサービスの状態確認
+      tags:
+        - System
+      security: []
+      responses:
+        '200':
+          description: サービス状態の取得成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+components:
+  securitySchemes:
+    FunctionKey:
+      type: apiKey
+      in: query
+      name: code
+      description: Azure Function Key for API authentication
+
+  parameters:
+    FunctionKey:
+      name: code
+      in: query
+      required: true
+      description: Azure Function Key for API authentication
+      schema:
+        type: string
+      example: "your-function-key-here"
+
+  schemas:
+    Plant:
+      type: object
+      required:
+        - id
+        - name
+        - characteristics
+        - confidence
+        - imagePath
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 植物ID
+        name:
+          type: string
+          description: 植物名
+          example: "桜"
+        scientificName:
+          type: string
+          nullable: true
+          description: 学名
+          example: "Prunus serrulata"
+        familyName:
+          type: string
+          nullable: true
+          description: 科名
+          example: "バラ科"
+        description:
+          type: string
+          nullable: true
+          description: 詳細説明
+          example: "日本を代表する花木で、春に美しい花を咲かせる。"
+        characteristics:
+          type: string
+          description: 特徴（画面表示用）
+          example: "春に美しいピンクの花を咲かせる"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: AI識別の信頼度
+          example: 95.5
+        imagePath:
+          type: string
+          format: uri
+          description: 画像URL
+          example: "https://snaplant.blob.core.windows.net/images/sakura.jpg"
+        createdAt:
+          type: string
+          format: date-time
+          description: 作成日時
+        updatedAt:
+          type: string
+          format: date-time
+          description: 更新日時
+
+    PlantSummary:
+      type: object
+      required:
+        - id
+        - name
+        - characteristics
+        - imagePath
+        - confidence
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 植物ID
+        name:
+          type: string
+          description: 植物名
+          example: "桜"
+        characteristics:
+          type: string
+          description: 特徴
+          example: "春に美しいピンクの花を咲かせる"
+        imagePath:
+          type: string
+          format: uri
+          description: 画像URL
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: AI識別の信頼度
+        createdAt:
+          type: string
+          format: date-time
+          description: 作成日時
+
+    PlantCreateRequest:
+      type: object
+      required:
+        - name
+        - characteristics
+        - confidence
+        - imagePath
+      properties:
+        name:
+          type: string
+          description: 植物名
+          example: "桜"
+        scientificName:
+          type: string
+          nullable: true
+          description: 学名
+          example: "Prunus serrulata"
+        familyName:
+          type: string
+          nullable: true
+          description: 科名
+          example: "バラ科"
+        description:
+          type: string
+          nullable: true
+          description: 詳細説明
+        characteristics:
+          type: string
+          description: 特徴
+          example: "春に美しいピンクの花を咲かせる"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: AI識別の信頼度
+        imagePath:
+          type: string
+          format: uri
+          description: 画像URL
+
+    PlantUpdateRequest:
+      type: object
+      required:
+        - imagePath
+        - confidence
+      properties:
+        imagePath:
+          type: string
+          format: uri
+          description: 新しい画像URL
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: 新しい信頼度
+
+    IdentifyRequest:
+      type: object
+      required:
+        - imagePath
+      properties:
+        imagePath:
+          type: string
+          format: uri
+          description: 識別対象の画像URL
+          example: "https://snaplant.blob.core.windows.net/images/temp/uploaded.jpg"
+
+    IdentificationResult:
+      type: object
+      required:
+        - candidates
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlantCandidate'
+          minItems: 1
+          maxItems: 3
+          description: 識別候補（最大3件）
+
+    PlantCandidate:
+      type: object
+      required:
+        - name
+        - characteristics
+        - confidence
+      properties:
+        name:
+          type: string
+          description: 植物名
+          example: "桜"
+        scientificName:
+          type: string
+          nullable: true
+          description: 学名
+          example: "Prunus serrulata"
+        familyName:
+          type: string
+          nullable: true
+          description: 科名
+          example: "バラ科"
+        description:
+          type: string
+          nullable: true
+          description: 詳細説明
+        characteristics:
+          type: string
+          description: 特徴
+          example: "春に美しいピンクの花を咲かせる"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: AI識別の信頼度
+          example: 95.5
+
+    DuplicateCheckResult:
+      type: object
+      required:
+        - exists
+      properties:
+        exists:
+          type: boolean
+          description: 同名植物の存在有無
+        plant:
+          type: object
+          nullable: true
+          description: 存在する場合の植物情報
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            imagePath:
+              type: string
+              format: uri
+            confidence:
+              type: number
+              minimum: 0
+              maximum: 100
+            createdAt:
+              type: string
+              format: date-time
+
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - services
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: 全体のサービス状態
+        services:
+          type: object
+          properties:
+            database:
+              type: string
+              enum: [healthy, unhealthy]
+            blobStorage:
+              type: string
+              enum: [healthy, unhealthy]
+            aiService:
+              type: string
+              enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+          description: 状態確認日時
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: エラーコード
+            message:
+              type: string
+              description: エラーメッセージ（日本語）
+            details:
+              type: string
+              nullable: true
+              description: 詳細情報
+
+  responses:
+    BadRequest:
+      description: リクエスト形式が不正
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INVALID_REQUEST"
+              message: "リクエスト形式が不正です"
+
+    Unauthorized:
+      description: Function Key認証エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missing_key:
+              summary: APIキーが未指定
+              value:
+                error:
+                  code: "UNAUTHORIZED"
+                  message: "APIキーが指定されていません"
+            invalid_key:
+              summary: APIキーが無効
+              value:
+                error:
+                  code: "INVALID_API_KEY"
+                  message: "APIキーが無効または期限切れです"
+
+    PlantNotFound:
+      description: 植物が見つからない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "PLANT_NOT_FOUND"
+              message: "指定された植物が見つかりません"
+
+    PlantAlreadyExists:
+      description: 植物が既に存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "PLANT_ALREADY_EXISTS"
+              message: "同じ名前の植物が既に登録されています"
+
+    FileTooLarge:
+      description: ファイルサイズ超過
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "FILE_TOO_LARGE"
+              message: "ファイルサイズが上限を超えています"
+
+    UnsupportedMediaType:
+      description: サポートされていないファイル形式
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "UNSUPPORTED_MEDIA_TYPE"
+              message: "サポートされていないファイル形式です"
+
+    AIServiceError:
+      description: AI識別サービスエラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "AI_SERVICE_ERROR"
+              message: "植物識別サービスでエラーが発生しました"
+
+    InternalError:
+      description: サーバー内部エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "サーバー内部エラーが発生しました"
