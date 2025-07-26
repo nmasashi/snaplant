@@ -51,10 +51,13 @@ jobs:
         cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
         npm run build
 
-    - name: Clean dev dependencies
+    - name: Copy necessary files for deployment
       run: |
         cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-        npm prune --production
+        # Ensure all necessary files are in place
+        ls -la
+        ls -la dist/
+        ls -la dist/src/functions/
 
     - name: Deploy to Azure Functions
       id: deploy
@@ -63,8 +66,8 @@ jobs:
         app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
         package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
         publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-        scm-do-build-during-deployment: true
-        enable-oryx-build: true
+        scm-do-build-during-deployment: false
+        enable-oryx-build: false
 
     - name: Health Check
       run: |
