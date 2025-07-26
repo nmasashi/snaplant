@@ -140,10 +140,9 @@ export class CosmosService {
     console.log(`checkDuplicateByName called with name: "${name}"`);
     
     const query = `
-      SELECT c.id, c.name, c.imagePath, c.confidence, c.createdAt
+      SELECT TOP 1 c.id, c.name, c.imagePath, c.confidence, c.createdAt
       FROM c 
       WHERE c.name = @name
-      LIMIT 1
     `;
     
     console.log('Query:', query);
