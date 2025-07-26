@@ -5,10 +5,12 @@ on:
     branches: [ main, develop ]
     paths:
       - 'api/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [ main ]
     paths:
       - 'api/**'
+      - '.github/workflows/**'
 
 env:
   NODE_VERSION: '20.x'

@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'api/**'
-      - '.github/workflows/deploy-functions.yml'
+      - '.github/workflows/**'
   workflow_dispatch: # 手動実行も可能
 
 env:
