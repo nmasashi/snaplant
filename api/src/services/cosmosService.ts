@@ -137,6 +137,8 @@ export class CosmosService {
    * 植物名での重複チェック
    */
   async checkDuplicateByName(name: string): Promise<DuplicateCheckResult> {
+    console.log(`checkDuplicateByName called with name: "${name}"`);
+    
     const query = `
       SELECT c.id, c.name, c.imagePath, c.confidence, c.createdAt
       FROM c 
@@ -144,25 +146,41 @@ export class CosmosService {
       LIMIT 1
     `;
     
-    const { resources } = await this.container.items.query({
-      query,
-      parameters: [{ name: '@name', value: name }]
-    }).fetchAll();
+    console.log('Query:', query);
+    console.log('Parameters:', [{ name: '@name', value: name }]);
+    
+    try {
+      const { resources } = await this.container.items.query({
+        query,
+        parameters: [{ name: '@name', value: name }]
+      }).fetchAll();
 
-    if (resources.length === 0) {
-      return { exists: false };
-    }
+      console.log(`Query executed successfully. Found ${resources.length} resources.`);
+      console.log('Resources:', resources);
 
-    return {
-      exists: true,
-      plant: {
-        id: resources[0].id,
-        name: resources[0].name,
-        imagePath: resources[0].imagePath,
-        confidence: resources[0].confidence,
-        createdAt: resources[0].createdAt
+      if (resources.length === 0) {
+        console.log('No duplicate found, returning { exists: false }');
+        return { exists: false };
       }
-    };
+
+      const result = {
+        exists: true,
+        plant: {
+          id: resources[0].id,
+          name: resources[0].name,
+          imagePath: resources[0].imagePath,
+          confidence: resources[0].confidence,
+          createdAt: resources[0].createdAt
+        }
+      };
+      
+      console.log('Duplicate found, returning:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('Error in checkDuplicateByName:', error);
+      throw error;
+    }
   }
 
   /**
