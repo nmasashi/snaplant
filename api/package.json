@@ -2,7 +2,6 @@
   "name": "snaplant-api",
   "version": "1.0.0",
   "description": "SnapPlant Azure Functions API with Azure OpenAI integration",
-  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
