@@ -98,6 +98,28 @@ output "application_insights_connection_string" {
   sensitive   = true
 }
 
+# Azure OpenAI outputs
+output "azure_openai_endpoint" {
+  description = "Endpoint URL of the Azure OpenAI service"
+  value       = azurerm_cognitive_account.openai.endpoint
+}
+
+output "azure_openai_name" {
+  description = "Name of the Azure OpenAI service"
+  value       = azurerm_cognitive_account.openai.name
+}
+
+output "azure_openai_api_key" {
+  description = "Primary access key of the Azure OpenAI service"
+  value       = azurerm_cognitive_account.openai.primary_access_key
+  sensitive   = true
+}
+
+output "gpt4o_deployment_name" {
+  description = "Name of the GPT-4o deployment"
+  value       = azurerm_cognitive_deployment.gpt4o.name
+}
+
 # Summary output for easy reference
 output "deployment_summary" {
   description = "Summary of deployed resources"
@@ -106,5 +128,6 @@ output "deployment_summary" {
     function_app_url = "https://${azurerm_linux_function_app.main.name}.azurewebsites.net"
     storage_endpoint = azurerm_storage_account.main.primary_blob_endpoint
     cosmos_db_endpoint = azurerm_cosmosdb_account.main.endpoint
+    azure_openai_endpoint = azurerm_cognitive_account.openai.endpoint
   }
 }

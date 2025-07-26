@@ -109,9 +109,34 @@ variable "application_insights_type" {
   }
 }
 
-# OpenAI configuration
-variable "openai_api_key" {
-  description = "OpenAI API key for plant identification"
+# Azure OpenAI configuration
+variable "openai_location" {
+  description = "Azure region for OpenAI service (limited availability)"
   type        = string
-  sensitive   = true
+  default     = "East US"
+  validation {
+    condition = contains([
+      "East US",
+      "East US 2", 
+      "North Central US",
+      "South Central US",
+      "West Europe",
+      "France Central",
+      "UK South"
+    ], var.openai_location)
+    error_message = "OpenAI location must be in a supported region."
+  }
+}
+
+variable "openai_sku" {
+  description = "SKU for Azure OpenAI service"
+  type        = string
+  default     = "S0"
+  validation {
+    condition = contains([
+      "F0",  # Free tier (limited)
+      "S0"   # Standard tier
+    ], var.openai_sku)
+    error_message = "OpenAI SKU must be either F0 or S0."
+  }
 }

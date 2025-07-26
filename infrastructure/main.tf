@@ -170,8 +170,10 @@ resource "azurerm_linux_function_app" "main" {
     "STORAGE_CONTAINER_NAME"    = azurerm_storage_container.images.name
     "TEMP_STORAGE_CONTAINER_NAME" = azurerm_storage_container.temp_images.name
     
-    # OpenAI設定
-    "OPENAI_API_KEY" = var.openai_api_key
+    # Azure OpenAI設定
+    "AZURE_OPENAI_ENDPOINT" = azurerm_cognitive_account.openai.endpoint
+    "AZURE_OPENAI_API_KEY" = azurerm_cognitive_account.openai.primary_access_key
+    "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt4o.name
     
     # Application Insights設定
     "APPINSIGHTS_INSTRUMENTATIONKEY" = azurerm_application_insights.main.instrumentation_key
@@ -192,5 +194,32 @@ resource "azurerm_application_insights" "main" {
   application_type    = "web"
 
   tags = var.tags
+}
+
+# Azure OpenAI Serviceの作成
+resource "azurerm_cognitive_account" "openai" {
+  name                = "openai-${var.project_name}-${random_string.suffix.result}"
+  location            = var.openai_location
+  resource_group_name = azurerm_resource_group.main.name
+  kind                = "OpenAI"
+  sku_name            = var.openai_sku
+
+  tags = var.tags
+}
+
+# GPT-4o モデルのデプロイ (Vision機能含む)
+resource "azurerm_cognitive_deployment" "gpt4o" {
+  name                 = "gpt-4o"
+  cognitive_account_id = azurerm_cognitive_account.openai.id
+
+  model {
+    format  = "OpenAI"
+    name    = "gpt-4o"
+    version = "2024-08-06"
+  }
+
+  scale {
+    type = "Standard"
+  }
 }
 

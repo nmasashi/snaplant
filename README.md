@@ -11,7 +11,7 @@ SnapPlant は、画像から植物を識別し、詳細情報を提供する Web
 - **Azure Functions**: サーバーレス API ホスティング
 - **Azure Cosmos DB**: 植物データの永続化
 - **Azure Blob Storage**: 画像ファイルの保存
-- **OpenAI Vision API**: AI による植物識別
+- **Azure OpenAI Service**: GPT-4o による植物識別
 - **Application Insights**: 監視・ログ
 
 ## 🚀 自動デプロイ
