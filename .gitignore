@@ -234,3 +234,28 @@ logs/
 
 # Claude Code settings (may contain sensitive permissions)
 .claude/settings.local.json
+
+# Flutter/Dart specific
+mobile/.dart_tool/
+mobile/.packages
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.metadata
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/Flutter.podspec
+mobile/ios/Runner.xcworkspace
+mobile/android/.gradle/
+mobile/android/captures/
+mobile/android/gradle/
+mobile/android/gradlew
+mobile/android/gradlew.bat
+mobile/android/local.properties
+mobile/android/key.properties
+mobile/android/app/*.jks
+mobile/coverage/
+mobile/lib/generated_plugin_registrant.dart
