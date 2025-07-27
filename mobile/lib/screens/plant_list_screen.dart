@@ -34,18 +34,29 @@ class _PlantListScreenState extends State<PlantListScreen> {
 
   /// 画面初期化
   Future<void> _initializeScreen() async {
+    print('PlantListScreen: 初期化開始');
     await _initializeApiService();
+    print('PlantListScreen: APIサービス初期化完了');
     await _loadPlants();
+    print('PlantListScreen: 植物一覧読み込み完了');
   }
 
   /// APIサービスの初期化
   Future<void> _initializeApiService() async {
     try {
+      print('PlantListScreen: SettingsService取得開始');
       final settingsService = await SettingsService.getInstance();
+      print('PlantListScreen: SettingsService取得完了');
+      
+      print('PlantListScreen: APIキー取得開始');
       final apiKey = await settingsService.getApiKey();
+      print('PlantListScreen: APIキー取得完了: ${apiKey?.isNotEmpty == true ? "設定済み" : "未設定"}');
+      
       final endpoint = settingsService.getApiEndpoint();
+      print('PlantListScreen: エンドポイント: $endpoint');
       
       if (apiKey == null || apiKey.isEmpty) {
+        print('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
         // APIキーが設定されていない場合は設定画面へ
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _navigateToSettings();
@@ -53,11 +64,14 @@ class _PlantListScreenState extends State<PlantListScreen> {
         return;
       }
       
+      print('PlantListScreen: ApiService初期化開始');
       _apiService = ApiService(
         baseUrl: endpoint,
         functionKey: apiKey,
       );
+      print('PlantListScreen: ApiService初期化完了');
     } catch (e) {
+      print('PlantListScreen: APIサービス初期化エラー: $e');
       setState(() {
         _hasError = true;
         _errorMessage = 'API設定の読み込みに失敗しました';
@@ -68,26 +82,37 @@ class _PlantListScreenState extends State<PlantListScreen> {
 
   /// 植物一覧の読み込み
   Future<void> _loadPlants() async {
-    if (_apiService == null) return;
+    print('PlantListScreen: _loadPlants開始');
+    
+    if (_apiService == null) {
+      print('PlantListScreen: _apiServiceがnullのため処理をスキップ');
+      return;
+    }
     
     try {
+      print('PlantListScreen: ローディング状態に設定');
       setState(() {
         _isLoading = true;
         _hasError = false;
       });
 
+      print('PlantListScreen: API呼び出し開始');
       final plants = await _apiService!.getPlants();
+      print('PlantListScreen: API呼び出し完了: ${plants.length}件の植物を取得');
       
       setState(() {
         _plants = plants;
         _isLoading = false;
       });
+      print('PlantListScreen: 状態更新完了');
     } catch (e) {
+      print('PlantListScreen: 植物一覧読み込みエラー: $e');
       setState(() {
         _hasError = true;
         _errorMessage = e is ApiException ? e.userMessage : '植物一覧の読み込みに失敗しました';
         _isLoading = false;
       });
+      print('PlantListScreen: エラー状態に設定完了');
     }
   }
 
@@ -109,8 +134,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
     }
   }
 
-  /// カメラ画面への遷移
-  Future<void> _navigateToCamera() async {
+  /// 画像選択画面への遷移
+  Future<void> _navigateToImagePicker() async {
     if (_apiService == null) {
       _showErrorSnackBar('API設定が完了していません');
       return;
@@ -123,7 +148,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
       ),
     );
     
-    // カメラから戻ってきて新しい植物が保存された場合はリフレッシュ
+    // 画像選択から戻ってきて新しい植物が保存された場合はリフレッシュ
     if (result == true) {
       await _refreshPlants();
     }
@@ -320,7 +345,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
             ),
             SizedBox(height: isLargeScreen ? 16 : 12),
             Text(
-              'カメラボタンをタップして\n最初の植物を撮影しましょう',
+              '画像選択ボタンをタップして\n最初の植物を登録しましょう',
               style: AppTextStyles.body1.copyWith(
                 fontSize: isLargeScreen ? 20 : 18,
                 color: AppColors.textSecondary,
@@ -329,9 +354,9 @@ class _PlantListScreenState extends State<PlantListScreen> {
             ),
             SizedBox(height: isLargeScreen ? 40 : 32),
             ElevatedButton.icon(
-              onPressed: _navigateToCamera,
-              icon: Icon(Icons.camera_alt),
-              label: Text('植物を撮影'),
+              onPressed: _navigateToImagePicker,
+              icon: Icon(Icons.photo_library),
+              label: Text('画像を選択'),
               style: ElevatedButton.styleFrom(
                 padding: EdgeInsets.symmetric(
                   horizontal: isLargeScreen ? 32 : 24,
@@ -370,13 +395,13 @@ class _PlantListScreenState extends State<PlantListScreen> {
   /// フローティングアクションボタンの構築
   Widget _buildFloatingActionButton(bool isLargeScreen) {
     return FloatingActionButton.extended(
-      onPressed: _navigateToCamera,
+      onPressed: _navigateToImagePicker,
       icon: Icon(
-        Icons.camera_alt,
+        Icons.photo_library,
         size: isLargeScreen ? 28 : 24,
       ),
       label: Text(
-        '撮影',
+        '画像選択',
         style: TextStyle(
           fontSize: isLargeScreen ? 18 : 16,
           fontWeight: FontWeight.w600,

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// 植物データモデル
 class Plant {
   final String id;
@@ -247,10 +249,47 @@ class IdentificationResult {
   }
 }
 
+/// 重複チェック用の簡略化された植物データ
+class DuplicatePlant {
+  final String id;
+  final String name;
+  final String imagePath;
+  final double confidence;
+  final DateTime createdAt;
+
+  const DuplicatePlant({
+    required this.id,
+    required this.name,
+    required this.imagePath,
+    required this.confidence,
+    required this.createdAt,
+  });
+
+  factory DuplicatePlant.fromJson(Map<String, dynamic> json) {
+    return DuplicatePlant(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      imagePath: json['imagePath'] as String,
+      confidence: (json['confidence'] as num).toDouble(),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'imagePath': imagePath,
+      'confidence': confidence,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+}
+
 /// 重複確認結果
 class DuplicateCheckResult {
   final bool exists;
-  final Plant? plant;
+  final DuplicatePlant? plant;
 
   const DuplicateCheckResult({
     required this.exists,
@@ -258,10 +297,16 @@ class DuplicateCheckResult {
   });
 
   factory DuplicateCheckResult.fromJson(Map<String, dynamic> json) {
+    if (kDebugMode) {
+      print('DuplicateCheckResult.fromJson: json=$json');
+      if (json['plant'] != null) {
+        print('DuplicateCheckResult.fromJson: plant=${json['plant']}');
+      }
+    }
     return DuplicateCheckResult(
       exists: json['exists'] as bool,
       plant: json['plant'] != null 
-          ? Plant.fromJson(json['plant'] as Map<String, dynamic>)
+          ? DuplicatePlant.fromJson(json['plant'] as Map<String, dynamic>)
           : null,
     );
   }

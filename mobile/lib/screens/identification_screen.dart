@@ -1,5 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/plant.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
@@ -9,14 +12,18 @@ import '../theme/app_text_styles.dart';
 /// AI識別の結果を表示し、植物の保存・重複確認機能を提供
 /// 1440×2960画面サイズに最適化されたレスポンシブデザイン
 class IdentificationScreen extends StatefulWidget {
-  final File imageFile;
+  final File? imageFile;
+  final XFile? xFile;
+  final Uint8List? webImageBytes;
   final IdentificationResult identificationResult;
   final String imagePath;
   final ApiService apiService;
 
   const IdentificationScreen({
     super.key,
-    required this.imageFile,
+    this.imageFile,
+    this.xFile,
+    this.webImageBytes,
     required this.identificationResult,
     required this.imagePath,
     required this.apiService,
@@ -80,10 +87,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
           children: [
             Hero(
               tag: 'identification-image',
-              child: Image.file(
-                widget.imageFile,
-                fit: BoxFit.cover,
-              ),
+              child: _buildImage(),
             ),
             Container(
               decoration: BoxDecoration(
@@ -575,24 +579,35 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
       if (duplicateResult.exists) {
         final shouldReplace = await _showDuplicateDialog(duplicateResult, selectedCandidate);
         if (!shouldReplace) return;
+        
+        setState(() {
+          _isSaving = true;
+        });
+        
+        // 重複あり：既存植物の画像・信頼度を更新
+        await widget.apiService.updatePlant(
+          duplicateResult.plant!.id,
+          widget.imagePath,
+          selectedCandidate.confidence,
+        );
+      } else {
+        setState(() {
+          _isSaving = true;
+        });
+
+        // 重複なし：新規植物保存
+        final createRequest = PlantCreateRequest(
+          name: selectedCandidate.name,
+          scientificName: selectedCandidate.scientificName,
+          familyName: selectedCandidate.familyName,
+          description: selectedCandidate.description,
+          characteristics: selectedCandidate.characteristics,
+          confidence: selectedCandidate.confidence,
+          imagePath: widget.imagePath,
+        );
+
+        await widget.apiService.savePlant(createRequest);
       }
-
-      setState(() {
-        _isSaving = true;
-      });
-
-      // 植物保存
-      final createRequest = PlantCreateRequest(
-        name: selectedCandidate.name,
-        scientificName: selectedCandidate.scientificName,
-        familyName: selectedCandidate.familyName,
-        description: selectedCandidate.description,
-        characteristics: selectedCandidate.characteristics,
-        confidence: selectedCandidate.confidence,
-        imagePath: widget.imagePath,
-      );
-
-      await widget.apiService.savePlant(createRequest);
 
       setState(() {
         _isSaving = false;
@@ -667,5 +682,29 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
     );
 
     return result ?? false;
+  }
+
+  /// 画像表示ウィジェットを構築（Web/モバイル対応）
+  Widget _buildImage() {
+    if (kIsWeb && widget.webImageBytes != null) {
+      return Image.memory(
+        widget.webImageBytes!,
+        fit: BoxFit.cover,
+      );
+    } else if (widget.imageFile != null) {
+      return Image.file(
+        widget.imageFile!,
+        fit: BoxFit.cover,
+      );
+    } else {
+      return Container(
+        color: Colors.grey[300],
+        child: const Icon(
+          Icons.image_not_supported,
+          size: 64,
+          color: Colors.grey,
+        ),
+      );
+    }
   }
 }

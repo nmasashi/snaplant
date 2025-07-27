@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
 
@@ -57,9 +60,15 @@ class ApiService {
   
   /// エラーハンドリング
   ApiException _handleError(dynamic error) {
+    // デバッグ用ログ出力
+    if (kDebugMode) {
+      print('ApiService Error: ${error.runtimeType} - $error');
+    }
+    
     if (error is ApiException) {
       return error;
-    } else if (error is SocketException) {
+    } else if (error is SocketException && !kIsWeb) {
+      // Web環境ではSocketExceptionを異なって処理
       return ApiException(
         statusCode: 0,
         message: 'ネットワークに接続できません',
@@ -71,30 +80,182 @@ class ApiService {
         message: 'レスポンスの形式が無効です',
         body: error.message,
       );
-    } else {
+    } else if (error.toString().contains('XMLHttpRequest')) {
+      // Web環境でのCORSやネットワークエラー
       return ApiException(
         statusCode: 0,
-        message: '予期しないエラーが発生しました',
+        message: 'API接続エラーが発生しました',
+        body: error.toString(),
+      );
+    } else if (error.toString().contains('NetworkException') || 
+               error.toString().contains('Failed host lookup')) {
+      return ApiException(
+        statusCode: 0,
+        message: 'ネットワークに接続できません',
+        body: error.toString(),
+      );
+    } else {
+      // Web環境では多くのエラーが一般的な例外として扱われる
+      if (kIsWeb) {
+        return ApiException(
+          statusCode: 0,
+          message: 'API通信でエラーが発生しました',
+          body: error.toString(),
+        );
+      }
+      return ApiException(
+        statusCode: 0,
+        message: 'エラー詳細: ${error.runtimeType} - ${error.toString()}',
         body: error.toString(),
       );
     }
   }
   
-  /// 画像アップロード
-  /// POST /api/upload
-  Future<UploadResult> uploadImage(File imageFile) async {
+  /// 画像アップロードとAI識別を統合実行
+  /// POST /api/images/upload（docsワークフローに準拠）
+  Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile) async {
     try {
-      final url = _buildUrl('/api/upload');
+      if (kDebugMode) {
+        print('ApiService: uploadAndIdentifyImage開始');
+        print('ApiService: imageFile type: ${imageFile.runtimeType}');
+      }
+      
+      final url = _buildUrl('/api/images/upload');
       final request = http.MultipartRequest('POST', Uri.parse(url));
       
-      // 画像ファイルを追加
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'image',
-          imageFile.path,
-          filename: 'plant_image.jpg',
-        ),
+      // Web環境とモバイル環境で異なる処理
+      if (kIsWeb) {
+        // Web環境の場合、Uint8Listを期待
+        if (imageFile is Uint8List) {
+          if (kDebugMode) {
+            print('ApiService: Web環境 - 画像サイズ: ${imageFile.length} bytes');
+          }
+          request.files.add(
+            http.MultipartFile.fromBytes(
+              'image',
+              imageFile,
+              filename: 'plant_image.jpg',
+              contentType: MediaType('image', 'jpeg'),
+            ),
+          );
+        } else {
+          throw ArgumentError('Web環境では画像データはUint8Listである必要があります');
+        }
+      } else {
+        // モバイル環境の場合、Fileを期待
+        if (imageFile is File) {
+          final fileSize = await imageFile.length();
+          if (kDebugMode) {
+            print('ApiService: モバイル環境 - ファイルパス: ${imageFile.path}');
+            print('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
+          }
+          
+          // ファイル拡張子からMIMEタイプを判定
+          String mimeType = 'image/jpeg';
+          final extension = imageFile.path.toLowerCase();
+          if (extension.endsWith('.png')) {
+            mimeType = 'image/png';
+          } else if (extension.endsWith('.gif')) {
+            mimeType = 'image/gif';
+          } else if (extension.endsWith('.webp')) {
+            mimeType = 'image/webp';
+          }
+          
+          if (kDebugMode) {
+            print('ApiService: 検出MIMEタイプ: $mimeType');
+          }
+          
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'image',
+              imageFile.path,
+              filename: 'plant_image.jpg',
+              contentType: MediaType.parse(mimeType),
+            ),
+          );
+        } else {
+          throw ArgumentError('モバイル環境では画像データはFileである必要があります');
+        }
+      }
+      
+      if (kDebugMode) {
+        print('ApiService: HTTP リクエスト送信開始');
+      }
+      
+      final streamedResponse = await _client.send(request);
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      if (kDebugMode) {
+        print('ApiService: HTTPレスポンス受信 - ステータス: ${response.statusCode}');
+        print('ApiService: レスポンスボディ長: ${response.body.length}');
+        if (response.statusCode != 200) {
+          print('ApiService: エラーレスポンス: ${response.body}');
+        }
+      }
+      
+      return _parseResponse(
+        response,
+        (json) {
+          if (kDebugMode) {
+            print('ApiService: レスポンス解析開始');
+            print('ApiService: json keys: ${json.keys}');
+          }
+          final data = json['data'] as Map<String, dynamic>;
+          if (kDebugMode) {
+            print('ApiService: data keys: ${data.keys}');
+          }
+          return {
+            'uploadResult': UploadResult(
+              imagePath: data['imagePath'] as String,
+              imageUrl: data['imagePath'] as String,
+            ),
+            'identificationResult': IdentificationResult.fromJson(data['identificationResult']),
+          };
+        },
       );
+    } catch (error) {
+      if (kDebugMode) {
+        print('ApiService: uploadAndIdentifyImage エラー: $error');
+      }
+      throw _handleError(error);
+    }
+  }
+
+  /// 画像アップロード（従来版・互換性のため残存）
+  /// POST /api/upload
+  Future<UploadResult> uploadImage(dynamic imageFile) async {
+    try {
+      final url = _buildUrl('/api/images/upload');
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      
+      // Web環境とモバイル環境で異なる処理
+      if (kIsWeb) {
+        // Web環境の場合、Uint8Listを期待
+        if (imageFile is Uint8List) {
+          request.files.add(
+            http.MultipartFile.fromBytes(
+              'image',
+              imageFile,
+              filename: 'plant_image.jpg',
+            ),
+          );
+        } else {
+          throw ArgumentError('Web環境では画像データはUint8Listである必要があります');
+        }
+      } else {
+        // モバイル環境の場合、Fileを期待
+        if (imageFile is File) {
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'image',
+              imageFile.path,
+              filename: 'plant_image.jpg',
+            ),
+          );
+        } else {
+          throw ArgumentError('モバイル環境では画像データはFileである必要があります');
+        }
+      }
       
       final streamedResponse = await _client.send(request);
       final response = await http.Response.fromStream(streamedResponse);
@@ -129,19 +290,34 @@ class ApiService {
   }
   
   /// 重複チェック
-  /// POST /api/checkDuplicate
+  /// GET /api/plants/check-duplicate（docsワークフローに準拠）
   Future<DuplicateCheckResult> checkDuplicate(String plantName) async {
     try {
-      final url = _buildUrl('/api/checkDuplicate');
-      final response = await _client.post(
+      final url = _buildUrl('/api/plants/check-duplicate?name=${Uri.encodeComponent(plantName)}');
+      final response = await _client.get(
         Uri.parse(url),
         headers: _headers,
-        body: json.encode({'name': plantName}),
       );
       
       return _parseResponse(
         response,
-        (json) => DuplicateCheckResult.fromJson(json),
+        (json) {
+          if (kDebugMode) {
+            print('ApiService: 重複チェックレスポンス: $json');
+          }
+          final data = json['data'] as Map<String, dynamic>?;
+          if (data == null) {
+            throw ApiException(
+              statusCode: 0,
+              message: 'レスポンスデータが無効です',
+              body: json.toString(),
+            );
+          }
+          if (kDebugMode) {
+            print('ApiService: 重複チェックdata: $data');
+          }
+          return DuplicateCheckResult.fromJson(data);
+        },
       );
     } catch (error) {
       throw _handleError(error);
@@ -161,7 +337,17 @@ class ApiService {
       
       return _parseResponse(
         response,
-        (json) => Plant.fromJson(json['plant']),
+        (json) {
+          final data = json['data'] as Map<String, dynamic>?;
+          if (data == null) {
+            throw ApiException(
+              statusCode: 0,
+              message: 'レスポンスデータが無効です',
+              body: json.toString(),
+            );
+          }
+          return Plant.fromJson(data['plant']);
+        },
       );
     } catch (error) {
       throw _handleError(error);
@@ -181,7 +367,23 @@ class ApiService {
       return _parseResponse(
         response,
         (json) {
-          final plants = json['plants'] as List<dynamic>;
+          if (kDebugMode) {
+            print('ApiService: レスポンス内容: $json');
+          }
+          final data = json['data'] as Map<String, dynamic>?;
+          if (data == null) {
+            if (kDebugMode) {
+              print('ApiService: dataがnullのため空リストを返す');
+            }
+            return <PlantSummary>[];
+          }
+          final plants = data['plants'] as List<dynamic>?;
+          if (plants == null) {
+            if (kDebugMode) {
+              print('ApiService: plantsがnullのため空リストを返す');
+            }
+            return <PlantSummary>[];
+          }
           return plants
               .map((e) => PlantSummary.fromJson(e as Map<String, dynamic>))
               .toList();
@@ -204,7 +406,20 @@ class ApiService {
       
       return _parseResponse(
         response,
-        (json) => Plant.fromJson(json['plant']),
+        (json) {
+          if (kDebugMode) {
+            print('ApiService: 植物詳細レスポンス: $json');
+          }
+          final data = json['data'] as Map<String, dynamic>?;
+          if (data == null) {
+            throw ApiException(
+              statusCode: 0,
+              message: 'レスポンスデータが無効です',
+              body: json.toString(),
+            );
+          }
+          return Plant.fromJson(data['plant']);
+        },
       );
     } catch (error) {
       throw _handleError(error);
@@ -227,7 +442,17 @@ class ApiService {
       
       return _parseResponse(
         response,
-        (json) => Plant.fromJson(json['plant']),
+        (json) {
+          final data = json['data'] as Map<String, dynamic>?;
+          if (data == null) {
+            throw ApiException(
+              statusCode: 0,
+              message: 'レスポンスデータが無効です',
+              body: json.toString(),
+            );
+          }
+          return Plant.fromJson(data['plant']);
+        },
       );
     } catch (error) {
       throw _handleError(error);

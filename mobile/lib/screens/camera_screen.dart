@@ -1,14 +1,18 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/plant.dart';
+import '../models/api_response.dart';
 import '../services/api_service.dart';
 import '../services/camera_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'identification_screen.dart';
 
-/// カメラ・画像選択画面
-/// 植物の写真撮影または選択を行い、AI識別処理を開始する
+/// 画像選択画面
+/// ギャラリーから植物の画像を選択し、AI識別処理を開始する
 /// 1440×2960画面サイズに最適化されたレスポンシブデザイン
 class CameraScreen extends StatefulWidget {
   final ApiService apiService;
@@ -25,6 +29,8 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> 
     with TickerProviderStateMixin {
   File? _selectedImage;
+  XFile? _selectedXFile;
+  Uint8List? _webImageBytes;
   bool _isUploading = false;
   bool _isIdentifying = false;
   final CameraService _cameraService = CameraService();
@@ -71,32 +77,45 @@ class _CameraScreenState extends State<CameraScreen>
   /// ギャラリーから画像を選択
   Future<void> _pickFromGallery() async {
     try {
-      final image = await _cameraService.pickFromGallery();
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1920,
+        maxHeight: 1920,
+      );
+      
       if (image != null) {
-        _setSelectedImage(image);
+        await _setSelectedImage(image);
       }
     } catch (e) {
       _showErrorSnackBar(e.toString());
     }
   }
 
-  /// カメラで撮影
-  Future<void> _takePhoto() async {
-    try {
-      final image = await _cameraService.takePhoto();
-      if (image != null) {
-        _setSelectedImage(image);
-      }
-    } catch (e) {
-      _showErrorSnackBar(e.toString());
-    }
-  }
 
   /// 選択した画像を設定
-  void _setSelectedImage(File image) {
-    setState(() {
-      _selectedImage = image;
-    });
+  Future<void> _setSelectedImage(XFile image) async {
+    _selectedXFile = image;
+    
+    if (kIsWeb) {
+      // Web環境の場合はバイト配列を取得
+      _webImageBytes = await image.readAsBytes();
+      _selectedImage = null;
+      
+      // デバッグ用：画像情報をログ出力
+      if (kDebugMode) {
+        print('CameraScreen: 画像ファイル名: ${image.name}');
+        print('CameraScreen: 画像mimeType: ${image.mimeType}');
+        print('CameraScreen: 画像サイズ: ${_webImageBytes!.length} bytes');
+      }
+    } else {
+      // モバイル環境の場合はFileを作成
+      _selectedImage = File(image.path);
+      _webImageBytes = null;
+    }
+    
+    setState(() {});
     
     // アニメーション開始
     _fadeController.forward();
@@ -105,32 +124,24 @@ class _CameraScreenState extends State<CameraScreen>
 
   /// 植物識別を実行
   Future<void> _identifyPlant() async {
-    if (_selectedImage == null) return;
+    if (_selectedXFile == null) return;
 
     try {
-      // バリデーション
-      if (!_cameraService.validateImageFile(_selectedImage!)) {
-        return;
-      }
-
       setState(() {
         _isUploading = true;
-      });
-
-      // 画像をアップロード
-      final uploadResult = await widget.apiService.uploadImage(_selectedImage!);
-      
-      setState(() {
-        _isUploading = false;
         _isIdentifying = true;
       });
 
-      // AI識別を実行
-      final identificationResult = await widget.apiService.identifyPlant(
-        uploadResult.imagePath,
-      );
+      // 画像をアップロード・AI識別を実行（統合）
+      final response = kIsWeb 
+          ? await widget.apiService.uploadAndIdentifyImage(_webImageBytes!)
+          : await widget.apiService.uploadAndIdentifyImage(_selectedImage!);
+      
+      final uploadResult = response['uploadResult'] as UploadResult;
+      final identificationResult = response['identificationResult'] as IdentificationResult;
 
       setState(() {
+        _isUploading = false;
         _isIdentifying = false;
       });
 
@@ -140,7 +151,9 @@ class _CameraScreenState extends State<CameraScreen>
           context,
           MaterialPageRoute(
             builder: (context) => IdentificationScreen(
-              imageFile: _selectedImage!,
+              imageFile: kIsWeb ? null : _selectedImage,
+              xFile: _selectedXFile,
+              webImageBytes: _webImageBytes,
               identificationResult: identificationResult,
               imagePath: uploadResult.imagePath,
               apiService: widget.apiService,
@@ -180,113 +193,11 @@ class _CameraScreenState extends State<CameraScreen>
     );
   }
 
-  /// 画像選択ダイアログの表示
-  Future<void> _showImagePickerDialog() async {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isLargeScreen = screenWidth >= 1400;
-    
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '画像を選択',
-              style: AppTextStyles.headline2.copyWith(
-                fontSize: isLargeScreen ? 28 : 24,
-              ),
-            ),
-            SizedBox(height: isLargeScreen ? 32 : 24),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildImageSourceButton(
-                    icon: Icons.camera_alt,
-                    label: 'カメラ',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _takePhoto();
-                    },
-                    isLargeScreen: isLargeScreen,
-                  ),
-                ),
-                SizedBox(width: isLargeScreen ? 20 : 16),
-                Expanded(
-                  child: _buildImageSourceButton(
-                    icon: Icons.photo_library,
-                    label: 'ギャラリー',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _pickFromGallery();
-                    },
-                    isLargeScreen: isLargeScreen,
-                    isOutlined: true,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: isLargeScreen ? 24 : 16),
-          ],
-        ),
-      ),
-    );
+  /// 画像選択実行（ギャラリーから直接選択）
+  Future<void> _selectImageFromGallery() async {
+    await _pickFromGallery();
   }
 
-  /// 画像選択ボタンの構築
-  Widget _buildImageSourceButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-    required bool isLargeScreen,
-    bool isOutlined = false,
-  }) {
-    final buttonStyle = isOutlined
-        ? OutlinedButton.styleFrom(
-            padding: EdgeInsets.symmetric(
-              vertical: isLargeScreen ? 20 : 16,
-            ),
-          )
-        : ElevatedButton.styleFrom(
-            padding: EdgeInsets.symmetric(
-              vertical: isLargeScreen ? 20 : 16,
-            ),
-          );
-
-    final child = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: isLargeScreen ? 32 : 28,
-        ),
-        SizedBox(height: isLargeScreen ? 12 : 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: isLargeScreen ? 18 : 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-
-    return isOutlined
-        ? OutlinedButton(
-            onPressed: onPressed,
-            style: buttonStyle,
-            child: child,
-          )
-        : ElevatedButton(
-            onPressed: onPressed,
-            style: buttonStyle,
-            child: child,
-          );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -365,7 +276,7 @@ class _CameraScreenState extends State<CameraScreen>
           ),
           SizedBox(height: isLargeScreen ? 16 : 12),
           Text(
-            '植物の写真を撮影または選択してください',
+            '植物の画像をギャラリーから選択してください',
             style: AppTextStyles.headline3.copyWith(
               color: AppColors.primary,
               fontSize: isLargeScreen ? 24 : 20,
@@ -374,7 +285,7 @@ class _CameraScreenState extends State<CameraScreen>
           ),
           SizedBox(height: isLargeScreen ? 12 : 8),
           Text(
-            '葉や花がはっきり写るように撮影すると\n識別精度が向上します',
+            '葉や花がはっきり写っている画像を選択すると\n識別精度が向上します',
             style: AppTextStyles.body1.copyWith(
               color: AppColors.primary,
               fontSize: isLargeScreen ? 18 : 16,
@@ -399,7 +310,7 @@ class _CameraScreenState extends State<CameraScreen>
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: _selectedImage != null
+        child: _selectedXFile != null
             ? _buildImagePreview(isLargeScreen)
             : _buildImagePlaceholder(isLargeScreen),
       ),
@@ -412,10 +323,20 @@ class _CameraScreenState extends State<CameraScreen>
       animation: _fadeAnimation,
       child: AnimatedBuilder(
         animation: _scaleAnimation,
-        child: Image.file(
-          _selectedImage!,
-          fit: BoxFit.cover,
-        ),
+        child: kIsWeb && _webImageBytes != null
+            ? Image.memory(
+                _webImageBytes!,
+                fit: BoxFit.cover,
+              )
+            : _selectedImage != null
+                ? Image.file(
+                    _selectedImage!,
+                    fit: BoxFit.cover,
+                  )
+                : Container(
+                    color: Colors.grey[300],
+                    child: Icon(Icons.error),
+                  ),
         builder: (context, child) {
           return Transform.scale(
             scale: _scaleAnimation.value,
@@ -435,7 +356,7 @@ class _CameraScreenState extends State<CameraScreen>
   /// 画像プレースホルダーの構築
   Widget _buildImagePlaceholder(bool isLargeScreen) {
     return InkWell(
-      onTap: _showImagePickerDialog,
+      onTap: _selectImageFromGallery,
       child: Container(
         width: double.infinity,
         height: double.infinity,
@@ -449,7 +370,7 @@ class _CameraScreenState extends State<CameraScreen>
             ),
             SizedBox(height: isLargeScreen ? 24 : 16),
             Text(
-              'タップして写真を選択',
+              'タップして画像を選択',
               style: AppTextStyles.headline3.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: isLargeScreen ? 24 : 20,
@@ -457,7 +378,7 @@ class _CameraScreenState extends State<CameraScreen>
             ),
             SizedBox(height: isLargeScreen ? 12 : 8),
             Text(
-              'カメラまたはギャラリーから選択できます',
+              'ギャラリーから植物の画像を選択できます',
               style: AppTextStyles.body1.copyWith(
                 color: AppColors.textHint,
                 fontSize: isLargeScreen ? 18 : 16,
@@ -471,69 +392,37 @@ class _CameraScreenState extends State<CameraScreen>
 
   /// アクションボタンの構築
   Widget _buildActionButtons(bool isLargeScreen) {
-    if (_selectedImage == null) {
-      return Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _pickFromGallery,
-              icon: Icon(Icons.photo_library),
-              label: Text('ギャラリー'),
-              style: OutlinedButton.styleFrom(
-                padding: EdgeInsets.symmetric(
-                  vertical: isLargeScreen ? 20 : 16,
-                ),
-              ),
+    if (_selectedXFile == null) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _pickFromGallery,
+          icon: Icon(Icons.photo_library),
+          label: Text('ギャラリーから選択'),
+          style: ElevatedButton.styleFrom(
+            padding: EdgeInsets.symmetric(
+              vertical: isLargeScreen ? 20 : 16,
             ),
           ),
-          SizedBox(width: isLargeScreen ? 20 : 16),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _takePhoto,
-              icon: Icon(Icons.camera_alt),
-              label: Text('カメラ'),
-              style: ElevatedButton.styleFrom(
-                padding: EdgeInsets.symmetric(
-                  vertical: isLargeScreen ? 20 : 16,
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       );
     }
 
     return Column(
       children: [
         // 画像選択ボタン
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _pickFromGallery,
-                icon: Icon(Icons.photo_library),
-                label: Text('ギャラリー'),
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(
-                    vertical: isLargeScreen ? 16 : 12,
-                  ),
-                ),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _pickFromGallery,
+            icon: Icon(Icons.photo_library),
+            label: Text('別の画像を選択'),
+            style: OutlinedButton.styleFrom(
+              padding: EdgeInsets.symmetric(
+                vertical: isLargeScreen ? 16 : 12,
               ),
             ),
-            SizedBox(width: isLargeScreen ? 20 : 16),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _takePhoto,
-                icon: Icon(Icons.camera_alt),
-                label: Text('カメラ'),
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(
-                    vertical: isLargeScreen ? 16 : 12,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
         
         SizedBox(height: isLargeScreen ? 20 : 16),
