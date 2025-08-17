@@ -138,11 +138,3 @@ flutter build apk --release
 
 **運用:**
 - [デプロイメントガイド](./DEPLOYMENT.md)
-
-## 🤝 コントリビューション
-
-1. フォークを作成
-2. フィーチャーブランチを作成 (`git checkout -b feature/amazing-feature`)
-3. 変更をコミット (`git commit -m 'Add amazing feature'`)
-4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
-5. プルリクエストを作成

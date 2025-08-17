@@ -38,6 +38,7 @@ class _CameraScreenState extends State<CameraScreen>
   late AnimationController _scaleController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  final TextEditingController _contextController = TextEditingController();
 
   @override
   void initState() {
@@ -133,9 +134,10 @@ class _CameraScreenState extends State<CameraScreen>
       });
 
       // 画像をアップロード・AI識別を実行（統合）
+      final contextInfo = _contextController.text.trim();
       final response = kIsWeb 
-          ? await widget.apiService.uploadAndIdentifyImage(_webImageBytes!)
-          : await widget.apiService.uploadAndIdentifyImage(_selectedImage!);
+          ? await widget.apiService.uploadAndIdentifyImage(_webImageBytes!, contextInfo: contextInfo.isNotEmpty ? contextInfo : null)
+          : await widget.apiService.uploadAndIdentifyImage(_selectedImage!, contextInfo: contextInfo.isNotEmpty ? contextInfo : null);
       
       final uploadResult = response['uploadResult'] as UploadResult;
       final identificationResult = response['identificationResult'] as IdentificationResult;
@@ -214,7 +216,7 @@ class _CameraScreenState extends State<CameraScreen>
   PreferredSizeWidget _buildAppBar(bool isLargeScreen) {
     return AppBar(
       title: Text(
-        '植物を撮影',
+        '植物を撮影・情報入力',
         style: AppTextStyles.appBarTitle.copyWith(
           fontSize: isLargeScreen ? 26 : 22,
         ),
@@ -242,8 +244,14 @@ class _CameraScreenState extends State<CameraScreen>
           
           // 画像プレビューエリア
           Expanded(
+            flex: 3,
             child: _buildImagePreviewArea(isLargeScreen),
           ),
+          
+          SizedBox(height: isLargeScreen ? 24 : 16),
+          
+          // コンテキスト情報入力エリア
+          _buildContextInputArea(isLargeScreen),
           
           SizedBox(height: isLargeScreen ? 32 : 24),
           
@@ -390,6 +398,80 @@ class _CameraScreenState extends State<CameraScreen>
     );
   }
 
+  /// コンテキスト情報入力エリアの構築
+  Widget _buildContextInputArea(bool isLargeScreen) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(isLargeScreen ? 20 : 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.primary.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                color: AppColors.primary,
+                size: isLargeScreen ? 20 : 18,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'コンテキスト情報（任意）',
+                style: AppTextStyles.headline3.copyWith(
+                  fontSize: isLargeScreen ? 18 : 16,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: isLargeScreen ? 12 : 8),
+          Text(
+            '撮影場所や環境について入力すると識別精度が向上します',
+            style: AppTextStyles.caption.copyWith(
+              fontSize: isLargeScreen ? 14 : 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          SizedBox(height: isLargeScreen ? 16 : 12),
+          TextField(
+            controller: _contextController,
+            maxLines: 3,
+            maxLength: 500,
+            decoration: InputDecoration(
+              hintText: '例：〇〇山の標高1300m、日当たりの良い場所',
+              hintStyle: TextStyle(
+                color: AppColors.textHint,
+                fontSize: isLargeScreen ? 16 : 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppColors.primary, width: 2),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: EdgeInsets.all(isLargeScreen ? 16 : 12),
+            ),
+            style: TextStyle(
+              fontSize: isLargeScreen ? 16 : 14,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// アクションボタンの構築
   Widget _buildActionButtons(bool isLargeScreen) {
     if (_selectedXFile == null) {
@@ -490,6 +572,7 @@ class _CameraScreenState extends State<CameraScreen>
   void dispose() {
     _fadeController.dispose();
     _scaleController.dispose();
+    _contextController.dispose();
     super.dispose();
   }
 }

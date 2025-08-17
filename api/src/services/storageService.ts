@@ -53,8 +53,8 @@ export class StorageService {
         }
       });
       
-      // SAS URLを生成して返す（外部アクセス用）
-      return this.generateSasUrl(blockBlobClient.url, this.containerName);
+      // 公開URLを返す（SAS不要）
+      return blockBlobClient.url;
       
     } catch (error: any) {
       throw new Error(`画像のアップロードに失敗しました: ${error.message}`);
@@ -86,8 +86,8 @@ export class StorageService {
         }
       });
       
-      // SAS URLを生成して返す（外部アクセス用）
-      return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
+      // 公開URLを返す（SAS不要）
+      return blockBlobClient.url;
       
     } catch (error: any) {
       throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
@@ -132,8 +132,8 @@ export class StorageService {
       // 一時ファイルを削除
       await tempBlockBlobClient.delete();
 
-      // SAS URLを生成して返す（外部アクセス用）
-      return this.generateSasUrl(permanentBlockBlobClient.url, this.containerName);
+      // 公開URLを返す（SAS不要）
+      return permanentBlockBlobClient.url;
 
     } catch (error: any) {
       throw new Error(`画像の永続保存への移動に失敗しました: ${error.message}`);
@@ -229,10 +229,10 @@ export class StorageService {
    * SAS URLを生成する（外部からのアクセス用）
    * @param blobUrl 元のBlob URL
    * @param containerName コンテナ名
-   * @param expiryHours 有効期限（時間、デフォルト: 24時間）
+   * @param expiryHours 有効期限（時間、デフォルト: 8760時間=1年）
    * @returns SAS URL
    */
-  private generateSasUrl(blobUrl: string, containerName: string, expiryHours: number = 24): string {
+  private generateSasUrl(blobUrl: string, containerName: string, expiryHours: number = 8760): string {
     try {
       // URLからファイル名を抽出
       const fileName = this.extractFileNameFromUrl(blobUrl);

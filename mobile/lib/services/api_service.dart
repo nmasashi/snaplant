@@ -113,7 +113,7 @@ class ApiService {
   
   /// 画像アップロードとAI識別を統合実行
   /// POST /api/images/upload（docsワークフローに準拠）
-  Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile) async {
+  Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile, {String? contextInfo}) async {
     try {
       if (kDebugMode) {
         print('ApiService: uploadAndIdentifyImage開始');
@@ -175,6 +175,14 @@ class ApiService {
           );
         } else {
           throw ArgumentError('モバイル環境では画像データはFileである必要があります');
+        }
+      }
+      
+      // コンテキスト情報がある場合は追加
+      if (contextInfo != null && contextInfo.isNotEmpty) {
+        request.fields['contextInfo'] = contextInfo;
+        if (kDebugMode) {
+          print('ApiService: コンテキスト情報追加: $contextInfo');
         }
       }
       
