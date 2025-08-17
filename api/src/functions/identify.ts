@@ -33,7 +33,7 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
       return createValidationError('画像URLの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
     }
 
-    context.log(`植物識別開始: 画像URL=${requestBody.imagePath}`);
+    context.log(`植物識別開始: 画像URL=${requestBody.imagePath}, コンテキスト情報=${requestBody.contextInfo || 'なし'}`);
 
     // OpenAI Visionサービス初期化
     const visionService = new OpenAIVisionService();
@@ -44,8 +44,8 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
       return createValidationError('画像の解析に失敗しました', '有効な画像URLを指定してください');
     }
 
-    // LLMで植物識別実行
-    const identificationResult = await visionService.identifyPlant(requestBody.imagePath);
+    // LLMで植物識別実行（コンテキスト情報があれば渡す）
+    const identificationResult = await visionService.identifyPlant(requestBody.imagePath, requestBody.contextInfo);
     
     context.log(`植物識別完了: 植物=${identificationResult.isPlant}, 候補数=${identificationResult.candidates.length}`);
     

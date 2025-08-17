@@ -152,7 +152,7 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 ```
 
 ### 5.3 植物識別実行
-アップロードされた画像から植物を識別し、候補を返します。
+アップロードされた画像とコンテキスト情報から植物を識別し、候補を返します。
 
 **リクエスト例:**
 ```http
@@ -160,7 +160,8 @@ POST /api/plants/identify?code={FUNCTION_KEY}
 Content-Type: application/json
 
 {
-  "imagePath": "https://snaplant.blob.core.windows.net/images/temp/uploaded.jpg"
+  "imagePath": "https://snaplant.blob.core.windows.net/images/temp/uploaded.jpg",
+  "contextInfo": "〇〇山の標高1300m、日当たりの良い場所"
 }
 ```
 
@@ -332,14 +333,17 @@ DELETE /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 ```
 
 ### 5.8 画像アップロード・植物判定統合
-植物画像をBlob Storageにアップロードし、同時にAI識別を実行します。植物でない場合は画像を削除します。
+植物画像をBlob Storageにアップロードし、コンテキスト情報と合わせてAI識別を実行します。植物でない場合は画像を削除します。
 
 **リクエスト例:**
 ```http
 POST /api/images/upload?code={FUNCTION_KEY}
 Content-Type: multipart/form-data
 
-{file: [binary data]}
+{
+  file: [binary data],
+  contextInfo: "〇〇山の標高1300m、日当たりの良い場所"
+}
 ```
 
 **レスポンス例（植物の場合）:**

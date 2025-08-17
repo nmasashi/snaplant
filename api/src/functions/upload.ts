@@ -30,6 +30,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     // リクエストボディを取得
     const formData = await request.formData();
     const file = formData.get('image') as File;
+    const contextInfo = formData.get('contextInfo') as string | null;
 
     // ファイルの存在チェック
     if (!file) {
@@ -76,8 +77,8 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
       return createValidationError('画像の解析に失敗しました', '有効な画像URLを指定してください');
     }
 
-    // LLMで植物識別実行
-    const identificationResult = await visionService.identifyPlant(tempImageUrl);
+    // LLMで植物識別実行（コンテキスト情報があれば渡す）
+    const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo || undefined);
     context.log(`植物識別完了: 植物=${identificationResult.isPlant}, 候補数=${identificationResult.candidates.length}`);
 
     // 3. 植物判定結果による分岐処理

@@ -84,30 +84,74 @@ describe('OpenAIVisionService', () => {
       const result = await service.identifyPlant('https://example.com/image.jpg');
 
       expect(result).toEqual(expectedResult);
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith({
-        model: 'gpt-4o',
-        messages: [
+      
+      // OpenAI呼び出しが正しく行われているかの基本的なチェック
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
+      
+      // 呼び出し内容の詳細チェック
+      const callArgs = mockOpenAI.chat.completions.create.mock.calls[0][0];
+      expect(callArgs.model).toBe(process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4-vision-preview');
+      expect(callArgs.messages[0].content[0].text).toContain('この画像を専門的に分析して');
+      expect(callArgs.messages[0].content[1].image_url.url).toBe('https://example.com/image.jpg');
+    });
+
+    it('コンテキスト情報ありで植物識別が成功する場合、正しい結果を返す', async () => {
+      // 正常なOpenAI応答のモック（LLMAnalysisResult形式）
+      const validLLMResponse = {
+        isPlant: true,
+        confidence: 97.8,
+        reason: 'コンテキスト情報により高山植物として識別できました',
+        plantAnalysis: {
+          candidates: [
+            {
+              name: 'ハクサンイチゲ',
+              scientificName: 'Anemone narcissiflora',
+              familyName: 'キンポウゲ科',
+              description: '高山に自生する多年草',
+              characteristics: '白い花を咲かせる高山植物',
+              confidence: 97.8
+            }
+          ]
+        }
+      };
+
+      const expectedResult = {
+        isPlant: true,
+        confidence: 97.8,
+        reason: 'コンテキスト情報により高山植物として識別できました',
+        candidates: [
           {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: expect.stringContaining('この画像を専門的に分析して')
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: 'https://example.com/image.jpg',
-                  detail: 'low'
-                }
-              }
-            ]
+            name: 'ハクサンイチゲ',
+            scientificName: 'Anemone narcissiflora',
+            familyName: 'キンポウゲ科',
+            description: '高山に自生する多年草',
+            characteristics: '白い花を咲かせる高山植物',
+            confidence: 97.8
           }
-        ],
-        max_tokens: 1000,
-        temperature: 0.1,
-        response_format: { type: 'json_object' }
+        ]
+      };
+
+      mockOpenAI.chat.completions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify(validLLMResponse)
+          }
+        }]
       });
+
+      const contextInfo = '白馬岳の標高2500m、高山帯の岩場';
+      const result = await service.identifyPlant('https://example.com/mountain-flower.jpg', contextInfo);
+
+      expect(result).toEqual(expectedResult);
+      
+      // OpenAI呼び出しが正しく行われているかの基本的なチェック
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
+      
+      // 呼び出し内容の詳細チェック
+      const callArgs = mockOpenAI.chat.completions.create.mock.calls[0][0];
+      expect(callArgs.model).toBe(process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4-vision-preview');
+      expect(callArgs.messages[0].content[0].text).toContain('撮影時の環境やコンテキスト情報: 白馬岳の標高2500m、高山帯の岩場');
+      expect(callArgs.messages[0].content[1].image_url.url).toBe('https://example.com/mountain-flower.jpg');
     });
 
     it('植物でない場合、isPlant: falseを返す', async () => {

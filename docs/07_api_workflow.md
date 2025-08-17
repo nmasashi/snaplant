@@ -18,10 +18,10 @@ sequenceDiagram
     participant DB as Cosmos DB<br/>（植物データ）
 
     Note over Client,DB: 1. 画像アップロード・植物判定・保存
-    Client->>API: POST /images/upload<br/>（画像ファイル）
+    Client->>API: POST /images/upload<br/>（画像ファイル + コンテキスト情報）
     API->>Blob: 一時保存<br/>（temp/フォルダ）
     Blob-->>API: 一時URL生成
-    API->>AI: 植物判定リクエスト<br/>（一時URL）
+    API->>AI: 植物判定リクエスト<br/>（一時URL + コンテキスト情報）
     
     alt 植物の場合
         AI-->>API: isPlant: true<br/>（植物候補・信頼度）
@@ -74,7 +74,7 @@ sequenceDiagram
 
 | API | ストレージ | 操作 | 更新内容 |
 |-----|-----------|------|----------|
-| `POST /images/upload` | **Blob Storage**<br/>**OpenAI Vision** | CREATE<br/>READ | ①一時保存→植物判定→永続保存 or 削除<br/>②画像解析・植物識別実行 |
+| `POST /images/upload` | **Blob Storage**<br/>**OpenAI Vision** | CREATE<br/>READ | ①一時保存→植物判定→永続保存 or 削除<br/>②画像+コンテキスト情報で解析・植物識別実行 |
 | `GET /plants/check-duplicate` | **Cosmos DB** | READ | name条件でのドキュメント検索（データ変更なし） |
 | `POST /plants/save` | **Cosmos DB** | CREATE | 新規植物ドキュメントを作成・保存 |
 | `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | UPDATE<br/>DELETE | ①既存ドキュメントのimagePath・confidenceを更新<br/>②旧画像ファイルを削除（ゴミファイル防止） |
@@ -157,7 +157,10 @@ Azure Blob Storage Container: images
 POST /api/images/upload?code={FUNCTION_KEY}
 Content-Type: multipart/form-data
 
-{file: [binary data]}
+{
+  file: [binary data],
+  contextInfo: "〇〇山の標高1300m、日当たりの良い場所"
+}
 ```
 
 **レスポンス（植物の場合）:**

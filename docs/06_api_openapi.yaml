@@ -182,7 +182,7 @@ paths:
   /plants/identify:
     post:
       summary: 植物識別実行
-      description: アップロードされた画像から植物を識別
+      description: アップロードされた画像とコンテキスト情報から植物を識別
       tags:
         - Plants
       parameters:
@@ -249,8 +249,8 @@ paths:
 
   /images/upload:
     post:
-      summary: 画像アップロード
-      description: 植物画像をBlob Storageにアップロード
+      summary: 画像アップロード・植物判定統合
+      description: 植物画像をBlob Storageにアップロードし、コンテキスト情報と合わせてAI識別を実行
       tags:
         - Images
       parameters:
@@ -261,11 +261,18 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              required:
+                - file
               properties:
                 file:
                   type: string
                   format: binary
                   description: 画像ファイル (JPEG, PNG)
+                contextInfo:
+                  type: string
+                  maxLength: 500
+                  description: 撮影場所や環境情報（任意）
+                  example: "〇〇山の標高1300m、日当たりの良い場所"
       responses:
         '200':
           description: 画像アップロード成功
@@ -487,6 +494,12 @@ components:
           format: uri
           description: 識別対象の画像URL
           example: "https://snaplant.blob.core.windows.net/images/temp/uploaded.jpg"
+        contextInfo:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: 撮影場所や環境情報（任意）
+          example: "〇〇山の標高1300m、日当たりの良い場所"
 
     IdentificationResult:
       type: object

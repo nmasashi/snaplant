@@ -42,6 +42,7 @@ export interface PlantUpdateRequest {
 // 植物識別リクエスト
 export interface IdentifyRequest {
   imagePath: string;
+  contextInfo?: string;
 }
 
 // 植物識別候補

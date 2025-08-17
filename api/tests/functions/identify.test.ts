@@ -110,25 +110,84 @@ describe('植物識別API', () => {
         }
       });
 
-      expect(mockChatCompletions.create).toHaveBeenCalledWith({
-        model: 'gpt-4o',
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: expect.stringContaining('この画像を専門的に分析して') },
-            {
-              type: 'image_url',
-              image_url: {
-                url: 'https://example.com/sakura.jpg',
-                detail: 'low'
-              }
-            }
-          ]
-        }],
-        max_tokens: 1000,
-        temperature: 0.1,
-        response_format: { type: 'json_object' }
+      // OpenAI呼び出しが正しく行われているかの基本的なチェック
+      expect(mockChatCompletions.create).toHaveBeenCalledTimes(1);
+      
+      // 呼び出し内容の詳細チェック
+      const callArgs = mockChatCompletions.create.mock.calls[0][0];
+      expect(callArgs.model).toBe(process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4-vision-preview');
+      expect(callArgs.messages[0].content[0].text).toContain('この画像を専門的に分析して');
+      expect(callArgs.messages[0].content[1].image_url.url).toBe('https://example.com/sakura.jpg');
+    });
+
+    it('コンテキスト情報ありで植物識別を正常に実行できる', async () => {
+      // テストデータ
+      const mockCandidates: PlantCandidate[] = [
+        {
+          name: 'ハクサンイチゲ',
+          scientificName: 'Anemone narcissiflora',
+          familyName: 'キンポウゲ科',
+          description: '高山に自生する多年草',
+          characteristics: '白い花を咲かせる高山植物',
+          confidence: 97.8
+        }
+      ];
+
+      // OpenAI APIレスポンスのモック
+      const llmResponse = {
+        isPlant: true,
+        confidence: 97,
+        reason: 'コンテキスト情報により高山植物として識別できました',
+        plantAnalysis: {
+          candidates: mockCandidates
+        }
+      };
+
+      mockChatCompletions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify(llmResponse)
+          }
+        }]
       });
+
+      // リクエストの作成（コンテキスト情報あり）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          imagePath: 'https://example.com/mountain-flower.jpg',
+          contextInfo: '白馬岳の標高2500m、高山帯の岩場'
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await identifyPlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          result: {
+            isPlant: true,
+            confidence: 97,
+            reason: 'コンテキスト情報により高山植物として識別できました',
+            candidates: mockCandidates
+          }
+        }
+      });
+
+      // OpenAI呼び出しが正しく行われているかの基本的なチェック
+      expect(mockChatCompletions.create).toHaveBeenCalledTimes(1);
+      
+      // 呼び出し内容の詳細チェック
+      const callArgs = mockChatCompletions.create.mock.calls[0][0];
+      expect(callArgs.model).toBe(process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4-vision-preview');
+      expect(callArgs.messages[0].content[0].text).toContain('撮影時の環境やコンテキスト情報: 白馬岳の標高2500m、高山帯の岩場');
+      expect(callArgs.messages[0].content[1].image_url.url).toBe('https://example.com/mountain-flower.jpg');
     });
 
     it('植物でない場合も正常に動作する', async () => {

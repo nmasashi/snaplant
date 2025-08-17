@@ -30,9 +30,9 @@ export class OpenAIVisionService {
 	/**
 	 * 画像を分析して植物かどうか判定し、植物の場合は識別結果を返す
 	 */
-	async identifyPlant(imageUrl: string): Promise<IdentificationResult> {
+	async identifyPlant(imageUrl: string, contextInfo?: string): Promise<IdentificationResult> {
 		try {
-			const analysisResult = await this.analyzeImage(imageUrl);
+			const analysisResult = await this.analyzeImage(imageUrl, contextInfo);
 
 			return {
 				isPlant: analysisResult.isPlant,
@@ -51,7 +51,13 @@ export class OpenAIVisionService {
 	/**
 	 * LLMを使用して画像を分析
 	 */
-	private async analyzeImage(imageUrl: string): Promise<LLMAnalysisResult> {
+	private async analyzeImage(imageUrl: string, contextInfo?: string): Promise<LLMAnalysisResult> {
+		const contextSection = contextInfo ? `
+    追加情報：
+    撮影時の環境やコンテキスト情報: ${contextInfo}
+    この情報を参考にして、植物の識別精度を向上させてください。
+    ` : '';
+
 		const prompt = `
     この画像を専門的に分析して、以下の形式でJSONを返してください：
 
@@ -72,7 +78,7 @@ export class OpenAIVisionService {
         ]
       }
     }
-
+${contextSection}
     判定基準：
     - isPlant: この画像に植物（またはその一部）が写っているか
     - confidence: 植物判定の信頼度（0-100）

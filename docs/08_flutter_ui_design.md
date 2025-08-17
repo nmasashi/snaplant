@@ -193,7 +193,7 @@ class PlantCard extends StatelessWidget {
 }
 ```
 
-### 2.2 カメラ画面（CameraScreen）
+### 2.2 画像アップロード・コンテキスト入力画面（CameraScreen）
 
 #### Material Design カメラUI
 ```dart
@@ -204,11 +204,12 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   File? _selectedImage;
   bool _isLoading = false;
+  final _contextController = TextEditingController();
 
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('植物を撮影'),
+        title: Text('植物を撮影・情報入力'),
         centerTitle: true,
       ),
       body: Padding(
@@ -304,6 +305,45 @@ class _CameraScreenState extends State<CameraScreen> {
             ),
             
             SizedBox(height: 16),
+            
+            // コンテキスト情報入力エリア
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'コンテキスト情報（任意）',
+                  style: AppTextStyles.headline2.copyWith(
+                    fontSize: 16,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  '撮影場所や環境について入力すると識別精度が向上します',
+                  style: AppTextStyles.caption,
+                ),
+                SizedBox(height: 12),
+                TextField(
+                  controller: _contextController,
+                  maxLines: 3,
+                  maxLength: 500,
+                  decoration: InputDecoration(
+                    hintText: '例：〇〇山の標高1300m、日当たりの良い場所',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppColors.primary, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                  ),
+                ),
+              ],
+            ),
+            
+            SizedBox(height: 24),
             
             // 識別実行ボタン
             if (_selectedImage != null)

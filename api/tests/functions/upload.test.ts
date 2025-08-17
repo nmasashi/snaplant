@@ -126,7 +126,11 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any;
 
       const mockFormData = {
-        get: jest.fn().mockReturnValue(mockFile)
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
       };
 
       // リクエストの作成
@@ -188,7 +192,11 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any;
 
       const mockFormData = {
-        get: jest.fn().mockReturnValue(mockFile)
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
       };
 
       // リクエストの作成
@@ -207,6 +215,50 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.status).toBe(201);
       expect(mockTempBlockBlobClient.upload).toHaveBeenCalled();
       expect(mockImagesBlockBlobClient.upload).toHaveBeenCalled();
+    });
+
+    it('コンテキスト情報ありで画像を正常にアップロードできる', async () => {
+      // 統合処理は beforeEach でモック済み
+
+      // ファイルオブジェクトのモック
+      const mockFile = {
+        name: 'mountain-flower.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const contextInfo = '白馬岳の標高2500m、高山帯の岩場';
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return contextInfo;
+          return null;
+        })
+      };
+
+      // リクエストの作成
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(201);
+      expect(mockTempBlockBlobClient.upload).toHaveBeenCalled();
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalled();
+      expect(mockImagesBlockBlobClient.upload).toHaveBeenCalled();
+      
+      // OpenAI呼び出しでコンテキスト情報が渡されているか確認
+      const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
+      const promptText = openAICall.messages[0].content[0].text;
+      expect(promptText).toContain('撮影時の環境やコンテキスト情報: 白馬岳の標高2500m、高山帯の岩場');
     });
   });
 
@@ -278,7 +330,11 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any;
 
       const mockFormData = {
-        get: jest.fn().mockReturnValue(mockFile)
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
       };
 
       // リクエストの作成
@@ -311,7 +367,11 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any;
 
       const mockFormData = {
-        get: jest.fn().mockReturnValue(mockFile)
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
       };
 
       // リクエストの作成
@@ -375,7 +435,11 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any;
 
       const mockFormData = {
-        get: jest.fn().mockReturnValue(mockFile)
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
       };
 
       // リクエストの作成
@@ -417,7 +481,11 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any;
 
       const mockFormData = {
-        get: jest.fn().mockReturnValue(mockFile)
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
       };
 
       // リクエストの作成
