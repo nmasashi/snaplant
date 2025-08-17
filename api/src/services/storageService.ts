@@ -66,7 +66,7 @@ export class StorageService {
    * @param imageBuffer 画像データ
    * @param fileName ファイル名
    * @param contentType コンテンツタイプ
-   * @returns アップロードされた一時画像のURL
+   * @returns アップロードされた一時画像のURL（SASトークン付き）
    */
   async uploadImageToTemp(imageBuffer: Buffer, fileName: string, contentType: string): Promise<string> {
     try {
@@ -86,8 +86,8 @@ export class StorageService {
         }
       });
       
-      // 公開URLを返す（SAS不要）
-      return blockBlobClient.url;
+      // 一時保存はSASトークン付きURLを返す（セキュリティ確保）
+      return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
       
     } catch (error: any) {
       throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
