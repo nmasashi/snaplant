@@ -141,6 +141,39 @@ terraform {
 - セキュリティパッチの適用
 - 不要なリソースのクリーンアップ
 
+### OpenAIモデル移行時のstate整合（gpt-4o → gpt-5.6-luna）
+
+モデル移行に伴い、Terraformリソース名を `azurerm_cognitive_deployment.gpt4o` から
+`azurerm_cognitive_deployment.gpt5_luna` にリネームしている。また `gpt-5.6-luna` は
+`Standard` SKU非対応のため `scale.type` を `GlobalStandard` に変更している。
+
+`gpt-5.6-luna` デプロイは既にAzure上に手動作成済みのため、**stateを突き合わせずに
+apply するとリソース重複エラーになる**。既存stateがある環境では以下の手順で整合させる。
+
+```bash
+# 1. 既存の gpt-4o デプロイをstate管理から外す
+#    （Azure上のリソースは削除されない。後述の判断後に手動削除する）
+terraform state rm azurerm_cognitive_deployment.gpt4o
+
+# 2. 手動作成済みの gpt-5.6-luna デプロイをstateに取り込む
+terraform import azurerm_cognitive_deployment.gpt5_luna \
+  "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG_NAME>/providers/Microsoft.CognitiveServices/accounts/<OPENAI_ACCOUNT_NAME>/deployments/gpt-5.6-luna"
+
+# 3. 差分が出ないことを確認（capacity の差分が出る場合は変数側を実態に合わせる）
+terraform plan
+```
+
+なお、このリポジトリには `backend` 設定とローカルstateファイルが存在しない。
+state管理が未設定の環境で `apply` すると全リソースを新規作成しようとするため、
+先に「状態ファイル管理」セクションのリモートbackendを設定すること。
+
+### 旧 gpt-4o デプロイの扱い（未対応）
+
+Azure上に残っている `gpt-4o` という名前のデプロイは、中身が `gpt-5.1` に
+差し替わっており名前と実体が食い違っている。削除する場合は、**先に Function App の
+`AZURE_OPENAI_DEPLOYMENT_NAME` を `gpt-5.6-luna` に切り替えること**。
+この設定が `gpt-4o` を指したままデプロイを削除すると本番APIが即座に停止する。
+
 ## 参考リンク
 
 - [Azure Provider Documentation](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)

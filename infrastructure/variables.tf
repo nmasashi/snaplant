@@ -140,3 +140,9 @@ variable "openai_sku" {
     error_message = "OpenAI SKU must be either F0 or S0."
   }
 }
+
+variable "openai_api_version" {
+  description = "Azure OpenAI REST API version used by the API"
+  type        = string
+  default     = "2024-12-01-preview"
+}

@@ -1,6 +1,87 @@
 import OpenAI from "openai";
 import { LLMAnalysisResult, IdentificationResult } from "../types/plant";
 
+/**
+ * 応答の構造を強制する JSON Schema（Structured Outputs）
+ *
+ * strict モードの制約：
+ * - 全プロパティを required に含める必要があるため、
+ *   任意項目は ["string", "null"] のように null 許容で表現する
+ * - minimum/maximum/maxItems は使用できないため、
+ *   信頼度の範囲チェックと候補数の上限はスキーマでは強制できない
+ *   （範囲は validateAnalysisResult、候補数はプロンプトで担保）
+ */
+const PLANT_IDENTIFICATION_SCHEMA = {
+	type: "object",
+	properties: {
+		isPlant: {
+			type: "boolean",
+			description: "この画像に植物（またはその一部）が写っているか",
+		},
+		confidence: {
+			type: "number",
+			description: "植物判定の信頼度（0-100）",
+		},
+		reason: {
+			type: "string",
+			description: "判定理由（日本語で簡潔に）",
+		},
+		plantAnalysis: {
+			type: ["object", "null"],
+			description: "植物の場合のみ設定し、植物でない場合は null",
+			properties: {
+				candidates: {
+					type: "array",
+					description: "可能性の高い候補を最大3つ、信頼度の高い順に並べる",
+					items: {
+						type: "object",
+						properties: {
+							name: {
+								type: "string",
+								description:
+									"植物名（日本語）。命名規則に従って品種名・種名・属名のいずれかを設定する",
+							},
+							scientificName: {
+								type: ["string", "null"],
+								description: "学名。特定できない場合は null",
+							},
+							familyName: {
+								type: ["string", "null"],
+								description: "科名（日本語）。特定できない場合は null",
+							},
+							description: {
+								type: ["string", "null"],
+								description: "詳細説明（日本語）。不明な場合は null",
+							},
+							characteristics: {
+								type: "string",
+								description: "見た目の特徴(日本語)",
+							},
+							confidence: {
+								type: "number",
+								description: "この候補の信頼度（0-100）",
+							},
+						},
+						required: [
+							"name",
+							"scientificName",
+							"familyName",
+							"description",
+							"characteristics",
+							"confidence",
+						],
+						additionalProperties: false,
+					},
+				},
+			},
+			required: ["candidates"],
+			additionalProperties: false,
+		},
+	},
+	required: ["isPlant", "confidence", "reason", "plantAnalysis"],
+	additionalProperties: false,
+} as const;
+
 export class OpenAIVisionService {
 	private client: OpenAI;
 
@@ -14,7 +95,7 @@ export class OpenAIVisionService {
 				baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
 				defaultQuery: {
 					"api-version":
-						process.env.AZURE_OPENAI_API_VERSION || "2024-02-15-preview",
+						process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
 				},
 				defaultHeaders: {
 					"api-key": process.env.AZURE_OPENAI_API_KEY!,
@@ -58,32 +139,11 @@ export class OpenAIVisionService {
     この情報を参考にして、植物の識別精度を向上させてください。
     ` : '';
 
+		// 応答の構造は PLANT_IDENTIFICATION_SCHEMA で強制されるため、
+		// プロンプトでは判定基準と命名規則のみを指示する
 		const prompt = `
-    この画像を専門的に分析して、以下の形式でJSONを返してください：
-
-    {
-      "isPlant": boolean,
-      "confidence": number,
-      "reason": "string",
-      "plantAnalysis": {
-        "candidates": [
-          {
-            "name": "植物名（日本語）",
-            "scientificName": "学名",
-            "familyName": "科名",
-            "description": "詳細説明（日本語）",
-            "characteristics": "見た目の特徴（日本語）",
-            "confidence": number
-          }
-        ]
-      }
-    }
+    この画像を専門的に分析して、植物かどうかを判定してください。
 ${contextSection}
-    判定基準：
-    - isPlant: この画像に植物（またはその一部）が写っているか
-    - confidence: 植物判定の信頼度（0-100）
-    - reason: 判定理由（日本語で簡潔に）
-
     植物と判定する例：
     - 花、葉、茎、根、樹皮、果実、種子
     - 木、草、花、苔、シダ、多肉植物、サボテン
@@ -105,7 +165,7 @@ ${contextSection}
     `;
 
 		const response = await this.client.chat.completions.create({
-			model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4-vision-preview",
+			model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-5.6-luna",
 			messages: [
 				{
 					role: "user",
@@ -121,9 +181,18 @@ ${contextSection}
 					],
 				},
 			],
-			max_tokens: 1000,
-			temperature: 0.1, // 一貫性を重視
-			response_format: { type: "json_object" }, // JSON形式を強制
+			// reasoning モデルは推論トークンも max_completion_tokens から消費するため余裕を持たせる
+			max_completion_tokens: 4000,
+			// temperature は指定しない（このモデルはデフォルト値(1)のみサポート）
+			// JSON形式に加えて、フィールド構成・型・必須項目までモデル側で強制する
+			response_format: {
+				type: "json_schema",
+				json_schema: {
+					name: "plant_identification",
+					strict: true,
+					schema: PLANT_IDENTIFICATION_SCHEMA,
+				},
+			},
 		});
 
 		const content = response.choices[0].message.content;
@@ -132,12 +201,41 @@ ${contextSection}
 		}
 
 		try {
-			const result = JSON.parse(content) as LLMAnalysisResult;
+			const result = this.normalizeNulls(JSON.parse(content));
 			this.validateAnalysisResult(result);
 			return result;
 		} catch (parseError) {
 			throw new Error(`LLM応答のJSONパースに失敗しました: ${parseError}`);
 		}
+	}
+
+	/**
+	 * スキーマの null 許容項目を undefined に正規化する
+	 *
+	 * strict モードでは任意項目を required + null 許容で表現する必要があるため、
+	 * 「不明」を表す null が返る。既存の型（任意プロパティ）に合わせて undefined にする。
+	 */
+	private normalizeNulls(parsed: any): LLMAnalysisResult {
+		const result: LLMAnalysisResult = {
+			isPlant: parsed.isPlant,
+			confidence: parsed.confidence,
+			reason: parsed.reason,
+		};
+
+		if (parsed.plantAnalysis) {
+			result.plantAnalysis = {
+				candidates: (parsed.plantAnalysis.candidates ?? []).map((candidate: any) => ({
+					name: candidate.name,
+					characteristics: candidate.characteristics,
+					confidence: candidate.confidence,
+					scientificName: candidate.scientificName ?? undefined,
+					familyName: candidate.familyName ?? undefined,
+					description: candidate.description ?? undefined,
+				})),
+			};
+		}
+
+		return result;
 	}
 
 	/**

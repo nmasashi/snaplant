@@ -115,9 +115,9 @@ output "azure_openai_api_key" {
   sensitive   = true
 }
 
-output "gpt4o_deployment_name" {
-  description = "Name of the GPT-4o deployment"
-  value       = azurerm_cognitive_deployment.gpt4o.name
+output "openai_deployment_name" {
+  description = "Name of the Azure OpenAI model deployment"
+  value       = azurerm_cognitive_deployment.gpt5_luna.name
 }
 
 # Summary output for easy reference

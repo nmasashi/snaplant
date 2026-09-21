@@ -379,4 +379,148 @@ describe('OpenAIVisionService', () => {
         .rejects.toThrow('植物識別に失敗しました: ENOTFOUND');
     });
   });
+
+  // 以下は実際に本番で 400 エラーを引き起こしたパラメータの回帰テスト。
+  // モックが呼ばれたことだけを確認していたため、これらの不整合を検知できなかった。
+  describe('チャット補完リクエストのパラメータ', () => {
+    const validResponse = {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            isPlant: true,
+            confidence: 90,
+            reason: 'テスト',
+            plantAnalysis: {
+              candidates: [
+                { name: 'テスト植物', characteristics: 'テスト特徴', confidence: 90 }
+              ]
+            }
+          })
+        }
+      }]
+    };
+
+    const getRequestBody = () => mockOpenAI.chat.completions.create.mock.calls[0][0];
+
+    beforeEach(async () => {
+      mockOpenAI.chat.completions.create.mockResolvedValue(validResponse);
+    });
+
+    it('max_tokens ではなく max_completion_tokens を指定する', async () => {
+      await service.identifyPlant('https://example.com/image.jpg');
+
+      const body = getRequestBody();
+      // max_tokens は新しいモデルでは 400 (Unsupported parameter) になる
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(typeof body.max_completion_tokens).toBe('number');
+      // 推論トークンも同じ枠から消費されるため、出力が途切れない程度の余裕が必要
+      expect(body.max_completion_tokens).toBeGreaterThanOrEqual(2000);
+    });
+
+    it('temperature を指定しない（デフォルト値のみサポートするモデル向け）', async () => {
+      await service.identifyPlant('https://example.com/image.jpg');
+
+      // temperature: 0.1 などを渡すと 400 (Unsupported value) になる
+      expect(getRequestBody()).not.toHaveProperty('temperature');
+    });
+
+    it('デプロイ名を環境変数から取得する', async () => {
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'test-deployment';
+
+      await service.identifyPlant('https://example.com/image.jpg');
+
+      expect(getRequestBody().model).toBe('test-deployment');
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+    });
+
+    it('画像をトークン節約設定で渡す', async () => {
+      await service.identifyPlant('https://example.com/image.jpg');
+
+      const body = getRequestBody();
+      const imageContent = body.messages[0].content.find((c: any) => c.type === 'image_url');
+      expect(imageContent.image_url).toEqual({
+        url: 'https://example.com/image.jpg',
+        detail: 'low'
+      });
+    });
+
+    it('JSON Schema (strict) で応答の構造を強制する', async () => {
+      await service.identifyPlant('https://example.com/image.jpg');
+
+      const responseFormat = getRequestBody().response_format;
+      // json_object では形式のみで中身の構造が保証されない
+      expect(responseFormat.type).toBe('json_schema');
+      expect(responseFormat.json_schema.strict).toBe(true);
+
+      const schema = responseFormat.json_schema.schema;
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.required).toEqual(
+        expect.arrayContaining(['isPlant', 'confidence', 'reason', 'plantAnalysis'])
+      );
+
+      // strict モードでは全プロパティが required に含まれている必要がある
+      const candidateSchema = schema.properties.plantAnalysis.properties.candidates.items;
+      expect(candidateSchema.required.sort()).toEqual(
+        Object.keys(candidateSchema.properties).sort()
+      );
+      expect(candidateSchema.additionalProperties).toBe(false);
+
+      // 任意項目は null 許容で表現する
+      expect(candidateSchema.properties.scientificName.type).toEqual(['string', 'null']);
+      expect(schema.properties.plantAnalysis.type).toEqual(['object', 'null']);
+    });
+
+    it('スキーマの null 許容項目を undefined に正規化する', async () => {
+      mockOpenAI.chat.completions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: true,
+              confidence: 70,
+              reason: '葉の特徴から植物と判定しました',
+              plantAnalysis: {
+                candidates: [{
+                  name: 'サクラ属',
+                  scientificName: null,
+                  familyName: null,
+                  description: null,
+                  characteristics: '鋸歯のある葉',
+                  confidence: 70
+                }]
+              }
+            })
+          }
+        }]
+      });
+
+      const result = await service.identifyPlant('https://example.com/image.jpg');
+
+      const candidate = result.candidates[0];
+      expect(candidate.name).toBe('サクラ属');
+      // null がそのまま保存データに流れないこと
+      expect(candidate.scientificName).toBeUndefined();
+      expect(candidate.familyName).toBeUndefined();
+      expect(candidate.description).toBeUndefined();
+    });
+
+    it('Azure 設定時、baseURL とデプロイ名・APIバージョンが正しく組み立てられる', async () => {
+      process.env.AZURE_OPENAI_ENDPOINT = 'https://test.openai.azure.com';
+      process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'test-deployment';
+      process.env.AZURE_OPENAI_API_VERSION = '2024-12-01-preview';
+      MockedOpenAI.mockClear();
+
+      new OpenAIVisionService();
+
+      const clientOptions = MockedOpenAI.mock.calls[0][0];
+      expect(clientOptions.baseURL).toBe(
+        'https://test.openai.azure.com/openai/deployments/test-deployment'
+      );
+      expect(clientOptions.defaultQuery['api-version']).toBe('2024-12-01-preview');
+      expect(clientOptions.defaultHeaders['api-key']).toBe('azure-api-key');
+
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      delete process.env.AZURE_OPENAI_API_VERSION;
+    });
+  });
 });

@@ -173,7 +173,8 @@ resource "azurerm_linux_function_app" "main" {
     # Azure OpenAI設定
     "AZURE_OPENAI_ENDPOINT" = azurerm_cognitive_account.openai.endpoint
     "AZURE_OPENAI_API_KEY" = azurerm_cognitive_account.openai.primary_access_key
-    "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt4o.name
+    "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt5_luna.name
+    "AZURE_OPENAI_API_VERSION" = var.openai_api_version
     
     # Application Insights設定
     "APPINSIGHTS_INSTRUMENTATIONKEY" = azurerm_application_insights.main.instrumentation_key
@@ -207,19 +208,20 @@ resource "azurerm_cognitive_account" "openai" {
   tags = var.tags
 }
 
-# GPT-4o モデルのデプロイ (Vision機能含む)
-resource "azurerm_cognitive_deployment" "gpt4o" {
-  name                 = "gpt-4o"
+# GPT-5.6 Luna モデルのデプロイ (Vision機能含む)
+# 注: gpt-5.6-luna は Standard SKU 非対応のため GlobalStandard を使用
+resource "azurerm_cognitive_deployment" "gpt5_luna" {
+  name                 = "gpt-5.6-luna"
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
   model {
     format  = "OpenAI"
-    name    = "gpt-4o"
-    version = "2024-08-06"
+    name    = "gpt-5.6-luna"
+    version = "2026-07-09"
   }
 
   scale {
-    type = "Standard"
+    type = "GlobalStandard"
   }
 }
 
