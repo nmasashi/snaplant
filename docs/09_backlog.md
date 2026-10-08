@@ -368,9 +368,3 @@ const containerName = imageUrl.includes(this.tempContainerName)
 
 対応するなら、偽物バックエンドのエントリに「エラーを発火するストリームを返す」
 フラグを追加する（現在の `failWith` は `download()` 自体を失敗させるもので、別物）。
-
-### ts-jest の設定警告
-
-テスト実行時に毎回 `TS151002`（hybrid module kind は `isolatedModules: true` が必要）が出る。
-テストは通るが出力がノイズで埋まる。`api/tsconfig.base.json` に `isolatedModules: true` を
-追加するか、ts-jest の `diagnostics.ignoreCodes` で抑制する。
