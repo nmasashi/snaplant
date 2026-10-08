@@ -87,7 +87,19 @@ export class StorageService {
       });
       
       // 一時保存はSASトークン付きURLを返す（セキュリティ確保）
-      return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
+      // SAS生成はアップロードの後なので、失敗したらアップロード済みのBlobを
+      // 後片付けする。一時コンテナにライフサイクルポリシーがないため、
+      // 残すと孤児Blobが永久に蓄積する
+      try {
+        return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
+      } catch (sasError: any) {
+        try {
+          await blockBlobClient.delete();
+        } catch {
+          // 後片付けの失敗で元の原因を隠さない
+        }
+        throw sasError;
+      }
       
     } catch (error: any) {
       throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);

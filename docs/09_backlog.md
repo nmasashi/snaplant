@@ -225,6 +225,40 @@ const containerName = imageUrl.includes(this.tempContainerName)
 ストレージアカウント名に `temp` が含まれると永続画像を一時コンテナから
 削除しようとする。URL のパスセグメントで判定するべき。
 
+### `contextInfo` に長さの上限がない
+
+`POST /api/images/upload` と `POST /api/plants/identify` が受け取る `contextInfo` は、
+**コード側に長さの検証がない**（`api/src/constants/validation.ts` にも定数がない）。
+
+受け取った値は2箇所でそのまま使われる。
+
+- `api/src/services/openAIVisionService.ts` でプロンプトに直接埋め込まれる
+- `api/src/functions/identify.ts` でログに全文が出る
+
+`docs/06_api_openapi.yaml` には以前 `maxLength: 500` の記載があったが、
+実装に存在しない制約だったため仕様書から外した
+（仕様書には実装済みのものだけを書く方針のため）。結果として
+**仕様・実装の双方で上限なし**の状態になっている。
+
+対応するなら `PLANT_VALIDATION` と同様に環境変数で上書きできる定数を追加し、
+検証を入れてから OpenAPI に `maxLength` を戻す。
+
+ただし**これまで通っていたリクエストを弾くようになる**ので、上限値は判断が必要。
+文書化されていた意図は500文字。トークン消費とログ量の両方に影響する。
+
+### `streamToBuffer` のエラー経路が未カバー
+
+`api/src/services/storageService.ts` の `streamToBuffer()` は
+`stream.on('error', reject)` でストリームのエラーを拾っているが、この経路のテストがない。
+
+テストの偽物バックエンドは `download()` の時点で例外を投げるため、
+**ストリームを返したあとにエラーが起きる経路に到達できない**。
+`'error'` のリスナーを落とすと `moveFromTempToPermanent()` が
+永久に待ち続けるが、テストは緑のまま。
+
+対応するなら、偽物バックエンドのエントリに「エラーを発火するストリームを返す」
+フラグを追加する（現在の `failWith` は `download()` 自体を失敗させるもので、別物）。
+
 ### ts-jest の設定警告
 
 テスト実行時に毎回 `TS151002`（hybrid module kind は `isolatedModules: true` が必要）が出る。

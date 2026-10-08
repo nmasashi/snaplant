@@ -109,6 +109,26 @@ expect(mockExternalApi.request).toHaveBeenCalledTimes(1);
 expect(mockStorage.delete).toHaveBeenCalledWith(oldPath);
 ```
 
+### 例外: 出力が不透明で、外部との契約が引数にしか現れない場合
+
+戻り値が署名済みトークンやハッシュのように**テストから復号できない**値で、
+かつその中身が外部システムが検証する契約（権限、有効期限、スコープなど）である場合、
+**引数の検証を例外として許容する。**
+
+他に検証手段がないため。権限が read のはずが write になる退行は
+セキュリティに影響するので、検出できない状態にしてはいけない。
+
+```typescript
+// OK（例外）: 署名済みトークンの中身は検証できないが、
+//            権限と有効期限は外部システムが検証する契約
+const [options] = mockedSign.mock.calls[0];
+expect(options.permissions).toMatchObject({ read: true });
+expect(options.expiresOn!.getTime()).toBeGreaterThan(Date.now());
+```
+
+**この例外を使うときは、なぜ他に手段がないかをテスト内のコメントに書く。**
+書かないと、後のレビューで原則3 違反として誤って指摘される。
+
 ### 判断に迷ったときの問い
 
 > このテストは、**振る舞いを変えないリファクタリング**で落ちるか？

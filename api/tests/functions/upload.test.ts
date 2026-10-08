@@ -320,6 +320,31 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
     });
 
+    it('imageフィールドがファイルでない場合は400エラー', async () => {
+      // テキストフィールドとして image を送ると type が存在しないため、
+      // 検証の前に型エラーで落ちて500になっていた
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return 'not-a-file';
+          return null;
+        })
+      };
+
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      const response = await uploadImageHandler(request, mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+    });
+
     it('サポートされていないファイル形式の場合は415エラー', async () => {
       // ファイルオブジェクトのモック（無効なコンテンツタイプ）
       const mockFile = {

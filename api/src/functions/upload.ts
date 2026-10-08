@@ -33,7 +33,9 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     const contextInfo = formData.get('contextInfo') as string | null;
 
     // ファイルの存在チェック
-    if (!file) {
+    // テキストフィールドとして送られた場合も弾く（type を持たないため、
+    // 後続の形式検証が型エラーになり500を返してしまう）
+    if (!file || typeof file.type !== 'string' || typeof file.arrayBuffer !== 'function') {
       return createValidationError('画像ファイルが指定されていません', 'imageフィールドでファイルを送信してください');
     }
 
