@@ -536,16 +536,3 @@ URL 形式のガードは `extractFileNameFromUrl()` が `null` を返す場合�
 API は Function Key を持てば直接叩けるので、サーバ側で守る価値がある
 （プロンプトに直接埋め込まれ、ログに全文が出る経路なので、
 トークン消費とログ量の両方に効く）。
-
-### `streamToBuffer` のエラー経路が未カバー
-
-`api/src/services/storageService.ts` の `streamToBuffer()` は
-`stream.on('error', reject)` でストリームのエラーを拾っているが、この経路のテストがない。
-
-テストの偽物バックエンドは `download()` の時点で例外を投げるため、
-**ストリームを返したあとにエラーが起きる経路に到達できない**。
-`'error'` のリスナーを落とすと `moveFromTempToPermanent()` が
-永久に待ち続けるが、テストは緑のまま。
-
-対応するなら、偽物バックエンドのエントリに「エラーを発火するストリームを返す」
-フラグを追加する（現在の `failWith` は `download()` 自体を失敗させるもので、別物）。

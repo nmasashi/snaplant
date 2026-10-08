@@ -33,6 +33,12 @@ interface BlobEntry {
   content: Buffer;
   contentType?: string;
   failWith?: Error;
+  /**
+   * download() 自体は成功させるが、返したストリームを読み取っている最中に
+   * 'error' を発火させる。failWith（呼び出し自体の失敗）とは別経路で、
+   * streamToBuffer() の 'error' リスナーを検証するためのもの
+   */
+  streamErrorWith?: Error;
 }
 
 interface FakeBlobBackend {
@@ -68,6 +74,10 @@ function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: stri
       if (entry.failWith) throw entry.failWith;
       const stream = new Readable({
         read() {
+          if (entry.streamErrorWith) {
+            this.emit('error', entry.streamErrorWith);
+            return;
+          }
           this.push(entry.content);
           this.push(null);
         }
@@ -288,6 +298,19 @@ describe('StorageService', () => {
       await expect(service.moveFromTempToPermanent(tempUrl))
         .rejects.toThrow(/^画像の永続保存への移動に失敗しました: BlobNotFound$/);
     });
+
+    it('一時ファイルのダウンロード中にストリームがエラーを発火した場合、エラーをスローする', async () => {
+      const fileName = '55555555-5555-5555-5555-555555555555.jpg';
+      blobStore.set(`test-temp/${fileName}`, {
+        content: Buffer.from('image data'),
+        contentType: 'image/jpeg',
+        streamErrorWith: new Error('stream read error')
+      });
+      const tempUrl = `https://test.blob.core.windows.net/test-temp/${fileName}`;
+
+      await expect(service.moveFromTempToPermanent(tempUrl))
+        .rejects.toThrow(/^画像の永続保存への移動に失敗しました: stream read error$/);
+    });
   });
 
   describe('deleteImage', () => {
@@ -328,6 +351,22 @@ describe('StorageService', () => {
       await service.deleteImage(imageUrl);
 
       expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
+    });
+
+    it('一時コンテナ名で始まるだけの別コンテナの画像を削除すると、永続コンテナの画像として削除される', async () => {
+      const fileName = '44444444-4444-4444-4444-444444444444.jpg';
+      // コンテナ名が一時コンテナ名 "test-temp" で始まるだけの別コンテナ
+      // "test-temp-archive"（偶然の命名一致）。完全一致判定ならこのコンテナは
+      // 一時コンテナとは無関係に扱われ、この中のファイルには一切触れないはず
+      blobStore.set(`test-temp-archive/${fileName}`, { content: Buffer.from('archive data'), contentType: 'image/jpeg' });
+      // 永続コンテナ側の同名ファイル。完全一致判定なら永続側として扱われ、これが削除される
+      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
+      const imageUrl = `https://test.blob.core.windows.net/test-temp-archive/${fileName}`;
+
+      await service.deleteImage(imageUrl);
+
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
+      expect(blobStore.has(`test-temp-archive/${fileName}`)).toBe(true);
     });
 
     it('存在しない画像を削除した場合は成功として扱う', async () => {
