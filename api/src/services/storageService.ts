@@ -180,8 +180,8 @@ export class StorageService {
       }
       
       // URLから適切なコンテナ名を決定
-      const containerName = imageUrl.includes(this.tempContainerName) 
-        ? this.tempContainerName 
+      const containerName = this.extractContainerNameFromUrl(imageUrl) === this.tempContainerName
+        ? this.tempContainerName
         : this.containerName;
       
       // コンテナクライアントを取得
@@ -309,6 +309,23 @@ export class StorageService {
   private extractFileExtension(fileName: string): string {
     const lastDotIndex = fileName.lastIndexOf('.');
     return lastDotIndex > 0 ? fileName.substring(lastDotIndex) : '';
+  }
+
+  /**
+   * URLからコンテナ名を抽出
+   *
+   * パスセグメントで判定する。URL全体への文字列包含で判定すると、
+   * ストレージアカウント名に一時コンテナ名が含まれる場合に永続画像を
+   * 一時コンテナから消そうとして失敗し、deleteImage()が404を正常扱いするため
+   * 「成功したのに画像が残っている」状態になる。
+   * 部分一致ではなく完全一致で比較すること（コンテナ名が一時コンテナ名で
+   * 始まるだけの場合も永続扱いにする必要がある）
+   * @param url URL。呼び出し元がextractFileNameFromUrl()でパース可能なことを
+   *            確認済みであることを前提とする（不正URLはそこで弾かれる）
+   * @returns コンテナ名
+   */
+  private extractContainerNameFromUrl(url: string): string {
+    return new URL(url).pathname.split('/')[1];
   }
 
   /**

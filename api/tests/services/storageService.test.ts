@@ -317,6 +317,19 @@ describe('StorageService', () => {
       expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
     });
 
+    it('ストレージアカウント名に一時コンテナ名が含まれる場合でも永続コンテナの画像を削除できる', async () => {
+      const fileName = '33333333-3333-3333-3333-333333333333.jpg';
+      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
+      // ホスト名（ストレージアカウント名）に一時コンテナ名 "test-temp" を含むURL。
+      // コンテナ判定が文字列包含だと、パス上は永続コンテナ(test-images)の画像でも
+      // ホスト名の "test-temp-account" にひっかけて一時コンテナ側だと誤認してしまう
+      const imageUrl = `https://test-temp-account.blob.core.windows.net/test-images/${fileName}`;
+
+      await service.deleteImage(imageUrl);
+
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
+    });
+
     it('存在しない画像を削除した場合は成功として扱う', async () => {
       const imageUrl = 'https://test.blob.core.windows.net/test-images/00000000-0000-0000-0000-000000000000.jpg';
 

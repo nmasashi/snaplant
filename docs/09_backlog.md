@@ -316,25 +316,6 @@ catch 節であらゆる例外を `画像の永続保存への移動に失敗し
 URL 形式のガードは `extractFileNameFromUrl()` が `null` を返す場合のみ発火し、
 `new URL()` がパースできる文字列はすべて通過する点にも注意（ガード自体がほぼ到達不能）。
 
-### `deleteImage` のコンテナ判定が文字列包含
-
-`api/src/services/storageService.ts` の `deleteImage()` は、
-削除先のコンテナを URL の文字列包含で決めている。
-
-```typescript
-const containerName = imageUrl.includes(this.tempContainerName)
-  ? this.tempContainerName
-  : this.containerName;
-```
-
-**本番では現状問題ない。** Terraform が `TEMP_STORAGE_CONTAINER_NAME` に
-`temp-images` を設定し、永続側は `images` なので、永続URL
-`https://.../images/<uuid>.jpg` に `temp-images` は含まれず誤判定しない。
-
-ただし脆い。環境変数が未設定だとコード側の既定値 `'temp'` に落ちるため、
-ストレージアカウント名に `temp` が含まれると永続画像を一時コンテナから
-削除しようとする。URL のパスセグメントで判定するべき。
-
 ### `contextInfo` に長さの上限がない
 
 `POST /api/images/upload` と `POST /api/plants/identify` が受け取る `contextInfo` は、
