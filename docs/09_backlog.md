@@ -11,20 +11,23 @@
 
 ### 既存テストを古典学派の原則に準拠させる
 
-`api/tests/` の 135 件は Khorikov『単体テストの考え方/使い方』の原則に反する箇所を多数含む。
-リポジトリの方針は `.claude/test-principles.md` で古典学派に定めたが、既存テストは未対応。
+`api/tests/` は Khorikov『単体テストの考え方/使い方』の原則に反する箇所を多数含む。
+リポジトリの方針は `.claude/test-principles.md` で古典学派に定めた。
+**サービス層は対応済み。ハンドラ群が未対応**（下記の進捗表）。
 
 **何が問題か**
 
-327 個のアサーションのうち 77 個（約 24%）がモックの呼び出し検証で、
-その多くが**スタブ（クエリ）とのやり取りの検証**にあたる。
+現在 312 個のアサーションのうち 48 個がモックの呼び出し検証で、
+うち 41 個が**スタブ（クエリ）とのやり取りの検証**にあたる。
+
+着手前はこの形だった（いずれも修正済み）。
 
 ```typescript
-// api/tests/services/storageService.test.ts:62-63
+// storageService.test.ts — コンテナクライアントの取得方法を固定していた
 expect(mockBlobServiceClient.getContainerClient).toHaveBeenCalledWith('test-images');
 expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('...');
 
-// api/tests/services/cosmosService.test.ts:143
+// cosmosService.test.ts — 原則3が NG 例として列挙している型そのもの
 expect(mockContainer.item).toHaveBeenCalledWith(plantId, plantId);
 ```
 
@@ -41,33 +44,98 @@ Cosmos DB と Blob Storage は**管理下にある依存**であり、読み取�
 テストスイート全体が信頼されなくなる。バックログの他項目（`deletePlant()` の孤児 Blob 修正など）に
 着手する前に、テストを信頼できる状態にしておく方が安全。
 
-**モック呼び出し検証の分布（多い順）**
+**モック呼び出し検証の分布と進捗**
 
-| ファイル | 件数 |
+| ファイル | 件数 | 状態 |
+|---|---|---|
+| `tests/functions/upload.test.ts` | 15 | 未着手（論点1・3） |
+| `tests/functions/updatePlant.test.ts` | 10 | 未着手（論点1） |
+| `tests/functions/plantDetail.test.ts` | 6 | 未着手（論点1） |
+| `tests/functions/checkDuplicate.test.ts` | 5 | 未着手（論点1・2） |
+| `tests/functions/save.test.ts` | 4 | 未着手（論点1） |
+| `tests/functions/identify.test.ts` | 4 | **変更不要** |
+| `tests/services/openAIVisionService.test.ts` | 3 | **変更不要** |
+| `tests/functions/plants.test.ts` | 1 | 未着手（論点2） |
+| `tests/services/storageService.test.ts` | 0 | **完了**（768e07c） |
+| `tests/services/cosmosService.test.ts` | 0 | **完了** |
+
+`openAIVisionService.test.ts` の 3 件と `identify.test.ts` の 4 件は
+OpenAI API（**管理外の依存**）への検証なので**違反ではない**。
+LLM 呼び出し回数はコストに直結する観察可能な振る舞いで、
+`toHaveBeenCalledTimes(1)` は原則3が推奨型として挙げている形そのもの。
+
+**サービス層は完了した**
+
+`storageService.test.ts` と `cosmosService.test.ts` を書き直した。共通の手口は次の通りで、
+残りのファイルを進めるときの先行例になる。
+
+1. **引数に応じて違う値を返す偽物に差し替える。** 元の共有モックは
+   `getContainerClient` / `container.item` が引数に関係なく同一オブジェクトを返していたため、
+   宛先やパーティションキーを取り違える不具合が通っていた（原則7-3）
+2. 偽物が状態を持つので、**呼び出し検証を戻り値と最終状態の検証に置き換えられる**
+3. `StorageService` はプロセス内の自前クラスなので、原則2の手順1に従い
+   モックをやめて**実物**を使い、その下の Blob SDK だけを偽物にした
+4. 偽物は**各テストファイル内に書き写す**。共有モジュールに切り出していない
+   （`tests/setup.ts` の二重構造と同じ問題を作らないため）
+
+**着手前に決めるべき論点**
+
+残りはハンドラ群で、**修正の形がサービス層と違う。** 原則4はハンドラの観察可能な振る舞いを
+**レスポンスそのもの**（ステータスコードとボディ）と定めており、偽物のストアを作って
+状態を検証する形にはならない。サービス層の手口をそのまま機械適用できない。
+
+着手前に次の3つを決める必要がある。原則ファイルに判定がないため、人間の判断が必要。
+
+**論点1: `not.toHaveBeenCalled()` の扱い（18箇所）**
+
+「バリデーション失敗時に依存に触らない」を検証する形がハンドラ群に18箇所ある。
+
+```typescript
+// tests/functions/plantDetail.test.ts:163
+expect(mockContainer.item).not.toHaveBeenCalled();
+```
+
+コマンドの不発の検証として正当とも読めるが、原則4は
+「内部でどのサービスをどう呼んだかではない」と定めている。どちらとも決まらない。
+決めたら原則ファイル側に追記して、両エージェントの基準を揃える必要がある。
+
+**論点2: SQL を固定しているクエリ検証（3箇所）— 外すと退行検出が消えることを実測済み**
+
+`checkDuplicate.test.ts:104,164` と `plants.test.ts:107` が
+`items.query` に渡す SQL 文を固定している。クエリは管理下にある依存への読み取りなので
+原則3では検証してはいけない型だが、**外すとネットが消える**ことを変異で確認した。
+
+| 変異 | 検出したテスト |
 |---|---|
-| `tests/services/storageService.test.ts` | 17 |
-| `tests/functions/upload.test.ts` | 15 |
-| `tests/services/cosmosService.test.ts` | 12 |
-| `tests/functions/updatePlant.test.ts` | 10 |
-| `tests/functions/plantDetail.test.ts` | 6 |
-| `tests/functions/checkDuplicate.test.ts` | 5 |
-| `tests/functions/save.test.ts` | 4 |
-| `tests/functions/identify.test.ts` | 4 |
-| `tests/services/openAIVisionService.test.ts` | 3 |
-| `tests/functions/plants.test.ts` | 1 |
+| `getPlantByName` の `WHERE c.name = @name` を削除 | **全スイートで未検出** |
+| `getPlants` の射影を `SELECT *` に | **全スイートで未検出** |
+| `getPlants` の `ORDER BY c.createdAt DESC` を削除 | `plants.test.ts:107-108` のみ |
+| `checkDuplicateByName` の `WHERE` を削除 | `checkDuplicate.test.ts:106-109` のみ |
 
-注意: `openAIVisionService.test.ts` の 3 件は OpenAI API（**管理外の依存**）への検証なので
-**違反ではない**。LLM 呼び出し回数はコストに直結する観察可能な振る舞い。
+つまり下2つは、**これから掃除する予定の原則3違反アサーションだけが捕まえている**状態。
+ハンドラ群を原則準拠に直した時点で、SQL の絞り込み・並び順・射影の退行は
+どのテストからも検出されなくなる。
 
-**進め方**
+`cosmosService.test.ts` では `@name` パラメータの値と名前の取り違えまでは
+検出できる偽物にしたが（SQL 文字列は解釈しない）、WHERE 句そのものの消失は検出できない。
+Cosmos の偽物に SQL を解釈させるのは非現実的なので、
+**アサーションを復活させるのではなく、妥協の埋め合わせ先を先に用意する**のが筋。
+下記「Cosmos の SQL を検証する層がない」が、この掃除の前提条件になる。
+原則5の歯止め2（確信が下がるなら削除しない）に当たる判断。
 
-1. `test-reviewer` サブエージェントを既存テストにかけ、違反箇所を確定させる
-   （上の件数は静的な見立てなので、正当なものが混ざっている可能性がある）
-2. レポートを見て修正範囲を判断する
-3. `test-writer` サブエージェントで `storageService.test.ts` から順に書き直す
+**論点3: `upload.test.ts` を剥がす順序**
+
+`storageService.test.ts` の書き直し前に変異を当てたところ、
+`moveFromTempToPermanent` の削除対象を取り違える変異を捕まえていたのは
+`upload.test.ts` の3件だけだった。**ハンドラテストの呼び出し検証が
+サービステストの穴を肩代わりしていた。**
+
+サービス層が整った今は条件が変わっているため、剥がす前に
+**再度変異を当てて保護の所在を確認する**こと。単体で捕まるようになっていれば安全に剥がせる。
 
 併せて `tests/setup.ts` のグローバルモックと各テストの個別モックの二重構造も整理したい
 （どのモックが効いているか追えず「保守のしやすさ」を損なっている）。
+これは全テストに影響するため、**ハンドラ群の書き直しが終わった後の独立した作業単位**にする。
 
 ---
 
@@ -140,6 +208,14 @@ Blob Storage 上の画像を削除しない。削除を繰り返すと孤児 Blo
 `storageService.deleteImage()` を呼ぶ。`updatePlant()` と同様に、
 Blob 削除の失敗はログ出力のみでドキュメント削除は成功扱いにするのが既存方針と整合する。
 
+**注意: `cosmosService.test.ts` が現状の振る舞い（画像が残ること）をテストで固定している。**
+修正に着手すると、このテストが設計どおり赤になる。期待値を書き換えるのではなく、
+テスト自体が仕様の変更対象であることを認識して進めること。
+
+このテストを残すべきかは判断待ち。`deletePlant()` には Blob を触るコードが一行もないため
+対応する変異が存在せず、検出力を測れない（原則5の「取るに足らないコード」寄り）。
+一方で既知仕様のドキュメントとしての価値はある（原則5の歯止め3）。
+
 ### 未使用のエラーコード `PLANT_ALREADY_EXISTS`
 
 `api/src/types/api.ts` に定義されているが、どこからも使われていない。
@@ -170,6 +246,40 @@ Blob 削除の失敗はログ出力のみでドキュメント削除は成功扱
 「従来版・互換性のため残存」とあるが、呼び出し元が存在しない。
 呼び出すエンドポイントは `uploadAndIdentifyImage()` と同じ `/api/images/upload` で、
 AI 識別も走るため「単純アップロード」という元の意味は既に失われている。削除候補。
+
+### Cosmos の SQL を検証する層がない
+
+絞り込み（`WHERE`）・並び順（`ORDER BY`）・射影（`SELECT` の列）の正しさを
+検証しているテストが実質存在しない。単体テストの偽物は SQL 文字列を解釈しないため
+原理的に検証できず、エミュレータも E2E も未整備。
+
+実測した穴（変異を入れて全スイートを実行した結果）:
+
+- `getPlantByName` の `WHERE c.name = @name` を削除 → **全スイートで未検出**
+- `getPlants` の射影を `SELECT *` に変更 → **全スイートで未検出**。
+  これは `GET /api/plants` のレスポンスに `description` / `updatedAt` / `scientificName`
+  まで漏れる退行で、OpenAPI の `PlantSummary` 契約に直接当たる
+- `ORDER BY c.createdAt DESC` の削除と `checkDuplicateByName` の `WHERE` 削除は、
+  ハンドラテストの SQL 文字列アサーション（原則3違反で掃除対象）だけが捕まえている
+
+`.claude/test-principles.md` の原則2は「エミュレータ未導入のため SDK モックを許容する。
+この妥協を埋め合わせるのは E2E テストの役割」と定めているが、
+**その E2E が存在しない**ため、妥協の埋め合わせがされていない状態。
+
+対応するなら Cosmos DB Emulator を CI に載せるか、
+デプロイ後の実リソースに対する契約テストを足す。
+[既存テストの原則準拠](#既存テストを古典学派の原則に準拠させる)の論点2の前提条件。
+
+### `CosmosService.getPlantByName()` が未使用
+
+`api/src/services/cosmosService.ts:55-65`。`src/` 全体と `mobile/lib` を検索しても
+参照は定義のみで、呼び出し元が存在しない。`checkDuplicateByName()` と機能が重複している。
+
+`cosmosService.test.ts` のテスト2件がこのデッドコードを守っている状態。
+削除するならテストも同時に落とす。
+[`StorageService.imageExists()`](#storageserviceimageexists-が未使用) と
+[`ApiService.uploadImage()`](#apiserviceuploadimage-が未使用) と同種の課題なので、
+まとめて整理したい。
 
 ### `StorageService.imageExists()` が未使用
 
