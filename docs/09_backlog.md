@@ -304,6 +304,72 @@ Blob 削除の失敗はログ出力のみでドキュメント削除は成功扱
 TDD で進める。再現テスト（削除後に Blob が残っていることを確認）は
 `cosmosService.test.ts` に既にあるので、それを反転させる形になる。
 
+### `imagePath` の検証が緩く、他レコードの画像を削除できる
+
+`POST /api/plants/save`（`api/src/functions/save.ts:141`）と
+`PUT /api/plants/{id}`（`api/src/functions/updatePlant.ts:103`）は、
+`imagePath` の検証を **`new URL()` がパースできるかどうかだけ**で行っている。
+ホストもコンテナ名も見ていないため、自アカウント以外の URL がそのまま保存される。
+
+`CosmosService.updatePlant()` は `imagePath` が変わったときに旧画像を削除する。
+`StorageService.deleteImage()` は URL の最後のパスセグメントをファイル名として取り出し、
+一時コンテナ名と一致しないコンテナはすべて永続コンテナと見なす。
+
+この2つが噛み合うと、**別レコードの実際の Blob を削除できる**。
+
+1. `imagePath` を `https://example.com/whatever/<他レコードのuuid>.jpg` にして保存する
+2. その植物を別の `imagePath` に更新する
+3. `updatePlant()` が旧パスを削除しようとし、ファイル名 `<他レコードのuuid>.jpg` と
+   永続コンテナ `images` が組み合わさって、**無関係なレコードの画像が消える**
+
+uuid は `GET /api/plants` のレスポンスに含まれるため、正規のクライアントでも
+他レコードの uuid を知っている。全関数が `authLevel: 'function'` なので
+Function Key を持つ呼び出し元に限られるが、整合性の欠陥としては実在する。
+
+**判断が必要な点**: どの層で閉じるか。検証を厳しくすると既存データを弾く可能性がある。
+
+**推奨**: **API 境界の検証で閉じる**（fail closed）。`save.ts` と `updatePlant.ts` で、
+`imagePath` のホストが自ストレージアカウントであること、かつコンテナが
+永続コンテナ名であることを検証する。`STORAGE_CONNECTION_STRING` から
+アカウント名を取れるので新しい設定は不要。
+
+あわせて `deleteImage()` 側でも、ホストが自アカウントでない URL は
+`false` を返して何も削除しない形にする（二重の防御）。
+`deleteImage()` は内部からも呼ばれるため、境界の検証だけに頼らない方がよい。
+
+既存データへの影響は確認が必要。現状 `imagePath` は `upload.ts` が生成した
+自アカウントの URL しか入っていないはずだが、手動投入されたデータがあれば弾かれる。
+
+この項目は[`deleteImage` のコンテナ判定](#deleteimage-のコンテナ判定が文字列包含)の
+修正（dd5b31c）で浮かんだもので、修正自体がこの欠陥を作ったわけではない。
+パスセグメント一致に直したことで、コンテナの解決規則が明示的になり見つけやすくなった。
+
+### `getPlantById` の 404 catch 分岐が到達不能
+
+`api/src/services/cosmosService.ts` の `getPlantById()` は
+`catch (error.code === 404) return null` を持つが、**この分岐は到達しない。**
+
+`@azure/cosmos` の `Item.read()` は NotFound を飲み込む。
+
+```javascript
+// node_modules/@azure/cosmos/dist/browser/client/Item/Item.js:110-113
+if (error.code !== StatusCodes.NotFound) {
+    throw error;
+}
+response = error;   // NotFound は resource が undefined のレスポンスとして返る
+```
+
+つまり対象が無い場合に実際に通るのは `return resource || null;` の側。
+`replace()` と `delete()` は投げるため、`updatePlant()` と `deletePlant()` の
+404 分岐は到達可能で、こちらは問題ない。
+
+**判断が必要な点**: 死蔵分岐を削るか、将来の SDK 変更への保険として残すか。
+
+**推奨**: **残す。** 害がなく、SDK のバージョン差で挙動が変わりうる箇所。
+ただし「read では到達しない」ことをコメントに書いて、
+テストで埋めようとする人が現れないようにする。
+到達不能な分岐へのテストは書けない（書けてもテスト専用の経路になる）。
+
 ### 未使用のエラーコード `PLANT_ALREADY_EXISTS`
 
 `api/src/types/api.ts` に定義されているが、どこからも使われていない。
