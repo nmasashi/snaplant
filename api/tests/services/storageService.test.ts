@@ -1,11 +1,25 @@
 import { StorageService } from '../../src/services/storageService';
-import { BlobServiceClient, ContainerClient, BlockBlobClient } from '@azure/storage-blob';
+import { BlobServiceClient, ContainerClient, BlockBlobClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { Readable } from 'stream';
 
 // 外部依存のみモック
-jest.mock('@azure/storage-blob');
+// tests/setup.ts のファクトリモックは BlobServiceClient しか定義していないため、
+// SAS生成に必要なエクスポートを含めてこのファイルで上書きする
+// （不足するとSAS生成が例外になり、本番コードのフォールバックに落ちる）
+jest.mock('@azure/storage-blob', () => ({
+  BlobServiceClient: { fromConnectionString: jest.fn() },
+  BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
+  StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
+  generateBlobSASQueryParameters: jest.fn()
+}));
 
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
+const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
+  typeof generateBlobSASQueryParameters
+>;
+
+// SASトークンの固定値（SAS生成が実際に実行されたことを検証するため）
+const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
 
 describe('StorageService', () => {
   let service: StorageService;
@@ -32,6 +46,12 @@ describe('StorageService', () => {
     } as any;
 
     MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(mockBlobServiceClient);
+
+    // SAS生成を成功させる（自動モックのままだとundefinedを返し、
+    // 本番コードのフォールバックに落ちてSAS生成本体が実行されない）
+    mockedGenerateSas.mockReturnValue({
+      toString: () => TEST_SAS_TOKEN
+    } as any);
 
     // 環境変数設定
     process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
@@ -103,11 +123,39 @@ describe('StorageService', () => {
 
       const result = await service.uploadImageToTemp(imageBuffer, fileName, contentType);
 
-      expect(result).toBe(mockBlockBlobClient.url);
+      // 一時保存はSASトークン付きURLを返す（非公開コンテナのため、
+      // 生のURLではAzure OpenAIが画像を取得できない）
+      expect(result).toBe(`${mockBlockBlobClient.url}?${TEST_SAS_TOKEN}`);
       expect(mockBlobServiceClient.getContainerClient).toHaveBeenCalledWith('test-temp');
       expect(mockBlockBlobClient.upload).toHaveBeenCalledWith(imageBuffer, imageBuffer.length, {
         blobHTTPHeaders: { blobContentType: contentType }
       });
+    });
+
+    it('読み取り専用のSAS権限で署名する', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+
+      mockBlockBlobClient.upload.mockResolvedValue({} as any);
+
+      await service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg');
+
+      const [options] = mockedGenerateSas.mock.calls[0];
+      expect(options.containerName).toBe('test-temp');
+      expect(options.permissions).toMatchObject({ read: true });
+      expect(options.expiresOn!.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('SAS生成に失敗した場合はエラーをスローする', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+
+      mockBlockBlobClient.upload.mockResolvedValue({} as any);
+      mockedGenerateSas.mockImplementation(() => {
+        throw new Error('credential unavailable');
+      });
+
+      // 生のURLを返すと静かに403になるため、失敗は伝播させる
+      await expect(service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg'))
+        .rejects.toThrow('SAS URLの生成に失敗しました: credential unavailable');
     });
 
     it('一時ファイル名にUUIDが追加される', async () => {

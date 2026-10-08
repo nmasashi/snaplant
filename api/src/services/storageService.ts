@@ -231,6 +231,7 @@ export class StorageService {
    * @param containerName コンテナ名
    * @param expiryHours 有効期限（時間、デフォルト: 8760時間=1年）
    * @returns SAS URL
+   * @throws 生成に失敗した場合（フォールバックしない）
    */
   private generateSasUrl(blobUrl: string, containerName: string, expiryHours: number = 8760): string {
     try {
@@ -269,9 +270,11 @@ export class StorageService {
       return `${blobUrl}?${sasToken}`;
 
     } catch (error: any) {
-      // SAS URL生成に失敗した場合は元のURLを返す（フォールバック）
-      console.warn(`SAS URL generation failed, falling back to original URL: ${error.message}`);
-      return blobUrl;
+      // 一時コンテナは非公開（container_access_type = "private"）のため、
+      // 生のURLを返しても静かに403になるだけでフォールバックの意味がない。
+      // SAS URLはAzure OpenAIが非公開Blobを読むために必要なので、
+      // 生成できない場合は原因に近い場所で失敗させる
+      throw new Error(`SAS URLの生成に失敗しました: ${error.message}`);
     }
   }
 

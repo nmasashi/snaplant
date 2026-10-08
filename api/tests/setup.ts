@@ -35,6 +35,10 @@ jest.mock('@azure/cosmos', () => ({
   }))
 }));
 
+// 注意: ファクトリモックはモジュールのエクスポートを完全に置き換えるため、
+// ここに書き漏らしたエクスポートは undefined になる。
+// SAS生成に使う3つを欠いていたため、StorageService の SAS 生成が常に例外になり、
+// 本番コードのフォールバックに落ちていた（テストはその出力を検証していた）。
 jest.mock('@azure/storage-blob', () => ({
   BlobServiceClient: {
     fromConnectionString: jest.fn().mockReturnValue({
@@ -45,7 +49,12 @@ jest.mock('@azure/storage-blob', () => ({
         })
       })
     })
-  }
+  },
+  BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
+  StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
+  generateBlobSASQueryParameters: jest.fn().mockReturnValue({
+    toString: () => 'sv=2024-01-01&sp=r&sig=testsignature'
+  })
 }));
 
 jest.mock('openai', () => {
