@@ -167,12 +167,14 @@ graph TB
 
 #### API エンドポイント設計
 ```typescript
-// GET /api/plants - 植物一覧取得
-// GET /api/plants/{id} - 植物詳細取得
-// POST /api/plants - 植物新規登録
-// PUT /api/plants/{id} - 植物情報更新
-// DELETE /api/plants/{id} - 植物削除
-// POST /api/identify - 植物識別
+// GET    /api/plants                 - 植物一覧取得
+// GET    /api/plants/{id}            - 植物詳細取得
+// POST   /api/plants/save            - 植物新規登録
+// PUT    /api/plants/{id}            - 植物情報更新
+// DELETE /api/plants/{id}            - 植物削除
+// POST   /api/plants/identify        - 植物識別
+// GET    /api/plants/check-duplicate - 重複チェック
+// POST   /api/images/upload          - 画像アップロード＋AI識別（統合）
 ```
 
 #### 使用パッケージ

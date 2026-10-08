@@ -401,59 +401,28 @@ Content-Type: multipart/form-data
 
 ### 6.2 エラーコード一覧
 
-| HTTPステータス | エラーコード | 説明 |
-|---------------|-------------|------|
-| 400 | `INVALID_REQUEST` | リクエスト形式が不正 |
-| 400 | `NOT_A_PLANT` | アップロードされた画像は植物ではない |
-| 401 | `UNAUTHORIZED` | Function Key認証エラー |
-| 401 | `INVALID_API_KEY` | APIキーが無効または期限切れ |
-| 404 | `PLANT_NOT_FOUND` | 植物が見つからない |
-| 409 | `PLANT_ALREADY_EXISTS` | 植物が既に存在 |
-| 413 | `FILE_TOO_LARGE` | ファイルサイズ超過 |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | サポートされていないファイル形式 |
-| 500 | `INTERNAL_ERROR` | サーバー内部エラー |
-| 500 | `STORAGE_ERROR` | 画像ストレージエラー |
-| 502 | `AI_SERVICE_ERROR` | AI識別サービスエラー |
-| 503 | `DATABASE_ERROR` | データベース接続エラー |
+| HTTPステータス | エラーコード | 説明 | 返す箇所 |
+|---------------|-------------|------|----------|
+| 400 | `INVALID_REQUEST` | リクエスト形式が不正 | 全エンドポイント |
+| 400 | `NOT_A_PLANT` | アップロードされた画像は植物ではない | `POST /api/images/upload` |
+| 401 | `UNAUTHORIZED` | Function Key未指定 | Azure Functions ランタイム |
+| 401 | `INVALID_API_KEY` | Function Keyが無効 | Azure Functions ランタイム |
+| 404 | `PLANT_NOT_FOUND` | 植物が見つからない | `/api/plants/{id}` 系 |
+| 409 | `DATABASE_ERROR` | 保存時の競合（Cosmos DBの409） | `POST /api/plants/save` |
+| 413 | `FILE_TOO_LARGE` | ファイルサイズ超過 | `POST /api/images/upload` |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | サポートされていないファイル形式 | `POST /api/images/upload` |
+| 500 | `INTERNAL_ERROR` | サーバー内部エラー | 全エンドポイント |
+| 502 | `AI_SERVICE_ERROR` | AI識別サービスのエラー応答 | 識別系 |
+| 502 | `STORAGE_ERROR` | Blob Storageのエラー応答 | `POST /api/images/upload` |
+| 503 | `AI_SERVICE_ERROR` | AI識別サービスへ接続できない | 識別系 |
+| 503 | `DATABASE_ERROR` | Cosmos DBへ接続できない | DB参照系 |
+| 503 | `STORAGE_ERROR` | Blob Storageへ接続できない | `POST /api/images/upload` |
 
-## 7. レート制限
+401 の2つは Azure Functions ランタイムが返すため、アプリケーション側の
+`{ success, error }` 形式にはならない点に注意。
 
-### 7.1 制限値
-- **一般API**: 1分間に60リクエスト
-- **画像アップロード**: 1分間に10リクエスト
-- **植物識別**: 1分間に5リクエスト
+## 7. 未実装の仕様
 
-### 7.2 制限時のレスポンス
-```json
-{
-  "success": false,
-  "error": {
-    "code": "RATE_LIMIT_EXCEEDED",
-    "message": "リクエスト制限を超過しました。しばらく待ってから再度お試しください。",
-    "details": "Retry after 60 seconds"
-  }
-}
-```
-
-## 8. ヘルスチェック
-
-### 8.1 サービス状態確認
-```http
-GET /api/health
-```
-
-**レスポンス例:**
-```json
-{
-  "success": true,
-  "data": {
-    "status": "healthy",
-    "services": {
-      "database": "healthy",
-      "blobStorage": "healthy", 
-      "aiService": "healthy"
-    },
-    "timestamp": "2024-01-15T10:30:00Z"
-  }
-}
-```
+レート制限とヘルスチェックエンドポイントは未実装です。
+この設計書は実装済みの仕様のみを記載する方針のため、
+これらは [バックログ](./09_backlog.md) に移しました。

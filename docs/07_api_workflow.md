@@ -79,6 +79,8 @@ sequenceDiagram
 | `POST /plants/save` | **Cosmos DB** | CREATE | 新規植物ドキュメントを作成・保存 |
 | `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | UPDATE<br/>DELETE | ①既存ドキュメントのimagePath・confidenceを更新<br/>②旧画像ファイルを削除（ゴミファイル防止） |
 | `GET /plants` | **Cosmos DB** | READ | 全植物ドキュメントの取得（データ変更なし） |
+| `GET /plants/{id}` | **Cosmos DB** | READ | 単一ドキュメントの取得（データ変更なし） |
+| `DELETE /plants/{id}` | **Cosmos DB** | DELETE | ドキュメントのみ削除。**Blob上の画像は削除されない**（[バックログ](./09_backlog.md)参照） |
 
 ### 2.3 ストレージ状態変化
 

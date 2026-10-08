@@ -320,7 +320,7 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
     });
 
-    it('サポートされていないファイル形式の場合は400エラー', async () => {
+    it('サポートされていないファイル形式の場合は415エラー', async () => {
       // ファイルオブジェクトのモック（無効なコンテンツタイプ）
       const mockFile = {
         name: 'test.txt',
@@ -350,14 +350,14 @@ describe('画像アップロード・植物判定統合API', () => {
       const response = await uploadImageHandler(request, mockContext);
 
       // 検証
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(415);
       expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
       expect(response.jsonBody.error.message).toBe('サポートされていない画像形式です');
       expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
     });
 
-    it('ファイルサイズが上限を超える場合は400エラー', async () => {
+    it('ファイルサイズが上限を超える場合は413エラー', async () => {
       // 大きなファイルオブジェクトのモック（11MB）
       const mockFile = {
         name: 'large.jpg',
@@ -387,9 +387,9 @@ describe('画像アップロード・植物判定統合API', () => {
       const response = await uploadImageHandler(request, mockContext);
 
       // 検証
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(413);
       expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.code).toBe('FILE_TOO_LARGE');
       expect(response.jsonBody.error.message).toBe('ファイルサイズが大きすぎます');
       expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
     });

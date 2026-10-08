@@ -44,13 +44,18 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 
 | エンドポイント | メソッド | 説明 |
 |---------------|----------|------|
-| `/api/upload` | POST | 画像アップロード |
-| `/api/identify` | POST | 植物識別 |
-| `/api/save` | POST | 識別結果の保存 |
+| `/api/images/upload` | POST | 画像アップロード＋AI識別（統合） |
+| `/api/plants/identify` | POST | 植物識別（既存画像URLから） |
+| `/api/plants/check-duplicate` | GET | 重複チェック |
+| `/api/plants/save` | POST | 識別結果の保存 |
 | `/api/plants` | GET | 保存済み植物一覧 |
 | `/api/plants/{id}` | GET | 植物詳細取得 |
 | `/api/plants/{id}` | PUT | 植物情報更新 |
-| `/api/checkDuplicate` | POST | 重複チェック |
+| `/api/plants/{id}` | DELETE | 植物削除 |
+
+全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
+レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
+詳細は [OpenAPI 仕様書](./docs/06_api_openapi.yaml) を参照してください。
 
 ## 🛠️ 開発
 
@@ -108,7 +113,7 @@ flutter build apk --release
 
 - **Unit Tests**: Jest によるサービス層テスト
 - **Integration Tests**: Function エンドポイントテスト
-- **Coverage**: 88.7% のテストカバレッジ
+- **Coverage**: `npm run test:coverage` で計測（計測結果は `api/coverage/` に出力）
 
 ## 🔒 セキュリティ
 
@@ -135,6 +140,7 @@ flutter build apk --release
 - [OpenAPI仕様書](./docs/06_api_openapi.yaml)
 - [API ワークフロー](./docs/07_api_workflow.md)
 - [Flutter UI設計](./docs/08_flutter_ui_design.md)
+- [バックログ（未実装・既知の課題）](./docs/09_backlog.md)
 
 **運用:**
 - [デプロイメントガイド](./DEPLOYMENT.md)

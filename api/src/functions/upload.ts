@@ -41,16 +41,20 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
 
     // ファイルタイプの検証
     if (!StorageService.isValidImageContentType(file.type)) {
-      return createValidationError(
+      return createErrorResponse(
+        ErrorCode.UNSUPPORTED_MEDIA_TYPE,
         'サポートされていない画像形式です',
+        HttpStatusCode.UNSUPPORTED_MEDIA_TYPE,
         FILE_UPLOAD.ERROR_MESSAGES.UNSUPPORTED_TYPE
       );
     }
 
     // ファイルサイズの検証
     if (!StorageService.isValidFileSize(file.size)) {
-      return createValidationError(
+      return createErrorResponse(
+        ErrorCode.FILE_TOO_LARGE,
         'ファイルサイズが大きすぎます',
+        HttpStatusCode.PAYLOAD_TOO_LARGE,
         FILE_UPLOAD.ERROR_MESSAGES.SIZE_EXCEEDED
       );
     }

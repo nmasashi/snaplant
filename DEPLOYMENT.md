@@ -10,7 +10,7 @@ SnapPlant は Azure Functions を使用した植物識別 API です。このガ
 - **Azure Cosmos DB**: 植物データストレージ
 - **Azure Blob Storage**: 画像ストレージ
 - **Application Insights**: 監視・ログ
-- **OpenAI API**: 植物識別AI
+- **Azure OpenAI**: 植物識別AI（Vision + Structured Outputs）
 
 ## 初回セットアップ
 
@@ -146,7 +146,7 @@ az functionapp log tail --name <FUNCTION_APP_NAME> --resource-group <RESOURCE_GR
 
 ## セキュリティ
 
-- OpenAI API キーは Terraform 変数として管理
+- Azure OpenAI のキーは Terraform が Function App の app_settings に直接流し込む（`terraform.tfvars` は Git 管理外）
 - GitHub Secrets で認証情報を安全に保管
 - Function App の認証は必要に応じて設定
 - CORS 設定で許可オリジンを制限
@@ -165,6 +165,20 @@ Function App に設定される主要な環境変数：
 |--------|------|
 | `COSMOS_DB_ENDPOINT` | Cosmos DB エンドポイント |
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
+| `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
+| `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名 |
 | `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列 |
-| `OPENAI_API_KEY` | OpenAI API キー |
+| `STORAGE_CONTAINER_NAME` | 永続画像用 Blob コンテナ名 |
+| `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（モデル名として使用） |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI APIバージョン |
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | Application Insights キー |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
+
+これらは `infrastructure/main.tf` の `azurerm_linux_function_app.main` の `app_settings` で
+Terraform が設定します。ローカル開発では `api/local.settings.json` の `Values` に同じキーを置きます。
+
+`AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
+`OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
