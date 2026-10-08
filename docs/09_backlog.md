@@ -171,6 +171,60 @@ Blob 削除の失敗はログ出力のみでドキュメント削除は成功扱
 呼び出すエンドポイントは `uploadAndIdentifyImage()` と同じ `/api/images/upload` で、
 AI 識別も走るため「単純アップロード」という元の意味は既に失われている。削除候補。
 
+### `StorageService.imageExists()` が未使用
+
+`api/src/services/storageService.ts` の `imageExists()` は、リポジトリ全体で
+**定義1箇所のみ・呼び出し元ゼロ**（`api/src`、`api/tests`、`mobile/lib` すべてで確認）。
+
+**削除を推奨する。** 理由は2つ。
+
+公開メソッドである以上、将来誰かが「存在するから使おう」と手を伸ばす。
+そのとき `this.containerName`（永続コンテナ）固定で一時コンテナを見ないという
+制約に気づかず誤用する可能性がある。
+
+もう1つは用途がないこと。`deleteImage()` は 404 を正常扱いするため、
+「存在確認してから削除する」パターンが不要になっている。
+
+**テストを追加してはいけない。** `test-reviewer` は
+「テスト0件・最も費用対効果が高い追加」と指摘したが、死んだ public API に
+テストを足すと「この API は使われている」という誤った信号を残し、
+削除のコストが上がる。[`ApiService.uploadImage()`](#apiserviceuploadimage-が未使用) と
+同種の課題なので、まとめて整理したい。
+
+### `moveFromTempToPermanent` の catch が全例外を同一文言で包む
+
+`api/src/services/storageService.ts` の `moveFromTempToPermanent()` は、
+catch 節であらゆる例外を `画像の永続保存への移動に失敗しました: ${error.message}`
+に包んでいる。
+
+これが偽陰性の温床になっていた。テストが `toThrow('画像の永続保存への移動に失敗しました')`
+と接頭辞で一致させると、**検証したい分岐とまったく別の原因で落ちても通る**。
+実際に「無効な一時URL形式の場合」というテストは、URL 形式のガードに到達せず、
+後続の別エラーで落ちて通っていた（`.claude/test-principles.md` の原則7 参照）。
+
+対応するなら、分岐ごとに固有のメッセージを付けるか、エラーの型を分ける。
+URL 形式のガードは `extractFileNameFromUrl()` が `null` を返す場合のみ発火し、
+`new URL()` がパースできる文字列はすべて通過する点にも注意（ガード自体がほぼ到達不能）。
+
+### `deleteImage` のコンテナ判定が文字列包含
+
+`api/src/services/storageService.ts` の `deleteImage()` は、
+削除先のコンテナを URL の文字列包含で決めている。
+
+```typescript
+const containerName = imageUrl.includes(this.tempContainerName)
+  ? this.tempContainerName
+  : this.containerName;
+```
+
+**本番では現状問題ない。** Terraform が `TEMP_STORAGE_CONTAINER_NAME` に
+`temp-images` を設定し、永続側は `images` なので、永続URL
+`https://.../images/<uuid>.jpg` に `temp-images` は含まれず誤判定しない。
+
+ただし脆い。環境変数が未設定だとコード側の既定値 `'temp'` に落ちるため、
+ストレージアカウント名に `temp` が含まれると永続画像を一時コンテナから
+削除しようとする。URL のパスセグメントで判定するべき。
+
 ### ts-jest の設定警告
 
 テスト実行時に毎回 `TS151002`（hybrid module kind は `isolatedModules: true` が必要）が出る。
