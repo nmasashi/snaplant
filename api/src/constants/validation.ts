@@ -59,6 +59,8 @@ export const GENERAL_VALIDATION = {
   // エラーメッセージ
   ERROR_MESSAGES: {
     INVALID_UUID: 'UUID形式で指定してください',
-    INVALID_URL: '有効なURL形式で指定してください'
+    INVALID_URL: '有効なURL形式で指定してください',
+    // 期待するホストやコンテナ名は応答に含めない（構成情報を漏らさないため）
+    IMAGE_PATH_NOT_ALLOWED: '画像アップロードAPIが返したURLを指定してください'
   }
 } as const;

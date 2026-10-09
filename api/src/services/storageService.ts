@@ -2,12 +2,31 @@ import { BlobServiceClient, BlockBlobClient, BlobSASPermissions, generateBlobSAS
 import { v4 as uuidv4 } from 'uuid';
 import { FILE_UPLOAD } from '../constants/validation';
 
+/**
+ * 接続文字列から自アカウントのBlobエンドポイントのホストを組み立てる
+ *
+ * コンストラクタと静的バリデータの両方から使う。片方だけが古い組み立て方を
+ * 持つと、入口と出口で許可するURLが食い違うため共通化している
+ * @param connectionString ストレージの接続文字列
+ * @returns ホスト名。AccountNameが取れない場合はnull
+ */
+function resolveBlobEndpointHost(connectionString: string): string | null {
+  const accountNameMatch = connectionString.match(/AccountName=([^;]+)/);
+  if (!accountNameMatch) {
+    return null;
+  }
+  const endpointSuffixMatch = connectionString.match(/EndpointSuffix=([^;]+)/);
+  const endpointSuffix = endpointSuffixMatch ? endpointSuffixMatch[1] : 'core.windows.net';
+  return `${accountNameMatch[1]}.blob.${endpointSuffix}`;
+}
+
 export class StorageService {
   private blobServiceClient: BlobServiceClient;
   private containerName: string;
   private tempContainerName: string;
   private storageAccountName: string;
   private storageAccountKey: string;
+  private blobEndpointHost: string;
 
   constructor() {
     const connectionString = process.env.STORAGE_CONNECTION_STRING!;
@@ -24,7 +43,12 @@ export class StorageService {
     
     this.storageAccountName = accountNameMatch[1];
     this.storageAccountKey = accountKeyMatch[1];
-    
+
+    // 自アカウントのBlobエンドポイントのホストを組み立てる。
+    // URLのホストを検証せずにファイル名とコンテナ名だけで削除先を決めると、
+    // 外部ホストのURLを渡すだけで自分のコンテナの同名Blobを消せてしまう
+    this.blobEndpointHost = resolveBlobEndpointHost(connectionString)!;
+
     this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
   }
 
@@ -179,6 +203,13 @@ export class StorageService {
         return false;
       }
       
+      // 自アカウント以外のホストを指すURLは何も削除しない。
+      // コンテナ判定は未知のコンテナを永続コンテナにフォールバックさせるため、
+      // ホストを見ないと「ファイル名が一致するだけの他レコードのBlob」を消せてしまう
+      if (new URL(imageUrl).host !== this.blobEndpointHost) {
+        return false;
+      }
+
       // URLから適切なコンテナ名を決定
       const containerName = this.extractContainerNameFromUrl(imageUrl) === this.tempContainerName
         ? this.tempContainerName
@@ -350,6 +381,35 @@ export class StorageService {
    */
   static isValidImageContentType(contentType: string): boolean {
     return FILE_UPLOAD.SUPPORTED_IMAGE_TYPES.includes(contentType.toLowerCase() as any);
+  }
+
+  /**
+   * 画像パスが自アカウントの永続コンテナを指すURLかを検証
+   *
+   * ハンドラが受け取るimagePathは、アップロードAPIが返した自アカウントのURLだけが正当。
+   * ホストとコンテナを見ずに保存すると、外部ホストのURLを保存しておいて
+   * 更新時の旧画像削除を発火させることで、他レコードのBlobを削除できてしまう
+   * @param imagePath 検証対象の画像URL
+   * @returns 自アカウントの永続コンテナを指すかどうか
+   */
+  static isValidImagePath(imagePath: string): boolean {
+    const connectionString = process.env.STORAGE_CONNECTION_STRING;
+    const containerName = process.env.STORAGE_CONTAINER_NAME;
+    if (!connectionString || !containerName) {
+      return false;
+    }
+
+    const expectedHost = resolveBlobEndpointHost(connectionString);
+    if (!expectedHost) {
+      return false;
+    }
+
+    try {
+      const url = new URL(imagePath);
+      return url.host === expectedHost && url.pathname.split('/')[1] === containerName;
+    } catch (error) {
+      return false;
+    }
   }
 
   /**

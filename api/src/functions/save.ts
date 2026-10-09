@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { CosmosService } from '../services/cosmosService';
+import { StorageService } from '../services/storageService';
 import { 
   createSuccessResponse, 
   createErrorResponse, 
@@ -141,6 +142,11 @@ function validatePlantCreateRequest(request: PlantCreateRequest): HttpResponseIn
     new URL(request.imagePath);
   } catch (error) {
     return createValidationError('画像パスの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
+  }
+
+  // 自アカウントの永続コンテナを指すことのバリデーション
+  if (!StorageService.isValidImagePath(request.imagePath)) {
+    return createValidationError(GENERAL_VALIDATION.ERROR_MESSAGES.IMAGE_PATH_NOT_ALLOWED);
   }
 
   return null;

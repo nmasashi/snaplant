@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { CosmosService } from '../services/cosmosService';
+import { StorageService } from '../services/storageService';
 import { 
   createSuccessResponse, 
   createValidationError, 
@@ -103,6 +104,13 @@ function validatePlantUpdateRequest(request: PlantUpdateRequest): HttpResponseIn
     new URL(request.imagePath);
   } catch (error) {
     return createValidationError('画像URLの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
+  }
+
+  // 自アカウントの永続コンテナを指すことのバリデーション。
+  // ここを通すと、更新時の旧画像削除が外部ホストのURLを宛先にしてしまい、
+  // ファイル名が一致するだけの他レコードのBlobを消せてしまう
+  if (!StorageService.isValidImagePath(request.imagePath)) {
+    return createValidationError(GENERAL_VALIDATION.ERROR_MESSAGES.IMAGE_PATH_NOT_ALLOWED);
   }
 
   return null;

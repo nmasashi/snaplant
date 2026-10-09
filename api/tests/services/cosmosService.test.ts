@@ -308,7 +308,7 @@ describe('CosmosService', () => {
       familyName: 'バラ科',
       characteristics: '春に美しい花を咲かせる',
       confidence: 95.5,
-      imagePath: 'https://example.com/old-sakura.jpg',
+      imagePath: 'https://test.blob.core.windows.net/test-images/old-sakura.jpg',
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-01T00:00:00.000Z'
     };
@@ -373,6 +373,35 @@ describe('CosmosService', () => {
 
       await expect(service.updatePlant(plantId, updateData))
         .rejects.toThrow(/^Replace failed$/);
+    });
+
+    it('外部ホストだが別レコードの画像と同じファイル名のimagePathで更新しても、その別レコードのBlobは削除されない', async () => {
+      // 攻撃経路: deleteImage()がホストを見ずコンテナ名とファイル名だけで削除先を
+      // 決めると、外部ホストのURLでもパスの先頭セグメントが未知のコンテナ名
+      // （'foo'）になり永続コンテナにフォールバックしてしまう。その結果、
+      // ファイル名さえ一致すれば自アカウント永続コンテナ内の「別レコードの」
+      // Blobを消せてしまう。ここでは victim-uuid.jpg という別レコードの画像が
+      // 永続コンテナに実在する状態で、攻撃対象のレコードのimagePathを
+      // 同じファイル名・外部ホストに差し替えて更新を発火させる
+      blobStore.set('test-images/victim-uuid.jpg', { content: Buffer.from('victim') });
+      const attackerControlledPlant: Plant = {
+        ...existingPlant,
+        imagePath: 'https://example.com/foo/victim-uuid.jpg'
+      };
+      cosmosBackend.documents.set(plantId, attackerControlledPlant);
+      const updateData: PlantUpdateRequest = {
+        imagePath: 'https://test.blob.core.windows.net/test-images/new-sakura.jpg',
+        confidence: 97.0
+      };
+
+      const result = await service.updatePlant(plantId, updateData);
+
+      expect(result).toEqual({
+        ...attackerControlledPlant,
+        ...updateData,
+        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      });
+      expect(blobStore.has('test-images/victim-uuid.jpg')).toBe(true);
     });
 
     it('古い画像の削除に失敗しても、更新処理は継続される', async () => {

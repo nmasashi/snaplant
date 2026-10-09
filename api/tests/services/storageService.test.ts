@@ -341,15 +341,23 @@ describe('StorageService', () => {
     });
 
     it('ストレージアカウント名に一時コンテナ名が含まれる場合でも永続コンテナの画像を削除できる', async () => {
+      // 自ストレージアカウント名自体が一時コンテナ名 "test-temp" を含む
+      // ("test-temp-account") ケース。ホスト検証はアカウント名が自アカウントと
+      // 一致するかで判定するので、このURLは正当に自アカウントのものとして通過する。
+      // その上でコンテナ判定が文字列包含（imageUrl.includes(tempContainerName)）
+      // だと、ホスト名に含まれる "test-temp" にひっかかり、パス上は永続コンテナ
+      // (test-images) の画像でも一時コンテナ側だと誤認してしまう
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=https;AccountName=test-temp-account;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+      const accountService = new StorageService();
+
       const fileName = '33333333-3333-3333-3333-333333333333.jpg';
       blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
-      // ホスト名（ストレージアカウント名）に一時コンテナ名 "test-temp" を含むURL。
-      // コンテナ判定が文字列包含だと、パス上は永続コンテナ(test-images)の画像でも
-      // ホスト名の "test-temp-account" にひっかけて一時コンテナ側だと誤認してしまう
       const imageUrl = `https://test-temp-account.blob.core.windows.net/test-images/${fileName}`;
 
-      await service.deleteImage(imageUrl);
+      const result = await accountService.deleteImage(imageUrl);
 
+      expect(result).toBe(true);
       expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
     });
 
@@ -367,6 +375,21 @@ describe('StorageService', () => {
 
       expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
       expect(blobStore.has(`test-temp-archive/${fileName}`)).toBe(true);
+    });
+
+    it('自ストレージアカウント以外のホストを指すURLを渡した場合、falseを返し永続コンテナの画像は削除されない', async () => {
+      const fileName = '66666666-6666-6666-6666-666666666666.jpg';
+      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
+      // ホストが自ストレージアカウント（test.blob.core.windows.net）ではないURL。
+      // ホストを見ない実装だと、パスの最初のセグメントが一時コンテナ名と
+      // 一致しないため永続コンテナ扱いになり、ファイル名が一致するだけの
+      // 他レコードの実物Blobを削除してしまう
+      const imageUrl = `https://example.com/foo/${fileName}`;
+
+      const result = await service.deleteImage(imageUrl);
+
+      expect(result).toBe(false);
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
     });
 
     it('存在しない画像を削除した場合は成功として扱う', async () => {

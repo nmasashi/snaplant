@@ -84,7 +84,7 @@ describe('植物保存API', () => {
         description: '日本を代表する花木で、春に美しい花を咲かせる。',
         characteristics: '春に美しいピンクの花を咲かせる',
         confidence: 95.5,
-        imagePath: 'https://example.com/sakura.jpg',
+        imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg',
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
       };
@@ -104,7 +104,7 @@ describe('植物保存API', () => {
           description: '日本を代表する花木で、春に美しい花を咲かせる。',
           characteristics: '春に美しいピンクの花を咲かせる',
           confidence: 95.5,
-          imagePath: 'https://example.com/sakura.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg'
         })
       } as any as HttpRequest;
 
@@ -132,7 +132,7 @@ describe('植物保存API', () => {
           description: '日本を代表する花木で、春に美しい花を咲かせる。',
           characteristics: '春に美しいピンクの花を咲かせる',
           confidence: 95.5,
-          imagePath: 'https://example.com/sakura.jpg',
+          imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg',
           createdAt: expect.any(String),
           updatedAt: expect.any(String)
         })
@@ -152,7 +152,7 @@ describe('植物保存API', () => {
         name: 'テスト植物',
         characteristics: '基本的な特徴',
         confidence: 80.0,
-        imagePath: 'https://example.com/test.jpg',
+        imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg',
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
       };
@@ -169,7 +169,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '基本的な特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
@@ -194,7 +194,7 @@ describe('植物保存API', () => {
         json: jest.fn().mockResolvedValue({
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
@@ -226,7 +226,7 @@ describe('植物保存API', () => {
           name: longName,
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
@@ -257,7 +257,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 150.0, // 範囲外
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
@@ -278,6 +278,85 @@ describe('植物保存API', () => {
     });
 
     // 重複チェックは別途実装されるcheckDuplicate APIで行うため、ここではテストしない
+
+    it('画像パスが自ストレージアカウント以外のホストを指す場合は400エラー', async () => {
+      // 植物作成成功のモック（バリデーションが機能していない場合に
+      // 保存まで進んでしまうことを明確に判別するため設定する）
+      mockItems.create.mockResolvedValue({
+        resource: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: 'https://example.com/foo/123e4567-e89b-12d3-a456-426614174000.jpg',
+          createdAt: '2024-01-15T10:30:00Z',
+          updatedAt: '2024-01-15T10:30:00Z'
+        }
+      });
+
+      // リクエストの作成（imagePathが自アカウント以外のホストを指す。
+      // URLとしては正しくパースできるが、他レコードのBlobを指し得る）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: 'https://example.com/foo/123e4567-e89b-12d3-a456-426614174000.jpg'
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(mockItems.create).not.toHaveBeenCalled();
+    });
+
+    it('画像パスが自ストレージアカウントの一時コンテナを指す場合は400エラー', async () => {
+      // 植物作成成功のモック（バリデーションが機能していない場合に
+      // 保存まで進んでしまうことを明確に判別するため設定する）
+      mockItems.create.mockResolvedValue({
+        resource: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: 'https://test.blob.core.windows.net/test-temp/123e4567-e89b-12d3-a456-426614174000.jpg',
+          createdAt: '2024-01-15T10:30:00Z',
+          updatedAt: '2024-01-15T10:30:00Z'
+        }
+      });
+
+      // リクエストの作成（imagePathは自アカウントのホストだが、
+      // 永続コンテナ（test-images）ではなく一時コンテナ（test-temp）を指す）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: 'https://test.blob.core.windows.net/test-temp/123e4567-e89b-12d3-a456-426614174000.jpg'
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+    });
 
     it('JSONパースエラーの場合は400エラー', async () => {
       // リクエストの作成（JSONパースエラー）
@@ -322,7 +401,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
@@ -357,7 +436,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
@@ -390,7 +469,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
         })
       } as any as HttpRequest;
 
