@@ -463,13 +463,35 @@ describe('CosmosService', () => {
         .rejects.toThrow(/^Delete failed$/);
     });
 
-    it('植物を削除してもBlobの画像は削除されない（孤児として残る、既知の仕様）', async () => {
-      cosmosBackend.documents.set(plantId, existingPlant);
+    it('植物を削除すると画像も削除される', async () => {
+      const plantWithImage: Plant = {
+        ...existingPlant,
+        imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg'
+      };
+      cosmosBackend.documents.set(plantId, plantWithImage);
       blobStore.set('test-images/sakura.jpg', { content: Buffer.from('data') });
 
-      await service.deletePlant(plantId);
+      const result = await service.deletePlant(plantId);
 
-      expect(blobStore.has('test-images/sakura.jpg')).toBe(true);
+      expect(result).toBe(true);
+      expect(blobStore.has('test-images/sakura.jpg')).toBe(false);
+    });
+
+    it('画像の削除に失敗しても、植物の削除は成功扱いになる', async () => {
+      const plantWithImage: Plant = {
+        ...existingPlant,
+        imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg'
+      };
+      cosmosBackend.documents.set(plantId, plantWithImage);
+      blobStore.set('test-images/sakura.jpg', {
+        content: Buffer.from('data'),
+        failWith: new Error('Delete failed')
+      });
+
+      const result = await service.deletePlant(plantId);
+
+      expect(result).toBe(true);
+      expect(cosmosBackend.documents.has(plantId)).toBe(false);
     });
   });
 

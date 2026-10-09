@@ -123,7 +123,23 @@ export class CosmosService {
    */
   async deletePlant(id: string): Promise<boolean> {
     try {
+      // 画像パスはドキュメントを消す前に読む（消した後では参照できない）
+      const existingPlant = await this.getPlantById(id);
+
       await this.container.item(id, id).delete();
+
+      // 孤児Blobを残さないため画像も削除する。
+      // 失敗はログ出力のみでドキュメント削除は成功扱いにする（updatePlantと同じ方針。
+      // ドキュメントが消えている以上、画像が残っても参照されないため）
+      if (existingPlant?.imagePath) {
+        try {
+          await this.storageService.deleteImage(existingPlant.imagePath);
+          console.log(`画像削除成功: ${existingPlant.imagePath}`);
+        } catch (error) {
+          console.warn(`画像削除に失敗しましたが、植物の削除は完了しています: ${error}`);
+        }
+      }
+
       return true;
     } catch (error: any) {
       if (error.code === 404) {

@@ -193,6 +193,12 @@ describe('植物詳細取得API', () => {
     const validPlantId = '123e4567-e89b-12d3-a456-426614174000';
 
     it('植物を正常に削除できる', async () => {
+      // 削除前に imagePath を読む実装なので read も必要
+      // （孤児 Blob を残さないため画像も削除する）
+      mockItem.read.mockResolvedValue({
+        resource: { id: validPlantId, imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg' }
+      });
+
       // Cosmos DBアイテム削除成功のモック
       mockItem.delete.mockResolvedValue({ resource: { id: validPlantId } });
 
@@ -221,6 +227,9 @@ describe('植物詳細取得API', () => {
     });
 
     it('存在しない植物IDの場合は404エラー', async () => {
+      // read は NotFound を飲み込んで resource なしを返す（実SDKの挙動）
+      mockItem.read.mockResolvedValue({ resource: undefined });
+
       // Cosmos DBアイテム削除失敗のモック
       const notFoundError = new Error('Entity not found');
       (notFoundError as any).code = 404;
