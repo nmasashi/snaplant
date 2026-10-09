@@ -23,10 +23,26 @@ const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof Blo
  *
  * ドキュメントをIDをキーにしたMapで保持する。item(id, partitionKey)は
  * パーティションキーが/idのため、idとpartitionKeyが一致しない場合やidが
- * 存在しない場合に404相当のエラーを投げる。これにより、パーティションキーを
- * 取り違える不具合（例: item(id, 'wrong')）を検出できる
+ * 存在しない場合にアイテムなしの状態になる。
+ *
+ * ただし read() と replace()/delete() ではその「アイテムなし」の表現方法が異なる。
+ * 実際の @azure/cosmos は、read（単一アイテム取得）に限り NotFound エラーを
+ * 内部で飲み込み、resource が undefined のレスポンスを返す
+ * （node_modules/@azure/cosmos の Item.read 実装: catch 節で
+ * error.code === StatusCodes.NotFound のときは再スローせず、
+ * resource が無いレスポンスとして扱う）。一方 replace・delete は NotFound を
+ * そのまま例外として投げる。この非対称性は読み取りに限った実 SDK の挙動なので、
+ * 偽物もここに合わせる。read() が例外を投げる前提で書くと、本番で絶対に通らない
+ * catch 分岐をテストすることになり、実際に通る `resource || null` の経路が
+ * 無検証のまま緑になってしまう（過去にこの誤りがあった）。
+ *
+ * パーティションキーの取り違え（例: item(id, 'wrong')）の検出は、読み取りが
+ * 例外を投げなくなっても失わない。id と partitionKey が一致しない場合は
+ * resource を undefined にする（＝実SDKでも取り違えは単に見つからない扱いになる）ため、
+ * 取り違えが起きれば呼び出し側は「見つからない」という結果を受け取り、
+ * 正しいドキュメントを期待するテストが失敗する
  * （単一の共有モックだとどの引数で呼ばれても同じアイテムを返すため、
- * 取り違えが検出できない）。
+ * 取り違えが検出できない点は変わらず回避している）。
  *
  * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@name）の値で
  * 絞り込むだけに留める。クエリ文字列自体への依存はリファクタリング耐性を失う。
@@ -82,9 +98,14 @@ function createFakeContainer(backend: FakeCosmosBackend): Container {
       }
     },
     item: (id: string, partitionKey: string) => ({
+      // read だけは実SDKに合わせてNotFoundを例外にしない（上のコメント参照）。
+      // 見つからない場合・パーティションキー不一致の場合は resource が無い
+      // レスポンスを返す
       read: async () => {
         if (backend.forcedReadError) throw backend.forcedReadError;
-        if (id !== partitionKey || !backend.documents.has(id)) throw notFoundError();
+        if (id !== partitionKey || !backend.documents.has(id)) {
+          return { resource: undefined };
+        }
         return { resource: backend.documents.get(id) };
       },
       replace: async (doc: Plant) => {
