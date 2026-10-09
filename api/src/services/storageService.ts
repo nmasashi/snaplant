@@ -55,14 +55,13 @@ export class StorageService {
   /**
    * 画像をBlobストレージにアップロードする
    * @param imageBuffer 画像データ
-   * @param fileName ファイル名
    * @param contentType コンテンツタイプ
    * @returns アップロードされた画像のURL
    */
-  async uploadImage(imageBuffer: Buffer, fileName: string, contentType: string): Promise<string> {
+  async uploadImage(imageBuffer: Buffer, contentType: string): Promise<string> {
     try {
       // ユニークなファイル名を生成
-      const uniqueFileName = this.generateUniqueFileName(fileName);
+      const uniqueFileName = this.generateUniqueFileName(contentType);
       
       // コンテナクライアントを取得
       const containerClient = this.blobServiceClient.getContainerClient(this.containerName);
@@ -88,14 +87,13 @@ export class StorageService {
   /**
    * 画像を一時保存する
    * @param imageBuffer 画像データ
-   * @param fileName ファイル名
    * @param contentType コンテンツタイプ
    * @returns アップロードされた一時画像のURL（SASトークン付き）
    */
-  async uploadImageToTemp(imageBuffer: Buffer, fileName: string, contentType: string): Promise<string> {
+  async uploadImageToTemp(imageBuffer: Buffer, contentType: string): Promise<string> {
     try {
       // ユニークなファイル名を生成
-      const uniqueFileName = this.generateUniqueFileName(fileName);
+      const uniqueFileName = this.generateUniqueFileName(contentType);
       
       // 一時コンテナクライアントを取得
       const containerClient = this.blobServiceClient.getContainerClient(this.tempContainerName);
@@ -322,24 +320,18 @@ export class StorageService {
   }
 
   /**
-   * ユニークなファイル名を生成
-   * @param originalFileName 元のファイル名
-   * @returns ユニークなファイル名
+   * ユニークなBlob名を生成
+   *
+   * 拡張子は検証済みのContent-Typeから引く。クライアントが送るファイル名から
+   * 取ると、/ を含む名前で拡張子にパス区切りが紛れ込み、Blob名とSASの
+   * 署名対象がずれる（FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE のコメント参照）
+   * @param contentType コンテンツタイプ
+   * @returns ユニークなBlob名
    */
-  private generateUniqueFileName(originalFileName: string): string {
-    const extension = this.extractFileExtension(originalFileName);
+  private generateUniqueFileName(contentType: string): string {
+    const extension = FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE[contentType.toLowerCase()] || '';
     const uuid = uuidv4();
     return `${uuid}${extension}`;
-  }
-
-  /**
-   * ファイル拡張子を抽出
-   * @param fileName ファイル名
-   * @returns ファイル拡張子
-   */
-  private extractFileExtension(fileName: string): string {
-    const lastDotIndex = fileName.lastIndexOf('.');
-    return lastDotIndex > 0 ? fileName.substring(lastDotIndex) : '';
   }
 
   /**

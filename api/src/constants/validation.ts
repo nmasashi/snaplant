@@ -16,6 +16,21 @@ export const FILE_UPLOAD = {
     'image/gif'
   ] as const,
   
+  // Content-Typeから拡張子を引く表
+  //
+  // Blob名の拡張子はクライアントが送るファイル名から取らない。
+  // ファイル名に / が含まれていると拡張子に紛れ込み、Blob名と
+  // SASの署名対象（URLの最後のセグメント）がずれて、
+  // SAS URLが無効になったうえ一時コンテナに孤児Blobが残る。
+  // SUPPORTED_IMAGE_TYPESと同じ場所に置き、許可リストを1箇所にまとめる
+  EXTENSION_BY_CONTENT_TYPE: {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif'
+  } as Record<string, string>,
+
   // エラーメッセージ
   ERROR_MESSAGES: {
     SIZE_EXCEEDED: `ファイルサイズは${Math.floor(parseInt(process.env.MAX_FILE_SIZE || '10485760') / 1024 / 1024)}MB以下にしてください`,

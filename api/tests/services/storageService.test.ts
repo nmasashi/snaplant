@@ -149,15 +149,41 @@ describe('StorageService', () => {
     it('アップロードした画像のURLが画像用コンテナのユニークなファイル名を指す', async () => {
       const imageBuffer = Buffer.from('test image data');
 
-      const result = await service.uploadImage(imageBuffer, 'test.jpg', 'image/jpeg');
+      const result = await service.uploadImage(imageBuffer, 'image/jpeg');
 
       expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/);
+    });
+
+    it('Blob名の拡張子はContent-Typeから決まる', async () => {
+      const imageBuffer = Buffer.from('test image data');
+
+      const result = await service.uploadImage(imageBuffer, 'image/png');
+
+      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/);
+    });
+
+    it('Content-Typeが大文字でも拡張子が付く', async () => {
+      const imageBuffer = Buffer.from('test image data');
+
+      // isValidImageContentType は大文字を受け付けるため、
+      // 拡張子の引き当ても同じ正規化をしないと拡張子なしのBlob名になる
+      const result = await service.uploadImage(imageBuffer, 'IMAGE/PNG');
+
+      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/);
+    });
+
+    it('サポート外のContent-Typeの場合は拡張子なしのBlob名になる', async () => {
+      const imageBuffer = Buffer.from('test image data');
+
+      const result = await service.uploadImage(imageBuffer, 'application/octet-stream');
+
+      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it('アップロードした内容とcontent-typeが保存される', async () => {
       const imageBuffer = Buffer.from('test image data');
 
-      const result = await service.uploadImage(imageBuffer, 'test.jpg', 'image/jpeg');
+      const result = await service.uploadImage(imageBuffer, 'image/jpeg');
 
       expect(blobStore.get(keyFromUrl(result))).toEqual({
         content: imageBuffer,
@@ -168,8 +194,8 @@ describe('StorageService', () => {
     it('2回アップロードすると異なるURLが返る', async () => {
       const imageBuffer = Buffer.from('test image data');
 
-      const result1 = await service.uploadImage(imageBuffer, 'test.jpg', 'image/jpeg');
-      const result2 = await service.uploadImage(imageBuffer, 'test.jpg', 'image/jpeg');
+      const result1 = await service.uploadImage(imageBuffer, 'image/jpeg');
+      const result2 = await service.uploadImage(imageBuffer, 'image/jpeg');
 
       expect(result1).not.toBe(result2);
     });
@@ -178,7 +204,7 @@ describe('StorageService', () => {
       const imageBuffer = Buffer.from('test image data');
       backend.forcedUploadError = new Error('Upload failed');
 
-      await expect(service.uploadImage(imageBuffer, 'test.jpg', 'image/jpeg'))
+      await expect(service.uploadImage(imageBuffer, 'image/jpeg'))
         .rejects.toThrow(/^画像のアップロードに失敗しました: Upload failed$/);
     });
   });
@@ -187,7 +213,7 @@ describe('StorageService', () => {
     it('一時コンテナに画像をアップロードできる', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
-      const result = await service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg');
+      const result = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
 
       // 一時保存はSASトークン付きURLを返す（非公開コンテナのため、
       // 生のURLではAzure OpenAIが画像を取得できない）
@@ -199,7 +225,7 @@ describe('StorageService', () => {
     it('アップロードした内容とcontent-typeが一時コンテナに保存される', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
-      const result = await service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg');
+      const result = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
 
       expect(blobStore.get(keyFromUrl(result))).toEqual({
         content: imageBuffer,
@@ -210,7 +236,7 @@ describe('StorageService', () => {
     it('読み取り専用のSAS権限で署名する', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
-      await service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg');
+      await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
 
       // SASトークンは署名済みの不透明な文字列で、テストから権限や有効期限を
       // 復号できない。一方この2つはAzure Storageが検証する外部との契約であり、
@@ -230,7 +256,7 @@ describe('StorageService', () => {
       });
 
       // 生のURLを返すと静かに403になるため、失敗は伝播させる
-      await expect(service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg'))
+      await expect(service.uploadImageToTemp(imageBuffer, 'image/jpeg'))
         .rejects.toThrow(
           /^一時画像のアップロードに失敗しました: SAS URLの生成に失敗しました: credential unavailable$/
         );
@@ -243,7 +269,7 @@ describe('StorageService', () => {
         throw new Error('credential unavailable');
       });
 
-      await expect(service.uploadImageToTemp(imageBuffer, 'temp.jpg', 'image/jpeg'))
+      await expect(service.uploadImageToTemp(imageBuffer, 'image/jpeg'))
         .rejects.toThrow();
 
       // アップロードはSAS生成より先に完了しているため、

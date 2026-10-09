@@ -69,7 +69,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     const storageService = new StorageService();
     
     // 1. 画像を一時保存
-    const tempImageUrl = await storageService.uploadImageToTemp(imageBuffer, file.name, file.type);
+    const tempImageUrl = await storageService.uploadImageToTemp(imageBuffer, file.type);
     context.log(`一時保存完了: URL=${tempImageUrl}`);
 
     // 2. AI識別サービス初期化・植物判定実行

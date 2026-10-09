@@ -344,49 +344,6 @@ Function Key を持つ呼び出し元に限られるが、整合性の欠陥と�
 修正（dd5b31c）で浮かんだもので、修正自体がこの欠陥を作ったわけではない。
 パスセグメント一致に直したことで、コンテナの解決規則が明示的になり見つけやすくなった。
 
-### ファイル名の拡張子にパス区切りが通る
-
-`StorageService.extractFileExtension()` は最後のドット以降をそのまま拡張子として返す。
-
-```typescript
-const lastDotIndex = fileName.lastIndexOf('.');
-return lastDotIndex > 0 ? fileName.substring(lastDotIndex) : '';
-```
-
-渡される `fileName` は `upload.ts:72` の `file.name`、つまり**クライアントが自由に決められる値**。
-`/` を含んでいても弾かれないため、`p.jpg/x` というファイル名で次のようになる（実測）。
-
-| 段 | 値 |
-|---|---|
-| 抽出された拡張子 | `.jpg/x` |
-| 生成される Blob 名 | `<uuid>.jpg/x` |
-| SAS 署名に使われる名前 | `x`（`extractFileNameFromUrl()` が最後のセグメントを取る） |
-
-**Blob 名と署名対象がずれる。** 結果として:
-
-- SAS URL が実際の Blob に対して無効になり、Azure OpenAI が画像を取得できない
-- `moveFromTempToPermanent()` は `temp/x` を探して 404 になる
-- 失敗時の後片付け `deleteImage(tempImageUrl)` も `x` を消そうとして 404 →
-  404 を正常扱いするため `true` が返り、**`temp/<uuid>.jpg/x` が孤児として残る**
-
-情報漏洩や他レコードへの影響は確認できなかった。永続側への上書きも、
-末尾セグメントにドットが必要になるため成立しない（ドットがあれば
-`lastIndexOf('.')` が動いて `/` が落ちる）。**入力検証と堅牢性の問題**として扱う。
-
-**判断が必要な点**: 拡張子を検証するか、`file.name` を使うのをやめるか。
-
-**推奨**: **検証済みの Content-Type から拡張子を決める。**
-`upload.ts` は既に `StorageService.isValidImageContentType(file.type)` で
-Content-Type を検証しており（`FILE_UPLOAD.SUPPORTED_IMAGE_TYPES` の許可リスト）、
-そこから拡張子を引く表を持てば、クライアント由来の文字列が Blob 名に入らなくなる。
-
-`file.name` を使い続けるなら、拡張子を `/^\.[A-Za-z0-9]{1,5}$/` のような
-形で検証して、合わなければ拡張子なしとして扱う。ただし許可リストが
-2箇所（Content-Type と拡張子）に分かれるため、前者の方が整合する。
-
-`/security-review` の特定フェーズで浮かんだ項目。今回の変更で入った問題ではなく、
-未変更コードに元からあったもの。
-
 ### `getPlantById` の 404 catch 分岐が到達不能
 
 `api/src/services/cosmosService.ts` の `getPlantById()` は
@@ -537,6 +494,27 @@ CI のフィードバックを遅くする。単体テストの速さを守る�
 
 実データを作って消す必要があるため、本番とは別のテスト用コンテナか、
 テスト用 ID の接頭辞で後片付けする仕組みが要る。ここが設計のポイント。
+
+### `StorageService.uploadImage()` が未使用
+
+`api/src/services/storageService.ts` の `uploadImage()`（永続コンテナへ直接
+アップロードするメソッド）は、`api/src` と `mobile/lib` のどこからも呼ばれていない。
+
+`upload.ts` が使うのは `uploadImageToTemp()` → `moveFromTempToPermanent()` の経路だけ。
+一時保存して AI 判定を通してから永続化する設計（CLAUDE.md の「画像アップロードが
+3役を兼ねる設計」）なので、永続コンテナへ直接上げる経路は使われない。
+
+`storageService.test.ts` のテスト数件がこのメソッドを守っている状態。
+削除するならテストも同時に落とす。
+
+**判断が必要な点**: 削除してよいか。
+
+**推奨**: **削除する。** 使われないだけでなく、「AI 判定を通さずに永続化できる
+メソッド」が公開されている状態そのものが設計意図に反する。
+誰かがこれを使うと、植物でない画像が永続コンテナに入る経路ができる。
+
+死蔵コード4件（これ、`imageExists()`、`getPlantByName()`、
+`ApiService.uploadImage()`）は1つのコミットでまとめて落とすのが見通しがよい。
 
 ### `CosmosService.getPlantByName()` が未使用
 
