@@ -84,7 +84,7 @@ Terraform（`infrastructure/main.tf` の `azurerm_cosmosdb_sql_container.plants`
   表記は正規形に限定され、同じBlobを指す別表記（クエリ文字列やフラグメント付きなど）は
   保存できない。保存されるのは送られた文字列そのもので、下記の一意性確認も
   文字列の完全一致で行うため。
-  新規登録時はアプリケーション側で一意性も確認する（既存レコードと重複する場合は 409 `IMAGE_ALREADY_SAVED`）
+  新規登録時と更新時はアプリケーション側で一意性も確認する（既存レコードと重複する場合は 409 `IMAGE_ALREADY_SAVED`）
 - **createdAt/updatedAt**: ISO 8601形式の日時文字列
 
 ## 5. 機能別Cosmos DBクエリ
@@ -118,15 +118,17 @@ FROM c
 WHERE c.name = @name
 ```
 
-### 5.4 画像パスの重複確認（新規登録の前段）
+### 5.4 画像パスの重複確認（新規登録・更新の前段）
 ```sql
--- 同じ画像を参照するドキュメントの存在確認
+-- 同じ画像を参照するドキュメントの一覧
 SELECT * FROM c WHERE c.imagePath = @imagePath
 ```
 `POST /api/plants/save` はこのクエリを登録前に実行し、1件でも該当すれば
 409 `IMAGE_ALREADY_SAVED` を返して保存しません。
+`PUT /api/plants/{id}` も更新前に実行し、該当があり、そのどれも更新対象自身でなければ
+同じく 409 を返します（自分が既にその画像を持っていれば通す）。
 同じ `imagePath` のドキュメントが2件あると、一方の削除や画像更新で
-もう一方の画像まで消えてしまうためです（`CosmosService.getPlantByImagePath()`）。
+もう一方の画像まで消えてしまうためです（`CosmosService.getPlantsByImagePath()`）。
 
 ### 5.5 植物識別結果保存
 ```typescript
@@ -162,7 +164,7 @@ await container.item(plantId, plantId).replace(updatedPlant);
 
 ### 6.1 制約条件
 - **一意性制約**: id（UUIDで一意性保証）、imagePath（DBの制約ではなく
-  `POST /api/plants/save` がクエリで確認し、重複すれば 409 `IMAGE_ALREADY_SAVED`）
+  `POST /api/plants/save` と `PUT /api/plants/{id}` がクエリで確認し、重複すれば 409 `IMAGE_ALREADY_SAVED`）
 - **必須フィールド**: name, characteristics, confidence, imagePath, createdAt, updatedAt
 - **バリデーション**: アプリケーションレベルで実装
   - confidence: 0.0 ≤ confidence ≤ 100.0

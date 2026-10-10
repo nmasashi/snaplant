@@ -197,11 +197,13 @@ paths:
           $ref: '#/components/responses/PlantNotFound'
         '409':
           description: |
-            自分以外のレコードが同じ `imagePath` を使っている。
+            同じ `imagePath` のレコードがあり、そのどれも更新対象自身ではない。
 
             同じ `imagePath` のレコードが2つできると、一方の削除・更新で
             もう一方の画像まで消えるため、更新の入口で塞いでいる。
-            更新対象自身は除外するので、`imagePath` を変えずに更新しても 409 にはならない。
+            更新対象自身が既にその画像を持っていれば通すので、`imagePath` を変えずに
+            更新しても 409 にはならない。他に同じ画像のレコードが既に残っている場合も通す
+            （既存の重複を理由に自分の更新を拒むと、その更新が永久にできなくなるため）。
             Cosmos DB 側の 409 はこのエンドポイントでは変換していないため 500 になる。
           content:
             application/json:
@@ -708,7 +710,8 @@ components:
             満たさない場合は 400 `INVALID_REQUEST`
             （message: 画像アップロードAPIが返したURLを指定してください）。
             旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証している。
-            なお更新では `imagePath` の重複は検査しない（409 を返すのは `POST /plants/save` のみ）。
+            同じ画像のレコードがあり、そのどれも更新対象自身でない場合は 409 `IMAGE_ALREADY_SAVED`
+            （`PUT /plants/{id}` の 409 を参照）。
         confidence:
           type: number
           minimum: 0

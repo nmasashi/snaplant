@@ -309,10 +309,12 @@ Content-Type: application/json
 Blobエンドポイント・ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との完全一致）。
 旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証しています。
 
-`imagePath` の重複も 5.4 と同様に検査します。**更新対象自身は除外**するため、
-`imagePath` を変えずに他のフィールドだけ更新しても 409 にはなりません。
-自分以外のレコードが同じ `imagePath` を使っている場合は更新せず、
+`imagePath` の重複も 5.4 と同様に検査します。同じ `imagePath` のレコードがあり、
+**そのどれも更新対象自身ではない**場合は更新せず、
 409 `IMAGE_ALREADY_SAVED`（`この画像は既に保存されています`、`details` なし）を返します。
+更新対象自身が既にその画像を持っていれば通すので、`imagePath` を変えずに
+他のフィールドだけ更新しても 409 にはなりません。他に同じ画像のレコードが既に
+残っている場合も通します（既存の重複を理由に自分の更新を拒むと、その更新が永久にできなくなるため）。
 save 側だけ塞いでも PUT から同じ状態を作れるため、入口を揃えています。
 なお Cosmos DB 側が返す 409 はこのエンドポイントでは変換していないため 500 になります
 （5.4 の新規登録だけが 409 `DATABASE_ERROR` に変換します）。
@@ -329,7 +331,7 @@ Content-Type: application/json
 ```
 
 **処理詳細:**
-1. `imagePath` の重複確認（自分以外が同じ画像を使っていれば 409 で中断）
+1. `imagePath` の重複確認（同じ画像のレコードがあり、そのどれも自分でなければ 409 で中断）
 2. 既存ドキュメント取得（旧imagePathを保存。見つからなければ 404）
 3. ドキュメント更新（新しいimagePath・confidence）
 4. 旧画像ファイル削除（`imagePath` が変わった場合のみ。ストレージコスト最適化）
@@ -493,7 +495,7 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
 | 400 | `INVALID_REQUEST` | リクエスト形式が不正 | 全エンドポイント |
 | 400 | `NOT_A_PLANT` | アップロードされた画像は植物ではない | `POST /api/images/upload` |
 | 404 | `PLANT_NOT_FOUND` | 植物が見つからない | `/api/plants/{id}` 系 |
-| 409 | `IMAGE_ALREADY_SAVED` | 同じ `imagePath` のレコードが既に存在する | `POST /api/plants/save`<br>`PUT /api/plants/{id}`（自分以外が使っている場合） |
+| 409 | `IMAGE_ALREADY_SAVED` | 同じ `imagePath` のレコードが既に存在する | `POST /api/plants/save`<br>`PUT /api/plants/{id}`（該当がいずれも更新対象自身でない場合） |
 | 409 | `DATABASE_ERROR` | 保存時の競合（Cosmos DBの409） | `POST /api/plants/save` |
 | 413 | `FILE_TOO_LARGE` | ファイルサイズ超過 | `POST /api/images/upload` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | サポートされていないファイル形式 | `POST /api/images/upload` |
