@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:snaplant_mobile/models/api_response.dart';
 import 'package:snaplant_mobile/models/plant.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
 
@@ -13,16 +14,42 @@ import 'package:snaplant_mobile/services/api_service.dart';
 /// サーバの実際のヘッダに合わせる（charset なしの application/json）
 const _jsonHeaders = {'content-type': 'application/json'};
 
-ApiService _serviceReturning(int statusCode, Object body) {
+/// 指定したメソッドとパスへのリクエストにだけ応答する。
+/// 宛先を間違えた場合は 404 になるので、パスの誤りもテストで検出できる
+ApiService _serviceResponding(String method, String path, int statusCode, Object body) {
   return ApiService(
     baseUrl: 'https://api.example.test',
-    client: MockClient((_) async => http.Response(
-          body is String ? body : json.encode(body),
-          statusCode,
-          headers: _jsonHeaders,
-        )),
+    client: MockClient((request) async {
+      if (request.method != method || request.url.path != path) {
+        return http.Response('', 404);
+      }
+      return http.Response(body is String ? body : json.encode(body), statusCode, headers: _jsonHeaders);
+    }),
   );
 }
+
+/// サーバが返す植物ドキュメント（`docs/06_api_openapi.yaml` の Plant）
+Map<String, dynamic> _plantJson({String id = 'plant-1', double confidence = 95.0}) => {
+      'id': id,
+      'name': '桜',
+      'scientificName': 'Prunus serrulata',
+      'familyName': 'バラ科',
+      'description': '日本の代表的な花木',
+      'characteristics': '春に咲く',
+      'confidence': confidence,
+      'imagePath': 'https://stsnaplant.blob.core.windows.net/images/a.jpg',
+      'createdAt': '2026-10-01T09:00:00.000Z',
+      'updatedAt': '2026-10-02T09:00:00.000Z',
+    };
+
+const _identificationJson = {
+  'isPlant': true,
+  'confidence': 95.0,
+  'reason': '葉と花の形状から植物と判断',
+  'candidates': [
+    {'name': '桜', 'characteristics': '春に咲く', 'confidence': 95.0},
+  ],
+};
 
 const _createRequest = PlantCreateRequest(
   name: '桜',
@@ -75,11 +102,126 @@ void main() {
 
       expect(sentBody, contains('content-type: image/png'));
     });
+
+    test('アップロードはdataから保存先のURLと識別結果を取り出す', () async {
+      final file = File('${tempDir.path}/photo.jpg');
+      await file.writeAsBytes([0xFF, 0xD8, 0xFF, 0xE0, ...List.filled(32, 0)]);
+      final service = _serviceResponding('POST', '/api/images/upload', 201, {
+        'success': true,
+        'data': {
+          'imagePath': 'https://stsnaplant.blob.core.windows.net/images/saved.jpg',
+          'fileName': 'plant_image.jpg',
+          'contentType': 'image/jpeg',
+          'fileSize': 36,
+          'identificationResult': _identificationJson,
+        },
+      });
+
+      final result = await service.uploadAndIdentifyImage(file);
+
+      expect((result['uploadResult'] as UploadResult).imagePath, 'https://stsnaplant.blob.core.windows.net/images/saved.jpg');
+      expect((result['identificationResult'] as IdentificationResult).candidates.map((c) => c.name), ['桜']);
+    });
+  });
+
+  // 封筒 { success, data } の内側のキーはエンドポイントごとに違う（CLAUDE.md の表）。
+  // 過去に data を剥がし忘れて fromJson が失敗したことがあるため、全エンドポイントで固定する
+  group('成功レスポンスの封筒を剥がす', () {
+    test('一覧はdata.plantsから植物の要約を取り出す', () async {
+      final service = _serviceResponding('GET', '/api/plants', 200, {
+        'success': true,
+        'data': {
+          'plants': [
+            {
+              'id': 'plant-1',
+              'name': '桜',
+              'characteristics': '春に咲く',
+              'imagePath': 'https://stsnaplant.blob.core.windows.net/images/a.jpg',
+              'confidence': 95.0,
+              'createdAt': '2026-10-01T09:00:00.000Z',
+            },
+          ],
+          'total': 1,
+        },
+      });
+
+      final plants = await service.getPlants();
+
+      expect(plants.map((p) => p.name), ['桜']);
+    });
+
+    test('詳細はdata.plantから植物を取り出す', () async {
+      final service = _serviceResponding('GET', '/api/plants/plant-1', 200, {
+        'success': true,
+        'data': {'plant': _plantJson()},
+      });
+
+      final plant = await service.getPlant('plant-1');
+
+      expect(plant.id, 'plant-1');
+    });
+
+    test('保存はdata.plantから保存された植物を取り出す', () async {
+      final service = _serviceResponding('POST', '/api/plants/save', 201, {
+        'success': true,
+        'data': {'plant': _plantJson(id: 'plant-new')},
+      });
+
+      final plant = await service.savePlant(_createRequest);
+
+      expect(plant.id, 'plant-new');
+    });
+
+    test('更新はdata.plantから更新後の植物を取り出す', () async {
+      final service = _serviceResponding('PUT', '/api/plants/plant-1', 200, {
+        'success': true,
+        'data': {'plant': _plantJson(confidence: 88.0)},
+      });
+
+      final plant = await service.updatePlant(
+        'plant-1',
+        'https://stsnaplant.blob.core.windows.net/images/b.jpg',
+        88.0,
+      );
+
+      expect(plant.confidence, 88.0);
+    });
+
+    test('識別はdata.resultから識別結果を取り出す', () async {
+      final service = _serviceResponding('POST', '/api/plants/identify', 200, {
+        'success': true,
+        'data': {'result': _identificationJson},
+      });
+
+      final result = await service.identifyPlant('https://stsnaplant.blob.core.windows.net/temp-images/a.jpg');
+
+      expect(result.candidates.map((c) => c.name), ['桜']);
+    });
+
+    test('重複確認はdataそのものを結果として読む', () async {
+      final service = _serviceResponding('GET', '/api/plants/check-duplicate', 200, {
+        'success': true,
+        'data': {
+          'exists': true,
+          'plant': {
+            'id': 'plant-1',
+            'name': '桜',
+            'imagePath': 'https://stsnaplant.blob.core.windows.net/images/a.jpg',
+            'confidence': 95.0,
+            'createdAt': '2026-10-01T09:00:00.000Z',
+          },
+        },
+      });
+
+      final result = await service.checkDuplicate('桜');
+
+      expect(result.plant?.id, 'plant-1');
+    });
   });
 
   group('エラーレスポンス', () {
     test('サーバが返したエラーコードとメッセージを例外が保持する', () async {
-      final service = _serviceReturning(409, {
+      final service = _serviceResponding('POST', '/api/plants/save', 409, {
         'success': false,
         'error': {
           'code': 'IMAGE_ALREADY_SAVED',
@@ -96,7 +238,7 @@ void main() {
 
     test('封筒の形でないエラーボディでもステータスを添えた日本語のメッセージを返す', () async {
       // Azure のフロントが返す HTML など、アプリの封筒を経由しないエラー
-      final service = _serviceReturning(413, '<html><body>Request Entity Too Large</body></html>');
+      final service = _serviceResponding('POST', '/api/plants/save', 413, '<html><body>Request Entity Too Large</body></html>');
 
       final error = await _captureApiException(() => service.savePlant(_createRequest));
 
@@ -107,7 +249,7 @@ void main() {
 
   group('ユーザー向けメッセージ', () {
     test('409はサーバが返した日本語のメッセージをそのまま表示する', () async {
-      final service = _serviceReturning(409, {
+      final service = _serviceResponding('POST', '/api/plants/save', 409, {
         'success': false,
         'error': {
           'code': 'IMAGE_ALREADY_SAVED',
@@ -121,7 +263,7 @@ void main() {
     });
 
     test('503は接続できない状態なので時間を置いた再試行を促す', () async {
-      final service = _serviceReturning(503, {
+      final service = _serviceResponding('POST', '/api/plants/save', 503, {
         'success': false,
         'error': {
           'code': 'DATABASE_ERROR',
@@ -135,7 +277,7 @@ void main() {
     });
 
     test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {
-      final service = _serviceReturning(502, {
+      final service = _serviceResponding('POST', '/api/plants/identify', 502, {
         'success': false,
         'error': {
           'code': 'AI_SERVICE_ERROR',
