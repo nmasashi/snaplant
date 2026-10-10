@@ -176,7 +176,7 @@ WSL から実行できないため、人間が Windows 側で回すまで検証�
 - 先に141件を解消する（アーキテクチャ方針の決定と重なる作業）
 - `--no-fatal-infos` / `--no-fatal-warnings` で当面エラーのみを失敗条件にする
 
-`flutter test` は通る（2026-10-11 時点で23本。#2 で `ApiService` と保存画面のテストを追加）。
+`flutter test` は通る（2026-10-11 時点で27本。#2 で `ApiService` と保存画面のテストを追加）。
 
 ### `ApiService.identifyPlant()` が未使用
 
