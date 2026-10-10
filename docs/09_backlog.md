@@ -447,12 +447,20 @@ test-reviewer が変異で確認した。
 （503 / `AI_SERVICE_ERROR` / `植物識別サービスに接続できません`）は
 **OpenAI 経路では発火しない。**
 
-`api/node_modules/openai/core/error.js` を読むと、`APIError` の
-コンストラクタが `this.code = data?.['code']` で、`APIConnectionError` は
-`super(undefined, undefined, 'Connection error.', undefined)` を呼ぶ。
-つまり **`code` は常に `undefined`** で、元の DNS エラー
-（`code: 'ENOTFOUND'` を持つ）は `cause` に入る。
-`wrapError()` は `cause.code` しか見ておらず `cause.cause` は辿らない。
+**実測したチェーン**（openai 7.x / Node 20+ の native fetch。
+実際に名前解決できないホストへ接続して確認、2026-10-10）:
+
+```
+深さ0  APIConnectionError      code=undefined   "Connection error."
+深さ1  TypeError               code=undefined   "fetch failed"
+深さ2  Error                   code="ENOTFOUND"
+```
+
+`APIConnectionError` は自分では `code` を設定しない
+（`super(undefined, undefined, 'Connection error.', undefined)` を呼び、
+`APIError` が `this.code = data?.['code']` とするため）。
+さらに undici の `fetch` が `TypeError: fetch failed` を1枚挟むため、
+**errno は2段奥にある**。`wrapError()` は `cause.code` しか見ないので undefined のまま。
 
 **実行時の症状**: Azure OpenAI のホスト名が解決できないとき
 `POST /api/plants/identify` は 503 ではなく **500 `INTERNAL_ERROR`**
@@ -461,27 +469,53 @@ test-reviewer が変異で確認した。
 クライアントは 500/502/503 を同じ扱いにするのでユーザー向けの表示は
 変わらないが、監視と再試行判断の精度が落ちる。
 
-対照的に **`upload` の 503 は確実に到達する**。Azure の transport は
-`RestError` に `code: err.code ?? ...` で errno を載せるため
-（`@typespec/ts-http-runtime` の `nodeHttpClient.js`）、
-`wrapError()` がそれを引き継ぐ。
-**つまり 54ae670 の修正が実際に効いているのは Storage 経路だけ。**
+対照的に **`upload` の Storage 経路の 503 は確実に到達する**。Azure の transport は
+`RestError` に `code: err.code ?? ...` で errno を**直接**載せるため
+（`@typespec/ts-http-runtime` の `nodeHttpClient.js`）、`wrapError()` が引き継ぐ。
+**つまり 54ae670 の修正が効いているのは Storage 経路だけ。**
 
-`identify.ts` のコメントは「包み直しで `code` を捨てるため到達しない」と
-書いており、54ae670 でその理由は成立しなくなった。
-**結論（到達しない）は別の理由で依然正しい**が、根拠が古い。
+**一度 revert した経緯**: `6c4bbda` で `cause?.code ?? cause?.cause?.code` と
+一段だけ辿る修正を入れたが、上記のとおり errno は2段奥なので**本番では効かなかった**。
+テストが通ったのは `cause` を1段だけ持つ、**実SDKが作らない形**で検証していたため。
+クラウドレビューの指摘を受けて実測し、revert した。
 
 **判断が必要な点**: サーバを直すか、分岐を削るか。
 
-**推奨**: **サーバを直す。** `wrapError()` が `cause.code` が無いときに
-`cause.cause?.code` を辿るようにするのが変更範囲が最も狭い
-（`StorageService` 側は `code` を直接持つので影響なし）。
-`error instanceof OpenAI.APIConnectionError` で判定する案もあるが、
-ハンドラが SDK の型に依存することになる。
+**推奨**: **サーバを直す。** ただし下記2点を**同時に**満たすこと。
+
+1. **`cause` チェーンを深さ上限付きで辿る。** 一段では足りない。
+   循環参照の保護も入れる（`Error.cause` は任意のオブジェクトを取れる）
+2. **`upload.ts` の分類も同時に直す。** ここが落とし穴で、
+   1だけ直すと `upload` 経路で **OpenAI の障害が `STORAGE_ERROR`（503）として
+   報告される**。`upload.ts` の catch は「ネットワークエラー」分岐
+   （`STORAGE_ERROR`）をメッセージによる `Storage` 判定より先に評価し、
+   かつ包み直したメッセージ（`植物識別に失敗しました: Connection error.`）は
+   `includes('OpenAI')` にも `includes('LLM')` にも当たらないため、
+   AI 由来の障害が Storage 由来として分類される。
+   監視やアラートが `ErrorCode` を見ている場合、**Storage を調べに行かせてしまう**
+
+2の対策は、AI 由来かどうかを判定してから接続障害かを見る二段構えにするか、
+`upload.ts` の AI 呼び出し部分を独立した `try`/`catch` に分けて
+文字列判定そのものをやめるか。後者の方が堅いが変更範囲は広い。
 
 仕様書（`06_api_openapi.yaml` / `06_api_design.md`）は分岐が実装されている
 前提で 503 を記載している。実装を直せば記述も正しくなる。
 **分岐を削る選択を採る場合は仕様書の 503 の記載も消すこと。**
+
+### 接続障害の判定が8箇所に複製されている
+
+`error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED'` が
+`checkDuplicate.ts:60` / `plantDetail.ts:54` / `plantDetail.ts:107` /
+`identify.ts:91` / `updatePlant.ts:85` / `plants.ts:35` / `save.ts:83` の7箇所、
+`upload.ts:156` は `ETIMEDOUT` を足した3code版で、**合計8箇所**にある。
+
+手で写しているので**既にずれている**（上記「`ETIMEDOUT` を 503 に分類するのは
+`upload` だけ」がその結果）。
+
+**推奨**: `utils/errors.ts` の `wrapError()` の隣に
+`isConnectivityError(error)` を切り出し、8箇所すべてから呼ぶ。
+`ETIMEDOUT` の追加と `identify` の 503 の修正は同じ述語に触るので、
+**3件まとめて1つの作業単位にするのが効率的**。
 
 ### `ETIMEDOUT` を 503 に分類するのは `upload` だけ
 
