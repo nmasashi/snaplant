@@ -697,6 +697,75 @@ describe('画像アップロード・植物判定統合API', () => {
     });
   });
 
+  describe('植物でない画像の判定', () => {
+    // この describe 内の全テストで共通：AIが「植物ではない」と判定する応答に差し替える。
+    // validateImage()はURL形式のみを見てOpenAIを呼ばないため、このモックの影響を受けない
+    beforeEach(() => {
+      mockOpenAI.chat.completions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: false,
+              confidence: 8.2,
+              reason: '画像に写っているのは猫で、植物ではないと判定しました',
+              plantAnalysis: null
+            })
+          }
+        }]
+      });
+    });
+
+    function buildNotPlantRequest(): HttpRequest {
+      const mockFile = {
+        name: 'cat.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
+      };
+
+      return {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+    }
+
+    it('植物でない画像をアップロードするとNOT_A_PLANTエラーが返る', async () => {
+      // 実行
+      const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
+
+      // 検証（レスポンス全文）
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'NOT_A_PLANT',
+          message: 'アップロードされた画像は植物ではありません',
+          details: '植物の画像を選択して再度お試しください'
+        }
+      });
+    });
+
+    it('植物でない画像をアップロードすると一時ファイルが削除される', async () => {
+      // 実行
+      await uploadImageHandler(buildNotPlantRequest(), mockContext);
+
+      // 検証（状態。このテストで一時コンテナに書き込まれるのはアップロードした1件のみなので、
+      // サイズ0は「一時ファイルが削除され、かつ永続コンテナにも何も移動していない」ことを示す）
+      expect(blobStore.size).toBe(0);
+    });
+  });
+
   describe('Azure Storage エラー', () => {
     it('Storageエラーの場合は502エラー', async () => {
       // Azure Storage エラーのモック（一時保存のアップロードで発生させる）
