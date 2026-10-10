@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { LLMAnalysisResult, IdentificationResult } from "../types/plant";
+import { wrapError } from "../utils/errors";
 
 /**
  * 応答の構造を強制する JSON Schema（Structured Outputs）
@@ -125,7 +126,7 @@ export class OpenAIVisionService {
 						: [],
 			};
 		} catch (error: any) {
-			throw new Error(`植物識別に失敗しました: ${error.message}`);
+			throw wrapError(`植物識別に失敗しました: ${error.message}`, error);
 		}
 	}
 

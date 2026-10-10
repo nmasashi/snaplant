@@ -148,22 +148,26 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
       );
     }
 
-    // Azure Storage関連エラー
-    if (error.message.includes('Storage') || error.code === 'ENOTFOUND') {
-      return createErrorResponse(
-        ErrorCode.STORAGE_ERROR,
-        'ストレージサービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
-    }
-
     // ネットワークエラー
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+    // ENOTFOUND（名前解決の失敗）はサービスに到達できていないので、
+    // 上流が不正な応答を返した 502 ではなく 503 に分類する。
+    // 他の6つのハンドラも ENOTFOUND を 503 として扱っており、ここだけ
+    // 502 になっていたためクライアントの再試行判断が揃わなかった
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
       return createErrorResponse(
         ErrorCode.STORAGE_ERROR,
         'ストレージサービスに接続できません',
         HttpStatusCode.SERVICE_UNAVAILABLE,
+        error.message
+      );
+    }
+
+    // Azure Storage関連エラー
+    if (error.message.includes('Storage')) {
+      return createErrorResponse(
+        ErrorCode.STORAGE_ERROR,
+        'ストレージサービスでエラーが発生しました',
+        HttpStatusCode.BAD_GATEWAY,
         error.message
       );
     }

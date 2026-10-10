@@ -1,6 +1,7 @@
 import { BlobServiceClient, BlockBlobClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { v4 as uuidv4 } from 'uuid';
 import { FILE_UPLOAD } from '../constants/validation';
+import { wrapError } from '../utils/errors';
 
 /**
  * 接続文字列から自アカウントのBlobエンドポイントのホストを組み立てる
@@ -107,7 +108,7 @@ export class StorageService {
       }
       
     } catch (error: any) {
-      throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
+      throw wrapError(`一時画像のアップロードに失敗しました: ${error.message}`, error);
     }
   }
 
@@ -153,7 +154,7 @@ export class StorageService {
       return permanentBlockBlobClient.url;
 
     } catch (error: any) {
-      throw new Error(`画像の永続保存への移動に失敗しました: ${error.message}`);
+      throw wrapError(`画像の永続保存への移動に失敗しました: ${error.message}`, error);
     }
   }
 
@@ -219,7 +220,7 @@ export class StorageService {
       if (error.statusCode === 404) {
         return true;
       }
-      throw new Error(`画像の削除に失敗しました: ${error.message}`);
+      throw wrapError(`画像の削除に失敗しました: ${error.message}`, error);
     }
   }
 
@@ -272,7 +273,7 @@ export class StorageService {
       // 生のURLを返しても静かに403になるだけでフォールバックの意味がない。
       // SAS URLはAzure OpenAIが非公開Blobを読むために必要なので、
       // 生成できない場合は原因に近い場所で失敗させる
-      throw new Error(`SAS URLの生成に失敗しました: ${error.message}`);
+      throw wrapError(`SAS URLの生成に失敗しました: ${error.message}`, error);
     }
   }
 

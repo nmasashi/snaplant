@@ -841,5 +841,57 @@ describe('画像アップロード・植物判定統合API', () => {
       // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
       expect(blobStore.size).toBe(0);
     });
+
+    it('一時保存がENOTFOUNDで失敗した場合は503エラー', async () => {
+      // codeを持つネットワークエラーのモック（一時保存のアップロードで発生させる）。
+      // StorageService.uploadImageToTemp が元の error.code を引き継いで包み直せば、
+      // upload.ts の「ネットワークエラー」分岐（ENOTFOUND || ECONNREFUSED || ETIMEDOUT、503）
+      // に到達するはず。現状は catch で `throw new Error(...)` と包み直す際に
+      // 元の error.code が失われるため、どの分岐にも当たらず最終フォールバック（500）に落ちる
+      const networkError: any = new Error('getaddrinfo ENOTFOUND storagetest.blob.core.windows.net');
+      networkError.code = 'ENOTFOUND';
+      backend.forcedUploadError = networkError;
+
+      // ファイルオブジェクトのモック
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return null;
+          return null;
+        })
+      };
+
+      // リクエストの作成
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(503);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'STORAGE_ERROR',
+          message: 'ストレージサービスに接続できません',
+          details: '一時画像のアップロードに失敗しました: getaddrinfo ENOTFOUND storagetest.blob.core.windows.net'
+        }
+      });
+      // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
+      expect(blobStore.size).toBe(0);
+    });
   });
 });
