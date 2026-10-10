@@ -1,95 +1,63 @@
-/// API レスポンスの基本構造
+/// API レスポンスの封筒
+///
+/// サーバ（`api/src/utils/response.ts`）はすべてのレスポンスをこの形で返す。
+/// - 成功: `{ success: true, data }`
+/// - 失敗: `{ success: false, error: { code, message, details? } }`
 class ApiResponse<T> {
   final bool success;
   final T? data;
-  final String? error;
-  final String? message;
+  final ApiError? error;
 
   const ApiResponse({
     required this.success,
     this.data,
     this.error,
-    this.message,
   });
-
-  factory ApiResponse.success(T data, [String? message]) {
-    return ApiResponse(
-      success: true,
-      data: data,
-      message: message,
-    );
-  }
-
-  factory ApiResponse.error(String error, [String? message]) {
-    return ApiResponse(
-      success: false,
-      error: error,
-      message: message,
-    );
-  }
 
   factory ApiResponse.fromJson(
     Map<String, dynamic> json,
     T Function(dynamic) fromJsonT,
   ) {
     return ApiResponse(
-      success: json['success'] as bool? ?? true,
+      success: json['success'] as bool,
       data: json['data'] != null ? fromJsonT(json['data']) : null,
-      error: json['error'] as String?,
-      message: json['message'] as String?,
+      error: json['error'] != null
+          ? ApiError.fromJson(json['error'] as Map<String, dynamic>)
+          : null,
     );
-  }
-
-  Map<String, dynamic> toJson(dynamic Function(T) toJsonT) {
-    return {
-      'success': success,
-      'data': data != null ? toJsonT(data as T) : null,
-      'error': error,
-      'message': message,
-    };
   }
 
   @override
   String toString() {
-    return 'ApiResponse(success: $success, data: $data, error: $error, message: $message)';
+    return 'ApiResponse(success: $success, data: $data, error: $error)';
   }
 }
 
-/// API エラー詳細
+/// API エラー詳細（封筒の `error`）
+///
+/// ステータスコードはボディに含まれないため、ここには持たない。
 class ApiError {
   final String code;
   final String message;
-  final String? detail;
-  final int statusCode;
+  final String? details;
 
   const ApiError({
     required this.code,
     required this.message,
-    this.detail,
-    required this.statusCode,
+    this.details,
   });
 
   factory ApiError.fromJson(Map<String, dynamic> json) {
     return ApiError(
       code: json['code'] as String,
       message: json['message'] as String,
-      detail: json['detail'] as String?,
-      statusCode: json['statusCode'] as int,
+      details: json['details'] as String?,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'code': code,
-      'message': message,
-      'detail': detail,
-      'statusCode': statusCode,
-    };
   }
 
   @override
   String toString() {
-    return 'ApiError(code: $code, message: $message, statusCode: $statusCode)';
+    return 'ApiError(code: $code, message: $message)';
   }
 }
 

@@ -631,7 +631,23 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
         _isCheckingDuplicate = false;
       });
 
-      final errorMessage = e is ApiException 
+      // 既に図鑑にある画像なので、保存が済んでいる状態として一覧へ戻す。
+      // エラー扱いにすると、ユーザーが保存を繰り返しても毎回 409 になり抜け出せない
+      if (e is ApiException && e.isImageAlreadySaved) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: AppColors.info,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+        return;
+      }
+
+      final errorMessage = e is ApiException
           ? e.userMessage 
           : '植物の保存に失敗しました';
 

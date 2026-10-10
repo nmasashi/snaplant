@@ -50,11 +50,7 @@ class ApiService {
       final jsonData = json.decode(response.body) as Map<String, dynamic>;
       return fromJson(jsonData);
     } else {
-      throw ApiException(
-        statusCode: response.statusCode,
-        message: 'API request failed',
-        body: response.body,
-      );
+      throw ApiException.fromResponse(response);
     }
   }
   
@@ -538,19 +534,52 @@ class ApiService {
 /// API例外クラス
 class ApiException implements Exception {
   final int statusCode;
+
+  /// サーバが封筒の `error.code` で返したエラーコード。封筒を読めなかった場合は null
+  final String? code;
   final String message;
   final String? body;
-  
+
   const ApiException({
     required this.statusCode,
+    this.code,
     required this.message,
     this.body,
   });
-  
+
+  /// 非 2xx のレスポンスから例外を作る
+  ///
+  /// サーバのエラーは `{ success: false, error: { code, message } }` の封筒で返る。
+  /// ただし 401 は Azure Functions ランタイムが返すため封筒にならないなど、
+  /// 読めないボディもありうるので、その場合はステータスだけを持たせる。
+  factory ApiException.fromResponse(http.Response response) {
+    ApiError? error;
+    try {
+      final envelope = ApiResponse<void>.fromJson(
+        json.decode(response.body) as Map<String, dynamic>,
+        (_) {},
+      );
+      error = envelope.error;
+    } catch (_) {
+      error = null;
+    }
+    return ApiException(
+      statusCode: response.statusCode,
+      code: error?.code,
+      message: error?.message ?? 'サーバーでエラーが発生しました（ステータス: ${response.statusCode}）',
+      body: response.body,
+    );
+  }
+
   bool get isNetworkError => statusCode == 0;
   bool get isAuthError => statusCode == 401;
   bool get isNotFound => statusCode == 404;
-  bool get isServerError => statusCode >= 500;
+
+  /// 同じ画像が既に保存されている（409 `IMAGE_ALREADY_SAVED`）
+  ///
+  /// 保存に成功したがレスポンスが届かずに再送した場合に起きる。
+  /// 同じ 409 でも `DATABASE_ERROR` は本当の失敗なので、ステータスではなくコードで判定する
+  bool get isImageAlreadySaved => code == 'IMAGE_ALREADY_SAVED';
   
   @override
   String toString() {
@@ -566,12 +595,15 @@ class ApiException implements Exception {
         return 'APIキーが無効です。設定を確認してください。';
       case 404:
         return '要求されたデータが見つかりません。';
-      case 429:
-        return 'リクエスト数が制限を超えました。しばらく待ってから再試行してください。';
       case 500:
-      case 502:
-      case 503:
         return 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
+      // サーバは 502 と 503 の意味を分けている。502 は上流（AI・ストレージ）に到達したが
+      // エラー応答だった状態で、すぐ再試行しても同じ結果になりやすい。
+      // 503 は上流に到達できなかった状態で、時間を置けば回復しうる
+      case 502:
+        return '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。';
+      case 503:
+        return 'サービスに一時的に接続できません。しばらく待ってから再試行してください。';
       default:
         return message;
     }
