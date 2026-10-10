@@ -367,6 +367,92 @@ Azurite を導入すると「本番と同じ検証ロジックが通らない」
 導入するとしたら、[Cosmos の SQL を検証する層](#cosmos-の-sql-を検証する層がない)と
 同じ「ローカルにエミュレータを揃えるか」という文脈でまとめて判断したい。
 
+### Flutter が 409 を英文のまま表示し、リトライから回復できない
+
+`mobile/lib/services/api_service.dart` の `_parseResponse()` は、非 2xx で
+**封筒を一切読まない**。
+
+```dart
+throw ApiException(
+  statusCode: response.statusCode,
+  message: 'API request failed',   // 固定の英文
+  body: response.body,              // 封筒は文字列として保持するだけ
+);
+```
+
+`ApiException.userMessage` の `switch` は 0 / 401 / 404 / 429 / 500 / 502 / 503 だけを
+扱い、**409 は `default` に落ちて `message` をそのまま返す**。
+`identification_screen.dart` の `_savePlant()` の catch は `e.userMessage` を
+スナックバーに出す。
+
+**実行時にどうなるか**: 保存に成功したがレスポンスが届かず、ユーザーが
+もう一度「保存」を押すと、**赤いスナックバーに英語の `API request failed` が出る**。
+保存自体は成功しているのに失敗したように見え、ユーザーは同じ操作を繰り返す
+（毎回409）。`Navigator.pop(context, true)` に到達しないため一覧へ戻らず、
+「既に図鑑にある」ことにも気づけない。
+
+409 は以前も Cosmos の制約エラーで起こり得たが稀だった。
+**491c855 で `save` が重複を 409 で拒むようにしたため、到達頻度が大きく上がった。**
+既存の穴だが、実質的には今回の変更が招いた問題として扱うべき。
+
+**判断が必要な点**: どこまで直すか。
+
+**推奨**: **クライアント側を直す。** サーバは意図どおり（`id` を返さない設計の
+根拠は 491c855 に記録済み）。最小の修正は次の2つ。
+
+1. `ApiException` にサーバの `error.code` / `error.message` を持たせる
+2. `savePlant()` が 409 `IMAGE_ALREADY_SAVED` のときは「この画像は既に
+   保存されています」を表示して一覧へ戻す（成功相当に扱う）
+
+仕様どおり「既存レコードを `GET /api/plants` から探す」までやるかは設計判断。
+
+Dart の変更なので WSL では検証できない。
+[Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
+`ApiException` に封筒を読ませる改修は、下記
+[`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
+と同時にやるのが自然。
+
+### `save` の重複チェックは read-then-write で同時リクエストに効かない
+
+`api/src/functions/save.ts` は `getPlantByImagePath()` でクエリしてから
+`createPlant()` するだけで、トランザクションも一意制約もない。
+
+同じ `imagePath` の `save` が**ほぼ同時に**2件届くと両方が通り、重複レコードが
+できる（その後どちらかを削除・更新すると他方の画像が消えるという元の不具合が残る）。
+
+**491c855 のコミットメッセージに「入口で一意性を保証する」と書いたが、
+これは言い過ぎだった。** 逐次のリトライには有効だが、並行リクエストには
+当てはまらない。
+
+Terraform の `azurerm_cosmosdb_sql_container.plants` に `unique_key` ブロックは無い。
+あっても Cosmos の一意キーは**パーティション内でしか効かない**ため、
+パーティションキーが `/id` の現構成では `imagePath` の一意制約を張れない。
+
+**判断が必要な点**: 対処するか。
+
+**推奨**: **当面は現状のまま。** モバイルの手動リトライには時間差があるため
+実害が小さい。根本解決にはパーティションキーの変更という設計変更が必要で、
+得られるものに対してコストが大きい。
+
+### `api_response.dart` の型がサーバの封筒と合っていない
+
+`mobile/lib/models/api_response.dart` の `ApiError.fromJson` は
+`detail`（サーバは `details`）と `statusCode`（サーバはボディに含めない）を
+必須で読む。`ApiResponse.fromJson` は `json['error'] as String?` と、
+エラーをオブジェクトではなく**文字列**として扱う。
+
+サーバの封筒は `{ success, error: { code, message, details? } }`。
+
+`lib` / `test` 配下に参照箇所が1つも無いため**現時点では何も起きない。**
+使い始めた瞬間に `statusCode` の null キャストで例外になる。
+
+**判断が必要な点**: 削除するか、書き直すか。
+
+**推奨**: **書き直す。** 上記
+[Flutter が 409 を英文のまま表示する](#flutter-が-409-を英文のまま表示しリトライから回復できない)
+の対応で「`error.code` を読む」経路を作るので、そのときに正しい形に直して使うのが自然。
+使われていないからといって削除すると、同じものを書き直すことになる。
+
 ### Web 経路が実際の MIME を無視して image/jpeg を送る
 
 `mobile/lib/services/api_service.dart:133-140` の Web 経路は、画像の実データに

@@ -111,6 +111,8 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 
 Blob Storage のコンテナは2つで役割が違う：`images`（永続・公開 URL）と `temp`（一時・SAS 付き URL）。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返し、コンテナはパスの最初のセグメントが一時コンテナ名と完全一致するかで決める。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
 
+**接続文字列に `BlobEndpoint=` があるとコンストラクタが例外を投げる**（未対応）。SDK はそのエンドポイントを使う一方で `StorageService` は `AccountName` と `EndpointSuffix` からホストを組み立てるため、食い違うと自分が生成した URL を自分で弾いて孤児 Blob が残る。Azurite はこの形式なので使えない。
+
 ### レスポンス規約
 
 すべてのハンドラは `utils/response.ts` のヘルパー経由でレスポンスを作る。生の `HttpResponseInit` を手書きしない。
@@ -124,6 +126,10 @@ Blob Storage のコンテナは2つで役割が違う：`images`（永続・公�
 ### Cosmos DB
 
 パーティションキーは `/id`（Terraform で定義）。そのため単一ドキュメント操作は `container.item(id, id)` と id を2回渡す形になる。`CosmosService` は `StorageService` を内部に持つ。`updatePlant()` で `imagePath` が変わった場合のみ旧画像を Blob から削除する。`deletePlant()` も削除前に `imagePath` を読んで画像を削除する。**どちらも Blob 削除の失敗はログだけ出してドキュメント操作は成功扱いにする。**
+
+この「`imagePath` の Blob を無条件に削除する」性質があるため、**同じ `imagePath` を持つレコードが2つあると一方の削除で他方の画像が消える**。そのため `save` は `getPlantByImagePath()` で重複を確認し、既にあれば 409 + `IMAGE_ALREADY_SAVED` を返す（`PUT` では検査しない）。発生経路はリトライで、保存に成功したがレスポンスが届かず同じ `imagePath` で再送されるケース。
+
+**ただしこれは read-then-write なので、ほぼ同時に届いた2件には効かない。** パーティションキーが `/id` のため Cosmos の一意キーでは `imagePath` の制約を張れず、根本解決には設計変更が必要（バックログに記録済み）。
 
 ### OpenAI 呼び出し
 
@@ -143,7 +149,13 @@ Structured Outputs（`response_format: json_schema`, `strict: true`）で応答�
 アップロード検証の失敗は 400 ではなく専用のステータスを返す：形式不正は 415 + `UNSUPPORTED_MEDIA_TYPE`、
 サイズ超過は 413 + `FILE_TOO_LARGE`。ファイル未指定や Content-Type 不正は 400 + `INVALID_REQUEST`。
 
-`imagePath` は `save` と `updatePlant` で**自ストレージアカウントのホストかつ永続コンテナを指す URL** であることを検証する（`StorageService.isValidImagePath()`）。アップロード API が返した URL 以外は 400 になる。これは外部ホストの URL を保存して更新時の旧画像削除を発火させ、他レコードの Blob を消す経路を塞ぐためで、**入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている**。片方だけ緩めないこと。
+`imagePath` は `save` と `updatePlant` で `StorageService.isValidImagePath()` により**3条件すべて**を検証する。アップロード API が返した URL 以外は 400 になる。
+
+1. スキームが `https:`
+2. ホストが自ストレージアカウントの Blob エンドポイント
+3. パスが**ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント**
+
+3つは独立した条件にしてある。過去に「URL の一部を無視する」誤りを3回繰り返したため、1つが緩んでも他が残るようにしている。これは外部ホストの URL を保存して更新時の旧画像削除を発火させ、他レコードの Blob を消す経路を塞ぐためで、**入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている**。片方だけ緩めないこと。
 
 Blob 名の拡張子は**検証済みの Content-Type から引く**（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`）。クライアントが送るファイル名からは取らない。`/` を含む名前で拡張子にパス区切りが紛れ込み、Blob 名と SAS の署名対象がずれるため。`upload` のレスポンスの `fileName` はクライアントが送った名前をそのまま返すもので、**Blob 名とは別物**。
 
@@ -406,7 +418,9 @@ API を変更したら、あわせて更新する対象：
 
 ### クライアント実装で踏みやすい罠
 
-API のレスポンスは必ず `{ success, data }` の封筒に包まれている。
+**`_parseResponse()` は非 2xx では封筒を一切読まない。** `ApiException` に固定の英文 `'API request failed'` を入れて投げるだけで、`error.code` も `error.message` も読まない。`userMessage` の `switch` も 409 を扱っていないため、**サーバが返した日本語のメッセージはユーザーに届かない**。`error.code` に依存した分岐はクライアントに存在しないので、新しいエラーコードを足してもクライアントは区別できない（バックログに記録済み）。
+
+以下は 2xx の場合の話。API のレスポンスは必ず `{ success, data }` の封筒に包まれている。
 Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに渡すため、
 各メソッドが自分で `json['data']` を剥がす必要がある。これを忘れると実行時に
 `fromJson` がキーを見つけられず失敗する（過去に `identifyPlant()` と `uploadImage()` で発生）。
