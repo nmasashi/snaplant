@@ -548,4 +548,60 @@ describe('StorageService', () => {
       expect(StorageService.isValidFileSize(10485761)).toBe(false); // 上限を1バイト超過
     });
   });
+
+  describe('isValidImagePath - 静的メソッド', () => {
+    // beforeEach で設定した環境変数（ホスト test.blob.core.windows.net、
+    // 永続コンテナ test-images）を基準に、自アカウントの永続コンテナを指す
+    // URLだけを受理することを検証する
+
+    it('自アカウント以外のホストを指すURLの場合、falseを返す', () => {
+      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
+      // 一致しない値だとコンテナ名の不一致だけでfalseになり、
+      // ホスト検証を削除してもこのテストは落ちなくなる
+      expect(StorageService.isValidImagePath(
+        'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
+
+    it('永続コンテナ以外のコンテナ名を指すURLの場合、falseを返す', () => {
+      // ここで使う "some-other-container" という値そのものに意味はない。
+      // isValidImagePath() は一時コンテナ名を一切参照しておらず、
+      // 永続コンテナ名と一致するかしか見ていない。このテストが守っているのは
+      // 「永続コンテナ以外のコンテナ名はすべて拒否する」という性質であり、
+      // 一時コンテナ固有のルールがあるわけではない
+      expect(StorageService.isValidImagePath(
+        'https://test.blob.core.windows.net/some-other-container/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
+
+    it('永続コンテナ名の後に余分なセグメントを挟むURLの場合、falseを返す', () => {
+      // アップロードAPIが返す形は常に「/コンテナ名/Blob名」の2セグメント。
+      // 余分なセグメント（x）を挟むと存在しないBlobを指す壊れた参照になる
+      expect(StorageService.isValidImagePath(
+        'https://test.blob.core.windows.net/test-images/x/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
+
+    it('コンテナまでしか指していないURLの場合、falseを返す', () => {
+      // 末尾がスラッシュでBlob名のセグメントが空。
+      // 空文字列のBlob名を許すと、Blobを指さないURLが保存されてしまう
+      expect(StorageService.isValidImagePath(
+        'https://test.blob.core.windows.net/test-images/'
+      )).toBe(false);
+    });
+
+    it('スキームがhttpsでないURLの場合、falseを返す', () => {
+      // ホストと永続コンテナの形は正当だが、スキームがhttpsでない。
+      // ホストとパスの一致だけを見る実装ではスキームを素通りさせてしまう
+      expect(StorageService.isValidImagePath(
+        'http://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
+
+    it('自アカウントの永続コンテナを指すURLの場合、trueを返す', () => {
+      expect(StorageService.isValidImagePath(
+        'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(true);
+    });
+  });
 });

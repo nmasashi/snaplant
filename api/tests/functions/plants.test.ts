@@ -141,8 +141,10 @@ describe('植物一覧取得API', () => {
   });
 
   describe('Cosmos DB エラー', () => {
-    it('DB接続エラーの場合は502エラー', async () => {
-      // DB接続エラーのモック
+    it('クエリが同期的に例外を投げ、かつコードを持たない場合は500エラー', async () => {
+      // code を持たないエラー。ENOTFOUND・ECONNREFUSEDのいずれにも分類されず、
+      // createInternalErrorのフォールバックに落ちる
+      // （DB接続エラー自体の経路はENOTFOUND/ECONNREFUSEDで503になる。下のテストで検証する）
       const dbError = new Error('Connection timeout');
       mockItems.query.mockImplementation(() => {
         throw dbError;
@@ -167,6 +169,37 @@ describe('植物一覧取得API', () => {
           code: 'INTERNAL_ERROR',
           message: '植物一覧の取得に失敗しました',
           details: 'Connection timeout'
+        }
+      });
+    });
+
+    it('DB接続エラー（ENOTFOUND）の場合は503エラー', async () => {
+      // ENOTFOUND はCosmos DB関連エラーの分岐に該当し、503として扱われる
+      const dbError = new Error('getaddrinfo ENOTFOUND');
+      (dbError as any).code = 'ENOTFOUND';
+      mockItems.query.mockImplementation(() => {
+        throw dbError;
+      });
+
+      // リクエストの作成
+      const request = {
+        method: 'GET',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map()
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await getPlantsHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(503);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'データベースに接続できません',
+          details: 'getaddrinfo ENOTFOUND'
         }
       });
     });

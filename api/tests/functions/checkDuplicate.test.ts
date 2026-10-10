@@ -271,7 +271,7 @@ describe('植物重複チェックAPI', () => {
   });
 
   describe('Cosmos DB エラー', () => {
-    it('DB接続エラーの場合は500エラー', async () => {
+    it('DB接続エラーの場合は503エラー', async () => {
       // DB接続エラーのモック
       const dbError = new Error('Connection timeout');
       (dbError as any).code = 'ENOTFOUND';

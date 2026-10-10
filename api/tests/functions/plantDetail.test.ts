@@ -66,9 +66,10 @@ function createFakeContainer(backend: FakeCosmosBackend): Container {
   } as unknown as Container;
 }
 
-/** 偽物のBlobバックエンド（cosmosService.test.ts の FakeBlobBackend と同型。delete のみ使う） */
+/** 偽物のBlobバックエンド（updatePlant.test.ts の FakeBlobBackend と同型。delete のみ使う） */
 interface BlobEntry {
   content: Buffer;
+  failWith?: Error;
 }
 
 interface FakeBlobBackend {
@@ -88,6 +89,7 @@ function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: stri
     delete: async () => {
       const entry = backend.store.get(key);
       if (!entry) throw notFoundBlobError();
+      if (entry.failWith) throw entry.failWith;
       backend.store.delete(key);
       return {};
     }
@@ -308,6 +310,52 @@ describe('植物詳細取得API', () => {
       // 検証（ドキュメントが消えたことの状態検証。delete呼び出しの引数ではなく、
       // 実際にバックエンドから無くなったかどうかを確認する）
       expect(cosmosBackend.documents.has(validPlantId)).toBe(false);
+      // 検証（画像も削除されたことの状態検証）
+      expect(blobStore.has('test-images/sakura.jpg')).toBe(false);
+    });
+
+    it('画像削除に失敗してもドキュメント削除は成功扱いになる', async () => {
+      // 削除対象のドキュメントを用意する（imagePathを持つ）
+      const existingPlant: Plant = {
+        id: validPlantId,
+        name: '桜',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 95.5,
+        imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z'
+      };
+      cosmosBackend.documents.set(validPlantId, existingPlant);
+      // 画像削除が失敗する状態を用意する（updatePlant.test.ts の同種テストと同型）
+      blobStore.set('test-images/sakura.jpg', {
+        content: Buffer.from('dummy'),
+        failWith: new Error('Blob delete failed')
+      });
+
+      // リクエストの作成
+      const request = {
+        method: 'DELETE',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${validPlantId}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        params: { id: validPlantId },
+        headers: new Map()
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await deletePlantHandler(request, mockContext);
+
+      // 検証（画像削除の失敗はログ出力のみで、ドキュメント削除は成功扱いになる）
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          message: '植物が正常に削除されました'
+        }
+      });
+      // 検証（ドキュメントは削除されている）
+      expect(cosmosBackend.documents.has(validPlantId)).toBe(false);
+      // 検証（画像削除が失敗しているため、Blobストアには残ったままになる）
+      expect(blobStore.has('test-images/sakura.jpg')).toBe(true);
     });
 
     it('存在しない植物IDの場合は404エラー', async () => {

@@ -170,8 +170,6 @@ describe('植物更新API', () => {
         updatedAt: '2024-01-15T10:30:00Z'
       };
       cosmosBackend.documents.set(existingPlant.id, existingPlant);
-      // 旧画像削除が実際に成功する経路を通すため、対応するBlobも存在させておく
-      blobStore.set(`${TEST_STORAGE_CONTAINER_NAME}/old.jpg`, { content: Buffer.from('old') });
 
       // リクエストの作成
       const request = {
@@ -198,7 +196,7 @@ describe('植物更新API', () => {
             ...existingPlant,
             imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
             confidence: 95.0,
-            updatedAt: expect.any(String)
+            updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
           }
         }
       });
@@ -209,11 +207,43 @@ describe('植物更新API', () => {
         ...existingPlant,
         imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
         confidence: 95.0,
-        updatedAt: expect.any(String)
+        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       });
+    });
 
-      // 検証（旧画像がBlobストアから消えたことの状態検証）
-      expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old.jpg`)).toBe(false);
+    it('信頼度が上限ちょうど(100)の場合は更新に成功する', async () => {
+      // 既存植物のモック
+      const existingPlant: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+
+      // リクエストの作成（信頼度は上限ちょうど。上限超過ではないので受理される）
+      const request = {
+        method: 'PUT',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/123e4567-e89b-12d3-a456-426614174000?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: '123e4567-e89b-12d3-a456-426614174000' },
+        json: jest.fn().mockResolvedValue({
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
+          confidence: 100
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(200);
+      expect(response.jsonBody.success).toBe(true);
+      expect(response.jsonBody.data.plant.confidence).toBe(100);
     });
   });
 

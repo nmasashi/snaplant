@@ -160,9 +160,7 @@ describe('画像アップロード・植物判定統合API', () => {
     };
 
     const MockedOpenAI = jest.requireMock('openai');
-    if (MockedOpenAI && typeof MockedOpenAI.mockImplementation === 'function') {
-      MockedOpenAI.mockImplementation(() => mockOpenAI);
-    }
+    MockedOpenAI.mockImplementation(() => mockOpenAI);
 
     // 環境変数設定
     process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=key;EndpointSuffix=core.windows.net';
@@ -242,7 +240,7 @@ describe('画像アップロード・植物判定統合API', () => {
       });
 
       // 検証（管理外の依存。LLM呼び出し回数はコストに直結する観察可能な振る舞い）
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalled();
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
 
       // 検証（状態。一時ファイルは永続コンテナへ移動され、一時コンテナには残っていない）
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
@@ -332,7 +330,7 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.status).toBe(201);
 
       // 検証（管理外の依存。LLM呼び出し回数はコストに直結する観察可能な振る舞い）
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalled();
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
 
       // 検証（状態。永続コンテナへ移動済みで一時コンテナには残っていない）
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
@@ -341,10 +339,14 @@ describe('画像アップロード・植物判定統合API', () => {
 
       // OpenAI呼び出しでコンテキスト情報が渡されているか確認
       // （管理外の依存への送信内容は出力が不透明ではないが、プロンプトへの
-      // 混入を確認する手段がこの呼び出し引数の検査以外にないため見る）
+      // 混入を確認する手段がこの呼び出し引数の検査以外にないため見る）。
+      // 固定ラベル「撮影時の環境やコンテキスト情報: 」はプロンプトの文言そのもので、
+      // それは openAIVisionService.test.ts の責務。ここで見るのは
+      // 利用者が入力した値がプロンプトに届いていることだけなので、
+      // 値の部分だけを検証する
       const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
       const promptText = openAICall.messages[0].content[0].text;
-      expect(promptText).toContain('撮影時の環境やコンテキスト情報: 白馬岳の標高2500m、高山帯の岩場');
+      expect(promptText).toContain('白馬岳の標高2500m、高山帯の岩場');
     });
 
     it('contextInfoが500文字の場合は正常に処理される', async () => {
@@ -378,35 +380,11 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証（レスポンス。imagePathはStorageServiceが実際に生成するUUIDを含むため、
-      // 形式のみ検証する。それ以外のフィールドはリテラルで直接比較する）
+      // 検証（この境界が言いたいのは「500文字は拒否されず受理される」ことだけ。
+      // レスポンスの内容自体は正常系のテストが既に検証しているので、
+      // ここでは拒否されていないことをステータスとsuccessで確認する）
       expect(response.status).toBe(201);
-      expect(response.jsonBody.data.imagePath).toMatch(
-        /^https:\/\/test\.blob\.core\.windows\.net\/images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/
-      );
-      expect(response.jsonBody).toEqual({
-        success: true,
-        data: {
-          imagePath: expect.any(String),
-          fileName: 'test.jpg',
-          contentType: 'image/jpeg',
-          fileSize: 1024,
-          identificationResult: {
-            isPlant: true,
-            confidence: 95.5,
-            candidates: [
-              {
-                name: '桜',
-                scientificName: 'Prunus serrulata',
-                familyName: 'バラ科',
-                description: '日本を代表する花木',
-                characteristics: '春に美しいピンクの花を咲かせる',
-                confidence: 95.5
-              }
-            ]
-          }
-        }
-      });
+      expect(response.jsonBody.success).toBe(true);
     });
   });
 
@@ -814,10 +792,13 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(blobStore.size).toBe(0);
     });
 
-    it('ネットワークエラーの場合は500エラー', async () => {
-      // ネットワークエラーのモック（一時保存のアップロードで発生させる）
+    it('一時保存が未分類のエラーで失敗した場合は500エラー', async () => {
+      // 未分類のエラーのモック（一時保存のアップロードで発生させる）。
+      // code は設定しない。StorageService.uploadImageToTemp は catch で
+      // `throw new Error(...)` と包み直すため、元の error.code は失われる。
+      // そのため upload.ts の ECONNREFUSED || ETIMEDOUT 分岐（503）には
+      // 到達せず、実際に通るのは最終フォールバック（500）
       const networkError = new Error('Connection timeout');
-      (networkError as any).code = 'ETIMEDOUT';
       backend.forcedUploadError = networkError;
 
       // ファイルオブジェクトのモック
