@@ -21,12 +21,11 @@ Dart に触る作業はここに集める。Windows 側でセッションを1回
 
 | 項目 | 判断 | 内容 |
 |---|---|---|
-| [`ApiService.identifyPlant()` が未使用](#apiserviceidentifyplant-が未使用) | 判断待ち | 削除するか、再識別の機能として使うか |
-| [`deletePlant()` だけがエラーの封筒を読まない](#deleteplant-だけがエラーの封筒を読まない) | 判断待ち | `ApiException.fromResponse()` に揃えるか |
-| [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | 判断待ち | 既定値を残すか、サーバに 415 で弾かせるか |
+| [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | **TODO: Android 実機で確認** | 確認結果を見て、既定値を残すかサーバに 415 で弾かせるかを決める |
 
 第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
-Content-Type のマジックバイト判定）は #2 で対応済み。
+Content-Type のマジックバイト判定）は #2 で対応済み。その後、未使用の `identifyPlant()` の削除と、
+`deletePlant()` のエラー解釈の統一も対応済み。
 
 ### 最初にやること
 
@@ -178,41 +177,6 @@ WSL から実行できないため、人間が Windows 側で回すまで検証�
 
 `flutter test` は通る（2026-10-11 時点で27本。#2 で `ApiService` と保存画面のテストを追加）。
 
-### `ApiService.identifyPlant()` が未使用
-
-`mobile/lib` に呼び出し元が無い（2026-10-11 に grep で確認）。
-識別は `uploadAndIdentifyImage()` が `POST /api/images/upload` の中で同時に行っており、
-`POST /api/plants/identify` を叩く経路はアプリに存在しない。
-PR #1 でパスと封筒の剥がし方を直し、`contextInfo` を足したが、使われてはいない。
-
-テストは `mobile/test/services/api_service_test.dart` にある（封筒 `data.result` の解釈と、502 の表示）。
-
-**判断が必要な点**: 削除するか、使い道を作るか。
-
-**推奨**: **削除する。** 同じ理由で `uploadImage()` を削除した（#2）。
-使われないメソッドは、サーバの変更に追従したかどうかを誰も実行時に確かめないため、
-壊れたまま残りやすい。サーバの `identify` は API として残るので、
-「撮り直さずに補足情報だけ変えて再識別する」機能を作るときに足し直せばよい。
-削除する場合は上記のテスト2本も消す（502 の表示のテストは `savePlant` など別の呼び出しに移す）。
-
-### `deletePlant()` だけがエラーの封筒を読まない
-
-`ApiService` の他のメソッドは `_parseResponse()` 経由で
-`ApiException.fromResponse()` を通り、サーバの `error.code` / `error.message` を持つ。
-`deletePlant()` だけは `_parseResponse()` を使わず、非 2xx で
-固定の `'植物の削除に失敗しました'` を入れた `ApiException` を自前で投げる。
-
-**実害は小さい。** `userMessage` は 404 / 500 / 503 を固定文言で返すため、
-サーバのメッセージが無くても表示は変わらない。差が出るのはそれ以外のステータス
-（400 など）で、サーバの理由ではなく「削除に失敗しました」になる点と、
-`ApiException.code` が常に null になる点。
-
-**判断が必要な点**: 揃えるか。
-
-**推奨**: **揃える。** `ApiException.fromResponse(response)` に置き換えるだけで、
-クライアントのエラー解釈が1経路になる。テストは `api_service_test.dart` の
-エラーレスポンスのテストと同じ形で書ける。
-
 ### 判定できない画像形式を `image/jpeg` として送る
 
 `mobile/lib/utils/image_mime_type.dart` の `detectImageMimeType()` は
@@ -224,13 +188,22 @@ HEIC / AVIF / BMP などは `image/jpeg` として受理され、中身と Conte
 食い違った Blob が保存される。#2 で直した食い違いが、4形式以外に限って残っている。
 AI 識別に渡ったときにどうなるか（OpenAI がその形式を読めるか）は未確認。
 
-**判断が必要な点**: 既定値を残すか、判定できないものはサーバに弾かせるか。
+**判断: Android の実機で確認してから決める**（人間がトリアージ済み、2026-10-11）。
+iOS からは当面使う予定が無いので、iOS の HEIC の問題は考えなくてよい。
+実機確認はすぐにはできないため、TODO として残す。
+
+**TODO（Android 実機）**: カメラ撮影とギャラリー選択のそれぞれで、`image_picker` が
+渡すファイルの形式（先頭バイト）を確認する。4形式以外（HEIC / HEIF など）が来るかどうかで決める。
+
+- 4形式以外が来ない → 下記の推奨どおり 415 で弾かせても利用者に影響しない
+- 来る → 弾くとアップロードできなくなる。クライアント側で JPEG に変換するか、
+  `image_picker` の `imageQuality` 指定で再エンコードさせるかを先に決める
+
+**判断が必要な点**（確認後）: 既定値を残すか、判定できないものはサーバに弾かせるか。
 
 **推奨**: **`application/octet-stream` を返してサーバに 415 で弾かせる。**
 4形式以外を受け付けないのはサーバの仕様なので、クライアントが偽の Content-Type で
-すり抜けさせる理由が無い。ただし iOS のカメラ・写真ライブラリが HEIC を渡す場合に
-アップロードできなくなるので、先に `image_picker` が返す形式を実機で確認すること
-（`imageQuality` などを指定すると JPEG に再エンコードされるはず）。
+すり抜けさせる理由が無い。
 
 ### Azurite などパス形式のエンドポイントに対応していない
 

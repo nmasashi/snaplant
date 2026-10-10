@@ -588,13 +588,13 @@ API を変更したら、あわせて更新する対象：
 ステータスを添えた固定の日本語メッセージになる。
 **同じステータスでもコードで意味が違うものがある**（409 は `IMAGE_ALREADY_SAVED` と `DATABASE_ERROR`）。
 分岐はステータスではなく `code` で行う（例: `ApiException.isImageAlreadySaved`）。
-例外は `deletePlant()` で、`_parseResponse()` を通らず自前の固定メッセージで投げるため封筒を読まない。
 
 以下は 2xx の場合の話。API のレスポンスは必ず `{ success, data }` の封筒に包まれている。
 Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに渡すため、
 各メソッドが自分で `json['data']` を剥がす必要がある。これを忘れると実行時に
-`fromJson` がキーを見つけられず失敗する（過去に `identifyPlant()` と、削除済みの `uploadImage()` で発生）。
-`mobile/test/services/api_service_test.dart` が下表の全エンドポイントでこれを固定している。
+`fromJson` がキーを見つけられず失敗する（過去に `ApiService` の `identifyPlant()` と `uploadImage()` で発生。どちらも未使用だったため削除済み）。
+`mobile/test/services/api_service_test.dart` が、クライアントが `data` を読む下表のエンドポイントすべてでこれを固定している
+（`DELETE` は `data` を読まず、`identify` はクライアントから呼んでいないので対象外）。
 メソッドを足したら同じ形でテストを足すこと。
 
 さらに封筒の内側のキーが関数ごとに違う点にも注意：
