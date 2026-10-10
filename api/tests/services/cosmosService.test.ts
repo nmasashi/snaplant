@@ -495,47 +495,6 @@ describe('CosmosService', () => {
     });
   });
 
-  describe('getPlantByName', () => {
-    const sakura: Plant = {
-      id: '1',
-      name: '桜',
-      scientificName: 'Prunus serrulata',
-      familyName: 'バラ科',
-      characteristics: '春に美しい花を咲かせる',
-      confidence: 95.5,
-      imagePath: 'https://example.com/sakura.jpg',
-      createdAt: '2024-01-01T00:00:00.000Z',
-      updatedAt: '2024-01-01T00:00:00.000Z'
-    };
-    const rose: Plant = {
-      ...sakura,
-      id: '2',
-      name: 'バラ',
-      imagePath: 'https://example.com/rose.jpg'
-    };
-
-    it('植物名で該当する植物を取得できる', async () => {
-      // 検索対象と異なる名前のデータも登録し、渡したパラメータの値で正しく
-      // 絞り込まれることを確認する（本番SQLのWHERE句自体の正しさはこの層では
-      // 検証できない。偽物バックエンドのコメント参照）。Mapの挿入順を検索対象と
-      // 逆にしているため、絞り込みが効いていなければバラが返り、このテストは失敗する
-      cosmosBackend.documents.set(rose.id, rose);
-      cosmosBackend.documents.set(sakura.id, sakura);
-
-      const result = await service.getPlantByName('桜');
-
-      expect(result).toEqual(sakura);
-    });
-
-    it('存在しない植物名の場合、nullを返す', async () => {
-      cosmosBackend.documents.set(rose.id, rose);
-
-      const result = await service.getPlantByName('存在しない植物');
-
-      expect(result).toBeNull();
-    });
-  });
-
   describe('checkDuplicateByName', () => {
     const sakura: Plant = {
       id: '1',

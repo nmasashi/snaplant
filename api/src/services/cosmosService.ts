@@ -42,26 +42,15 @@ export class CosmosService {
       const { resource } = await this.container.item(id, id).read<Plant>();
       return resource || null;
     } catch (error: any) {
+      // read では到達しない。@azure/cosmos の Item.read() は NotFound を
+      // 飲み込んで resource なしのレスポンスを返すため、対象が無い場合は
+      // 上の resource || null を通る。SDK のバージョン差で挙動が変わりうるため
+      // 保険として残している。テストで埋めようとしないこと（到達不能）
       if (error.code === 404) {
         return null;
       }
       throw error;
     }
-  }
-
-  /**
-   * 植物名で重複チェック
-   */
-  async getPlantByName(name: string): Promise<Plant | null> {
-    const query = `SELECT * FROM c WHERE c.name = @name`;
-    const { resources } = await this.container.items
-      .query<Plant>({
-        query,
-        parameters: [{ name: '@name', value: name }]
-      })
-      .fetchAll();
-
-    return resources.length > 0 ? resources[0] : null;
   }
 
   /**

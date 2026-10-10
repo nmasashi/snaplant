@@ -236,37 +236,6 @@ export class StorageService {
   }
 
   /**
-   * 画像が存在するかチェック
-   * @param imageUrl 画像URL
-   * @returns 画像が存在するかどうか
-   */
-  async imageExists(imageUrl: string): Promise<boolean> {
-    try {
-      // URLからファイル名を抽出
-      const fileName = this.extractFileNameFromUrl(imageUrl);
-      if (!fileName) {
-        return false;
-      }
-      
-      // コンテナクライアントを取得
-      const containerClient = this.blobServiceClient.getContainerClient(this.containerName);
-      
-      // ブロックBlobクライアントを取得
-      const blockBlobClient = containerClient.getBlockBlobClient(fileName);
-      
-      // プロパティを取得して存在をチェック
-      await blockBlobClient.getProperties();
-      return true;
-      
-    } catch (error: any) {
-      if (error.statusCode === 404) {
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  /**
    * SAS URLを生成する（外部からのアクセス用）
    * @param blobUrl 元のBlob URL
    * @param containerName コンテナ名
