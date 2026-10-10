@@ -11,7 +11,7 @@ process.env.STORAGE_CONTAINER_NAME = 'test-images';
 process.env.TEMP_STORAGE_CONTAINER_NAME = 'test-temp';
 process.env.AZURE_OPENAI_ENDPOINT = 'https://test-openai.openai.azure.com/';
 process.env.AZURE_OPENAI_API_KEY = 'test-openai-key';
-process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'gpt-4o';
+process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'gpt-5.6-luna';
 
 // Azure SDK のモック
 jest.mock('@azure/cosmos', () => ({

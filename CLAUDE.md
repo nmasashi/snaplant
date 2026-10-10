@@ -109,7 +109,7 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 4. 植物なら `moveFromTempToPermanent()` で images コンテナへ移動（公開 URL を返す）
 5. 画像 URL と識別候補をまとめて返す
 
-Blob Storage のコンテナは2つで役割が違う：`images`（永続・公開 URL）と `temp`（一時・SAS 付き URL）。`StorageService` は URL 文字列にコンテナ名が含まれるかで判定を分岐するため、コンテナ名の変更は URL 解析ロジックに影響する。
+Blob Storage のコンテナは2つで役割が違う：`images`（永続・公開 URL）と `temp`（一時・SAS 付き URL）。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返し、コンテナはパスの最初のセグメントが一時コンテナ名と完全一致するかで決める。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
 
 ### レスポンス規約
 
@@ -123,7 +123,7 @@ Blob Storage のコンテナは2つで役割が違う：`images`（永続・公�
 
 ### Cosmos DB
 
-パーティションキーは `/id`（Terraform で定義）。そのため単一ドキュメント操作は `container.item(id, id)` と id を2回渡す形になる。`CosmosService` は `StorageService` を内部に持つ。`updatePlant()` で `imagePath` が変わった場合のみ旧画像を Blob から削除する（削除失敗はログだけ出して処理は継続）。一方 `deletePlant()` は**ドキュメントだけ消して画像は残す**ので、孤児 Blob が残る。
+パーティションキーは `/id`（Terraform で定義）。そのため単一ドキュメント操作は `container.item(id, id)` と id を2回渡す形になる。`CosmosService` は `StorageService` を内部に持つ。`updatePlant()` で `imagePath` が変わった場合のみ旧画像を Blob から削除する。`deletePlant()` も削除前に `imagePath` を読んで画像を削除する。**どちらも Blob 削除の失敗はログだけ出してドキュメント操作は成功扱いにする。**
 
 ### OpenAI 呼び出し
 
@@ -143,7 +143,11 @@ Structured Outputs（`response_format: json_schema`, `strict: true`）で応答�
 アップロード検証の失敗は 400 ではなく専用のステータスを返す：形式不正は 415 + `UNSUPPORTED_MEDIA_TYPE`、
 サイズ超過は 413 + `FILE_TOO_LARGE`。ファイル未指定や Content-Type 不正は 400 + `INVALID_REQUEST`。
 
-`constants/validation.ts` の各上限値は環境変数で上書きできる（`MAX_FILE_SIZE`, `PLANT_NAME_MAX_LENGTH` など）。エラーメッセージも同じ環境変数から文字数を埋め込んで生成されるため、値を変えるとメッセージも追従する。マジックナンバーをハンドラに直接書かない。
+`imagePath` は `save` と `updatePlant` で**自ストレージアカウントのホストかつ永続コンテナを指す URL** であることを検証する（`StorageService.isValidImagePath()`）。アップロード API が返した URL 以外は 400 になる。これは外部ホストの URL を保存して更新時の旧画像削除を発火させ、他レコードの Blob を消す経路を塞ぐためで、**入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている**。片方だけ緩めないこと。
+
+Blob 名の拡張子は**検証済みの Content-Type から引く**（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`）。クライアントが送るファイル名からは取らない。`/` を含む名前で拡張子にパス区切りが紛れ込み、Blob 名と SAS の署名対象がずれるため。`upload` のレスポンスの `fileName` はクライアントが送った名前をそのまま返すもので、**Blob 名とは別物**。
+
+`constants/validation.ts` の各上限値は環境変数で上書きできる（`MAX_FILE_SIZE`, `PLANT_NAME_MAX_LENGTH`, `CONTEXT_INFO_MAX_LENGTH` など）。エラーメッセージも同じ環境変数から文字数を埋め込んで生成されるため、値を変えるとメッセージも追従する。マジックナンバーをハンドラに直接書かない。
 
 ## 実装の進め方: TDD
 

@@ -324,12 +324,91 @@ AI 識別も走るため「単純アップロード」という元の意味は�
 
 **判断が必要な点**: 削除してよいか。
 
+さらに `contract-auditor` の監査で、**このメソッドは呼ばれても必ず失敗する**ことが
+判明した。`MultipartFile.fromBytes/fromPath` に `contentType` を渡していないため
+`application/octet-stream` になり、`upload.ts` の `isValidImageContentType()` で
+415 `UNSUPPORTED_MEDIA_TYPE` になる。`uploadAndIdentifyImage()` は正しく渡している。
+
 **推奨**: **削除する。** 名前が「単純アップロード」を約束しているのに
 実際は AI 識別が走って課金されるため、残すほど誤用の危険がある。
+加えて動かないコードでもある。
 `uploadAndIdentifyImage()` が同じエンドポイントを正しい名前で叩いている。
 
 Dart なので削除後に Windows 側で `flutter analyze` が必要。
 上記「Flutter 側のテストがほぼ無い」と同じセッションでまとめて処理するのが効率的。
+
+### Web 経路が実際の MIME を無視して image/jpeg を送る
+
+`mobile/lib/services/api_service.dart:133-140` の Web 経路は、画像の実データに
+関係なく `contentType: MediaType('image', 'jpeg')` と
+`filename: 'plant_image.jpg'` を固定で送る。
+
+**Blob 名の拡張子と Blob の Content-Type は、この送られた Content-Type から
+決まる**（3bcabf8 以降）。そのため Web で PNG を選んでも、永続コンテナには
+「中身が PNG で名前と Content-Type が JPEG」の Blob が入る。
+
+変更前もファイル名由来で `.jpg` になっていたため退行ではないが、
+Content-Type が拡張子の決定要因に昇格した分だけ影響が明確になった。
+表示は多くの環境で成功するため気づきにくい。
+
+**判断が必要な点**: クライアント側を直すか、サーバ側で実データから判定するか。
+
+**推奨**: **クライアント側を直す。** Web でも実データから MIME を判定して送る。
+サーバは「検証済みの Content-Type を信頼する」設計で一貫しており、
+ここを崩すと `#10` で塞いだ「クライアント由来の文字列を Blob 名に入れない」
+という性質が戻ってしまう。
+
+Dart の変更なので WSL では `flutter analyze` を実行できない。
+[Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
+
+### contextInfo の文字数の数え方がクライアントとサーバで違う
+
+`mobile/lib/screens/camera_screen.dart:446` の `maxLength: 500` は書記素クラスタ単位、
+`api/src/functions/upload.ts` と `identify.ts` の検証は JavaScript の
+`String.length`（UTF-16 コードユニット）単位。
+
+絵文字やサロゲートペアを含む入力は、UI が許した 500 文字でもサーバ側で
+500 を超えて 400 になる。通常の日本語テキストでは発生しない。
+
+**判断が必要な点**: 揃えるか、許容するか。
+
+**推奨**: **優先度低。当面は許容する。** 合わせるならサーバ側を
+`[...str].length` にする方が利用者の直感に近いが、現行実装も妥当。
+補足情報は自由記述のヒントであり、境界ちょうどの入力が実務で問題になりにくい。
+
+### 使われていないエラーコード `UNAUTHORIZED` / `INVALID_API_KEY`
+
+`api/src/types/api.ts` の `ErrorCode.UNAUTHORIZED` と
+`ErrorCode.INVALID_API_KEY`、および `HttpStatusCode.UNAUTHORIZED` は
+アプリコードからの生成箇所がゼロ。
+
+401 は Azure Functions のランタイムが返すため、このアプリの
+`{ success, error }` 封筒の形にならない。つまり**構造的に使われない**。
+
+**判断が必要な点**: 残すか削除するか。
+
+**推奨**: **コメントを添えて残す。** 「401 はランタイムが返すため
+この enum は使われない」と書く。削除しても契約は変わらないが、
+仕様書側には 401 の説明（ランタイム挙動として）があるため、
+型定義だけ消すと対応関係が追えなくなる。
+
+### `save` ハンドラと `createPlant()` で id と日時の生成が二重
+
+`api/src/functions/save.ts:36-46` が `uuidv4()` と `createdAt`/`updatedAt` を
+詰めた完全な `Plant` を組み立てて `createPlant(plantData)` に渡している。
+
+`createPlant()` 側は `{ id: this.generateId(), ...plantData, createdAt: now, updatedAt: now }`
+と組み立てるため、スプレッドの順で**ハンドラ側の id が勝ち、`generateId()` の
+結果は捨てられる**。日時は `createPlant()` 側が勝つ。
+
+レスポンス形状は仕様どおりで実行時の症状はない。責務の重複として整理候補。
+
+**判断が必要な点**: どちらに寄せるか。
+
+**推奨**: **`createPlant()` に寄せる。** id と日時の生成はサービスの責務で、
+ハンドラはリクエストの詰め替えに留めるのが自然。
+`createPlant()` の引数型が `PlantCreateRequest` であることもその設計を示している。
+ハンドラ側から `id` / `createdAt` / `updatedAt` を外し、`uuidv4()` の import も落とす。
 
 ### Cosmos の SQL を検証する層がない
 
