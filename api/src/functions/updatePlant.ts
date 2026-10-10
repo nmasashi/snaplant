@@ -41,6 +41,26 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
     // Cosmos DBサービス初期化
     const cosmosService = new CosmosService();
     
+    // imagePath の重複チェック。
+    //
+    // save 側だけ塞いでも PUT から同じ状態を作れるので、入口を揃える。
+    // 同じ imagePath を持つレコードが2つできると、一方を削除または別の画像に
+    // 更新した時点で、もう一方の画像まで消えてしまう。
+    //
+    // 自分自身は除外する。同じ imagePath のまま他のフィールドだけ更新する
+    // 場合に自分とぶつかるため。
+    //
+    // save と同じ read-then-write なので、ほぼ同時に届いた2リクエストには
+    // 効かない（docs/09_backlog.md に限界として記録済み）
+    const existingByImage = await cosmosService.getPlantByImagePath(requestBody.imagePath);
+    if (existingByImage && existingByImage.id !== plantId) {
+      return createErrorResponse(
+        ErrorCode.IMAGE_ALREADY_SAVED,
+        'この画像は既に保存されています',
+        HttpStatusCode.CONFLICT
+      );
+    }
+
     // 植物更新
     const updatedPlant = await cosmosService.updatePlant(plantId, requestBody);
     
@@ -99,14 +119,8 @@ function validatePlantUpdateRequest(request: PlantUpdateRequest): HttpResponseIn
     return createValidationError(PLANT_VALIDATION.ERROR_MESSAGES.CONFIDENCE_OUT_OF_RANGE);
   }
 
-  // URL形式のバリデーション
-  try {
-    new URL(request.imagePath);
-  } catch (error) {
-    return createValidationError('画像URLの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
-  }
-
   // 自アカウントの永続コンテナを指すことのバリデーション。
+  // URL としてパースできるかの検証は別に置かない（save.ts と同じ理由）。
   // ここを通すと、更新時の旧画像削除が外部ホストのURLを宛先にしてしまい、
   // ファイル名が一致するだけの他レコードのBlobを消せてしまう
   if (!StorageService.isValidImagePath(request.imagePath)) {

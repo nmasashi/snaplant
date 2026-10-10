@@ -156,14 +156,10 @@ function validatePlantCreateRequest(request: PlantCreateRequest): HttpResponseIn
     return createValidationError(PLANT_VALIDATION.ERROR_MESSAGES.CHARACTERISTICS_TOO_LONG);
   }
 
-  // URL形式のバリデーション
-  try {
-    new URL(request.imagePath);
-  } catch (error) {
-    return createValidationError('画像パスの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
-  }
-
-  // 自アカウントの永続コンテナを指すことのバリデーション
+  // 自アカウントの永続コンテナを指すことのバリデーション。
+  // URL としてパースできるかの検証は別に置かない。isValidImagePath() が
+  // パース失敗も false にするため、前段を置くとメッセージが2種類に分かれるだけで
+  // 同じ検証が2段になる
   if (!StorageService.isValidImagePath(request.imagePath)) {
     return createValidationError(GENERAL_VALIDATION.ERROR_MESSAGES.IMAGE_PATH_NOT_ALLOWED);
   }

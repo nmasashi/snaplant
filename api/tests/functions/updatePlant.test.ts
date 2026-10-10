@@ -31,12 +31,16 @@ const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_C
 /**
  * 偽物のCosmos DBバックエンド（cosmosService.test.ts の FakeCosmosBackend と同型）。
  *
- * updatePlantHandler が実際に使うのは container.item(id, id) の read と replace だけ
- * （一覧取得や作成は無関係）なので、この2つだけを持つ最小構成にする。
+ * updatePlantHandler が実際に使うのは container.item(id, id) の read と replace、
+ * および imagePath 重複チェック（getPlantByImagePath()）が使う items.query。
+ * この3つだけを持つ最小構成にする（一覧取得や作成は無関係）。
  *
  * read だけは実SDKに合わせてNotFoundを例外にしない。@azure/cosmos の
  * Item.read() はNotFoundを内部で飲み込み、resourceが無いレスポンスを返す
  * （cosmosService.test.ts の同種コメント参照）。replace はそのまま例外を投げる。
+ *
+ * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@imagePath）の
+ * 値で絞り込むだけに留める（save.test.ts の同種コメント参照）。
  */
 interface FakeCosmosBackend {
   documents: Map<string, Plant>;
@@ -64,7 +68,20 @@ function createFakeContainer(backend: FakeCosmosBackend): Container {
         backend.documents.set(id, doc);
         return { resource: doc };
       }
-    })
+    }),
+    items: {
+      query: (querySpec: any) => {
+        const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
+        const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
+        let docs = Array.from(backend.documents.values());
+        if (imagePathParam !== undefined) {
+          docs = docs.filter((d) => d.imagePath === imagePathParam);
+        }
+        return {
+          fetchAll: async () => ({ resources: docs })
+        };
+      }
+    }
   } as unknown as Container;
 }
 
@@ -356,8 +373,8 @@ describe('植物更新API', () => {
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: '画像URLの形式が無効です',
-          details: '有効なURL形式で指定してください'
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
         }
       });
     });
@@ -553,6 +570,105 @@ describe('植物更新API', () => {
 
       // 旧画像がBlobストアから消えたことの状態検証
       expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`)).toBe(false);
+    });
+  });
+
+  describe('imagePathの重複チェック', () => {
+    it('他のレコードが既に使っているimagePathに更新しようとすると409エラー', async () => {
+      // 更新対象のレコードA
+      const plantA: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/a.jpg`,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      // 別のレコードB。Aが更新後に奪いにいくimagePathを既に持っている
+      const plantB: Plant = {
+        id: '223e4567-e89b-12d3-a456-426614174001',
+        name: '紫陽花',
+        characteristics: '梅雨の時期に咲く花',
+        confidence: 80.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/b.jpg`,
+        createdAt: '2024-01-16T09:00:00Z',
+        updatedAt: '2024-01-16T09:00:00Z'
+      };
+      cosmosBackend.documents.set(plantA.id, plantA);
+      cosmosBackend.documents.set(plantB.id, plantB);
+
+      // リクエストの作成（AをBのimagePathに更新しようとする。他のフィールドはすべて正当な値）
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${plantA.id}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: plantA.id },
+        json: jest.fn().mockResolvedValue({
+          imagePath: plantB.imagePath,
+          confidence: 95.0
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'IMAGE_ALREADY_SAVED',
+          message: 'この画像は既に保存されています',
+          details: undefined
+        }
+      });
+      // レコードAが更新されていないことの状態検証
+      expect(cosmosBackend.documents.get(plantA.id)).toEqual(plantA);
+    });
+
+    it('同じimagePathのまま他のフィールドだけ更新できる', async () => {
+      // 更新対象のレコード（自分自身以外にimagePathが重複する相手はいない）
+      const existingPlant: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/a.jpg`,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+
+      // リクエストの作成（imagePathは変えず、confidenceだけ変更する）
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${existingPlant.id}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: existingPlant.id },
+        json: jest.fn().mockResolvedValue({
+          imagePath: existingPlant.imagePath,
+          confidence: 95.0
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証（imagePathは変わらず、confidenceだけが反映されている）
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          plant: {
+            ...existingPlant,
+            confidence: 95.0,
+            updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+          }
+        }
+      });
     });
   });
 });
