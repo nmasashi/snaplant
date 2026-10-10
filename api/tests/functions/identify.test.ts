@@ -580,4 +580,54 @@ describe('植物識別API', () => {
       });
     });
   });
+
+  describe('ネットワークエラー', () => {
+    it('OpenAIへの接続が名前解決に失敗した場合は503エラー', async () => {
+      // 実SDK（openai/core/error.js）の APIConnectionError を模す。
+      // そのコンストラクタは
+      // `super(undefined, undefined, message || 'Connection error.', undefined)`
+      // を呼ぶだけで、APIError 側の `this.code = data?.['code']` の data が
+      // 常に undefined になるため、APIConnectionError の code は常に undefined。
+      // 元のDNSエラー（code: 'ENOTFOUND' を持つ）はコンストラクタで
+      // `this.cause = cause` として素通しされるだけなので cause 側に残る。
+      //
+      // ここで code を直接持たせてしまうと、実SDKでは起こらない形の
+      // エラーをテストすることになる。それだと分岐が通ったように見えても
+      // 実運用のAPIConnectionErrorはこの形で来ないため本番では通らず、
+      // この経路が無検証だったのと同じ状態に戻ってしまう。
+      const dnsError: any = new Error('getaddrinfo ENOTFOUND xxx.openai.azure.com');
+      dnsError.code = 'ENOTFOUND';
+
+      const connectionError: any = new Error('Connection error.');
+      connectionError.cause = dnsError;
+      // code は設定しない（実SDKのAPIConnectionErrorと同様にundefinedのまま）
+
+      mockChatCompletions.create.mockRejectedValue(connectionError);
+
+      // リクエストの作成
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          imagePath: 'https://example.com/sakura.jpg'
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await identifyPlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(503);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'AI_SERVICE_ERROR',
+          message: '植物識別サービスに接続できません',
+          details: '植物識別に失敗しました: Connection error.'
+        }
+      });
+    });
+  });
 });

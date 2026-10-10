@@ -83,15 +83,11 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
 
     // ネットワークエラー
     //
-    // **現在この分岐は到達しない。** OpenAIVisionService が例外を
-    // `throw new Error(\`植物識別に失敗しました: ${error.message}\`)` で包み直すときに
-    // 元の `code` を捨てるため、ENOTFOUND も ECONNREFUSED もここまで届かず
-    // 未分類エラーとして 500 に落ちる。削除しても全テストが緑のまま通る。
-    //
-    // 分岐自体は残している。包み直しで `code` を引き継ぐ修正
-    // （docs/09_backlog.md の「upload のエラー分類が機能していない」）を
-    // 入れれば到達可能になり、503 が本来の意味で返るようになる。
-    // **テストで埋めようとしないこと**（到達不能な分岐はテストできない）
+    // OpenAI SDK の `APIConnectionError` は `code` を持たず、errno を
+    // `cause` に入れる（`message` も `'Connection error.'` 固定なので
+    // 上の `includes('OpenAI')` にも当たらない）。そのため `wrapError()` が
+    // `cause.cause` を一段辿るまで、この分岐は到達せず 500 に落ちていた。
+    // 詳細は utils/errors.ts のコメントを参照。
     if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
       return createErrorResponse(
         ErrorCode.AI_SERVICE_ERROR,
