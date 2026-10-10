@@ -511,10 +511,11 @@ describe('画像アップロード・植物判定統合API', () => {
 
       // 検証
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toMatchObject({
+      expect(response.jsonBody).toEqual({
         success: false,
         error: {
-          code: 'INVALID_REQUEST'
+          code: 'INVALID_REQUEST',
+          message: '補足情報は500文字以内で指定してください'
         }
       });
     });

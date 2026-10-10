@@ -377,16 +377,18 @@ describe('CosmosService', () => {
 
     it('外部ホストだが別レコードの画像と同じファイル名のimagePathで更新しても、その別レコードのBlobは削除されない', async () => {
       // 攻撃経路: deleteImage()がホストを見ずコンテナ名とファイル名だけで削除先を
-      // 決めると、外部ホストのURLでもパスの先頭セグメントが未知のコンテナ名
-      // （'foo'）になり永続コンテナにフォールバックしてしまう。その結果、
-      // ファイル名さえ一致すれば自アカウント永続コンテナ内の「別レコードの」
-      // Blobを消せてしまう。ここでは victim-uuid.jpg という別レコードの画像が
-      // 永続コンテナに実在する状態で、攻撃対象のレコードのimagePathを
-      // 同じファイル名・外部ホストに差し替えて更新を発火させる
+      // 決めると、外部ホストのURLでもコンテナ名が永続コンテナ（test-images）と
+      // 一致するため、ファイル名さえ一致すれば自アカウント永続コンテナ内の
+      // 「別レコードの」Blobを消せてしまう。コンテナ名をあえて未知の値
+      // （例: 'foo'）にしないのは、それだとコンテナ名の不一致だけでfalseになり、
+      // ホスト検証を削除してもこのテストが落ちなくなるため。ここでは
+      // victim-uuid.jpg という別レコードの画像が永続コンテナに実在する状態で、
+      // 攻撃対象のレコードのimagePathを同じファイル名・外部ホストに差し替えて
+      // 更新を発火させる
       blobStore.set('test-images/victim-uuid.jpg', { content: Buffer.from('victim') });
       const attackerControlledPlant: Plant = {
         ...existingPlant,
-        imagePath: 'https://example.com/foo/victim-uuid.jpg'
+        imagePath: 'https://example.com/test-images/victim-uuid.jpg'
       };
       cosmosBackend.documents.set(plantId, attackerControlledPlant);
       const updateData: PlantUpdateRequest = {

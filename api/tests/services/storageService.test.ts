@@ -387,6 +387,24 @@ describe('StorageService', () => {
       expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
     });
 
+    it('接続文字列にEndpointSuffixが無い場合、既定値core.windows.netのホストとして扱う', async () => {
+      // EndpointSuffixを省いた接続文字列（Azure公式サンプルや古い構成であり得る形）。
+      // resolveBlobEndpointHost()の既定値が壊れると、自アカウントのURLのホストが
+      // 期待値と一致しなくなり、保存時のバリデーションも旧画像削除も常に拒否される
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==';
+      const accountService = new StorageService();
+
+      const fileName = '99999999-9999-9999-9999-999999999999.jpg';
+      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
+      const imageUrl = `https://test.blob.core.windows.net/test-images/${fileName}`;
+
+      const result = await accountService.deleteImage(imageUrl);
+
+      expect(result).toBe(true);
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
+    });
+
     it('一時コンテナ名で始まるだけの別コンテナを指すURLは、どちらのコンテナからも削除しない', async () => {
       const fileName = '44444444-4444-4444-4444-444444444444.jpg';
       // コンテナ名が一時コンテナ名 "test-temp" で始まるだけの別コンテナ
@@ -426,10 +444,12 @@ describe('StorageService', () => {
       const fileName = '66666666-6666-6666-6666-666666666666.jpg';
       blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
       // ホストが自ストレージアカウント（test.blob.core.windows.net）ではないURL。
-      // ホストを見ない実装だと、パスの最初のセグメントが一時コンテナ名と
-      // 一致しないため永続コンテナ扱いになり、ファイル名が一致するだけの
-      // 他レコードの実物Blobを削除してしまう
-      const imageUrl = `https://example.com/foo/${fileName}`;
+      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
+      // 未知のコンテナ名（例: foo）のままだとコンテナ名の不一致だけで
+      // falseになり、ホスト検証を削除してもこのテストは落ちない
+      // （何を検証しているか誤認させる）。コンテナ名を一致させることで
+      // ホスト不一致が唯一の棄却理由になる
+      const imageUrl = `https://example.com/test-images/${fileName}`;
 
       const result = await service.deleteImage(imageUrl);
 

@@ -12,6 +12,15 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => '123e4567-e89b-12d3-a456-426614174000')
 }));
 
+// StorageService.isValidImagePath() が有効と判定するために必要な自ストレージ設定。
+// tests/setup.ts のグローバル値と偶然一致させるのではなく、このファイル内で
+// 完結させる（beforeEach で process.env に設定する）
+const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+const TEST_STORAGE_CONTAINER_NAME = 'test-images';
+const TEST_TEMP_CONTAINER_NAME = 'test-temp';
+const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
+const TEST_TEMP_BASE_URL = `https://test.blob.core.windows.net/${TEST_TEMP_CONTAINER_NAME}`;
+
 describe('植物保存API', () => {
   let mockContext: InvocationContext;
   let mockClient: jest.Mocked<CosmosClient>;
@@ -57,6 +66,9 @@ describe('植物保存API', () => {
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_CONTAINER = 'test-container';
+    // imagePathのバリデーション（StorageService.isValidImagePath）に使う
+    process.env.STORAGE_CONNECTION_STRING = TEST_STORAGE_CONNECTION_STRING;
+    process.env.STORAGE_CONTAINER_NAME = TEST_STORAGE_CONTAINER_NAME;
   });
 
   afterEach(() => {
@@ -65,6 +77,8 @@ describe('植物保存API', () => {
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_CONTAINER;
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.STORAGE_CONTAINER_NAME;
   });
 
   describe('正常系', () => {
@@ -84,7 +98,7 @@ describe('植物保存API', () => {
         description: '日本を代表する花木で、春に美しい花を咲かせる。',
         characteristics: '春に美しいピンクの花を咲かせる',
         confidence: 95.5,
-        imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
       };
@@ -104,7 +118,7 @@ describe('植物保存API', () => {
           description: '日本を代表する花木で、春に美しい花を咲かせる。',
           characteristics: '春に美しいピンクの花を咲かせる',
           confidence: 95.5,
-          imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`
         })
       } as any as HttpRequest;
 
@@ -132,7 +146,7 @@ describe('植物保存API', () => {
           description: '日本を代表する花木で、春に美しい花を咲かせる。',
           characteristics: '春に美しいピンクの花を咲かせる',
           confidence: 95.5,
-          imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
           createdAt: expect.any(String),
           updatedAt: expect.any(String)
         })
@@ -152,7 +166,7 @@ describe('植物保存API', () => {
         name: 'テスト植物',
         characteristics: '基本的な特徴',
         confidence: 80.0,
-        imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`,
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
       };
@@ -169,7 +183,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '基本的な特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -194,7 +208,7 @@ describe('植物保存API', () => {
         json: jest.fn().mockResolvedValue({
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -226,7 +240,7 @@ describe('植物保存API', () => {
           name: longName,
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -257,7 +271,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 150.0, // 範囲外
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -288,14 +302,17 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/foo/123e4567-e89b-12d3-a456-426614174000.jpg',
+          imagePath: 'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg',
           createdAt: '2024-01-15T10:30:00Z',
           updatedAt: '2024-01-15T10:30:00Z'
         }
       });
 
       // リクエストの作成（imagePathが自アカウント以外のホストを指す。
-      // URLとしては正しくパースできるが、他レコードのBlobを指し得る）
+      // URLとしては正しくパースできるが、他レコードのBlobを指し得る。
+      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
+      // 一致しない値（例: foo）だとコンテナ名の不一致だけで400になり、
+      // ホスト検証を削除してもこのテストは落ちなくなる）
       const request = {
         method: 'POST',
         url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
@@ -305,7 +322,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/foo/123e4567-e89b-12d3-a456-426614174000.jpg'
+          imagePath: 'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
         })
       } as any as HttpRequest;
 
@@ -314,9 +331,14 @@ describe('植物保存API', () => {
 
       // 検証
       expect(response.status).toBe(400);
-      expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
-      expect(mockItems.create).not.toHaveBeenCalled();
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
     });
 
     it('画像パスが自ストレージアカウントの一時コンテナを指す場合は400エラー', async () => {
@@ -328,7 +350,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-temp/123e4567-e89b-12d3-a456-426614174000.jpg',
+          imagePath: `${TEST_TEMP_BASE_URL}/123e4567-e89b-12d3-a456-426614174000.jpg`,
           createdAt: '2024-01-15T10:30:00Z',
           updatedAt: '2024-01-15T10:30:00Z'
         }
@@ -345,7 +367,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-temp/123e4567-e89b-12d3-a456-426614174000.jpg'
+          imagePath: `${TEST_TEMP_BASE_URL}/123e4567-e89b-12d3-a456-426614174000.jpg`
         })
       } as any as HttpRequest;
 
@@ -354,8 +376,14 @@ describe('植物保存API', () => {
 
       // 検証
       expect(response.status).toBe(400);
-      expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
     });
 
     it('画像パスが自ストレージアカウントの永続コンテナを指すが中間に余分なセグメントを含む場合は400エラー', async () => {
@@ -367,7 +395,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/x/123e4567-e89b-12d3-a456-426614174000.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/x/123e4567-e89b-12d3-a456-426614174000.jpg`,
           createdAt: '2024-01-15T10:30:00Z',
           updatedAt: '2024-01-15T10:30:00Z'
         }
@@ -386,7 +414,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/x/123e4567-e89b-12d3-a456-426614174000.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/x/123e4567-e89b-12d3-a456-426614174000.jpg`
         })
       } as any as HttpRequest;
 
@@ -395,8 +423,60 @@ describe('植物保存API', () => {
 
       // 検証
       expect(response.status).toBe(400);
-      expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
+    });
+
+    it('画像パスがコンテナまでしか指していない場合は400エラー', async () => {
+      // 植物作成成功のモック（バリデーションが機能していない場合に
+      // 保存まで進んでしまうことを明確に判別するため設定する）
+      mockItems.create.mockResolvedValue({
+        resource: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/`,
+          createdAt: '2024-01-15T10:30:00Z',
+          updatedAt: '2024-01-15T10:30:00Z'
+        }
+      });
+
+      // リクエストの作成（imagePathは自アカウントのホストかつ永続コンテナ（test-images）
+      // を指すが、末尾がスラッシュでBlob名のセグメントが空。
+      // 空文字列のBlob名を許すと、Blobを指さないURLが保存されてしまう）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
     });
 
     it('JSONパースエラーの場合は400エラー', async () => {
@@ -442,7 +522,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -477,7 +557,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -510,7 +590,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://test.blob.core.windows.net/test-images/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 

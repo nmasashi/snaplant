@@ -9,6 +9,13 @@ jest.mock('@azure/storage-blob');
 
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
+// StorageService.isValidImagePath() が有効と判定するために必要な自ストレージ設定。
+// tests/setup.ts のグローバル値と偶然一致させるのではなく、このファイル内で
+// 完結させる（beforeEach で process.env に設定する）
+const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+const TEST_STORAGE_CONTAINER_NAME = 'test-images';
+const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
+
 describe('植物更新API', () => {
   let mockContext: InvocationContext;
   let mockClient: jest.Mocked<CosmosClient>;
@@ -54,6 +61,9 @@ describe('植物更新API', () => {
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_CONTAINER = 'test-container';
+    // imagePathのバリデーション（StorageService.isValidImagePath）に使う
+    process.env.STORAGE_CONNECTION_STRING = TEST_STORAGE_CONNECTION_STRING;
+    process.env.STORAGE_CONTAINER_NAME = TEST_STORAGE_CONTAINER_NAME;
   });
 
   afterEach(() => {
@@ -62,10 +72,15 @@ describe('植物更新API', () => {
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_CONTAINER;
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.STORAGE_CONTAINER_NAME;
   });
 
   describe('正常系', () => {
     it('植物の更新に成功する', async () => {
+      // この describe には Blob SDK を差し替える beforeEach が無いため、
+      // 旧画像削除（StorageService.deleteImage）は例外になりCosmosService内の
+      // catchに飲み込まれる。削除自体の検証は「旧画像削除処理」describeが担う
       // 既存植物のモック
       const existingPlant: Plant = {
         id: '123e4567-e89b-12d3-a456-426614174000',
@@ -75,14 +90,14 @@ describe('植物更新API', () => {
         description: '日本を代表する花木',
         characteristics: '春に美しいピンクの花を咲かせる',
         confidence: 85.0,
-        imagePath: 'https://test.blob.core.windows.net/test-images/old.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
       };
 
       const updatedPlant: Plant = {
         ...existingPlant,
-        imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
         confidence: 95.0,
         updatedAt: '2024-01-16T10:30:00Z'
       };
@@ -98,7 +113,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -118,7 +133,7 @@ describe('植物更新API', () => {
       expect(mockItem.read).toHaveBeenCalledWith();
       expect(mockItem.replace).toHaveBeenCalledWith(expect.objectContaining({
         ...existingPlant,
-        imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
         confidence: 95.0,
         updatedAt: expect.any(String)
       }));
@@ -135,7 +150,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: 'invalid-id' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -194,7 +209,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
           confidence: 101 // 範囲外
         })
       } as any as HttpRequest;
@@ -255,14 +270,14 @@ describe('植物更新API', () => {
         description: '日本を代表する花木',
         characteristics: '春に美しいピンクの花を咲かせる',
         confidence: 85.0,
-        imagePath: 'https://test.blob.core.windows.net/test-images/old.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
       };
 
       const updatedPlant: Plant = {
         ...existingPlant,
-        imagePath: 'https://example.com/foo/123e4567-e89b-12d3-a456-426614174000.jpg',
+        imagePath: 'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg',
         confidence: 90.0,
         updatedAt: '2024-01-16T10:30:00Z'
       };
@@ -273,7 +288,10 @@ describe('植物更新API', () => {
       mockItem.replace.mockResolvedValue({ resource: updatedPlant });
 
       // リクエストの作成（imagePathが自アカウント以外のホストを指す。
-      // URLとしては正しくパースできるが、他レコードのBlobを指し得る）
+      // URLとしては正しくパースできるが、他レコードのBlobを指し得る。
+      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
+      // 一致しない値（例: foo）だとコンテナ名の不一致だけで400になり、
+      // ホスト検証を削除してもこのテストは落ちなくなる）
       const request = {
         method: 'PUT',
         url: 'https://func-snaplant.azurewebsites.net/api/plants/123e4567-e89b-12d3-a456-426614174000?code=test-key',
@@ -281,7 +299,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://example.com/foo/123e4567-e89b-12d3-a456-426614174000.jpg',
+          imagePath: 'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg',
           confidence: 90.0
         })
       } as any as HttpRequest;
@@ -291,8 +309,14 @@ describe('植物更新API', () => {
 
       // 検証
       expect(response.status).toBe(400);
-      expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
     });
   });
 
@@ -309,7 +333,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -345,7 +369,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -378,7 +402,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -428,7 +452,7 @@ describe('植物更新API', () => {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: '桜',
         characteristics: '春に美しいピンクの花を咲かせる',
-        imagePath: 'https://test.blob.core.windows.net/test-images/old-image.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/old-image.jpg`,
         confidence: 85.0,
         createdAt: '2024-01-10T14:20:00Z',
         updatedAt: '2024-01-10T14:20:00Z'
@@ -436,7 +460,7 @@ describe('植物更新API', () => {
 
       const updatedPlant: Plant = {
         ...existingPlant,
-        imagePath: 'https://test.blob.core.windows.net/test-images/new-image.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
         confidence: 95.0,
         updatedAt: '2024-01-15T10:30:00Z'
       };
@@ -456,7 +480,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new-image.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -467,7 +491,7 @@ describe('植物更新API', () => {
       // 検証
       expect(response.status).toBe(200);
       expect(response.jsonBody.success).toBe(true);
-      expect(response.jsonBody.data.plant.imagePath).toBe('https://test.blob.core.windows.net/test-images/new-image.jpg');
+      expect(response.jsonBody.data.plant.imagePath).toBe(`${TEST_IMAGE_BASE_URL}/new-image.jpg`);
       
       // 旧画像削除が呼び出されることの検証
       expect(mockBlobServiceClient.getContainerClient).toHaveBeenCalled();
@@ -480,7 +504,7 @@ describe('植物更新API', () => {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: '桜',
         characteristics: '春に美しいピンクの花を咲かせる',
-        imagePath: 'https://test.blob.core.windows.net/test-images/same-image.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/same-image.jpg`,
         confidence: 85.0,
         createdAt: '2024-01-10T14:20:00Z',
         updatedAt: '2024-01-10T14:20:00Z'
@@ -504,7 +528,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/same-image.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/same-image.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -526,7 +550,7 @@ describe('植物更新API', () => {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: '桜',
         characteristics: '春に美しいピンクの花を咲かせる',
-        imagePath: 'https://test.blob.core.windows.net/test-images/old-image.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/old-image.jpg`,
         confidence: 85.0,
         createdAt: '2024-01-10T14:20:00Z',
         updatedAt: '2024-01-10T14:20:00Z'
@@ -534,7 +558,7 @@ describe('植物更新API', () => {
 
       const updatedPlant: Plant = {
         ...existingPlant,
-        imagePath: 'https://test.blob.core.windows.net/test-images/new-image.jpg',
+        imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
         confidence: 95.0,
         updatedAt: '2024-01-15T10:30:00Z'
       };
@@ -554,7 +578,7 @@ describe('植物更新API', () => {
         headers: new Map([['content-type', 'application/json']]),
         params: { id: '123e4567-e89b-12d3-a456-426614174000' },
         json: jest.fn().mockResolvedValue({
-          imagePath: 'https://test.blob.core.windows.net/test-images/new-image.jpg',
+          imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
           confidence: 95.0
         })
       } as any as HttpRequest;
@@ -565,7 +589,7 @@ describe('植物更新API', () => {
       // 検証
       expect(response.status).toBe(200);
       expect(response.jsonBody.success).toBe(true);
-      expect(response.jsonBody.data.plant.imagePath).toBe('https://test.blob.core.windows.net/test-images/new-image.jpg');
+      expect(response.jsonBody.data.plant.imagePath).toBe(`${TEST_IMAGE_BASE_URL}/new-image.jpg`);
       
       // 旧画像削除が試行されることの検証
       expect(mockBlockBlobClient.delete).toHaveBeenCalled();

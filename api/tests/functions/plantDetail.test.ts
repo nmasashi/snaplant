@@ -7,6 +7,13 @@ import { CosmosClient, Database, Container } from '@azure/cosmos';
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
+// deletePlant() が内部で構築するStorageServiceの接続文字列解析に必要な自ストレージ設定。
+// tests/setup.ts のグローバル値と偶然一致させるのではなく、このファイル内で
+// 完結させる（beforeEach で process.env に設定する）
+const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+const TEST_STORAGE_CONTAINER_NAME = 'test-images';
+const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
+
 describe('植物詳細取得API', () => {
   let mockContext: InvocationContext;
   let mockClient: jest.Mocked<CosmosClient>;
@@ -53,6 +60,9 @@ describe('植物詳細取得API', () => {
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_CONTAINER = 'test-container';
+    // deletePlant()が内部で構築するStorageServiceに使う
+    process.env.STORAGE_CONNECTION_STRING = TEST_STORAGE_CONNECTION_STRING;
+    process.env.STORAGE_CONTAINER_NAME = TEST_STORAGE_CONTAINER_NAME;
   });
 
   afterEach(() => {
@@ -61,6 +71,8 @@ describe('植物詳細取得API', () => {
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_CONTAINER;
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.STORAGE_CONTAINER_NAME;
   });
 
   describe('GET /api/plants/{id} - 植物詳細取得', () => {
@@ -193,10 +205,14 @@ describe('植物詳細取得API', () => {
     const validPlantId = '123e4567-e89b-12d3-a456-426614174000';
 
     it('植物を正常に削除できる', async () => {
-      // 削除前に imagePath を読む実装なので read も必要
-      // （孤児 Blob を残さないため画像も削除する）
+      // deletePlant() はドキュメント削除前に imagePath を読むため read のモックが必要。
+      // このファイルはグローバルモック（tests/setup.ts）の getBlockBlobClient() に
+      // delete が無く、画像削除はTypeErrorになってCosmosService内のcatchに
+      // 飲み込まれる（console.warnも抑制される）ため、ここでは画像削除の成功は
+      // 検証していない。画像削除そのものの検証はcosmosService.test.tsが担う。
+      // ハンドラのテストの関心はレスポンスなので、ここではそれで足りる
       mockItem.read.mockResolvedValue({
-        resource: { id: validPlantId, imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg' }
+        resource: { id: validPlantId, imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg` }
       });
 
       // Cosmos DBアイテム削除成功のモック
