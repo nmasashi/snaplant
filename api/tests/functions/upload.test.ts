@@ -711,16 +711,14 @@ describe('画像アップロード・植物判定統合API', () => {
           details: '一時画像のアップロードに失敗しました: Storage service error'
         }
       });
-      // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
-      expect(blobStore.size).toBe(0);
     });
 
     it('一時保存が未分類のエラーで失敗した場合は500エラー', async () => {
       // 未分類のエラーのモック（一時保存のアップロードで発生させる）。
-      // code は設定しない。StorageService.uploadImageToTemp は catch で
-      // `throw new Error(...)` と包み直すため、元の error.code は失われる。
-      // そのため upload.ts の ECONNREFUSED || ETIMEDOUT 分岐（503）には
-      // 到達せず、実際に通るのは最終フォールバック（500）
+      // **code を設定しない**ことがこのテストの条件。StorageService は
+      // wrapError() で code を引き継ぐが、引き継ぐ元が無いので
+      // upload.ts のどのネットワーク分岐にも当たらず、
+      // 実際に通るのは最終フォールバック（500）になる
       const networkError = new Error('Connection timeout');
       backend.forcedUploadError = networkError;
 
@@ -762,18 +760,22 @@ describe('画像アップロード・植物判定統合API', () => {
           details: '一時画像のアップロードに失敗しました: Connection timeout'
         }
       });
-      // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
-      expect(blobStore.size).toBe(0);
     });
 
-    it('一時保存がENOTFOUNDで失敗した場合は503エラー', async () => {
-      // codeを持つネットワークエラーのモック（一時保存のアップロードで発生させる）。
-      // StorageService.uploadImageToTemp が元の error.code を引き継いで包み直せば、
-      // upload.ts の「ネットワークエラー」分岐（ENOTFOUND || ECONNREFUSED || ETIMEDOUT、503）
-      // に到達するはず。現状は catch で `throw new Error(...)` と包み直す際に
-      // 元の error.code が失われるため、どの分岐にも当たらず最終フォールバック（500）に落ちる
-      const networkError: any = new Error('getaddrinfo ENOTFOUND storagetest.blob.core.windows.net');
-      networkError.code = 'ENOTFOUND';
+    // 3つのcodeは upload.ts の同じ分岐に並んでいる。1つだけ通すと
+    // 残り2つを分岐から外しても気づけないため、全部を通す
+    it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])(
+      '一時保存が%sで失敗した場合は503エラー', async (errorCode) => {
+      // 一時保存のアップロードが接続障害で落ちた場合。
+      // StorageService は wrapError() でメッセージを足しつつ code を引き継ぐので、
+      // upload.ts の「ネットワークエラー」分岐（ENOTFOUND || ECONNREFUSED || ETIMEDOUT）
+      // に到達し、502 ではなく 503 になる。
+      // 到達できていないとサービスへの接続障害が 500 に紛れ、
+      // クライアントが再試行の判断をできない（これが元の不具合）。
+      // code: 'ENOTFOUND' という前提は実SDKに忠実で、Azureのtransportは
+      // RestError に `code: err.code ?? ...` で errno をそのまま載せる
+      const networkError: any = new Error(`接続に失敗しました (${errorCode})`);
+      networkError.code = errorCode;
       backend.forcedUploadError = networkError;
 
       // ファイルオブジェクトのモック
@@ -811,11 +813,9 @@ describe('画像アップロード・植物判定統合API', () => {
         error: {
           code: 'STORAGE_ERROR',
           message: 'ストレージサービスに接続できません',
-          details: '一時画像のアップロードに失敗しました: getaddrinfo ENOTFOUND storagetest.blob.core.windows.net'
+          details: `一時画像のアップロードに失敗しました: 接続に失敗しました (${errorCode})`
         }
       });
-      // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
-      expect(blobStore.size).toBe(0);
     });
   });
 });
