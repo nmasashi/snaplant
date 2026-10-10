@@ -1,11 +1,25 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { getPlantByIdHandler, deletePlantHandler } from '../../src/functions/plantDetail';
 import { Plant } from '../../src/types/plant';
-import { CosmosClient, Database, Container } from '@azure/cosmos';
+import { CosmosClient, Container } from '@azure/cosmos';
+import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
+
+// deletePlant() が内部で構築するStorageServiceが使うBlob SDKもこのファイル内でモックする。
+// tests/setup.ts のグローバルモックの getBlockBlobClient() には delete が無く、
+// それに頼ると画像削除がTypeErrorになってCosmosService内のcatchに飲み込まれてしまう
+// （console.warnも抑制されるため気づけない）。削除が実際に成功する経路を通すため、
+// delete を持つ偽物に差し替える
+jest.mock('@azure/storage-blob', () => ({
+  BlobServiceClient: { fromConnectionString: jest.fn() },
+  BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
+  StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
+  generateBlobSASQueryParameters: jest.fn()
+}));
+const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 
 // deletePlant() が内部で構築するStorageServiceの接続文字列解析に必要な自ストレージ設定。
 // tests/setup.ts のグローバル値と偶然一致させるのではなく、このファイル内で
@@ -14,13 +28,84 @@ const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountNa
 const TEST_STORAGE_CONTAINER_NAME = 'test-images';
 const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
 
+/**
+ * 偽物のCosmos DBバックエンド（cosmosService.test.ts の FakeCosmosBackend と同型）。
+ *
+ * このファイルが使うのは container.item(id, id) の read と delete だけ
+ * （一覧取得や作成は無関係）なので、この2つだけを持つ最小構成にする。
+ *
+ * read だけは実SDKに合わせてNotFoundを例外にしない。@azure/cosmos の
+ * Item.read() はNotFoundを内部で飲み込み、resourceが無いレスポンスを返す
+ * （cosmosService.test.ts の同種コメント参照）。delete はそのまま例外を投げる。
+ */
+interface FakeCosmosBackend {
+  documents: Map<string, Plant>;
+}
+
+function notFoundError(): any {
+  const err: any = new Error('NotFound');
+  err.code = 404;
+  return err;
+}
+
+function createFakeContainer(backend: FakeCosmosBackend): Container {
+  return {
+    item: (id: string, partitionKey: string) => ({
+      read: async () => {
+        if (id !== partitionKey || !backend.documents.has(id)) {
+          return { resource: undefined };
+        }
+        return { resource: backend.documents.get(id) };
+      },
+      delete: async () => {
+        if (id !== partitionKey || !backend.documents.has(id)) throw notFoundError();
+        backend.documents.delete(id);
+        return { resource: { id } };
+      }
+    })
+  } as unknown as Container;
+}
+
+/** 偽物のBlobバックエンド（cosmosService.test.ts の FakeBlobBackend と同型。delete のみ使う） */
+interface BlobEntry {
+  content: Buffer;
+}
+
+interface FakeBlobBackend {
+  store: Map<string, BlobEntry>;
+}
+
+function notFoundBlobError(): any {
+  const err: any = new Error('BlobNotFound');
+  err.statusCode = 404;
+  return err;
+}
+
+function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: string, blobName: string): BlockBlobClient {
+  const key = `${containerName}/${blobName}`;
+
+  return {
+    delete: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw notFoundBlobError();
+      backend.store.delete(key);
+      return {};
+    }
+  } as unknown as BlockBlobClient;
+}
+
+function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
+  return {
+    getContainerClient: (containerName: string) => ({
+      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
+    })
+  } as unknown as BlobServiceClient;
+}
+
 describe('植物詳細取得API', () => {
   let mockContext: InvocationContext;
-  let mockClient: jest.Mocked<CosmosClient>;
-  let mockDatabase: jest.Mocked<Database>;
-  let mockContainer: jest.Mocked<Container>;
-  let mockItems: any;
-  let mockItem: any;
+  let cosmosBackend: FakeCosmosBackend;
+  let blobStore: Map<string, BlobEntry>;
 
   beforeEach(() => {
     // InvocationContextのモック
@@ -29,32 +114,21 @@ describe('植物詳細取得API', () => {
       error: jest.fn()
     } as any;
 
-    // Cosmos DB SDKのモック
-    mockItems = {
-      query: jest.fn(),
-      create: jest.fn()
-    };
+    // Cosmos DBの偽物バックエンド
+    cosmosBackend = { documents: new Map() };
+    const fakeContainer = createFakeContainer(cosmosBackend);
+    MockedCosmosClient.mockImplementation(() => ({
+      database: () => ({
+        container: () => fakeContainer
+      })
+    } as unknown as CosmosClient));
 
-    mockItem = {
-      read: jest.fn(),
-      delete: jest.fn()
-    };
+    // Blobの偽物バックエンド
+    blobStore = new Map();
+    MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(
+      createFakeBlobServiceClient({ store: blobStore })
+    );
 
-    mockContainer = {
-      items: mockItems,
-      item: jest.fn().mockReturnValue(mockItem)
-    } as any;
-
-    mockDatabase = {
-      container: jest.fn().mockReturnValue(mockContainer)
-    } as any;
-
-    mockClient = {
-      database: jest.fn().mockReturnValue(mockDatabase)
-    } as any;
-
-    MockedCosmosClient.mockImplementation(() => mockClient);
-    
     // 環境変数設定
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
     process.env.COSMOS_DB_KEY = 'test-key';
@@ -77,7 +151,7 @@ describe('植物詳細取得API', () => {
 
   describe('GET /api/plants/{id} - 植物詳細取得', () => {
     const validPlantId = '123e4567-e89b-12d3-a456-426614174000';
-    
+
     it('植物詳細を正常に取得できる', async () => {
       // テストデータ
       const mockPlant: Plant = {
@@ -92,9 +166,7 @@ describe('植物詳細取得API', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z'
       };
-
-      // Cosmos DBアイテム取得成功のモック
-      mockItem.read.mockResolvedValue({ resource: mockPlant });
+      cosmosBackend.documents.set(validPlantId, mockPlant);
 
       // リクエストの作成
       const request = {
@@ -116,15 +188,10 @@ describe('植物詳細取得API', () => {
           plant: mockPlant
         }
       });
-      expect(mockContainer.item).toHaveBeenCalledWith(validPlantId, validPlantId);
-      expect(mockItem.read).toHaveBeenCalled();
     });
 
     it('存在しない植物IDの場合は404エラー', async () => {
-      // Cosmos DBアイテム未登録のモック
-      mockItem.read.mockResolvedValue({ resource: null });
-
-      // リクエストの作成
+      // リクエストの作成（cosmosBackend.documents は空のまま。該当IDが無い状態）
       const request = {
         method: 'GET',
         url: `https://func-snaplant.azurewebsites.net/api/plants/${validPlantId}?code=test-key`,
@@ -172,7 +239,6 @@ describe('植物詳細取得API', () => {
           details: 'UUID形式で指定してください'
         }
       });
-      expect(mockContainer.item).not.toHaveBeenCalled();
     });
 
     it('植物IDが未指定の場合は400エラー', async () => {
@@ -197,7 +263,6 @@ describe('植物詳細取得API', () => {
           message: '植物IDが指定されていません'
         }
       });
-      expect(mockContainer.item).not.toHaveBeenCalled();
     });
   });
 
@@ -205,18 +270,20 @@ describe('植物詳細取得API', () => {
     const validPlantId = '123e4567-e89b-12d3-a456-426614174000';
 
     it('植物を正常に削除できる', async () => {
-      // deletePlant() はドキュメント削除前に imagePath を読むため read のモックが必要。
-      // このファイルはグローバルモック（tests/setup.ts）の getBlockBlobClient() に
-      // delete が無く、画像削除はTypeErrorになってCosmosService内のcatchに
-      // 飲み込まれる（console.warnも抑制される）ため、ここでは画像削除の成功は
-      // 検証していない。画像削除そのものの検証はcosmosService.test.tsが担う。
-      // ハンドラのテストの関心はレスポンスなので、ここではそれで足りる
-      mockItem.read.mockResolvedValue({
-        resource: { id: validPlantId, imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg` }
-      });
-
-      // Cosmos DBアイテム削除成功のモック
-      mockItem.delete.mockResolvedValue({ resource: { id: validPlantId } });
+      // 削除対象のドキュメントを用意する（imagePathを持つ。deletePlant()は
+      // ドキュメント削除前にimagePathを読み、削除後にその画像も削除する）
+      const existingPlant: Plant = {
+        id: validPlantId,
+        name: '桜',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 95.5,
+        imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z'
+      };
+      cosmosBackend.documents.set(validPlantId, existingPlant);
+      // 画像削除が実際に成功する経路を通すため、対応するBlobも存在させておく
+      blobStore.set('test-images/sakura.jpg', { content: Buffer.from('dummy') });
 
       // リクエストの作成
       const request = {
@@ -230,7 +297,7 @@ describe('植物詳細取得API', () => {
       // 実行
       const response = await deletePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（レスポンス）
       expect(response.status).toBe(200);
       expect(response.jsonBody).toEqual({
         success: true,
@@ -238,20 +305,15 @@ describe('植物詳細取得API', () => {
           message: '植物が正常に削除されました'
         }
       });
-      expect(mockContainer.item).toHaveBeenCalledWith(validPlantId, validPlantId);
-      expect(mockItem.delete).toHaveBeenCalled();
+      // 検証（ドキュメントが消えたことの状態検証。delete呼び出しの引数ではなく、
+      // 実際にバックエンドから無くなったかどうかを確認する）
+      expect(cosmosBackend.documents.has(validPlantId)).toBe(false);
     });
 
     it('存在しない植物IDの場合は404エラー', async () => {
-      // read は NotFound を飲み込んで resource なしを返す（実SDKの挙動）
-      mockItem.read.mockResolvedValue({ resource: undefined });
-
-      // Cosmos DBアイテム削除失敗のモック
-      const notFoundError = new Error('Entity not found');
-      (notFoundError as any).code = 404;
-      mockItem.delete.mockRejectedValue(notFoundError);
-
-      // リクエストの作成
+      // リクエストの作成（cosmosBackend.documents は空のまま。該当IDが無い状態。
+      // read はNotFoundを飲み込んでresourceなしを返し、delete は例外を投げる
+      // ——どちらも実SDKの挙動に合わせた偽物の既定動作）
       const request = {
         method: 'DELETE',
         url: `https://func-snaplant.azurewebsites.net/api/plants/${validPlantId}?code=test-key`,
