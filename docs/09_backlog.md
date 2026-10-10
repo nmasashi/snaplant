@@ -293,6 +293,17 @@ Dart の変更なので WSL では検証できない。
 [`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
 と同時にやるのが自然。
 
+**あわせて検討すること（contract-auditor の監査で判明）**:
+`userMessage` は `case 500: case 502: case 503:` を1つにまとめており、
+**502 と 503 を区別していない**。サーバ側は意味を分けている
+（502 = 上流に到達したがエラー応答、503 = 到達できない）ので、
+封筒を読ませる改修のついでにメッセージを分けるかを決めたい。
+503 は時間を置けば回復しうるので「しばらく待って再試行」、
+502 は再試行しても同じ結果になりやすい。
+`isServerError`（`api_service.dart`）がどこからも使われていない点と、
+`userMessage` の `case 429` に対応するステータスがサーバに存在しない点
+（レート制限は未実装）も、同じ関数を触るついでに片付けられる。
+
 ### `save` の重複チェックは read-then-write で同時リクエストに効かない
 
 `api/src/functions/save.ts` は `getPlantByImagePath()` でクエリしてから
@@ -388,6 +399,114 @@ Content-Type が拡張子の決定要因に昇格した分だけ影響が明確�
 
 Dart の変更なので WSL では `flutter analyze` を実行できない。
 [Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
+
+### `wrapError()` の適用5箇所のうち3箇所が無検証
+
+`api/src/utils/errors.ts` の `wrapError()` は5箇所で使われているが、
+**退行テストが付いているのは1箇所だけ**（`uploadImageToTemp`）。
+test-reviewer が変異で確認した。
+
+| 箇所 | `new Error` に戻したときの結果 |
+|---|---|
+| `storageService.ts` の `uploadImageToTemp` | **赤1件**（守られている） |
+| `storageService.ts` の `moveFromTempToPermanent` | **緑**（無検証） |
+| `storageService.ts` の `deleteImage` | **緑**（無検証） |
+| `storageService.ts` の SAS URL 生成 | **緑**（無検証） |
+| `openAIVisionService.ts` の `identifyPlant` | 下記の別項目を参照 |
+
+つまり `upload` の**移動失敗・削除失敗・SAS 生成失敗**の 503 分類は
+現在ノーガードで、`code` の引き継ぎをやめても気づけない。
+
+**なぜ今テストを足さなかったか**: 偽物の `forcedUploadError` は
+バックエンド全体に効くため、「一時保存は成功させて永続保存への移動だけ
+失敗させる」という条件が作れない。`tests/fakes/blob.ts` に
+コンテナ単位（あるいは呼び出し回数単位）の失敗注入を足す必要がある。
+
+**判断が必要な点**: 偽物に失敗注入の仕組みを足すか。
+
+**推奨**: **足す。** `forcedUploadErrorByContainer` のような
+コンテナ名をキーにした失敗注入が素直で、既存の `failWith`（Blob 単位）と
+同じ発想。移動処理は「一時から読んで永続へ書き、一時を消す」の3手で
+宛先を取り違える余地があり、守る価値が高い。
+
+### `identify` の 503 分岐が実運用で到達しない
+
+`api/src/functions/identify.ts` のネットワークエラー分岐
+（503 / `AI_SERVICE_ERROR` / `植物識別サービスに接続できません`）は
+**OpenAI 経路では発火しない。**
+
+`api/node_modules/openai/core/error.js` を読むと、`APIError` の
+コンストラクタが `this.code = data?.['code']` で、`APIConnectionError` は
+`super(undefined, undefined, 'Connection error.', undefined)` を呼ぶ。
+つまり **`code` は常に `undefined`** で、元の DNS エラー
+（`code: 'ENOTFOUND'` を持つ）は `cause` に入る。
+`wrapError()` は `cause.code` しか見ておらず `cause.cause` は辿らない。
+
+**実行時の症状**: Azure OpenAI のホスト名が解決できないとき
+`POST /api/plants/identify` は 503 ではなく **500 `INTERNAL_ERROR`**
+（`details: "植物識別に失敗しました: Connection error."`）を返す。
+メッセージに `OpenAI` も `LLM` も含まないため 502 にも落ちない。
+クライアントは 500/502/503 を同じ扱いにするのでユーザー向けの表示は
+変わらないが、監視と再試行判断の精度が落ちる。
+
+対照的に **`upload` の 503 は確実に到達する**。Azure の transport は
+`RestError` に `code: err.code ?? ...` で errno を載せるため
+（`@typespec/ts-http-runtime` の `nodeHttpClient.js`）、
+`wrapError()` がそれを引き継ぐ。
+**つまり 54ae670 の修正が実際に効いているのは Storage 経路だけ。**
+
+`identify.ts` のコメントは「包み直しで `code` を捨てるため到達しない」と
+書いており、54ae670 でその理由は成立しなくなった。
+**結論（到達しない）は別の理由で依然正しい**が、根拠が古い。
+
+**判断が必要な点**: サーバを直すか、分岐を削るか。
+
+**推奨**: **サーバを直す。** `wrapError()` が `cause.code` が無いときに
+`cause.cause?.code` を辿るようにするのが変更範囲が最も狭い
+（`StorageService` 側は `code` を直接持つので影響なし）。
+`error instanceof OpenAI.APIConnectionError` で判定する案もあるが、
+ハンドラが SDK の型に依存することになる。
+
+仕様書（`06_api_openapi.yaml` / `06_api_design.md`）は分岐が実装されている
+前提で 503 を記載している。実装を直せば記述も正しくなる。
+**分岐を削る選択を採る場合は仕様書の 503 の記載も消すこと。**
+
+### `upload` の AI 判定がメッセージ文字列依存で分類順の先頭にある
+
+`api/src/functions/upload.ts` の catch は
+`error.message.includes('OpenAI') || error.message.includes('LLM')` を
+最初に評価する。そのため `code === 'ENOTFOUND'` を持つエラーでも、
+メッセージに `LLM` / `OpenAI` が含まれていれば 502 `AI_SERVICE_ERROR` が勝つ。
+
+現状 `StorageService` の包み直しメッセージは日本語で `Storage` も `LLM` も
+含まないため**実害は観測できない**。ただし将来メッセージを変えると
+分類が静かに入れ替わる脆さがある。
+
+**判断が必要な点**: 分類を文字列から型・`code` に寄せるか。
+
+**推奨**: **当面そのまま。** 実害が書けない以上、優先度は低い。
+`identify` の `code` 問題（上記）を直すときに、エラー分類の方式そのものを
+見直す文脈でまとめて扱うのが筋。
+
+### テストの軽微な改善（優先度低）
+
+test-reviewer が指摘した、原則違反ではないが締められる点。
+
+- **`openAIVisionService.test.ts` の `.rejects.toThrow('植物識別に失敗しました')`
+  が前方一致。** catch が全例外を同じ接頭辞で包むため、**別の原因で落ちても通る**。
+  `storageService.test.ts` は `/^…$/` でアンカーしており、そちらに揃えるのが素直
+- **`FakeCosmosBackend<TDoc>` は止めたい方向を型で止められていない。**
+  `FakeCosmosBackend<PlantSummary>` に完全な `Plant` を入れても通る（構造的部分型）。
+  現状はテスト側が `const x: PlantSummary[] = [...]` とリテラルで宣言している
+  規律に依存している。射影と完全な `Plant` の両方を扱う `cosmosService.test.ts` が
+  既定の union を使っているため、**区別が最も必要なファイルで区別が消えている**
+- **`cosmosService.test.ts` の検索語が常に「存在する側」。** `@name` に固定値を
+  渡す変異を入れてもサービス層のテストは緑で、ハンドラ側のテストだけが捕まえる。
+  片方の検索語を2件目の文書にすると変異が赤になる
+- **`upload.test.ts` が設定する `OPENAI_API_KEY` は死蔵。**
+  `openAIVisionService.ts` は `AZURE_OPENAI_ENDPOINT` の有無で分岐し、
+  それは `tests/setup.ts` のグローバル値が立ったまま。
+  他ファイルが徹底している「`setup.ts` に暗黙依存しない」方針と不整合
 
 ### contextInfo の文字数の数え方がクライアントとサーバで違う
 
