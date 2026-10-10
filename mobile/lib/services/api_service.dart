@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
+import '../utils/image_mime_type.dart';
 
 /// Azure Functions API との通信を担当するサービスクラス
 /// Function Key認証を使用してAPIにアクセス
@@ -131,7 +132,7 @@ class ApiService {
               'image',
               imageFile,
               filename: 'plant_image.jpg',
-              contentType: MediaType('image', 'jpeg'),
+              contentType: MediaType.parse(detectImageMimeType(imageFile)),
             ),
           );
         } else {
@@ -146,17 +147,12 @@ class ApiService {
             print('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
           }
           
-          // ファイル拡張子からMIMEタイプを判定
-          String mimeType = 'image/jpeg';
-          final extension = imageFile.path.toLowerCase();
-          if (extension.endsWith('.png')) {
-            mimeType = 'image/png';
-          } else if (extension.endsWith('.gif')) {
-            mimeType = 'image/gif';
-          } else if (extension.endsWith('.webp')) {
-            mimeType = 'image/webp';
-          }
-          
+          // 拡張子ではなく中身のシグネチャで判定する。判定に必要なのは先頭12バイトだけ
+          final header = await imageFile
+              .openRead(0, 12)
+              .fold<List<int>>(<int>[], (bytes, chunk) => bytes..addAll(chunk));
+          final mimeType = detectImageMimeType(Uint8List.fromList(header));
+
           if (kDebugMode) {
             print('ApiService: 検出MIMEタイプ: $mimeType');
           }
@@ -225,65 +221,6 @@ class ApiService {
     }
   }
 
-  /// 画像アップロード（従来版・互換性のため残存）
-  /// POST /api/images/upload
-  /// 注: このエンドポイントは AI 識別も実行するため、植物でない画像は 400 (NOT_A_PLANT) になる
-  Future<UploadResult> uploadImage(dynamic imageFile) async {
-    try {
-      final url = _buildUrl('/api/images/upload');
-      final request = http.MultipartRequest('POST', Uri.parse(url));
-      
-      // Web環境とモバイル環境で異なる処理
-      if (kIsWeb) {
-        // Web環境の場合、Uint8Listを期待
-        if (imageFile is Uint8List) {
-          request.files.add(
-            http.MultipartFile.fromBytes(
-              'image',
-              imageFile,
-              filename: 'plant_image.jpg',
-            ),
-          );
-        } else {
-          throw ArgumentError('Web環境では画像データはUint8Listである必要があります');
-        }
-      } else {
-        // モバイル環境の場合、Fileを期待
-        if (imageFile is File) {
-          request.files.add(
-            await http.MultipartFile.fromPath(
-              'image',
-              imageFile.path,
-              filename: 'plant_image.jpg',
-            ),
-          );
-        } else {
-          throw ArgumentError('モバイル環境では画像データはFileである必要があります');
-        }
-      }
-      
-      final streamedResponse = await _client.send(request);
-      final response = await http.Response.fromStream(streamedResponse);
-      
-      return _parseResponse(
-        response,
-        (json) {
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          return UploadResult.fromJson(data);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-  
   /// 植物識別
   /// POST /api/plants/identify
   Future<IdentificationResult> identifyPlant(String imagePath, {String? contextInfo}) async {

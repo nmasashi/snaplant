@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -31,6 +32,51 @@ const _createRequest = PlantCreateRequest(
 );
 
 void main() {
+  group('画像アップロード', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('snaplant_test_');
+    });
+
+    tearDown(() async {
+      await tempDir.delete(recursive: true);
+    });
+
+    test('拡張子がjpgでも中身がPNGならimage/pngとして送る', () async {
+      final file = File('${tempDir.path}/photo.jpg');
+      await file.writeAsBytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...List.filled(32, 0)]);
+
+      // 送信した Content-Type はサーバが Blob の Content-Type と拡張子を決める根拠になる。
+      // サーバとの契約がリクエストにしか現れないため、送信内容を検証する
+      String? sentBody;
+      final service = ApiService(
+        baseUrl: 'https://api.example.test',
+        client: MockClient((request) async {
+          sentBody = latin1.decode(request.bodyBytes);
+          return http.Response(
+            json.encode({
+              'success': true,
+              'data': {
+                'imagePath': 'https://stsnaplant.blob.core.windows.net/images/a.png',
+                'fileName': 'plant_image.jpg',
+                'contentType': 'image/png',
+                'fileSize': 40,
+                'identificationResult': {'isPlant': true, 'candidates': []},
+              },
+            }),
+            201,
+            headers: _jsonHeaders,
+          );
+        }),
+      );
+
+      await service.uploadAndIdentifyImage(file);
+
+      expect(sentBody, contains('content-type: image/png'));
+    });
+  });
+
   group('エラーレスポンス', () {
     test('サーバが返したエラーコードとメッセージを例外が保持する', () async {
       final service = _serviceReturning(409, {
