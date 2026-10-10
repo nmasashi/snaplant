@@ -145,6 +145,21 @@ describe('StorageService', () => {
     delete process.env.TEMP_STORAGE_CONTAINER_NAME;
   });
 
+  describe('constructor', () => {
+    it('接続文字列にBlobEndpointが指定されている場合、例外をスローする', () => {
+      // BlobEndpoint=がある接続文字列は、SDK(BlobServiceClient.fromConnectionString())
+      // がそのエンドポイントを使う一方、resolveBlobEndpointHost()はAccountNameと
+      // EndpointSuffixから自分でホストを組み立てるため両者が食い違う。
+      // 食い違うと自分が生成したURLを自分のisValidImagePath()/deleteImage()が
+      // 拒否するようになり、保存時400・旧画像の孤児化という静かな誤動作になる。
+      // 現時点では未対応のため、コンストラクタで例外を投げて大きな失敗に変える
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=testkey==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;';
+
+      expect(() => new StorageService()).toThrow(/^BlobEndpointを明示した接続文字列は未対応です$/);
+    });
+  });
+
   describe('uploadImage', () => {
     it('アップロードした画像のURLが画像用コンテナのユニークなファイル名を指す', async () => {
       const imageBuffer = Buffer.from('test image data');

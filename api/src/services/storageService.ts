@@ -33,6 +33,21 @@ export class StorageService {
     this.containerName = process.env.STORAGE_CONTAINER_NAME!;
     this.tempContainerName = process.env.TEMP_STORAGE_CONTAINER_NAME || 'temp';
     
+    // BlobEndpoint を明示した接続文字列は未対応。
+    //
+    // SDK はそのエンドポイントを使うが、こちらは AccountName と EndpointSuffix から
+    // ホストを組み立てるため両者が食い違う。食い違うと、自分が生成した URL を
+    // isValidImagePath() が 400 で弾き、deleteImage() も常に false を返して
+    // 孤児 Blob が永久に残る。静かに誤動作するより、ここで失敗させる。
+    //
+    // 対応するには、Azurite のようなパス形式のエンドポイント
+    // （/<アカウント名>/<コンテナ>/<Blob> の3セグメント）を前提に検証を
+    // 書き直す必要がある。現在の「ちょうど2セグメント」のルールと衝突するため、
+    // バックログの判断待ちとして分離している
+    if (/(^|;)\s*BlobEndpoint=/i.test(connectionString)) {
+      throw new Error('BlobEndpointを明示した接続文字列は未対応です');
+    }
+
     // Connection stringから account name と key を抽出
     const accountNameMatch = connectionString.match(/AccountName=([^;]+)/);
     const accountKeyMatch = connectionString.match(/AccountKey=([^;]+)/);
@@ -389,6 +404,15 @@ export class StorageService {
 
     try {
       const url = new URL(imagePath);
+
+      // スキームを明示的に限定する。
+      // ホストの一致だけでも javascript: や data: は弾かれる（それらのホストは
+      // 空文字になる）が、それは偶然の副作用でしかない。ホスト検証を緩めたときに
+      // スキームの防御まで同時に緩むのを避けるため、独立した条件にしておく
+      if (url.protocol !== 'https:') {
+        return false;
+      }
+
       if (url.host !== expectedHost) {
         return false;
       }

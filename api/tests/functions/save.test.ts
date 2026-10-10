@@ -479,6 +479,52 @@ describe('植物保存API', () => {
       });
     });
 
+    it('画像パスのスキームがhttpsでない場合は400エラー', async () => {
+      // 植物作成成功のモック（バリデーションが機能していない場合に
+      // 保存まで進んでしまうことを明確に判別するため設定する）
+      mockItems.create.mockResolvedValue({
+        resource: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `http://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}/123e4567-e89b-12d3-a456-426614174000.jpg`,
+          createdAt: '2024-01-15T10:30:00Z',
+          updatedAt: '2024-01-15T10:30:00Z'
+        }
+      });
+
+      // リクエストの作成（imagePathはホストと永続コンテナの形は正当だが、
+      // スキームがhttpsでない。ホストとパスの一致だけを見る実装では
+      // スキームを素通りさせてしまう）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `http://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}/123e4567-e89b-12d3-a456-426614174000.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
+    });
+
     it('JSONパースエラーの場合は400エラー', async () => {
       // リクエストの作成（JSONパースエラー）
       const request = {
