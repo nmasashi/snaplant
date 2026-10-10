@@ -25,7 +25,7 @@ Dart に触る作業はここに集める。Windows 側でセッションを1回
 | [`ApiService.uploadImage()` が未使用](#apiserviceuploadimage-が未使用) | **決定済み** | 削除する |
 | [409 を英文のまま表示](#flutter-が-409-を英文のまま表示しリトライから回復できない) | **決定済み** | `ApiException` に封筒を読ませ、409 を成功相当に扱う |
 | [`api_response.dart` の型不一致](#api_responsedart-の型がサーバの封筒と合っていない) | **決定済み** | 上と同時に、封筒に合わせて書き直す |
-| [Web 経路が MIME を無視](#web-経路が実際の-mime-を無視して-imagejpeg-を送る) | **判断待ち** | 実データから MIME を判定するか |
+| [Content-Type が実データと一致しない](#画像の-content-type-が実データと一致しない判定が2経路に分かれている) | **決定済み** | マジックバイトで判定する関数を1つ作り、Web とネイティブの両経路から呼ぶ |
 
 ### 最初にやること
 
@@ -300,6 +300,150 @@ throw ApiException(
 仕様どおり「既存レコードを `GET /api/plants` から探す」までやるかは設計判断。
 
 Dart の変更なので WSL では検証できない。
+[Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
+`ApiException` に封筒を読ませる改修は、下記
+[`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
+と同時にやるのが自然。
+
+**あわせて検討すること（contract-auditor の監査で判明）**:
+`userMessage` は `case 500: case 502: case 503:` を1つにまとめており、
+**502 と 503 を区別していない**。サーバ側は意味を分けている
+（502 = 上流に到達したがエラー応答、503 = 到達できない）ので、
+封筒を読ませる改修のついでにメッセージを分けるかを決めたい。
+503 は時間を置けば回復しうるので「しばらく待って再試行」、
+502 は再試行しても同じ結果になりやすい。
+`isServerError`（`api_service.dart`）がどこからも使われていない点と、
+`userMessage` の `case 429` に対応するステータスがサーバに存在しない点
+（レート制限は未実装）も、同じ関数を触るついでに片付けられる。
+
+### `save` の重複チェックは read-then-write で同時リクエストに効かない
+
+`api/src/functions/save.ts` は `getPlantByImagePath()` でクエリしてから
+`createPlant()` するだけで、トランザクションも一意制約もない。
+
+同じ `imagePath` の `save` が**ほぼ同時に**2件届くと両方が通り、重複レコードが
+できる（その後どちらかを削除・更新すると他方の画像が消えるという元の不具合が残る）。
+
+**491c855 のコミットメッセージに「入口で一意性を保証する」と書いたが、
+これは言い過ぎだった。** 逐次のリトライには有効だが、並行リクエストには
+当てはまらない。
+
+Terraform の `azurerm_cosmosdb_sql_container.plants` に `unique_key` ブロックは無い。
+あっても Cosmos の一意キーは**パーティション内でしか効かない**ため、
+パーティションキーが `/id` の現構成では `imagePath` の一意制約を張れない。
+
+**判断が必要な点**: 対処するか。
+
+**推奨**: **当面は現状のまま。** モバイルの手動リトライには時間差があるため
+実害が小さい。根本解決にはパーティションキーの変更という設計変更が必要で、
+得られるものに対してコストが大きい。
+
+### `api_response.dart` の型がサーバの封筒と合っていない
+
+`mobile/lib/models/api_response.dart` の `ApiError.fromJson` は
+`detail`（サーバは `details`）と `statusCode`（サーバはボディに含めない）を
+必須で読む。`ApiResponse.fromJson` は `json['error'] as String?` と、
+エラーをオブジェクトではなく**文字列**として扱う。
+
+サーバの封筒は `{ success, error: { code, message, details? } }`。
+
+`lib` / `test` 配下に参照箇所が1つも無いため**現時点では何も起きない。**
+使い始めた瞬間に `statusCode` の null キャストで例外になる。
+
+**判断: 書き直す**（人間がトリアージ済み）。上記
+[Flutter が 409 を英文のまま表示する](#flutter-が-409-を英文のまま表示しリトライから回復できない)
+の対応で「`error.code` を読む」経路を作るので、そのときに正しい形に直して使うのが自然。
+使われていないからといって削除すると、同じものを書き直すことになる。
+
+### UUID の生成方法が2つある
+
+`CosmosService.generateId()` は `uuid` パッケージを使わず、
+`Math.random()` を使った自前実装になっている。
+
+```typescript
+return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+  const r = Math.random() * 16 | 0;
+  ...
+```
+
+一方 `StorageService.generateUniqueFileName()` は `uuid` パッケージの
+`v4()` を使う。**同じリポジトリ内で UUID の生成方法が2つある。**
+
+`save.ts` も以前は `uuidv4()` を使っていたが、`createPlant()` が
+スプレッドの前で `generateId()` を呼ぶため常に捨てられていた。つまり
+**`uuid` パッケージは植物の id 生成に一度も使われていなかった**
+（この二重生成は解消済み）。
+
+**機能上の問題はない。** `Math.random()` は暗号学的に安全ではないが、
+この id は `GET /api/plants` で全件返るため秘密ではなく、推測されても
+害がない（アクセス制御は Function Key）。
+
+**判断が必要な点**: `uuid` パッケージに統一するか。
+
+**推奨**: **統一する。** 依存として既に入っていて `StorageService` が
+使っているので、追加コストはない。生成方法が2つあると「どちらを使うべきか」
+の判断を読み手に押しつける。
+
+`generateId()` を `uuidv4()` の呼び出しに置き換えるだけで、
+テストは形式を検証しているため期待値を変える必要もない
+（`uuid` も v4 を生成するので同じ形になる）。
+
+### 画像の Content-Type が実データと一致しない（判定が2経路に分かれている）
+
+`mobile/lib/services/api_service.dart` の `uploadAndIdentifyImage()` は
+Web とネイティブで別々に Content-Type を決めており、**どちらも実データを見ていない**。
+
+| 経路 | Content-Type の決め方 | 正しさ |
+|---|---|---|
+| Web（133-140行） | `MediaType('image', 'jpeg')` **固定** | PNG を選ぶと必ず誤る |
+| ネイティブ（154-173行） | `imageFile.path` の**拡張子** | 通常は正しい。拡張子が無い/誤っていると誤る |
+
+`filename: 'plant_image.jpg'` は**両経路でハードコード**されている。
+ただしサーバは Blob 名の拡張子を**検証済みの Content-Type から引く**ため
+（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`）、`filename` は
+レスポンスの `fileName` に返るだけの飾りで、Blob 名には影響しない。
+
+**実行時の症状**: Web で PNG を選ぶと、永続コンテナに「中身が PNG で
+名前と Content-Type が JPEG」の Blob が入る。表示は多くの環境で成功するため
+気づきにくい。変更前もファイル名由来で `.jpg` になっていたため退行ではないが、
+Content-Type が拡張子の決定要因に昇格した分だけ影響が明確になった（3bcabf8 以降）。
+
+**判断: マジックバイトで判定する**（人間がトリアージ済み）。
+
+バイト列の先頭を見て PNG / JPEG / GIF / WebP を判定する関数を1つ作り、
+**Web とネイティブの両経路から呼ぶ**。
+
+```dart
+String detectImageMimeType(Uint8List bytes) {
+  if (bytes.length >= 8  && bytes[0] == 0x89 && bytes[1] == 0x50) return 'image/png';
+  if (bytes.length >= 3  && bytes[0] == 0xFF && bytes[1] == 0xD8) return 'image/jpeg';
+  if (bytes.length >= 6  && bytes[0] == 0x47 && bytes[1] == 0x49) return 'image/gif';
+  if (bytes.length >= 12 && bytes[8] == 0x57 && bytes[9] == 0x45) return 'image/webp';
+  return 'image/jpeg';  // 不明時は従来の既定値
+}
+```
+
+採用理由は3つ。
+
+1. **中身と Content-Type が必ず一致する。** `XFile.mimeType` や拡張子は
+   ブラウザ/OS が拡張子から推定した申告値なので、拡張子を偽られると誤る
+2. **分岐していた判定ロジックが1本に統合される。** 現状は Web が固定値、
+   ネイティブが拡張子ベースで、片方だけ壊れている状態。関数1つに寄せると
+   経路による差が消える
+3. **新しい依存が不要。** 4形式だけなので自前で十分。`pubspec.yaml` の
+   未使用パッケージ（`dio` / `go_router` など）の方針が未決定なので、
+   ここで新しい依存を増やさない方が良い
+
+`XFile.mimeType` を使う案は採らなかった。`image_picker` が提供しており
+（`camera_screen.dart` で既にログ出力している）実装は最小だが、
+native では null になりうること、申告値なので偽れることが理由。
+
+サーバ側で実データから判定する案も採らなかった。サーバは
+「検証済みの Content-Type を信頼する」設計で一貫しており、ここを崩すと
+`#10` で塞いだ「クライアント由来の文字列を Blob 名に入れない」という
+性質が戻ってしまう。
+
+Dart の変更なので WSL では `flutter analyze` を実行できない。
 [Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
 `ApiException` に封筒を読ませる改修は、下記
 [`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
