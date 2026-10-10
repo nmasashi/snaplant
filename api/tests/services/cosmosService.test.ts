@@ -157,7 +157,7 @@ describe('CosmosService', () => {
     });
   });
 
-  describe('getPlantByImagePath', () => {
+  describe('getPlantsByImagePath', () => {
     const sakura: Plant = {
       id: '1',
       name: '桜',
@@ -184,17 +184,30 @@ describe('CosmosService', () => {
       cosmosBackend.documents.set(rose.id, rose);
       cosmosBackend.documents.set(sakura.id, sakura);
 
-      const result = await service.getPlantByImagePath(sakura.imagePath);
+      const result = await service.getPlantsByImagePath(sakura.imagePath);
 
-      expect(result).toEqual(sakura);
+      expect(result).toEqual([sakura]);
     });
 
-    it('指定したimagePathを持つ植物が存在しない場合、nullを返す', async () => {
+    it('同じimagePathを持つ植物が複数ある場合は全件返す', async () => {
+      // 1件だけ返す実装だと、呼び出し側は「自分以外が使っているか」を
+      // 判定できない。重複が既に存在する状態は save の read-then-write で
+      // 実際に作れるため、全件返すことが呼び出し側の正しさの前提になる
+      const sakuraDuplicate = { ...sakura, id: 'duplicate-id', name: '桜（重複）' };
+      cosmosBackend.documents.set(sakura.id, sakura);
+      cosmosBackend.documents.set(sakuraDuplicate.id, sakuraDuplicate);
+
+      const result = await service.getPlantsByImagePath(sakura.imagePath);
+
+      expect(result).toEqual([sakura, sakuraDuplicate]);
+    });
+
+    it('指定したimagePathを持つ植物が存在しない場合、空配列を返す', async () => {
       cosmosBackend.documents.set(rose.id, rose);
 
-      const result = await service.getPlantByImagePath('https://test.blob.core.windows.net/test-images/not-exists.jpg');
+      const result = await service.getPlantsByImagePath('https://test.blob.core.windows.net/test-images/not-exists.jpg');
 
-      expect(result).toBeNull();
+      expect(result).toEqual([]);
     });
   });
 

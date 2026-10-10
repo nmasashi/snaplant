@@ -50,10 +50,21 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
     // 自分自身は除外する。同じ imagePath のまま他のフィールドだけ更新する
     // 場合に自分とぶつかるため。
     //
+    // 判定は「**自分が既にその画像を持っているか**」で行う。
+    // 既に持っているなら、この更新で新たな重複は生まれないので通す。
+    //
+    // 1件だけ取って id を比べる形では判定できなかった。クエリに ORDER BY は
+    // 無いため得られるのは「任意の1件」で、重複が既に2件ある状態
+    // （save は read-then-write なので同時リクエストで作れる）では
+    // 更新対象ではない方が返ることがあり、**正当な更新が 409 で永久に
+    // 拒まれた**。「自分以外が残るか」で見るのも駄目で、既にある重複を
+    // 理由に自分の更新を拒んでしまう。
+    //
     // save と同じ read-then-write なので、ほぼ同時に届いた2リクエストには
     // 効かない（docs/09_backlog.md に限界として記録済み）
-    const existingByImage = await cosmosService.getPlantByImagePath(requestBody.imagePath);
-    if (existingByImage && existingByImage.id !== plantId) {
+    const existingByImage = await cosmosService.getPlantsByImagePath(requestBody.imagePath);
+    const heldBySelf = existingByImage.some((plant) => plant.id === plantId);
+    if (existingByImage.length > 0 && !heldBySelf) {
       return createErrorResponse(
         ErrorCode.IMAGE_ALREADY_SAVED,
         'この画像は既に保存されています',

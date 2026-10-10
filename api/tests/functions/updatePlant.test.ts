@@ -578,5 +578,77 @@ describe('植物更新API', () => {
         }
       });
     });
+
+    it('同じimagePathのレコードが既に2件存在する場合でも、一方を更新できる', async () => {
+      // save側の重複チェックはread-then-writeなので、ほぼ同時に届いたリトライでは
+      // 同じimagePathを持つレコードが2件できてしまう（CLAUDE.mdに限界として記録済み）。
+      // この状態でも、imagePathを変えずに他のフィールドだけ更新する正当な操作は
+      // 通らなければならない
+      const sharedImagePath = `${TEST_IMAGE_BASE_URL}/duplicated.jpg`;
+      const plantA: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: sharedImagePath,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      const plantB: Plant = {
+        id: '223e4567-e89b-12d3-a456-426614174001',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: sharedImagePath,
+        createdAt: '2024-01-15T10:30:01Z',
+        updatedAt: '2024-01-15T10:30:01Z'
+      };
+
+      // 偽物のitems.queryはMapの挿入順をそのまま返す（tests/fakes/cosmos.ts冒頭のコメント）。
+      // 更新対象ではないplantBを先に挿入し、更新対象のplantAを後から挿入することで、
+      // getPlantByImagePath()が返すresources[0]がplantB（更新対象ではない方）になる
+      // 順序を作る。本来は「どちらが先に見つかっても更新が成功する」のが仕様であり、
+      // この順序は欠陥を観測するためにあえて選んでいる。plantAを先に挿入すると
+      // resources[0]がplantA自身になり、現在のコードでも409にならず赤を再現できない
+      cosmosBackend.documents.set(plantB.id, plantB);
+      cosmosBackend.documents.set(plantA.id, plantA);
+
+      // リクエストの作成（plantAをimagePathは変えず、confidenceだけ更新する）
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${plantA.id}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: plantA.id },
+        json: jest.fn().mockResolvedValue({
+          imagePath: sharedImagePath,
+          confidence: 95.0
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証（imagePathは変わらず、confidenceだけが反映されている）
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          plant: {
+            ...plantA,
+            confidence: 95.0,
+            updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+          }
+        }
+      });
+
+      // 検証（偽物の状態。plantAが更新され、plantBは無関係のまま変化していない）
+      expect(cosmosBackend.documents.get(plantA.id)).toEqual({
+        ...plantA,
+        confidence: 95.0,
+        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      });
+      expect(cosmosBackend.documents.get(plantB.id)).toEqual(plantB);
+    });
   });
 });

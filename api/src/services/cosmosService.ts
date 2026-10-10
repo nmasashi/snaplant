@@ -54,15 +54,22 @@ export class CosmosService {
   }
 
   /**
-   * 画像パスで植物を取得
+   * 画像パスで植物を**全件**取得する
    *
-   * save が imagePath の重複を拒むために使う。同じ imagePath を持つレコードが
-   * 2つできると、一方を削除（または別の画像に更新）した時点で
-   * deleteImage() がもう一方の画像も消してしまう
+   * save と updatePlant が imagePath の重複を拒むために使う。同じ imagePath を
+   * 持つレコードが2つできると、一方を削除（または別の画像に更新）した時点で
+   * deleteImage() がもう一方の画像も消してしまう。
+   *
+   * **1件だけ返す形にしないこと。** 以前は `resources[0]` だけを返しており、
+   * updatePlant の「自分以外が使っているか」という判定が成立しなかった。
+   * クエリに ORDER BY は無いので「任意の1件」しか得られず、重複が既に2件ある
+   * 状態では更新対象ではない方が返ることがあり、正当な更新が 409 で
+   * 永久に拒まれた。呼び出し側がそれぞれの問いを書けるよう全件返す。
+   *
    * @param imagePath 画像パス
-   * @returns 該当する植物。無ければnull
+   * @returns 該当する植物の配列。無ければ空配列
    */
-  async getPlantByImagePath(imagePath: string): Promise<Plant | null> {
+  async getPlantsByImagePath(imagePath: string): Promise<Plant[]> {
     const query = `SELECT * FROM c WHERE c.imagePath = @imagePath`;
     const { resources } = await this.container.items
       .query<Plant>({
@@ -71,7 +78,7 @@ export class CosmosService {
       })
       .fetchAll();
 
-    return resources.length > 0 ? resources[0] : null;
+    return resources;
   }
 
   /**
