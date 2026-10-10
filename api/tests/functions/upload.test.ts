@@ -1,20 +1,114 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { uploadImageHandler } from '../../src/functions/upload';
-import { BlobServiceClient, ContainerClient, BlockBlobClient } from '@azure/storage-blob';
+import { BlobServiceClient, BlockBlobClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import { Readable } from 'stream';
 
 // 外部依存のみモック
-jest.mock('@azure/storage-blob');
+// tests/setup.ts のファクトリモックは getBlockBlobClient() に download / getProperties / delete が
+// 無く、それに頼ると一時保存→永続保存の移動処理がTypeErrorになって本番コードのcatchに
+// 飲み込まれてしまう（console.logも抑制されるため気づけない）。一時保存・永続保存・削除が
+// 実際に成功する経路をすべて通せるよう、このファイル内で偽物のBlobバックエンドに差し替える
+// （storageService.test.ts と同型）
+jest.mock('@azure/storage-blob', () => ({
+  BlobServiceClient: { fromConnectionString: jest.fn() },
+  BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
+  StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
+  generateBlobSASQueryParameters: jest.fn()
+}));
 jest.mock('openai');
 
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
+const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<typeof generateBlobSASQueryParameters>;
+
+// SASトークンの固定値（一時保存がSAS付きURLを返すことの土台。値自体の検証はstorageService.test.ts側の責務）
+const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
+
+/**
+ * 偽物のBlobバックエンド（storageService.test.ts の FakeBlobBackend と同型）。
+ *
+ * コンテナ名とBlob名のキーごとに内容をMapに保持する。これにより
+ * 「一時→永続への移動で宛先コンテナを取り違える」「削除対象を取り違える」
+ * といった不具合を検出できる（単一の共有モックだとどの引数で呼ばれても
+ * 同じ値を返すため、宛先の取り違えがテストを通過してしまう）。
+ *
+ * upload.ts が実際に使うのは upload / download / getProperties / delete の4つ
+ * （一時保存・永続保存への移動・エラー時の一時ファイル削除）なので、
+ * この4つだけを持つ最小構成にする。
+ */
+interface BlobEntry {
+  content: Buffer;
+  contentType?: string;
+}
+
+interface FakeBlobBackend {
+  store: Map<string, BlobEntry>;
+  forcedUploadError: Error | null;
+}
+
+function notFoundError(): any {
+  const err: any = new Error('BlobNotFound');
+  err.statusCode = 404;
+  return err;
+}
+
+function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: string, blobName: string): BlockBlobClient {
+  const key = `${containerName}/${blobName}`;
+  const url = `https://test.blob.core.windows.net/${key}`;
+
+  return {
+    url,
+    upload: async (content: Buffer, _length: number, options?: any) => {
+      if (backend.forcedUploadError) {
+        throw backend.forcedUploadError;
+      }
+      backend.store.set(key, {
+        content,
+        contentType: options?.blobHTTPHeaders?.blobContentType
+      });
+      return {};
+    },
+    download: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw notFoundError();
+      const stream = new Readable({
+        read() {
+          this.push(entry.content);
+          this.push(null);
+        }
+      });
+      return { readableStreamBody: stream };
+    },
+    getProperties: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw notFoundError();
+      return { contentType: entry.contentType };
+    },
+    delete: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw notFoundError();
+      backend.store.delete(key);
+      return {};
+    }
+  } as unknown as BlockBlobClient;
+}
+
+function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
+  return {
+    getContainerClient: (containerName: string) => ({
+      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
+    })
+  } as unknown as BlobServiceClient;
+}
+
+/** 返ってきたURL（SASクエリ付きの場合あり）から、偽物バックエンドのMapキーを導く */
+function keyFromUrl(url: string): string {
+  return url.replace('https://test.blob.core.windows.net/', '').split('?')[0];
+}
 
 describe('画像アップロード・植物判定統合API', () => {
   let mockContext: InvocationContext;
-  let mockBlobServiceClient: jest.Mocked<BlobServiceClient>;
-  let mockTempContainerClient: jest.Mocked<ContainerClient>;
-  let mockImagesContainerClient: jest.Mocked<ContainerClient>;
-  let mockTempBlockBlobClient: jest.Mocked<BlockBlobClient>;
-  let mockImagesBlockBlobClient: jest.Mocked<BlockBlobClient>;
+  let blobStore: Map<string, BlobEntry>;
+  let backend: FakeBlobBackend;
   let mockOpenAI: any;
 
   beforeEach(() => {
@@ -24,45 +118,17 @@ describe('画像アップロード・植物判定統合API', () => {
       error: jest.fn()
     } as any;
 
-    // Azure Storage SDKのモック
-    mockTempBlockBlobClient = {
-      upload: jest.fn().mockResolvedValue({}),
-      download: jest.fn().mockResolvedValue({
-        readableStreamBody: {
-          on: jest.fn((event, callback) => {
-            if (event === 'data') callback(Buffer.from('test-image-data'));
-            if (event === 'end') callback();
-          })
-        }
-      }),
-      getProperties: jest.fn().mockResolvedValue({ contentType: 'image/jpeg' }),
-      delete: jest.fn().mockResolvedValue({}),
-      url: 'https://test.blob.core.windows.net/temp/test-uuid.jpg'
-    } as any;
+    // Blobの偽物バックエンド
+    blobStore = new Map();
+    backend = { store: blobStore, forcedUploadError: null };
+    MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(backend));
 
-    mockImagesBlockBlobClient = {
-      upload: jest.fn().mockResolvedValue({}),
-      url: 'https://test.blob.core.windows.net/images/test-uuid.jpg'
-    } as any;
+    // SAS生成を成功させる（jest.fn() のままだとundefinedを返し、.toString() で例外になる）
+    mockedGenerateSas.mockReturnValue({
+      toString: () => TEST_SAS_TOKEN
+    } as any);
 
-    mockTempContainerClient = {
-      getBlockBlobClient: jest.fn().mockReturnValue(mockTempBlockBlobClient)
-    } as any;
-
-    mockImagesContainerClient = {
-      getBlockBlobClient: jest.fn().mockReturnValue(mockImagesBlockBlobClient)
-    } as any;
-
-    mockBlobServiceClient = {
-      getContainerClient: jest.fn().mockImplementation((containerName: string) => {
-        if (containerName === 'temp') return mockTempContainerClient;
-        return mockImagesContainerClient;
-      })
-    } as any;
-
-    MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(mockBlobServiceClient);
-
-    // OpenAI SDKのモック
+    // OpenAI SDKのモック（管理外の依存。識別結果はスタブとして与える）
     mockOpenAI = {
       chat: {
         completions: {
@@ -92,7 +158,7 @@ describe('画像アップロード・植物判定統合API', () => {
         }
       }
     };
-    
+
     const MockedOpenAI = jest.requireMock('openai');
     if (MockedOpenAI && typeof MockedOpenAI.mockImplementation === 'function') {
       MockedOpenAI.mockImplementation(() => mockOpenAI);
@@ -145,12 +211,16 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（レスポンス。imagePathはStorageServiceが実際に生成するUUIDを含むため、
+      // 形式のみ検証する。それ以外のフィールドはリテラルで直接比較する）
       expect(response.status).toBe(201);
+      expect(response.jsonBody.data.imagePath).toMatch(
+        /^https:\/\/test\.blob\.core\.windows\.net\/images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/
+      );
       expect(response.jsonBody).toEqual({
         success: true,
         data: {
-          imagePath: 'https://test.blob.core.windows.net/images/test-uuid.jpg',
+          imagePath: expect.any(String),
           fileName: 'test.jpg',
           contentType: 'image/jpeg',
           fileSize: 1024,
@@ -171,13 +241,17 @@ describe('画像アップロード・植物判定統合API', () => {
         }
       });
 
-      // 統合処理の検証
-      expect(mockBlobServiceClient.getContainerClient).toHaveBeenCalledWith('temp');
-      expect(mockTempBlockBlobClient.upload).toHaveBeenCalled();
+      // 検証（管理外の依存。LLM呼び出し回数はコストに直結する観察可能な振る舞い）
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalled();
-      expect(mockBlobServiceClient.getContainerClient).toHaveBeenCalledWith('images');
-      expect(mockImagesBlockBlobClient.upload).toHaveBeenCalled();
-      expect(mockTempBlockBlobClient.delete).toHaveBeenCalled();
+
+      // 検証（状態。一時ファイルは永続コンテナへ移動され、一時コンテナには残っていない）
+      const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
+      const tempKey = permanentKey.replace(/^images\//, 'temp/');
+      expect(blobStore.has(tempKey)).toBe(false);
+      expect(blobStore.get(permanentKey)).toEqual({
+        content: Buffer.from(new ArrayBuffer(1024)),
+        contentType: 'image/jpeg'
+      });
     });
 
     it('PNG画像も正常にアップロードできる', async () => {
@@ -213,8 +287,13 @@ describe('画像アップロード・植物判定統合API', () => {
 
       // 検証
       expect(response.status).toBe(201);
-      expect(mockTempBlockBlobClient.upload).toHaveBeenCalled();
-      expect(mockImagesBlockBlobClient.upload).toHaveBeenCalled();
+
+      // 検証（状態。PNGの拡張子・Content-Typeで永続コンテナに保存され、
+      // 一時コンテナには残っていない）
+      const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
+      expect(permanentKey).toMatch(/\.png$/);
+      expect(blobStore.get(permanentKey)?.contentType).toBe('image/png');
+      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
     });
 
     it('コンテキスト情報ありで画像を正常にアップロードできる', async () => {
@@ -251,11 +330,18 @@ describe('画像アップロード・植物判定統合API', () => {
 
       // 検証
       expect(response.status).toBe(201);
-      expect(mockTempBlockBlobClient.upload).toHaveBeenCalled();
+
+      // 検証（管理外の依存。LLM呼び出し回数はコストに直結する観察可能な振る舞い）
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalled();
-      expect(mockImagesBlockBlobClient.upload).toHaveBeenCalled();
-      
+
+      // 検証（状態。永続コンテナへ移動済みで一時コンテナには残っていない）
+      const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
+      expect(blobStore.has(permanentKey)).toBe(true);
+      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
+
       // OpenAI呼び出しでコンテキスト情報が渡されているか確認
+      // （管理外の依存への送信内容は出力が不透明ではないが、プロンプトへの
+      // 混入を確認する手段がこの呼び出し引数の検査以外にないため見る）
       const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
       const promptText = openAICall.messages[0].content[0].text;
       expect(promptText).toContain('撮影時の環境やコンテキスト情報: 白馬岳の標高2500m、高山帯の岩場');
@@ -292,12 +378,16 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（レスポンス。imagePathはStorageServiceが実際に生成するUUIDを含むため、
+      // 形式のみ検証する。それ以外のフィールドはリテラルで直接比較する）
       expect(response.status).toBe(201);
+      expect(response.jsonBody.data.imagePath).toMatch(
+        /^https:\/\/test\.blob\.core\.windows\.net\/images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/
+      );
       expect(response.jsonBody).toEqual({
         success: true,
         data: {
-          imagePath: 'https://test.blob.core.windows.net/images/test-uuid.jpg',
+          imagePath: expect.any(String),
           fileName: 'test.jpg',
           contentType: 'image/jpeg',
           fileSize: 1024,
@@ -344,7 +434,8 @@ describe('画像アップロード・植物判定統合API', () => {
           details: 'multipart/form-dataでファイルを送信してください'
         }
       });
-      expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
+      // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
+      expect(blobStore.size).toBe(0);
     });
 
     it('ファイルが指定されていない場合は400エラー', async () => {
@@ -375,7 +466,8 @@ describe('画像アップロード・植物判定統合API', () => {
           details: 'imageフィールドでファイルを送信してください'
         }
       });
-      expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
+      // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
+      expect(blobStore.size).toBe(0);
     });
 
     it('imageフィールドがファイルでない場合は400エラー', async () => {
@@ -437,7 +529,8 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.jsonBody.success).toBe(false);
       expect(response.jsonBody.error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
       expect(response.jsonBody.error.message).toBe('サポートされていない画像形式です');
-      expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
+      // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
+      expect(blobStore.size).toBe(0);
     });
 
     it('ファイルサイズが上限を超える場合は413エラー', async () => {
@@ -474,7 +567,8 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.jsonBody.success).toBe(false);
       expect(response.jsonBody.error.code).toBe('FILE_TOO_LARGE');
       expect(response.jsonBody.error.message).toBe('ファイルサイズが大きすぎます');
-      expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
+      // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
+      expect(blobStore.size).toBe(0);
     });
 
     it('contextInfoが501文字の場合は400エラー', async () => {
@@ -605,9 +699,9 @@ describe('画像アップロード・植物判定統合API', () => {
 
   describe('Azure Storage エラー', () => {
     it('Storageエラーの場合は502エラー', async () => {
-      // Azure Storage エラーのモック
+      // Azure Storage エラーのモック（一時保存のアップロードで発生させる）
       const storageError = new Error('Storage service error');
-      mockTempBlockBlobClient.upload.mockRejectedValue(storageError);
+      backend.forcedUploadError = storageError;
 
       // ファイルオブジェクトのモック
       const mockFile = {
@@ -647,13 +741,15 @@ describe('画像アップロード・植物判定統合API', () => {
           details: '一時画像のアップロードに失敗しました: Storage service error'
         }
       });
+      // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
+      expect(blobStore.size).toBe(0);
     });
 
     it('ネットワークエラーの場合は500エラー', async () => {
-      // ネットワークエラーのモック
+      // ネットワークエラーのモック（一時保存のアップロードで発生させる）
       const networkError = new Error('Connection timeout');
       (networkError as any).code = 'ETIMEDOUT';
-      mockTempBlockBlobClient.upload.mockRejectedValue(networkError);
+      backend.forcedUploadError = networkError;
 
       // ファイルオブジェクトのモック
       const mockFile = {
@@ -693,6 +789,8 @@ describe('画像アップロード・植物判定統合API', () => {
           details: '一時画像のアップロードに失敗しました: Connection timeout'
         }
       });
+      // 検証（状態。アップロード自体が失敗しているため、どのBlobにも残らない）
+      expect(blobStore.size).toBe(0);
     });
   });
 });
