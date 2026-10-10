@@ -85,7 +85,8 @@ terraform apply
 ```hcl
 # 基本設定
 project_name = "snaplant"
-location     = "Japan East"
+# 実際の本番デプロイ先は West Europe（variables.tf の既定値 Japan East を上書きしている）
+location = "West Europe"
 
 # Cosmos DB設定
 cosmos_db_consistency_level = "Session"
@@ -115,9 +116,15 @@ tags = {
 
 Azure OpenAI の**APIキーは入力値ではない**。Terraform が作成した
 `azurerm_cognitive_account.openai` の `primary_access_key` を Function App の
-`app_settings` に流し込む。`terraform.tfvars.example` に残っている
-`openai_api_key` と `cognitive_services_sku` はどの変数宣言にも対応しておらず、
-値を入れても使われない（Terraform が「宣言されていない変数」として警告する）。
+`app_settings` に流し込む。
+
+`terraform.tfvars.example` は `variables.tf` の宣言12個と一致している。
+以前は宣言の無い `openai_api_key` と `cognitive_services_sku` が残っていて、
+**本物のキーを書かせておいて一切使わない**という誘導になっていた。
+逆に `openai_location` が無く、OpenAI のリージョンを変える手段がなかった。
+
+`openai_location` は `location` とは別物。`gpt-5.6-luna` が使えるリージョンが
+限られているため、OpenAI だけ別リージョンに置いている。
 
 ## セキュリティ
 
