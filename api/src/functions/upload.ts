@@ -8,7 +8,7 @@ import {
   createValidationError
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
-import { FILE_UPLOAD } from '../constants/validation';
+import { FILE_UPLOAD, CONTEXT_INFO_VALIDATION } from '../constants/validation';
 
 /**
  * 画像アップロード・植物判定統合 API
@@ -59,6 +59,12 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
         HttpStatusCode.PAYLOAD_TOO_LARGE,
         FILE_UPLOAD.ERROR_MESSAGES.SIZE_EXCEEDED
       );
+    }
+
+    // 補足情報の長さの検証。
+    // プロンプトに埋め込まれるため、一時保存とOpenAI呼び出しの前に弾く
+    if (contextInfo && contextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+      return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
     }
 
     // ファイルをBufferに変換

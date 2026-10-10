@@ -234,6 +234,63 @@ describe('植物識別API', () => {
         }
       });
     });
+
+    it('contextInfoが500文字の場合は正常に処理される', async () => {
+      // テストデータ
+      const mockCandidates: PlantCandidate[] = [
+        {
+          name: '桜',
+          scientificName: 'Prunus serrulata',
+          familyName: 'バラ科',
+          description: '日本を代表する花木で、春に美しい花を咲かせる。',
+          characteristics: '春に美しいピンクの花を咲かせる',
+          confidence: 95.5
+        }
+      ];
+
+      // OpenAI APIレスポンスのモック
+      mockChatCompletions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: true,
+              confidence: 95,
+              reason: '桜の特徴を検出しました',
+              plantAnalysis: { candidates: mockCandidates }
+            })
+          }
+        }]
+      });
+
+      // リクエストの作成（contextInfoが500文字、他のフィールドは正当な値）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          imagePath: 'https://example.com/sakura.jpg',
+          contextInfo: 'あ'.repeat(500)
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await identifyPlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          result: {
+            isPlant: true,
+            confidence: 95,
+            reason: '桜の特徴を検出しました',
+            candidates: mockCandidates
+          }
+        }
+      });
+    });
   });
 
   describe('バリデーションエラー', () => {
@@ -288,6 +345,47 @@ describe('植物識別API', () => {
         }
       });
       expect(mockChatCompletions.create).not.toHaveBeenCalled();
+    });
+
+    it('contextInfoが501文字の場合は400エラー', async () => {
+      // OpenAI APIレスポンスのモック（バリデーションで止まるはずだが、
+      // 意図せず到達しても別の原因で落ちないようにしておく）
+      mockChatCompletions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: true,
+              confidence: 90,
+              reason: 'テスト',
+              plantAnalysis: { candidates: [] }
+            })
+          }
+        }]
+      });
+
+      // リクエストの作成（contextInfoが501文字、他のフィールドは正当な値）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          imagePath: 'https://example.com/sakura.jpg',
+          contextInfo: 'あ'.repeat(501)
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await identifyPlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST'
+        }
+      });
     });
 
     it('JSONパースエラーの場合は400エラー', async () => {

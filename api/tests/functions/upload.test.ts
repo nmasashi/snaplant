@@ -260,6 +260,64 @@ describe('画像アップロード・植物判定統合API', () => {
       const promptText = openAICall.messages[0].content[0].text;
       expect(promptText).toContain('撮影時の環境やコンテキスト情報: 白馬岳の標高2500m、高山帯の岩場');
     });
+
+    it('contextInfoが500文字の場合は正常に処理される', async () => {
+      // 統合処理は beforeEach でモック済み
+
+      // ファイルオブジェクトのモック（正当なファイル）
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return 'あ'.repeat(500);
+          return null;
+        })
+      };
+
+      // リクエストの作成（contextInfoが500文字、ファイルは正当な値）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(201);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          imagePath: 'https://test.blob.core.windows.net/images/test-uuid.jpg',
+          fileName: 'test.jpg',
+          contentType: 'image/jpeg',
+          fileSize: 1024,
+          identificationResult: {
+            isPlant: true,
+            confidence: 95.5,
+            candidates: [
+              {
+                name: '桜',
+                scientificName: 'Prunus serrulata',
+                familyName: 'バラ科',
+                description: '日本を代表する花木',
+                characteristics: '春に美しいピンクの花を咲かせる',
+                confidence: 95.5
+              }
+            ]
+          }
+        }
+      });
+    });
   });
 
   describe('バリデーションエラー', () => {
@@ -417,6 +475,48 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.jsonBody.error.code).toBe('FILE_TOO_LARGE');
       expect(response.jsonBody.error.message).toBe('ファイルサイズが大きすぎます');
       expect(mockTempBlockBlobClient.upload).not.toHaveBeenCalled();
+    });
+
+    it('contextInfoが501文字の場合は400エラー', async () => {
+      // 統合処理は beforeEach でモック済み（バリデーションで止まるはずだが、
+      // 意図せず到達しても別の原因で落ちないようにしておく）
+
+      // ファイルオブジェクトのモック（正当なファイル）
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          if (key === 'contextInfo') return 'あ'.repeat(501);
+          return null;
+        })
+      };
+
+      // リクエストの作成（contextInfoが501文字、ファイルは正当な値）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST'
+        }
+      });
     });
 
     it('フォームデータパースエラーの場合は400エラー', async () => {

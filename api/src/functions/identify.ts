@@ -8,7 +8,7 @@ import {
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
 import { IdentifyRequest } from '../types/plant';
-import { GENERAL_VALIDATION } from '../constants/validation';
+import { GENERAL_VALIDATION, CONTEXT_INFO_VALIDATION } from '../constants/validation';
 
 /**
  * 植物識別 API
@@ -31,6 +31,11 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
       new URL(requestBody.imagePath);
     } catch (error) {
       return createValidationError('画像URLの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
+    }
+
+    // 補足情報の長さのバリデーション
+    if (requestBody.contextInfo && requestBody.contextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+      return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
     }
 
     context.log(`植物識別開始: 画像URL=${requestBody.imagePath}, コンテキスト情報=${requestBody.contextInfo || 'なし'}`);

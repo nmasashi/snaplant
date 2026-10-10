@@ -66,6 +66,20 @@ export const PLANT_VALIDATION = {
   }
 } as const;
 
+// 補足情報（contextInfo）の制限
+//
+// プロンプトに直接埋め込まれ、ログにも全文が出るため、トークン消費と
+// ログ量の両方に効く。クライアント側（camera_screen.dart の入力欄）が
+// 既に maxLength: 500 を強制しているが、APIはFunction Keyがあれば
+// 直接叩けるのでサーバ側でも守る
+export const CONTEXT_INFO_VALIDATION = {
+  MAX_LENGTH: parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500'),
+
+  ERROR_MESSAGES: {
+    TOO_LONG: `補足情報は${parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500')}文字以内で指定してください`
+  }
+} as const;
+
 // その他のバリデーション定数
 export const GENERAL_VALIDATION = {
   // UUID正規表現
