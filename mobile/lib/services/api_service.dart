@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
+import '../utils/image_mime_type.dart';
 
 /// Azure Functions API との通信を担当するサービスクラス
 /// Function Key認証を使用してAPIにアクセス
@@ -50,11 +51,7 @@ class ApiService {
       final jsonData = json.decode(response.body) as Map<String, dynamic>;
       return fromJson(jsonData);
     } else {
-      throw ApiException(
-        statusCode: response.statusCode,
-        message: 'API request failed',
-        body: response.body,
-      );
+      throw ApiException.fromResponse(response);
     }
   }
   
@@ -135,7 +132,7 @@ class ApiService {
               'image',
               imageFile,
               filename: 'plant_image.jpg',
-              contentType: MediaType('image', 'jpeg'),
+              contentType: MediaType.parse(detectImageMimeType(imageFile)),
             ),
           );
         } else {
@@ -150,17 +147,12 @@ class ApiService {
             print('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
           }
           
-          // ファイル拡張子からMIMEタイプを判定
-          String mimeType = 'image/jpeg';
-          final extension = imageFile.path.toLowerCase();
-          if (extension.endsWith('.png')) {
-            mimeType = 'image/png';
-          } else if (extension.endsWith('.gif')) {
-            mimeType = 'image/gif';
-          } else if (extension.endsWith('.webp')) {
-            mimeType = 'image/webp';
-          }
-          
+          // 拡張子ではなく中身のシグネチャで判定する。判定に必要なのは先頭12バイトだけ
+          final header = await imageFile
+              .openRead(0, 12)
+              .fold<List<int>>(<int>[], (bytes, chunk) => bytes..addAll(chunk));
+          final mimeType = detectImageMimeType(Uint8List.fromList(header));
+
           if (kDebugMode) {
             print('ApiService: 検出MIMEタイプ: $mimeType');
           }
@@ -229,65 +221,6 @@ class ApiService {
     }
   }
 
-  /// 画像アップロード（従来版・互換性のため残存）
-  /// POST /api/images/upload
-  /// 注: このエンドポイントは AI 識別も実行するため、植物でない画像は 400 (NOT_A_PLANT) になる
-  Future<UploadResult> uploadImage(dynamic imageFile) async {
-    try {
-      final url = _buildUrl('/api/images/upload');
-      final request = http.MultipartRequest('POST', Uri.parse(url));
-      
-      // Web環境とモバイル環境で異なる処理
-      if (kIsWeb) {
-        // Web環境の場合、Uint8Listを期待
-        if (imageFile is Uint8List) {
-          request.files.add(
-            http.MultipartFile.fromBytes(
-              'image',
-              imageFile,
-              filename: 'plant_image.jpg',
-            ),
-          );
-        } else {
-          throw ArgumentError('Web環境では画像データはUint8Listである必要があります');
-        }
-      } else {
-        // モバイル環境の場合、Fileを期待
-        if (imageFile is File) {
-          request.files.add(
-            await http.MultipartFile.fromPath(
-              'image',
-              imageFile.path,
-              filename: 'plant_image.jpg',
-            ),
-          );
-        } else {
-          throw ArgumentError('モバイル環境では画像データはFileである必要があります');
-        }
-      }
-      
-      final streamedResponse = await _client.send(request);
-      final response = await http.Response.fromStream(streamedResponse);
-      
-      return _parseResponse(
-        response,
-        (json) {
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          return UploadResult.fromJson(data);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-  
   /// 植物識別
   /// POST /api/plants/identify
   Future<IdentificationResult> identifyPlant(String imagePath, {String? contextInfo}) async {
@@ -538,19 +471,54 @@ class ApiService {
 /// API例外クラス
 class ApiException implements Exception {
   final int statusCode;
+
+  /// サーバが封筒の `error.code` で返したエラーコード。封筒を読めなかった場合は null
+  final String? code;
   final String message;
   final String? body;
-  
+
   const ApiException({
     required this.statusCode,
+    this.code,
     required this.message,
     this.body,
   });
-  
+
+  /// 非 2xx のレスポンスから例外を作る
+  ///
+  /// サーバのエラーは `{ success: false, error: { code, message } }` の封筒で返る。
+  /// ただし 401 は Azure Functions ランタイムが返すため封筒にならないなど、
+  /// 読めないボディもありうるので、その場合はステータスだけを持たせる。
+  factory ApiException.fromResponse(http.Response response) {
+    ApiError? error;
+    try {
+      final envelope = ApiResponse<void>.fromJson(
+        json.decode(response.body) as Map<String, dynamic>,
+        (_) {},
+      );
+      error = envelope.error;
+    } catch (_) {
+      error = null;
+    }
+    return ApiException(
+      statusCode: response.statusCode,
+      code: error?.code,
+      message: error?.message ?? 'サーバーでエラーが発生しました（ステータス: ${response.statusCode}）',
+      body: response.body,
+    );
+  }
+
   bool get isNetworkError => statusCode == 0;
   bool get isAuthError => statusCode == 401;
   bool get isNotFound => statusCode == 404;
-  bool get isServerError => statusCode >= 500;
+
+  /// 同じ画像が既に保存されている（409 `IMAGE_ALREADY_SAVED`）
+  ///
+  /// 保存は成功したがレスポンスが届かず、その後に別の候補（別の名前）で保存し直した場合に起きる。
+  /// 同じ候補で保存し直すと、名前の重複確認が既存の植物を見つけて更新（PUT）に進み、
+  /// PUT は自分自身を重複から除外するので 409 にはならない。
+  /// 同じ 409 でも `DATABASE_ERROR` は本当の失敗なので、ステータスではなくコードで判定する
+  bool get isImageAlreadySaved => code == 'IMAGE_ALREADY_SAVED';
   
   @override
   String toString() {
@@ -566,12 +534,19 @@ class ApiException implements Exception {
         return 'APIキーが無効です。設定を確認してください。';
       case 404:
         return '要求されたデータが見つかりません。';
+      // アプリはレート制限を実装していないが、従量課金プランの Functions ランタイムが
+      // 過負荷時に封筒なしの 429 "Too Busy" を返す（host.json の dynamicThrottlesEnabled 等の既定値）
       case 429:
         return 'リクエスト数が制限を超えました。しばらく待ってから再試行してください。';
       case 500:
-      case 502:
-      case 503:
         return 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
+      // サーバは 502 と 503 の意味を分けている。502 は上流（AI・ストレージ）に到達したが
+      // エラー応答だった状態で、すぐ再試行しても同じ結果になりやすい。
+      // 503 は上流に到達できなかった状態で、時間を置けば回復しうる
+      case 502:
+        return '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。';
+      case 503:
+        return 'サービスに一時的に接続できません。しばらく待ってから再試行してください。';
       default:
         return message;
     }

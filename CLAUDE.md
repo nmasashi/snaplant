@@ -63,7 +63,31 @@ WSL 側で Android Studio が動かなかった経緯もあり、Flutter の実�
 
 api (TypeScript) 側は WSL で `npx tsc` / `npm test` が普通に動くので、こちらは自分で検証する。
 
-`test/` にはスモークテスト1本しかない。
+`flutter analyze` は既存の info / warning（141件）で**終了コード 1** になる。エラーは0件。
+新規の指摘が無いかは件数ではなく、指摘の一覧を変更前と突き合わせて判断する。
+
+`test/` の構成。
+
+| ファイル | 対象 |
+|---|---|
+| `widget_test.dart` | アプリが起動するスモークテスト |
+| `services/api_service_test.dart` | `ApiService` の封筒の解釈（成功・エラー）と送信する Content-Type |
+| `screens/identification_screen_test.dart` | 保存時の 409 の扱い |
+| `utils/image_mime_type_test.dart` | マジックバイトによる画像形式の判定 |
+
+テストで踏みやすい点。
+
+- **サーバは `http` 同梱の `MockClient`（`package:http/testing.dart`）で差し替える。**
+  `ApiService` はコンストラクタで `http.Client` を受け取る。応答はメソッドとパスが
+  一致したときだけ返し、それ以外は 404 にする（宛先の誤りを検出するため）。
+  ヘッダは `content-type: application/json` を付ける。`http` は charset の無い
+  `application/json` を UTF-8 で読むが、ヘッダが無いと latin1 になり日本語が化ける
+- **画面のテストは表示サイズを実機に合わせる。** 既定の 800×600 では
+  `IdentificationScreen` の保存ボタンが画面外に出てタップが空振りする（警告だけで失敗しない）。
+  `tester.view.physicalSize` / `devicePixelRatio` を設定し、`addTearDown(tester.view.reset)` で戻す
+- **`tester.ensureVisible()` の後は `pump` が要る。** スクロール位置は次のフレームまで反映されない
+- **`ElevatedButton.icon` は `find.widgetWithText(ElevatedButton, ...)` で見つからない。**
+  実体がサブクラスで、`byType` は型の完全一致を見るため。文言で探す
 
 ### infrastructure/
 
@@ -556,12 +580,22 @@ API を変更したら、あわせて更新する対象：
 
 ### クライアント実装で踏みやすい罠
 
-**`_parseResponse()` は非 2xx では封筒を一切読まない。** `ApiException` に固定の英文 `'API request failed'` を入れて投げるだけで、`error.code` も `error.message` も読まない。`userMessage` の `switch` も 409 を扱っていないため、**サーバが返した日本語のメッセージはユーザーに届かない**。`error.code` に依存した分岐はクライアントに存在しないので、新しいエラーコードを足してもクライアントは区別できない（バックログに記録済み）。
+**非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。**
+`ApiException.code` にエラーコード、`message` にサーバの日本語メッセージが入り、
+`userMessage` は 0 / 401 / 404 / 429 / 500 / 502 / 503 以外ではその `message` をそのまま返す。
+429 はアプリが返すのではなく、従量課金プランの Functions ランタイムが過負荷時に封筒なしで返す。
+401 は Functions ランタイムが返すため封筒にならないなど、読めないボディでは `code` が null になり、
+ステータスを添えた固定の日本語メッセージになる。
+**同じステータスでもコードで意味が違うものがある**（409 は `IMAGE_ALREADY_SAVED` と `DATABASE_ERROR`）。
+分岐はステータスではなく `code` で行う（例: `ApiException.isImageAlreadySaved`）。
+例外は `deletePlant()` で、`_parseResponse()` を通らず自前の固定メッセージで投げるため封筒を読まない。
 
 以下は 2xx の場合の話。API のレスポンスは必ず `{ success, data }` の封筒に包まれている。
 Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに渡すため、
 各メソッドが自分で `json['data']` を剥がす必要がある。これを忘れると実行時に
-`fromJson` がキーを見つけられず失敗する（過去に `identifyPlant()` と `uploadImage()` で発生）。
+`fromJson` がキーを見つけられず失敗する（過去に `identifyPlant()` と、削除済みの `uploadImage()` で発生）。
+`mobile/test/services/api_service_test.dart` が下表の全エンドポイントでこれを固定している。
+メソッドを足したら同じ形でテストを足すこと。
 
 さらに封筒の内側のキーが関数ごとに違う点にも注意：
 
