@@ -234,6 +234,7 @@ logs/
 
 # Claude Code settings (may contain sensitive permissions)
 .claude/settings.local.json
+.claude/settings.json
 
 # Flutter/Dart specific
 mobile/.dart_tool/

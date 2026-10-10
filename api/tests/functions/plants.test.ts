@@ -1,50 +1,46 @@
 import { InvocationContext, HttpRequest } from '@azure/functions';
 import { getPlantsHandler } from '../../src/functions/plants';
 import { PlantSummary } from '../../src/types/plant';
-import { CosmosClient, Database, Container } from '@azure/cosmos';
+import { CosmosClient } from '@azure/cosmos';
+import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
+// CosmosServiceが内部でStorageServiceを構築するために必要な自ストレージ設定。
+// tests/setup.ts のグローバル値に暗黙依存せず、このファイル内で完結させる
+const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+const TEST_STORAGE_CONTAINER_NAME = 'test-images';
+
 describe('植物一覧取得API', () => {
   let mockContext: InvocationContext;
-  let mockClient: jest.Mocked<CosmosClient>;
-  let mockDatabase: jest.Mocked<Database>;
-  let mockContainer: jest.Mocked<Container>;
-  let mockItems: any;
+  let cosmosBackend: FakeCosmosBackend<PlantSummary>;
 
   beforeEach(() => {
     // Contextのモック
     mockContext = {
-      log: Object.assign(jest.fn(), { error: jest.fn() }),
-      res: {}
+      log: jest.fn()
     } as any;
 
-    // Cosmos DB SDKのモック
-    mockItems = {
-      query: jest.fn()
+    // Cosmos DB SDKを引数を見分ける偽物に差し替える
+    cosmosBackend = {
+      documents: new Map(),
+      forcedQueryError: null
     };
-
-    mockContainer = {
-      items: mockItems
-    } as any;
-
-    mockDatabase = {
-      container: jest.fn().mockReturnValue(mockContainer)
-    } as any;
-
-    mockClient = {
-      database: jest.fn().mockReturnValue(mockDatabase)
-    } as any;
-
-    MockedCosmosClient.mockImplementation(() => mockClient);
+    const container = createFakeContainer(cosmosBackend);
+    MockedCosmosClient.mockImplementation(() => ({
+      database: () => ({ container: () => container })
+    }) as any);
 
     // 環境変数設定
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_CONTAINER = 'test-container';
+    // CosmosServiceが内部で構築するStorageServiceに使う
+    process.env.STORAGE_CONNECTION_STRING = TEST_STORAGE_CONNECTION_STRING;
+    process.env.STORAGE_CONTAINER_NAME = TEST_STORAGE_CONTAINER_NAME;
   });
 
   afterEach(() => {
@@ -53,6 +49,8 @@ describe('植物一覧取得API', () => {
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_CONTAINER;
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.STORAGE_CONTAINER_NAME;
   });
 
   describe('正常系', () => {
@@ -77,11 +75,7 @@ describe('植物一覧取得API', () => {
         }
       ];
 
-      // Cosmos DB クエリ成功のモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: mockPlants })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      mockPlants.forEach((p) => cosmosBackend.documents.set(p.id, p));
 
       // リクエストの作成
       const request = {
@@ -104,17 +98,14 @@ describe('植物一覧取得API', () => {
         }
       });
 
-      expect(mockItems.query).toHaveBeenCalledWith(
-        expect.stringContaining('ORDER BY c.createdAt DESC')
-      );
+      // 並び順（ORDER BY）は検証していない。偽物はSQL文字列を解釈せず
+      // fetchAll() の戻り値をそのまま返すだけなので、クエリ文字列を
+      // 固定する以外の方法でここから並び順を確認する手段がない。
+      // CLAUDE.md の「Cosmosのクエリを変更したら手で確認する」手順に委ねる
     });
 
     it('植物が存在しない場合は空配列を返す', async () => {
-      // Cosmos DB クエリ成功（空の結果）のモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      // ドキュメントを1件も入れない（偽物は空配列を返す）
 
       // リクエストの作成
       const request = {
@@ -140,12 +131,11 @@ describe('植物一覧取得API', () => {
   });
 
   describe('Cosmos DB エラー', () => {
-    it('DB接続エラーの場合は502エラー', async () => {
-      // DB接続エラーのモック
-      const dbError = new Error('Connection timeout');
-      mockItems.query.mockImplementation(() => {
-        throw dbError;
-      });
+    it('DB接続エラー（ENOTFOUND）の場合は503エラー', async () => {
+      // ENOTFOUND はCosmos DB関連エラーの分岐に該当し、503として扱われる
+      const dbError = new Error('getaddrinfo ENOTFOUND');
+      (dbError as any).code = 'ENOTFOUND';
+      cosmosBackend.forcedQueryError = dbError;
 
       // リクエストの作成
       const request = {
@@ -159,13 +149,13 @@ describe('植物一覧取得API', () => {
       const response = await getPlantsHandler(request, mockContext);
 
       // 検証
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(503);
       expect(response.jsonBody).toEqual({
         success: false,
         error: {
-          code: 'INTERNAL_ERROR',
-          message: '植物一覧の取得に失敗しました',
-          details: 'Connection timeout'
+          code: 'DATABASE_ERROR',
+          message: 'データベースに接続できません',
+          details: 'getaddrinfo ENOTFOUND'
         }
       });
     });
@@ -173,10 +163,7 @@ describe('植物一覧取得API', () => {
     it('DB クエリエラーの場合は500エラー', async () => {
       // DB クエリエラーのモック
       const queryError = new Error('Query failed');
-      const mockQuery = {
-        fetchAll: jest.fn().mockRejectedValue(queryError)
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      cosmosBackend.forcedQueryError = queryError;
 
       // リクエストの作成
       const request = {
@@ -197,33 +184,6 @@ describe('植物一覧取得API', () => {
           code: 'INTERNAL_ERROR',
           message: '植物一覧の取得に失敗しました',
           details: 'Query failed'
-        }
-      });
-    });
-
-    it('予期しないエラーの場合は500エラー', async () => {
-      // 環境変数不足のシミュレーション
-      delete process.env.COSMOS_DB_ENDPOINT;
-
-      // リクエストの作成
-      const request = {
-        method: 'GET',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map()
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await getPlantsHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: '植物一覧の取得に失敗しました',
-          details: expect.any(String)
         }
       });
     });

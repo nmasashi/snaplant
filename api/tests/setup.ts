@@ -11,42 +11,7 @@ process.env.STORAGE_CONTAINER_NAME = 'test-images';
 process.env.TEMP_STORAGE_CONTAINER_NAME = 'test-temp';
 process.env.AZURE_OPENAI_ENDPOINT = 'https://test-openai.openai.azure.com/';
 process.env.AZURE_OPENAI_API_KEY = 'test-openai-key';
-process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'gpt-4o';
-
-// Azure SDK のモック
-jest.mock('@azure/cosmos', () => ({
-  CosmosClient: jest.fn().mockImplementation(() => ({
-    database: jest.fn().mockReturnValue({
-      container: jest.fn().mockReturnValue({
-        items: {
-          query: jest.fn().mockReturnValue({
-            fetchAll: jest.fn()
-          }),
-          create: jest.fn(),
-          upsert: jest.fn()
-        },
-        item: jest.fn().mockReturnValue({
-          read: jest.fn(),
-          replace: jest.fn(),
-          delete: jest.fn()
-        })
-      })
-    })
-  }))
-}));
-
-jest.mock('@azure/storage-blob', () => ({
-  BlobServiceClient: {
-    fromConnectionString: jest.fn().mockReturnValue({
-      getContainerClient: jest.fn().mockReturnValue({
-        getBlockBlobClient: jest.fn().mockReturnValue({
-          upload: jest.fn(),
-          downloadToBuffer: jest.fn()
-        })
-      })
-    })
-  }
-}));
+process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'gpt-5.6-luna';
 
 jest.mock('openai', () => {
   const mockOpenAI = jest.fn().mockImplementation(() => ({

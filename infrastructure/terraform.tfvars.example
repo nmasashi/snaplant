@@ -1,26 +1,35 @@
 # Project configuration
 project_name = "snaplant"
-location     = "Japan East"
+# 実際の本番デプロイ先は West Europe。
+# variables.tf の既定値は Japan East だが、この値で上書きしている。
+# ここを変えると既存リソースとは別のリージョンに新しく作られる
+location = "West Europe"
 
 # Cosmos DB configuration
 cosmos_db_consistency_level = "Session"
-cosmos_db_throughput       = 400  # Free tier limit
+cosmos_db_throughput        = 400 # Free tier limit
 
 # Azure Functions configuration
-functions_plan_tier = "Y1"  # Consumption plan (cheapest)
-
-# Cognitive Services configuration
-cognitive_services_sku = "F0"  # Free tier
+functions_plan_tier = "Y1" # Consumption plan (cheapest)
 
 # Storage configuration
 storage_account_tier     = "Standard"
-storage_replication_type = "LRS"  # Locally redundant storage (cheapest)
+storage_replication_type = "LRS" # Locally redundant storage (cheapest)
 
 # Application Insights configuration
 application_insights_type = "web"
 
-# OpenAI configuration
-openai_api_key = "YOUR_OPENAI_API_KEY_HERE"
+# Azure OpenAI configuration
+#
+# API キーをここに書く必要はない。Terraform が
+# azurerm_cognitive_account.openai を作成し、その primary_access_key を
+# Function App の app_settings へ直接流し込む。
+#
+# openai_location は location とは別。gpt-5.6-luna が使えるリージョンが
+# 限られているため、OpenAI だけ別リージョンに置いている
+openai_location    = "East US"
+openai_sku         = "S0"
+openai_api_version = "2024-12-01-preview"
 
 # Tags for resource management
 tags = {

@@ -1,4 +1,4 @@
-import { HttpRequest, HttpResponseInit } from '@azure/functions';
+import { HttpResponseInit } from '@azure/functions';
 import { ApiResponse, ErrorResponse, HttpStatusCode, ErrorCode } from '../types/api';
 import { GENERAL_VALIDATION } from '../constants/validation';
 

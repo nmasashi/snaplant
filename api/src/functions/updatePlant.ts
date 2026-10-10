@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { CosmosService } from '../services/cosmosService';
+import { StorageService } from '../services/storageService';
 import { 
   createSuccessResponse, 
   createValidationError, 
@@ -40,6 +41,37 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
     // Cosmos DBサービス初期化
     const cosmosService = new CosmosService();
     
+    // imagePath の重複チェック。
+    //
+    // save 側だけ塞いでも PUT から同じ状態を作れるので、入口を揃える。
+    // 同じ imagePath を持つレコードが2つできると、一方を削除または別の画像に
+    // 更新した時点で、もう一方の画像まで消えてしまう。
+    //
+    // 自分自身は除外する。同じ imagePath のまま他のフィールドだけ更新する
+    // 場合に自分とぶつかるため。
+    //
+    // 判定は「**自分が既にその画像を持っているか**」で行う。
+    // 既に持っているなら、この更新で新たな重複は生まれないので通す。
+    //
+    // 1件だけ取って id を比べる形では判定できなかった。クエリに ORDER BY は
+    // 無いため得られるのは「任意の1件」で、重複が既に2件ある状態
+    // （save は read-then-write なので同時リクエストで作れる）では
+    // 更新対象ではない方が返ることがあり、**正当な更新が 409 で永久に
+    // 拒まれた**。「自分以外が残るか」で見るのも駄目で、既にある重複を
+    // 理由に自分の更新を拒んでしまう。
+    //
+    // save と同じ read-then-write なので、ほぼ同時に届いた2リクエストには
+    // 効かない（docs/09_backlog.md に限界として記録済み）
+    const existingByImage = await cosmosService.getPlantsByImagePath(requestBody.imagePath);
+    const heldBySelf = existingByImage.some((plant) => plant.id === plantId);
+    if (existingByImage.length > 0 && !heldBySelf) {
+      return createErrorResponse(
+        ErrorCode.IMAGE_ALREADY_SAVED,
+        'この画像は既に保存されています',
+        HttpStatusCode.CONFLICT
+      );
+    }
+
     // 植物更新
     const updatedPlant = await cosmosService.updatePlant(plantId, requestBody);
     
@@ -98,11 +130,12 @@ function validatePlantUpdateRequest(request: PlantUpdateRequest): HttpResponseIn
     return createValidationError(PLANT_VALIDATION.ERROR_MESSAGES.CONFIDENCE_OUT_OF_RANGE);
   }
 
-  // URL形式のバリデーション
-  try {
-    new URL(request.imagePath);
-  } catch (error) {
-    return createValidationError('画像URLの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
+  // 自アカウントの永続コンテナを指すことのバリデーション。
+  // URL としてパースできるかの検証は別に置かない（save.ts と同じ理由）。
+  // ここを通すと、更新時の旧画像削除が外部ホストのURLを宛先にしてしまい、
+  // ファイル名が一致するだけの他レコードのBlobを消せてしまう
+  if (!StorageService.isValidImagePath(request.imagePath)) {
+    return createValidationError(GENERAL_VALIDATION.ERROR_MESSAGES.IMAGE_PATH_NOT_ALLOWED);
   }
 
   return null;

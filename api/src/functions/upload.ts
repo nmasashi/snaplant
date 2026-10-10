@@ -8,7 +8,7 @@ import {
   createValidationError
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
-import { FILE_UPLOAD } from '../constants/validation';
+import { FILE_UPLOAD, CONTEXT_INFO_VALIDATION } from '../constants/validation';
 
 /**
  * 画像アップロード・植物判定統合 API
@@ -30,10 +30,14 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     // リクエストボディを取得
     const formData = await request.formData();
     const file = formData.get('image') as File;
-    const contextInfo = formData.get('contextInfo') as string | null;
+    // formData.get() は File も返しうる。as string のキャストは実行時に何も
+    // 保証しないため、unknown で受けて下のバリデーションで型を絞る
+    const rawContextInfo: unknown = formData.get('contextInfo');
 
     // ファイルの存在チェック
-    if (!file) {
+    // テキストフィールドとして送られた場合も弾く（type を持たないため、
+    // 後続の形式検証が型エラーになり500を返してしまう）
+    if (!file || typeof file.type !== 'string' || typeof file.arrayBuffer !== 'function') {
       return createValidationError('画像ファイルが指定されていません', 'imageフィールドでファイルを送信してください');
     }
 
@@ -41,19 +45,38 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
 
     // ファイルタイプの検証
     if (!StorageService.isValidImageContentType(file.type)) {
-      return createValidationError(
+      return createErrorResponse(
+        ErrorCode.UNSUPPORTED_MEDIA_TYPE,
         'サポートされていない画像形式です',
+        HttpStatusCode.UNSUPPORTED_MEDIA_TYPE,
         FILE_UPLOAD.ERROR_MESSAGES.UNSUPPORTED_TYPE
       );
     }
 
     // ファイルサイズの検証
     if (!StorageService.isValidFileSize(file.size)) {
-      return createValidationError(
+      return createErrorResponse(
+        ErrorCode.FILE_TOO_LARGE,
         'ファイルサイズが大きすぎます',
+        HttpStatusCode.PAYLOAD_TOO_LARGE,
         FILE_UPLOAD.ERROR_MESSAGES.SIZE_EXCEEDED
       );
     }
+
+    // 補足情報の検証。
+    // プロンプトに埋め込まれるため、一時保存とOpenAI呼び出しの前に弾く。
+    // 型を見ずに .length を比較すると、File では undefined が比較対象になり
+    // 長さの上限を素通りしてプロンプトに混ざる
+    if (rawContextInfo !== null && rawContextInfo !== undefined) {
+      if (typeof rawContextInfo !== 'string') {
+        return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.NOT_A_STRING);
+      }
+      if (rawContextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+        return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
+      }
+    }
+    // ここ以降は文字列か未指定であることが保証されている
+    const contextInfo = typeof rawContextInfo === 'string' ? rawContextInfo : undefined;
 
     // ファイルをBufferに変換
     const arrayBuffer = await file.arrayBuffer();
@@ -63,7 +86,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     const storageService = new StorageService();
     
     // 1. 画像を一時保存
-    const tempImageUrl = await storageService.uploadImageToTemp(imageBuffer, file.name, file.type);
+    const tempImageUrl = await storageService.uploadImageToTemp(imageBuffer, file.type);
     context.log(`一時保存完了: URL=${tempImageUrl}`);
 
     // 2. AI識別サービス初期化・植物判定実行
@@ -78,7 +101,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     }
 
     // LLMで植物識別実行（コンテキスト情報があれば渡す）
-    const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo || undefined);
+    const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo);
     context.log(`植物識別完了: 植物=${identificationResult.isPlant}, 候補数=${identificationResult.candidates.length}`);
 
     // 3. 植物判定結果による分岐処理
@@ -125,22 +148,26 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
       );
     }
 
-    // Azure Storage関連エラー
-    if (error.message.includes('Storage') || error.code === 'ENOTFOUND') {
-      return createErrorResponse(
-        ErrorCode.STORAGE_ERROR,
-        'ストレージサービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
-    }
-
     // ネットワークエラー
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+    // ENOTFOUND（名前解決の失敗）はサービスに到達できていないので、
+    // 上流が不正な応答を返した 502 ではなく 503 に分類する。
+    // 他の6つのハンドラも ENOTFOUND を 503 として扱っており、ここだけ
+    // 502 になっていたためクライアントの再試行判断が揃わなかった
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
       return createErrorResponse(
         ErrorCode.STORAGE_ERROR,
         'ストレージサービスに接続できません',
         HttpStatusCode.SERVICE_UNAVAILABLE,
+        error.message
+      );
+    }
+
+    // Azure Storage関連エラー
+    if (error.message.includes('Storage')) {
+      return createErrorResponse(
+        ErrorCode.STORAGE_ERROR,
+        'ストレージサービスでエラーが発生しました',
+        HttpStatusCode.BAD_GATEWAY,
         error.message
       );
     }

@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { CosmosService } from '../services/cosmosService';
+import { StorageService } from '../services/storageService';
 import { 
   createSuccessResponse, 
   createErrorResponse, 
@@ -7,8 +8,7 @@ import {
   createValidationError
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
-import { PlantCreateRequest, Plant } from '../types/plant';
-import { v4 as uuidv4 } from 'uuid';
+import { PlantCreateRequest } from '../types/plant';
 import { PLANT_VALIDATION, GENERAL_VALIDATION } from '../constants/validation';
 
 /**
@@ -31,22 +31,42 @@ export async function savePlantHandler(request: HttpRequest, context: Invocation
     context.log(`植物保存開始: 名前=${requestBody.name}`);
 
     // 植物オブジェクト作成
-    const newPlant: Plant = {
-      id: uuidv4(),
+    //
+    // id と日時は設定しない。CosmosService.createPlant() の責務で、
+    // 引数の型が PlantCreateRequest（id も日時も持たない）であることが
+    // その設計を示している。
+    //
+    // 以前はここでも uuidv4() と日時を設定していたが、createPlant() が
+    // `{ id: generateId(), ...plantData, createdAt: now, updatedAt: now }` と
+    // 組み立てるため、スプレッドの位置で勝ち負けが決まる状態だった。
+    // 日時はハンドラ側が常に捨てられる死んだコードで、id が生き残るのは
+    // generateId() がスプレッドの前に置かれているという記述順の偶然だった
+    const newPlant: PlantCreateRequest = {
       name: requestBody.name,
       scientificName: requestBody.scientificName,
       familyName: requestBody.familyName,
       description: requestBody.description,
       characteristics: requestBody.characteristics,
       confidence: requestBody.confidence,
-      imagePath: requestBody.imagePath,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      imagePath: requestBody.imagePath
     };
 
     // Cosmos DBサービス初期化
     const cosmosService = new CosmosService();
     
+    // imagePath の重複チェック。
+    // 同じ imagePath を持つレコードが2つできると、一方を削除または別の画像に
+    // 更新した時点で、もう一方の画像まで消えてしまう。発生経路はリトライで、
+    // 保存に成功したがレスポンスが届かず同じ imagePath で再送されるケース
+    const existingByImage = await cosmosService.getPlantsByImagePath(newPlant.imagePath);
+    if (existingByImage.length > 0) {
+      return createErrorResponse(
+        ErrorCode.IMAGE_ALREADY_SAVED,
+        'この画像は既に保存されています',
+        HttpStatusCode.CONFLICT
+      );
+    }
+
     // 植物保存
     const savedPlant = await cosmosService.createPlant(newPlant);
     
@@ -136,11 +156,12 @@ function validatePlantCreateRequest(request: PlantCreateRequest): HttpResponseIn
     return createValidationError(PLANT_VALIDATION.ERROR_MESSAGES.CHARACTERISTICS_TOO_LONG);
   }
 
-  // URL形式のバリデーション
-  try {
-    new URL(request.imagePath);
-  } catch (error) {
-    return createValidationError('画像パスの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
+  // 自アカウントの永続コンテナを指すことのバリデーション。
+  // URL としてパースできるかの検証は別に置かない。isValidImagePath() が
+  // パース失敗も false にするため、前段を置くとメッセージが2種類に分かれるだけで
+  // 同じ検証が2段になる
+  if (!StorageService.isValidImagePath(request.imagePath)) {
+    return createValidationError(GENERAL_VALIDATION.ERROR_MESSAGES.IMAGE_PATH_NOT_ALLOWED);
   }
 
   return null;

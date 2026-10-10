@@ -1,0 +1,111 @@
+import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import { Readable } from 'stream';
+
+/**
+ * 引数を見分ける状態持ちの偽物 Blob Storage。
+ *
+ * コンテナ名と Blob 名を組んだキーごとに内容を Map に保持する。これにより
+ * 「一時→永続への移動で宛先コンテナを取り違える」「削除対象を取り違える」
+ * といった不具合を検出できる。単一の共有モックだとどの引数で呼ばれても
+ * 同じ値を返すため、宛先の取り違えがテストを通過してしまう。
+ *
+ * Blob Storage は管理下にある依存なので、モックは運用上の例外として
+ * 許容するが**やり取りの検証はしない**。保存できたか・消えたかは
+ * 呼び出し回数ではなく `store` の状態で確認する。
+ *
+ * 各テストが使う操作はテスト対象によって違う（アップロードだけ、削除だけ、など）。
+ * 偽物が余分な操作を持っていてもテストは弱くならないため、必要な操作の
+ * 和集合をここに1つだけ置き、各テストは使う分だけ触る。
+ */
+export const TEST_BLOB_HOST = 'test.blob.core.windows.net';
+
+export interface BlobEntry {
+  content: Buffer;
+  /** `getProperties()` が返す Content-Type。アップロード時のヘッダから入る */
+  contentType?: string;
+  /** この Blob への操作を失敗させる（取得・削除の失敗経路の検証用） */
+  failWith?: Error;
+  /**
+   * ダウンロードは成功するが、ストリームの読み出し中に失敗させる。
+   * 「レスポンスが返った後に壊れる」経路は failWith では再現できない
+   */
+  streamErrorWith?: Error;
+}
+
+export interface FakeBlobBackend {
+  store: Map<string, BlobEntry>;
+  /** アップロードを失敗させる。Blob 単位ではなくバックエンド全体に効く */
+  forcedUploadError?: Error | null;
+}
+
+/** 実 SDK が存在しない Blob への操作で投げる形に合わせたエラー */
+export function blobNotFoundError(): any {
+  const err: any = new Error('BlobNotFound');
+  err.statusCode = 404;
+  return err;
+}
+
+export function createFakeBlockBlobClient(
+  backend: FakeBlobBackend,
+  containerName: string,
+  blobName: string
+): BlockBlobClient {
+  const key = `${containerName}/${blobName}`;
+  const url = `https://${TEST_BLOB_HOST}/${key}`;
+
+  return {
+    url,
+    upload: async (content: Buffer, _length: number, options?: any) => {
+      if (backend.forcedUploadError) {
+        throw backend.forcedUploadError;
+      }
+      backend.store.set(key, {
+        content,
+        contentType: options?.blobHTTPHeaders?.blobContentType
+      });
+      return {};
+    },
+    download: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw blobNotFoundError();
+      if (entry.failWith) throw entry.failWith;
+      const stream = new Readable({
+        read() {
+          if (entry.streamErrorWith) {
+            this.emit('error', entry.streamErrorWith);
+            return;
+          }
+          this.push(entry.content);
+          this.push(null);
+        }
+      });
+      return { readableStreamBody: stream };
+    },
+    getProperties: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw blobNotFoundError();
+      if (entry.failWith) throw entry.failWith;
+      return { contentType: entry.contentType };
+    },
+    delete: async () => {
+      const entry = backend.store.get(key);
+      if (!entry) throw blobNotFoundError();
+      if (entry.failWith) throw entry.failWith;
+      backend.store.delete(key);
+      return {};
+    }
+  } as unknown as BlockBlobClient;
+}
+
+export function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
+  return {
+    getContainerClient: (containerName: string) => ({
+      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
+    })
+  } as unknown as BlobServiceClient;
+}
+
+/** 返ってきたURL（SASクエリ付きの場合あり）から、偽物バックエンドのMapキーを導く */
+export function keyFromUrl(url: string): string {
+  return url.replace(`https://${TEST_BLOB_HOST}/`, '').split('?')[0];
+}

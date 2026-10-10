@@ -42,6 +42,10 @@ export class CosmosService {
       const { resource } = await this.container.item(id, id).read<Plant>();
       return resource || null;
     } catch (error: any) {
+      // read では到達しない。@azure/cosmos の Item.read() は NotFound を
+      // 飲み込んで resource なしのレスポンスを返すため、対象が無い場合は
+      // 上の resource || null を通る。SDK のバージョン差で挙動が変わりうるため
+      // 保険として残している。テストで埋めようとしないこと（到達不能）
       if (error.code === 404) {
         return null;
       }
@@ -50,18 +54,31 @@ export class CosmosService {
   }
 
   /**
-   * 植物名で重複チェック
+   * 画像パスで植物を**全件**取得する
+   *
+   * save と updatePlant が imagePath の重複を拒むために使う。同じ imagePath を
+   * 持つレコードが2つできると、一方を削除（または別の画像に更新）した時点で
+   * deleteImage() がもう一方の画像も消してしまう。
+   *
+   * **1件だけ返す形にしないこと。** 以前は `resources[0]` だけを返しており、
+   * updatePlant の「自分以外が使っているか」という判定が成立しなかった。
+   * クエリに ORDER BY は無いので「任意の1件」しか得られず、重複が既に2件ある
+   * 状態では更新対象ではない方が返ることがあり、正当な更新が 409 で
+   * 永久に拒まれた。呼び出し側がそれぞれの問いを書けるよう全件返す。
+   *
+   * @param imagePath 画像パス
+   * @returns 該当する植物の配列。無ければ空配列
    */
-  async getPlantByName(name: string): Promise<Plant | null> {
-    const query = `SELECT * FROM c WHERE c.name = @name`;
+  async getPlantsByImagePath(imagePath: string): Promise<Plant[]> {
+    const query = `SELECT * FROM c WHERE c.imagePath = @imagePath`;
     const { resources } = await this.container.items
       .query<Plant>({
         query,
-        parameters: [{ name: '@name', value: name }]
+        parameters: [{ name: '@imagePath', value: imagePath }]
       })
       .fetchAll();
 
-    return resources.length > 0 ? resources[0] : null;
+    return resources;
   }
 
   /**
@@ -123,7 +140,23 @@ export class CosmosService {
    */
   async deletePlant(id: string): Promise<boolean> {
     try {
+      // 画像パスはドキュメントを消す前に読む（消した後では参照できない）
+      const existingPlant = await this.getPlantById(id);
+
       await this.container.item(id, id).delete();
+
+      // 孤児Blobを残さないため画像も削除する。
+      // 失敗はログ出力のみでドキュメント削除は成功扱いにする（updatePlantと同じ方針。
+      // ドキュメントが消えている以上、画像が残っても参照されないため）
+      if (existingPlant?.imagePath) {
+        try {
+          await this.storageService.deleteImage(existingPlant.imagePath);
+          console.log(`画像削除成功: ${existingPlant.imagePath}`);
+        } catch (error) {
+          console.warn(`画像削除に失敗しましたが、植物の削除は完了しています: ${error}`);
+        }
+      }
+
       return true;
     } catch (error: any) {
       if (error.code === 404) {

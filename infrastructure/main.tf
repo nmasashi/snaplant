@@ -36,10 +36,10 @@ resource "azurerm_resource_group" "main" {
 resource "azurerm_storage_account" "main" {
   name                     = "st${var.project_name}${random_string.suffix.result}"
   resource_group_name      = azurerm_resource_group.main.name
-  location                = azurerm_resource_group.main.location
+  location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
-  account_kind            = "StorageV2"
+  account_kind             = "StorageV2"
 
   blob_properties {
     cors_rule {
@@ -144,7 +144,7 @@ resource "azurerm_linux_function_app" "main" {
 
   storage_account_name       = azurerm_storage_account.main.name
   storage_account_access_key = azurerm_storage_account.main.primary_access_key
-  service_plan_id           = azurerm_service_plan.main.id
+  service_plan_id            = azurerm_service_plan.main.id
 
   site_config {
     application_stack {
@@ -156,34 +156,34 @@ resource "azurerm_linux_function_app" "main" {
   }
 
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "node"
+    "FUNCTIONS_WORKER_RUNTIME"     = "node"
     "WEBSITE_NODE_DEFAULT_VERSION" = "~20"
-    
+
     # Cosmos DB接続設定
-    "COSMOS_DB_ENDPOINT" = azurerm_cosmosdb_account.main.endpoint
-    "COSMOS_DB_KEY"      = azurerm_cosmosdb_account.main.primary_key
-    "COSMOS_DB_DATABASE" = azurerm_cosmosdb_sql_database.main.name
+    "COSMOS_DB_ENDPOINT"  = azurerm_cosmosdb_account.main.endpoint
+    "COSMOS_DB_KEY"       = azurerm_cosmosdb_account.main.primary_key
+    "COSMOS_DB_DATABASE"  = azurerm_cosmosdb_sql_database.main.name
     "COSMOS_DB_CONTAINER" = azurerm_cosmosdb_sql_container.plants.name
-    
+
     # ストレージ接続設定
-    "STORAGE_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
-    "STORAGE_CONTAINER_NAME"    = azurerm_storage_container.images.name
+    "STORAGE_CONNECTION_STRING"   = azurerm_storage_account.main.primary_connection_string
+    "STORAGE_CONTAINER_NAME"      = azurerm_storage_container.images.name
     "TEMP_STORAGE_CONTAINER_NAME" = azurerm_storage_container.temp_images.name
-    
+
     # Azure OpenAI設定
-    "AZURE_OPENAI_ENDPOINT" = azurerm_cognitive_account.openai.endpoint
-    "AZURE_OPENAI_API_KEY" = azurerm_cognitive_account.openai.primary_access_key
+    "AZURE_OPENAI_ENDPOINT"        = azurerm_cognitive_account.openai.endpoint
+    "AZURE_OPENAI_API_KEY"         = azurerm_cognitive_account.openai.primary_access_key
     "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt5_luna.name
-    "AZURE_OPENAI_API_VERSION" = var.openai_api_version
-    
+    "AZURE_OPENAI_API_VERSION"     = var.openai_api_version
+
     # Application Insights設定
-    "APPINSIGHTS_INSTRUMENTATIONKEY" = azurerm_application_insights.main.instrumentation_key
+    "APPINSIGHTS_INSTRUMENTATIONKEY"        = azurerm_application_insights.main.instrumentation_key
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
-    
+
   }
 
   tags = var.tags
-  
+
   depends_on = [azurerm_application_insights.main]
 }
 

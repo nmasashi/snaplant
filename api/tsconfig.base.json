@@ -6,6 +6,9 @@
     "outDir": "./dist",
     "rootDir": "./",
     "strict": true,
+    // ts-jest が module: node20 (hybrid module kind) では isolatedModules を要求するため
+    // （未設定だとテスト実行ごとに TS151002 の警告が出る）
+    "isolatedModules": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

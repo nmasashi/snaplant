@@ -1,62 +1,55 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { savePlantHandler } from '../../src/functions/save';
 import { Plant } from '../../src/types/plant';
-import { CosmosClient, Database, Container } from '@azure/cosmos';
+import { CosmosClient } from '@azure/cosmos';
+import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
-// UUID生成のモック
-jest.mock('uuid', () => ({
-  v4: jest.fn(() => '123e4567-e89b-12d3-a456-426614174000')
-}));
+// id は CosmosService.generateId()（Math.random() ベースの自前実装）が生成するため
+// uuidパッケージはモックしても効かない。形式（UUID v4）だけを検証する
+// （cosmosService.test.ts の generateId 検証と同じ正規表現に揃える）
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// StorageService.isValidImagePath() が有効と判定するために必要な自ストレージ設定。
+// tests/setup.ts のグローバル値と偶然一致させるのではなく、このファイル内で
+// 完結させる（beforeEach で process.env に設定する）
+const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+const TEST_STORAGE_CONTAINER_NAME = 'test-images';
+const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
 
 describe('植物保存API', () => {
   let mockContext: InvocationContext;
-  let mockClient: jest.Mocked<CosmosClient>;
-  let mockDatabase: jest.Mocked<Database>;
-  let mockContainer: jest.Mocked<Container>;
-  let mockItems: any;
-  let mockItem: any;
+  let cosmosBackend: FakeCosmosBackend<Plant>;
 
   beforeEach(() => {
     // InvocationContextのモック
     mockContext = {
-      log: Object.assign(jest.fn(), { error: jest.fn() }),
-      error: jest.fn()
+      log: jest.fn()
     } as any;
 
-    // Cosmos DB SDKのモック
-    mockItems = {
-      query: jest.fn(),
-      create: jest.fn()
+    // Cosmos DBの偽物バックエンド
+    cosmosBackend = {
+      documents: new Map(),
+      forcedCreateError: null
     };
-
-    mockItem = {
-      read: jest.fn()
-    };
-
-    mockContainer = {
-      items: mockItems,
-      item: jest.fn().mockReturnValue(mockItem)
-    } as any;
-
-    mockDatabase = {
-      container: jest.fn().mockReturnValue(mockContainer)
-    } as any;
-
-    mockClient = {
-      database: jest.fn().mockReturnValue(mockDatabase)
-    } as any;
-
-    MockedCosmosClient.mockImplementation(() => mockClient);
+    const fakeContainer = createFakeContainer(cosmosBackend);
+    MockedCosmosClient.mockImplementation(() => ({
+      database: () => ({
+        container: () => fakeContainer
+      })
+    } as unknown as CosmosClient));
 
     // 環境変数設定
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_CONTAINER = 'test-container';
+    // imagePathのバリデーション（StorageService.isValidImagePath）に使う
+    process.env.STORAGE_CONNECTION_STRING = TEST_STORAGE_CONNECTION_STRING;
+    process.env.STORAGE_CONTAINER_NAME = TEST_STORAGE_CONTAINER_NAME;
   });
 
   afterEach(() => {
@@ -65,32 +58,12 @@ describe('植物保存API', () => {
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_CONTAINER;
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.STORAGE_CONTAINER_NAME;
   });
 
   describe('正常系', () => {
     it('植物を正常に保存できる', async () => {
-      // 重複チェックで既存植物なしのモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
-
-      // 植物作成成功のモック
-      const mockCreatedPlant: Plant = {
-        id: '123e4567-e89b-12d3-a456-426614174000',
-        name: '桜',
-        scientificName: 'Prunus serrulata',
-        familyName: 'バラ科',
-        description: '日本を代表する花木で、春に美しい花を咲かせる。',
-        characteristics: '春に美しいピンクの花を咲かせる',
-        confidence: 95.5,
-        imagePath: 'https://example.com/sakura.jpg',
-        createdAt: '2024-01-15T10:30:00Z',
-        updatedAt: '2024-01-15T10:30:00Z'
-      };
-
-      mockItems.create.mockResolvedValue({ resource: mockCreatedPlant });
-
       // リクエストの作成
       const request = {
         method: 'POST',
@@ -104,61 +77,53 @@ describe('植物保存API', () => {
           description: '日本を代表する花木で、春に美しい花を咲かせる。',
           characteristics: '春に美しいピンクの花を咲かせる',
           confidence: 95.5,
-          imagePath: 'https://example.com/sakura.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`
         })
       } as any as HttpRequest;
 
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（レスポンス）
       expect(response.status).toBe(201);
       expect(response.jsonBody).toEqual({
         success: true,
         data: {
-          plant: mockCreatedPlant
+          plant: {
+            id: expect.stringMatching(UUID_V4_PATTERN),
+            name: '桜',
+            scientificName: 'Prunus serrulata',
+            familyName: 'バラ科',
+            description: '日本を代表する花木で、春に美しい花を咲かせる。',
+            characteristics: '春に美しいピンクの花を咲かせる',
+            confidence: 95.5,
+            imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
+            createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+            updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+          }
         }
       });
 
-      // 植物作成が呼ばれることを確認（重複チェックはない）
-
-      // 植物作成が呼ばれることを確認
-      expect(mockItems.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          name: '桜',
-          scientificName: 'Prunus serrulata',
-          familyName: 'バラ科',
-          description: '日本を代表する花木で、春に美しい花を咲かせる。',
-          characteristics: '春に美しいピンクの花を咲かせる',
-          confidence: 95.5,
-          imagePath: 'https://example.com/sakura.jpg',
-          createdAt: expect.any(String),
-          updatedAt: expect.any(String)
-        })
-      );
+      // 検証（実際に永続化された内容。create呼び出しの引数ではなく
+      // 偽物バックエンドに保存された状態そのものを確認する）。
+      // idは実行結果に生成された乱数のため、レスポンスから得たidで
+      // バックエンドを引く（固定値を2箇所に書かない）
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(cosmosBackend.documents.get(savedId)).toEqual({
+        id: savedId,
+        name: '桜',
+        scientificName: 'Prunus serrulata',
+        familyName: 'バラ科',
+        description: '日本を代表する花木で、春に美しい花を咲かせる。',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 95.5,
+        imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
+        createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      });
     });
 
     it('最小限のフィールドで植物を保存できる', async () => {
-      // 重複チェックで既存植物なしのモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
-
-      // 植物作成成功のモック
-      const mockCreatedPlant: Plant = {
-        id: '123e4567-e89b-12d3-a456-426614174000',
-        name: 'テスト植物',
-        characteristics: '基本的な特徴',
-        confidence: 80.0,
-        imagePath: 'https://example.com/test.jpg',
-        createdAt: '2024-01-15T10:30:00Z',
-        updatedAt: '2024-01-15T10:30:00Z'
-      };
-
-      mockItems.create.mockResolvedValue({ resource: mockCreatedPlant });
-
       // リクエストの作成（必須フィールドのみ）
       const request = {
         method: 'POST',
@@ -169,7 +134,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '基本的な特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -194,7 +159,7 @@ describe('植物保存API', () => {
         json: jest.fn().mockResolvedValue({
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -211,7 +176,39 @@ describe('植物保存API', () => {
           details: undefined
         }
       });
-      expect(mockItems.create).not.toHaveBeenCalled();
+      // 保存されていないことの状態検証（ドキュメントが増えていない）
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    it('特徴が未指定の場合は400エラー', async () => {
+      // リクエストの作成（characteristicsなし）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '特徴が指定されていません',
+          details: undefined
+        }
+      });
+      // 保存されていないことの状態検証（ドキュメントが増えていない）
+      expect(cosmosBackend.documents.size).toBe(0);
     });
 
     it('植物名が長すぎる場合は400エラー', async () => {
@@ -226,7 +223,7 @@ describe('植物保存API', () => {
           name: longName,
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -243,11 +240,12 @@ describe('植物保存API', () => {
           details: undefined
         }
       });
-      expect(mockItems.create).not.toHaveBeenCalled();
+      // 保存されていないことの状態検証（ドキュメントが増えていない）
+      expect(cosmosBackend.documents.size).toBe(0);
     });
 
-    it('信頼度が範囲外の場合は400エラー', async () => {
-      // リクエストの作成（信頼度が範囲外）
+    it('信頼度が上限を超える場合は400エラー', async () => {
+      // リクエストの作成（信頼度が上限を超える）
       const request = {
         method: 'POST',
         url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
@@ -256,8 +254,8 @@ describe('植物保存API', () => {
         json: jest.fn().mockResolvedValue({
           name: 'テスト植物',
           characteristics: '特徴',
-          confidence: 150.0, // 範囲外
-          imagePath: 'https://example.com/test.jpg'
+          confidence: 150.0, // 上限超過
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -274,10 +272,132 @@ describe('植物保存API', () => {
           details: undefined
         }
       });
-      expect(mockItems.create).not.toHaveBeenCalled();
+      // 保存されていないことの状態検証（ドキュメントが増えていない）
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    it('信頼度が負値の場合は400エラー', async () => {
+      // リクエストの作成（信頼度が下限未満）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: -1, // 下限未満
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '信頼度は0から100の間の数値で指定してください',
+          details: undefined
+        }
+      });
+      // 保存されていないことの状態検証（ドキュメントが増えていない）
+      expect(cosmosBackend.documents.size).toBe(0);
     });
 
     // 重複チェックは別途実装されるcheckDuplicate APIで行うため、ここではテストしない
+
+    it('同じimagePathを持つ植物が既に保存されている場合は409エラー', async () => {
+      // 既存植物が1件存在する状態（同じimagePathを持つ）。
+      // 重複チェックが機能していない場合、偽物バックエンドの create が
+      // そのまま実行されてしまい、201とドキュメント追加という形で判別できる
+      const existingPlant: Plant = {
+        id: 'existing-id-0000-0000-000000000000',
+        name: '既存の桜',
+        characteristics: '既存の特徴',
+        confidence: 90.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/duplicate.jpg`,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+
+      // リクエストの作成（既存植物と同じimagePath。他のフィールドはすべて正当な値にする）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/duplicate.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'IMAGE_ALREADY_SAVED',
+          message: 'この画像は既に保存されています',
+          details: undefined
+        }
+      });
+      // 新しいドキュメントが追加されていないことの状態検証
+      expect(cosmosBackend.documents.size).toBe(1);
+    });
+
+    it('画像パスが自ストレージアカウント以外のホストを指す場合は400エラー', async () => {
+      // リクエストの作成（imagePathが自アカウント以外のホストを指す。
+      // URLとしては正しくパースできるが、他レコードのBlobを指し得る。
+      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
+      // 一致しない値（例: foo）だとコンテナ名の不一致だけで400になり、
+      // ホスト検証を削除してもこのテストは落ちなくなる。
+      // このバリデーションが機能していない場合、偽物バックエンドの create が
+      // 実行されて201になるため、201とドキュメント追加という形で判別できる）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: 'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください',
+          details: undefined
+        }
+      });
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    // isValidImagePath() 自体の受理・拒否の境界（他ホスト・永続コンテナ以外の
+    // コンテナ名・余分なセグメント・コンテナまでしか指していない・非httpsの5通り）は
+    // storageService.test.ts の isValidImagePath 単体テストで検証する。
+    // ここでは「ハンドラが実際にこの検証を呼んでいること」を守る代表1本だけ残す
+    // （updatePlant.test.ts も同じ代表ケースを残している）。
 
     it('JSONパースエラーの場合は400エラー', async () => {
       // リクエストの作成（JSONパースエラー）
@@ -310,7 +430,7 @@ describe('植物保存API', () => {
       // DB接続エラーのモック
       const connectionError = new Error('ENOTFOUND');
       (connectionError as any).code = 'ENOTFOUND';
-      mockItems.create.mockRejectedValue(connectionError);
+      cosmosBackend.forcedCreateError = connectionError;
 
       // リクエストの作成
       const request = {
@@ -322,7 +442,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -345,7 +465,7 @@ describe('植物保存API', () => {
       // Cosmos DB制約エラーのモック
       const conflictError = new Error('Conflict');
       (conflictError as any).code = 409;
-      mockItems.create.mockRejectedValue(conflictError);
+      cosmosBackend.forcedCreateError = conflictError;
 
       // リクエストの作成
       const request = {
@@ -357,7 +477,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -377,8 +497,10 @@ describe('植物保存API', () => {
     });
 
     it('予期しないエラーの場合は500エラー', async () => {
-      // 予期しないエラーのモック（環境変数不足など）
-      delete process.env.COSMOS_DB_ENDPOINT;
+      // ENOTFOUND・ECONNREFUSED・409のいずれにも当たらない未分類のエラー。
+      // こういったエラーはcatch節のどの分岐にも一致せず、createInternalError
+      // のフォールバックに落ちる
+      cosmosBackend.forcedCreateError = new Error('Unexpected failure');
 
       // リクエストの作成
       const request = {
@@ -390,7 +512,7 @@ describe('植物保存API', () => {
           name: 'テスト植物',
           characteristics: '特徴',
           confidence: 80.0,
-          imagePath: 'https://example.com/test.jpg'
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
         })
       } as any as HttpRequest;
 
@@ -404,7 +526,7 @@ describe('植物保存API', () => {
         error: {
           code: 'INTERNAL_ERROR',
           message: '植物の保存に失敗しました',
-          details: expect.any(String)
+          details: 'Unexpected failure'
         }
       });
     });

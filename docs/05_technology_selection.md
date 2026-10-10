@@ -11,9 +11,6 @@ graph TB
     %% Frontend
     App[Android App<br/>Flutter + Dart]
     
-    %% API Gateway
-    APIM[Azure API Management<br/>認証・レート制限・監視]
-    
     %% Backend Services
     Functions[Azure Functions<br/>サーバーレスAPI]
     
@@ -22,21 +19,19 @@ graph TB
     BlobStorage[(Azure Blob Storage<br/>画像ファイル保存)]
     
     %% AI Services
-    OpenAIVision[Azure OpenAI Service<br/>GPT-4o Vision<br/>植物識別AI]
+    OpenAIVision[Azure OpenAI Service<br/>gpt-5.6-luna<br/>植物識別AI]
     
     %% Monitoring
     AppInsights[Application Insights<br/>監視・ログ・分析]
     
     %% Connections
-    App -->|HTTPS REST API| APIM
-    APIM -->|リクエスト転送| Functions
+    App -->|HTTPS REST API<br/>Function Key認証| Functions
     
     Functions -->|植物データCRUD| CosmosDB
     Functions -->|画像アップロード| BlobStorage
     Functions -->|AI識別リクエスト| OpenAIVision
     
     Functions -->|ログ・メトリクス| AppInsights
-    App -->|テレメトリ| AppInsights
     
     %% Styling
     classDef frontend fill:#e1f5fe
@@ -46,11 +41,18 @@ graph TB
     classDef monitoring fill:#fce4ec
     
     class App frontend
-    class APIM,Functions backend
+    class Functions backend
     class CosmosDB,BlobStorage storage
     class OpenAIVision ai
     class AppInsights monitoring
 ```
+
+Azure API Management は**導入していない**。クライアントは Function Key 認証で
+Azure Functions を直接呼ぶ（3.6 参照）。レート制限も未実装で、
+[バックログ](./09_backlog.md)に分離している。
+
+Application Insights へ送るのは Function App 側のログ・メトリクスのみ。
+モバイルアプリからのテレメトリ送信は実装していない（`mobile/` に SDK 依存が無い）。
 
 ## 3. 技術選定
 
@@ -85,18 +87,20 @@ graph TB
   - 従量課金でMVPに適している
 
 #### Functions構成
-- **HTTP Trigger**: REST API提供
-- **Timer Trigger**: 定期処理（将来的なデータ整理等）
-- **Blob Trigger**: 画像処理の非同期実行
+- **HTTP Trigger**: REST API提供（`api/src/app.ts` が全関数を import して登録）
+
+Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行）は検討したが**未実装**。
+現在の関数はすべて HTTP Trigger（`app.http(...)`）である。
 
 ### 3.3 データベース
 
 #### 選定：Azure Cosmos DB (無料枠)
 - **理由**:
-  - **永続無料枠**: 1,000 RU/s + 25 GB ストレージ
+  - **永続無料枠**を有効化（`azurerm_cosmosdb_account.main` の `enable_free_tier = true`）。
+    コンテナへの割り当ては **400 RU/s**（`cosmos_db_throughput` の既定値）
   - MVPの小規模利用には十分
   - 自動スケーリング・高可用性
-  - JSON形式でReact Nativeとの親和性が高い
+  - JSON形式でDart/Flutterとの親和性が高い
   - グローバル分散可能
 
 #### データ構造調整
@@ -127,13 +131,18 @@ graph TB
 
 ### 3.5 植物識別AI
 
-#### 選定：OpenAI Vision API (GPT-4 Vision)
+#### 選定：Azure OpenAI Service（デプロイメント `gpt-5.6-luna`、画像入力）
 - **理由**:
   - 高精度な画像認識・植物識別能力
   - 専門知識による詳細な植物情報提供
   - REST API経由での利用
   - Azure OpenAI ServiceまたはOpenAI APIで利用可能
+    （`AZURE_OPENAI_ENDPOINT` の有無で分岐。未設定時のみ OpenAI 公式 API へフォールバック）
   - カスタムプロンプトによる柔軟な応答制御
+  - Structured Outputs（`response_format: json_schema`, `strict: true`）で応答構造を強制
+
+モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の
+`azurerm_cognitive_deployment.gpt5_luna`（`gpt-5.6-luna` / GlobalStandard SKU）と一致させる。
 
 ### 3.6 API管理・セキュリティ
 
@@ -145,8 +154,9 @@ graph TB
 
 - **セキュリティ対策**:
   - HTTPS通信強制（Azure Functions標準）
-  - CORS設定による呼び出し元制限
   - Application Insightsでの監視・ログ
+  - CORS は全オリジン許可（`infrastructure/main.tf` の `allowed_origins = ["*"]`）。
+    呼び出し元の制限はしていない
 
 #### 将来検討：Azure API Management
 - **移行タイミング**: 商用化・大規模化時
@@ -167,30 +177,35 @@ graph TB
 
 #### API エンドポイント設計
 ```typescript
-// GET /api/plants - 植物一覧取得
-// GET /api/plants/{id} - 植物詳細取得
-// POST /api/plants - 植物新規登録
-// PUT /api/plants/{id} - 植物情報更新
-// DELETE /api/plants/{id} - 植物削除
-// POST /api/identify - 植物識別
+// GET    /api/plants                 - 植物一覧取得
+// GET    /api/plants/{id}            - 植物詳細取得
+// POST   /api/plants/save            - 植物新規登録
+// PUT    /api/plants/{id}            - 植物情報更新
+// DELETE /api/plants/{id}            - 植物削除
+// POST   /api/plants/identify        - 植物識別
+// GET    /api/plants/check-duplicate - 重複チェック
+// POST   /api/images/upload          - 画像アップロード＋AI識別（統合）
 ```
 
-#### 使用パッケージ
+#### 使用パッケージ（`api/package.json` の dependencies）
 - **@azure/functions**: Azure Functions ランタイム
 - **@azure/cosmos**: Cosmos DB接続
 - **@azure/storage-blob**: Blob Storage操作
-- **openai**: OpenAI Vision API連携
-- **multer**: ファイルアップロード処理
+- **openai**: Azure OpenAI / OpenAI API連携
+- **uuid**: Blob名・植物IDの生成
+
+ファイルアップロードは Azure Functions v4 の `request.formData()` で処理する。
+multer は導入していない。
 
 ### 4.2 Flutter アプリ構成
 
-#### フォルダ構造
+#### フォルダ構造（実装の現状）
 ```
 lib/
-├── main.dart              # アプリエントリーポイント
+├── main.dart              # アプリエントリーポイント・画面遷移の定義（手書き）
 ├── models/                # データモデル・型定義
-│   ├── plant.dart
-│   ├── identification_result.dart
+│   ├── plant.dart         # Plant / PlantSummary / PlantCandidate /
+│   │                      # IdentificationResult / DuplicateCheckResult など
 │   └── api_response.dart
 ├── screens/               # 画面ウィジェット
 │   ├── plant_list_screen.dart
@@ -199,35 +214,37 @@ lib/
 │   ├── plant_detail_screen.dart
 │   └── settings_screen.dart
 ├── widgets/               # 共通ウィジェット
-│   ├── plant_card.dart
-│   ├── identification_card.dart
-│   └── custom_app_bar.dart
+│   └── plant_card.dart
 ├── services/              # API通信・ビジネスロジック
 │   ├── api_service.dart
-│   ├── storage_service.dart
-│   └── camera_service.dart
-├── utils/                 # ユーティリティ関数
-│   ├── constants.dart
-│   ├── helpers.dart
-│   └── validators.dart
-├── theme/                 # テーマ・スタイル
-│   ├── app_theme.dart
-│   └── colors.dart
-└── navigation/            # 画面遷移管理
-    └── app_router.dart
+│   ├── camera_service.dart
+│   └── settings_service.dart
+└── theme/                 # テーマ・スタイル
+    ├── app_theme.dart
+    ├── app_colors.dart
+    └── app_text_styles.dart
 ```
+
+ルーティング専用のディレクトリ（`navigation/`）やユーティリティ（`utils/`）は無く、
+画面遷移は `main.dart` の手書き、状態管理は `setState` である。
+`pubspec.yaml` には `provider` / `go_router` / `dio` / `uuid` / `intl` が宣言されているが
+使用実績はゼロで、アーキテクチャ方針は未決定（[提案文書](./10_proposals.md)に記録）。
 
 #### セキュリティ関連パッケージ
 - **shared_preferences**: 設定データ保存
 - **flutter_secure_storage**: APIキーのセキュア保存
-- **connectivity_plus**: ネットワーク状態監視
+
+ネットワーク状態監視（`connectivity_plus`）は導入していない。
+通信失敗は `ApiService._handleError()` が例外から判別している。
 
 #### API通信設定
-- **http package**: REST API通信
-- **認証**: Function Keyをクエリパラメータで送信
-- **エラーハンドリング**: 401認証エラーの適切な処理
-- **リトライ機能**: ネットワークエラー時の自動再試行
+- **http package**: REST API通信（`dio` は `pubspec.yaml` にあるが未使用）
+- **認証**: Function Keyをクエリパラメータで送信（`ApiService._buildUrl()` が `?code=` を付与）
+- **エラーハンドリング**: `ApiService._handleError()` が例外を `ApiException` に正規化し、
+  `userMessage` でステータスコードごとの日本語メッセージを返す
 - **JSON変換**: dart:convert による型安全なシリアライゼーション
+
+自動リトライは実装していない。再試行はユーザー操作（一覧・詳細画面の「再試行」ボタン）による。
 
 ### 4.3 データフロー
 
@@ -235,7 +252,7 @@ lib/
 1. **認証確認**: 設定画面からAPIキー取得（flutter_secure_storage）
 2. **画像選択**: Flutter image_picker → 画像選択・撮影
 3. **画像アップロード**: Flutter http → Azure Functions → Blob Storage (Function Key認証)
-4. **AI識別**: Azure Functions → Azure OpenAI Service → GPT-4o Vision (SAS URL対応)
+4. **AI識別**: Azure Functions → Azure OpenAI Service → `gpt-5.6-luna`（画像入力・SAS URL対応）
 5. **結果表示**: API Response → Flutter UI (Material Design)
 6. **データ保存**: Flutter → Azure Functions → Cosmos DB (Function Key認証)
 
@@ -243,7 +260,10 @@ lib/
 1. **初回設定**: ユーザーが設定画面でAPIキー入力
 2. **セキュア保存**: flutter_secure_storage にキーを暗号化保存
 3. **API呼び出し**: 全リクエストでクエリパラメータに認証キー付与
-4. **エラー処理**: 401エラー時は設定画面への誘導（Navigator.push）
+4. **キー未設定時**: 一覧画面の初期化で設定画面へ遷移（`Navigator.push`）
+5. **エラー処理**: 401 はエラーメッセージ表示のみ
+   （`ApiException.userMessage` が「APIキーが無効です。設定を確認してください。」を返す）。
+   401 を検知して自動で設定画面へ遷移する実装は無い
 
 ## 5. コスト見積もり（月額・東日本リージョン）
 
@@ -251,11 +271,11 @@ lib/
 - **Azure Functions**: ¥500-800
 - **Azure Cosmos DB**: **¥0** (無料枠内)
 - **Azure Blob Storage (Hot)**: ¥200-400
-- **Azure API Management (Developer)**: ¥4,500
-- **OpenAI Vision API**: ¥1,500-3,000
+- **Azure API Management**: **¥0**（未導入。Function Key認証で代替している）
+- **Azure OpenAI Service**: ¥1,500-3,000
 - **Application Insights**: ¥300-500
 
-**月額合計**: 約¥6,500-7,200 (**¥600-800の節約**)
+**月額合計**: 約¥2,500-4,700（API Management を導入していない分だけ低い）
 
 ### 5.2 成長段階（月間1,000ユーザー想定）
 - **Azure Cosmos DB**: 無料枠超過で¥1,000-2,000追加
@@ -266,21 +286,36 @@ lib/
 
 ### 6.1 CI/CD パイプライン
 
-#### 選定：Azure DevOps
-- **Azure Pipelines**: ビルド・テスト・デプロイ自動化
-- **Azure Repos**: ソースコード管理（GitHubとの連携も可能）
+#### 選定：GitHub Actions
+ソースコード管理は GitHub、CI/CD も GitHub Actions で完結させている
+（Azure DevOps / Azure Pipelines は使っていない）。ワークフローは3本。
+
+| ワークフロー | トリガー | 内容 |
+|---|---|---|
+| `.github/workflows/ci.yml` | `main` / `develop` への push、`main` への PR、`api/` または `.github/workflows/` の変更 | `npm ci` → テスト → カバレッジ → `npm audit` → CodeQL → `npm run build` → 成果物アーカイブ |
+| `.github/workflows/terraform.yml` | `main` / `develop` への push、`main` への PR、`infrastructure/` の変更 | `terraform fmt -check -recursive` と `terraform init -backend=false` → `terraform validate`。Azure へは通信しない |
+| `.github/workflows/deploy-functions.yml` | `main` への push、手動実行 | ci.yml を `workflow_call` で呼び、成功後に Azure Functions へデプロイ |
+
+リンターは未設定のため、ci.yml の lint ステップはスキップされる。
+`mobile/`（Flutter）を対象にしたワークフローは無い。
 
 #### デプロイフロー
 ```
-開発者 → Git Push → Azure Pipelines → 
-自動テスト → Azure Functions Deploy → 
-Cosmos DB Setup → 完了
+開発者 → git push (main) → deploy-functions.yml →
+ci.yml（テスト・ビルド）→ npm run build → Azure Functions へデプロイ →
+Function App の応答確認 → 完了
 ```
 
+サーバ側ビルドは行わない（`scm-do-build-during-deployment: false` /
+`enable-oryx-build: false`）ため、ワークフロー内でビルドした `dist/` が
+そのままパッケージされる。
+
 ### 6.2 環境構成
-- **開発環境**: ローカル + Azure Dev/Test サブスクリプション
-- **ステージング環境**: Azure（本番同等構成）
-- **本番環境**: Azure（高可用性構成）
+- **ローカル開発**: `api/local.settings.json`（Functions Core Tools）+ 実 Azure リソース
+- **本番環境**: Azure（Terraform で定義。`production` GitHub Environment 経由でデプロイ）
+
+ステージング環境と Dev/Test サブスクリプションは用意していない。
+インフラ定義も単一環境分のみ（`infrastructure/main.tf`）。
 
 ## 7. セキュリティ設計
 
@@ -302,7 +337,7 @@ Cosmos DB Setup → 完了
 - **キー管理**:
   - Azure Portalでの手動生成・取得
   - モバイルアプリの設定画面で設定
-  - React Native Keychainでのセキュア保存
+  - flutter_secure_storage でのセキュア保存
 
 #### 将来拡張: Azure Active Directory B2C
 - **段階的移行計画**:
@@ -332,11 +367,11 @@ Cosmos DB Setup → 完了
 ## 9. リスク評価
 
 ### 9.1 技術リスク
-- **OpenAI Vision API**: APIコストと利用制限
-- **React Native**: ネイティブ機能制限
-- **Azure Functions**: コールドスタート問題
+- **Azure OpenAI Service**: APIコストと利用制限、モデル・APIバージョンの変更追従
+- **Flutter**: ネイティブ機能の制限
+- **Azure Functions**: Consumption Plan のコールドスタート
 
 ### 9.2 対策
-- **コスト最適化**: Azure OpenAI Serviceの利用検討
+- **コスト最適化**: 画像は `detail: "low"` で渡しトークン消費を抑制
 - **ハイブリッド開発**: 必要に応じてネイティブコード併用
 - **Premium Plan**: パフォーマンス要件に応じた移行

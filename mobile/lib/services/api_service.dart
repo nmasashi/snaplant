@@ -230,7 +230,8 @@ class ApiService {
   }
 
   /// 画像アップロード（従来版・互換性のため残存）
-  /// POST /api/upload
+  /// POST /api/images/upload
+  /// 注: このエンドポイントは AI 識別も実行するため、植物でない画像は 400 (NOT_A_PLANT) になる
   Future<UploadResult> uploadImage(dynamic imageFile) async {
     try {
       final url = _buildUrl('/api/images/upload');
@@ -270,7 +271,17 @@ class ApiService {
       
       return _parseResponse(
         response,
-        (json) => UploadResult.fromJson(json),
+        (json) {
+          final data = json['data'] as Map<String, dynamic>?;
+          if (data == null) {
+            throw ApiException(
+              statusCode: 0,
+              message: 'レスポンスデータが無効です',
+              body: json.toString(),
+            );
+          }
+          return UploadResult.fromJson(data);
+        },
       );
     } catch (error) {
       throw _handleError(error);
@@ -278,19 +289,33 @@ class ApiService {
   }
   
   /// 植物識別
-  /// POST /api/identify
-  Future<IdentificationResult> identifyPlant(String imagePath) async {
+  /// POST /api/plants/identify
+  Future<IdentificationResult> identifyPlant(String imagePath, {String? contextInfo}) async {
     try {
-      final url = _buildUrl('/api/identify');
+      final url = _buildUrl('/api/plants/identify');
       final response = await _client.post(
         Uri.parse(url),
         headers: _headers,
-        body: json.encode({'imagePath': imagePath}),
+        body: json.encode({
+          'imagePath': imagePath,
+          if (contextInfo != null && contextInfo.isNotEmpty) 'contextInfo': contextInfo,
+        }),
       );
       
       return _parseResponse(
         response,
-        (json) => IdentificationResult.fromJson(json),
+        (json) {
+          final data = json['data'] as Map<String, dynamic>?;
+          final result = data?['result'] as Map<String, dynamic>?;
+          if (result == null) {
+            throw ApiException(
+              statusCode: 0,
+              message: 'レスポンスデータが無効です',
+              body: json.toString(),
+            );
+          }
+          return IdentificationResult.fromJson(result);
+        },
       );
     } catch (error) {
       throw _handleError(error);

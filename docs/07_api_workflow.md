@@ -19,18 +19,18 @@ sequenceDiagram
 
     Note over Client,DB: 1. 画像アップロード・植物判定・保存
     Client->>API: POST /images/upload<br/>（画像ファイル + コンテキスト情報）
-    API->>Blob: 一時保存<br/>（temp/フォルダ）
+    API->>Blob: 一時保存<br/>（一時コンテナ temp-images）
     Blob-->>API: 一時URL生成
     API->>AI: 植物判定リクエスト<br/>（一時URL + コンテキスト情報）
     
     alt 植物の場合
         AI-->>API: isPlant: true<br/>（植物候補・信頼度）
-        API->>Blob: 永続保存に移動<br/>（temp/ → images/）
+        API->>Blob: 永続保存に移動<br/>（temp-images → images）
         Blob-->>API: 永続URL生成
         API-->>Client: imagePath + candidates[]<br/>（永続URL + 識別結果）
     else 植物でない場合
         AI-->>API: isPlant: false<br/>（植物ではない）
-        API->>Blob: 一時ファイル削除<br/>（temp/から削除）
+        API->>Blob: 一時ファイル削除<br/>（temp-images から削除）
         API-->>Client: エラー<br/>「植物ではありません」
     end
 
@@ -46,19 +46,32 @@ sequenceDiagram
     alt 重複なし（新規登録）
         Note over Client,DB: 4a. 新規植物データ保存
         Client->>API: POST /plants/save<br/>（植物データ）
-        API->>DB: INSERT文実行<br/>（新規ドキュメント作成）
-        DB-->>API: 作成完了<br/>（保存されたドキュメント）
-        API-->>Client: plant<br/>（保存完了データ）
+        API->>DB: imagePathの重複確認<br/>WHERE imagePath = @imagePath
+        DB-->>API: 既存レコード or 空
+
+        alt imagePathが未使用
+            API->>DB: INSERT文実行<br/>（新規ドキュメント作成）
+            DB-->>API: 作成完了<br/>（保存されたドキュメント）
+            API-->>Client: plant<br/>（保存完了データ）
+        else imagePathが既に保存済み（リトライ）
+            API-->>Client: 409 IMAGE_ALREADY_SAVED<br/>「この画像は既に保存されています」
+        end
     else 重複あり（既存植物の画像更新）
         Note over Client,DB: 4b. 既存植物の画像・信頼度更新
         Client->>API: PUT /plants/{id}<br/>（新しい画像・信頼度）
-        API->>DB: 既存ドキュメント取得<br/>（旧imagePathを保存）
-        DB-->>API: 既存データ<br/>（旧imagePath含む）
-        API->>DB: UPDATE文実行<br/>（imagePath, confidence更新）
-        DB-->>API: 更新完了<br/>（更新されたドキュメント）
-        API->>Blob: 旧画像ファイル削除<br/>（old-sakura.jpg削除）
-        Blob-->>API: 削除完了
-        API-->>Client: plant<br/>（更新完了データ）
+        API->>DB: imagePath の重複確認<br/>（自分以外が使っていないか）
+        DB-->>API: 既存レコード or 空
+        alt 他レコードが同じimagePathを使用
+            API-->>Client: 409 IMAGE_ALREADY_SAVED<br/>「この画像は既に保存されています」
+        else 未使用（自分自身は除外）
+            API->>DB: 既存ドキュメント取得<br/>（旧imagePathを保存）
+            DB-->>API: 既存データ<br/>（旧imagePath含む）
+            API->>DB: UPDATE文実行<br/>（imagePath, confidence更新）
+            DB-->>API: 更新完了<br/>（更新されたドキュメント）
+            API->>Blob: 旧画像ファイル削除<br/>（old-sakura.jpg削除）
+            Blob-->>API: 削除完了
+            API-->>Client: plant<br/>（更新完了データ）
+        end
     end
 
     Note over Client,DB: 5. 最新植物一覧取得
@@ -76,18 +89,24 @@ sequenceDiagram
 |-----|-----------|------|----------|
 | `POST /images/upload` | **Blob Storage**<br/>**OpenAI Vision** | CREATE<br/>READ | ①一時保存→植物判定→永続保存 or 削除<br/>②画像+コンテキスト情報で解析・植物識別実行 |
 | `GET /plants/check-duplicate` | **Cosmos DB** | READ | name条件でのドキュメント検索（データ変更なし） |
-| `POST /plants/save` | **Cosmos DB** | CREATE | 新規植物ドキュメントを作成・保存 |
-| `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | UPDATE<br/>DELETE | ①既存ドキュメントのimagePath・confidenceを更新<br/>②旧画像ファイルを削除（ゴミファイル防止） |
+| `POST /plants/save` | **Cosmos DB** | READ<br/>CREATE | ①`imagePath` の重複確認（既存なら 409 `IMAGE_ALREADY_SAVED` で保存しない）<br/>②新規植物ドキュメントを作成・保存 |
+| `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | READ<br/>UPDATE<br/>DELETE | ①`imagePath` の重複確認（自分以外が使っていれば 409 `IMAGE_ALREADY_SAVED` で更新しない）<br/>②既存ドキュメントのimagePath・confidenceを更新<br/>③旧画像ファイルを削除（`imagePath` が変わった場合のみ。ゴミファイル防止） |
 | `GET /plants` | **Cosmos DB** | READ | 全植物ドキュメントの取得（データ変更なし） |
+| `GET /plants/{id}` | **Cosmos DB** | READ | 単一ドキュメントの取得（データ変更なし） |
+| `DELETE /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | DELETE<br/>DELETE | ①ドキュメントを削除<br/>②`imagePath` が指す画像を削除（画像削除の失敗はログのみで、削除は成功扱い） |
 
 ### 2.3 ストレージ状態変化
 
 #### ステップ1処理中: Blob Storageの状態変化
 
+コンテナ名は環境変数で決まります（永続: `STORAGE_CONTAINER_NAME`、
+一時: `TEMP_STORAGE_CONTAINER_NAME`）。Terraform が作成するのは
+`images`（公開読み取り）と `temp-images`（非公開・SAS必須）の2つです。
+
 **①一時保存:**
 ```
-Azure Blob Storage Container: temp
-├── 12345678-uuid-1.jpg  ← 一時保存
+Azure Blob Storage Container: temp-images
+├── 12345678-uuid-1.jpg  ← 一時保存（SASトークン付きURLを返す）
 └── existing-temp-files.jpg
 ```
 
@@ -96,20 +115,20 @@ Azure Blob Storage Container: temp
 **植物の場合（永続保存）:**
 ```
 Azure Blob Storage Container: images
-├── 12345678-uuid-1.jpg  ← temp/から移動
+├── 12345678-uuid-1.jpg  ← temp-images から移動
 ├── 87654321-uuid-2.jpg  
 └── existing-files.jpg
 
-Azure Blob Storage Container: temp
+Azure Blob Storage Container: temp-images
 └── existing-temp-files.jpg  ← 対象ファイルは削除済み
 ```
 
 **植物でない場合（削除）:**
 ```
-Azure Blob Storage Container: temp
+Azure Blob Storage Container: temp-images
 └── existing-temp-files.jpg  ← 対象ファイル削除済み
 
-※ images/コンテナには何も追加されない
+※ images コンテナには何も追加されない
 ```
 
 #### ステップ4a後: Cosmos DB新規保存の状態
@@ -158,10 +177,14 @@ POST /api/images/upload?code={FUNCTION_KEY}
 Content-Type: multipart/form-data
 
 {
-  file: [binary data],
+  image: [binary data],
   contextInfo: "〇〇山の標高1300m、日当たりの良い場所"
 }
 ```
+画像は `image` フィールドで送信します。`contextInfo` はテキストフィールドで送る
+500文字以内の文字列で、文字列でない場合（`補足情報は文字列で指定してください`）と
+500文字超過の場合（`補足情報は500文字以内で指定してください`）は、
+いずれも一時保存とAI呼び出しの前に 400 `INVALID_REQUEST` で弾かれます。
 
 **レスポンス（植物の場合）:**
 ```json
@@ -234,6 +257,14 @@ GET /api/plants/check-duplicate?name=桜&code={FUNCTION_KEY}
 }
 ```
 
+`imagePath` には `POST /images/upload` が返したURLを**そのまま**指定します
+（ステップ4a・4b共通）。`https:` スキーム・自ストレージアカウントのBlobエンドポイント・
+ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との文字列完全一致の
+すべてを満たさないURLは 400 `INVALID_REQUEST` になります。
+クエリ文字列やフラグメントを足す、ホスト名を大文字にするといった加工をすると
+受け付けられません（同じBlobを指していても別の文字列として保存され、
+重複チェックと旧画像削除の判定が文字列比較で誤作動するため）。
+
 #### ステップ4a: 新規植物保存（重複なしの場合）
 ```http
 POST /api/plants/save?code={FUNCTION_KEY}
@@ -250,6 +281,23 @@ Content-Type: application/json
 }
 ```
 
+同じ `imagePath` のレコードが既にある場合は保存せず 409 を返します。
+保存に成功したがレスポンスが届かず、クライアントが同じ `imagePath` で再送した場合
+（リトライ）がこの経路です。
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "IMAGE_ALREADY_SAVED",
+    "message": "この画像は既に保存されています"
+  }
+}
+```
+
+応答に既存レコードの `id` は含まれないため、クライアントは 409 を
+「既に保存済み」と解釈し、ステップ5の `GET /plants` から該当レコードを探します。
+
 #### ステップ4b: 既存植物更新（重複ありの場合）
 ```http
 PUT /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
@@ -262,10 +310,11 @@ Content-Type: application/json
 ```
 
 **処理詳細：**
-1. 既存ドキュメント取得（旧imagePathを保存）
-2. ドキュメント更新（新しいimagePath・confidence）
-3. 旧画像ファイル削除（`old-sakura.jpg`削除）
-4. レスポンス返却
+1. `imagePath` の重複確認（自分以外が同じ画像を使っていれば 409 で中断）
+2. 既存ドキュメント取得（旧imagePathを保存）
+3. ドキュメント更新（新しいimagePath・confidence）
+4. 旧画像ファイル削除（`imagePath` が変わった場合のみ。`old-sakura.jpg`削除）
+5. レスポンス返却
 
 **レスポンス:**
 ```json
@@ -327,9 +376,13 @@ sequenceDiagram
 sequenceDiagram
     participant Client as クライアント
     participant Delete as /plants/{id}
+    participant Blob as Azure Blob Storage
     participant Plants as /plants
 
     Client->>Delete: DELETE /plants/{id}
+    Delete->>Delete: ドキュメント削除前に imagePath を読む
+    Delete->>Blob: imagePath の画像を削除
+    Blob-->>Delete: 削除完了（失敗時はログのみ）
     Delete-->>Client: success message
     Client->>Plants: GET /plants
     Plants-->>Client: plants[] (更新された一覧)
@@ -341,16 +394,25 @@ sequenceDiagram
 
 #### ステップ1エラー: 画像アップロード・AI識別失敗
 ```json
-// アップロードエラー
+// ストレージのエラー応答（502）
 {
   "success": false,
   "error": {
     "code": "STORAGE_ERROR",
-    "message": "画像のアップロードに失敗しました"
+    "message": "ストレージサービスでエラーが発生しました"
   }
 }
 
-// AI識別エラー
+// ストレージへ接続できない（503）
+{
+  "success": false,
+  "error": {
+    "code": "STORAGE_ERROR",
+    "message": "ストレージサービスに接続できません"
+  }
+}
+
+// AI識別エラー（502）
 {
   "success": false,
   "error": {
@@ -359,7 +421,7 @@ sequenceDiagram
   }
 }
 
-// 植物ではない場合
+// 植物ではない場合（400）
 {
   "success": false,
   "error": {
@@ -368,6 +430,14 @@ sequenceDiagram
   }
 }
 ```
+
+502 と 503 の境目は**接続できたかどうか**です。名前解決・接続拒否・タイムアウト
+（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）はサービスに到達できていないので
+503 `STORAGE_ERROR`、到達したうえで操作が失敗した場合が 502 になります。
+このエンドポイントはネットワーク起因の失敗を AI 識別の判定より後に分類するため、
+503 で返るコードは `STORAGE_ERROR` だけです（`AI_SERVICE_ERROR` の 503 は
+`POST /plants/identify` 側にしかありません）。
+
 **対応**: ユーザーに再アップロードを促す
 
 #### ステップ3エラー: 重複確認失敗
@@ -393,17 +463,31 @@ sequenceDiagram
   }
 }
 
-// 更新失敗（旧画像削除失敗含む）
+// 更新失敗
 {
   "success": false,
   "error": {
     "code": "INTERNAL_ERROR",
-    "message": "植物の更新に失敗しました",
-    "details": "旧画像の削除に失敗しましたが、データ更新は完了しています"
+    "message": "植物の更新に失敗しました"
+  }
+}
+
+// 同じ画像が既に保存済み（409・新規保存と更新の両方）
+{
+  "success": false,
+  "error": {
+    "code": "IMAGE_ALREADY_SAVED",
+    "message": "この画像は既に保存されています"
   }
 }
 ```
-**対応**: データの再送信または後で再試行
+**対応**: データの再送信または後で再試行。
+ただし 409 `IMAGE_ALREADY_SAVED` は再送しても解消しないため、
+「既に保存済み」として扱い、`GET /plants` から該当レコードを探す
+
+なお旧画像の削除に失敗しても**エラーにはなりません**。`PUT /plants/{id}` も
+`DELETE /plants/{id}` も、Blob 削除の失敗はサーバ側のログ出力だけで、
+ドキュメント操作は成功として 200 を返します（応答に `details` は付きません）。
 
 ## 5. パフォーマンス考慮事項
 

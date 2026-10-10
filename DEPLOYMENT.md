@@ -10,7 +10,7 @@ SnapPlant は Azure Functions を使用した植物識別 API です。このガ
 - **Azure Cosmos DB**: 植物データストレージ
 - **Azure Blob Storage**: 画像ストレージ
 - **Application Insights**: 監視・ログ
-- **OpenAI API**: 植物識別AI
+- **Azure OpenAI**: 植物識別AI（Vision + Structured Outputs）
 
 ## 初回セットアップ
 
@@ -20,11 +20,17 @@ SnapPlant は Azure Functions を使用した植物識別 API です。このガ
 # 1. terraform.tfvars を設定
 cd infrastructure
 cp terraform.tfvars.example terraform.tfvars
-# terraform.tfvars の openai_api_key を実際の値に設定
+# プロジェクト名・リージョン・SKU などを環境に合わせて編集する
 
 # 2. インフラストラクチャをデプロイ
 ./scripts/deploy.sh
 ```
+
+Azure OpenAI のキーは入力値ではない。Terraform が `azurerm_cognitive_account.openai` を
+作成し、その `primary_access_key` を Function App の `app_settings`
+（`AZURE_OPENAI_API_KEY`）へ流し込む。`terraform.tfvars.example` にある
+`openai_api_key` はどの変数定義にも対応していないため、値を入れても使われない
+（Terraform は「宣言されていない変数」として警告を出して無視する）。
 
 ### 2. GitHub Actions の設定
 
@@ -65,20 +71,38 @@ GitHub Actions は以下の条件で自動実行されます：
 - **CI Pipeline** (`/.github/workflows/ci.yml`):
   - `main`, `develop` ブランチへのプッシュ
   - `main` ブランチへのプルリクエスト
-  - `api/` フォルダ内のファイル変更時
+  - `api/` または `.github/workflows/` 配下のファイル変更時
+  - `deploy-functions.yml` からの `workflow_call`
+
+- **Terraform 静的チェック** (`/.github/workflows/terraform.yml`):
+  - `main`, `develop` ブランチへのプッシュ
+  - `main` ブランチへのプルリクエスト
+  - `infrastructure/` または `.github/workflows/terraform.yml` の変更時
+  - `terraform fmt -check -recursive` と `terraform init -backend=false` → `terraform validate` のみ。
+    **Azure へは通信せず、認証情報も GitHub Secrets も不要**
+  - `terraform plan` は回さない（認証情報が必要になるうえ、ローカルの
+    `terraform.tfstate` が実態と乖離していると誤った差分を出す）
+  - ci.yml とは別ワークフローにしている。`deploy-functions.yml` が ci.yml の成功を
+    デプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが
+    API のデプロイを止めてしまう
 
 - **Production Deploy** (`/.github/workflows/deploy-functions.yml`):
   - `main` ブランチへのプッシュ
-  - `api/` フォルダ内のファイル変更時
+  - `api/` または `.github/workflows/` 配下のファイル変更時
   - 手動実行（workflow_dispatch）
+
+`mobile/`（Flutter）を対象にしたワークフローは存在しない。`flutter analyze` と
+`flutter test` は自動実行されず、Windows 側で手動実行する運用。
 
 ### ワークフロー
 
-1. **テスト & ビルド**:
-   - 依存関係のインストール
-   - テスト実行
-   - セキュリティスキャン
-   - ビルド
+1. **テスト & ビルド**（ci.yml）:
+   - 依存関係のインストール（`npm ci`）
+   - テスト実行（`npm test` / `npm run test:coverage`）
+   - セキュリティスキャン（`npm audit --audit-level=high` / CodeQL。いずれも
+     `continue-on-error: true` なので検出されてもワークフローは失敗しない）
+   - ビルド（`npm run build`）とビルド成果物のアーカイブ
+   - `npm run lint` は存在しないためスキップされる（リンター未設定）
 
 2. **本番デプロイ** (mainブランチのみ):
    - 本番用ビルド
@@ -146,10 +170,11 @@ az functionapp log tail --name <FUNCTION_APP_NAME> --resource-group <RESOURCE_GR
 
 ## セキュリティ
 
-- OpenAI API キーは Terraform 変数として管理
+- Azure OpenAI のキーは Terraform が Function App の app_settings に直接流し込む（`terraform.tfvars` は Git 管理外）
 - GitHub Secrets で認証情報を安全に保管
-- Function App の認証は必要に応じて設定
-- CORS 設定で許可オリジンを制限
+- 各関数は `authLevel: 'function'`。呼び出しには `?code={FUNCTION_KEY}` が必要
+- CORS は **全オリジン許可**（`infrastructure/main.tf` の `site_config.cors.allowed_origins = ["*"]`）。
+  Blob Storage 側の `cors_rule` も `allowed_origins = ["*"]`。オリジンの制限はしていない
 
 ## コスト最適化
 
@@ -165,6 +190,38 @@ Function App に設定される主要な環境変数：
 |--------|------|
 | `COSMOS_DB_ENDPOINT` | Cosmos DB エンドポイント |
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
-| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列 |
-| `OPENAI_API_KEY` | OpenAI API キー |
+| `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
+| `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名 |
+| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`BlobEndpoint=` を含む形式は未対応） |
+| `STORAGE_CONTAINER_NAME` | 永続画像用 Blob コンテナ名 |
+| `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（モデル名として使用） |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI APIバージョン |
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | Application Insights キー |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
+
+これらは `infrastructure/main.tf` の `azurerm_linux_function_app.main` の `app_settings` で
+Terraform が設定します。ローカル開発では `api/local.settings.json` の `Values` に同じキーを置きます。
+
+`AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
+`OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
+
+### `STORAGE_CONNECTION_STRING` の制約
+
+`BlobEndpoint=` を含む接続文字列を設定すると、`StorageService` のコンストラクタが
+`BlobEndpointを明示した接続文字列は未対応です` で例外を投げます。
+`CosmosService` は内部で `StorageService` を持つため、`POST /api/plants/identify`
+以外のすべてのエンドポイントが 500 `INTERNAL_ERROR` になります。
+
+`AccountName` と `EndpointSuffix` から Blob エンドポイントのホストを組み立てて
+URL を検証しているため、`BlobEndpoint=` で別のホストを指定されると
+「自分が生成した URL を自分で拒否する」状態になるためです。
+静かに誤動作させるのではなく、サービスの初期化時点で失敗させる方針です
+（`api/src/services/storageService.ts`）。
+
+Terraform が流し込む `azurerm_storage_account.main.primary_connection_string` は
+`BlobEndpoint=` を含まないため、本番でこの制約に触れることはありません。
+Azurite などパス形式のエンドポイントを使うローカル開発は未対応で、
+[バックログ](./docs/09_backlog.md) に判断待ちとして分離しています。
