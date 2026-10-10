@@ -114,8 +114,7 @@ describe('画像アップロード・植物判定統合API', () => {
   beforeEach(() => {
     // InvocationContextのモック
     mockContext = {
-      log: Object.assign(jest.fn(), { error: jest.fn() }),
-      error: jest.fn()
+      log: jest.fn()
     } as any;
 
     // Blobの偽物バックエンド

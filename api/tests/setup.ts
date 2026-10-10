@@ -13,50 +13,6 @@ process.env.AZURE_OPENAI_ENDPOINT = 'https://test-openai.openai.azure.com/';
 process.env.AZURE_OPENAI_API_KEY = 'test-openai-key';
 process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'gpt-5.6-luna';
 
-// Azure SDK のモック
-jest.mock('@azure/cosmos', () => ({
-  CosmosClient: jest.fn().mockImplementation(() => ({
-    database: jest.fn().mockReturnValue({
-      container: jest.fn().mockReturnValue({
-        items: {
-          query: jest.fn().mockReturnValue({
-            fetchAll: jest.fn()
-          }),
-          create: jest.fn(),
-          upsert: jest.fn()
-        },
-        item: jest.fn().mockReturnValue({
-          read: jest.fn(),
-          replace: jest.fn(),
-          delete: jest.fn()
-        })
-      })
-    })
-  }))
-}));
-
-// 注意: ファクトリモックはモジュールのエクスポートを完全に置き換えるため、
-// ここに書き漏らしたエクスポートは undefined になる。
-// SAS生成に使う3つを欠いていたため、StorageService の SAS 生成が常に例外になり、
-// 本番コードのフォールバックに落ちていた（テストはその出力を検証していた）。
-jest.mock('@azure/storage-blob', () => ({
-  BlobServiceClient: {
-    fromConnectionString: jest.fn().mockReturnValue({
-      getContainerClient: jest.fn().mockReturnValue({
-        getBlockBlobClient: jest.fn().mockReturnValue({
-          upload: jest.fn(),
-          downloadToBuffer: jest.fn()
-        })
-      })
-    })
-  },
-  BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
-  StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
-  generateBlobSASQueryParameters: jest.fn().mockReturnValue({
-    toString: () => 'sv=2024-01-01&sp=r&sig=testsignature'
-  })
-}));
-
 jest.mock('openai', () => {
   const mockOpenAI = jest.fn().mockImplementation(() => ({
     chat: {

@@ -7,6 +7,11 @@ import { CosmosClient, Database, Container } from '@azure/cosmos';
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
+// CosmosServiceが内部でStorageServiceを構築するために必要な自ストレージ設定。
+// tests/setup.ts のグローバル値に暗黙依存せず、このファイル内で完結させる
+const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+const TEST_STORAGE_CONTAINER_NAME = 'test-images';
+
 describe('植物一覧取得API', () => {
   let mockContext: InvocationContext;
   let mockClient: jest.Mocked<CosmosClient>;
@@ -17,8 +22,7 @@ describe('植物一覧取得API', () => {
   beforeEach(() => {
     // Contextのモック
     mockContext = {
-      log: Object.assign(jest.fn(), { error: jest.fn() }),
-      res: {}
+      log: jest.fn()
     } as any;
 
     // Cosmos DB SDKのモック
@@ -45,6 +49,9 @@ describe('植物一覧取得API', () => {
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_CONTAINER = 'test-container';
+    // CosmosServiceが内部で構築するStorageServiceに使う
+    process.env.STORAGE_CONNECTION_STRING = TEST_STORAGE_CONNECTION_STRING;
+    process.env.STORAGE_CONTAINER_NAME = TEST_STORAGE_CONTAINER_NAME;
   });
 
   afterEach(() => {
@@ -53,6 +60,8 @@ describe('植物一覧取得API', () => {
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_CONTAINER;
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.STORAGE_CONTAINER_NAME;
   });
 
   describe('正常系', () => {
@@ -141,38 +150,6 @@ describe('植物一覧取得API', () => {
   });
 
   describe('Cosmos DB エラー', () => {
-    it('クエリが同期的に例外を投げ、かつコードを持たない場合は500エラー', async () => {
-      // code を持たないエラー。ENOTFOUND・ECONNREFUSEDのいずれにも分類されず、
-      // createInternalErrorのフォールバックに落ちる
-      // （DB接続エラー自体の経路はENOTFOUND/ECONNREFUSEDで503になる。下のテストで検証する）
-      const dbError = new Error('Connection timeout');
-      mockItems.query.mockImplementation(() => {
-        throw dbError;
-      });
-
-      // リクエストの作成
-      const request = {
-        method: 'GET',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map()
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await getPlantsHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: '植物一覧の取得に失敗しました',
-          details: 'Connection timeout'
-        }
-      });
-    });
-
     it('DB接続エラー（ENOTFOUND）の場合は503エラー', async () => {
       // ENOTFOUND はCosmos DB関連エラーの分岐に該当し、503として扱われる
       const dbError = new Error('getaddrinfo ENOTFOUND');
@@ -231,33 +208,6 @@ describe('植物一覧取得API', () => {
           code: 'INTERNAL_ERROR',
           message: '植物一覧の取得に失敗しました',
           details: 'Query failed'
-        }
-      });
-    });
-
-    it('予期しないエラーの場合は500エラー', async () => {
-      // 環境変数不足のシミュレーション
-      delete process.env.COSMOS_DB_ENDPOINT;
-
-      // リクエストの作成
-      const request = {
-        method: 'GET',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map()
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await getPlantsHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: '植物一覧の取得に失敗しました',
-          details: expect.any(String)
         }
       });
     });

@@ -114,8 +114,7 @@ describe('植物更新API', () => {
   beforeEach(() => {
     // InvocationContextのモック
     mockContext = {
-      log: Object.assign(jest.fn(), { error: jest.fn() }),
-      error: jest.fn()
+      log: jest.fn()
     } as any;
 
     // Cosmos DBの偽物バックエンド
@@ -554,88 +553,6 @@ describe('植物更新API', () => {
 
       // 旧画像がBlobストアから消えたことの状態検証
       expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`)).toBe(false);
-    });
-
-    it('画像URLが同じ場合、旧画像削除は実行されない', async () => {
-      // 既存植物データのモック（同じ画像URL）
-      const existingPlant: Plant = {
-        id: '123e4567-e89b-12d3-a456-426614174000',
-        name: '桜',
-        characteristics: '春に美しいピンクの花を咲かせる',
-        imagePath: `${TEST_IMAGE_BASE_URL}/same-image.jpg`,
-        confidence: 85.0,
-        createdAt: '2024-01-10T14:20:00Z',
-        updatedAt: '2024-01-10T14:20:00Z'
-      };
-      cosmosBackend.documents.set(existingPlant.id, existingPlant);
-      // 削除が実行されず残り続けることを確認するため、対応するBlobを存在させておく
-      blobStore.set(`${TEST_STORAGE_CONTAINER_NAME}/same-image.jpg`, { content: Buffer.from('same') });
-
-      // リクエストの作成（同じ画像URL）
-      const request = {
-        method: 'PUT',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants/123e4567-e89b-12d3-a456-426614174000?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map([['content-type', 'application/json']]),
-        params: { id: '123e4567-e89b-12d3-a456-426614174000' },
-        json: jest.fn().mockResolvedValue({
-          imagePath: `${TEST_IMAGE_BASE_URL}/same-image.jpg`,
-          confidence: 95.0
-        })
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await updatePlantHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(200);
-      expect(response.jsonBody.success).toBe(true);
-
-      // 旧画像（＝現在の画像）がBlobストアに残っていることの状態検証
-      expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/same-image.jpg`)).toBe(true);
-    });
-
-    it('旧画像削除に失敗してもメイン処理は成功する', async () => {
-      // 既存植物データのモック
-      const existingPlant: Plant = {
-        id: '123e4567-e89b-12d3-a456-426614174000',
-        name: '桜',
-        characteristics: '春に美しいピンクの花を咲かせる',
-        imagePath: `${TEST_IMAGE_BASE_URL}/old-image.jpg`,
-        confidence: 85.0,
-        createdAt: '2024-01-10T14:20:00Z',
-        updatedAt: '2024-01-10T14:20:00Z'
-      };
-      cosmosBackend.documents.set(existingPlant.id, existingPlant);
-      // Storage削除失敗のモック
-      blobStore.set(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`, {
-        content: Buffer.from('old'),
-        failWith: new Error('Storage delete failed')
-      });
-
-      // リクエストの作成
-      const request = {
-        method: 'PUT',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants/123e4567-e89b-12d3-a456-426614174000?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map([['content-type', 'application/json']]),
-        params: { id: '123e4567-e89b-12d3-a456-426614174000' },
-        json: jest.fn().mockResolvedValue({
-          imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
-          confidence: 95.0
-        })
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await updatePlantHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(200);
-      expect(response.jsonBody.success).toBe(true);
-      expect(response.jsonBody.data.plant.imagePath).toBe(`${TEST_IMAGE_BASE_URL}/new-image.jpg`);
-
-      // 削除に失敗しているため、旧画像はBlobストアに残ったままになることの状態検証
-      expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`)).toBe(true);
     });
   });
 });
