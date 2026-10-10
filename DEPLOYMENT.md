@@ -20,11 +20,17 @@ SnapPlant は Azure Functions を使用した植物識別 API です。このガ
 # 1. terraform.tfvars を設定
 cd infrastructure
 cp terraform.tfvars.example terraform.tfvars
-# terraform.tfvars の openai_api_key を実際の値に設定
+# プロジェクト名・リージョン・SKU などを環境に合わせて編集する
 
 # 2. インフラストラクチャをデプロイ
 ./scripts/deploy.sh
 ```
+
+Azure OpenAI のキーは入力値ではない。Terraform が `azurerm_cognitive_account.openai` を
+作成し、その `primary_access_key` を Function App の `app_settings`
+（`AZURE_OPENAI_API_KEY`）へ流し込む。`terraform.tfvars.example` にある
+`openai_api_key` はどの変数定義にも対応していないため、値を入れても使われない
+（Terraform は「宣言されていない変数」として警告を出して無視する）。
 
 ### 2. GitHub Actions の設定
 
@@ -65,20 +71,38 @@ GitHub Actions は以下の条件で自動実行されます：
 - **CI Pipeline** (`/.github/workflows/ci.yml`):
   - `main`, `develop` ブランチへのプッシュ
   - `main` ブランチへのプルリクエスト
-  - `api/` フォルダ内のファイル変更時
+  - `api/` または `.github/workflows/` 配下のファイル変更時
+  - `deploy-functions.yml` からの `workflow_call`
+
+- **Terraform 静的チェック** (`/.github/workflows/terraform.yml`):
+  - `main`, `develop` ブランチへのプッシュ
+  - `main` ブランチへのプルリクエスト
+  - `infrastructure/` または `.github/workflows/terraform.yml` の変更時
+  - `terraform fmt -check -recursive` と `terraform init -backend=false` → `terraform validate` のみ。
+    **Azure へは通信せず、認証情報も GitHub Secrets も不要**
+  - `terraform plan` は回さない（認証情報が必要になるうえ、ローカルの
+    `terraform.tfstate` が実態と乖離していると誤った差分を出す）
+  - ci.yml とは別ワークフローにしている。`deploy-functions.yml` が ci.yml の成功を
+    デプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが
+    API のデプロイを止めてしまう
 
 - **Production Deploy** (`/.github/workflows/deploy-functions.yml`):
   - `main` ブランチへのプッシュ
-  - `api/` フォルダ内のファイル変更時
+  - `api/` または `.github/workflows/` 配下のファイル変更時
   - 手動実行（workflow_dispatch）
+
+`mobile/`（Flutter）を対象にしたワークフローは存在しない。`flutter analyze` と
+`flutter test` は自動実行されず、Windows 側で手動実行する運用。
 
 ### ワークフロー
 
-1. **テスト & ビルド**:
-   - 依存関係のインストール
-   - テスト実行
-   - セキュリティスキャン
-   - ビルド
+1. **テスト & ビルド**（ci.yml）:
+   - 依存関係のインストール（`npm ci`）
+   - テスト実行（`npm test` / `npm run test:coverage`）
+   - セキュリティスキャン（`npm audit --audit-level=high` / CodeQL。いずれも
+     `continue-on-error: true` なので検出されてもワークフローは失敗しない）
+   - ビルド（`npm run build`）とビルド成果物のアーカイブ
+   - `npm run lint` は存在しないためスキップされる（リンター未設定）
 
 2. **本番デプロイ** (mainブランチのみ):
    - 本番用ビルド
@@ -148,8 +172,9 @@ az functionapp log tail --name <FUNCTION_APP_NAME> --resource-group <RESOURCE_GR
 
 - Azure OpenAI のキーは Terraform が Function App の app_settings に直接流し込む（`terraform.tfvars` は Git 管理外）
 - GitHub Secrets で認証情報を安全に保管
-- Function App の認証は必要に応じて設定
-- CORS 設定で許可オリジンを制限
+- 各関数は `authLevel: 'function'`。呼び出しには `?code={FUNCTION_KEY}` が必要
+- CORS は **全オリジン許可**（`infrastructure/main.tf` の `site_config.cors.allowed_origins = ["*"]`）。
+  Blob Storage 側の `cors_rule` も `allowed_origins = ["*"]`。オリジンの制限はしていない
 
 ## コスト最適化
 

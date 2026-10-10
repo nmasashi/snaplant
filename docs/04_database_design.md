@@ -48,19 +48,25 @@ NoSQLドキュメントデータベースとして設計され、JSONドキュ�
 | updatedAt | string (ISO 8601) | ○ | 更新日時 |
 
 ### 3.2 インデクシングポリシー
+
+Terraform（`infrastructure/main.tf` の `azurerm_cosmosdb_sql_container.plants`）で
+定義している実際のポリシーは、全パスをインデックス対象にする既定構成です。
+
 ```json
 {
   "indexingMode": "consistent",
-  "automatic": true,
   "includedPaths": [
-    {"path": "/name/?"}, 
-    {"path": "/createdAt/?"}
+    {"path": "/*"}
   ],
   "excludedPaths": [
-    {"path": "/description/?"}
+    {"path": "/\"_etag\"/?"}
   ]
 }
 ```
+
+`name` / `createdAt` だけを含める形には絞っていません（`/*` に含まれるため
+重複確認と並び替えのクエリは機能します）。パスを絞るのはドキュメント数が
+増えて書き込み RU が問題になってからで十分という判断です。
 
 ## 4. データ要件
 
@@ -75,6 +81,9 @@ NoSQLドキュメントデータベースとして設計され、JSONドキュ�
 - **characteristics**: 必須項目、最大500文字
 - **confidence**: 0.0以上100.0以下の数値
 - **imagePath**: 必須項目、画像アップロードAPIが返したURL（自ストレージアカウントの永続コンテナを指すURLのみ受け付ける）。
+  表記は正規形に限定され、同じBlobを指す別表記（クエリ文字列やフラグメント付きなど）は
+  保存できない。保存されるのは送られた文字列そのもので、下記の一意性確認も
+  文字列の完全一致で行うため。
   新規登録時はアプリケーション側で一意性も確認する（既存レコードと重複する場合は 409 `IMAGE_ALREADY_SAVED`）
 - **createdAt/updatedAt**: ISO 8601形式の日時文字列
 
@@ -89,10 +98,17 @@ ORDER BY c.createdAt DESC
 ```
 
 ### 5.2 植物詳細画面
-```sql
--- ID指定でのドキュメント取得（Point Read）
-SELECT * FROM c WHERE c.id = "123e4567-e89b-12d3-a456-426614174000"
+
+SQLは発行せず、SDKのPoint Readを使います。パーティションキーが `/id` のため
+idを2回渡します。
+
+```typescript
+// ID指定でのドキュメント取得（Point Read）
+const { resource } = await container.item(plantId, plantId).read<Plant>();
 ```
+
+対象が存在しない場合、`@azure/cosmos` の `Item.read()` は例外ではなく
+`resource` なしのレスポンスを返すため、アプリ側は `resource || null` で判定します。
 
 ### 5.3 重複確認機能
 ```sql
@@ -152,9 +168,11 @@ await container.item(plantId, plantId).replace(updatedPlant);
   - confidence: 0.0 ≤ confidence ≤ 100.0
   - imagePath: URLとしてパースできること、かつスキームが `https:`、
     ホストが自ストレージアカウントのBlobエンドポイント、パスがちょうど
-    `/<永続コンテナ名>/<Blob名>` の2セグメントであること
+    `/<永続コンテナ名>/<Blob名>` の2セグメントであること。さらに送られた文字列が
+    `https://<ホスト>/<永続コンテナ名>/<Blob名>` と**完全一致**すること
     （外部ホスト、`https:` 以外のスキーム、一時コンテナ、中間に余分なセグメントを
-    挟んだURLはいずれも 400 で拒否）
+    挟んだURL、クエリ文字列・フラグメント・`user:pass@` 付き・ホスト名の大文字・
+    先頭の空白はいずれも 400 で拒否）
   - UUID: v4形式の正規表現チェック
 
 ### 6.2 ドキュメント削除
@@ -191,8 +209,12 @@ await container.item(plantId, plantId).delete();
 5. **更新/削除**: ドキュメントの更新/削除（低頻度）- 5RU
 
 ### 8.2 最適化方針
-- **インデクシングポリシー**: 必要なフィールドのみインデックス化
 - **パーティションキー**: `/id`でホットパーティションを回避
 - **画像ストレージ**: Azure Blob Storageで分離しRU消費を最小化
-- **TTL設定**: 必要に応じて自動削除機能を活用
-- **コネクションモード**: Directモードでレイテンシ最小化
+- **スループット**: 無料枠の 400 RU/s をコンテナに割り当て（`cosmos_db_throughput`）
+
+未実施の項目:
+- **インデクシングポリシーの絞り込み**: 現状は `/*`（3.2 参照）
+- **TTL設定**: 設定していない（ドキュメントは明示的な削除のみ）
+- **コネクションモード**: `new CosmosClient({ endpoint, key })` のみで、
+  接続モードは指定していない（SDKの既定）

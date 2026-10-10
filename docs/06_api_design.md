@@ -44,7 +44,7 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 | PUT | `/plants/{id}?code={key}` | 植物情報更新 | Function Key |
 | DELETE | `/plants/{id}?code={key}` | 植物削除 | Function Key |
 | POST | `/plants/identify?code={key}` | 植物識別実行 | Function Key |
-| POST | `/images/upload?code={key}` | 画像アップロード | Function Key |
+| POST | `/images/upload?code={key}` | 画像アップロード＋AI識別（一時保存→判定→永続化） | Function Key |
 | GET | `/plants/check-duplicate?name={植物名}&code={key}` | 重複確認 | Function Key |
 
 ## 4. データモデル
@@ -86,8 +86,11 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 `isPlant: false` の場合、`candidates` は空配列になります。
 
 ### 4.3 Error Model
+失敗時も成功時と同じ封筒に包まれます（`success: false` + `error`）。
+
 ```json
 {
+  "success": false,
   "error": {
     "code": "string",
     "message": "string",
@@ -95,6 +98,8 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
   }
 }
 ```
+`details` は省略されることがあります（`createErrorResponse()` に渡されなかった場合、
+JSON にキー自体が現れません）。
 
 ## 5. API詳細仕様
 
@@ -157,12 +162,19 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 ### 5.3 植物識別実行
 アップロードされた画像とコンテキスト情報から植物を識別し、候補を返します。
+
+`imagePath` は**URLとしてパースできれば受け付けます**。`POST /api/plants/save` や
+`PUT /api/plants/{id}` の `imagePath` に課しているスキーム・ホスト・パス形の制約
+（5.4 参照）は、このエンドポイントでは適用していません。
+指定されたURLはそのままAI識別サービスへ渡されます。
+
 `contextInfo` は文字列で、500文字以内です。
 - 文字列以外（数値・配列・オブジェクトなど）→ 400 `INVALID_REQUEST`（`補足情報は文字列で指定してください`）
 - 500文字超過 → 400 `INVALID_REQUEST`（`補足情報は500文字以内で指定してください`）
 
 `null` と未指定は「補足情報なし」として扱います。
-上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更できます。
+上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更できます
+（正の整数として読めない値を設定した場合は既定の 500 が使われます）。
 
 **リクエスト例:**
 ```http
@@ -223,6 +235,14 @@ Content-Type: application/json
 - ホストが自ストレージアカウントのBlobエンドポイント（外部ホストは不可）
 - パスがちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント
   （一時コンテナ、中間に余分なセグメントを挟んだURL、コンテナまでしか指していないURLは不可）
+- 送られた文字列が `https://<Blobエンドポイントのホスト>/<永続コンテナ名>/<Blob名>` と
+  **完全一致**すること。同じBlobを指す別表記はすべて不可
+  （クエリ文字列 `?...`、フラグメント `#...`、`https://user:pass@...` の認証情報、
+  ホスト名の大文字、先頭の空白など）
+
+最後の条件があるのは、保存されるのが正規化後のURLではなく**送られた文字列そのもの**
+だからです。表記の違うURLが保存されると、文字列の完全一致に頼っている2箇所
+（`save` の `imagePath` 重複チェックと、更新時に旧画像を消すかの判定）が誤作動します。
 
 #### 同じ画像の二重保存（409）
 
@@ -286,7 +306,7 @@ Content-Type: application/json
 ### 5.5 植物情報更新（重複時の画像置き換え）
 既存植物の画像と信頼度を更新します。処理中に旧画像ファイルもBlob Storageから削除されます。
 `imagePath` の形の制約は 5.4 と同じです（`https:` スキーム・自ストレージアカウントの
-Blobエンドポイント・ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント）。
+Blobエンドポイント・ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との完全一致）。
 旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証しています。
 ただし `imagePath` の重複は検査しません（409 を返すのは 5.4 の新規登録のみ）。
 
@@ -307,7 +327,7 @@ Content-Type: application/json
 3. 旧画像ファイル削除（ストレージコスト最適化）
 4. レスポンス返却
 
-**レスポンス例:**
+**レスポンス例（抜粋。実際は更新後の Plant の全フィールドが返ります）:**
 ```json
 {
   "success": true,
@@ -322,6 +342,8 @@ Content-Type: application/json
   }
 }
 ```
+更新されるのは `imagePath` / `confidence` / `updatedAt` だけで、
+`name` や `characteristics` などは既存ドキュメントの値がそのまま残ります。
 
 ### 5.6 重複確認
 同名の植物が既に登録されているかチェックします。

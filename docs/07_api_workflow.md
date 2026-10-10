@@ -19,18 +19,18 @@ sequenceDiagram
 
     Note over Client,DB: 1. 画像アップロード・植物判定・保存
     Client->>API: POST /images/upload<br/>（画像ファイル + コンテキスト情報）
-    API->>Blob: 一時保存<br/>（temp/フォルダ）
+    API->>Blob: 一時保存<br/>（一時コンテナ temp-images）
     Blob-->>API: 一時URL生成
     API->>AI: 植物判定リクエスト<br/>（一時URL + コンテキスト情報）
     
     alt 植物の場合
         AI-->>API: isPlant: true<br/>（植物候補・信頼度）
-        API->>Blob: 永続保存に移動<br/>（temp/ → images/）
+        API->>Blob: 永続保存に移動<br/>（temp-images → images）
         Blob-->>API: 永続URL生成
         API-->>Client: imagePath + candidates[]<br/>（永続URL + 識別結果）
     else 植物でない場合
         AI-->>API: isPlant: false<br/>（植物ではない）
-        API->>Blob: 一時ファイル削除<br/>（temp/から削除）
+        API->>Blob: 一時ファイル削除<br/>（temp-images から削除）
         API-->>Client: エラー<br/>「植物ではありません」
     end
 
@@ -93,10 +93,14 @@ sequenceDiagram
 
 #### ステップ1処理中: Blob Storageの状態変化
 
+コンテナ名は環境変数で決まります（永続: `STORAGE_CONTAINER_NAME`、
+一時: `TEMP_STORAGE_CONTAINER_NAME`）。Terraform が作成するのは
+`images`（公開読み取り）と `temp-images`（非公開・SAS必須）の2つです。
+
 **①一時保存:**
 ```
-Azure Blob Storage Container: temp
-├── 12345678-uuid-1.jpg  ← 一時保存
+Azure Blob Storage Container: temp-images
+├── 12345678-uuid-1.jpg  ← 一時保存（SASトークン付きURLを返す）
 └── existing-temp-files.jpg
 ```
 
@@ -105,20 +109,20 @@ Azure Blob Storage Container: temp
 **植物の場合（永続保存）:**
 ```
 Azure Blob Storage Container: images
-├── 12345678-uuid-1.jpg  ← temp/から移動
+├── 12345678-uuid-1.jpg  ← temp-images から移動
 ├── 87654321-uuid-2.jpg  
 └── existing-files.jpg
 
-Azure Blob Storage Container: temp
+Azure Blob Storage Container: temp-images
 └── existing-temp-files.jpg  ← 対象ファイルは削除済み
 ```
 
 **植物でない場合（削除）:**
 ```
-Azure Blob Storage Container: temp
+Azure Blob Storage Container: temp-images
 └── existing-temp-files.jpg  ← 対象ファイル削除済み
 
-※ images/コンテナには何も追加されない
+※ images コンテナには何も追加されない
 ```
 
 #### ステップ4a後: Cosmos DB新規保存の状態
@@ -247,10 +251,13 @@ GET /api/plants/check-duplicate?name=桜&code={FUNCTION_KEY}
 }
 ```
 
-`imagePath` には `POST /images/upload` が返したURLを指定します（ステップ4a・4b共通）。
-`https:` スキーム・自ストレージアカウントのBlobエンドポイント・ちょうど
-`/<永続コンテナ名>/<Blob名>` の2セグメントのすべてを満たさないURLは
-400 `INVALID_REQUEST` になります。
+`imagePath` には `POST /images/upload` が返したURLを**そのまま**指定します
+（ステップ4a・4b共通）。`https:` スキーム・自ストレージアカウントのBlobエンドポイント・
+ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との文字列完全一致の
+すべてを満たさないURLは 400 `INVALID_REQUEST` になります。
+クエリ文字列やフラグメントを足す、ホスト名を大文字にするといった加工をすると
+受け付けられません（同じBlobを指していても別の文字列として保存され、
+重複チェックと旧画像削除の判定が文字列比較で誤作動するため）。
 
 #### ステップ4a: 新規植物保存（重複なしの場合）
 ```http
@@ -380,12 +387,21 @@ sequenceDiagram
 
 #### ステップ1エラー: 画像アップロード・AI識別失敗
 ```json
-// アップロードエラー
+// ストレージのエラー応答（502）
 {
   "success": false,
   "error": {
     "code": "STORAGE_ERROR",
-    "message": "画像のアップロードに失敗しました"
+    "message": "ストレージサービスでエラーが発生しました"
+  }
+}
+
+// ストレージへ接続できない（503）
+{
+  "success": false,
+  "error": {
+    "code": "STORAGE_ERROR",
+    "message": "ストレージサービスに接続できません"
   }
 }
 
@@ -432,13 +448,12 @@ sequenceDiagram
   }
 }
 
-// 更新失敗（旧画像削除失敗含む）
+// 更新失敗
 {
   "success": false,
   "error": {
     "code": "INTERNAL_ERROR",
-    "message": "植物の更新に失敗しました",
-    "details": "旧画像の削除に失敗しましたが、データ更新は完了しています"
+    "message": "植物の更新に失敗しました"
   }
 }
 
@@ -454,6 +469,10 @@ sequenceDiagram
 **対応**: データの再送信または後で再試行。
 ただし 409 `IMAGE_ALREADY_SAVED` は再送しても解消しないため、
 「既に保存済み」として扱い、`GET /plants` から該当レコードを探す
+
+なお旧画像の削除に失敗しても**エラーにはなりません**。`PUT /plants/{id}` も
+`DELETE /plants/{id}` も、Blob 削除の失敗はサーバ側のログ出力だけで、
+ドキュメント操作は成功として 200 を返します（応答に `details` は付きません）。
 
 ## 5. パフォーマンス考慮事項
 

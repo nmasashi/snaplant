@@ -44,12 +44,12 @@ const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof Blo
  * （単一の共有モックだとどの引数で呼ばれても同じアイテムを返すため、
  * 取り違えが検出できない点は変わらず回避している）。
  *
- * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@name）の値で
- * 絞り込むだけに留める。クエリ文字列自体への依存はリファクタリング耐性を失う。
+ * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@name, @imagePath）の
+ * 値で絞り込むだけに留める。クエリ文字列自体への依存はリファクタリング耐性を失う。
  *
  * この簡略化の結果、次の3点はこの層のテストでは検証できない（SQL自体を解釈する
  * 実エミュレータ、もしくはE2Eテストに委ねる）:
- * - WHERE句が実際に name で絞り込む条件になっているか（パラメータの値さえ
+ * - WHERE句が実際に name / imagePath で絞り込む条件になっているか（パラメータの値さえ
  *   渡っていれば、絞り込み条件を丸ごと削除してもこの偽物は気づかない）
  * - ORDER BY c.createdAt DESC による並び順（偽物はMapの挿入順をそのまま返す）
  * - SELECTの列指定（射影）が正しいか（偽物はドキュメント全体を返す）
@@ -85,9 +85,13 @@ function createFakeContainer(backend: FakeCosmosBackend): Container {
       query: (querySpec: any) => {
         const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
         const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
+        const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
         let docs = Array.from(backend.documents.values());
         if (nameParam !== undefined) {
           docs = docs.filter((d) => d.name === nameParam);
+        }
+        if (imagePathParam !== undefined) {
+          docs = docs.filter((d) => d.imagePath === imagePathParam);
         }
         return {
           fetchAll: async () => {
@@ -296,6 +300,47 @@ describe('CosmosService', () => {
 
       await expect(service.getPlantById(plantId))
         .rejects.toThrow(/^Read failed$/);
+    });
+  });
+
+  describe('getPlantByImagePath', () => {
+    const sakura: Plant = {
+      id: '1',
+      name: '桜',
+      scientificName: 'Prunus serrulata',
+      familyName: 'バラ科',
+      characteristics: '春に美しい花を咲かせる',
+      confidence: 95.5,
+      imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z'
+    };
+    const rose: Plant = {
+      ...sakura,
+      id: '2',
+      name: 'バラ',
+      imagePath: 'https://test.blob.core.windows.net/test-images/rose.jpg'
+    };
+
+    it('指定したimagePathを持つ植物を取得できる', async () => {
+      // 検索対象と異なるimagePathを持つデータも登録し、渡したパラメータの値で正しく
+      // 絞り込まれることを確認する（本番SQLのWHERE句自体の正しさはこの層では
+      // 検証できない。偽物バックエンドのコメント参照）。Mapの挿入順を検索対象と
+      // 逆にしているため、絞り込みが効いていなければバラが返り、このテストは失敗する
+      cosmosBackend.documents.set(rose.id, rose);
+      cosmosBackend.documents.set(sakura.id, sakura);
+
+      const result = await service.getPlantByImagePath(sakura.imagePath);
+
+      expect(result).toEqual(sakura);
+    });
+
+    it('指定したimagePathを持つ植物が存在しない場合、nullを返す', async () => {
+      cosmosBackend.documents.set(rose.id, rose);
+
+      const result = await service.getPlantByImagePath('https://test.blob.core.windows.net/test-images/not-exists.jpg');
+
+      expect(result).toBeNull();
     });
   });
 

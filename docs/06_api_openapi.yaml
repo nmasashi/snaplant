@@ -372,7 +372,8 @@ paths:
                     上限を超えると 400 `INVALID_REQUEST`
                     （message: 補足情報は500文字以内で指定してください）。
                     いずれも一時保存とAI呼び出しの前に弾かれる。
-                    上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500）。
+                    上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500。
+                    正の整数として読めない値なら既定値が使われる）。
                   example: "〇〇山の標高1300m、日当たりの良い場所"
       responses:
         '201':
@@ -637,6 +638,12 @@ components:
             - パスがちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント
               （一時コンテナ、中間に余分なセグメントを挟んだURL、コンテナまでしか
               指していないURLはいずれも不可）
+            - 文字列が `https://<ホスト>/<永続コンテナ名>/<Blob名>` と完全一致すること。
+              同じBlobを指す別表記は不可（クエリ文字列、フラグメント、
+              `user:pass@` の認証情報、ホスト名の大文字、先頭の空白など）。
+              保存されるのは正規化後のURLではなく送られた文字列そのものであり、
+              表記違いが混ざると `imagePath` の完全一致に頼る重複チェックと
+              旧画像削除の判定が誤作動する
 
             同じ `imagePath` のレコードが既にある場合は 409 `IMAGE_ALREADY_SAVED`。
 
@@ -653,7 +660,8 @@ components:
             新しい画像URL。`POST /images/upload` が返した `imagePath` を指定する。
             制約は `PlantCreateRequest.imagePath` と同じで、`https:` スキーム・
             自ストレージアカウントのBlobエンドポイント・ちょうど
-            `/<永続コンテナ名>/<Blob名>` の2セグメントのすべてを満たす必要がある。
+            `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との文字列完全一致の
+            すべてを満たす必要がある。
             満たさない場合は 400 `INVALID_REQUEST`
             （message: 画像アップロードAPIが返したURLを指定してください）。
             旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証している。
@@ -672,8 +680,11 @@ components:
         imagePath:
           type: string
           format: uri
-          description: 識別対象の画像URL
-          example: "https://snaplant.blob.core.windows.net/images/temp/uploaded.jpg"
+          description: |
+            識別対象の画像URL。URLとしてパースできれば受け付ける
+            （`PlantCreateRequest.imagePath` のようなスキーム・ホスト・パス形の制約は
+            このエンドポイントでは適用されない）。指定されたURLはそのままAI識別サービスへ渡される。
+          example: "https://stsnaplant.blob.core.windows.net/temp-images/12345678-uuid.jpg?sv=...&sig=..."
         contextInfo:
           type: string
           nullable: true
@@ -683,7 +694,8 @@ components:
             文字列以外（数値、配列、オブジェクトなど）を指定すると
             400 `INVALID_REQUEST`（message: 補足情報は文字列で指定してください）。
             上限を超えると 400 `INVALID_REQUEST`（message: 補足情報は500文字以内で指定してください）。
-            上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500）。
+            上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500。
+            正の整数として読めない値なら既定値が使われる）。
             `null` と未指定は「補足情報なし」として扱う。
           example: "〇〇山の標高1300m、日当たりの良い場所"
 
@@ -809,16 +821,37 @@ components:
 
   responses:
     BadRequest:
-      description: リクエスト形式が不正
+      description: |
+        リクエスト形式が不正。`code` は常に `INVALID_REQUEST` で、
+        `message` は検証に失敗した項目ごとに異なる（下は代表例）。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-          example:
-            success: false
-            error:
-              code: "INVALID_REQUEST"
-              message: "リクエスト形式が不正です"
+          examples:
+            invalid_uuid:
+              summary: 植物IDがUUID形式でない
+              value:
+                success: false
+                error:
+                  code: "INVALID_REQUEST"
+                  message: "植物IDの形式が無効です"
+                  details: "UUID形式で指定してください"
+            image_path_not_allowed:
+              summary: imagePath がアップロードAPIの返却URLでない
+              value:
+                success: false
+                error:
+                  code: "INVALID_REQUEST"
+                  message: "画像アップロードAPIが返したURLを指定してください"
+            malformed_json:
+              summary: ボディがJSONとしてパースできない
+              value:
+                success: false
+                error:
+                  code: "INVALID_REQUEST"
+                  message: "リクエストボディの形式が無効です"
+                  details: "JSON形式で送信してください"
 
     Unauthorized:
       description: |
@@ -884,7 +917,10 @@ components:
                   message: "植物の保存に失敗しました"
 
     FileTooLarge:
-      description: ファイルサイズ超過
+      description: |
+        ファイルサイズ超過。上限は環境変数 `MAX_FILE_SIZE`（既定 10485760 = 10MB）で、
+        `details` のメッセージも同じ値から生成される。
+        正の整数として読めない値を設定した場合は既定値が使われる。
       content:
         application/json:
           schema:
@@ -893,10 +929,11 @@ components:
             success: false
             error:
               code: "FILE_TOO_LARGE"
-              message: "ファイルサイズが上限を超えています"
+              message: "ファイルサイズが大きすぎます"
+              details: "ファイルサイズは10MB以下にしてください"
 
     UnsupportedMediaType:
-      description: サポートされていないファイル形式
+      description: サポートされていない画像形式（JPEG / PNG / WebP / GIF 以外）
       content:
         application/json:
           schema:
@@ -905,7 +942,8 @@ components:
             success: false
             error:
               code: "UNSUPPORTED_MEDIA_TYPE"
-              message: "サポートされていないファイル形式です"
+              message: "サポートされていない画像形式です"
+              details: "JPEG、PNG、WebP、GIFファイルのみアップロード可能です"
 
     AIServiceError:
       description: AI識別サービスエラー

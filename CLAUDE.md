@@ -75,7 +75,7 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 ./scripts/destroy.sh
 ```
 
-`terraform.tfstate` はローカルファイルとしてリポジトリに入っている（リモートバックエンドなし）。
+`terraform.tfstate` はローカルファイルとして存在するが、**`infrastructure/.gitignore` が `*.tfstate` を除外しているためリポジトリには入っていない**（リモートバックエンドもなし）。つまり state は作業マシンにしかない。
 
 ## アーキテクチャ
 
@@ -109,7 +109,7 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 4. 植物なら `moveFromTempToPermanent()` で images コンテナへ移動（公開 URL を返す）
 5. 画像 URL と識別候補をまとめて返す
 
-Blob Storage のコンテナは2つで役割が違う：`images`（永続・公開 URL）と `temp`（一時・SAS 付き URL）。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返し、コンテナはパスの最初のセグメントが一時コンテナ名と完全一致するかで決める。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
+Blob Storage のコンテナは2つで役割が違う：`images`（永続・公開 URL）と `temp-images`（一時・SAS 付き URL）。コンテナ名は環境変数から取る。`'temp'` は `TEMP_STORAGE_CONTAINER_NAME` が未設定のときのコード側のフォールバック値にすぎず、Terraform が作るのは `temp-images`。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返し、コンテナはパスの最初のセグメントが一時コンテナ名と完全一致するかで決める。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
 
 **接続文字列に `BlobEndpoint=` があるとコンストラクタが例外を投げる**（未対応）。SDK はそのエンドポイントを使う一方で `StorageService` は `AccountName` と `EndpointSuffix` からホストを組み立てるため、食い違うと自分が生成した URL を自分で弾いて孤児 Blob が残る。Azurite はこの形式なので使えない。
 
@@ -154,12 +154,17 @@ Structured Outputs（`response_format: json_schema`, `strict: true`）で応答�
 1. スキームが `https:`
 2. ホストが自ストレージアカウントの Blob エンドポイント
 3. パスが**ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント**
+4. **生の文字列が `https://<ホスト>/<コンテナ>/<Blob名>` と完全一致する**
 
-3つは独立した条件にしてある。過去に「URL の一部を無視する」誤りを3回繰り返したため、1つが緩んでも他が残るようにしている。これは外部ホストの URL を保存して更新時の旧画像削除を発火させ、他レコードの Blob を消す経路を塞ぐためで、**入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている**。片方だけ緩めないこと。
+4つ目が最後の関門。`new URL()` はホストの大文字小文字や先頭の空白を正規化し、クエリ文字列・フラグメント・認証情報は `pathname` に出ないため、**パース結果を見る限り正当な URL と区別できない**。保存されるのは生の文字列なので、`?x=1` を付けただけで `save` の重複チェック（文字列一致）を素通りでき、`updatePlant` の旧画像削除の判定（文字列比較）が誤作動して更新後も指している画像を消す。
+
+4つは独立した条件にしてある。過去に「URL の一部を無視する」誤りを4回繰り返したため、1つが緩んでも他が残るようにしている。これは外部ホストの URL を保存して更新時の旧画像削除を発火させ、他レコードの Blob を消す経路を塞ぐためで、**入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている**。片方だけ緩めないこと。
 
 Blob 名の拡張子は**検証済みの Content-Type から引く**（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`）。クライアントが送るファイル名からは取らない。`/` を含む名前で拡張子にパス区切りが紛れ込み、Blob 名と SAS の署名対象がずれるため。`upload` のレスポンスの `fileName` はクライアントが送った名前をそのまま返すもので、**Blob 名とは別物**。
 
-`constants/validation.ts` の各上限値は環境変数で上書きできる（`MAX_FILE_SIZE`, `PLANT_NAME_MAX_LENGTH`, `CONTEXT_INFO_MAX_LENGTH` など）。エラーメッセージも同じ環境変数から文字数を埋め込んで生成されるため、値を変えるとメッセージも追従する。マジックナンバーをハンドラに直接書かない。
+`constants/validation.ts` の各上限値は環境変数で上書きできる（`MAX_FILE_SIZE`, `PLANT_NAME_MAX_LENGTH`, `CONTEXT_INFO_MAX_LENGTH` など）。エラーメッセージも同じ環境変数から文字数を埋め込んで生成されるため、値を変えるとメッセージも追従する。
+
+読み取りは `positiveIntFromEnv()` を通す。**正の整数として読めない値は既定値にフォールバックする。** `parseInt` が返す `NaN` をそのまま上限値に使うと、`length > NaN` が常に false になって**上限が静かに消える**（`size <= NaN` 側は全部拒否になるので気づけるが、こちらは気づけない）。マジックナンバーをハンドラに直接書かない。
 
 ## 実装の進め方: TDD
 
@@ -388,7 +393,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 ## CI/CD
 
 - `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・`npm audit`・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
-- `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/` 配下の変更のみ。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
+- `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/**` と `.github/workflows/terraform.yml`（`main` / `develop` への push と `main` への PR）。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
 - **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（`mobile/` のアーキテクチャ方針が未決定の間は入れない判断。`docs/09_backlog.md` 参照）。
 - `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
 - デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する

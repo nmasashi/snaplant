@@ -7,20 +7,35 @@
 ```
 infrastructure/
 ├── README.md                 # このファイル
-├── main.tf                   # メインのTerraform設定
+├── main.tf                   # 全リソースの定義（モジュール分割はしていない）
 ├── variables.tf              # 変数定義
 ├── outputs.tf                # 出力値定義
-├── terraform.tfvars.example  # 設定例
-├── modules/                  # 再利用可能なTerraformモジュール
-│   ├── cosmos-db/           # Cosmos DB モジュール
-│   ├── storage/             # Blob Storage モジュール
-│   ├── functions/           # Azure Functions モジュール
-│   ├── cognitive-services/  # Cognitive Services モジュール
-│   └── api-management/      # API Management モジュール
-└── scripts/                # デプロイ・管理スクリプト
-    ├── deploy.sh
-    └── destroy.sh
+├── terraform.tfvars.example  # 設定例（terraform.tfvars は .gitignore 済み）
+└── scripts/                  # デプロイ・管理スクリプト
+    ├── deploy.sh              # terraform init → plan → apply
+    ├── deploy-functions.sh    # Function App のコードデプロイ
+    ├── destroy.sh             # terraform destroy
+    └── get-publish-profile.sh # GitHub Secrets 用の Publish Profile 取得
 ```
+
+リソースは `main.tf` 1ファイルにまとめている（再利用可能なモジュールには分割していない）。
+定義しているのは、リソースグループ / Storage Account（`images`・`temp-images` の2コンテナ）/
+Cosmos DB（`snaplant-db`・`plants`）/ App Service Plan / Linux Function App /
+Application Insights / Azure OpenAI（`gpt-5.6-luna` デプロイメント）。
+Azure API Management と Key Vault は**定義していない**。
+
+## CI での静的チェック
+
+`.github/workflows/terraform.yml` が `infrastructure/` の変更時に走る。
+
+```bash
+terraform fmt -check -recursive   # 整形崩れがあると失敗する
+terraform init -backend=false
+terraform validate
+```
+
+**`.tf` を編集したら `terraform fmt` をかけてからコミットすること。**
+CI は Azure へ通信せず認証情報も使わないため、`terraform plan` は回らない。
 
 ## 前提条件
 
@@ -65,7 +80,7 @@ terraform apply
 
 ### 2. 設定
 
-`terraform.tfvars` ファイルで以下を設定：
+`variables.tf` で宣言している変数は次の12個。`terraform.tfvars` で上書きする。
 
 ```hcl
 # 基本設定
@@ -74,10 +89,22 @@ location     = "Japan East"
 
 # Cosmos DB設定
 cosmos_db_consistency_level = "Session"
-cosmos_db_throughput       = 400
+cosmos_db_throughput        = 400
 
 # Functions設定
 functions_plan_tier = "Y1"  # Consumption plan
+
+# Storage設定
+storage_account_tier     = "Standard"
+storage_replication_type = "LRS"
+
+# Application Insights設定
+application_insights_type = "web"
+
+# Azure OpenAI設定
+openai_location    = "East US"
+openai_sku         = "S0"
+openai_api_version = "2024-12-01-preview"
 
 # タグ設定
 tags = {
@@ -86,16 +113,27 @@ tags = {
 }
 ```
 
+Azure OpenAI の**APIキーは入力値ではない**。Terraform が作成した
+`azurerm_cognitive_account.openai` の `primary_access_key` を Function App の
+`app_settings` に流し込む。`terraform.tfvars.example` に残っている
+`openai_api_key` と `cognitive_services_sku` はどの変数宣言にも対応しておらず、
+値を入れても使われない（Terraform が「宣言されていない変数」として警告する）。
+
 ## セキュリティ
 
 ### 機密情報の管理
-- `terraform.tfvars` ファイルは `.gitignore` に追加済み
-- Azure Key Vaultを使用して機密情報を管理
-- 本番環境では最小権限の原則を適用
+- `terraform.tfvars` ファイルは `.gitignore` に追加済み（`*.tfvars` を除外）
+- Azure OpenAI のキーなどは Terraform が Function App の `app_settings` に直接流し込む。
+  Azure Key Vault は**導入していない**
 
 ### 状態ファイル管理
+
+現状はローカルの `terraform.tfstate` だけで、リモートバックエンドは設定していない。
+`*.tfstate` は `.gitignore` 済みなのでリポジトリには含まれない（＝クローンした環境には
+state が無い）。
+
 ```bash
-# リモートストレージ設定（推奨）
+# リモートストレージ設定（未適用・推奨構成）
 terraform {
   backend "azurerm" {
     resource_group_name  = "rg-terraform-state"
@@ -109,11 +147,11 @@ terraform {
 ## コスト管理
 
 ### コスト最適化
-- **Cosmos DB**: 無料枠（400 RU/s）を活用
-- **Functions**: Consumption Plan使用
-- **Storage**: 使用量に応じてCool/Hot tier選択
-- **API Management**: Developer tier使用
-- **Cognitive Services**: 無料枠を最大活用
+- **Cosmos DB**: 無料枠（`enable_free_tier = true`、400 RU/s）を活用
+- **Functions**: Consumption Plan（`Y1`）使用
+- **Storage**: Standard / LRS（アクセス層は既定のまま）
+- **Azure OpenAI**: `S0` SKU、`gpt-5.6-luna` を GlobalStandard でデプロイ
+- **API Management**: 未導入（固定費を避けるため Function Key 認証で代替）
 
 ## トラブルシューティング
 
@@ -163,9 +201,10 @@ terraform import azurerm_cognitive_deployment.gpt5_luna \
 terraform plan
 ```
 
-なお、このリポジトリには `backend` 設定とローカルstateファイルが存在しない。
-state管理が未設定の環境で `apply` すると全リソースを新規作成しようとするため、
-先に「状態ファイル管理」セクションのリモートbackendを設定すること。
+なお `backend` 設定は無く、`*.tfstate` は `.gitignore` 済みでリポジトリに含まれない。
+state を持たない環境で `apply` すると全リソースを新規作成しようとするため、
+先に「状態ファイル管理」セクションのリモートbackendを設定するか、
+既存の state を手元に用意すること。
 
 ### 旧 gpt-4o デプロイの扱い（未対応）
 

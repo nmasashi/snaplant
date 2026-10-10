@@ -201,7 +201,7 @@ Windows 側に移るだけ（CLAUDE.md の TDD の節）。
 **テストを先に書いて赤を確認してから改修する**こと。
 
 CI に `flutter analyze` を入れるかは
-[Flutter と Terraform が CI の対象外](#flutter-と-terraform-が-ci-の対象外)にある。
+[Flutter と Terraform が CI の対象外](#flutter-が-ci-の対象外)にある。
 `mobile/` のアーキテクチャ方針が未決定の間は入れない判断になっている。
 
 ---
