@@ -74,7 +74,8 @@ NoSQLドキュメントデータベースとして設計され、JSONドキュ�
 - **name**: 必須項目、最大100文字
 - **characteristics**: 必須項目、最大500文字
 - **confidence**: 0.0以上100.0以下の数値
-- **imagePath**: 必須項目、画像アップロードAPIが返したURL（自ストレージアカウントの永続コンテナを指すURLのみ受け付ける）
+- **imagePath**: 必須項目、画像アップロードAPIが返したURL（自ストレージアカウントの永続コンテナを指すURLのみ受け付ける）。
+  新規登録時はアプリケーション側で一意性も確認する（既存レコードと重複する場合は 409 `IMAGE_ALREADY_SAVED`）
 - **createdAt/updatedAt**: ISO 8601形式の日時文字列
 
 ## 5. 機能別Cosmos DBクエリ
@@ -96,13 +97,22 @@ SELECT * FROM c WHERE c.id = "123e4567-e89b-12d3-a456-426614174000"
 ### 5.3 重複確認機能
 ```sql
 -- 同名植物の存在確認
-SELECT c.id, c.name, c.imagePath, c.confidence, c.createdAt
+SELECT TOP 1 c.id, c.name, c.imagePath, c.confidence, c.createdAt
 FROM c 
 WHERE c.name = @name
-LIMIT 1
 ```
 
-### 5.4 植物識別結果保存
+### 5.4 画像パスの重複確認（新規登録の前段）
+```sql
+-- 同じ画像を参照するドキュメントの存在確認
+SELECT * FROM c WHERE c.imagePath = @imagePath
+```
+`POST /api/plants/save` はこのクエリを登録前に実行し、1件でも該当すれば
+409 `IMAGE_ALREADY_SAVED` を返して保存しません。
+同じ `imagePath` のドキュメントが2件あると、一方の削除や画像更新で
+もう一方の画像まで消えてしまうためです（`CosmosService.getPlantByImagePath()`）。
+
+### 5.5 植物識別結果保存
 ```typescript
 // 新規植物の登録（SDK使用）
 const newPlant = {
@@ -120,7 +130,7 @@ const newPlant = {
 await container.items.create(newPlant);
 ```
 
-### 5.5 植物情報更新
+### 5.6 植物情報更新
 ```typescript
 // 既存植物の画像更新（SDK使用）
 const updatedPlant = {
@@ -135,13 +145,16 @@ await container.item(plantId, plantId).replace(updatedPlant);
 ## 6. データ整合性
 
 ### 6.1 制約条件
-- **一意性制約**: id（UUIDで一意性保証）
+- **一意性制約**: id（UUIDで一意性保証）、imagePath（DBの制約ではなく
+  `POST /api/plants/save` がクエリで確認し、重複すれば 409 `IMAGE_ALREADY_SAVED`）
 - **必須フィールド**: name, characteristics, confidence, imagePath, createdAt, updatedAt
 - **バリデーション**: アプリケーションレベルで実装
   - confidence: 0.0 ≤ confidence ≤ 100.0
-  - imagePath: URLとしてパースできること、かつホストが自ストレージアカウントの
-    Blobエンドポイント、先頭のパスセグメントが永続コンテナ名であること
-    （外部ホストや一時コンテナのURLは 400 で拒否。スキームは検証していない）
+  - imagePath: URLとしてパースできること、かつスキームが `https:`、
+    ホストが自ストレージアカウントのBlobエンドポイント、パスがちょうど
+    `/<永続コンテナ名>/<Blob名>` の2セグメントであること
+    （外部ホスト、`https:` 以外のスキーム、一時コンテナ、中間に余分なセグメントを
+    挟んだURLはいずれも 400 で拒否）
   - UUID: v4形式の正規表現チェック
 
 ### 6.2 ドキュメント削除

@@ -46,9 +46,16 @@ sequenceDiagram
     alt 重複なし（新規登録）
         Note over Client,DB: 4a. 新規植物データ保存
         Client->>API: POST /plants/save<br/>（植物データ）
-        API->>DB: INSERT文実行<br/>（新規ドキュメント作成）
-        DB-->>API: 作成完了<br/>（保存されたドキュメント）
-        API-->>Client: plant<br/>（保存完了データ）
+        API->>DB: imagePathの重複確認<br/>WHERE imagePath = @imagePath
+        DB-->>API: 既存レコード or 空
+
+        alt imagePathが未使用
+            API->>DB: INSERT文実行<br/>（新規ドキュメント作成）
+            DB-->>API: 作成完了<br/>（保存されたドキュメント）
+            API-->>Client: plant<br/>（保存完了データ）
+        else imagePathが既に保存済み（リトライ）
+            API-->>Client: 409 IMAGE_ALREADY_SAVED<br/>「この画像は既に保存されています」
+        end
     else 重複あり（既存植物の画像更新）
         Note over Client,DB: 4b. 既存植物の画像・信頼度更新
         Client->>API: PUT /plants/{id}<br/>（新しい画像・信頼度）
@@ -76,7 +83,7 @@ sequenceDiagram
 |-----|-----------|------|----------|
 | `POST /images/upload` | **Blob Storage**<br/>**OpenAI Vision** | CREATE<br/>READ | ①一時保存→植物判定→永続保存 or 削除<br/>②画像+コンテキスト情報で解析・植物識別実行 |
 | `GET /plants/check-duplicate` | **Cosmos DB** | READ | name条件でのドキュメント検索（データ変更なし） |
-| `POST /plants/save` | **Cosmos DB** | CREATE | 新規植物ドキュメントを作成・保存 |
+| `POST /plants/save` | **Cosmos DB** | READ<br/>CREATE | ①`imagePath` の重複確認（既存なら 409 `IMAGE_ALREADY_SAVED` で保存しない）<br/>②新規植物ドキュメントを作成・保存 |
 | `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | UPDATE<br/>DELETE | ①既存ドキュメントのimagePath・confidenceを更新<br/>②旧画像ファイルを削除（ゴミファイル防止） |
 | `GET /plants` | **Cosmos DB** | READ | 全植物ドキュメントの取得（データ変更なし） |
 | `GET /plants/{id}` | **Cosmos DB** | READ | 単一ドキュメントの取得（データ変更なし） |
@@ -164,8 +171,10 @@ Content-Type: multipart/form-data
   contextInfo: "〇〇山の標高1300m、日当たりの良い場所"
 }
 ```
-画像は `image` フィールドで送信します。`contextInfo` は500文字以内で、
-超過すると一時保存とAI呼び出しの前に 400 `INVALID_REQUEST` で弾かれます。
+画像は `image` フィールドで送信します。`contextInfo` はテキストフィールドで送る
+500文字以内の文字列で、文字列でない場合（`補足情報は文字列で指定してください`）と
+500文字超過の場合（`補足情報は500文字以内で指定してください`）は、
+いずれも一時保存とAI呼び出しの前に 400 `INVALID_REQUEST` で弾かれます。
 
 **レスポンス（植物の場合）:**
 ```json
@@ -239,7 +248,9 @@ GET /api/plants/check-duplicate?name=桜&code={FUNCTION_KEY}
 ```
 
 `imagePath` には `POST /images/upload` が返したURLを指定します（ステップ4a・4b共通）。
-自ストレージアカウントの永続コンテナを指すURL以外は 400 `INVALID_REQUEST` になります。
+`https:` スキーム・自ストレージアカウントのBlobエンドポイント・ちょうど
+`/<永続コンテナ名>/<Blob名>` の2セグメントのすべてを満たさないURLは
+400 `INVALID_REQUEST` になります。
 
 #### ステップ4a: 新規植物保存（重複なしの場合）
 ```http
@@ -256,6 +267,23 @@ Content-Type: application/json
   "imagePath": "https://snaplant.blob.core.windows.net/images/12345678-uuid.jpg"
 }
 ```
+
+同じ `imagePath` のレコードが既にある場合は保存せず 409 を返します。
+保存に成功したがレスポンスが届かず、クライアントが同じ `imagePath` で再送した場合
+（リトライ）がこの経路です。
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "IMAGE_ALREADY_SAVED",
+    "message": "この画像は既に保存されています"
+  }
+}
+```
+
+応答に既存レコードの `id` は含まれないため、クライアントは 409 を
+「既に保存済み」と解釈し、ステップ5の `GET /plants` から該当レコードを探します。
 
 #### ステップ4b: 既存植物更新（重複ありの場合）
 ```http
@@ -413,8 +441,19 @@ sequenceDiagram
     "details": "旧画像の削除に失敗しましたが、データ更新は完了しています"
   }
 }
+
+// 同じ画像が既に保存済み（409・新規保存のみ）
+{
+  "success": false,
+  "error": {
+    "code": "IMAGE_ALREADY_SAVED",
+    "message": "この画像は既に保存されています"
+  }
+}
 ```
-**対応**: データの再送信または後で再試行
+**対応**: データの再送信または後で再試行。
+ただし 409 `IMAGE_ALREADY_SAVED` は再送しても解消しないため、
+「既に保存済み」として扱い、`GET /plants` から該当レコードを探す
 
 ## 5. パフォーマンス考慮事項
 

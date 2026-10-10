@@ -58,7 +58,13 @@ paths:
   /plants/save:
     post:
       summary: 植物新規登録
-      description: 識別結果から選択した植物を図鑑に保存
+      description: |
+        識別結果から選択した植物を図鑑に保存します。
+
+        同じ `imagePath` を持つレコードが既に存在する場合は保存せず
+        409 `IMAGE_ALREADY_SAVED` を返します（リトライの冪等性のため）。
+        応答に既存レコードの `id` は含まないため、クライアントは
+        `GET /plants` から該当レコードを探します。
       tags:
         - Plants
       parameters:
@@ -361,7 +367,11 @@ paths:
                   maxLength: 500
                   description: |
                     撮影場所や環境情報（任意）。
-                    上限を超えると 400 `INVALID_REQUEST`（一時保存とAI呼び出しの前に弾かれる）。
+                    テキストフィールド以外（ファイルとして送られた場合など）は
+                    400 `INVALID_REQUEST`（message: 補足情報は文字列で指定してください）。
+                    上限を超えると 400 `INVALID_REQUEST`
+                    （message: 補足情報は500文字以内で指定してください）。
+                    いずれも一時保存とAI呼び出しの前に弾かれる。
                     上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500）。
                   example: "〇〇山の標高1300m、日当たりの良い場所"
       responses:
@@ -445,6 +455,13 @@ paths:
                     error:
                       code: "INVALID_REQUEST"
                       message: "補足情報は500文字以内で指定してください"
+                context_info_not_a_string:
+                  summary: 補足情報が文字列でない
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "補足情報は文字列で指定してください"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '413':
@@ -612,8 +629,16 @@ components:
           format: uri
           description: |
             `POST /images/upload` が返した `imagePath` を指定する。
-            自ストレージアカウントの永続コンテナを指すURL以外（外部ホスト、一時コンテナなど）は
-            400 `INVALID_REQUEST`（message: 画像アップロードAPIが返したURLを指定してください）。
+            次のすべてを満たさないURLは 400 `INVALID_REQUEST`
+            （message: 画像アップロードAPIが返したURLを指定してください）。
+
+            - スキームが `https:`（`http:` やその他のスキームは不可）
+            - ホストが自ストレージアカウントのBlobエンドポイント（外部ホストは不可）
+            - パスがちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント
+              （一時コンテナ、中間に余分なセグメントを挟んだURL、コンテナまでしか
+              指していないURLはいずれも不可）
+
+            同じ `imagePath` のレコードが既にある場合は 409 `IMAGE_ALREADY_SAVED`。
 
     PlantUpdateRequest:
       type: object
@@ -626,9 +651,13 @@ components:
           format: uri
           description: |
             新しい画像URL。`POST /images/upload` が返した `imagePath` を指定する。
-            自ストレージアカウントの永続コンテナを指すURL以外（外部ホスト、一時コンテナなど）は
-            400 `INVALID_REQUEST`（message: 画像アップロードAPIが返したURLを指定してください）。
-            旧画像の削除が発火するため、保存前にホストとコンテナを検証している。
+            制約は `PlantCreateRequest.imagePath` と同じで、`https:` スキーム・
+            自ストレージアカウントのBlobエンドポイント・ちょうど
+            `/<永続コンテナ名>/<Blob名>` の2セグメントのすべてを満たす必要がある。
+            満たさない場合は 400 `INVALID_REQUEST`
+            （message: 画像アップロードAPIが返したURLを指定してください）。
+            旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証している。
+            なお更新では `imagePath` の重複は検査しない（409 を返すのは `POST /plants/save` のみ）。
         confidence:
           type: number
           minimum: 0
@@ -651,8 +680,11 @@ components:
           maxLength: 500
           description: |
             撮影場所や環境情報（任意）。
-            上限を超えると 400 `INVALID_REQUEST`。
+            文字列以外（数値、配列、オブジェクトなど）を指定すると
+            400 `INVALID_REQUEST`（message: 補足情報は文字列で指定してください）。
+            上限を超えると 400 `INVALID_REQUEST`（message: 補足情報は500文字以内で指定してください）。
             上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500）。
+            `null` と未指定は「補足情報なし」として扱う。
           example: "〇〇山の標高1300m、日当たりの良い場所"
 
     IdentificationResult:
@@ -826,16 +858,30 @@ components:
               message: "指定された植物が見つかりません"
 
     Conflict:
-      description: 保存時の競合（Cosmos DB の 409）
+      description: |
+        保存時の競合。2種類ある。
+
+        - `IMAGE_ALREADY_SAVED`: 同じ `imagePath` のレコードが既に存在する（`details` なし）
+        - `DATABASE_ERROR`: Cosmos DB が 409 を返した
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-          example:
-            success: false
-            error:
-              code: "DATABASE_ERROR"
-              message: "植物の保存に失敗しました"
+          examples:
+            image_already_saved:
+              summary: 同じ画像が既に保存されている
+              value:
+                success: false
+                error:
+                  code: "IMAGE_ALREADY_SAVED"
+                  message: "この画像は既に保存されています"
+            database_error:
+              summary: Cosmos DB の競合
+              value:
+                success: false
+                error:
+                  code: "DATABASE_ERROR"
+                  message: "植物の保存に失敗しました"
 
     FileTooLarge:
       description: ファイルサイズ超過

@@ -167,7 +167,7 @@ Function App に設定される主要な環境変数：
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
 | `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
 | `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名 |
-| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列 |
+| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`BlobEndpoint=` を含む形式は未対応） |
 | `STORAGE_CONTAINER_NAME` | 永続画像用 Blob コンテナ名 |
 | `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
@@ -182,3 +182,21 @@ Terraform が設定します。ローカル開発では `api/local.settings.json
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
+
+### `STORAGE_CONNECTION_STRING` の制約
+
+`BlobEndpoint=` を含む接続文字列を設定すると、`StorageService` のコンストラクタが
+`BlobEndpointを明示した接続文字列は未対応です` で例外を投げます。
+`CosmosService` は内部で `StorageService` を持つため、`POST /api/plants/identify`
+以外のすべてのエンドポイントが 500 `INTERNAL_ERROR` になります。
+
+`AccountName` と `EndpointSuffix` から Blob エンドポイントのホストを組み立てて
+URL を検証しているため、`BlobEndpoint=` で別のホストを指定されると
+「自分が生成した URL を自分で拒否する」状態になるためです。
+静かに誤動作させるのではなく、サービスの初期化時点で失敗させる方針です
+（`api/src/services/storageService.ts`）。
+
+Terraform が流し込む `azurerm_storage_account.main.primary_connection_string` は
+`BlobEndpoint=` を含まないため、本番でこの制約に触れることはありません。
+Azurite などパス形式のエンドポイントを使うローカル開発は未対応で、
+[バックログ](./docs/09_backlog.md) に判断待ちとして分離しています。

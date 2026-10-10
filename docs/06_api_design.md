@@ -157,7 +157,11 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 ### 5.3 植物識別実行
 アップロードされた画像とコンテキスト情報から植物を識別し、候補を返します。
-`contextInfo` は500文字以内です（超過すると 400 `INVALID_REQUEST`）。
+`contextInfo` は文字列で、500文字以内です。
+- 文字列以外（数値・配列・オブジェクトなど）→ 400 `INVALID_REQUEST`（`補足情報は文字列で指定してください`）
+- 500文字超過 → 400 `INVALID_REQUEST`（`補足情報は500文字以内で指定してください`）
+
+`null` と未指定は「補足情報なし」として扱います。
 上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更できます。
 
 **リクエスト例:**
@@ -212,8 +216,35 @@ Content-Type: application/json
 ### 5.4 植物新規登録
 識別結果から選択した植物を図鑑に保存します。
 `imagePath` には `POST /api/images/upload` が返したURLを指定します。
-自ストレージアカウントの永続コンテナを指すURL以外（外部ホスト、一時コンテナなど）は
-400 `INVALID_REQUEST`（`画像アップロードAPIが返したURLを指定してください`）になります。
+次のすべてを満たさないURLは 400 `INVALID_REQUEST`
+（`画像アップロードAPIが返したURLを指定してください`）になります。
+
+- スキームが `https:`（`http:` やその他のスキームは不可）
+- ホストが自ストレージアカウントのBlobエンドポイント（外部ホストは不可）
+- パスがちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント
+  （一時コンテナ、中間に余分なセグメントを挟んだURL、コンテナまでしか指していないURLは不可）
+
+#### 同じ画像の二重保存（409）
+
+同じ `imagePath` を持つレコードが既に存在する場合は保存せず、
+409 `IMAGE_ALREADY_SAVED`（`この画像は既に保存されています`、`details` なし）を返します。
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "IMAGE_ALREADY_SAVED",
+    "message": "この画像は既に保存されています"
+  }
+}
+```
+
+これは「保存には成功したがレスポンスが届かず、クライアントが同じ `imagePath` で
+再送する」リトライを冪等にするためです。同じ `imagePath` のレコードが2件あると、
+一方の削除や画像更新でもう一方の画像まで消えてしまいます。
+
+応答に既存レコードの `id` は含めません。クライアントは 409 を受けたら
+「既に保存済み」と解釈し、`GET /api/plants` から該当レコードを探します。
 
 **リクエスト例:**
 ```http
@@ -254,8 +285,10 @@ Content-Type: application/json
 
 ### 5.5 植物情報更新（重複時の画像置き換え）
 既存植物の画像と信頼度を更新します。処理中に旧画像ファイルもBlob Storageから削除されます。
-`imagePath` の制約は 5.4 と同じで、自ストレージアカウントの永続コンテナを指すURLのみ受け付けます
-（旧画像の削除が発火するため、保存前にホストとコンテナを検証しています）。
+`imagePath` の形の制約は 5.4 と同じです（`https:` スキーム・自ストレージアカウントの
+Blobエンドポイント・ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント）。
+旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証しています。
+ただし `imagePath` の重複は検査しません（409 を返すのは 5.4 の新規登録のみ）。
 
 **リクエスト例:**
 ```http
@@ -347,7 +380,11 @@ DELETE /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 ### 5.8 画像アップロード・植物判定統合
 植物画像をBlob Storageにアップロードし、コンテキスト情報と合わせてAI識別を実行します。植物でない場合は画像を削除します。
-`contextInfo` は500文字以内です（超過すると 400 `INVALID_REQUEST`。一時保存とAI呼び出しの前に弾かれます）。
+`contextInfo` はテキストフィールドで送る500文字以内の文字列です。
+- 文字列でない（ファイルとして送られた場合など）→ 400 `INVALID_REQUEST`（`補足情報は文字列で指定してください`）
+- 500文字超過 → 400 `INVALID_REQUEST`（`補足情報は500文字以内で指定してください`）
+
+いずれも一時保存とAI呼び出しの前に弾かれます。
 
 **リクエスト例:**
 ```http
@@ -426,6 +463,7 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
 | 401 | `UNAUTHORIZED` | Function Key未指定 | Azure Functions ランタイム |
 | 401 | `INVALID_API_KEY` | Function Keyが無効 | Azure Functions ランタイム |
 | 404 | `PLANT_NOT_FOUND` | 植物が見つからない | `/api/plants/{id}` 系 |
+| 409 | `IMAGE_ALREADY_SAVED` | 同じ `imagePath` のレコードが既に存在する | `POST /api/plants/save` |
 | 409 | `DATABASE_ERROR` | 保存時の競合（Cosmos DBの409） | `POST /api/plants/save` |
 | 413 | `FILE_TOO_LARGE` | ファイルサイズ超過 | `POST /api/images/upload` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | サポートされていないファイル形式 | `POST /api/images/upload` |
