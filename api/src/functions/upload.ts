@@ -30,7 +30,9 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     // リクエストボディを取得
     const formData = await request.formData();
     const file = formData.get('image') as File;
-    const contextInfo = formData.get('contextInfo') as string | null;
+    // formData.get() は File も返しうる。as string のキャストは実行時に何も
+    // 保証しないため、unknown で受けて下のバリデーションで型を絞る
+    const rawContextInfo: unknown = formData.get('contextInfo');
 
     // ファイルの存在チェック
     // テキストフィールドとして送られた場合も弾く（type を持たないため、
@@ -61,11 +63,20 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
       );
     }
 
-    // 補足情報の長さの検証。
-    // プロンプトに埋め込まれるため、一時保存とOpenAI呼び出しの前に弾く
-    if (contextInfo && contextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
-      return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
+    // 補足情報の検証。
+    // プロンプトに埋め込まれるため、一時保存とOpenAI呼び出しの前に弾く。
+    // 型を見ずに .length を比較すると、File では undefined が比較対象になり
+    // 長さの上限を素通りしてプロンプトに混ざる
+    if (rawContextInfo !== null && rawContextInfo !== undefined) {
+      if (typeof rawContextInfo !== 'string') {
+        return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.NOT_A_STRING);
+      }
+      if (rawContextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+        return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
+      }
     }
+    // ここ以降は文字列か未指定であることが保証されている
+    const contextInfo = typeof rawContextInfo === 'string' ? rawContextInfo : undefined;
 
     // ファイルをBufferに変換
     const arrayBuffer = await file.arrayBuffer();
@@ -90,7 +101,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     }
 
     // LLMで植物識別実行（コンテキスト情報があれば渡す）
-    const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo || undefined);
+    const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo);
     context.log(`植物識別完了: 植物=${identificationResult.isPlant}, 候補数=${identificationResult.candidates.length}`);
 
     // 3. 植物判定結果による分岐処理
