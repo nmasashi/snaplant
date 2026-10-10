@@ -26,6 +26,12 @@ void main() {
       expect(detectImageMimeType(gif), 'image/gif');
     });
 
+    test('古い形式のGIF87aもimage/gifになる', () {
+      final gif87 = _bytes('GIF87a'.codeUnits);
+
+      expect(detectImageMimeType(gif87), 'image/gif');
+    });
+
     test('WebPのシグネチャはimage/webpになる', () {
       // RIFF + 4バイトのサイズ + WEBP
       final webp = _bytes([...'RIFF'.codeUnits, 0x24, 0x00, 0x00, 0x00, ...'WEBP'.codeUnits]);

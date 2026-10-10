@@ -70,13 +70,15 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('拡張子がjpgでも中身がPNGならimage/pngとして送る', () async {
+    /// 拡張子が .jpg のファイルに [bytes] を書いてアップロードし、送信したリクエストボディを返す。
+    ///
+    /// アップロードはサーバ（管理外の依存）に Blob を作らせるコマンドで、送信した
+    /// Content-Type はサーバが Blob の Content-Type と拡張子を決める根拠になる。
+    /// その契約はリクエストにしか現れないため、送信内容を検証する
+    Future<String> uploadAsJpgFile(List<int> bytes) async {
       final file = File('${tempDir.path}/photo.jpg');
-      await file.writeAsBytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...List.filled(32, 0)]);
-
-      // 送信した Content-Type はサーバが Blob の Content-Type と拡張子を決める根拠になる。
-      // サーバとの契約がリクエストにしか現れないため、送信内容を検証する
-      String? sentBody;
+      await file.writeAsBytes([...bytes, ...List.filled(32, 0)]);
+      late String sentBody;
       final service = ApiService(
         baseUrl: 'https://api.example.test',
         client: MockClient((request) async {
@@ -97,10 +99,25 @@ void main() {
           );
         }),
       );
-
       await service.uploadAndIdentifyImage(file);
+      return sentBody;
+    }
 
-      expect(sentBody, contains('content-type: image/png'));
+    /// multipart のパートヘッダ。ヘッダ名の大文字小文字と空白は HTTP 上意味を持たないので許す
+    Matcher sendsContentType(String mimeType) =>
+        matches(RegExp('content-type:\\s*${RegExp.escape(mimeType)}', caseSensitive: false));
+
+    test('拡張子がjpgでも中身がPNGならimage/pngとして送る', () async {
+      final sentBody = await uploadAsJpgFile([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+      expect(sentBody, sendsContentType('image/png'));
+    });
+
+    test('拡張子がjpgでも中身がWebPならimage/webpとして送る', () async {
+      // WebP は判定に先頭12バイトが要り、4形式で最も長い。ファイルの読み込み量が足りないと誤判定する
+      final sentBody = await uploadAsJpgFile([...'RIFF'.codeUnits, 0x24, 0x00, 0x00, 0x00, ...'WEBP'.codeUnits]);
+
+      expect(sentBody, sendsContentType('image/webp'));
     });
 
     test('アップロードはdataから保存先のURLと識別結果を取り出す', () async {
@@ -269,6 +286,20 @@ void main() {
       final error = await _captureApiException(() => service.savePlant(_createRequest));
 
       expect(error.userMessage, 'リクエスト数が制限を超えました。しばらく待ってから再試行してください。');
+    });
+
+    test('500はサーバ内部の文言を出さず定型のメッセージにする', () async {
+      final service = _serviceResponding('POST', '/api/plants/save', 500, {
+        'success': false,
+        'error': {
+          'code': 'INTERNAL_ERROR',
+          'message': 'サーバー内部エラーが発生しました',
+        },
+      });
+
+      final error = await _captureApiException(() => service.savePlant(_createRequest));
+
+      expect(error.userMessage, 'サーバーで問題が発生しています。しばらく待ってから再試行してください。');
     });
 
     test('503は接続できない状態なので時間を置いた再試行を促す', () async {

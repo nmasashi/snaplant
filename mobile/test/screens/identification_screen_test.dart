@@ -105,13 +105,14 @@ void main() {
       tester,
       _serviceWhereSaveReturns(409, {
         'success': false,
-        'error': {'code': 'DATABASE_ERROR', 'message': '植物の保存に失敗しました'},
+        // 画面の汎用フォールバック（'植物の保存に失敗しました'）と区別できるよう、サーバの文言は別にする
+        'error': {'code': 'DATABASE_ERROR', 'message': 'データベースで競合が発生しました'},
       }),
     );
 
     await _tapSave(tester);
 
     expect(popped, isEmpty);
-    expect(find.text('植物の保存に失敗しました'), findsOneWidget);
+    expect(find.text('データベースで競合が発生しました'), findsOneWidget);
   });
 }
