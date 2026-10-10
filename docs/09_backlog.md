@@ -199,6 +199,18 @@ WSL から実行できないため、人間が Windows 側で回すまで検証�
 
 入れるときは `subosito/flutter-action` を使う。
 
+**実測（2026-10-10、Windows 側で確認）**: 現状の `flutter analyze` は
+**エラー0件、info / warning 141件、終了コード1**。この141件は
+`origin/main` と**完全に同一**で、PR #1 の変更による新規の指摘は無い。
+
+つまり `flutter analyze` を素朴に CI へ入れると、**既存の141件で初日から落ちる**。
+入れるときは次のどちらかが必要。
+
+- 先に141件を解消する（アーキテクチャ方針の決定と重なる作業）
+- `--no-fatal-infos` / `--no-fatal-warnings` で当面エラーのみを失敗条件にする
+
+`flutter test` は通る（スモークテスト1本のみ）。
+
 ### `ApiService.uploadImage()` が未使用
 
 `mobile/lib/services/api_service.dart` の `uploadImage()` は
