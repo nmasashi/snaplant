@@ -68,6 +68,9 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 ### 4.2 IdentificationResult Model
 ```json
 {
+  "isPlant": "boolean",
+  "confidence": "number (0-100)",
+  "reason": "string",
   "candidates": [
     {
       "name": "string",
@@ -80,6 +83,7 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
   ]
 }
 ```
+`isPlant: false` の場合、`candidates` は空配列になります。
 
 ### 4.3 Error Model
 ```json
@@ -153,6 +157,8 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 ### 5.3 植物識別実行
 アップロードされた画像とコンテキスト情報から植物を識別し、候補を返します。
+`contextInfo` は500文字以内です（超過すると 400 `INVALID_REQUEST`）。
+上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更できます。
 
 **リクエスト例:**
 ```http
@@ -205,6 +211,9 @@ Content-Type: application/json
 
 ### 5.4 植物新規登録
 識別結果から選択した植物を図鑑に保存します。
+`imagePath` には `POST /api/images/upload` が返したURLを指定します。
+自ストレージアカウントの永続コンテナを指すURL以外（外部ホスト、一時コンテナなど）は
+400 `INVALID_REQUEST`（`画像アップロードAPIが返したURLを指定してください`）になります。
 
 **リクエスト例:**
 ```http
@@ -245,6 +254,8 @@ Content-Type: application/json
 
 ### 5.5 植物情報更新（重複時の画像置き換え）
 既存植物の画像と信頼度を更新します。処理中に旧画像ファイルもBlob Storageから削除されます。
+`imagePath` の制約は 5.4 と同じで、自ストレージアカウントの永続コンテナを指すURLのみ受け付けます
+（旧画像の削除が発火するため、保存前にホストとコンテナを検証しています）。
 
 **リクエスト例:**
 ```http
@@ -316,6 +327,8 @@ GET /api/plants/check-duplicate?name=桜&code={FUNCTION_KEY}
 
 ### 5.7 植物削除
 指定されたIDの植物を削除します。
+Cosmos DB のドキュメントを削除した後、`imagePath` が指すBlob Storage上の画像も削除します。
+画像の削除に失敗した場合はログ出力のみで、ドキュメント削除は成功として 200 を返します。
 
 **リクエスト例:**
 ```http
@@ -334,6 +347,7 @@ DELETE /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 ### 5.8 画像アップロード・植物判定統合
 植物画像をBlob Storageにアップロードし、コンテキスト情報と合わせてAI識別を実行します。植物でない場合は画像を削除します。
+`contextInfo` は500文字以内です（超過すると 400 `INVALID_REQUEST`。一時保存とAI呼び出しの前に弾かれます）。
 
 **リクエスト例:**
 ```http
@@ -341,10 +355,11 @@ POST /api/images/upload?code={FUNCTION_KEY}
 Content-Type: multipart/form-data
 
 {
-  file: [binary data],
+  image: [binary data],
   contextInfo: "〇〇山の標高1300m、日当たりの良い場所"
 }
 ```
+画像は `image` フィールドで送信します。
 
 **レスポンス例（植物の場合）:**
 ```json
@@ -372,6 +387,9 @@ Content-Type: multipart/form-data
   }
 }
 ```
+
+`fileName` はクライアントが送信したファイル名をそのまま返します。
+Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので、`imagePath` 末尾のファイル名とは一致しません。
 
 **レスポンス例（植物でない場合）:**
 ```json

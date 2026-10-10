@@ -22,7 +22,7 @@ graph TB
     BlobStorage[(Azure Blob Storage<br/>画像ファイル保存)]
     
     %% AI Services
-    OpenAIVision[Azure OpenAI Service<br/>GPT-4o Vision<br/>植物識別AI]
+    OpenAIVision[Azure OpenAI Service<br/>gpt-5.6-luna<br/>植物識別AI]
     
     %% Monitoring
     AppInsights[Application Insights<br/>監視・ログ・分析]
@@ -237,7 +237,7 @@ lib/
 1. **認証確認**: 設定画面からAPIキー取得（flutter_secure_storage）
 2. **画像選択**: Flutter image_picker → 画像選択・撮影
 3. **画像アップロード**: Flutter http → Azure Functions → Blob Storage (Function Key認証)
-4. **AI識別**: Azure Functions → Azure OpenAI Service → GPT-4o Vision (SAS URL対応)
+4. **AI識別**: Azure Functions → Azure OpenAI Service → `gpt-5.6-luna`（画像入力・SAS URL対応）
 5. **結果表示**: API Response → Flutter UI (Material Design)
 6. **データ保存**: Flutter → Azure Functions → Cosmos DB (Function Key認証)
 

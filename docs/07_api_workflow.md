@@ -80,7 +80,7 @@ sequenceDiagram
 | `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | UPDATE<br/>DELETE | ①既存ドキュメントのimagePath・confidenceを更新<br/>②旧画像ファイルを削除（ゴミファイル防止） |
 | `GET /plants` | **Cosmos DB** | READ | 全植物ドキュメントの取得（データ変更なし） |
 | `GET /plants/{id}` | **Cosmos DB** | READ | 単一ドキュメントの取得（データ変更なし） |
-| `DELETE /plants/{id}` | **Cosmos DB** | DELETE | ドキュメントのみ削除。**Blob上の画像は削除されない**（[バックログ](./09_backlog.md)参照） |
+| `DELETE /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | DELETE<br/>DELETE | ①ドキュメントを削除<br/>②`imagePath` が指す画像を削除（画像削除の失敗はログのみで、削除は成功扱い） |
 
 ### 2.3 ストレージ状態変化
 
@@ -160,10 +160,12 @@ POST /api/images/upload?code={FUNCTION_KEY}
 Content-Type: multipart/form-data
 
 {
-  file: [binary data],
+  image: [binary data],
   contextInfo: "〇〇山の標高1300m、日当たりの良い場所"
 }
 ```
+画像は `image` フィールドで送信します。`contextInfo` は500文字以内で、
+超過すると一時保存とAI呼び出しの前に 400 `INVALID_REQUEST` で弾かれます。
 
 **レスポンス（植物の場合）:**
 ```json
@@ -235,6 +237,9 @@ GET /api/plants/check-duplicate?name=桜&code={FUNCTION_KEY}
   }
 }
 ```
+
+`imagePath` には `POST /images/upload` が返したURLを指定します（ステップ4a・4b共通）。
+自ストレージアカウントの永続コンテナを指すURL以外は 400 `INVALID_REQUEST` になります。
 
 #### ステップ4a: 新規植物保存（重複なしの場合）
 ```http
@@ -329,9 +334,13 @@ sequenceDiagram
 sequenceDiagram
     participant Client as クライアント
     participant Delete as /plants/{id}
+    participant Blob as Azure Blob Storage
     participant Plants as /plants
 
     Client->>Delete: DELETE /plants/{id}
+    Delete->>Delete: ドキュメント削除前に imagePath を読む
+    Delete->>Blob: imagePath の画像を削除
+    Blob-->>Delete: 削除完了（失敗時はログのみ）
     Delete-->>Client: success message
     Client->>Plants: GET /plants
     Plants-->>Client: plants[] (更新された一覧)

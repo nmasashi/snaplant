@@ -74,7 +74,7 @@ NoSQLドキュメントデータベースとして設計され、JSONドキュ�
 - **name**: 必須項目、最大100文字
 - **characteristics**: 必須項目、最大500文字
 - **confidence**: 0.0以上100.0以下の数値
-- **imagePath**: 必須項目、有効なHTTPS URL
+- **imagePath**: 必須項目、画像アップロードAPIが返したURL（自ストレージアカウントの永続コンテナを指すURLのみ受け付ける）
 - **createdAt/updatedAt**: ISO 8601形式の日時文字列
 
 ## 5. 機能別Cosmos DBクエリ
@@ -139,7 +139,9 @@ await container.item(plantId, plantId).replace(updatedPlant);
 - **必須フィールド**: name, characteristics, confidence, imagePath, createdAt, updatedAt
 - **バリデーション**: アプリケーションレベルで実装
   - confidence: 0.0 ≤ confidence ≤ 100.0
-  - imagePath: 有効なHTTPS URL形式
+  - imagePath: URLとしてパースできること、かつホストが自ストレージアカウントの
+    Blobエンドポイント、先頭のパスセグメントが永続コンテナ名であること
+    （外部ホストや一時コンテナのURLは 400 で拒否。スキームは検証していない）
   - UUID: v4形式の正規表現チェック
 
 ### 6.2 ドキュメント削除
@@ -147,6 +149,8 @@ await container.item(plantId, plantId).replace(updatedPlant);
 // 植物ドキュメントの削除（SDK使用）
 await container.item(plantId, plantId).delete();
 ```
+削除前に `imagePath` を読んでおき、ドキュメント削除後に Blob Storage 上の画像も削除します
+（孤児Blobを残さないため）。画像削除の失敗はログ出力のみで、削除自体は成功として扱います。
 
 ## 7. 拡張性考慮
 

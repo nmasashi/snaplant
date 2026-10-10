@@ -6,11 +6,11 @@
 
 ## 🌱 概要
 
-SnapPlant は、Flutter で構築された植物図鑑モバイルアプリです。Azure OpenAI GPT-4o Vision を活用した高精度な植物識別機能と、Material Design 3.0 による美しいユーザーインターフェースを提供します。
+SnapPlant は、Flutter で構築された植物図鑑モバイルアプリです。Azure OpenAI（デプロイメント `gpt-5.6-luna`）を活用した高精度な植物識別機能と、Material Design 3.0 による美しいユーザーインターフェースを提供します。
 
 ### 主な機能
 - 📷 **カメラ撮影 & 画像選択** - 直感的な撮影インターフェース
-- 🤖 **AI植物識別** - Azure OpenAI GPT-4o Vision による高精度識別
+- 🤖 **AI植物識別** - Azure OpenAI（`gpt-5.6-luna`）による高精度識別
 - 📚 **植物図鑑** - 識別結果の保存・一覧表示
 - 🔍 **重複チェック** - 既存植物との重複確認
 - ⚙️ **設定管理** - APIキーのセキュア保存
@@ -28,7 +28,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 - **Azure Functions**: サーバーレス API ホスティング
 - **Azure Cosmos DB**: 植物データの永続化（無料枠活用）
 - **Azure Blob Storage**: 画像ファイルの保存（SAS URL対応）
-- **Azure OpenAI Service**: GPT-4o Vision による植物識別
+- **Azure OpenAI Service**: `gpt-5.6-luna` デプロイメントによる植物識別（画像入力）
 - **Application Insights**: 監視・ログ・分析
 
 ## 🚀 自動デプロイ

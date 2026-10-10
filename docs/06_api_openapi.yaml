@@ -198,7 +198,9 @@ paths:
       summary: 植物削除
       description: |
         指定されたIDの植物を削除します。
-        注: Cosmos DB のドキュメントのみ削除され、Blob Storage 上の画像は残ります。
+
+        Cosmos DB のドキュメントを削除した後、`imagePath` が指す Blob Storage 上の画像も削除します。
+        画像の削除に失敗した場合はログ出力のみで、ドキュメント削除は成功として 200 を返します。
       tags:
         - Plants
       parameters:
@@ -356,7 +358,11 @@ paths:
                   description: 画像ファイル (JPEG, PNG, WebP, GIF)
                 contextInfo:
                   type: string
-                  description: 撮影場所や環境情報（任意）
+                  maxLength: 500
+                  description: |
+                    撮影場所や環境情報（任意）。
+                    上限を超えると 400 `INVALID_REQUEST`（一時保存とAI呼び出しの前に弾かれる）。
+                    上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500）。
                   example: "〇〇山の標高1300m、日当たりの良い場所"
       responses:
         '201':
@@ -382,7 +388,10 @@ paths:
                         example: "https://stsnaplant.blob.core.windows.net/images/12345678-uuid.jpg"
                       fileName:
                         type: string
-                        description: アップロード時のファイル名
+                        description: |
+                          クライアントが送信したファイル名をそのまま返す。
+                          Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので、
+                          `imagePath` 末尾のファイル名とは一致しない。
                         example: "plant_image.jpg"
                       contentType:
                         type: string
@@ -429,6 +438,13 @@ paths:
                       code: "INVALID_REQUEST"
                       message: "画像ファイルが指定されていません"
                       details: "imageフィールドでファイルを送信してください"
+                context_info_too_long:
+                  summary: 補足情報が長すぎる
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "補足情報は500文字以内で指定してください"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '413':
@@ -594,7 +610,10 @@ components:
         imagePath:
           type: string
           format: uri
-          description: 画像URL
+          description: |
+            `POST /images/upload` が返した `imagePath` を指定する。
+            自ストレージアカウントの永続コンテナを指すURL以外（外部ホスト、一時コンテナなど）は
+            400 `INVALID_REQUEST`（message: 画像アップロードAPIが返したURLを指定してください）。
 
     PlantUpdateRequest:
       type: object
@@ -605,7 +624,11 @@ components:
         imagePath:
           type: string
           format: uri
-          description: 新しい画像URL
+          description: |
+            新しい画像URL。`POST /images/upload` が返した `imagePath` を指定する。
+            自ストレージアカウントの永続コンテナを指すURL以外（外部ホスト、一時コンテナなど）は
+            400 `INVALID_REQUEST`（message: 画像アップロードAPIが返したURLを指定してください）。
+            旧画像の削除が発火するため、保存前にホストとコンテナを検証している。
         confidence:
           type: number
           minimum: 0
@@ -626,21 +649,39 @@ components:
           type: string
           nullable: true
           maxLength: 500
-          description: 撮影場所や環境情報（任意）
+          description: |
+            撮影場所や環境情報（任意）。
+            上限を超えると 400 `INVALID_REQUEST`。
+            上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更可能（既定 500）。
           example: "〇〇山の標高1300m、日当たりの良い場所"
 
     IdentificationResult:
       type: object
       required:
+        - isPlant
         - candidates
       properties:
+        isPlant:
+          type: boolean
+          description: 画像に植物が写っているか
+          example: true
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: 植物判定の信頼度
+          example: 95.5
+        reason:
+          type: string
+          description: 判定理由（日本語）
         candidates:
           type: array
           items:
             $ref: '#/components/schemas/PlantCandidate'
-          minItems: 1
           maxItems: 3
-          description: 識別候補（最大3件）
+          description: |
+            識別候補（信頼度降順）。`isPlant: false` の場合は空配列。
+            上限3件はプロンプトで担保しており、スキーマ側では強制されない。
 
     PlantCandidate:
       type: object
