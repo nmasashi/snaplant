@@ -416,6 +416,23 @@ API を変更したら、あわせて更新する対象：
 - `README.md` のエンドポイント表
 - `mobile/lib/services/api_service.dart` — クライアント側の呼び出し
 
+### Cosmos のクエリを変更したら手で確認する
+
+**SQL の絞り込み・並び順・射影を検証しているテストは存在しない。**
+ユニットテストの偽物は SQL 文字列を解釈しないため原理的に検証できず、
+エミュレータも E2E も導入していない（環境が1つしかないため却下。`docs/09_backlog.md` 参照）。
+
+そのため `cosmosService.ts` のクエリを変更したら、**デプロイ後に手で確認する**。
+実測で穴が分かっている3点。
+
+| 確認すること | 崩れたときの症状 |
+|---|---|
+| `GET /api/plants` のレスポンスに余分なキーが出ていないか | 射影が崩れると `description` / `updatedAt` / `scientificName` が漏れ、`PlantSummary` の契約が壊れる |
+| `GET /api/plants` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失 |
+| `GET /api/plants/check-duplicate` が別名の植物を拾わないか | `WHERE` 句の消失 |
+
+偽物は渡したドキュメントをそのまま返すので、**射影の崩れは実際の Cosmos でしか観測できない。**
+
 ### クライアント実装で踏みやすい罠
 
 **`_parseResponse()` は非 2xx では封筒を一切読まない。** `ApiException` に固定の英文 `'API request failed'` を入れて投げるだけで、`error.code` も `error.message` も読まない。`userMessage` の `switch` も 409 を扱っていないため、**サーバが返した日本語のメッセージはユーザーに届かない**。`error.code` に依存した分岐はクライアントに存在しないので、新しいエラーコードを足してもクライアントは区別できない（バックログに記録済み）。
