@@ -242,19 +242,20 @@ void main() {
       expect(error.message, 'この画像は既に保存されています');
     });
 
-    test('削除の失敗でもサーバが返したエラーコードとメッセージを例外が保持する', () async {
-      final service = _serviceResponding('DELETE', '/api/plants/plant-1', 404, {
+    test('削除の失敗でもサーバが返した理由をユーザーに伝える', () async {
+      // 404 などは userMessage が固定文言を返すので、サーバの文言がそのまま出る 400 で確かめる
+      final service = _serviceResponding('DELETE', '/api/plants/not-a-uuid', 400, {
         'success': false,
         'error': {
-          'code': 'PLANT_NOT_FOUND',
-          'message': '指定された植物が見つかりません',
+          'code': 'INVALID_REQUEST',
+          'message': '植物IDの形式が無効です',
         },
       });
 
-      final error = await _captureApiException(() => service.deletePlant('plant-1'));
+      final error = await _captureApiException(() => service.deletePlant('not-a-uuid'));
 
-      expect(error.code, 'PLANT_NOT_FOUND');
-      expect(error.message, '指定された植物が見つかりません');
+      expect(error.code, 'INVALID_REQUEST');
+      expect(error.userMessage, '植物IDの形式が無効です');
     });
 
     test('封筒の形でないエラーボディでもステータスを添えた日本語のメッセージを返す', () async {
@@ -321,7 +322,8 @@ void main() {
     });
 
     test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {
-      // 502 を返すのは AI 識別を行うアップロードだけなので、アップロードで再現する
+      // 502（上流の AI・ストレージがエラーを返した）を返すエンドポイントのうち、
+      // クライアントが呼ぶのはアップロードだけなので、アップロードで再現する
       final tempDir = await Directory.systemTemp.createTemp('snaplant_test_');
       addTearDown(() => tempDir.delete(recursive: true));
       final file = File('${tempDir.path}/photo.jpg');

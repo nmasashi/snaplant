@@ -605,6 +605,6 @@ Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに
 | `GET` / `PUT /api/plants/{id}` | `{ plant }` |
 | `POST /api/plants/save` | `{ plant }` |
 | `DELETE /api/plants/{id}` | `{ message }` |
-| `POST /api/plants/identify` | `{ result }` |
+| `POST /api/plants/identify` | `{ result }`（クライアントからは呼んでいない） |
 | `GET /api/plants/check-duplicate` | `DuplicateCheckResult` を直接 |
 | `POST /api/images/upload` | `{ imagePath, fileName, contentType, fileSize, identificationResult }` |
