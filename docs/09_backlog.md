@@ -320,30 +320,23 @@ CLAUDE.md が「実行していないものを実行したように書かない�
 `uploadImage()` で実際に不整合が起きている。封筒の内側のキーが
 エンドポイントごとに違う点（CLAUDE.md の表）も、テストで固定する価値が高い。
 
-### Flutter と Terraform が CI の対象外
+### Flutter が CI の対象外
 
-`.github/workflows/ci.yml` のトリガーは `api/**` と `.github/workflows/**` のみ。
-`flutter analyze` も `flutter test` も `terraform validate` も自動実行されていない。
+`terraform fmt -check` と `terraform validate` は
+`.github/workflows/terraform.yml` として追加済み。残るのは Flutter。
 
-**判断: Terraform の静的チェックのみ入れる**（人間がトリアージ済み）。Flutter は後回し。
-
-`terraform fmt -check` と `terraform validate` は **Azure に通信せず認証情報も不要**。
-定義ファイルの構文と内部整合性を見るだけで、`npx tsc --noEmit` が型だけ見るのと同じ位置づけ。
-`plan` は認証情報が必要で、かつリポジトリに入っている `terraform.tfstate` が
-実態と乖離していると誤った差分を出すため CI では回さない。
-
-着手するのは Terraform のみ。 `terraform fmt -check` と
-`terraform validate` は SDK のセットアップが軽く、実行も数秒で、
-`terraform.tfstate` がリポジトリに入っている構成では壊れた定義を
-push する事故を直接防ぐ。トリガーに `infrastructure/**` を足すだけで済む。
-
-Flutter はその次。`subosito/flutter-action` で `flutter analyze` と
-`flutter test` を入れる。**これは WSL で検証できない作業の保険として特に効く** —
+`flutter analyze` と `flutter test` は自動実行されていない。
 現状、Dart コードの変更は誰も自動で検証していない。
+WSL から実行できないため、人間が Windows 側で回すまで検証されない状態。
 
-ただし `mobile/` のアーキテクチャ方針が未決定（`provider` / `go_router` / `dio` が
-宣言だけで未使用）な状態で `flutter analyze` を必須化すると、
-方針を決める作業が CI に阻まれる可能性がある。先に方針を決める方が順序としては自然。
+**判断: 後回し**（人間がトリアージ済み）。
+
+`mobile/` のアーキテクチャ方針が未決定（`provider` / `go_router` / `dio` が
+`pubspec.yaml` にあるのに使用実績ゼロ）な状態で `flutter analyze` を
+必須化すると、方針を決める作業が CI に阻まれる可能性がある。
+先に方針を決める方が順序として自然。
+
+入れるときは `subosito/flutter-action` を使う。
 
 ### `ApiService.uploadImage()` が未使用
 
@@ -526,6 +519,54 @@ throw wrapped;
 全ハンドラに波及する。独自のエラー型を導入する案も同様に波及が大きい。
 
 同種の問題が `cosmosService.ts` にもないか、着手時に確認すること。
+
+### 状態を持つ偽物が5箇所に複製されていて食い違っている
+
+テストで使う状態を持つ偽物（`FakeCosmosBackend` / `FakeBlobBackend`）が、
+Cosmos 用が5ファイル、Blob 用が5ファイルに**それぞれ別々に書かれている**。
+
+CLAUDE.md の「新規テストはファイル内で完結させる」方針に従った結果だが、
+複製したので**既に食い違っている**。
+
+| 要素 | save | plantDetail | updatePlant | upload | checkDuplicate |
+|---|---|---|---|---|---|
+| Blob の `failWith` | — | 追加済み | ある | **無い** | — |
+| 404 ヘルパーの名前 | — | `notFoundBlobError` | 同 | **`notFoundError`** | — |
+| 全体の形 | 新式 | 新式 | 新式 | 新式 | **旧式と混在** |
+
+**この食い違いが実際にテストの穴を作った。** `plantDetail` の偽物に
+`failWith` が無かったため、「画像削除に失敗してもドキュメント削除は
+成功扱い」という振る舞い（CLAUDE.md が明記）が未検証だった。
+`updatePlant` 側だけが検証していた（0b34153 で修正）。
+
+偽物が持っているのは**SDK の契約に関する知識**である。
+
+- `Item.read()` は NotFound を投げずに `resource: undefined` を返す
+- `replace()` と `delete()` は投げる
+- パーティションキーは `(id, id)` で渡す
+- Blob の 404 は成功扱い
+
+これが5箇所でバラバラに劣化すると、どのテストが実 SDK と同じ前提で
+動いているか分からなくなる。
+
+**判断が必要な点**: 共有モジュールに出すか、複製のまま忠実度を揃えるか。
+
+**推奨**: **`tests/fakes/` に出し、各 `beforeEach` で明示的に構築する。**
+
+```typescript
+const { container, documents } = createFakeCosmos();
+```
+
+CLAUDE.md の方針が禁じたのは「どのモック設定が効いているか追えない
+二重構造」であって、ヘルパーの共有そのものではないと読む。
+この形なら各ファイルが明示的に呼ぶので、何が効いているかはファイル内に
+見えたままで、`tests/setup.ts` のような暗黙のグローバル設置とは性質が違う。
+
+現状維持を選ぶ場合は、上の表の忠実度を揃える作業が必要
+（`failWith` の追加、命名統一、`checkDuplicate` の形を他に合わせる）。
+揃え続けるコストが、今回のような抜けを生み続ける。
+
+採用する場合は CLAUDE.md の「テストの流儀」節の記述も更新すること。
 
 ### Web 経路が実際の MIME を無視して image/jpeg を送る
 

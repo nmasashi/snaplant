@@ -51,7 +51,7 @@ variable "cosmos_db_throughput" {
 variable "functions_plan_tier" {
   description = "SKU for the App Service Plan"
   type        = string
-  default     = "Y1"  # Consumption plan
+  default     = "Y1" # Consumption plan
   validation {
     condition = contains([
       "Y1",  # Consumption
@@ -84,11 +84,11 @@ variable "storage_replication_type" {
   default     = "LRS"
   validation {
     condition = contains([
-      "LRS",  # Locally redundant storage
-      "GRS",  # Geo-redundant storage
+      "LRS",   # Locally redundant storage
+      "GRS",   # Geo-redundant storage
       "RAGRS", # Read-access geo-redundant storage
-      "ZRS",  # Zone-redundant storage
-      "GZRS", # Geo-zone-redundant storage
+      "ZRS",   # Zone-redundant storage
+      "GZRS",  # Geo-zone-redundant storage
       "RAGZRS" # Read-access geo-zone-redundant storage
     ], var.storage_replication_type)
     error_message = "Storage replication type must be one of: LRS, GRS, RAGRS, ZRS, GZRS, RAGZRS."
@@ -117,7 +117,7 @@ variable "openai_location" {
   validation {
     condition = contains([
       "East US",
-      "East US 2", 
+      "East US 2",
       "North Central US",
       "South Central US",
       "West Europe",
@@ -134,8 +134,8 @@ variable "openai_sku" {
   default     = "S0"
   validation {
     condition = contains([
-      "F0",  # Free tier (limited)
-      "S0"   # Standard tier
+      "F0", # Free tier (limited)
+      "S0"  # Standard tier
     ], var.openai_sku)
     error_message = "OpenAI SKU must be either F0 or S0."
   }

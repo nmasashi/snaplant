@@ -1,0 +1,49 @@
+name: Terraform
+
+# ci.yml とは別のワークフローにしている。
+# deploy-functions.yml が ci.yml を workflow_call で呼び、その成功を
+# デプロイの前提にしているため、ci.yml にジョブを足すと
+# インフラ定義の整形崩れが API のデプロイを止めてしまう。
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/terraform.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/terraform.yml'
+
+jobs:
+  validate:
+    name: Format and Validate
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infrastructure
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    # 以下はいずれも Azure へ通信せず、認証情報も不要。
+    # 定義ファイルの構文と内部整合性を見るだけで、npx tsc --noEmit が
+    # 型だけ見るのと同じ位置づけ。
+    #
+    # plan は回さない。認証情報が必要になるうえ、リポジトリに入っている
+    # terraform.tfstate が実態と乖離していると誤った差分を出す。
+    - name: Check formatting
+      run: terraform fmt -check -recursive
+
+    # -backend=false でバックエンドの初期化を飛ばし、プロバイダの取得だけ行う
+    - name: Initialize without backend
+      run: terraform init -backend=false
+
+    - name: Validate configuration
+      run: terraform validate

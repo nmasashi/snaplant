@@ -387,7 +387,9 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・`npm audit`・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。`mobile/` と `infrastructure/` は CI の対象外で、Flutter のテストも `flutter analyze` も自動実行されない。
+- `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・`npm audit`・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
+- `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/` 配下の変更のみ。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
+- **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（`mobile/` のアーキテクチャ方針が未決定の間は入れない判断。`docs/09_backlog.md` 参照）。
 - `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
 - デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する
 

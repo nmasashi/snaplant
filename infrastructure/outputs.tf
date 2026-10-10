@@ -124,10 +124,10 @@ output "openai_deployment_name" {
 output "deployment_summary" {
   description = "Summary of deployed resources"
   value = {
-    resource_group = azurerm_resource_group.main.name
-    function_app_url = "https://${azurerm_linux_function_app.main.name}.azurewebsites.net"
-    storage_endpoint = azurerm_storage_account.main.primary_blob_endpoint
-    cosmos_db_endpoint = azurerm_cosmosdb_account.main.endpoint
+    resource_group        = azurerm_resource_group.main.name
+    function_app_url      = "https://${azurerm_linux_function_app.main.name}.azurewebsites.net"
+    storage_endpoint      = azurerm_storage_account.main.primary_blob_endpoint
+    cosmos_db_endpoint    = azurerm_cosmosdb_account.main.endpoint
     azure_openai_endpoint = azurerm_cognitive_account.openai.endpoint
   }
 }
