@@ -40,6 +40,7 @@ describe('植物識別API', () => {
   afterEach(() => {
     jest.clearAllMocks();
     delete process.env.OPENAI_API_KEY;
+    delete process.env.CONTEXT_INFO_MAX_LENGTH;
   });
 
   describe('正常系', () => {
@@ -387,6 +388,62 @@ describe('植物識別API', () => {
           message: '補足情報は500文字以内で指定してください'
         }
       });
+    });
+
+    it('CONTEXT_INFO_MAX_LENGTHが数値でない文字列の場合でも、501文字のcontextInfoは拒否される', async () => {
+      // parseInt('invalid')はNaNになり、`501 > NaN`はfalseなので、
+      // 対策前は上限が消えて素通りしてしまう（contextInfoだけがfail openになる非対称）。
+      //
+      // constants/validation.ts の定数はモジュール読み込み時に一度だけ評価されるため、
+      // このファイル先頭で静的importしたidentifyPlantHandlerは既にデフォルト値(500)で
+      // 固定されている。環境変数を変えてもそのままでは反映されないため、
+      // jest.resetModules()してからidentify.tsを読み込み直す
+      process.env.CONTEXT_INFO_MAX_LENGTH = 'invalid';
+      jest.resetModules();
+
+      // resetModules()でモジュールレジストリが空になると、openaiのモックも
+      // beforeEachで配線したMockedOpenAIとは別の新しいインスタンスになる。
+      // 配線し直さないと、バリデーションを素通りした後にOpenAI呼び出しが
+      // 未配線のまま失敗し、「素通りしたので200で返る」という本来確認したい
+      // 失敗理由とは別の理由（OpenAIモック未配線の500エラー）でテストが落ちる
+      const FreshOpenAI = require('openai');
+      const freshChatCompletions = {
+        create: jest.fn().mockResolvedValue({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                isPlant: true,
+                confidence: 90,
+                reason: 'テスト',
+                plantAnalysis: { candidates: [] }
+              })
+            }
+          }]
+        })
+      };
+      if (FreshOpenAI && typeof FreshOpenAI.mockImplementation === 'function') {
+        FreshOpenAI.mockImplementation(() => ({ chat: { completions: freshChatCompletions } }));
+      }
+
+      const { identifyPlantHandler: handlerWithInvalidEnv } = require('../../src/functions/identify');
+
+      // リクエストの作成（contextInfoが501文字、他のフィールドは正当な値）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          imagePath: 'https://example.com/sakura.jpg',
+          contextInfo: 'あ'.repeat(501)
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await handlerWithInvalidEnv(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
     });
 
     it('contextInfoに文字列ではない配列を指定した場合は400エラー', async () => {

@@ -2,10 +2,30 @@
  * バリデーション関連の定数
  */
 
+/**
+ * 環境変数から正の整数を読む
+ *
+ * parseInt は数値でない文字列に対して NaN を返す。NaN をそのまま上限値に
+ * 使うと、比較の向きによって挙動が変わる。
+ *
+ * - `length > NaN` は常に false。つまり**上限が静かに消える**（fail open）
+ * - `size <= NaN` は常に false。全部拒否になる（fail closed）
+ *
+ * 前者が危険なので、数値として読めない場合は既定値へフォールバックする。
+ * あわせてエラーメッセージに NaN が出ることも防ぐ
+ * @param value 環境変数の値
+ * @param fallback 読めない場合に使う既定値
+ * @returns 正の整数
+ */
+function positiveIntFromEnv(value: string | undefined, fallback: number): number {
+  const parsed = parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // ファイルアップロード制限
 export const FILE_UPLOAD = {
   // 最大ファイルサイズ（バイト）
-  MAX_SIZE: parseInt(process.env.MAX_FILE_SIZE || '10485760'), // デフォルト: 10MB
+  MAX_SIZE: positiveIntFromEnv(process.env.MAX_FILE_SIZE, 10485760), // デフォルト: 10MB
   
   // サポートされる画像形式
   SUPPORTED_IMAGE_TYPES: [
@@ -33,7 +53,7 @@ export const FILE_UPLOAD = {
 
   // エラーメッセージ
   ERROR_MESSAGES: {
-    SIZE_EXCEEDED: `ファイルサイズは${Math.floor(parseInt(process.env.MAX_FILE_SIZE || '10485760') / 1024 / 1024)}MB以下にしてください`,
+    SIZE_EXCEEDED: `ファイルサイズは${Math.floor(positiveIntFromEnv(process.env.MAX_FILE_SIZE, 10485760) / 1024 / 1024)}MB以下にしてください`,
     UNSUPPORTED_TYPE: 'JPEG、PNG、WebP、GIFファイルのみアップロード可能です'
   }
 } as const;
@@ -42,11 +62,11 @@ export const FILE_UPLOAD = {
 export const PLANT_VALIDATION = {
   // 各フィールドの最大文字数
   MAX_LENGTH: {
-    NAME: parseInt(process.env.PLANT_NAME_MAX_LENGTH || '100'),
-    SCIENTIFIC_NAME: parseInt(process.env.PLANT_SCIENTIFIC_NAME_MAX_LENGTH || '150'),
-    FAMILY_NAME: parseInt(process.env.PLANT_FAMILY_NAME_MAX_LENGTH || '100'),
-    DESCRIPTION: parseInt(process.env.PLANT_DESCRIPTION_MAX_LENGTH || '1000'),
-    CHARACTERISTICS: parseInt(process.env.PLANT_CHARACTERISTICS_MAX_LENGTH || '500')
+    NAME: positiveIntFromEnv(process.env.PLANT_NAME_MAX_LENGTH, 100),
+    SCIENTIFIC_NAME: positiveIntFromEnv(process.env.PLANT_SCIENTIFIC_NAME_MAX_LENGTH, 150),
+    FAMILY_NAME: positiveIntFromEnv(process.env.PLANT_FAMILY_NAME_MAX_LENGTH, 100),
+    DESCRIPTION: positiveIntFromEnv(process.env.PLANT_DESCRIPTION_MAX_LENGTH, 1000),
+    CHARACTERISTICS: positiveIntFromEnv(process.env.PLANT_CHARACTERISTICS_MAX_LENGTH, 500)
   },
   
   // 信頼度の範囲
@@ -57,11 +77,11 @@ export const PLANT_VALIDATION = {
   
   // エラーメッセージ
   ERROR_MESSAGES: {
-    NAME_TOO_LONG: `植物名は${parseInt(process.env.PLANT_NAME_MAX_LENGTH || '100')}文字以内で指定してください`,
-    SCIENTIFIC_NAME_TOO_LONG: `学名は${parseInt(process.env.PLANT_SCIENTIFIC_NAME_MAX_LENGTH || '150')}文字以内で指定してください`,
-    FAMILY_NAME_TOO_LONG: `科名は${parseInt(process.env.PLANT_FAMILY_NAME_MAX_LENGTH || '100')}文字以内で指定してください`,
-    DESCRIPTION_TOO_LONG: `説明は${parseInt(process.env.PLANT_DESCRIPTION_MAX_LENGTH || '1000')}文字以内で指定してください`,
-    CHARACTERISTICS_TOO_LONG: `特徴は${parseInt(process.env.PLANT_CHARACTERISTICS_MAX_LENGTH || '500')}文字以内で指定してください`,
+    NAME_TOO_LONG: `植物名は${positiveIntFromEnv(process.env.PLANT_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
+    SCIENTIFIC_NAME_TOO_LONG: `学名は${positiveIntFromEnv(process.env.PLANT_SCIENTIFIC_NAME_MAX_LENGTH, 150)}文字以内で指定してください`,
+    FAMILY_NAME_TOO_LONG: `科名は${positiveIntFromEnv(process.env.PLANT_FAMILY_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
+    DESCRIPTION_TOO_LONG: `説明は${positiveIntFromEnv(process.env.PLANT_DESCRIPTION_MAX_LENGTH, 1000)}文字以内で指定してください`,
+    CHARACTERISTICS_TOO_LONG: `特徴は${positiveIntFromEnv(process.env.PLANT_CHARACTERISTICS_MAX_LENGTH, 500)}文字以内で指定してください`,
     CONFIDENCE_OUT_OF_RANGE: '信頼度は0から100の間の数値で指定してください'
   }
 } as const;
@@ -73,10 +93,10 @@ export const PLANT_VALIDATION = {
 // 既に maxLength: 500 を強制しているが、APIはFunction Keyがあれば
 // 直接叩けるのでサーバ側でも守る
 export const CONTEXT_INFO_VALIDATION = {
-  MAX_LENGTH: parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500'),
+  MAX_LENGTH: positiveIntFromEnv(process.env.CONTEXT_INFO_MAX_LENGTH, 500),
 
   ERROR_MESSAGES: {
-    TOO_LONG: `補足情報は${parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500')}文字以内で指定してください`,
+    TOO_LONG: `補足情報は${positiveIntFromEnv(process.env.CONTEXT_INFO_MAX_LENGTH, 500)}文字以内で指定してください`,
     NOT_A_STRING: '補足情報は文字列で指定してください'
   }
 } as const;

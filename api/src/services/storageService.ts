@@ -421,7 +421,26 @@ export class StorageService {
       // 最初のセグメントだけを見ると中間に任意のセグメントを挟んだURLも通り、
       // 存在しないBlobを指す壊れた参照を保存できてしまう
       const segments = url.pathname.split('/');
-      return segments.length === 3 && segments[1] === containerName && segments[2] !== '';
+      if (segments.length !== 3 || segments[1] !== containerName || segments[2] === '') {
+        return false;
+      }
+
+      // 最後に、生の文字列が正規形と完全一致することを要求する。
+      //
+      // ここまでの検証はすべて new URL() のパース結果を見ているが、
+      // パースは差異を吸収してしまう。ホストの大文字小文字や先頭の空白は
+      // 正規化され、クエリ文字列・フラグメント・認証情報は pathname に出ない。
+      // つまり「同じBlobを指す別の文字列」が全部通る。
+      //
+      // 保存されるのは url.href ではなく生の文字列なので、それがそのまま
+      // Cosmos に入る。すると文字列比較に頼っている2箇所が誤作動する。
+      //
+      // - save の重複チェック（imagePath の完全一致）を素通りできる
+      // - updatePlant の旧画像削除の判定（oldImagePath !== 新しい値）が
+      //   「変わった」と誤判定し、更新後も指している画像を削除する
+      //
+      // 認証情報付きのURLを保存できてしまう問題も同時に塞がる
+      return imagePath === `https://${expectedHost}/${containerName}/${segments[2]}`;
     } catch (error) {
       return false;
     }

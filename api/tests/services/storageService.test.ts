@@ -603,5 +603,58 @@ describe('StorageService', () => {
         'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
       )).toBe(true);
     });
+
+    it('クエリ文字列が付いたURLの場合、falseを返す', () => {
+      // ホスト・コンテナ・Blob名は正当な形だが、クエリ文字列が付いている。
+      // URLを正規化せずにセグメントだけを見る実装は、クエリ文字列の有無を
+      // 区別できずこのURLも受理してしまう。保存されるimagePathが
+      // 文字列として素のURLと食い違うため、重複チェック（文字列完全一致）を
+      // 素通りできたり、更新時の旧画像削除判定（文字列比較）を誤作動させたりする
+      expect(StorageService.isValidImagePath(
+        'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg?x=1'
+      )).toBe(false);
+    });
+
+    it('フラグメントが付いたURLの場合、falseを返す', () => {
+      // ホスト・コンテナ・Blob名は正当な形だが、フラグメントが付いている。
+      // new URL().pathname にはフラグメントが出ないため、ここまでの検証は
+      // すべて通過してしまう。クエリ文字列のケースと同じく、生の文字列が
+      // フラグメント付きのまま保存されると、文字列完全一致に頼るsaveの
+      // 重複チェックやupdatePlantの旧画像削除判定を誤作動させる
+      expect(StorageService.isValidImagePath(
+        'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg#f'
+      )).toBe(false);
+    });
+
+    it('認証情報が付いたURLの場合、falseを返す', () => {
+      // ホスト・コンテナ・Blob名は正当な形だが、ユーザー名とパスワードが
+      // 埋め込まれている。new URL().host はuserinfoを含まないため、
+      // ホスト検証はここでも通過してしまう。この文字列がそのままCosmosに
+      // 保存されると資格情報が平文でデータベースに残ってしまうため、
+      // 他のケース（文字列比較の誤作動）とは異なる害を持つ
+      expect(StorageService.isValidImagePath(
+        'https://u:p@test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
+
+    it('ホストが大文字のURLの場合、falseを返す', () => {
+      // ホスト名の大文字小文字はDNS上は区別されないため、new URL().host は
+      // 自動的に小文字化される。パース結果だけを見るホスト検証はここで
+      // 一致してしまい、後続のセグメント検証も通過する。生の文字列同士の
+      // 完全一致だけがこの違いを検出する
+      expect(StorageService.isValidImagePath(
+        'https://TEST.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
+
+    it('先頭に空白があるURLの場合、falseを返す', () => {
+      // new URL() はWHATWGの仕様で先頭の空白を解析前に取り除くため、
+      // 空白付きの文字列でもパース結果のホスト・パスには影響が出ず、
+      // ここまでの検証をすべて通過してしまう。生の文字列同士の完全一致だけが
+      // 先頭の空白を検出する
+      expect(StorageService.isValidImagePath(
+        ' https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
+      )).toBe(false);
+    });
   });
 });
