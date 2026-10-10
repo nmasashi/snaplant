@@ -21,48 +21,36 @@ Dart に触る作業はここに集める。Windows 側でセッションを1回
 
 | 項目 | 判断 | 内容 |
 |---|---|---|
-| [Flutter 側のテストがほぼ無い](#flutter-側のテストがほぼ無い) | **決定済み** | その場で書く。WSL で書き溜めない |
-| [`ApiService.uploadImage()` が未使用](#apiserviceuploadimage-が未使用) | **決定済み** | 削除する |
-| [409 を英文のまま表示](#flutter-が-409-を英文のまま表示しリトライから回復できない) | **決定済み** | `ApiException` に封筒を読ませ、409 を成功相当に扱う |
-| [`api_response.dart` の型不一致](#api_responsedart-の型がサーバの封筒と合っていない) | **決定済み** | 上と同時に、封筒に合わせて書き直す |
-| [Content-Type が実データと一致しない](#画像の-content-type-が実データと一致しない判定が2経路に分かれている) | **決定済み** | マジックバイトで判定する関数を1つ作り、Web とネイティブの両経路から呼ぶ |
+| [`ApiService.identifyPlant()` が未使用](#apiserviceidentifyplant-が未使用) | 判断待ち | 削除するか、再識別の機能として使うか |
+| [`deletePlant()` だけがエラーの封筒を読まない](#deleteplant-だけがエラーの封筒を読まない) | 判断待ち | `ApiException.fromResponse()` に揃えるか |
+
+第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
+Content-Type のマジックバイト判定）は #2 で対応済み。
 
 ### 最初にやること
 
 ```powershell
 cd mobile
 flutter pub get      # pubspec.lock はコミット済みだが .dart_tool/ は無いので必要
-flutter analyze      # 着手前の状態を確認する（既存の指摘があるかを先に見る）
-flutter test         # 現状は test/widget_test.dart の1本だけ
+flutter analyze      # 着手前の状態を確認する（既存の141件で終了コード1になる。CLAUDE.md 参照）
+flutter test
 ```
 
-**読む順序**。上記の項目はほぼ `ApiService` とその戻り値の型に集中している。
-
-| 順 | ファイル | 見るところ |
-|---|---|---|
-| 1 | `mobile/lib/services/api_service.dart` | `_parseResponse()` と `_buildUrl()`。下記の項目の大半がここ |
-| 2 | `mobile/lib/models/api_response.dart` | サーバの封筒 `{ success, data }` との対応 |
-| 3 | `docs/06_api_openapi.yaml` | 封筒の内側のキーがエンドポイントごとに違う（CLAUDE.md に一覧がある） |
-| 4 | `mobile/test/widget_test.dart` | 既存テストの書き方。テストは1本しかないので慣習はここから読めない |
-
-**先に CLAUDE.md の「クライアント実装で踏みやすい罠」節を読むこと。**
-`_parseResponse()` がボディ全体を渡すため各メソッドが自分で `json['data']` を
-剥がす必要があり、過去に `identifyPlant()` と `uploadImage()` で実際に踏んでいる。
+**先に CLAUDE.md の「クライアント実装で踏みやすい罠」節と、`mobile/` 節のテストの注意点を読むこと。**
+テストの書き方は `mobile/test/services/api_service_test.dart`（`MockClient` で HTTP を差し替える）と
+`mobile/test/screens/identification_screen_test.dart`（画面のテスト）が手本になる。
 
 `dev_dependencies` は `flutter_test` と `flutter_lints` だけ。テスト専用の
 補助パッケージ（mocktail などのモック生成）は入っていない。
-HTTP をモックする必要が出たら `http` の `MockClient`（`package:http/testing.dart`、
-`http` に同梱なので追加不要）を使う。新しい依存を増やす前に
+HTTP は `http` 同梱の `MockClient` で足りている。新しい依存を増やす前に
 CLAUDE.md の「`provider` / `go_router` / `dio` / `uuid` / `intl` は使用実績ゼロ、
 使い始める前に方針を決める」を確認すること。
 
 **進め方**: テストを書いてから実装する順序は維持する。赤緑の確認が
 Windows 側に移るだけ（CLAUDE.md の TDD の節）。
-`ApiService` の改修とテストの新規作成が同じセッションに入るので、
-**テストを先に書いて赤を確認してから改修する**こと。
 
 CI に `flutter analyze` を入れるかは
-[Flutter と Terraform が CI の対象外](#flutter-が-ci-の対象外)にある。
+[Flutter が CI の対象外](#flutter-が-ci-の対象外)にある。
 `mobile/` のアーキテクチャ方針が未決定の間は入れない判断になっている。
 
 ---
@@ -159,28 +147,6 @@ API Management を前段に置くと固定費が発生し、`DEPLOYMENT.md` の�
 
 ## 既知の不具合・改善
 
-### Flutter 側のテストがほぼ無い
-
-`mobile/test/` にはアプリが起動することを確認するスモークテスト1本しかない。
-`ApiService` のレスポンス封筒の解釈は過去に実際に不整合を起こしているため、
-`http.Client` をモックしたユニットテストの価値が高い。
-
-`test-writer` サブエージェントで書けるが、WSL から `flutter test` は実行できないため
-実行と確認は Windows 側で行う必要がある。
-
-**判断: Windows 側で `flutter test` を回せるセッションを1回取り、その場で書く**（人間がトリアージ済み）。
-
-WSL セッションで先に書き溜めておくことは意図的に避けた。赤も緑も確認できないまま
-Dart のテストを置いていくと、構文エラー1つで「テストがある」という誤った信号だけが残る。
-CLAUDE.md が「実行していないものを実行したように書かない」と定めている趣旨からも、
-未検証のテストを成果物として置くのは筋が悪い。
-
-優先して書く対象は `ApiService` のレスポンス封筒の解釈。
-`_parseResponse()` がボディ全体をコールバックに渡すため各メソッドが
-自分で `json['data']` を剥がす必要があり、過去に `identifyPlant()` と
-`uploadImage()` で実際に不整合が起きている。封筒の内側のキーが
-エンドポイントごとに違う点（CLAUDE.md の表）も、テストで固定する価値が高い。
-
 ### Flutter が CI の対象外
 
 `terraform fmt -check` と `terraform validate` は
@@ -209,27 +175,42 @@ WSL から実行できないため、人間が Windows 側で回すまで検証�
 - 先に141件を解消する（アーキテクチャ方針の決定と重なる作業）
 - `--no-fatal-infos` / `--no-fatal-warnings` で当面エラーのみを失敗条件にする
 
-`flutter test` は通る（スモークテスト1本のみ）。
+`flutter test` は通る（2026-10-11 時点で23本。#2 で `ApiService` と保存画面のテストを追加）。
 
-### `ApiService.uploadImage()` が未使用
+### `ApiService.identifyPlant()` が未使用
 
-`mobile/lib/services/api_service.dart` の `uploadImage()` は
-「従来版・互換性のため残存」とあるが、呼び出し元が存在しない。
-呼び出すエンドポイントは `uploadAndIdentifyImage()` と同じ `/api/images/upload` で、
-AI 識別も走るため「単純アップロード」という元の意味は既に失われている。削除候補。
+`mobile/lib` に呼び出し元が無い（2026-10-11 に grep で確認）。
+識別は `uploadAndIdentifyImage()` が `POST /api/images/upload` の中で同時に行っており、
+`POST /api/plants/identify` を叩く経路はアプリに存在しない。
+PR #1 でパスと封筒の剥がし方を直し、`contextInfo` を足したが、使われてはいない。
 
-さらに `contract-auditor` の監査で、**このメソッドは呼ばれても必ず失敗する**ことが
-判明した。`MultipartFile.fromBytes/fromPath` に `contentType` を渡していないため
-`application/octet-stream` になり、`upload.ts` の `isValidImageContentType()` で
-415 `UNSUPPORTED_MEDIA_TYPE` になる。`uploadAndIdentifyImage()` は正しく渡している。
+テストは `mobile/test/services/api_service_test.dart` にある（封筒 `data.result` の解釈と、502 の表示）。
 
-**判断: 削除する**（人間がトリアージ済み）。名前が「単純アップロード」を約束しているのに
-実際は AI 識別が走って課金されるため、残すほど誤用の危険がある。
-加えて動かないコードでもある。
-`uploadAndIdentifyImage()` が同じエンドポイントを正しい名前で叩いている。
+**判断が必要な点**: 削除するか、使い道を作るか。
 
-Dart なので削除後に Windows 側で `flutter analyze` が必要。
-上記「Flutter 側のテストがほぼ無い」と同じセッションでまとめて処理するのが効率的。
+**推奨**: **削除する。** 同じ理由で `uploadImage()` を削除した（#2）。
+使われないメソッドは、サーバの変更に追従したかどうかを誰も実行時に確かめないため、
+壊れたまま残りやすい。サーバの `identify` は API として残るので、
+「撮り直さずに補足情報だけ変えて再識別する」機能を作るときに足し直せばよい。
+削除する場合は上記のテスト2本も消す（502 の表示のテストは `savePlant` など別の呼び出しに移す）。
+
+### `deletePlant()` だけがエラーの封筒を読まない
+
+`ApiService` の他のメソッドは `_parseResponse()` 経由で
+`ApiException.fromResponse()` を通り、サーバの `error.code` / `error.message` を持つ。
+`deletePlant()` だけは `_parseResponse()` を使わず、非 2xx で
+固定の `'植物の削除に失敗しました'` を入れた `ApiException` を自前で投げる。
+
+**実害は小さい。** `userMessage` は 404 / 500 / 503 を固定文言で返すため、
+サーバのメッセージが無くても表示は変わらない。差が出るのはそれ以外のステータス
+（400 など）で、サーバの理由ではなく「削除に失敗しました」になる点と、
+`ApiException.code` が常に null になる点。
+
+**判断が必要な点**: 揃えるか。
+
+**推奨**: **揃える。** `ApiException.fromResponse(response)` に置き換えるだけで、
+クライアントのエラー解釈が1経路になる。テストは `api_service_test.dart` の
+エラーレスポンスのテストと同じ形で書ける。
 
 ### Azurite などパス形式のエンドポイントに対応していない
 
@@ -262,60 +243,6 @@ Azurite を導入すると「本番と同じ検証ロジックが通らない」
 同じ文脈の Cosmos DB Emulator / E2E は却下済み
 （`10_proposals.md` の「Cosmos の SQL を検証する層を作る」）。
 
-### Flutter が 409 を英文のまま表示し、リトライから回復できない
-
-`mobile/lib/services/api_service.dart` の `_parseResponse()` は、非 2xx で
-**封筒を一切読まない**。
-
-```dart
-throw ApiException(
-  statusCode: response.statusCode,
-  message: 'API request failed',   // 固定の英文
-  body: response.body,              // 封筒は文字列として保持するだけ
-);
-```
-
-`ApiException.userMessage` の `switch` は 0 / 401 / 404 / 429 / 500 / 502 / 503 だけを
-扱い、**409 は `default` に落ちて `message` をそのまま返す**。
-`identification_screen.dart` の `_savePlant()` の catch は `e.userMessage` を
-スナックバーに出す。
-
-**実行時にどうなるか**: 保存に成功したがレスポンスが届かず、ユーザーが
-もう一度「保存」を押すと、**赤いスナックバーに英語の `API request failed` が出る**。
-保存自体は成功しているのに失敗したように見え、ユーザーは同じ操作を繰り返す
-（毎回409）。`Navigator.pop(context, true)` に到達しないため一覧へ戻らず、
-「既に図鑑にある」ことにも気づけない。
-
-409 は以前も Cosmos の制約エラーで起こり得たが稀だった。
-**491c855 で `save` が重複を 409 で拒むようにしたため、到達頻度が大きく上がった。**
-既存の穴だが、実質的には今回の変更が招いた問題として扱うべき。
-
-**判断: クライアント側を直す**（人間がトリアージ済み）。サーバは意図どおり
-（`id` を返さない設計の根拠は 491c855 に記録済み）。最小の修正は次の2つ。
-
-1. `ApiException` にサーバの `error.code` / `error.message` を持たせる
-2. `savePlant()` が 409 `IMAGE_ALREADY_SAVED` のときは「この画像は既に
-   保存されています」を表示して一覧へ戻す（成功相当に扱う）
-
-仕様どおり「既存レコードを `GET /api/plants` から探す」までやるかは設計判断。
-
-Dart の変更なので WSL では検証できない。
-[Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
-`ApiException` に封筒を読ませる改修は、下記
-[`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
-と同時にやるのが自然。
-
-**あわせて検討すること（contract-auditor の監査で判明）**:
-`userMessage` は `case 500: case 502: case 503:` を1つにまとめており、
-**502 と 503 を区別していない**。サーバ側は意味を分けている
-（502 = 上流に到達したがエラー応答、503 = 到達できない）ので、
-封筒を読ませる改修のついでにメッセージを分けるかを決めたい。
-503 は時間を置けば回復しうるので「しばらく待って再試行」、
-502 は再試行しても同じ結果になりやすい。
-`isServerError`（`api_service.dart`）がどこからも使われていない点と、
-`userMessage` の `case 429` に対応するステータスがサーバに存在しない点
-（レート制限は未実装）も、同じ関数を触るついでに片付けられる。
-
 ### `save` の重複チェックは read-then-write で同時リクエストに効かない
 
 `api/src/functions/save.ts` は `getPlantByImagePath()` でクエリしてから
@@ -337,23 +264,6 @@ Terraform の `azurerm_cosmosdb_sql_container.plants` に `unique_key` ブロッ
 **推奨**: **当面は現状のまま。** モバイルの手動リトライには時間差があるため
 実害が小さい。根本解決にはパーティションキーの変更という設計変更が必要で、
 得られるものに対してコストが大きい。
-
-### `api_response.dart` の型がサーバの封筒と合っていない
-
-`mobile/lib/models/api_response.dart` の `ApiError.fromJson` は
-`detail`（サーバは `details`）と `statusCode`（サーバはボディに含めない）を
-必須で読む。`ApiResponse.fromJson` は `json['error'] as String?` と、
-エラーをオブジェクトではなく**文字列**として扱う。
-
-サーバの封筒は `{ success, error: { code, message, details? } }`。
-
-`lib` / `test` 配下に参照箇所が1つも無いため**現時点では何も起きない。**
-使い始めた瞬間に `statusCode` の null キャストで例外になる。
-
-**判断: 書き直す**（人間がトリアージ済み）。上記
-[Flutter が 409 を英文のまま表示する](#flutter-が-409-を英文のまま表示しリトライから回復できない)
-の対応で「`error.code` を読む」経路を作るので、そのときに正しい形に直して使うのが自然。
-使われていないからといって削除すると、同じものを書き直すことになる。
 
 ### UUID の生成方法が2つある
 
@@ -387,78 +297,6 @@ return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 `generateId()` を `uuidv4()` の呼び出しに置き換えるだけで、
 テストは形式を検証しているため期待値を変える必要もない
 （`uuid` も v4 を生成するので同じ形になる）。
-
-### 画像の Content-Type が実データと一致しない（判定が2経路に分かれている）
-
-`mobile/lib/services/api_service.dart` の `uploadAndIdentifyImage()` は
-Web とネイティブで別々に Content-Type を決めており、**どちらも実データを見ていない**。
-
-| 経路 | Content-Type の決め方 | 正しさ |
-|---|---|---|
-| Web（133-140行） | `MediaType('image', 'jpeg')` **固定** | PNG を選ぶと必ず誤る |
-| ネイティブ（154-173行） | `imageFile.path` の**拡張子** | 通常は正しい。拡張子が無い/誤っていると誤る |
-
-`filename: 'plant_image.jpg'` は**両経路でハードコード**されている。
-ただしサーバは Blob 名の拡張子を**検証済みの Content-Type から引く**ため
-（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`）、`filename` は
-レスポンスの `fileName` に返るだけの飾りで、Blob 名には影響しない。
-
-**実行時の症状**: Web で PNG を選ぶと、永続コンテナに「中身が PNG で
-名前と Content-Type が JPEG」の Blob が入る。表示は多くの環境で成功するため
-気づきにくい。変更前もファイル名由来で `.jpg` になっていたため退行ではないが、
-Content-Type が拡張子の決定要因に昇格した分だけ影響が明確になった（3bcabf8 以降）。
-
-**判断: マジックバイトで判定する**（人間がトリアージ済み）。
-
-バイト列の先頭を見て PNG / JPEG / GIF / WebP を判定する関数を1つ作り、
-**Web とネイティブの両経路から呼ぶ**。
-
-```dart
-String detectImageMimeType(Uint8List bytes) {
-  if (bytes.length >= 8  && bytes[0] == 0x89 && bytes[1] == 0x50) return 'image/png';
-  if (bytes.length >= 3  && bytes[0] == 0xFF && bytes[1] == 0xD8) return 'image/jpeg';
-  if (bytes.length >= 6  && bytes[0] == 0x47 && bytes[1] == 0x49) return 'image/gif';
-  if (bytes.length >= 12 && bytes[8] == 0x57 && bytes[9] == 0x45) return 'image/webp';
-  return 'image/jpeg';  // 不明時は従来の既定値
-}
-```
-
-採用理由は3つ。
-
-1. **中身と Content-Type が必ず一致する。** `XFile.mimeType` や拡張子は
-   ブラウザ/OS が拡張子から推定した申告値なので、拡張子を偽られると誤る
-2. **分岐していた判定ロジックが1本に統合される。** 現状は Web が固定値、
-   ネイティブが拡張子ベースで、片方だけ壊れている状態。関数1つに寄せると
-   経路による差が消える
-3. **新しい依存が不要。** 4形式だけなので自前で十分。`pubspec.yaml` の
-   未使用パッケージ（`dio` / `go_router` など）の方針が未決定なので、
-   ここで新しい依存を増やさない方が良い
-
-`XFile.mimeType` を使う案は採らなかった。`image_picker` が提供しており
-（`camera_screen.dart` で既にログ出力している）実装は最小だが、
-native では null になりうること、申告値なので偽れることが理由。
-
-サーバ側で実データから判定する案も採らなかった。サーバは
-「検証済みの Content-Type を信頼する」設計で一貫しており、ここを崩すと
-`#10` で塞いだ「クライアント由来の文字列を Blob 名に入れない」という
-性質が戻ってしまう。
-
-Dart の変更なので WSL では `flutter analyze` を実行できない。
-[Flutter 側のテスト](#flutter-側のテストがほぼ無い)と同じセッションで扱う。
-`ApiException` に封筒を読ませる改修は、下記
-[`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
-と同時にやるのが自然。
-
-**あわせて検討すること（contract-auditor の監査で判明）**:
-`userMessage` は `case 500: case 502: case 503:` を1つにまとめており、
-**502 と 503 を区別していない**。サーバ側は意味を分けている
-（502 = 上流に到達したがエラー応答、503 = 到達できない）ので、
-封筒を読ませる改修のついでにメッセージを分けるかを決めたい。
-503 は時間を置けば回復しうるので「しばらく待って再試行」、
-502 は再試行しても同じ結果になりやすい。
-`isServerError`（`api_service.dart`）がどこからも使われていない点と、
-`userMessage` の `case 429` に対応するステータスがサーバに存在しない点
-（レート制限は未実装）も、同じ関数を触るついでに片付けられる。
 
 ### `wrapError()` の適用5箇所のうち3箇所が無検証
 
