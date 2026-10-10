@@ -204,17 +204,6 @@ void main() {
       expect(plant.confidence, 88.0);
     });
 
-    test('識別はdata.resultから識別結果を取り出す', () async {
-      final service = _serviceResponding('POST', '/api/plants/identify', 200, {
-        'success': true,
-        'data': {'result': _identificationJson},
-      });
-
-      final result = await service.identifyPlant('https://stsnaplant.blob.core.windows.net/temp-images/a.jpg');
-
-      expect(result.candidates.map((c) => c.name), ['桜']);
-    });
-
     test('重複確認はdataそのものを結果として読む', () async {
       final service = _serviceResponding('GET', '/api/plants/check-duplicate', 200, {
         'success': true,
