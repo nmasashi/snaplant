@@ -23,6 +23,7 @@ Dart に触る作業はここに集める。Windows 側でセッションを1回
 |---|---|---|
 | [`ApiService.identifyPlant()` が未使用](#apiserviceidentifyplant-が未使用) | 判断待ち | 削除するか、再識別の機能として使うか |
 | [`deletePlant()` だけがエラーの封筒を読まない](#deleteplant-だけがエラーの封筒を読まない) | 判断待ち | `ApiException.fromResponse()` に揃えるか |
+| [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | 判断待ち | 既定値を残すか、サーバに 415 で弾かせるか |
 
 第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
 Content-Type のマジックバイト判定）は #2 で対応済み。
@@ -211,6 +212,25 @@ PR #1 でパスと封筒の剥がし方を直し、`contextInfo` を足したが
 **推奨**: **揃える。** `ApiException.fromResponse(response)` に置き換えるだけで、
 クライアントのエラー解釈が1経路になる。テストは `api_service_test.dart` の
 エラーレスポンスのテストと同じ形で書ける。
+
+### 判定できない画像形式を `image/jpeg` として送る
+
+`mobile/lib/utils/image_mime_type.dart` の `detectImageMimeType()` は
+PNG / JPEG / GIF / WebP のシグネチャに当たらない中身を `image/jpeg` として返す
+（#2 でマジックバイト判定を入れたときに、従来の既定値を引き継いだ）。
+
+サーバ（`upload.ts`）は送られた Content-Type だけを検証して信頼するため、
+HEIC / AVIF / BMP などは `image/jpeg` として受理され、中身と Content-Type・拡張子が
+食い違った Blob が保存される。#2 で直した食い違いが、4形式以外に限って残っている。
+AI 識別に渡ったときにどうなるか（OpenAI がその形式を読めるか）は未確認。
+
+**判断が必要な点**: 既定値を残すか、判定できないものはサーバに弾かせるか。
+
+**推奨**: **`application/octet-stream` を返してサーバに 415 で弾かせる。**
+4形式以外を受け付けないのはサーバの仕様なので、クライアントが偽の Content-Type で
+すり抜けさせる理由が無い。ただし iOS のカメラ・写真ライブラリが HEIC を渡す場合に
+アップロードできなくなるので、先に `image_picker` が返す形式を実機で確認すること
+（`imageQuality` などを指定すると JPEG に再エンコードされるはず）。
 
 ### Azurite などパス形式のエンドポイントに対応していない
 

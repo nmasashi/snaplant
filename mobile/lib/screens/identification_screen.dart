@@ -631,8 +631,9 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
         _isCheckingDuplicate = false;
       });
 
-      // 既に図鑑にある画像なので、保存が済んでいる状態として一覧へ戻す。
-      // エラー扱いにすると、ユーザーが保存を繰り返しても毎回 409 になり抜け出せない
+      // この画像は別の名前で既に図鑑にあるので、その旨を伝えて一覧へ戻す。
+      // 同じ画像は1レコードにしか保存できず、この画面から選び直しても保存できないため。
+      // エラー扱いにすると、ユーザーは保存を繰り返して毎回 409 になり抜け出せない
       if (e is ApiException && e.isImageAlreadySaved) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

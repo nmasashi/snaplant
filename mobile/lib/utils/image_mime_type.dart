@@ -8,7 +8,8 @@ import 'dart:typed_data';
 /// 「中身が PNG で名前と Content-Type が JPEG」の Blob が保存される。
 ///
 /// サーバが受け付ける4形式だけを判定する。判定できない場合は従来の既定値
-/// `image/jpeg` を返す（4形式以外はサーバが 415 で拒否する）。
+/// `image/jpeg` を返す。サーバは Content-Type しか見ないので、HEIC など4形式以外の
+/// 中身はこの既定値のまま受理され、中身と Content-Type の食い違いはその場合に限り残る。
 String detectImageMimeType(Uint8List bytes) {
   if (_startsWith(bytes, const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) {
     return 'image/png';

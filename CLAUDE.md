@@ -582,7 +582,8 @@ API を変更したら、あわせて更新する対象：
 
 **非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。**
 `ApiException.code` にエラーコード、`message` にサーバの日本語メッセージが入り、
-`userMessage` は 0 / 401 / 404 / 500 / 502 / 503 以外ではその `message` をそのまま返す。
+`userMessage` は 0 / 401 / 404 / 429 / 500 / 502 / 503 以外ではその `message` をそのまま返す。
+429 はアプリが返すのではなく、従量課金プランの Functions ランタイムが過負荷時に封筒なしで返す。
 401 は Functions ランタイムが返すため封筒にならないなど、読めないボディでは `code` が null になり、
 ステータスを添えた固定の日本語メッセージになる。
 **同じステータスでもコードで意味が違うものがある**（409 は `IMAGE_ALREADY_SAVED` と `DATABASE_ERROR`）。

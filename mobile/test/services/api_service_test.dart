@@ -262,6 +262,15 @@ void main() {
       expect(error.userMessage, 'この画像は既に保存されています');
     });
 
+    test('429は混雑による拒否なので時間を置いた再試行を促す', () async {
+      // 従量課金プランの Functions ランタイムが過負荷時に返す。アプリを通らないので封筒にならない
+      final service = _serviceResponding('POST', '/api/plants/save', 429, 'Too Busy');
+
+      final error = await _captureApiException(() => service.savePlant(_createRequest));
+
+      expect(error.userMessage, 'リクエスト数が制限を超えました。しばらく待ってから再試行してください。');
+    });
+
     test('503は接続できない状態なので時間を置いた再試行を促す', () async {
       final service = _serviceResponding('POST', '/api/plants/save', 503, {
         'success': false,
