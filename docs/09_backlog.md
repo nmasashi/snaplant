@@ -477,6 +477,56 @@ Terraform の `azurerm_cosmosdb_sql_container.plants` に `unique_key` ブロッ
 の対応で「`error.code` を読む」経路を作るので、そのときに正しい形に直して使うのが自然。
 使われていないからといって削除すると、同じものを書き直すことになる。
 
+### upload のエラー分類が機能していない（502/503 の分岐が到達不能）
+
+`api/src/functions/upload.ts` は catch で `error.code` を見て分類している。
+
+```typescript
+if (error.message.includes('OpenAI') || ... || error.code === 'insufficient_quota') { ... 502 }
+if (error.message.includes('Storage') || error.code === 'ENOTFOUND') { ... 503 }
+if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') { ... 503 }
+```
+
+ところが `StorageService` は例外を**包み直して `code` を捨てる**。
+
+```typescript
+throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
+```
+
+`new Error()` は元の `code` を引き継がないため、**ストレージ由来のエラーでは
+`error.code` を見る分岐がすべて発火しない**。包んだメッセージも日本語なので
+`includes('Storage')` にも当たらない。
+
+結果として、接続不能・名前解決失敗・タイムアウトのいずれも
+**未分類エラーとして 500 に落ちる**。503（一時的な障害なのでリトライしてよい）
+を返すべき場面で 500（サーバ内部の問題）を返すため、クライアントの
+リトライ判断を誤らせる。
+
+実測で確認済み。`upload.ts` のネットワークエラー分岐（503）を削除する変異を
+入れても全テストが緑のまま（＝どのテストからも到達していない）。
+`upload.test.ts` の該当テストは `code = 'ETIMEDOUT'` を設定していたが、
+包み直しで失われるため何の効果もなく、実際に通っていたのは
+最終フォールバックの 500 だった（テスト側は修正済み）。
+
+**判断が必要な点**: どう直すか。
+
+**推奨**: **包み直すときに元の `code` を引き継ぐ。**
+
+```typescript
+const wrapped: any = new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
+wrapped.code = error.code;
+throw wrapped;
+```
+
+`catch (error: any)` を使う既存の慣習（api 側で20箇所）に合い、変更が
+`StorageService` の内側に収まる。`upload.ts` 側は現状のまま動くようになる。
+
+`Error` の `cause` を使う案（`new Error(msg, { cause: error })`）は
+標準的だが、呼び出し側が `(error.cause as any)?.code` を見る形に変わるため
+全ハンドラに波及する。独自のエラー型を導入する案も同様に波及が大きい。
+
+同種の問題が `cosmosService.ts` にもないか、着手時に確認すること。
+
 ### Web 経路が実際の MIME を無視して image/jpeg を送る
 
 `mobile/lib/services/api_service.dart:133-140` の Web 経路は、画像の実データに
