@@ -151,7 +151,7 @@ Blob Storage のコンテナは2つで役割が違う：`images`（永続・公�
 
 パーティションキーは `/id`（Terraform で定義）。そのため単一ドキュメント操作は `container.item(id, id)` と id を2回渡す形になる。`CosmosService` は `StorageService` を内部に持つ。`updatePlant()` で `imagePath` が変わった場合のみ旧画像を Blob から削除する。`deletePlant()` も削除前に `imagePath` を読んで画像を削除する。**どちらも Blob 削除の失敗はログだけ出してドキュメント操作は成功扱いにする。**
 
-この「`imagePath` の Blob を無条件に削除する」性質があるため、**同じ `imagePath` を持つレコードが2つあると一方の削除で他方の画像が消える**。そのため `save` と `PUT`（`updatePlant`）の**両方**が `getPlantByImagePath()` で重複を確認し、既にあれば 409 + `IMAGE_ALREADY_SAVED` を返す。`PUT` は**更新対象自身を除外する**（`existingByImage.id !== plantId`）ため、`imagePath` を変えずに他のフィールドだけ更新しても 409 にはならない。`save` 側だけ塞いでも `PUT` から同じ状態を作れるので、入口を揃えている。発生経路はリトライで、保存に成功したがレスポンスが届かず同じ `imagePath` で再送されるケース。
+この「`imagePath` の Blob を無条件に削除する」性質があるため、**同じ `imagePath` を持つレコードが2つあると一方の削除で他方の画像が消える**。そのため `save` と `PUT`（`updatePlant`）の**両方**が `getPlantsByImagePath()`（配列を返す）で重複を確認し、既にあれば 409 + `IMAGE_ALREADY_SAVED` を返す。`PUT` は**更新対象自身が既にその画像を持っていれば通す**（`heldBySelf`）ため、`imagePath` を変えずに他のフィールドだけ更新しても 409 にはならない。他に同じ画像のレコードが既に残っていても通す。1件だけ取って id を比べる形や「自分以外が残るか」で見る形では、既存の重複を理由に正当な更新を永久に拒んでいた（経緯は `updatePlant.ts` のコメント）。`save` 側だけ塞いでも `PUT` から同じ状態を作れるので、入口を揃えている。発生経路はリトライで、保存に成功したがレスポンスが届かず同じ `imagePath` で再送されるケース。ただし Flutter クライアントは保存の前に名前で重複確認をするため、同じ候補での再保存は `PUT` に進み、自分自身が画像を持っているので 409 にならない。クライアントから 409 になるのは、レスポンスが届かなかった後に**別の候補**で保存し直したとき。
 
 `save` にはもう1つ別の 409 がある。Cosmos DB 自身が返す 409 を `DATABASE_ERROR` に変換するもので（`save.ts` の catch）、`imagePath` の重複とは別物。`updatePlant` はこちらを変換していないため 500 になる。
 

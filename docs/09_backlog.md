@@ -265,7 +265,7 @@ Azurite を導入すると「本番と同じ検証ロジックが通らない」
 
 ### `save` の重複チェックは read-then-write で同時リクエストに効かない
 
-`api/src/functions/save.ts` は `getPlantByImagePath()` でクエリしてから
+`api/src/functions/save.ts` は `getPlantsByImagePath()` でクエリしてから
 `createPlant()` するだけで、トランザクションも一意制約もない。
 
 同じ `imagePath` の `save` が**ほぼ同時に**2件届くと両方が通り、重複レコードが

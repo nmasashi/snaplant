@@ -59,11 +59,11 @@ sequenceDiagram
     else 重複あり（既存植物の画像更新）
         Note over Client,DB: 4b. 既存植物の画像・信頼度更新
         Client->>API: PUT /plants/{id}<br/>（新しい画像・信頼度）
-        API->>DB: imagePath の重複確認<br/>（自分以外が使っていないか）
-        DB-->>API: 既存レコード or 空
-        alt 他レコードが同じimagePathを使用
+        API->>DB: imagePath の重複確認<br/>（同じ画像のレコード一覧）
+        DB-->>API: 既存レコード（0件以上）
+        alt 該当があり、そのどれも自分ではない
             API-->>Client: 409 IMAGE_ALREADY_SAVED<br/>「この画像は既に保存されています」
-        else 未使用（自分自身は除外）
+        else 該当なし、または自分が既に持っている
             API->>DB: 既存ドキュメント取得<br/>（旧imagePathを保存）
             DB-->>API: 既存データ<br/>（旧imagePath含む）
             API->>DB: UPDATE文実行<br/>（imagePath, confidence更新）
@@ -90,7 +90,7 @@ sequenceDiagram
 | `POST /images/upload` | **Blob Storage**<br/>**OpenAI Vision** | CREATE<br/>READ | ①一時保存→植物判定→永続保存 or 削除<br/>②画像+コンテキスト情報で解析・植物識別実行 |
 | `GET /plants/check-duplicate` | **Cosmos DB** | READ | name条件でのドキュメント検索（データ変更なし） |
 | `POST /plants/save` | **Cosmos DB** | READ<br/>CREATE | ①`imagePath` の重複確認（既存なら 409 `IMAGE_ALREADY_SAVED` で保存しない）<br/>②新規植物ドキュメントを作成・保存 |
-| `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | READ<br/>UPDATE<br/>DELETE | ①`imagePath` の重複確認（自分以外が使っていれば 409 `IMAGE_ALREADY_SAVED` で更新しない）<br/>②既存ドキュメントのimagePath・confidenceを更新<br/>③旧画像ファイルを削除（`imagePath` が変わった場合のみ。ゴミファイル防止） |
+| `PUT /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | READ<br/>UPDATE<br/>DELETE | ①`imagePath` の重複確認（同じ画像のレコードがあり、そのどれも自分でなければ 409 `IMAGE_ALREADY_SAVED` で更新しない）<br/>②既存ドキュメントのimagePath・confidenceを更新<br/>③旧画像ファイルを削除（`imagePath` が変わった場合のみ。ゴミファイル防止） |
 | `GET /plants` | **Cosmos DB** | READ | 全植物ドキュメントの取得（データ変更なし） |
 | `GET /plants/{id}` | **Cosmos DB** | READ | 単一ドキュメントの取得（データ変更なし） |
 | `DELETE /plants/{id}` | **Cosmos DB**<br/>**Blob Storage** | DELETE<br/>DELETE | ①ドキュメントを削除<br/>②`imagePath` が指す画像を削除（画像削除の失敗はログのみで、削除は成功扱い） |
@@ -310,7 +310,7 @@ Content-Type: application/json
 ```
 
 **処理詳細：**
-1. `imagePath` の重複確認（自分以外が同じ画像を使っていれば 409 で中断）
+1. `imagePath` の重複確認（同じ画像のレコードがあり、そのどれも自分でなければ 409 で中断）
 2. 既存ドキュメント取得（旧imagePathを保存）
 3. ドキュメント更新（新しいimagePath・confidence）
 4. 旧画像ファイル削除（`imagePath` が変わった場合のみ。`old-sakura.jpg`削除）
