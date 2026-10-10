@@ -308,7 +308,14 @@ Content-Type: application/json
 `imagePath` の形の制約は 5.4 と同じです（`https:` スキーム・自ストレージアカウントの
 Blobエンドポイント・ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との完全一致）。
 旧画像の削除が発火するため、保存前にスキーム・ホスト・パスの形を検証しています。
-ただし `imagePath` の重複は検査しません（409 を返すのは 5.4 の新規登録のみ）。
+
+`imagePath` の重複も 5.4 と同様に検査します。**更新対象自身は除外**するため、
+`imagePath` を変えずに他のフィールドだけ更新しても 409 にはなりません。
+自分以外のレコードが同じ `imagePath` を使っている場合は更新せず、
+409 `IMAGE_ALREADY_SAVED`（`この画像は既に保存されています`、`details` なし）を返します。
+save 側だけ塞いでも PUT から同じ状態を作れるため、入口を揃えています。
+なお Cosmos DB 側が返す 409 はこのエンドポイントでは変換していないため 500 になります
+（5.4 の新規登録だけが 409 `DATABASE_ERROR` に変換します）。
 
 **リクエスト例:**
 ```http
@@ -322,10 +329,13 @@ Content-Type: application/json
 ```
 
 **処理詳細:**
-1. 既存ドキュメント取得（旧imagePathを保存）
-2. ドキュメント更新（新しいimagePath・confidence）
-3. 旧画像ファイル削除（ストレージコスト最適化）
-4. レスポンス返却
+1. `imagePath` の重複確認（自分以外が同じ画像を使っていれば 409 で中断）
+2. 既存ドキュメント取得（旧imagePathを保存。見つからなければ 404）
+3. ドキュメント更新（新しいimagePath・confidence）
+4. 旧画像ファイル削除（`imagePath` が変わった場合のみ。ストレージコスト最適化）
+5. レスポンス返却
+
+旧画像の削除に失敗してもエラーにはならず、ログ出力のみで 200 を返します。
 
 **レスポンス例（抜粋。実際は更新後の Plant の全フィールドが返ります）:**
 ```json
@@ -483,15 +493,15 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
 | 400 | `INVALID_REQUEST` | リクエスト形式が不正 | 全エンドポイント |
 | 400 | `NOT_A_PLANT` | アップロードされた画像は植物ではない | `POST /api/images/upload` |
 | 404 | `PLANT_NOT_FOUND` | 植物が見つからない | `/api/plants/{id}` 系 |
-| 409 | `IMAGE_ALREADY_SAVED` | 同じ `imagePath` のレコードが既に存在する | `POST /api/plants/save` |
+| 409 | `IMAGE_ALREADY_SAVED` | 同じ `imagePath` のレコードが既に存在する | `POST /api/plants/save`<br>`PUT /api/plants/{id}`（自分以外が使っている場合） |
 | 409 | `DATABASE_ERROR` | 保存時の競合（Cosmos DBの409） | `POST /api/plants/save` |
 | 413 | `FILE_TOO_LARGE` | ファイルサイズ超過 | `POST /api/images/upload` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | サポートされていないファイル形式 | `POST /api/images/upload` |
 | 500 | `INTERNAL_ERROR` | サーバー内部エラー | 全エンドポイント |
-| 502 | `AI_SERVICE_ERROR` | AI識別サービスのエラー応答 | 識別系 |
+| 502 | `AI_SERVICE_ERROR` | AI識別サービスのエラー応答 | `POST /api/plants/identify`<br>`POST /api/images/upload` |
 | 502 | `STORAGE_ERROR` | Blob Storageのエラー応答 | `POST /api/images/upload` |
-| 503 | `AI_SERVICE_ERROR` | AI識別サービスへ接続できない | 識別系 |
-| 503 | `DATABASE_ERROR` | Cosmos DBへ接続できない | DB参照系 |
+| 503 | `AI_SERVICE_ERROR` | AI識別サービスへ接続できない | `POST /api/plants/identify` |
+| 503 | `DATABASE_ERROR` | Cosmos DBへ接続できない | Cosmos DB を使う全エンドポイント |
 | 503 | `STORAGE_ERROR` | Blob Storageへ接続できない | `POST /api/images/upload` |
 
 **401 はこの表に載せていない。** Function Key が未指定・無効な場合は

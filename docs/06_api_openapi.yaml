@@ -53,7 +53,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/DatabaseUnavailable'
 
   /plants/save:
     post:
@@ -103,7 +103,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/DatabaseUnavailable'
 
   /plants/{id}:
     get:
@@ -148,7 +148,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/DatabaseUnavailable'
 
     put:
       summary: 植物情報更新
@@ -195,10 +195,27 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/PlantNotFound'
+        '409':
+          description: |
+            自分以外のレコードが同じ `imagePath` を使っている。
+
+            同じ `imagePath` のレコードが2つできると、一方の削除・更新で
+            もう一方の画像まで消えるため、更新の入口で塞いでいる。
+            更新対象自身は除外するので、`imagePath` を変えずに更新しても 409 にはならない。
+            Cosmos DB 側の 409 はこのエンドポイントでは変換していないため 500 になる。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error:
+                  code: "IMAGE_ALREADY_SAVED"
+                  message: "この画像は既に保存されています"
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/DatabaseUnavailable'
 
     delete:
       summary: 植物削除
@@ -247,7 +264,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/DatabaseUnavailable'
 
   /plants/identify:
     post:
@@ -293,7 +310,7 @@ paths:
         '502':
           $ref: '#/components/responses/AIServiceError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/AIServiceUnavailable'
 
   /plants/check-duplicate:
     get:
@@ -333,7 +350,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/DatabaseUnavailable'
 
   /images/upload:
     post:
@@ -472,9 +489,35 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
         '502':
-          $ref: '#/components/responses/AIServiceError'
+          description: |
+            上流サービスがエラー応答を返した。このエンドポイントでは2種類ある。
+
+            - `AI_SERVICE_ERROR`: AI識別の呼び出しが失敗した
+            - `STORAGE_ERROR`: Blob Storage の操作が失敗した（接続自体はできている）
+
+            接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）は
+            502 ではなく 503 `STORAGE_ERROR` になる。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                ai:
+                  summary: AI識別サービスのエラー応答
+                  value:
+                    success: false
+                    error:
+                      code: "AI_SERVICE_ERROR"
+                      message: "植物識別サービスでエラーが発生しました"
+                storage:
+                  summary: ストレージのエラー応答
+                  value:
+                    success: false
+                    error:
+                      code: "STORAGE_ERROR"
+                      message: "ストレージサービスでエラーが発生しました"
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          $ref: '#/components/responses/StorageUnavailable'
 
 
 components:
@@ -957,34 +1000,51 @@ components:
               code: "AI_SERVICE_ERROR"
               message: "植物識別サービスでエラーが発生しました"
 
-    ServiceUnavailable:
-      description: 依存サービス（Cosmos DB / Blob Storage / AI）へ接続できない
+    DatabaseUnavailable:
+      description: |
+        Cosmos DB へ接続できない（接続時の `ENOTFOUND` / `ECONNREFUSED`）。
+
+        エラーコードはエンドポイントごとに1種類しか出ない。Cosmos DB を使う
+        エンドポイントは `DATABASE_ERROR` だけを返す。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-          examples:
-            database:
-              summary: データベース接続エラー
-              value:
-                success: false
-                error:
-                  code: "DATABASE_ERROR"
-                  message: "データベースに接続できません"
-            storage:
-              summary: ストレージ接続エラー
-              value:
-                success: false
-                error:
-                  code: "STORAGE_ERROR"
-                  message: "ストレージサービスに接続できません"
-            ai:
-              summary: AI識別サービス接続エラー
-              value:
-                success: false
-                error:
-                  code: "AI_SERVICE_ERROR"
-                  message: "植物識別サービスに接続できません"
+          example:
+            success: false
+            error:
+              code: "DATABASE_ERROR"
+              message: "データベースに接続できません"
+
+    StorageUnavailable:
+      description: |
+        Blob Storage へ接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）。
+
+        `POST /images/upload` のネットワーク起因の失敗はすべてこのコードになる。
+        `ETIMEDOUT` を 503 に分類するのはこのエンドポイントだけで、
+        他のエンドポイントは `ENOTFOUND` / `ECONNREFUSED` のみを見る。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: "STORAGE_ERROR"
+              message: "ストレージサービスに接続できません"
+
+    AIServiceUnavailable:
+      description: |
+        AI識別サービスへ接続できない（`ENOTFOUND` / `ECONNREFUSED`）。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: "AI_SERVICE_ERROR"
+              message: "植物識別サービスに接続できません"
 
     InternalError:
       description: サーバー内部エラー
