@@ -431,6 +431,27 @@ Dart の変更なので WSL では検証できない。
 [`api_response.dart` の型がサーバの封筒と合っていない](#api_responsedart-の型がサーバの封筒と合っていない)
 と同時にやるのが自然。
 
+### `updatePlant` は `imagePath` の重複を検査しない
+
+`save` は `imagePath` の重複を 409 `IMAGE_ALREADY_SAVED` で拒むが
+（491c855）、`PUT /api/plants/{id}` は検査しない。
+
+そのため **`PUT` 経由で、`save` が拒んでいるのと同じ状態を作れる**。
+レコードAの `imagePath` をレコードBと同じ値に更新すると、1つの Blob を
+2レコードが共有する。その後どちらかを削除・更新すると他方の画像が消える。
+
+CLAUDE.md には「`PUT` では検査しない」と判断として書いているが、
+課題としての記録が無かった。
+
+**判断が必要な点**: `PUT` にも重複チェックを入れるか。
+
+**推奨**: **入れる。** `save` だけ塞いでも `PUT` から同じ状態を作れるのでは
+防御として不完全。実装は `save` と同じ `getPlantByImagePath()` を使えるが、
+**自分自身は除外する**必要がある（同じ `imagePath` で更新した場合に
+自分とぶつかる）。409 と `IMAGE_ALREADY_SAVED` も再利用できる。
+
+ただし下記「read-then-write で同時リクエストに効かない」と同じ限界は残る。
+
 ### `save` の重複チェックは read-then-write で同時リクエストに効かない
 
 `api/src/functions/save.ts` は `getPlantByImagePath()` でクエリしてから
