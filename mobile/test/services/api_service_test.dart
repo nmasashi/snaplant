@@ -242,6 +242,21 @@ void main() {
       expect(error.message, 'この画像は既に保存されています');
     });
 
+    test('削除の失敗でもサーバが返したエラーコードとメッセージを例外が保持する', () async {
+      final service = _serviceResponding('DELETE', '/api/plants/plant-1', 404, {
+        'success': false,
+        'error': {
+          'code': 'PLANT_NOT_FOUND',
+          'message': '指定された植物が見つかりません',
+        },
+      });
+
+      final error = await _captureApiException(() => service.deletePlant('plant-1'));
+
+      expect(error.code, 'PLANT_NOT_FOUND');
+      expect(error.message, '指定された植物が見つかりません');
+    });
+
     test('封筒の形でないエラーボディでもステータスを添えた日本語のメッセージを返す', () async {
       // Azure のフロントが返す HTML など、アプリの封筒を経由しないエラー
       final service = _serviceResponding('POST', '/api/plants/save', 413, '<html><body>Request Entity Too Large</body></html>');

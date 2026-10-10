@@ -402,11 +402,7 @@ class ApiService {
       );
       
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw ApiException(
-          statusCode: response.statusCode,
-          message: '植物の削除に失敗しました',
-          body: response.body,
-        );
+        throw ApiException.fromResponse(response);
       }
     } catch (error) {
       throw _handleError(error);
