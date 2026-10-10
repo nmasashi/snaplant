@@ -48,6 +48,19 @@ export async function savePlantHandler(request: HttpRequest, context: Invocation
     // Cosmos DBサービス初期化
     const cosmosService = new CosmosService();
     
+    // imagePath の重複チェック。
+    // 同じ imagePath を持つレコードが2つできると、一方を削除または別の画像に
+    // 更新した時点で、もう一方の画像まで消えてしまう。発生経路はリトライで、
+    // 保存に成功したがレスポンスが届かず同じ imagePath で再送されるケース
+    const existingByImage = await cosmosService.getPlantByImagePath(newPlant.imagePath);
+    if (existingByImage) {
+      return createErrorResponse(
+        ErrorCode.IMAGE_ALREADY_SAVED,
+        'この画像は既に保存されています',
+        HttpStatusCode.CONFLICT
+      );
+    }
+
     // 植物保存
     const savedPlant = await cosmosService.createPlant(newPlant);
     

@@ -293,6 +293,65 @@ describe('植物保存API', () => {
 
     // 重複チェックは別途実装されるcheckDuplicate APIで行うため、ここではテストしない
 
+    it('同じimagePathを持つ植物が既に保存されている場合は409エラー', async () => {
+      // 既存植物が1件存在する状態（同じimagePathを持つ）
+      const existingPlant: Plant = {
+        id: 'existing-id-0000-0000-000000000000',
+        name: '既存の桜',
+        characteristics: '既存の特徴',
+        confidence: 90.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/duplicate.jpg`,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z'
+      };
+      const mockQuery = {
+        fetchAll: jest.fn().mockResolvedValue({ resources: [existingPlant] })
+      };
+      mockItems.query.mockReturnValue(mockQuery);
+
+      // 植物作成成功のモック（重複チェックが機能していない場合、
+      // そのまま保存が成功して201が返ることを明確に判別するため設定する）
+      mockItems.create.mockResolvedValue({
+        resource: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/duplicate.jpg`,
+          createdAt: '2024-01-15T10:30:00Z',
+          updatedAt: '2024-01-15T10:30:00Z'
+        }
+      });
+
+      // リクエストの作成（既存植物と同じimagePath。他のフィールドはすべて正当な値にする）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/duplicate.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'IMAGE_ALREADY_SAVED',
+          message: 'この画像は既に保存されています',
+          details: undefined
+        }
+      });
+    });
+
     it('画像パスが自ストレージアカウント以外のホストを指す場合は400エラー', async () => {
       // 植物作成成功のモック（バリデーションが機能していない場合に
       // 保存まで進んでしまうことを明確に判別するため設定する）
@@ -552,6 +611,14 @@ describe('植物保存API', () => {
   });
 
   describe('Cosmos DB エラー', () => {
+    beforeEach(() => {
+      // save は保存前に imagePath の重複を確認するため、
+      // 重複なしを返すクエリ結果が必要（これが無いと重複チェックの時点で落ちる）
+      mockItems.query.mockReturnValue({
+        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
+      });
+    });
+
     it('DB接続エラーの場合は503エラー', async () => {
       // DB接続エラーのモック
       const connectionError = new Error('ENOTFOUND');

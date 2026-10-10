@@ -54,6 +54,27 @@ export class CosmosService {
   }
 
   /**
+   * 画像パスで植物を取得
+   *
+   * save が imagePath の重複を拒むために使う。同じ imagePath を持つレコードが
+   * 2つできると、一方を削除（または別の画像に更新）した時点で
+   * deleteImage() がもう一方の画像も消してしまう
+   * @param imagePath 画像パス
+   * @returns 該当する植物。無ければnull
+   */
+  async getPlantByImagePath(imagePath: string): Promise<Plant | null> {
+    const query = `SELECT * FROM c WHERE c.imagePath = @imagePath`;
+    const { resources } = await this.container.items
+      .query<Plant>({
+        query,
+        parameters: [{ name: '@imagePath', value: imagePath }]
+      })
+      .fetchAll();
+
+    return resources.length > 0 ? resources[0] : null;
+  }
+
+  /**
    * 植物を作成
    */
   async createPlant(plantData: PlantCreateRequest): Promise<Plant> {
