@@ -388,6 +388,54 @@ describe('植物識別API', () => {
       });
     });
 
+    it('contextInfoに文字列ではない配列を指定した場合は400エラー', async () => {
+      // OpenAI APIレスポンスのモック（バリデーションで止まるはずだが、
+      // 意図せず到達しても別の原因で落ちないようにしておく）
+      mockChatCompletions.create.mockResolvedValue({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: true,
+              confidence: 90,
+              reason: 'テスト',
+              plantAnalysis: { candidates: [] }
+            })
+          }
+        }]
+      });
+
+      // リクエストの作成（contextInfoに配列を指定。他のフィールドは正当な値）
+      //
+      // 配列を選ぶ理由: 現在の実装は requestBody.contextInfo.length を
+      // そのまま500と比較している。文字列なら.lengthは文字数になるが、
+      // 配列の.lengthは要素数になる。ここでは要素1つが501文字を超える
+      // 文字列でも、配列の要素数(2)は500を超えないため長さ検証を素通りする。
+      // request.json()の戻り値はIdentifyRequest型として扱われるが、
+      // 実際のJSONボディは型で保証されないため as any で非文字列を再現する。
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          imagePath: 'https://example.com/sakura.jpg',
+          contextInfo: ['あ'.repeat(600), 'い'.repeat(600)] as any
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await identifyPlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST'
+        }
+      });
+    });
+
     it('JSONパースエラーの場合は400エラー', async () => {
       // リクエストの作成（JSONパースエラー）
       const request = {

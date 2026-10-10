@@ -76,7 +76,8 @@ export const CONTEXT_INFO_VALIDATION = {
   MAX_LENGTH: parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500'),
 
   ERROR_MESSAGES: {
-    TOO_LONG: `補足情報は${parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500')}文字以内で指定してください`
+    TOO_LONG: `補足情報は${parseInt(process.env.CONTEXT_INFO_MAX_LENGTH || '500')}文字以内で指定してください`,
+    NOT_A_STRING: '補足情報は文字列で指定してください'
   }
 } as const;
 

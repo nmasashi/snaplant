@@ -33,9 +33,18 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
       return createValidationError('画像URLの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_URL);
     }
 
-    // 補足情報の長さのバリデーション
-    if (requestBody.contextInfo && requestBody.contextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
-      return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
+    // 補足情報のバリデーション。
+    // request.json() の値は型が保証されないため、まず文字列であることを要求する。
+    // 型を見ずに .length を比較すると、配列では要素数が、数値では undefined が
+    // 比較対象になり、長さの上限を素通りしてプロンプトに埋め込まれてしまう
+    const contextInfo: unknown = requestBody.contextInfo;
+    if (contextInfo !== undefined && contextInfo !== null) {
+      if (typeof contextInfo !== 'string') {
+        return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.NOT_A_STRING);
+      }
+      if (contextInfo.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+        return createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG);
+      }
     }
 
     context.log(`植物識別開始: 画像URL=${requestBody.imagePath}, コンテキスト情報=${requestBody.contextInfo || 'なし'}`);
