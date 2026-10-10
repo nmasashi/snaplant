@@ -127,7 +127,9 @@ Blob Storage のコンテナは2つで役割が違う：`images`（永続・公�
 
 パーティションキーは `/id`（Terraform で定義）。そのため単一ドキュメント操作は `container.item(id, id)` と id を2回渡す形になる。`CosmosService` は `StorageService` を内部に持つ。`updatePlant()` で `imagePath` が変わった場合のみ旧画像を Blob から削除する。`deletePlant()` も削除前に `imagePath` を読んで画像を削除する。**どちらも Blob 削除の失敗はログだけ出してドキュメント操作は成功扱いにする。**
 
-この「`imagePath` の Blob を無条件に削除する」性質があるため、**同じ `imagePath` を持つレコードが2つあると一方の削除で他方の画像が消える**。そのため `save` は `getPlantByImagePath()` で重複を確認し、既にあれば 409 + `IMAGE_ALREADY_SAVED` を返す（`PUT` では検査しない）。発生経路はリトライで、保存に成功したがレスポンスが届かず同じ `imagePath` で再送されるケース。
+この「`imagePath` の Blob を無条件に削除する」性質があるため、**同じ `imagePath` を持つレコードが2つあると一方の削除で他方の画像が消える**。そのため `save` と `PUT`（`updatePlant`）の**両方**が `getPlantByImagePath()` で重複を確認し、既にあれば 409 + `IMAGE_ALREADY_SAVED` を返す。`PUT` は**更新対象自身を除外する**（`existingByImage.id !== plantId`）ため、`imagePath` を変えずに他のフィールドだけ更新しても 409 にはならない。`save` 側だけ塞いでも `PUT` から同じ状態を作れるので、入口を揃えている。発生経路はリトライで、保存に成功したがレスポンスが届かず同じ `imagePath` で再送されるケース。
+
+`save` にはもう1つ別の 409 がある。Cosmos DB 自身が返す 409 を `DATABASE_ERROR` に変換するもので（`save.ts` の catch）、`imagePath` の重複とは別物。`updatePlant` はこちらを変換していないため 500 になる。
 
 **ただしこれは read-then-write なので、ほぼ同時に届いた2件には効かない。** パーティションキーが `/id` のため Cosmos の一意キーでは `imagePath` の制約を張れず、根本解決には設計変更が必要（バックログに記録済み）。
 
