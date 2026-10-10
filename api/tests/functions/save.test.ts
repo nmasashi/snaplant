@@ -1,7 +1,8 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { savePlantHandler } from '../../src/functions/save';
 import { Plant } from '../../src/types/plant';
-import { CosmosClient, Container } from '@azure/cosmos';
+import { CosmosClient } from '@azure/cosmos';
+import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -19,48 +20,9 @@ const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountNa
 const TEST_STORAGE_CONTAINER_NAME = 'test-images';
 const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
 
-/**
- * 偽物のCosmos DBバックエンド（cosmosService.test.ts の FakeCosmosBackend と同型）。
- *
- * save ハンドラが実際に使うのは items.create（保存）と items.query
- * （imagePath の重複チェック）だけなので、この2つだけを持つ最小構成にする。
- * ドキュメントをIDをキーにしたMapで保持し、保存できたかどうかを
- * 呼び出しの検証ではなく Map の状態で確認できるようにする。
- *
- * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@imagePath）の
- * 値で絞り込むだけに留める（cosmosService.test.ts の同種コメント参照）。
- */
-interface FakeCosmosBackend {
-  documents: Map<string, Plant>;
-  forcedCreateError: Error | null;
-}
-
-function createFakeContainer(backend: FakeCosmosBackend): Container {
-  return {
-    items: {
-      create: async (doc: Plant) => {
-        if (backend.forcedCreateError) throw backend.forcedCreateError;
-        backend.documents.set(doc.id, doc);
-        return { resource: doc };
-      },
-      query: (querySpec: any) => {
-        const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
-        const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
-        let docs = Array.from(backend.documents.values());
-        if (imagePathParam !== undefined) {
-          docs = docs.filter((d) => d.imagePath === imagePathParam);
-        }
-        return {
-          fetchAll: async () => ({ resources: docs })
-        };
-      }
-    }
-  } as unknown as Container;
-}
-
 describe('植物保存API', () => {
   let mockContext: InvocationContext;
-  let cosmosBackend: FakeCosmosBackend;
+  let cosmosBackend: FakeCosmosBackend<Plant>;
 
   beforeEach(() => {
     // InvocationContextのモック

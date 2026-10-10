@@ -1,6 +1,7 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { checkDuplicateHandler } from '../../src/functions/checkDuplicate';
-import { CosmosClient, Database, Container } from '@azure/cosmos';
+import { CosmosClient } from '@azure/cosmos';
+import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -12,32 +13,19 @@ const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountNa
 const TEST_STORAGE_CONTAINER_NAME = 'test-images';
 
 /**
- * @name パラメータの値で絞り込む偽のクエリ実装。
- * cosmosService.test.ts の FakeCosmosBackend と同じ考え方で、
- * 渡されたパラメータの値を見て絞り込む。これにより「正しい名前で
- * 絞り込まれていること」を呼び出し検証ではなくレスポンスの内容で確認できる
- * （誤った名前・固定値が渡されると、絞り込み結果が変わってレスポンスの
- * アサーションが失敗する）。
+ * このAPIが返すのは一覧表示用の射影（SELECTの列指定）なので、Plant 全体ではなく
+ * この5項目しか返らない。偽物にも同じ形だけを入れて、「常に完全なPlantが返る」
+ * という誤った前提をテスト側に作らない
  */
-function createFilteringQueryMock(documents: Array<Record<string, any>>) {
-  return jest.fn((querySpec: any) => {
-    const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
-    const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
-    const docs = nameParam !== undefined
-      ? documents.filter((d) => d.name === nameParam)
-      : documents;
-    return {
-      fetchAll: async () => ({ resources: docs })
-    };
-  });
+interface DuplicateCheckDocument extends FakeCosmosDocument {
+  confidence: number;
+  createdAt: string;
 }
+
 
 describe('植物重複チェックAPI', () => {
   let mockContext: InvocationContext;
-  let mockClient: jest.Mocked<CosmosClient>;
-  let mockDatabase: jest.Mocked<Database>;
-  let mockContainer: jest.Mocked<Container>;
-  let mockItems: any;
+  let cosmosBackend: FakeCosmosBackend<DuplicateCheckDocument>;
 
   beforeEach(() => {
     // InvocationContextのモック
@@ -45,24 +33,15 @@ describe('植物重複チェックAPI', () => {
       log: jest.fn()
     } as any;
 
-    // Cosmos DB SDKのモック
-    mockItems = {
-      query: jest.fn()
+    // Cosmos DB SDKを引数を見分ける偽物に差し替える
+    cosmosBackend = {
+      documents: new Map(),
+      forcedQueryError: null
     };
-
-    mockContainer = {
-      items: mockItems
-    } as any;
-
-    mockDatabase = {
-      container: jest.fn().mockReturnValue(mockContainer)
-    } as any;
-
-    mockClient = {
-      database: jest.fn().mockReturnValue(mockDatabase)
-    } as any;
-
-    MockedCosmosClient.mockImplementation(() => mockClient);
+    const container = createFakeContainer(cosmosBackend);
+    MockedCosmosClient.mockImplementation(() => ({
+      database: () => ({ container: () => container })
+    }) as any);
 
     // 環境変数設定
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
@@ -103,7 +82,7 @@ describe('植物重複チェックAPI', () => {
         createdAt: '2024-01-14T09:15:00Z'
       };
 
-      mockItems.query = createFilteringQueryMock([existingPlant, otherPlant]);
+      [existingPlant, otherPlant].forEach((d) => cosmosBackend.documents.set(d.id, d));
 
       // リクエストの作成
       const request = {
@@ -138,10 +117,10 @@ describe('植物重複チェックAPI', () => {
 
     it('重複する植物が存在しない場合', async () => {
       // 他の植物は登録されているが、検索対象と同名の植物は無い状態
-      mockItems.query = createFilteringQueryMock([
+      [
         { id: 'id-1', name: '桜', imagePath: 'https://example.com/sakura.jpg', confidence: 85.0, createdAt: '2024-01-15T10:30:00Z' },
         { id: 'id-2', name: '梅', imagePath: 'https://example.com/ume.jpg', confidence: 90.0, createdAt: '2024-01-14T09:15:00Z' }
-      ]);
+      ].forEach((d) => cosmosBackend.documents.set(d.id, d));
 
       // リクエストの作成
       const request = {
@@ -172,10 +151,10 @@ describe('植物重複チェックAPI', () => {
       // 空白を含まない別名の植物（梅）も登録しておく。前後の空白が
       // 削除されずに渡ると「  梅  」に一致するものがなく exists: false に
       // なるため、絞り込み結果で空白除去を確認できる
-      mockItems.query = createFilteringQueryMock([
+      [
         { id: 'id-1', name: '桜', imagePath: 'https://example.com/sakura.jpg', confidence: 85.0, createdAt: '2024-01-15T10:30:00Z' },
         { id: 'id-2', name: '梅', imagePath: 'https://example.com/ume.jpg', confidence: 90.0, createdAt: '2024-01-14T09:15:00Z' }
-      ]);
+      ].forEach((d) => cosmosBackend.documents.set(d.id, d));
 
       // リクエストの作成（前後に空白）
       const request = {
@@ -262,9 +241,7 @@ describe('植物重複チェックAPI', () => {
       // DB接続エラーのモック
       const dbError = new Error('Connection timeout');
       (dbError as any).code = 'ENOTFOUND';
-      mockItems.query.mockImplementation(() => {
-        throw dbError;
-      });
+      cosmosBackend.forcedQueryError = dbError;
 
       // リクエストの作成
       const request = {
@@ -295,10 +272,7 @@ describe('植物重複チェックAPI', () => {
     it('DBクエリエラーの場合は500エラー', async () => {
       // DBクエリエラーのモック
       const queryError = new Error('Query failed');
-      const mockQuery = {
-        fetchAll: jest.fn().mockRejectedValue(queryError)
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      cosmosBackend.forcedQueryError = queryError;
 
       // リクエストの作成
       const request = {

@@ -1,7 +1,9 @@
 import { CosmosService } from '../../src/services/cosmosService';
 import { Plant, PlantSummary, PlantCreateRequest, PlantUpdateRequest } from '../../src/types/plant';
-import { CosmosClient, Container } from '@azure/cosmos';
-import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import { CosmosClient } from '@azure/cosmos';
+import { BlobServiceClient } from '@azure/storage-blob';
+import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
+import { BlobEntry, FakeBlobBackend, createFakeBlobServiceClient } from '../fakes/blob';
 
 // 外部依存のみモック。
 // StorageServiceはCosmosServiceと同じプロセスで動く自前のクラスなのでモックしない
@@ -17,154 +19,6 @@ jest.mock('@azure/storage-blob', () => ({
 
 const MockedCosmosClient = jest.mocked(CosmosClient);
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
-
-/**
- * 偽物のCosmos DBバックエンド。
- *
- * ドキュメントをIDをキーにしたMapで保持する。item(id, partitionKey)は
- * パーティションキーが/idのため、idとpartitionKeyが一致しない場合やidが
- * 存在しない場合にアイテムなしの状態になる。
- *
- * ただし read() と replace()/delete() ではその「アイテムなし」の表現方法が異なる。
- * 実際の @azure/cosmos は、read（単一アイテム取得）に限り NotFound エラーを
- * 内部で飲み込み、resource が undefined のレスポンスを返す
- * （node_modules/@azure/cosmos の Item.read 実装: catch 節で
- * error.code === StatusCodes.NotFound のときは再スローせず、
- * resource が無いレスポンスとして扱う）。一方 replace・delete は NotFound を
- * そのまま例外として投げる。この非対称性は読み取りに限った実 SDK の挙動なので、
- * 偽物もここに合わせる。read() が例外を投げる前提で書くと、本番で絶対に通らない
- * catch 分岐をテストすることになり、実際に通る `resource || null` の経路が
- * 無検証のまま緑になってしまう（過去にこの誤りがあった）。
- *
- * パーティションキーの取り違え（例: item(id, 'wrong')）の検出は、読み取りが
- * 例外を投げなくなっても失わない。id と partitionKey が一致しない場合は
- * resource を undefined にする（＝実SDKでも取り違えは単に見つからない扱いになる）ため、
- * 取り違えが起きれば呼び出し側は「見つからない」という結果を受け取り、
- * 正しいドキュメントを期待するテストが失敗する
- * （単一の共有モックだとどの引数で呼ばれても同じアイテムを返すため、
- * 取り違えが検出できない点は変わらず回避している）。
- *
- * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@name, @imagePath）の
- * 値で絞り込むだけに留める。クエリ文字列自体への依存はリファクタリング耐性を失う。
- *
- * この簡略化の結果、次の3点はこの層のテストでは検証できない（SQL自体を解釈する
- * 実エミュレータ、もしくはE2Eテストに委ねる）:
- * - WHERE句が実際に name / imagePath で絞り込む条件になっているか（パラメータの値さえ
- *   渡っていれば、絞り込み条件を丸ごと削除してもこの偽物は気づかない）
- * - ORDER BY c.createdAt DESC による並び順（偽物はMapの挿入順をそのまま返す）
- * - SELECTの列指定（射影）が正しいか（偽物はドキュメント全体を返す）
- */
-interface FakeCosmosBackend {
-  // Cosmosは射影（SELECTの列指定）に応じてPlantの部分集合しか返さないことがある。
-  // Plant固定だと「常に完全なPlantが返る」という誤った前提を型で固定してしまうため、
-  // 射影結果として渡すPlantSummaryも受け入れられるようにしておく
-  documents: Map<string, Plant | PlantSummary>;
-  forcedCreateError: Error | null;
-  forcedCreateNoResource: boolean;
-  forcedReadError: Error | null;
-  forcedReplaceError: Error | null;
-  forcedDeleteError: Error | null;
-  forcedQueryError: Error | null;
-}
-
-function notFoundError(): any {
-  const err: any = new Error('NotFound');
-  err.code = 404;
-  return err;
-}
-
-function createFakeContainer(backend: FakeCosmosBackend): Container {
-  return {
-    items: {
-      create: async (doc: Plant) => {
-        if (backend.forcedCreateError) throw backend.forcedCreateError;
-        if (backend.forcedCreateNoResource) return { resource: undefined };
-        backend.documents.set(doc.id, doc);
-        return { resource: doc };
-      },
-      query: (querySpec: any) => {
-        const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
-        const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
-        const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
-        let docs = Array.from(backend.documents.values());
-        if (nameParam !== undefined) {
-          docs = docs.filter((d) => d.name === nameParam);
-        }
-        if (imagePathParam !== undefined) {
-          docs = docs.filter((d) => d.imagePath === imagePathParam);
-        }
-        return {
-          fetchAll: async () => {
-            if (backend.forcedQueryError) throw backend.forcedQueryError;
-            return { resources: docs };
-          }
-        };
-      }
-    },
-    item: (id: string, partitionKey: string) => ({
-      // read だけは実SDKに合わせてNotFoundを例外にしない（上のコメント参照）。
-      // 見つからない場合・パーティションキー不一致の場合は resource が無い
-      // レスポンスを返す
-      read: async () => {
-        if (backend.forcedReadError) throw backend.forcedReadError;
-        if (id !== partitionKey || !backend.documents.has(id)) {
-          return { resource: undefined };
-        }
-        return { resource: backend.documents.get(id) };
-      },
-      replace: async (doc: Plant) => {
-        if (backend.forcedReplaceError) throw backend.forcedReplaceError;
-        if (id !== partitionKey || !backend.documents.has(id)) throw notFoundError();
-        backend.documents.set(id, doc);
-        return { resource: doc };
-      },
-      delete: async () => {
-        if (backend.forcedDeleteError) throw backend.forcedDeleteError;
-        if (id !== partitionKey || !backend.documents.has(id)) throw notFoundError();
-        backend.documents.delete(id);
-        return { resource: { id } };
-      }
-    })
-  } as unknown as Container;
-}
-
-/** 偽物のBlobバックエンド（storageService.test.tsと同型。旧画像削除の検証に使う） */
-interface BlobEntry {
-  content: Buffer;
-  failWith?: Error;
-}
-
-interface FakeBlobBackend {
-  store: Map<string, BlobEntry>;
-}
-
-function notFoundBlobError(): any {
-  const err: any = new Error('BlobNotFound');
-  err.statusCode = 404;
-  return err;
-}
-
-function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: string, blobName: string): BlockBlobClient {
-  const key = `${containerName}/${blobName}`;
-
-  return {
-    delete: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundBlobError();
-      if (entry.failWith) throw entry.failWith;
-      backend.store.delete(key);
-      return {};
-    }
-  } as unknown as BlockBlobClient;
-}
-
-function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
-  return {
-    getContainerClient: (containerName: string) => ({
-      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
-    })
-  } as unknown as BlobServiceClient;
-}
 
 describe('CosmosService', () => {
   let service: CosmosService;

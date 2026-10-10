@@ -1,6 +1,11 @@
 import { StorageService } from '../../src/services/storageService';
-import { BlobServiceClient, BlockBlobClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
-import { Readable } from 'stream';
+import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import {
+  BlobEntry,
+  FakeBlobBackend,
+  createFakeBlobServiceClient,
+  keyFromUrl
+} from '../fakes/blob';
 
 // 外部依存のみモック
 // tests/setup.ts のファクトリモックは BlobServiceClient しか定義していないため、
@@ -20,98 +25,6 @@ const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
 
 // SASトークンの固定値（SAS生成が実際に実行されたことを検証するため）
 const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
-
-/**
- * 偽物のBlobバックエンド。
- *
- * コンテナ名とBlob名のキーごとに内容を Map に保持する。これにより
- * 「移動先・削除先のコンテナを取り違える」不具合を検出できる
- * （単一の共有モックだとどの引数で呼ばれても同じ値を返すため、
- * 宛先の取り違えがテストを通過してしまう）。
- */
-interface BlobEntry {
-  content: Buffer;
-  contentType?: string;
-  failWith?: Error;
-  /**
-   * download() 自体は成功させるが、返したストリームを読み取っている最中に
-   * 'error' を発火させる。failWith（呼び出し自体の失敗）とは別経路で、
-   * streamToBuffer() の 'error' リスナーを検証するためのもの
-   */
-  streamErrorWith?: Error;
-}
-
-interface FakeBlobBackend {
-  store: Map<string, BlobEntry>;
-  forcedUploadError: Error | null;
-}
-
-function notFoundError(): any {
-  const err: any = new Error('BlobNotFound');
-  err.statusCode = 404;
-  return err;
-}
-
-function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: string, blobName: string): BlockBlobClient {
-  const key = `${containerName}/${blobName}`;
-  const url = `https://test.blob.core.windows.net/${key}`;
-
-  return {
-    url,
-    upload: async (content: Buffer, _length: number, options?: any) => {
-      if (backend.forcedUploadError) {
-        throw backend.forcedUploadError;
-      }
-      backend.store.set(key, {
-        content,
-        contentType: options?.blobHTTPHeaders?.blobContentType
-      });
-      return {};
-    },
-    download: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundError();
-      if (entry.failWith) throw entry.failWith;
-      const stream = new Readable({
-        read() {
-          if (entry.streamErrorWith) {
-            this.emit('error', entry.streamErrorWith);
-            return;
-          }
-          this.push(entry.content);
-          this.push(null);
-        }
-      });
-      return { readableStreamBody: stream };
-    },
-    getProperties: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundError();
-      if (entry.failWith) throw entry.failWith;
-      return { contentType: entry.contentType };
-    },
-    delete: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundError();
-      if (entry.failWith) throw entry.failWith;
-      backend.store.delete(key);
-      return {};
-    }
-  } as unknown as BlockBlobClient;
-}
-
-function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
-  return {
-    getContainerClient: (containerName: string) => ({
-      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
-    })
-  } as unknown as BlobServiceClient;
-}
-
-/** 返ってきたURL（SASクエリ付きの場合あり）から、偽物バックエンドのMapキーを導く */
-function keyFromUrl(url: string): string {
-  return url.replace('https://test.blob.core.windows.net/', '').split('?')[0];
-}
 
 describe('StorageService', () => {
   let service: StorageService;

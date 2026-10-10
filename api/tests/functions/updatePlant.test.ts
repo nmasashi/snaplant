@@ -1,7 +1,9 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { updatePlantHandler } from '../../src/functions/updatePlant';
-import { CosmosClient, Container } from '@azure/cosmos';
-import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import { CosmosClient } from '@azure/cosmos';
+import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
+import { BlobServiceClient } from '@azure/storage-blob';
+import { BlobEntry, FakeBlobBackend, createFakeBlobServiceClient } from '../fakes/blob';
 import { Plant } from '../../src/types/plant';
 
 // 外部依存のみモック
@@ -28,104 +30,10 @@ const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountNa
 const TEST_STORAGE_CONTAINER_NAME = 'test-images';
 const TEST_IMAGE_BASE_URL = `https://test.blob.core.windows.net/${TEST_STORAGE_CONTAINER_NAME}`;
 
-/**
- * 偽物のCosmos DBバックエンド（cosmosService.test.ts の FakeCosmosBackend と同型）。
- *
- * updatePlantHandler が実際に使うのは container.item(id, id) の read と replace、
- * および imagePath 重複チェック（getPlantByImagePath()）が使う items.query。
- * この3つだけを持つ最小構成にする（一覧取得や作成は無関係）。
- *
- * read だけは実SDKに合わせてNotFoundを例外にしない。@azure/cosmos の
- * Item.read() はNotFoundを内部で飲み込み、resourceが無いレスポンスを返す
- * （cosmosService.test.ts の同種コメント参照）。replace はそのまま例外を投げる。
- *
- * items.query は実際のCosmos SQLを解釈せず、渡されたパラメータ（@imagePath）の
- * 値で絞り込むだけに留める（save.test.ts の同種コメント参照）。
- */
-interface FakeCosmosBackend {
-  documents: Map<string, Plant>;
-  forcedReadError: Error | null;
-}
-
-function notFoundError(): any {
-  const err: any = new Error('NotFound');
-  err.code = 404;
-  return err;
-}
-
-function createFakeContainer(backend: FakeCosmosBackend): Container {
-  return {
-    item: (id: string, partitionKey: string) => ({
-      read: async () => {
-        if (backend.forcedReadError) throw backend.forcedReadError;
-        if (id !== partitionKey || !backend.documents.has(id)) {
-          return { resource: undefined };
-        }
-        return { resource: backend.documents.get(id) };
-      },
-      replace: async (doc: Plant) => {
-        if (id !== partitionKey || !backend.documents.has(id)) throw notFoundError();
-        backend.documents.set(id, doc);
-        return { resource: doc };
-      }
-    }),
-    items: {
-      query: (querySpec: any) => {
-        const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
-        const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
-        let docs = Array.from(backend.documents.values());
-        if (imagePathParam !== undefined) {
-          docs = docs.filter((d) => d.imagePath === imagePathParam);
-        }
-        return {
-          fetchAll: async () => ({ resources: docs })
-        };
-      }
-    }
-  } as unknown as Container;
-}
-
-/** 偽物のBlobバックエンド（cosmosService.test.ts の FakeBlobBackend と同型） */
-interface BlobEntry {
-  content: Buffer;
-  failWith?: Error;
-}
-
-interface FakeBlobBackend {
-  store: Map<string, BlobEntry>;
-}
-
-function notFoundBlobError(): any {
-  const err: any = new Error('BlobNotFound');
-  err.statusCode = 404;
-  return err;
-}
-
-function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: string, blobName: string): BlockBlobClient {
-  const key = `${containerName}/${blobName}`;
-
-  return {
-    delete: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundBlobError();
-      if (entry.failWith) throw entry.failWith;
-      backend.store.delete(key);
-      return {};
-    }
-  } as unknown as BlockBlobClient;
-}
-
-function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
-  return {
-    getContainerClient: (containerName: string) => ({
-      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
-    })
-  } as unknown as BlobServiceClient;
-}
 
 describe('植物更新API', () => {
   let mockContext: InvocationContext;
-  let cosmosBackend: FakeCosmosBackend;
+  let cosmosBackend: FakeCosmosBackend<Plant>;
   let blobStore: Map<string, BlobEntry>;
 
   beforeEach(() => {

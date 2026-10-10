@@ -324,14 +324,40 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
 Cosmos DB / Blob Storage は管理下にある依存なので、モックは運用上の例外として許容するが
 **やり取りの検証はしない**。OpenAI API は管理外の依存なのでモックと検証の両方が正当。
 
-既存テストの事実（新規テストで踏襲しないもの含む）：
+### 偽物は `tests/fakes/` に置く
 
-- `tests/setup.ts` が `setupFilesAfterEnv` でグローバルに環境変数と Azure SDK / openai のモックを設定し、`console.log` も抑制する
+Cosmos DB / Blob Storage の差し替えには、**引数を見分ける状態持ちの偽物**を使う。
+`tests/fakes/cosmos.ts` と `tests/fakes/blob.ts` が唯一の実体で、
+各テストはここから import する。**テストファイル内に偽物を再定義しない。**
+
+| ファイル | 中身 |
+|---|---|
+| `tests/fakes/cosmos.ts` | `FakeCosmosBackend`（ドキュメントの `Map`）と `createFakeContainer()` |
+| `tests/fakes/blob.ts` | `FakeBlobBackend`（Blob の `Map`）と `createFakeBlobServiceClient()` |
+
+状態を持たせるのは、**呼び出しを検証せずに結果を確認する**ため。
+保存できたか・消えたか・宛先を取り違えていないかは、`toHaveBeenCalledWith` ではなく
+`documents` / `store` の中身で確かめる。単一の共有モックだとどの引数で呼ばれても
+同じ値を返すので、宛先の取り違えがテストを通過してしまう。
+
+偽物は各テスト対象が使う操作の**和集合**を持つ。余分な操作を持っていても
+テストは弱くならないため、テストごとに最小構成へ削らない。
+失敗経路は `forcedQueryError` などのフラグ、もしくは Blob 単位の
+`failWith` / `streamErrorWith` で起こす。
+
+**偽物で検証できないことは偽物のファイルに書いてある。**
+Cosmos SQL を解釈しないため、WHERE 句の中身・`ORDER BY` の並び順・
+SELECT の射影は検証できない。この3点は実エミュレータか E2E、
+もしくは「Cosmos のクエリを変更したら手で確認する」手順に委ねる。
+
+### 既存テストの事実
+
+- `tests/setup.ts` が `setupFilesAfterEnv` でグローバルに環境変数と `openai` のモックを設定し、`console.log` も抑制する。**Azure SDK のモックは置いていない**（完全に死んでいたため削除した）
 - 各テストファイルは**それに加えて**個別に `jest.mock()` と環境変数を設定する二重構造。追いにくいため新規テストはファイル内で完結させる
-- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）
+- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）。`tests/fakes/` だけが例外で、`src/` に対応するものが無い共有部品
 - テスト名は非開発者にも通じる日本語の文で書く（この慣習は踏襲する）
 - `testTimeout` は 10 秒
-- **既存テストには原則違反（スタブへの呼び出し検証）が多数含まれている。** 検証のしかたは踏襲しないこと
+- **スタブへの呼び出し検証は解消済み。** 残る `toHaveBeenCalled*` は OpenAI（管理外の依存）に対するものだけで、これは正当。Cosmos / Blob に対して書き足さないこと
 
 ## サブエージェント
 

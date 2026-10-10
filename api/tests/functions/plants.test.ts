@@ -1,7 +1,8 @@
 import { InvocationContext, HttpRequest } from '@azure/functions';
 import { getPlantsHandler } from '../../src/functions/plants';
 import { PlantSummary } from '../../src/types/plant';
-import { CosmosClient, Database, Container } from '@azure/cosmos';
+import { CosmosClient } from '@azure/cosmos';
+import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -14,10 +15,7 @@ const TEST_STORAGE_CONTAINER_NAME = 'test-images';
 
 describe('植物一覧取得API', () => {
   let mockContext: InvocationContext;
-  let mockClient: jest.Mocked<CosmosClient>;
-  let mockDatabase: jest.Mocked<Database>;
-  let mockContainer: jest.Mocked<Container>;
-  let mockItems: any;
+  let cosmosBackend: FakeCosmosBackend<PlantSummary>;
 
   beforeEach(() => {
     // Contextのモック
@@ -25,24 +23,15 @@ describe('植物一覧取得API', () => {
       log: jest.fn()
     } as any;
 
-    // Cosmos DB SDKのモック
-    mockItems = {
-      query: jest.fn()
+    // Cosmos DB SDKを引数を見分ける偽物に差し替える
+    cosmosBackend = {
+      documents: new Map(),
+      forcedQueryError: null
     };
-
-    mockContainer = {
-      items: mockItems
-    } as any;
-
-    mockDatabase = {
-      container: jest.fn().mockReturnValue(mockContainer)
-    } as any;
-
-    mockClient = {
-      database: jest.fn().mockReturnValue(mockDatabase)
-    } as any;
-
-    MockedCosmosClient.mockImplementation(() => mockClient);
+    const container = createFakeContainer(cosmosBackend);
+    MockedCosmosClient.mockImplementation(() => ({
+      database: () => ({ container: () => container })
+    }) as any);
 
     // 環境変数設定
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
@@ -86,11 +75,7 @@ describe('植物一覧取得API', () => {
         }
       ];
 
-      // Cosmos DB クエリ成功のモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: mockPlants })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      mockPlants.forEach((p) => cosmosBackend.documents.set(p.id, p));
 
       // リクエストの作成
       const request = {
@@ -120,11 +105,7 @@ describe('植物一覧取得API', () => {
     });
 
     it('植物が存在しない場合は空配列を返す', async () => {
-      // Cosmos DB クエリ成功（空の結果）のモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      // ドキュメントを1件も入れない（偽物は空配列を返す）
 
       // リクエストの作成
       const request = {
@@ -154,9 +135,7 @@ describe('植物一覧取得API', () => {
       // ENOTFOUND はCosmos DB関連エラーの分岐に該当し、503として扱われる
       const dbError = new Error('getaddrinfo ENOTFOUND');
       (dbError as any).code = 'ENOTFOUND';
-      mockItems.query.mockImplementation(() => {
-        throw dbError;
-      });
+      cosmosBackend.forcedQueryError = dbError;
 
       // リクエストの作成
       const request = {
@@ -184,10 +163,7 @@ describe('植物一覧取得API', () => {
     it('DB クエリエラーの場合は500エラー', async () => {
       // DB クエリエラーのモック
       const queryError = new Error('Query failed');
-      const mockQuery = {
-        fetchAll: jest.fn().mockRejectedValue(queryError)
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      cosmosBackend.forcedQueryError = queryError;
 
       // リクエストの作成
       const request = {

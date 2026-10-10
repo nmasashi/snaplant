@@ -1,14 +1,19 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { uploadImageHandler } from '../../src/functions/upload';
-import { BlobServiceClient, BlockBlobClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
-import { Readable } from 'stream';
+import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import {
+  BlobEntry,
+  FakeBlobBackend,
+  createFakeBlobServiceClient,
+  keyFromUrl
+} from '../fakes/blob';
 
 // 外部依存のみモック
 // tests/setup.ts のファクトリモックは getBlockBlobClient() に download / getProperties / delete が
 // 無く、それに頼ると一時保存→永続保存の移動処理がTypeErrorになって本番コードのcatchに
 // 飲み込まれてしまう（console.logも抑制されるため気づけない）。一時保存・永続保存・削除が
 // 実際に成功する経路をすべて通せるよう、このファイル内で偽物のBlobバックエンドに差し替える
-// （storageService.test.ts と同型）
+// （偽物の実体は tests/fakes/blob.ts）
 jest.mock('@azure/storage-blob', () => ({
   BlobServiceClient: { fromConnectionString: jest.fn() },
   BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
@@ -23,87 +28,6 @@ const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
 // SASトークンの固定値（一時保存がSAS付きURLを返すことの土台。値自体の検証はstorageService.test.ts側の責務）
 const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
 
-/**
- * 偽物のBlobバックエンド（storageService.test.ts の FakeBlobBackend と同型）。
- *
- * コンテナ名とBlob名のキーごとに内容をMapに保持する。これにより
- * 「一時→永続への移動で宛先コンテナを取り違える」「削除対象を取り違える」
- * といった不具合を検出できる（単一の共有モックだとどの引数で呼ばれても
- * 同じ値を返すため、宛先の取り違えがテストを通過してしまう）。
- *
- * upload.ts が実際に使うのは upload / download / getProperties / delete の4つ
- * （一時保存・永続保存への移動・エラー時の一時ファイル削除）なので、
- * この4つだけを持つ最小構成にする。
- */
-interface BlobEntry {
-  content: Buffer;
-  contentType?: string;
-}
-
-interface FakeBlobBackend {
-  store: Map<string, BlobEntry>;
-  forcedUploadError: Error | null;
-}
-
-function notFoundError(): any {
-  const err: any = new Error('BlobNotFound');
-  err.statusCode = 404;
-  return err;
-}
-
-function createFakeBlockBlobClient(backend: FakeBlobBackend, containerName: string, blobName: string): BlockBlobClient {
-  const key = `${containerName}/${blobName}`;
-  const url = `https://test.blob.core.windows.net/${key}`;
-
-  return {
-    url,
-    upload: async (content: Buffer, _length: number, options?: any) => {
-      if (backend.forcedUploadError) {
-        throw backend.forcedUploadError;
-      }
-      backend.store.set(key, {
-        content,
-        contentType: options?.blobHTTPHeaders?.blobContentType
-      });
-      return {};
-    },
-    download: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundError();
-      const stream = new Readable({
-        read() {
-          this.push(entry.content);
-          this.push(null);
-        }
-      });
-      return { readableStreamBody: stream };
-    },
-    getProperties: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundError();
-      return { contentType: entry.contentType };
-    },
-    delete: async () => {
-      const entry = backend.store.get(key);
-      if (!entry) throw notFoundError();
-      backend.store.delete(key);
-      return {};
-    }
-  } as unknown as BlockBlobClient;
-}
-
-function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
-  return {
-    getContainerClient: (containerName: string) => ({
-      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
-    })
-  } as unknown as BlobServiceClient;
-}
-
-/** 返ってきたURL（SASクエリ付きの場合あり）から、偽物バックエンドのMapキーを導く */
-function keyFromUrl(url: string): string {
-  return url.replace('https://test.blob.core.windows.net/', '').split('?')[0];
-}
 
 describe('画像アップロード・植物判定統合API', () => {
   let mockContext: InvocationContext;
