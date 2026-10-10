@@ -387,20 +387,39 @@ describe('StorageService', () => {
       expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
     });
 
-    it('一時コンテナ名で始まるだけの別コンテナの画像を削除すると、永続コンテナの画像として削除される', async () => {
+    it('一時コンテナ名で始まるだけの別コンテナを指すURLは、どちらのコンテナからも削除しない', async () => {
       const fileName = '44444444-4444-4444-4444-444444444444.jpg';
       // コンテナ名が一時コンテナ名 "test-temp" で始まるだけの別コンテナ
-      // "test-temp-archive"（偶然の命名一致）。完全一致判定ならこのコンテナは
-      // 一時コンテナとは無関係に扱われ、この中のファイルには一切触れないはず
+      // "test-temp-archive"（偶然の命名一致）。プレフィックス一致で判定すると
+      // 一時コンテナと誤認する
       blobStore.set(`test-temp-archive/${fileName}`, { content: Buffer.from('archive data'), contentType: 'image/jpeg' });
-      // 永続コンテナ側の同名ファイル。完全一致判定なら永続側として扱われ、これが削除される
+      // 永続コンテナ側の同名ファイル。未知のコンテナを永続側へフォールバック
+      // させる実装だと、これが巻き込まれて消える
       blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
       const imageUrl = `https://test.blob.core.windows.net/test-temp-archive/${fileName}`;
 
+      const result = await service.deleteImage(imageUrl);
+
+      expect(result).toBe(false);
+      expect(blobStore.has(`test-temp-archive/${fileName}`)).toBe(true);
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
+    });
+
+    it('コンテナ名の直後に余分なパスセグメントを挟んだURLを渡した場合、無関係な同名ファイルの画像は削除されない', async () => {
+      const fileName = '77777777-7777-7777-7777-777777777777.jpg';
+      // 永続コンテナに実在する、このテストが守る対象のBlob。
+      // URL解釈を誤るとこれが削除対象として一致してしまう
+      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
+      // コンテナ名(test-images)とファイル名の間に余分なセグメント "x" を挟んだURL。
+      // extractContainerNameFromUrl() は最初のセグメントだけを見て、
+      // extractFileNameFromUrl() は最後のセグメントだけを見るため、間の "x" が
+      // 両方から無視されると「test-images/<fileName>」という無関係な実在Blobを
+      // 指してしまう（本来この階層のBlob名は "x/<fileName>" であり存在しないはず）
+      const imageUrl = `https://test.blob.core.windows.net/test-images/x/${fileName}`;
+
       await service.deleteImage(imageUrl);
 
-      expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
-      expect(blobStore.has(`test-temp-archive/${fileName}`)).toBe(true);
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
     });
 
     it('自ストレージアカウント以外のホストを指すURLを渡した場合、falseを返し永続コンテナの画像は削除されない', async () => {
@@ -411,6 +430,21 @@ describe('StorageService', () => {
       // 一致しないため永続コンテナ扱いになり、ファイル名が一致するだけの
       // 他レコードの実物Blobを削除してしまう
       const imageUrl = `https://example.com/foo/${fileName}`;
+
+      const result = await service.deleteImage(imageUrl);
+
+      expect(result).toBe(false);
+      expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
+    });
+
+    it('永続コンテナでも一時コンテナでもない未知のコンテナ名を指すURLを渡した場合、falseを返し永続コンテナの同名画像は削除されない', async () => {
+      const fileName = '88888888-8888-8888-8888-888888888888.jpg';
+      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
+      // ホストは自ストレージアカウント（test.blob.core.windows.net）だが、
+      // コンテナ名"foo"は永続(test-images)・一時(test-temp)のどちらでもない。
+      // 現状の実装はコンテナ名が一時コンテナ名と一致しない場合すべて永続コンテナに
+      // フォールバックするため、このURLでも永続コンテナの同名Blobが削除されてしまう
+      const imageUrl = `https://test.blob.core.windows.net/foo/${fileName}`;
 
       const result = await service.deleteImage(imageUrl);
 

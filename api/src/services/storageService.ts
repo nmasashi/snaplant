@@ -195,8 +195,10 @@ export class StorageService {
    */
   async deleteImage(imageUrl: string): Promise<boolean> {
     try {
-      // URLからファイル名を抽出
-      const fileName = this.extractFileNameFromUrl(imageUrl);
+      // Blob名はコンテナ名より後ろのパス全体を使う。
+      // 最後のセグメントだけを取ると、間に余分なセグメントを挟んだURL
+      // （.../images/x/other.jpg）が別のBlob（images/other.jpg）を指してしまう
+      const fileName = this.extractBlobNameFromUrl(imageUrl);
       if (!fileName) {
         return false;
       }
@@ -208,10 +210,13 @@ export class StorageService {
         return false;
       }
 
-      // URLから適切なコンテナ名を決定
-      const containerName = this.extractContainerNameFromUrl(imageUrl) === this.tempContainerName
-        ? this.tempContainerName
-        : this.containerName;
+      // コンテナは永続・一時のいずれかと完全一致する場合だけ扱う。
+      // 一致しないものを永続コンテナにフォールバックさせると、
+      // 知らないコンテナ名のURLでも永続側の同名Blobを消せてしまう
+      const containerName = this.extractContainerNameFromUrl(imageUrl);
+      if (containerName !== this.containerName && containerName !== this.tempContainerName) {
+        return false;
+      }
       
       // コンテナクライアントを取得
       const containerClient = this.blobServiceClient.getContainerClient(containerName);
@@ -304,6 +309,23 @@ export class StorageService {
   }
 
   /**
+   * URLからBlob名を抽出
+   *
+   * コンテナ名より後ろのパス全体を返す。最後のセグメントだけを取ると、
+   * 間に任意のセグメントを挟んだURLが別のBlobを指せてしまう
+   * @param url URL
+   * @returns Blob名。取り出せない場合はnull
+   */
+  private extractBlobNameFromUrl(url: string): string | null {
+    try {
+      const segments = new URL(url).pathname.split('/');
+      return segments.slice(2).join('/') || null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
    * URLからコンテナ名を抽出
    *
    * パスセグメントで判定する。URL全体への文字列包含で判定すると、
@@ -367,7 +389,15 @@ export class StorageService {
 
     try {
       const url = new URL(imagePath);
-      return url.host === expectedHost && url.pathname.split('/')[1] === containerName;
+      if (url.host !== expectedHost) {
+        return false;
+      }
+
+      // アップロードAPIが返す形は必ず /<コンテナ名>/<Blob名> の2セグメント。
+      // 最初のセグメントだけを見ると中間に任意のセグメントを挟んだURLも通り、
+      // 存在しないBlobを指す壊れた参照を保存できてしまう
+      const segments = url.pathname.split('/');
+      return segments.length === 3 && segments[1] === containerName && segments[2] !== '';
     } catch (error) {
       return false;
     }
