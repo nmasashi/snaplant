@@ -160,70 +160,6 @@ describe('StorageService', () => {
     });
   });
 
-  describe('uploadImage', () => {
-    it('アップロードした画像のURLが画像用コンテナのユニークなファイル名を指す', async () => {
-      const imageBuffer = Buffer.from('test image data');
-
-      const result = await service.uploadImage(imageBuffer, 'image/jpeg');
-
-      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/);
-    });
-
-    it('Blob名の拡張子はContent-Typeから決まる', async () => {
-      const imageBuffer = Buffer.from('test image data');
-
-      const result = await service.uploadImage(imageBuffer, 'image/png');
-
-      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/);
-    });
-
-    it('Content-Typeが大文字でも拡張子が付く', async () => {
-      const imageBuffer = Buffer.from('test image data');
-
-      // isValidImageContentType は大文字を受け付けるため、
-      // 拡張子の引き当ても同じ正規化をしないと拡張子なしのBlob名になる
-      const result = await service.uploadImage(imageBuffer, 'IMAGE/PNG');
-
-      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/);
-    });
-
-    it('サポート外のContent-Typeの場合は拡張子なしのBlob名になる', async () => {
-      const imageBuffer = Buffer.from('test image data');
-
-      const result = await service.uploadImage(imageBuffer, 'application/octet-stream');
-
-      expect(result).toMatch(/^https:\/\/test\.blob\.core\.windows\.net\/test-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    });
-
-    it('アップロードした内容とcontent-typeが保存される', async () => {
-      const imageBuffer = Buffer.from('test image data');
-
-      const result = await service.uploadImage(imageBuffer, 'image/jpeg');
-
-      expect(blobStore.get(keyFromUrl(result))).toEqual({
-        content: imageBuffer,
-        contentType: 'image/jpeg'
-      });
-    });
-
-    it('2回アップロードすると異なるURLが返る', async () => {
-      const imageBuffer = Buffer.from('test image data');
-
-      const result1 = await service.uploadImage(imageBuffer, 'image/jpeg');
-      const result2 = await service.uploadImage(imageBuffer, 'image/jpeg');
-
-      expect(result1).not.toBe(result2);
-    });
-
-    it('アップロードエラーの場合、エラーをスローする', async () => {
-      const imageBuffer = Buffer.from('test image data');
-      backend.forcedUploadError = new Error('Upload failed');
-
-      await expect(service.uploadImage(imageBuffer, 'image/jpeg'))
-        .rejects.toThrow(/^画像のアップロードに失敗しました: Upload failed$/);
-    });
-  });
-
   describe('uploadImageToTemp', () => {
     it('一時コンテナに画像をアップロードできる', async () => {
       const imageBuffer = Buffer.from('temp image data');
@@ -235,6 +171,47 @@ describe('StorageService', () => {
       const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg)\?(.+)$/);
       expect(match).not.toBeNull();
       expect(match![2]).toBe(TEST_SAS_TOKEN);
+    });
+
+    it('Blob名の拡張子はContent-Typeから決まる', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+
+      const result = await service.uploadImageToTemp(imageBuffer, 'image/png');
+
+      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png)\?(.+)$/);
+      expect(match).not.toBeNull();
+      expect(match![2]).toBe(TEST_SAS_TOKEN);
+    });
+
+    it('Content-Typeが大文字でも拡張子が付く', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+
+      // isValidImageContentType は大文字を受け付けるため、
+      // 拡張子の引き当ても同じ正規化をしないと拡張子なしのBlob名になる
+      const result = await service.uploadImageToTemp(imageBuffer, 'IMAGE/PNG');
+
+      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png)\?(.+)$/);
+      expect(match).not.toBeNull();
+      expect(match![2]).toBe(TEST_SAS_TOKEN);
+    });
+
+    it('サポート外のContent-Typeの場合は拡張子なしのBlob名になる', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+
+      const result = await service.uploadImageToTemp(imageBuffer, 'application/octet-stream');
+
+      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\?(.+)$/);
+      expect(match).not.toBeNull();
+      expect(match![2]).toBe(TEST_SAS_TOKEN);
+    });
+
+    it('2回アップロードすると異なるURLが返る', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+
+      const result1 = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
+      const result2 = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
+
+      expect(result1).not.toBe(result2);
     });
 
     it('アップロードした内容とcontent-typeが一時コンテナに保存される', async () => {

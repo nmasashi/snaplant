@@ -68,38 +68,6 @@ export class StorageService {
   }
 
   /**
-   * 画像をBlobストレージにアップロードする
-   * @param imageBuffer 画像データ
-   * @param contentType コンテンツタイプ
-   * @returns アップロードされた画像のURL
-   */
-  async uploadImage(imageBuffer: Buffer, contentType: string): Promise<string> {
-    try {
-      // ユニークなファイル名を生成
-      const uniqueFileName = this.generateUniqueFileName(contentType);
-      
-      // コンテナクライアントを取得
-      const containerClient = this.blobServiceClient.getContainerClient(this.containerName);
-      
-      // ブロックBlobクライアントを取得
-      const blockBlobClient: BlockBlobClient = containerClient.getBlockBlobClient(uniqueFileName);
-      
-      // 画像をアップロード
-      await blockBlobClient.upload(imageBuffer, imageBuffer.length, {
-        blobHTTPHeaders: {
-          blobContentType: contentType
-        }
-      });
-      
-      // 公開URLを返す（SAS不要）
-      return blockBlobClient.url;
-      
-    } catch (error: any) {
-      throw new Error(`画像のアップロードに失敗しました: ${error.message}`);
-    }
-  }
-
-  /**
    * 画像を一時保存する
    * @param imageBuffer 画像データ
    * @param contentType コンテンツタイプ

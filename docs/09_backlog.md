@@ -617,6 +617,39 @@ CLAUDE.md の方針が禁じたのは「どのモック設定が効いている�
 
 採用する場合は CLAUDE.md の「テストの流儀」節の記述も更新すること。
 
+### UUID の生成方法が2つある
+
+`CosmosService.generateId()` は `uuid` パッケージを使わず、
+`Math.random()` を使った自前実装になっている。
+
+```typescript
+return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+  const r = Math.random() * 16 | 0;
+  ...
+```
+
+一方 `StorageService.generateUniqueFileName()` は `uuid` パッケージの
+`v4()` を使う。**同じリポジトリ内で UUID の生成方法が2つある。**
+
+`save.ts` も以前は `uuidv4()` を使っていたが、`createPlant()` が
+スプレッドの前で `generateId()` を呼ぶため常に捨てられていた。つまり
+**`uuid` パッケージは植物の id 生成に一度も使われていなかった**
+（この二重生成は解消済み）。
+
+**機能上の問題はない。** `Math.random()` は暗号学的に安全ではないが、
+この id は `GET /api/plants` で全件返るため秘密ではなく、推測されても
+害がない（アクセス制御は Function Key）。
+
+**判断が必要な点**: `uuid` パッケージに統一するか。
+
+**推奨**: **統一する。** 依存として既に入っていて `StorageService` が
+使っているので、追加コストはない。生成方法が2つあると「どちらを使うべきか」
+の判断を読み手に押しつける。
+
+`generateId()` を `uuidv4()` の呼び出しに置き換えるだけで、
+テストは形式を検証しているため期待値を変える必要もない
+（`uuid` も v4 を生成するので同じ形になる）。
+
 ### Web 経路が実際の MIME を無視して image/jpeg を送る
 
 `mobile/lib/services/api_service.dart:133-140` の Web 経路は、画像の実データに
@@ -653,52 +686,6 @@ Dart の変更なので WSL では `flutter analyze` を実行できない。
 **判断: 当面は許容する**（人間がトリアージ済み）。合わせるならサーバ側を
 `[...str].length` にする方が利用者の直感に近いが、現行実装も妥当。
 補足情報は自由記述のヒントであり、境界ちょうどの入力が実務で問題になりにくい。
-
-### 使われていないエラーコード `UNAUTHORIZED` / `INVALID_API_KEY`
-
-`api/src/types/api.ts` の `ErrorCode.UNAUTHORIZED` と
-`ErrorCode.INVALID_API_KEY`、および `HttpStatusCode.UNAUTHORIZED` は
-アプリコードからの生成箇所がゼロ。
-
-401 は Azure Functions のランタイムが返すため、このアプリの
-`{ success, error }` 封筒の形にならない。つまり**構造的に使われない**。
-
-**判断が必要な点**: 残すか削除するか。
-
-**推奨**: **コメントを添えて残す。** 「401 はランタイムが返すため
-この enum は使われない」と書く。削除しても契約は変わらないが、
-仕様書側には 401 の説明（ランタイム挙動として）があるため、
-型定義だけ消すと対応関係が追えなくなる。
-
-### `save` ハンドラと `createPlant()` で id と日時の生成が二重
-
-`api/src/functions/save.ts:36-46` が `uuidv4()` と `createdAt`/`updatedAt` を
-詰めた完全な `Plant` を組み立てて `createPlant(plantData)` に渡している。
-
-`createPlant()` 側は `{ id: this.generateId(), ...plantData, createdAt: now, updatedAt: now }`
-と組み立てるため、スプレッドの順で**ハンドラ側の id が勝ち、`generateId()` の
-結果は捨てられる**。日時は `createPlant()` 側が勝つ。
-
-レスポンス形状は仕様どおりで実行時の症状はない。ただし**変異テストで
-検出不能な領域を作っている**ことが実測で判明した。
-
-`save.ts` の `createdAt` を `'not-a-date'` のような値に変えても、応答にも
-永続化内容にも一切現れない。`createPlant()` が `...plantData` の**後**に
-`createdAt` / `updatedAt` を置いているため、常に無条件で上書きされる。
-つまり `save.ts` の `newPlant.createdAt` / `updatedAt` は**到達不能な死んだコード**。
-
-`id` だけが生き残っているのは、`this.generateId()` がスプレッドの**前**に
-置かれているという**記述順の偶然**による。`createPlant()` のプロパティ順を
-入れ替えるだけで、id の生成元が静かに変わる。
-
-責務の重複として整理候補。
-
-**判断が必要な点**: どちらに寄せるか。
-
-**推奨**: **`createPlant()` に寄せる。** id と日時の生成はサービスの責務で、
-ハンドラはリクエストの詰め替えに留めるのが自然。
-`createPlant()` の引数型が `PlantCreateRequest` であることもその設計を示している。
-ハンドラ側から `id` / `createdAt` / `updatedAt` を外し、`uuidv4()` の import も落とす。
 
 ### Cosmos の SQL を検証する層がない
 
@@ -748,23 +735,3 @@ CI のフィードバックを遅くする。単体テストの速さを守る�
 実データを作って消す必要があるため、本番とは別のテスト用コンテナか、
 テスト用 ID の接頭辞で後片付けする仕組みが要る。ここが設計のポイント。
 
-### `StorageService.uploadImage()` が未使用
-
-`api/src/services/storageService.ts` の `uploadImage()`（永続コンテナへ直接
-アップロードするメソッド）は、`api/src` と `mobile/lib` のどこからも呼ばれていない。
-
-`upload.ts` が使うのは `uploadImageToTemp()` → `moveFromTempToPermanent()` の経路だけ。
-一時保存して AI 判定を通してから永続化する設計（CLAUDE.md の「画像アップロードが
-3役を兼ねる設計」）なので、永続コンテナへ直接上げる経路は使われない。
-
-`storageService.test.ts` のテスト数件がこのメソッドを守っている状態。
-削除するならテストも同時に落とす。
-
-**判断が必要な点**: 削除してよいか。
-
-**推奨**: **削除する。** 使われないだけでなく、「AI 判定を通さずに永続化できる
-メソッド」が公開されている状態そのものが設計意図に反する。
-誰かがこれを使うと、植物でない画像が永続コンテナに入る経路ができる。
-
-`imageExists()` と `getPlantByName()` は削除済み。
-残るのはこれと [`ApiService.uploadImage()`](#apiserviceuploadimage-が未使用) の2件。

@@ -482,8 +482,6 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
 |---------------|-------------|------|----------|
 | 400 | `INVALID_REQUEST` | リクエスト形式が不正 | 全エンドポイント |
 | 400 | `NOT_A_PLANT` | アップロードされた画像は植物ではない | `POST /api/images/upload` |
-| 401 | `UNAUTHORIZED` | Function Key未指定 | Azure Functions ランタイム |
-| 401 | `INVALID_API_KEY` | Function Keyが無効 | Azure Functions ランタイム |
 | 404 | `PLANT_NOT_FOUND` | 植物が見つからない | `/api/plants/{id}` 系 |
 | 409 | `IMAGE_ALREADY_SAVED` | 同じ `imagePath` のレコードが既に存在する | `POST /api/plants/save` |
 | 409 | `DATABASE_ERROR` | 保存時の競合（Cosmos DBの409） | `POST /api/plants/save` |
@@ -496,8 +494,11 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
 | 503 | `DATABASE_ERROR` | Cosmos DBへ接続できない | DB参照系 |
 | 503 | `STORAGE_ERROR` | Blob Storageへ接続できない | `POST /api/images/upload` |
 
-401 の2つは Azure Functions ランタイムが返すため、アプリケーション側の
-`{ success, error }` 形式にはならない点に注意。
+**401 はこの表に載せていない。** Function Key が未指定・無効な場合は
+Azure Functions のランタイムが 401 を返し、アプリケーションコードに到達しない。
+そのため応答は `{ success, error }` の封筒にならず、`ErrorCode` にも
+対応する定義を持たない（以前は `UNAUTHORIZED` / `INVALID_API_KEY` が
+定義されていたが、生成箇所が構造的に存在しないため削除した）。
 
 ## 7. 未実装の仕様
 

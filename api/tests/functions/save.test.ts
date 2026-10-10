@@ -7,10 +7,10 @@ import { CosmosClient, Container } from '@azure/cosmos';
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
-// UUID生成のモック
-jest.mock('uuid', () => ({
-  v4: jest.fn(() => '123e4567-e89b-12d3-a456-426614174000')
-}));
+// id は CosmosService.generateId()（Math.random() ベースの自前実装）が生成するため
+// uuidパッケージはモックしても効かない。形式（UUID v4）だけを検証する
+// （cosmosService.test.ts の generateId 検証と同じ正規表現に揃える）
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // StorageService.isValidImagePath() が有効と判定するために必要な自ストレージ設定。
 // tests/setup.ts のグローバル値と偶然一致させるのではなく、このファイル内で
@@ -128,7 +128,7 @@ describe('植物保存API', () => {
         success: true,
         data: {
           plant: {
-            id: '123e4567-e89b-12d3-a456-426614174000',
+            id: expect.stringMatching(UUID_V4_PATTERN),
             name: '桜',
             scientificName: 'Prunus serrulata',
             familyName: 'バラ科',
@@ -143,9 +143,12 @@ describe('植物保存API', () => {
       });
 
       // 検証（実際に永続化された内容。create呼び出しの引数ではなく
-      // 偽物バックエンドに保存された状態そのものを確認する）
-      expect(cosmosBackend.documents.get('123e4567-e89b-12d3-a456-426614174000')).toEqual({
-        id: '123e4567-e89b-12d3-a456-426614174000',
+      // 偽物バックエンドに保存された状態そのものを確認する）。
+      // idは実行結果に生成された乱数のため、レスポンスから得たidで
+      // バックエンドを引く（固定値を2箇所に書かない）
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(cosmosBackend.documents.get(savedId)).toEqual({
+        id: savedId,
         name: '桜',
         scientificName: 'Prunus serrulata',
         familyName: 'バラ科',

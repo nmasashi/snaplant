@@ -8,8 +8,7 @@ import {
   createValidationError
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
-import { PlantCreateRequest, Plant } from '../types/plant';
-import { v4 as uuidv4 } from 'uuid';
+import { PlantCreateRequest } from '../types/plant';
 import { PLANT_VALIDATION, GENERAL_VALIDATION } from '../constants/validation';
 
 /**
@@ -32,17 +31,24 @@ export async function savePlantHandler(request: HttpRequest, context: Invocation
     context.log(`植物保存開始: 名前=${requestBody.name}`);
 
     // 植物オブジェクト作成
-    const newPlant: Plant = {
-      id: uuidv4(),
+    //
+    // id と日時は設定しない。CosmosService.createPlant() の責務で、
+    // 引数の型が PlantCreateRequest（id も日時も持たない）であることが
+    // その設計を示している。
+    //
+    // 以前はここでも uuidv4() と日時を設定していたが、createPlant() が
+    // `{ id: generateId(), ...plantData, createdAt: now, updatedAt: now }` と
+    // 組み立てるため、スプレッドの位置で勝ち負けが決まる状態だった。
+    // 日時はハンドラ側が常に捨てられる死んだコードで、id が生き残るのは
+    // generateId() がスプレッドの前に置かれているという記述順の偶然だった
+    const newPlant: PlantCreateRequest = {
       name: requestBody.name,
       scientificName: requestBody.scientificName,
       familyName: requestBody.familyName,
       description: requestBody.description,
       characteristics: requestBody.characteristics,
       confidence: requestBody.confidence,
-      imagePath: requestBody.imagePath,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      imagePath: requestBody.imagePath
     };
 
     // Cosmos DBサービス初期化
