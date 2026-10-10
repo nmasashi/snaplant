@@ -221,40 +221,6 @@ class ApiService {
     }
   }
 
-  /// 植物識別
-  /// POST /api/plants/identify
-  Future<IdentificationResult> identifyPlant(String imagePath, {String? contextInfo}) async {
-    try {
-      final url = _buildUrl('/api/plants/identify');
-      final response = await _client.post(
-        Uri.parse(url),
-        headers: _headers,
-        body: json.encode({
-          'imagePath': imagePath,
-          if (contextInfo != null && contextInfo.isNotEmpty) 'contextInfo': contextInfo,
-        }),
-      );
-      
-      return _parseResponse(
-        response,
-        (json) {
-          final data = json['data'] as Map<String, dynamic>?;
-          final result = data?['result'] as Map<String, dynamic>?;
-          if (result == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          return IdentificationResult.fromJson(result);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-  
   /// 重複チェック
   /// GET /api/plants/check-duplicate（docsワークフローに準拠）
   Future<DuplicateCheckResult> checkDuplicate(String plantName) async {
@@ -436,11 +402,7 @@ class ApiService {
       );
       
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw ApiException(
-          statusCode: response.statusCode,
-          message: '植物の削除に失敗しました',
-          body: response.body,
-        );
+        throw ApiException.fromResponse(response);
       }
     } catch (error) {
       throw _handleError(error);

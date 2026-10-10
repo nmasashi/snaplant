@@ -204,17 +204,6 @@ void main() {
       expect(plant.confidence, 88.0);
     });
 
-    test('識別はdata.resultから識別結果を取り出す', () async {
-      final service = _serviceResponding('POST', '/api/plants/identify', 200, {
-        'success': true,
-        'data': {'result': _identificationJson},
-      });
-
-      final result = await service.identifyPlant('https://stsnaplant.blob.core.windows.net/temp-images/a.jpg');
-
-      expect(result.candidates.map((c) => c.name), ['桜']);
-    });
-
     test('重複確認はdataそのものを結果として読む', () async {
       final service = _serviceResponding('GET', '/api/plants/check-duplicate', 200, {
         'success': true,
@@ -251,6 +240,22 @@ void main() {
       expect(error.statusCode, 409);
       expect(error.code, 'IMAGE_ALREADY_SAVED');
       expect(error.message, 'この画像は既に保存されています');
+    });
+
+    test('削除の失敗でもサーバが返した理由をユーザーに伝える', () async {
+      // 404 などは userMessage が固定文言を返すので、サーバの文言がそのまま出る 400 で確かめる
+      final service = _serviceResponding('DELETE', '/api/plants/not-a-uuid', 400, {
+        'success': false,
+        'error': {
+          'code': 'INVALID_REQUEST',
+          'message': '植物IDの形式が無効です',
+        },
+      });
+
+      final error = await _captureApiException(() => service.deletePlant('not-a-uuid'));
+
+      expect(error.code, 'INVALID_REQUEST');
+      expect(error.userMessage, '植物IDの形式が無効です');
     });
 
     test('封筒の形でないエラーボディでもステータスを添えた日本語のメッセージを返す', () async {
@@ -317,7 +322,13 @@ void main() {
     });
 
     test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {
-      final service = _serviceResponding('POST', '/api/plants/identify', 502, {
+      // 502（上流の AI・ストレージがエラーを返した）を返すエンドポイントのうち、
+      // クライアントが呼ぶのはアップロードだけなので、アップロードで再現する
+      final tempDir = await Directory.systemTemp.createTemp('snaplant_test_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final file = File('${tempDir.path}/photo.jpg');
+      await file.writeAsBytes([0xFF, 0xD8, 0xFF, 0xE0, ...List.filled(32, 0)]);
+      final service = _serviceResponding('POST', '/api/images/upload', 502, {
         'success': false,
         'error': {
           'code': 'AI_SERVICE_ERROR',
@@ -325,9 +336,7 @@ void main() {
         },
       });
 
-      final error = await _captureApiException(
-        () => service.identifyPlant('https://stsnaplant.blob.core.windows.net/temp-images/a.jpg'),
-      );
+      final error = await _captureApiException(() => service.uploadAndIdentifyImage(file));
 
       expect(error.userMessage, '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。');
     });
