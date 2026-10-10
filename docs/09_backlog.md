@@ -11,174 +11,6 @@
 
 ---
 
-## 優先対応
-
-### 既存テストを古典学派の原則に準拠させる
-
-`api/tests/` は Khorikov『単体テストの考え方/使い方』の原則に反する箇所を多数含む。
-リポジトリの方針は `.claude/test-principles.md` で古典学派に定めた。
-**サービス層は対応済み。ハンドラ群が未対応**（下記の進捗表）。
-
-**何が問題か**
-
-現在 312 個のアサーションのうち 48 個がモックの呼び出し検証で、
-うち 41 個が**スタブ（クエリ）とのやり取りの検証**にあたる。
-
-着手前はこの形だった（いずれも修正済み）。
-
-```typescript
-// storageService.test.ts — コンテナクライアントの取得方法を固定していた
-expect(mockBlobServiceClient.getContainerClient).toHaveBeenCalledWith('test-images');
-expect(mockContainerClient.getBlockBlobClient).toHaveBeenCalledWith('...');
-
-// cosmosService.test.ts — 原則3が NG 例として列挙している型そのもの
-expect(mockContainer.item).toHaveBeenCalledWith(plantId, plantId);
-```
-
-Cosmos DB と Blob Storage は**管理下にある依存**であり、読み取りはクエリなのでスタブ。
-スタブへの呼び出し検証は過剰検証で、4本の柱のうち**リファクタリングへの耐性**を壊す。
-
-実害の例: `StorageService` でコンテナクライアントをキャッシュする最適化を入れると、
-振る舞いが一切変わっていないのに上記のテストが落ちる。
-また `container.item(id, id)` の形はパーティションキーの渡し方という実装の詳細をテストに焼き付けている。
-
-**なぜ優先か**
-
-テストが偽陽性を出す状態を放置すると、開発者が「落ちたテストを読まずに直す」習慣になり、
-テストスイート全体が信頼されなくなる。バックログの他項目（`deletePlant()` の孤児 Blob 修正など）に
-着手する前に、テストを信頼できる状態にしておく方が安全。
-
-**モック呼び出し検証の分布と進捗**
-
-| ファイル | 件数 | 状態 |
-|---|---|---|
-| `tests/functions/upload.test.ts` | 15 | 未着手（論点1・3） |
-| `tests/functions/updatePlant.test.ts` | 10 | 未着手（論点1） |
-| `tests/functions/plantDetail.test.ts` | 6 | 未着手（論点1） |
-| `tests/functions/checkDuplicate.test.ts` | 5 | 未着手（論点1・2） |
-| `tests/functions/save.test.ts` | 4 | 未着手（論点1） |
-| `tests/functions/identify.test.ts` | 4 | **変更不要** |
-| `tests/services/openAIVisionService.test.ts` | 3 | **変更不要** |
-| `tests/functions/plants.test.ts` | 1 | 未着手（論点2） |
-| `tests/services/storageService.test.ts` | 0 | **完了**（768e07c） |
-| `tests/services/cosmosService.test.ts` | 0 | **完了** |
-
-`openAIVisionService.test.ts` の 3 件と `identify.test.ts` の 4 件は
-OpenAI API（**管理外の依存**）への検証なので**違反ではない**。
-LLM 呼び出し回数はコストに直結する観察可能な振る舞いで、
-`toHaveBeenCalledTimes(1)` は原則3が推奨型として挙げている形そのもの。
-
-**サービス層は完了した**
-
-`storageService.test.ts` と `cosmosService.test.ts` を書き直した。共通の手口は次の通りで、
-残りのファイルを進めるときの先行例になる。
-
-1. **引数に応じて違う値を返す偽物に差し替える。** 元の共有モックは
-   `getContainerClient` / `container.item` が引数に関係なく同一オブジェクトを返していたため、
-   宛先やパーティションキーを取り違える不具合が通っていた（原則7-3）
-2. 偽物が状態を持つので、**呼び出し検証を戻り値と最終状態の検証に置き換えられる**
-3. `StorageService` はプロセス内の自前クラスなので、原則2の手順1に従い
-   モックをやめて**実物**を使い、その下の Blob SDK だけを偽物にした
-4. 偽物は**各テストファイル内に書き写す**。共有モジュールに切り出していない
-   （`tests/setup.ts` の二重構造と同じ問題を作らないため）
-
-**着手前に決めるべき論点**
-
-残りはハンドラ群で、**修正の形がサービス層と違う。** 原則4はハンドラの観察可能な振る舞いを
-**レスポンスそのもの**（ステータスコードとボディ）と定めており、偽物のストアを作って
-状態を検証する形にはならない。サービス層の手口をそのまま機械適用できない。
-
-着手前に次の3つを決める必要がある。原則ファイルに判定がないため、人間の判断が必要。
-
-**論点1: `not.toHaveBeenCalled()` の扱い（18箇所）**
-
-「バリデーション失敗時に依存に触らない」を検証する形がハンドラ群に18箇所ある。
-
-```typescript
-// tests/functions/plantDetail.test.ts:163
-expect(mockContainer.item).not.toHaveBeenCalled();
-```
-
-コマンドの不発の検証として正当とも読めるが、原則4は
-「内部でどのサービスをどう呼んだかではない」と定めている。どちらとも決まらない。
-決めたら原則ファイル側に追記して、両エージェントの基準を揃える必要がある。
-
-**判断: 呼び出し検証をやめ、偽物の状態が変わっていないことで検証する**（人間がトリアージ済み）。
-サービス層で作った偽物（状態を持つ `Map`）がそのまま使えるので、
-「バリデーション失敗時に Cosmos のドキュメントが増えていない」「Blob が増えていない」
-という形に書き換えられる。これなら原則3（スタブへの呼び出しを検証しない）と
-原則4（観察可能な振る舞い）の両方を満たし、どちらの解釈を採るかを決めずに済む。
-
-状態で表現できない箇所だけ `not.toHaveBeenCalled()` を残し、
-原則ファイルに「外部への副作用が起きていないことは観察可能な振る舞いに含める」と
-追記して基準を一本化する。
-
-**論点2: SQL を固定しているクエリ検証（3箇所）— 外すと退行検出が消えることを実測済み**
-
-`checkDuplicate.test.ts:104,164` と `plants.test.ts:107` が
-`items.query` に渡す SQL 文を固定している。クエリは管理下にある依存への読み取りなので
-原則3では検証してはいけない型だが、**外すとネットが消える**ことを変異で確認した。
-
-| 変異 | 検出したテスト |
-|---|---|
-| `getPlantByName` の `WHERE c.name = @name` を削除 | **全スイートで未検出** |
-| `getPlants` の射影を `SELECT *` に | **全スイートで未検出** |
-| `getPlants` の `ORDER BY c.createdAt DESC` を削除 | `plants.test.ts:107-108` のみ |
-| `checkDuplicateByName` の `WHERE` を削除 | `checkDuplicate.test.ts:106-109` のみ |
-
-つまり下2つは、**これから掃除する予定の原則3違反アサーションだけが捕まえている**状態。
-ハンドラ群を原則準拠に直した時点で、SQL の絞り込み・並び順・射影の退行は
-どのテストからも検出されなくなる。
-
-`cosmosService.test.ts` では `@name` パラメータの値と名前の取り違えまでは
-検出できる偽物にしたが（SQL 文字列は解釈しない）、WHERE 句そのものの消失は検出できない。
-Cosmos の偽物に SQL を解釈させるのは非現実的なので、
-**アサーションを復活させるのではなく、妥協の埋め合わせ先を先に用意する**のが筋。
-下記「Cosmos の SQL を検証する層がない」が、この掃除の前提条件になる。
-原則5の歯止め2（確信が下がるなら削除しない）に当たる判断。
-
-**判断: 削除する**（人間がトリアージ済み）。
-
-理由は、SQL 文のアサーションが実装の詳細を固定しており、クエリを変えるたびに
-追従が必要になる割に、その追従作業自体が退行を検出するわけではないこと。
-原則3が禁じている型そのものでもある。
-
-**環境が1つしかないため E2E は作らない前提**（下記「Cosmos の SQL を検証する層がない」は却下）。
-代償として CLAUDE.md に「Cosmos のクエリを変更したら手で確認する項目」を
-常設の手順として置く。バックログは対応後に項目を削除する運用なので常設には向かない。
-
-手で確認する項目は実測で穴が分かっている3点。
-
-- `GET /api/plants` のレスポンスに余分なキーが出ていないか
-  （`description` / `updatedAt` / `scientificName`。射影が崩れると漏れる）
-- `GET /api/plants` が作成日時の降順になっているか
-- `GET /api/plants/check-duplicate` が別名の植物を拾わないか
-
-射影の崩れは実際の Cosmos でしか観測できない。偽物は渡されたドキュメントを
-そのまま返すため、ユニットテストでは原理的に検出できない。
-
-**論点3: `upload.test.ts` を剥がす順序**
-
-`storageService.test.ts` の書き直し前に変異を当てたところ、
-`moveFromTempToPermanent` の削除対象を取り違える変異を捕まえていたのは
-`upload.test.ts` の3件だけだった。**ハンドラテストの呼び出し検証が
-サービステストの穴を肩代わりしていた。**
-
-サービス層が整った今は条件が変わっているため、剥がす前に
-**再度変異を当てて保護の所在を確認する**こと。単体で捕まるようになっていれば安全に剥がせる。
-
-**手順**: `upload.test.ts` を**最後**に回す。着手時の手順は、
-(1) `moveFromTempToPermanent` の削除対象を取り違える変異を入れる、
-(2) `upload.test.ts` を除いて全体を実行し、サービス層だけで赤になることを確認する、
-(3) 赤になるなら剥がしてよい。緑なら保護がまだ `upload.test.ts` にあるので、
-先にサービス層のテストを足す。
-
-併せて `tests/setup.ts` のグローバルモックと各テストの個別モックの二重構造も整理したい
-（どのモックが効いているか追えず「保守のしやすさ」を損なっている）。
-これは全テストに影響するため、**ハンドラ群の書き直しが終わった後の独立した作業単位**にする。
-
----
-
 ## Windows 側で行う作業
 
 **WSL から `flutter analyze` / `flutter test` は実行できない**（CLAUDE.md 参照）。
@@ -194,6 +26,35 @@ Dart に触る作業はここに集める。Windows 側でセッションを1回
 | [409 を英文のまま表示](#flutter-が-409-を英文のまま表示しリトライから回復できない) | **決定済み** | `ApiException` に封筒を読ませ、409 を成功相当に扱う |
 | [`api_response.dart` の型不一致](#api_responsedart-の型がサーバの封筒と合っていない) | **決定済み** | 上と同時に、封筒に合わせて書き直す |
 | [Web 経路が MIME を無視](#web-経路が実際の-mime-を無視して-imagejpeg-を送る) | **判断待ち** | 実データから MIME を判定するか |
+
+### 最初にやること
+
+```powershell
+cd mobile
+flutter pub get      # pubspec.lock はコミット済みだが .dart_tool/ は無いので必要
+flutter analyze      # 着手前の状態を確認する（既存の指摘があるかを先に見る）
+flutter test         # 現状は test/widget_test.dart の1本だけ
+```
+
+**読む順序**。上記の項目はほぼ `ApiService` とその戻り値の型に集中している。
+
+| 順 | ファイル | 見るところ |
+|---|---|---|
+| 1 | `mobile/lib/services/api_service.dart` | `_parseResponse()` と `_buildUrl()`。下記の項目の大半がここ |
+| 2 | `mobile/lib/models/api_response.dart` | サーバの封筒 `{ success, data }` との対応 |
+| 3 | `docs/06_api_openapi.yaml` | 封筒の内側のキーがエンドポイントごとに違う（CLAUDE.md に一覧がある） |
+| 4 | `mobile/test/widget_test.dart` | 既存テストの書き方。テストは1本しかないので慣習はここから読めない |
+
+**先に CLAUDE.md の「クライアント実装で踏みやすい罠」節を読むこと。**
+`_parseResponse()` がボディ全体を渡すため各メソッドが自分で `json['data']` を
+剥がす必要があり、過去に `identifyPlant()` と `uploadImage()` で実際に踏んでいる。
+
+`dev_dependencies` は `flutter_test` と `flutter_lints` だけ。テスト専用の
+補助パッケージ（mocktail などのモック生成）は入っていない。
+HTTP をモックする必要が出たら `http` の `MockClient`（`package:http/testing.dart`、
+`http` に同梱なので追加不要）を使う。新しい依存を増やす前に
+CLAUDE.md の「`provider` / `go_router` / `dio` / `uuid` / `intl` は使用実績ゼロ、
+使い始める前に方針を決める」を確認すること。
 
 **進め方**: テストを書いてから実装する順序は維持する。赤緑の確認が
 Windows 側に移るだけ（CLAUDE.md の TDD の節）。
@@ -385,8 +246,9 @@ Azurite:  http://127.0.0.1:10000/devstoreaccount1/images/abc.jpg
 Azurite を導入すると「本番と同じ検証ロジックが通らない」という状態を
 意図的に作ることになり、検証を緩める圧力がかかる。
 
-導入するとしたら、[Cosmos の SQL を検証する層](#cosmos-の-sql-を検証する層がない)と
-同じ「ローカルにエミュレータを揃えるか」という文脈でまとめて判断したい。
+導入するとしたら「ローカルにエミュレータを揃えるか」という文脈でまとめて判断したい。
+同じ文脈の Cosmos DB Emulator / E2E は却下済み
+（`10_proposals.md` の「Cosmos の SQL を検証する層を作る」）。
 
 ### Flutter が 409 を英文のまま表示し、リトライから回復できない
 
@@ -470,104 +332,6 @@ Terraform の `azurerm_cosmosdb_sql_container.plants` に `unique_key` ブロッ
 の対応で「`error.code` を読む」経路を作るので、そのときに正しい形に直して使うのが自然。
 使われていないからといって削除すると、同じものを書き直すことになる。
 
-### upload のエラー分類が機能していない（502/503 の分岐が到達不能）
-
-`api/src/functions/upload.ts` は catch で `error.code` を見て分類している。
-
-```typescript
-if (error.message.includes('OpenAI') || ... || error.code === 'insufficient_quota') { ... 502 }
-if (error.message.includes('Storage') || error.code === 'ENOTFOUND') { ... 503 }
-if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') { ... 503 }
-```
-
-ところが `StorageService` は例外を**包み直して `code` を捨てる**。
-
-```typescript
-throw new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
-```
-
-`new Error()` は元の `code` を引き継がないため、**ストレージ由来のエラーでは
-`error.code` を見る分岐がすべて発火しない**。包んだメッセージも日本語なので
-`includes('Storage')` にも当たらない。
-
-結果として、接続不能・名前解決失敗・タイムアウトのいずれも
-**未分類エラーとして 500 に落ちる**。503（一時的な障害なのでリトライしてよい）
-を返すべき場面で 500（サーバ内部の問題）を返すため、クライアントの
-リトライ判断を誤らせる。
-
-実測で確認済み。`upload.ts` のネットワークエラー分岐（503）を削除する変異を
-入れても全テストが緑のまま（＝どのテストからも到達していない）。
-`upload.test.ts` の該当テストは `code = 'ETIMEDOUT'` を設定していたが、
-包み直しで失われるため何の効果もなく、実際に通っていたのは
-最終フォールバックの 500 だった（テスト側は修正済み）。
-
-**判断が必要な点**: どう直すか。
-
-**推奨**: **包み直すときに元の `code` を引き継ぐ。**
-
-```typescript
-const wrapped: any = new Error(`一時画像のアップロードに失敗しました: ${error.message}`);
-wrapped.code = error.code;
-throw wrapped;
-```
-
-`catch (error: any)` を使う既存の慣習（api 側で20箇所）に合い、変更が
-`StorageService` の内側に収まる。`upload.ts` 側は現状のまま動くようになる。
-
-`Error` の `cause` を使う案（`new Error(msg, { cause: error })`）は
-標準的だが、呼び出し側が `(error.cause as any)?.code` を見る形に変わるため
-全ハンドラに波及する。独自のエラー型を導入する案も同様に波及が大きい。
-
-同種の問題が `cosmosService.ts` にもないか、着手時に確認すること。
-
-### 状態を持つ偽物が5箇所に複製されていて食い違っている
-
-テストで使う状態を持つ偽物（`FakeCosmosBackend` / `FakeBlobBackend`）が、
-Cosmos 用が5ファイル、Blob 用が5ファイルに**それぞれ別々に書かれている**。
-
-CLAUDE.md の「新規テストはファイル内で完結させる」方針に従った結果だが、
-複製したので**既に食い違っている**。
-
-| 要素 | save | plantDetail | updatePlant | upload | checkDuplicate |
-|---|---|---|---|---|---|
-| Blob の `failWith` | — | 追加済み | ある | **無い** | — |
-| 404 ヘルパーの名前 | — | `notFoundBlobError` | 同 | **`notFoundError`** | — |
-| 全体の形 | 新式 | 新式 | 新式 | 新式 | **旧式と混在** |
-
-**この食い違いが実際にテストの穴を作った。** `plantDetail` の偽物に
-`failWith` が無かったため、「画像削除に失敗してもドキュメント削除は
-成功扱い」という振る舞い（CLAUDE.md が明記）が未検証だった。
-`updatePlant` 側だけが検証していた（0b34153 で修正）。
-
-偽物が持っているのは**SDK の契約に関する知識**である。
-
-- `Item.read()` は NotFound を投げずに `resource: undefined` を返す
-- `replace()` と `delete()` は投げる
-- パーティションキーは `(id, id)` で渡す
-- Blob の 404 は成功扱い
-
-これが5箇所でバラバラに劣化すると、どのテストが実 SDK と同じ前提で
-動いているか分からなくなる。
-
-**判断が必要な点**: 共有モジュールに出すか、複製のまま忠実度を揃えるか。
-
-**推奨**: **`tests/fakes/` に出し、各 `beforeEach` で明示的に構築する。**
-
-```typescript
-const { container, documents } = createFakeCosmos();
-```
-
-CLAUDE.md の方針が禁じたのは「どのモック設定が効いているか追えない
-二重構造」であって、ヘルパーの共有そのものではないと読む。
-この形なら各ファイルが明示的に呼ぶので、何が効いているかはファイル内に
-見えたままで、`tests/setup.ts` のような暗黙のグローバル設置とは性質が違う。
-
-現状維持を選ぶ場合は、上の表の忠実度を揃える作業が必要
-（`failWith` の追加、命名統一、`checkDuplicate` の形を他に合わせる）。
-揃え続けるコストが、今回のような抜けを生み続ける。
-
-採用する場合は CLAUDE.md の「テストの流儀」節の記述も更新すること。
-
 ### UUID の生成方法が2つある
 
 `CosmosService.generateId()` は `uuid` パッケージを使わず、
@@ -637,52 +401,3 @@ Dart の変更なので WSL では `flutter analyze` を実行できない。
 **判断: 当面は許容する**（人間がトリアージ済み）。合わせるならサーバ側を
 `[...str].length` にする方が利用者の直感に近いが、現行実装も妥当。
 補足情報は自由記述のヒントであり、境界ちょうどの入力が実務で問題になりにくい。
-
-### Cosmos の SQL を検証する層がない
-
-絞り込み（`WHERE`）・並び順（`ORDER BY`）・射影（`SELECT` の列）の正しさを
-検証しているテストが実質存在しない。単体テストの偽物は SQL 文字列を解釈しないため
-原理的に検証できず、エミュレータも E2E も未整備。
-
-実測した穴（変異を入れて全スイートを実行した結果）:
-
-- `getPlantByName` の `WHERE c.name = @name` を削除 → **全スイートで未検出**
-- `getPlants` の射影を `SELECT *` に変更 → **全スイートで未検出**。
-  これは `GET /api/plants` のレスポンスに `description` / `updatedAt` / `scientificName`
-  まで漏れる退行で、OpenAPI の `PlantSummary` 契約に直接当たる
-- `ORDER BY c.createdAt DESC` の削除と `checkDuplicateByName` の `WHERE` 削除は、
-  ハンドラテストの SQL 文字列アサーション（原則3違反で掃除対象）だけが捕まえている
-
-`.claude/test-principles.md` の原則2は「エミュレータ未導入のため SDK モックを許容する。
-この妥協を埋め合わせるのは E2E テストの役割」と定めているが、
-**その E2E が存在しない**ため、妥協の埋め合わせがされていない状態。
-
-対応するなら Cosmos DB Emulator を CI に載せるか、
-デプロイ後の実リソースに対する契約テストを足す。
-[既存テストの原則準拠](#既存テストを古典学派の原則に準拠させる)の論点2の前提条件。
-
-**判断: 却下**（人間がトリアージ済み）。**環境が1つしかないため E2E が成立しない。**
-本番に対してテストデータを作って消すことになり、実データと混ざるリスクがある。
-
-代替は CLAUDE.md に置く「Cosmos のクエリを変更したら手で確認する項目」
-（上記「既存テストを古典学派の原則に準拠させる」の論点2を参照）。
-
-項目を残しているのは同じ提案の蒸し返しを防ぐため。以下は却下した案の記録。
-
-**デプロイ後の実リソースに対する契約テスト**を
-`deploy-functions.yml` の後段に足す案。
-
-Cosmos DB Emulator は Linux コンテナ版があるが、起動に時間がかかり
-CI のフィードバックを遅くする。単体テストの速さを守る方が、
-原則1の「迅速なフィードバック」に沿う。
-
-最小限、次の3つを見れば今空いている穴は埋まる。
-
-- `GET /api/plants` のレスポンスに `description` / `updatedAt` /
-  `scientificName` が**含まれない**こと（射影が効いている）
-- `GET /api/plants` が `createdAt` の降順であること
-- `GET /api/plants/check-duplicate` が別名の植物を拾わないこと
-
-実データを作って消す必要があるため、本番とは別のテスト用コンテナか、
-テスト用 ID の接頭辞で後片付けする仕組みが要る。ここが設計のポイント。
-
