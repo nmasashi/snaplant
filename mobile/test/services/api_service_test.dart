@@ -317,7 +317,12 @@ void main() {
     });
 
     test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {
-      final service = _serviceResponding('POST', '/api/plants/identify', 502, {
+      // 502 を返すのは AI 識別を行うアップロードだけなので、アップロードで再現する
+      final tempDir = await Directory.systemTemp.createTemp('snaplant_test_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final file = File('${tempDir.path}/photo.jpg');
+      await file.writeAsBytes([0xFF, 0xD8, 0xFF, 0xE0, ...List.filled(32, 0)]);
+      final service = _serviceResponding('POST', '/api/images/upload', 502, {
         'success': false,
         'error': {
           'code': 'AI_SERVICE_ERROR',
@@ -325,9 +330,7 @@ void main() {
         },
       });
 
-      final error = await _captureApiException(
-        () => service.identifyPlant('https://stsnaplant.blob.core.windows.net/temp-images/a.jpg'),
-      );
+      final error = await _captureApiException(() => service.uploadAndIdentifyImage(file));
 
       expect(error.userMessage, '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。');
     });
