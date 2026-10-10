@@ -471,6 +471,48 @@ test-reviewer が変異で確認した。
 前提で 503 を記載している。実装を直せば記述も正しくなる。
 **分岐を削る選択を採る場合は仕様書の 503 の記載も消すこと。**
 
+### `ETIMEDOUT` を 503 に分類するのは `upload` だけ
+
+接続障害の分類が `upload` と他6ハンドラで1つずれている。
+
+| ハンドラ | 503 に分類する `code` |
+|---|---|
+| `upload` | `ENOTFOUND` / `ECONNREFUSED` / **`ETIMEDOUT`** |
+| `save` / `plants` / `updatePlant` / `plantDetail`（2箇所） / `checkDuplicate` / `identify` | `ENOTFOUND` / `ECONNREFUSED` のみ |
+
+**実行時の症状**: Cosmos DB への接続がタイムアウトした場合、
+`GET /api/plants` 等は 503 ではなく 500 `INTERNAL_ERROR` を返す。
+タイムアウトは時間を置けば回復しうる障害なので、クライアントの
+再試行判断を誤らせる（54ae670 で `ENOTFOUND` について直したのと同じ型の問題）。
+
+**判断が必要な点**: 6ハンドラに `ETIMEDOUT` を足すか。
+
+**推奨**: **足す。** タイムアウトは「到達できていない」側なので 503 が適切で、
+7ハンドラが同じ集合を見ているのが素直。`upload` だけが正しい状態になっている。
+
+**今回のセッションで実装しなかった理由**: 6エンドポイントのステータスコードが
+変わる契約変更であり、`ENOTFOUND` の件（バックログ項目として既に
+人間がトリアージ済みだったもの）とは違って新しく出てきた判断である。
+このリポジトリの TDD の規律（1サイクルで赤にするテストは1つだけ）に従うと
+6サイクルに分かれる作業量でもある。
+
+**着手時の手順**: 各ハンドラの既存の「DB接続エラーの場合は503エラー」テストを
+`it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])` に広げる形が素直
+（`upload.test.ts` に先行例がある）。実装後は仕様書の記述も更新すること
+（`06_api_openapi.yaml` の `StorageUnavailable` に「`ETIMEDOUT` を見るのは
+upload だけ」と明記してあり、`06_api_design.md` のエラーコード表も該当する）。
+
+### `plantDetail` の 503 分岐2箇所にテストが無い
+
+`api/src/functions/plantDetail.ts` は GET と DELETE で別々に
+`ENOTFOUND` / `ECONNREFUSED` の 503 分岐を持つが、
+`tests/functions/plantDetail.test.ts` に 503 を期待するテストが1件も無い
+（他の5ハンドラにはある）。
+
+偽物は `forcedReadError` / `forcedDeleteError` を既に持っているので、
+`code` を設定したエラーを入れるだけで書ける。上記の `ETIMEDOUT` の作業と
+同じ箇所を触るため、**まとめてやるのが効率的**。
+
 ### `upload` の AI 判定がメッセージ文字列依存で分類順の先頭にある
 
 `api/src/functions/upload.ts` の catch は
