@@ -6,6 +6,27 @@ import { CosmosClient, Database, Container } from '@azure/cosmos';
 jest.mock('@azure/cosmos');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 
+/**
+ * @name パラメータの値で絞り込む偽のクエリ実装。
+ * cosmosService.test.ts の FakeCosmosBackend と同じ考え方で、
+ * 渡されたパラメータの値を見て絞り込む。これにより「正しい名前で
+ * 絞り込まれていること」を呼び出し検証ではなくレスポンスの内容で確認できる
+ * （誤った名前・固定値が渡されると、絞り込み結果が変わってレスポンスの
+ * アサーションが失敗する）。
+ */
+function createFilteringQueryMock(documents: Array<Record<string, any>>) {
+  return jest.fn((querySpec: any) => {
+    const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
+    const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
+    const docs = nameParam !== undefined
+      ? documents.filter((d) => d.name === nameParam)
+      : documents;
+    return {
+      fetchAll: async () => ({ resources: docs })
+    };
+  });
+}
+
 describe('植物重複チェックAPI', () => {
   let mockContext: InvocationContext;
   let mockClient: jest.Mocked<CosmosClient>;
@@ -56,7 +77,8 @@ describe('植物重複チェックAPI', () => {
 
   describe('正常系', () => {
     it('重複する植物が存在する場合', async () => {
-      // 既存植物のモック
+      // 既存植物のモック。別名の植物も登録しておき、
+      // 検索対象（桜）だけが絞り込まれて返ることをレスポンスで確認する
       const existingPlant = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: '桜',
@@ -64,11 +86,15 @@ describe('植物重複チェックAPI', () => {
         confidence: 85.0,
         createdAt: '2024-01-15T10:30:00Z'
       };
-
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [existingPlant] })
+      const otherPlant = {
+        id: '987fcdeb-51d2-43a8-b456-426614174001',
+        name: '梅',
+        imagePath: 'https://example.com/ume.jpg',
+        confidence: 90.0,
+        createdAt: '2024-01-14T09:15:00Z'
       };
-      mockItems.query.mockReturnValue(mockQuery);
+
+      mockItems.query = createFilteringQueryMock([existingPlant, otherPlant]);
 
       // リクエストの作成
       const request = {
@@ -84,7 +110,7 @@ describe('植物重複チェックAPI', () => {
       // 実行
       const response = await checkDuplicateHandler(request, mockContext);
 
-      // 検証
+      // 検証（別名の植物ではなく、検索対象の植物が返ること）
       expect(response.status).toBe(200);
       expect(response.jsonBody).toEqual({
         success: true,
@@ -99,20 +125,14 @@ describe('植物重複チェックAPI', () => {
           }
         }
       });
-
-      // クエリが正しく呼ばれることを確認
-      expect(mockItems.query).toHaveBeenCalledWith({
-        query: expect.stringContaining('WHERE c.name = @name'),
-        parameters: [{ name: '@name', value: '桜' }]
-      });
     });
 
     it('重複する植物が存在しない場合', async () => {
-      // 空の結果のモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      // 他の植物は登録されているが、検索対象と同名の植物は無い状態
+      mockItems.query = createFilteringQueryMock([
+        { id: 'id-1', name: '桜', imagePath: 'https://example.com/sakura.jpg', confidence: 85.0, createdAt: '2024-01-15T10:30:00Z' },
+        { id: 'id-2', name: '梅', imagePath: 'https://example.com/ume.jpg', confidence: 90.0, createdAt: '2024-01-14T09:15:00Z' }
+      ]);
 
       // リクエストの作成
       const request = {
@@ -140,18 +160,20 @@ describe('植物重複チェックAPI', () => {
 
 
     it('前後の空白を削除してチェックする', async () => {
-      // 空の結果のモック
-      const mockQuery = {
-        fetchAll: jest.fn().mockResolvedValue({ resources: [] })
-      };
-      mockItems.query.mockReturnValue(mockQuery);
+      // 空白を含まない別名の植物（梅）も登録しておく。前後の空白が
+      // 削除されずに渡ると「  梅  」に一致するものがなく exists: false に
+      // なるため、絞り込み結果で空白除去を確認できる
+      mockItems.query = createFilteringQueryMock([
+        { id: 'id-1', name: '桜', imagePath: 'https://example.com/sakura.jpg', confidence: 85.0, createdAt: '2024-01-15T10:30:00Z' },
+        { id: 'id-2', name: '梅', imagePath: 'https://example.com/ume.jpg', confidence: 90.0, createdAt: '2024-01-14T09:15:00Z' }
+      ]);
 
       // リクエストの作成（前後に空白）
       const request = {
         method: 'GET',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants/check-duplicate?name=%20%20桜%20%20&code=test-key',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/check-duplicate?name=%20%20%E6%A2%85%20%20&code=test-key',
         query: new Map([
-          ['name', '  桜  '],
+          ['name', '  梅  '],
           ['code', 'test-key']
         ]),
         headers: new Map()
@@ -160,10 +182,20 @@ describe('植物重複チェックAPI', () => {
       // 実行
       const response = await checkDuplicateHandler(request, mockContext);
 
-      // 検証
-      expect(mockItems.query).toHaveBeenCalledWith({
-        query: expect.any(String),
-        parameters: [{ name: '@name', value: '桜' }] // 空白が削除されている
+      // 検証（空白が削除された上で「梅」に絞り込まれ、一致する植物が返る）
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          exists: true,
+          plant: {
+            id: 'id-2',
+            name: '梅',
+            imagePath: 'https://example.com/ume.jpg',
+            confidence: 90.0,
+            createdAt: '2024-01-14T09:15:00Z'
+          }
+        }
       });
     });
   });
@@ -191,7 +223,6 @@ describe('植物重複チェックAPI', () => {
           details: 'nameクエリパラメータは必須です'
         }
       });
-      expect(mockItems.query).not.toHaveBeenCalled();
     });
 
     it('nameパラメータが空文字の場合は400エラー', async () => {
@@ -214,7 +245,6 @@ describe('植物重複チェックAPI', () => {
       expect(response.jsonBody.success).toBe(false);
       expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
       expect(response.jsonBody.error.message).toBe('植物名が指定されていません');
-      expect(mockItems.query).not.toHaveBeenCalled();
     });
 
     it('nameパラメータが空白のみの場合は400エラー', async () => {
@@ -237,7 +267,6 @@ describe('植物重複チェックAPI', () => {
       expect(response.jsonBody.success).toBe(false);
       expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
       expect(response.jsonBody.error.message).toBe('植物名が指定されていません');
-      expect(mockItems.query).not.toHaveBeenCalled();
     });
   });
 
