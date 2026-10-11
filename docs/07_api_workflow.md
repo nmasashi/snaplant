@@ -139,6 +139,11 @@ Azure Blob Storage Container: temp-images
 ※ images コンテナには何も追加されない
 ```
 
+**AI 識別や永続コンテナへの移動が失敗した場合（502 / 503）:**
+一時ファイルは削除されず temp-images に残ります。移動が一時ファイルの削除の段階で失敗した場合は、
+images コンテナへの複製も残ります。一時コンテナにはライフサイクル管理が無いので、自動では消えません
+（[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
+
 #### ステップ4a後: Cosmos DB新規保存の状態
 ```json
 // 新規ドキュメントが追加される
@@ -472,6 +477,15 @@ sequenceDiagram
   }
 }
 
+// AI識別サービスへ接続できない（503）
+{
+  "success": false,
+  "error": {
+    "code": "AI_SERVICE_ERROR",
+    "message": "植物識別サービスに接続できません"
+  }
+}
+
 // 植物ではない場合（400）
 {
   "success": false,
@@ -483,12 +497,18 @@ sequenceDiagram
 }
 ```
 
-502 と 503 の境目は**接続できたかどうか**です。名前解決・接続拒否・タイムアウト
-（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）はサービスに到達できていないので
-503 `STORAGE_ERROR`、到達したうえで操作が失敗した場合が 502 になります。
-このエンドポイントはネットワーク起因の失敗を AI 識別の判定より後に分類するため、
-503 で返るコードは `STORAGE_ERROR` だけです（`AI_SERVICE_ERROR` の 503 は
-`POST /plants/identify` 側にしかありません）。
+コードは**どこで失敗したか**、502 と 503 の境目は**接続できたかどうか**で決まります
+（エラーメッセージの文言は見ません）。
+
+| 失敗した場所 | 接続できない（503） | それ以外（502） |
+|-------------|--------------------|----------------|
+| AI識別の呼び出し | `AI_SERVICE_ERROR`（`ENOTFOUND` / `ECONNREFUSED`） | `AI_SERVICE_ERROR`（エラー応答、応答が空・JSON 不正、応答の検証違反、`ETIMEDOUT` など） |
+| Blob Storage の操作 | `STORAGE_ERROR`（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | `STORAGE_ERROR`（一時保存・SAS URL の生成・永続コンテナへの移動・一時ファイルの削除の失敗） |
+
+AI識別サービスへ接続できない障害は `AI_SERVICE_ERROR` になり、`STORAGE_ERROR` にはなりません。
+植物でない画像の一時ファイルの削除に失敗した場合は、`NOT_A_PLANT` ではなく `STORAGE_ERROR` になります。
+どちらでもない箇所の失敗は 500 `INTERNAL_ERROR`（`画像アップロード・植物判定に失敗しました`）です。
+条件の詳細は `06_api_design.md` §6.2 の「502 / 503 の振り分けと `message`」。
 
 **対応**: Flutter クライアントは画像選択画面（`CameraScreen`）にエラーを表示して画面に留まり、
 同じ画像のまま送り直せます。表示する文言は `ApiException.userMessage` がステータスで決めます。
