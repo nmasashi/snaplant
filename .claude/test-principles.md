@@ -121,10 +121,17 @@ expect(mockStorage.delete).toHaveBeenCalledWith(oldPath);
 ```typescript
 // OK（例外）: 署名済みトークンの中身は検証できないが、
 //            権限と有効期限は外部システムが検証する契約
+jest.useFakeTimers({ now: new Date('2026-10-11T00:00:00.000Z') });
+// …テスト対象を呼ぶ
 const [options] = mockedSign.mock.calls[0];
-expect(options.permissions).toMatchObject({ read: true });
-expect(options.expiresOn!.getTime()).toBeGreaterThan(Date.now());
+expect(options.permissions).toEqual({ read: true });
+expect(options.expiresOn).toEqual(new Date('2026-10-11T00:15:00.000Z'));
 ```
+
+引数を見るときも、期待値は**完全一致で、リテラルで**書く。
+`toMatchObject({ read: true })` は部分一致なので write が加わっても通り、
+「現在時刻より後」は有効期限が1年に延びても通る。どちらも防ぎたい退行を見逃す。
+時刻は偽のタイマーで固定する（原則6）。
 
 **この例外を使うときは、なぜ他に手段がないかをテスト内のコメントに書く。**
 書かないと、後のレビューで原則3 違反として誤って指摘される。
