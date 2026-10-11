@@ -50,7 +50,12 @@ check_prerequisites() {
         log_error "Not logged in to Azure. Please run 'az login' first."
         exit 1
     fi
-    
+
+    # azurerm プロバイダ v4 からはサブスクリプション ID の指定が必須。
+    # 明示されていなければ az login 中のサブスクリプションを使う
+    export ARM_SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
+    log_info "Using subscription: ${ARM_SUBSCRIPTION_ID}"
+
     log_success "Prerequisites check passed"
 }
 

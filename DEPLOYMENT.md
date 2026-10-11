@@ -202,8 +202,11 @@ Function App に設定される主要な環境変数：
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | Application Insights キー |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
 
-これらは `infrastructure/main.tf` の `azurerm_linux_function_app.main` の `app_settings` で
-Terraform が設定します。ローカル開発では `api/local.settings.json` の `Values` に同じキーを置きます。
+これらは `infrastructure/main.tf` の `azurerm_linux_function_app.main` で Terraform が設定します。
+Application Insights の2つは `site_config` の `application_insights_key` / `application_insights_connection_string` から、
+それ以外は `app_settings` から設定されます（azurerm v4 は Application Insights とランタイム関係の設定を
+プロバイダ自身が管理するため、`app_settings` に直接書かない）。
+ローカル開発では `api/local.settings.json` の `Values` に同じキーを置きます。
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
