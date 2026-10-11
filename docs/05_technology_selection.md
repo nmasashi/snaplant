@@ -245,10 +245,10 @@ lib/
     └── app_text_styles.dart
 ```
 
-ルーティング専用のディレクトリ（`navigation/`）は無く、
-画面遷移は `main.dart` の手書き、状態管理は `setState` である。
-`pubspec.yaml` には `provider` / `go_router` / `dio` / `uuid` / `intl` が宣言されているが
-使用実績はゼロで、アーキテクチャ方針は未決定（[提案文書](./10_proposals.md)に記録）。
+ルーティング専用のディレクトリ（`navigation/`）は無い。
+状態管理は `setState` で、`ApiService` などは画面のコンストラクタで渡す。
+画面遷移は `Navigator.push` / `pop`（`MaterialPageRoute`）で、名前付きルートは使わない。
+状態管理ライブラリ（`provider` など）やルーティングライブラリ（`go_router` など）は導入していない。
 
 #### セキュリティ関連パッケージ
 - **shared_preferences**: 設定データ保存
@@ -258,7 +258,7 @@ lib/
 通信失敗は `ApiService._handleError()` が例外から判別している。
 
 #### API通信設定
-- **http package**: REST API通信（`dio` は `pubspec.yaml` にあるが未使用）
+- **http package**: REST API通信（multipart の Content-Type の指定に `http_parser` も使う）
 - **認証**: Function Keyをクエリパラメータで送信（`ApiService._buildUrl()` が `?code=` を付与）
 - **エラーハンドリング**: `ApiService._handleError()` が例外を `ApiException` に正規化し、
   `userMessage` でステータスコードごとの日本語メッセージを返す
