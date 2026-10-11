@@ -9,7 +9,14 @@
 |---|---|
 | 進み具合（どの段階まで済んだか） | Issue #22（ここには書かない。二重管理を避けるため） |
 | 実機で確かめた結果などの根拠 | `docs/09_backlog.md` の「旅行アルバム（ロードマップ）」 |
-| 設計（データの形・API・処理の流れ） | 同じフォルダに設計書を置く予定 |
+| 設計の全体像と、人間に決めてもらう点 | [02_design_overview.md](./02_design_overview.md) |
+| 画面 | [03_screen_design.md](./03_screen_design.md) |
+| データの形 | [04_data_design.md](./04_data_design.md) |
+| API | [05_api_design.md](./05_api_design.md) |
+| 裏の処理（分類・識別・地名変換）と植物図鑑の統合 | [06_processing_design.md](./06_processing_design.md) |
+| インフラ | [07_infrastructure_design.md](./07_infrastructure_design.md) |
+| テスト計画 | [08_test_plan.md](./08_test_plan.md) |
+| 実装計画（PR の分け方） | [09_implementation_plan.md](./09_implementation_plan.md) |
 
 各要件の末尾の【段階 N】は、その要件を入れる段階（下の「段階」の表）を示す。
 

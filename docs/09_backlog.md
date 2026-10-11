@@ -60,7 +60,7 @@ CI に `flutter analyze` を入れる作業は
 ### 旅行アルバム（ロードマップ）
 
 旅行中に撮った写真をアップロードしてアルバムにする構想（人間の要望、2026-10-12）。
-**要件（決まっていること・段階）は [docs/travel-album/requirements.md](./travel-album/requirements.md) にある。**
+**要件（決まっていること・段階）は [docs/travel-album/01_requirements.md](./travel-album/01_requirements.md) にある。**
 進み具合は Issue #22。ここには、要件や設計の根拠になる実測の記録だけを置く。
 
 **段階1の結果**（2026-10-12、旅行で使う端末 SC-03K・Android 10 で実測）
