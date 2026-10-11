@@ -81,6 +81,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
       
       print('PlantListScreen: ApiService初期化開始');
       _needsSetup = false;
+      // 設定画面から戻るたびに作り直すので、前の ApiService（の http.Client）を閉じる
+      _apiService?.dispose();
       _apiService = ApiService(
         baseUrl: endpoint,
         functionKey: apiKey,
