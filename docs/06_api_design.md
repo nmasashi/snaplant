@@ -86,6 +86,8 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 `isPlant: false` の場合、`candidates` は空配列になります。
 
 `confidence`（植物判定の信頼度）と `reason`（判定理由）は常に含まれます。
+`confidence` は植物判定・各候補とも 0〜100（両端を含む）で、AI の応答がこの範囲外か数値でない場合は
+結果を返さず 502 `AI_SERVICE_ERROR` になります（6.2 の「502 / 503 の振り分けと `message`」参照）。
 候補の `scientificName` / `familyName` / `description` は、AI が特定できなかった場合
 `null` ではなく**キーごと省略**されます（AI の応答に含まれる `null` をサーバ側で
 `undefined` に置き換えているため、JSON にキーが現れません）。
@@ -198,6 +200,9 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 `null` と未指定は「補足情報なし」として扱います。
 上限値は環境変数 `CONTEXT_INFO_MAX_LENGTH` で変更できます
 （正の整数として読めない値を設定した場合は既定の 500 が使われます）。
+
+入力検証を通った後の失敗は、AI識別の呼び出しで起きたものが 502 / 503 `AI_SERVICE_ERROR`、
+それ以外が 500 `INTERNAL_ERROR` です（6.2 の「502 / 503 の振り分けと `message`」参照）。
 
 **リクエスト例:**
 ```http
@@ -532,6 +537,20 @@ DELETE /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 （MB 単位に切り捨て。正の整数として読めない値を設定した場合は既定値が使われます）。
 `contextInfo` の上限値は 5.3 と同じく `CONTEXT_INFO_MAX_LENGTH` で変わります。
 
+#### 入力検証の後の失敗（500 / 502 / 503）
+
+一時保存以降の失敗は、失敗した場所でコードが決まります（条件は 6.2 の「502 / 503 の振り分けと `message`」）。
+
+- AI識別の呼び出し → 502 / 503 `AI_SERVICE_ERROR`。AI識別サービスへ接続できない障害も
+  `AI_SERVICE_ERROR` で、`STORAGE_ERROR` にはなりません
+- Blob Storage の操作（一時保存・SAS URL の生成・永続コンテナへの移動・植物でない画像の一時ファイルの削除）
+  → 502 / 503 `STORAGE_ERROR`。植物でない画像の一時ファイルの削除に失敗した場合は、
+  400 `NOT_A_PLANT` ではなく `STORAGE_ERROR` になります
+- それ以外 → 500 `INTERNAL_ERROR`（`画像アップロード・植物判定に失敗しました`）
+
+AI識別の呼び出しが失敗した場合、一時保存した画像は削除されずに一時コンテナに残ります
+（[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
+
 **リクエスト例:**
 ```http
 POST /api/images/upload?code={FUNCTION_KEY}
@@ -615,9 +634,9 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
 | 413 | `FILE_TOO_LARGE` | ファイルサイズが上限を超えた（0 バイトは 400 `INVALID_REQUEST`） | `POST /api/images/upload` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | サポートされていないファイル形式 | `POST /api/images/upload` |
 | 500 | `INTERNAL_ERROR` | サーバー内部エラー | 全エンドポイント |
-| 502 | `AI_SERVICE_ERROR` | AI識別サービスのエラー応答 | `POST /api/plants/identify`<br>`POST /api/images/upload` |
-| 502 | `STORAGE_ERROR` | Blob Storageのエラー応答 | `POST /api/images/upload` |
-| 503 | `AI_SERVICE_ERROR` | AI識別サービスへ接続できない | `POST /api/plants/identify` |
+| 502 | `AI_SERVICE_ERROR` | AI識別の呼び出しの失敗（エラー応答・不正な応答など。接続できない場合を除く） | `POST /api/plants/identify`<br>`POST /api/images/upload` |
+| 502 | `STORAGE_ERROR` | Blob Storageの操作の失敗（接続できない場合を除く） | `POST /api/images/upload` |
+| 503 | `AI_SERVICE_ERROR` | AI識別サービスへ接続できない | `POST /api/plants/identify`<br>`POST /api/images/upload` |
 | 503 | `DATABASE_ERROR` | Cosmos DBへ接続できない | Cosmos DB を使う全エンドポイント |
 | 503 | `STORAGE_ERROR` | Blob Storageへ接続できない | `POST /api/images/upload` |
 
@@ -649,6 +668,33 @@ Azure Functions のランタイムが 401 を返し、アプリケーション�
 | `POST /api/plants/identify` | `植物識別処理に失敗しました` |
 | `POST /api/images/upload` | `画像アップロード・植物判定に失敗しました` |
 | `GET /api/plants/check-duplicate` | `重複チェックに失敗しました` |
+
+#### 502 / 503 の振り分けと `message`
+
+`POST /api/plants/identify` と `POST /api/images/upload` は、**失敗した場所**でコードを決め、
+**接続できたかどうか**で 502 と 503 を分けます。エラーメッセージの文言は判定に使いません。
+
+| 失敗した場所 | 原因 | ステータス・コード | `message` |
+|-------------|------|-------------------|-----------|
+| AI識別の呼び出し | 接続できない（`ENOTFOUND` / `ECONNREFUSED`） | 503 `AI_SERVICE_ERROR` | `植物識別サービスに接続できません` |
+| AI識別の呼び出し | 上記以外 | 502 `AI_SERVICE_ERROR` | `植物識別サービスでエラーが発生しました` |
+| Blob Storage の操作（`upload` のみ） | 接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | 503 `STORAGE_ERROR` | `ストレージサービスに接続できません` |
+| Blob Storage の操作（`upload` のみ） | 上記以外（接続できたうえでの失敗） | 502 `STORAGE_ERROR` | `ストレージサービスでエラーが発生しました` |
+| 上記以外の箇所 | — | 500 `INTERNAL_ERROR` | 「500 `INTERNAL_ERROR` の `message`」のとおり |
+
+- **AI識別の呼び出し**は、リクエストの送信から応答の検証までを指します。502 になるのは、
+  AI識別サービスのエラー応答（認証エラー・利用上限・サーバエラーなど）、応答の `choices` や本文が空、
+  JSON として読めない、応答が想定の形を満たさない（`isPlant` が真偽値でない、`reason` が文字列でない、
+  `confidence` が数値でないか 0〜100 の範囲外、植物と判定した場合の `candidates` が配列でない、
+  候補の `name` / `characteristics` が無い、候補の `confidence` が数値でないか 0〜100 の範囲外）、
+  および原因が `ENOTFOUND` / `ECONNREFUSED` でない接続の失敗です
+- **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行います
+  （OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）
+- `ETIMEDOUT` を 503 にするのは Blob Storage の操作だけです。AI識別の呼び出しでは 502
+  `AI_SERVICE_ERROR` になります（Cosmos DB を使うエンドポイントでは 500 `INTERNAL_ERROR`）
+- `upload` の **Blob Storage の操作**は、一時保存（SAS URL の生成を含む）・永続コンテナへの移動・
+  植物でない画像の一時ファイルの削除です
+- `upload` で AI識別サービスへ接続できない障害は 503 `AI_SERVICE_ERROR` になり、`STORAGE_ERROR` にはなりません
 
 ## 7. 未実装の仕様
 

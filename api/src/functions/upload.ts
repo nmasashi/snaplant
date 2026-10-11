@@ -5,10 +5,12 @@ import {
   createSuccessResponse, 
   createErrorResponse, 
   createInternalError,
-  createValidationError
+  createValidationError,
+  createUpstreamErrorResponse
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
 import { FILE_UPLOAD, CONTEXT_INFO_VALIDATION } from '../constants/validation';
+import { UpstreamError } from '../utils/errors';
 
 /**
  * 画像アップロード・植物判定統合 API
@@ -142,38 +144,12 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
   } catch (error: any) {
     context.log('画像アップロード・植物判定エラー:', error);
     
-    // OpenAI API関連エラー
-    if (error.message.includes('OpenAI') || error.message.includes('LLM') || error.code === 'insufficient_quota') {
-      return createErrorResponse(
-        ErrorCode.AI_SERVICE_ERROR,
-        '植物識別サービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
-    }
-
-    // ネットワークエラー
-    // ENOTFOUND（名前解決の失敗）はサービスに到達できていないので、
-    // 上流が不正な応答を返した 502 ではなく 503 に分類する。
-    // 他の6つのハンドラも ENOTFOUND を 503 として扱っており、ここだけ
-    // 502 になっていたためクライアントの再試行判断が揃わなかった
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      return createErrorResponse(
-        ErrorCode.STORAGE_ERROR,
-        'ストレージサービスに接続できません',
-        HttpStatusCode.SERVICE_UNAVAILABLE,
-        error.message
-      );
-    }
-
-    // Azure Storage関連エラー
-    if (error.message.includes('Storage')) {
-      return createErrorResponse(
-        ErrorCode.STORAGE_ERROR,
-        'ストレージサービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
+    // AI 識別サービス・Blob Storage の呼び出しで起きたエラー。identify.ts と同じく、
+    // メッセージの文字列ではなく、どこで失敗したか（UpstreamError の service）で分類する。
+    // AI とストレージは service で区別されるので、AI に接続できない障害が
+    // 「ストレージに接続できません」と報告されることはない
+    if (error instanceof UpstreamError) {
+      return createUpstreamErrorResponse(error);
     }
 
     // ファイル処理エラー

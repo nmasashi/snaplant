@@ -22,7 +22,8 @@ describe('OpenAIVisionService', () => {
 
     // 環境変数設定
     process.env.OPENAI_API_KEY = 'test-api-key';
-    process.env.AZURE_OPENAI_ENDPOINT = undefined; // OpenAI APIを使用
+    // OpenAI APIを使用する。undefined の代入は文字列 "undefined" になるため delete で消す
+    delete process.env.AZURE_OPENAI_ENDPOINT;
 
     service = new OpenAIVisionService();
   });
@@ -269,6 +270,47 @@ describe('OpenAIVisionService', () => {
       await expect(service.identifyPlant('https://example.com/image.jpg'))
         .rejects.toThrow('候補の信頼度が数値ではありません');
     });
+
+    function llmResponseWithCandidateConfidence(confidence: number) {
+      return {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: true,
+              confidence: 95.5,
+              reason: 'テスト',
+              plantAnalysis: {
+                candidates: [
+                  {
+                    name: '桜',
+                    scientificName: 'Prunus serrulata',
+                    familyName: 'バラ科',
+                    description: '日本を代表する花木',
+                    characteristics: '春に美しいピンクの花を咲かせる',
+                    confidence
+                  }
+                ]
+              }
+            })
+          }
+        }]
+      };
+    }
+
+    it.each([-1, 100.5])('候補の信頼度が範囲外（%s）の場合、エラーをスローする', async (confidence) => {
+      mockOpenAI.chat.completions.create.mockResolvedValue(llmResponseWithCandidateConfidence(confidence));
+
+      await expect(service.identifyPlant('https://example.com/image.jpg'))
+        .rejects.toThrow('候補の信頼度が0-100の範囲ではありません');
+    });
+
+    it.each([0, 100])('候補の信頼度が境界値（%s）の場合、受け入れる', async (confidence) => {
+      mockOpenAI.chat.completions.create.mockResolvedValue(llmResponseWithCandidateConfidence(confidence));
+
+      const result = await service.identifyPlant('https://example.com/image.jpg');
+
+      expect(result.candidates[0].confidence).toBe(confidence);
+    });
   });
 
   describe('エラーハンドリングの詳細テスト', () => {
@@ -436,6 +478,23 @@ describe('OpenAIVisionService', () => {
 
       delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
       delete process.env.AZURE_OPENAI_API_VERSION;
+    });
+
+    it('Azure のエンドポイントが未設定なら、OpenAI 公式 API 向けの設定でクライアントを作る', async () => {
+      // tests/setup.ts が Azure の値を設定しているため、デプロイ名も含めて未設定の状態にする
+      delete process.env.AZURE_OPENAI_ENDPOINT;
+      delete process.env.AZURE_OPENAI_API_KEY;
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      process.env.OPENAI_API_KEY = 'openai-api-key';
+      MockedOpenAI.mockClear();
+
+      new OpenAIVisionService();
+
+      const clientOptions = MockedOpenAI.mock.calls[0][0];
+      expect(clientOptions.apiKey).toBe('openai-api-key');
+      expect(clientOptions.baseURL).toBeUndefined();
+      expect(clientOptions.defaultQuery).toBeUndefined();
+      expect(clientOptions.defaultHeaders).toBeUndefined();
     });
   });
 });

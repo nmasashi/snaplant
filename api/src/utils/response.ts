@@ -1,6 +1,32 @@
 import { HttpResponseInit } from '@azure/functions';
 import { ApiResponse, ErrorResponse, HttpStatusCode, ErrorCode } from '../types/api';
 import { GENERAL_VALIDATION } from '../constants/validation';
+import { UpstreamError, UpstreamService, hasCauseCode } from './errors';
+
+/**
+ * 上流のサービスごとの、接続できない（到達していない）とみなす errno と応答
+ *
+ * ストレージだけ ETIMEDOUT を含む。AI 側のタイムアウトを 503 にするかは未決定（docs/09_backlog.md）
+ */
+const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
+  code: ErrorCode;
+  unreachableCodes: readonly string[];
+  unreachableMessage: string;
+  failedMessage: string;
+}> = {
+  ai: {
+    code: ErrorCode.AI_SERVICE_ERROR,
+    unreachableCodes: ['ENOTFOUND', 'ECONNREFUSED'],
+    unreachableMessage: '植物識別サービスに接続できません',
+    failedMessage: '植物識別サービスでエラーが発生しました'
+  },
+  storage: {
+    code: ErrorCode.STORAGE_ERROR,
+    unreachableCodes: ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'],
+    unreachableMessage: 'ストレージサービスに接続できません',
+    failedMessage: 'ストレージサービスでエラーが発生しました'
+  }
+};
 
 /**
  * 成功レスポンスを作成
@@ -94,6 +120,26 @@ export function createInternalError(message: string = 'サーバー内部エラ�
  */
 export function isValidUUID(uuid: string): boolean {
   return GENERAL_VALIDATION.UUID_REGEX.test(uuid);
+}
+
+/**
+ * 上流のサービス（AI・ストレージ）の失敗を応答に変換する
+ *
+ * どこで失敗したか（UpstreamError の service）で分類し、接続できない（cause のチェーンに
+ * 該当する errno がある）なら 503、接続できたうえでの失敗なら 502 にする。
+ * identify と upload で同じ分類を使うために共通化している
+ */
+export function createUpstreamErrorResponse(error: UpstreamError): HttpResponseInit {
+  const mapping = UPSTREAM_ERROR_RESPONSES[error.service];
+  if (hasCauseCode(error, mapping.unreachableCodes)) {
+    return createErrorResponse(
+      mapping.code,
+      mapping.unreachableMessage,
+      HttpStatusCode.SERVICE_UNAVAILABLE,
+      error.message
+    );
+  }
+  return createErrorResponse(mapping.code, mapping.failedMessage, HttpStatusCode.BAD_GATEWAY, error.message);
 }
 
 /**

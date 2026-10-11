@@ -352,26 +352,66 @@ return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
 テストは形式を検証しているため期待値を変える必要もない
 （`uuid` も v4 を生成するので同じ形になる）。
 
-### `wrapError()` の適用5箇所のうち3箇所が無検証
+### `upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る
 
-`api/src/utils/errors.ts` の `wrapError()` は5箇所で使われているが、
-**退行テストが付いているのは1箇所だけ**（`uploadImageToTemp`）。
-test-reviewer が変異で確認した。
+`api/src/functions/upload.ts` は一時保存（`uploadImageToTemp()`）の後に
+AI 識別（`identifyPlant()`）を呼ぶ。植物でないと判定された場合は
+`deleteImage()` で一時ファイルを消すが、`identifyPlant()` が例外を投げた場合は
+ハンドラ全体を囲む catch 節に抜ける。catch 節は応答を作るだけで、一時ファイルを消さない。
+502 / 503 `AI_SERVICE_ERROR` になる経路（AI に接続できない・エラー応答・応答が空や不正・検証違反）は、すべてこれに当たる。
 
-| 箇所 | `new Error` に戻したときの結果 |
+同じ catch 節に抜ける経路として、永続コンテナへの移動（`moveFromTempToPermanent()`）の途中の失敗もある。
+移動は「一時から読む → 永続へ書く → 一時を消す」の順なので、一時の削除より前で失敗すれば一時 Blob が、
+一時の削除で失敗すれば一時 Blob と永続コンテナの複製の両方が残る（複製の URL はクライアントに返らないので、
+どのレコードからも参照されない）。
+
+残った一時 Blob を消す仕組みは無い。`infrastructure/` に一時コンテナ（`temp-images`）の
+ライフサイクル管理（`azurerm_storage_management_policy`）は無く、`StorageService.uploadImageToTemp()` の
+コメントにも「一時コンテナにライフサイクルポリシーがない」とある。
+
+**実行時の症状**: AI 識別サービスの障害や不正な応答が起きるたびに、利用者の画像が一時コンテナに残る。
+Flutter クライアントは失敗後に同じ画像を送り直せる（`07_api_workflow.md` §4.1）ので、再試行の回数だけ溜まる。
+一時 URL は読み取り SAS（有効期限 8760 時間）付きでログに出ている（下記「有効期限1年の SAS 付き一時 URL をログに出している」）ため、
+残った画像はその期間、ログを読める人が取得できる。
+
+**判断が必要な点**: どこで片付けるか。
+
+**推奨**: **両方入れる。**
+
+1. **catch で一時ファイルを削除する**（一時保存が済んでいれば）。削除の失敗はログだけにして、
+   元のエラーの分類（502 / 503 `AI_SERVICE_ERROR` など）を変えない。`uploadImageToTemp()` が
+   SAS 生成の失敗時に行っている後片付けと同じ扱い。挙動変更なので、再現テスト（AI の呼び出しを失敗させ、
+   一時コンテナが空であることを偽物の `store` で確かめる）を先に書く
+2. **一時コンテナにライフサイクル管理を入れる**（例: 作成から1日で削除）。1 だけでは、関数のタイムアウトや
+   プロセスの停止、削除自体の失敗で残るものを拾えない。Terraform の変更なので、`plan` / `apply` には
+   作業マシンにしか無い state が要る（CLAUDE.md「開発環境」）
+
+### `UpstreamError` での包み直しのうち2箇所が無検証
+
+`identify` と `upload` は失敗した場所でエラーを分類する。`StorageService` と `OpenAIVisionService` が
+失敗を `UpstreamError`（`api/src/utils/errors.ts`。`service` と元のエラーを `cause` に持つ）で包み直し、
+ハンドラの catch が `createUpstreamErrorResponse()`（`utils/response.ts`）でそれを 502 / 503 に変換する
+（以前の `wrapError()` は削除され、これに置き換わった）。
+包み直しをやめて `new Error` で投げると、その経路は 502 / 503 ではなく 500 になる。
+
+包み直しは5箇所にあり、**ハンドラ経由で分類まで確かめているテストがあるのは2箇所だけ**
+（コードとテストを読んでの判断。変異は実行していない）。
+
+| 箇所 | 守っているテスト |
 |---|---|
-| `storageService.ts` の `uploadImageToTemp` | **赤1件**（守られている） |
-| `storageService.ts` の `moveFromTempToPermanent` | **緑**（無検証） |
-| `storageService.ts` の `deleteImage` | **緑**（無検証） |
-| `storageService.ts` の SAS URL 生成 | **緑**（無検証） |
-| `openAIVisionService.ts` の `identifyPlant` | 下記の別項目を参照 |
+| `openAIVisionService.ts` の `identifyPlant` | `identify.test.ts` / `upload.test.ts` の 502・503 |
+| `storageService.ts` の `uploadImageToTemp` | `upload.test.ts` の 502（`RestError` の形）と 503（`it.each` の3 code） |
+| `storageService.ts` の SAS URL 生成 | 呼び出し元の `uploadImageToTemp` が外側でもう一度包むので、ここの型は分類に効かない |
+| `storageService.ts` の `moveFromTempToPermanent` | **無し**。`storageService.test.ts` はメッセージの文言だけを見る |
+| `storageService.ts` の `deleteImage` | **無し**（同上）。`upload` で効くのは植物でない画像の一時ファイルの削除だけで、`CosmosService` 経由の呼び出しは失敗をログだけにして握りつぶす |
 
-つまり `upload` の**移動失敗・削除失敗・SAS 生成失敗**の 503 分類は
-現在ノーガードで、`code` の引き継ぎをやめても気づけない。
+つまり `upload` の**移動失敗・（植物でない画像の）削除失敗**の 502 / 503 分類は
+現在ノーガードで、包み直しをやめても気づけない。
 
 **なぜ今テストを足さなかったか**: 偽物の `forcedUploadError` は
 バックエンド全体に効くため、「一時保存は成功させて永続保存への移動だけ
-失敗させる」という条件が作れない。`tests/fakes/blob.ts` に
+失敗させる」という条件が作れない。Blob 単位の `failWith` は、ハンドラの中で
+UUID から決まる一時 Blob の名前を事前に知れないので使えない。`tests/fakes/blob.ts` に
 コンテナ単位（あるいは呼び出し回数単位）の失敗注入を足す必要がある。
 
 **判断が必要な点**: 偽物に失敗注入の仕組みを足すか。
@@ -380,67 +420,6 @@ test-reviewer が変異で確認した。
 コンテナ名をキーにした失敗注入が素直で、既存の `failWith`（Blob 単位）と
 同じ発想。移動処理は「一時から読んで永続へ書き、一時を消す」の3手で
 宛先を取り違える余地があり、守る価値が高い。
-
-### `identify` の 503 分岐が実運用で到達しない
-
-`api/src/functions/identify.ts` のネットワークエラー分岐
-（503 / `AI_SERVICE_ERROR` / `植物識別サービスに接続できません`）は
-**OpenAI 経路では発火しない。**
-
-**実測したチェーン**（openai 7.x / Node 20+ の native fetch。
-実際に名前解決できないホストへ接続して確認、2026-10-10）:
-
-```
-深さ0  APIConnectionError      code=undefined   "Connection error."
-深さ1  TypeError               code=undefined   "fetch failed"
-深さ2  Error                   code="ENOTFOUND"
-```
-
-`APIConnectionError` は自分では `code` を設定しない
-（`super(undefined, undefined, 'Connection error.', undefined)` を呼び、
-`APIError` が `this.code = data?.['code']` とするため）。
-さらに undici の `fetch` が `TypeError: fetch failed` を1枚挟むため、
-**errno は2段奥にある**。`wrapError()` は `cause.code` しか見ないので undefined のまま。
-
-**実行時の症状**: Azure OpenAI のホスト名が解決できないとき
-`POST /api/plants/identify` は 503 ではなく **500 `INTERNAL_ERROR`**
-（`details: "植物識別に失敗しました: Connection error."`）を返す。
-メッセージに `OpenAI` も `LLM` も含まないため 502 にも落ちない。
-クライアントは 500/502/503 を同じ扱いにするのでユーザー向けの表示は
-変わらないが、監視と再試行判断の精度が落ちる。
-
-対照的に **`upload` の Storage 経路の 503 は確実に到達する**。Azure の transport は
-`RestError` に `code: err.code ?? ...` で errno を**直接**載せるため
-（`@typespec/ts-http-runtime` の `nodeHttpClient.js`）、`wrapError()` が引き継ぐ。
-**つまり 54ae670 の修正が効いているのは Storage 経路だけ。**
-
-**一度 revert した経緯**: `6c4bbda` で `cause?.code ?? cause?.cause?.code` と
-一段だけ辿る修正を入れたが、上記のとおり errno は2段奥なので**本番では効かなかった**。
-テストが通ったのは `cause` を1段だけ持つ、**実SDKが作らない形**で検証していたため。
-クラウドレビューの指摘を受けて実測し、revert した。
-
-**判断が必要な点**: サーバを直すか、分岐を削るか。
-
-**推奨**: **サーバを直す。** ただし下記2点を**同時に**満たすこと。
-
-1. **`cause` チェーンを深さ上限付きで辿る。** 一段では足りない。
-   循環参照の保護も入れる（`Error.cause` は任意のオブジェクトを取れる）
-2. **`upload.ts` の分類も同時に直す。** ここが落とし穴で、
-   1だけ直すと `upload` 経路で **OpenAI の障害が `STORAGE_ERROR`（503）として
-   報告される**。`upload.ts` の catch は「ネットワークエラー」分岐
-   （`STORAGE_ERROR`）をメッセージによる `Storage` 判定より先に評価し、
-   かつ包み直したメッセージ（`植物識別に失敗しました: Connection error.`）は
-   `includes('OpenAI')` にも `includes('LLM')` にも当たらないため、
-   AI 由来の障害が Storage 由来として分類される。
-   監視やアラートが `ErrorCode` を見ている場合、**Storage を調べに行かせてしまう**
-
-2の対策は、AI 由来かどうかを判定してから接続障害かを見る二段構えにするか、
-`upload.ts` の AI 呼び出し部分を独立した `try`/`catch` に分けて
-文字列判定そのものをやめるか。後者の方が堅いが変更範囲は広い。
-
-仕様書（`06_api_openapi.yaml` / `06_api_design.md`）は分岐が実装されている
-前提で 503 を記載している。実装を直せば記述も正しくなる。
-**分岐を削る選択を採る場合は仕様書の 503 の記載も消すこと。**
 
 ### `updatePlant` で存在しない id への PUT が 404 ではなく 409 を返す
 
@@ -472,39 +451,44 @@ test-reviewer が変異で確認した。
 挙動変更なので Red テストを先に書くこと。既存の 409 のテストに
 影響しないかも確認が必要。
 
-### 接続障害の判定が8箇所に複製されている
+### 接続障害の判定が Cosmos DB 側の6箇所に複製され、AI・ストレージ側と書き方も違う
 
-`error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED'` が
-`checkDuplicate.ts:60` / `plantDetail.ts:54` / `plantDetail.ts:107` /
-`identify.ts:91` / `updatePlant.ts:85` / `plants.ts:35` / `save.ts:83` の7箇所、
-`upload.ts:156` は `ETIMEDOUT` を足した3code版で、**合計8箇所**にある。
+接続障害（503）の判定は2つの書き方に分かれている。
 
-手で写しているので**既にずれている**（上記「`ETIMEDOUT` を 503 に分類するのは
-`upload` だけ」がその結果）。
+| 判定 | 書き方 | 見る `code` |
+|---|---|---|
+| Cosmos DB を使う6箇所（`checkDuplicate.ts` / `plantDetail.ts` の GET と DELETE / `plants.ts` / `save.ts` / `updatePlant.ts` の catch） | トップレベルの `error.code` を直接比べる。同じ条件を6箇所に手で写している | `ENOTFOUND` / `ECONNREFUSED` |
+| AI 由来（`identify`・`upload`） | `createUpstreamErrorResponse()`（`utils/response.ts`）が `UpstreamError` を `hasCauseCode()`（`utils/errors.ts`）で `cause` のチェーンまでたどる。`code` の集合は同ファイルの `UPSTREAM_ERROR_RESPONSES` に service ごとに置いてある | `ENOTFOUND` / `ECONNREFUSED` |
+| ストレージ由来（`upload`） | 同上 | `ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT` |
 
-**推奨**: `utils/errors.ts` の `wrapError()` の隣に
-`isConnectivityError(error)` を切り出し、8箇所すべてから呼ぶ。
-`ETIMEDOUT` の追加と `identify` の 503 の修正は同じ述語に触るので、
-**3件まとめて1つの作業単位にするのが効率的**。
+AI・ストレージ側は1つの表にまとまっているが、Cosmos DB 側とは別に書かれているので**既にずれている**
+（下記「`ETIMEDOUT` を 503 に分類するのは `upload` のストレージ由来だけ」がその結果）。
+Cosmos DB を使う6箇所はトップレベルの `code` しか見ない（Cosmos SDK が errno をどこに載せるかは未確認）。
 
-### `ETIMEDOUT` を 503 に分類するのは `upload` だけ
+**推奨**: Cosmos DB 側の6箇所も、`hasCauseCode()` と共通の `code` の集合を使う1つの述語
+（`isConnectivityError(error)` など）から判定する。
+`ETIMEDOUT` の追加（下記）は同じ集合に触るので、**まとめて1つの作業単位にするのが効率的**。
 
-接続障害の分類が `upload` と他6ハンドラで1つずれている。
+### `ETIMEDOUT` を 503 に分類するのは `upload` のストレージ由来だけ
 
-| ハンドラ | 503 に分類する `code` |
+接続障害の分類が `upload` のストレージ由来と、それ以外の判定で1つずれている。
+
+| 判定 | 503 に分類する `code` |
 |---|---|
-| `upload` | `ENOTFOUND` / `ECONNREFUSED` / **`ETIMEDOUT`** |
-| `save` / `plants` / `updatePlant` / `plantDetail`（2箇所） / `checkDuplicate` / `identify` | `ENOTFOUND` / `ECONNREFUSED` のみ |
+| `upload` のストレージ由来 | `ENOTFOUND` / `ECONNREFUSED` / **`ETIMEDOUT`** |
+| `upload` の AI 由来・`identify` | `ENOTFOUND` / `ECONNREFUSED` のみ（`ETIMEDOUT` は 502 `AI_SERVICE_ERROR`） |
+| `save` / `plants` / `updatePlant` / `plantDetail`（2箇所） / `checkDuplicate` | `ENOTFOUND` / `ECONNREFUSED` のみ（`ETIMEDOUT` は 500 `INTERNAL_ERROR`） |
 
 **実行時の症状**: Cosmos DB への接続がタイムアウトした場合、
 `GET /api/plants` 等は 503 ではなく 500 `INTERNAL_ERROR` を返す。
 タイムアウトは時間を置けば回復しうる障害なので、クライアントの
 再試行判断を誤らせる（54ae670 で `ENOTFOUND` について直したのと同じ型の問題）。
+AI 識別の呼び出しの `ETIMEDOUT` は 502 になる（OpenAI SDK のタイムアウトがチェーンに `ETIMEDOUT` を持つかは未確認）。
 
-**判断が必要な点**: 6ハンドラに `ETIMEDOUT` を足すか。
+**判断が必要な点**: Cosmos DB 側の6箇所と AI 由来の判定に `ETIMEDOUT` を足すか。
 
 **推奨**: **足す。** タイムアウトは「到達できていない」側なので 503 が適切で、
-7ハンドラが同じ集合を見ているのが素直。`upload` だけが正しい状態になっている。
+すべての判定が同じ集合を見ているのが素直。`upload` のストレージ由来だけが正しい状態になっている。
 
 **今回のセッションで実装しなかった理由**: 6エンドポイントのステータスコードが
 変わる契約変更であり、`ENOTFOUND` の件（バックログ項目として既に
@@ -515,43 +499,27 @@ test-reviewer が変異で確認した。
 **着手時の手順**: 各ハンドラの既存の「DB接続エラーの場合は503エラー」テストを
 `it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])` に広げる形が素直
 （`upload.test.ts` に先行例がある）。実装後は仕様書の記述も更新すること
-（`06_api_openapi.yaml` の `StorageUnavailable` に「`ETIMEDOUT` を見るのは
-upload だけ」と明記してあり、`06_api_design.md` のエラーコード表も該当する）。
+（`06_api_openapi.yaml` の `POST /images/upload` の 503 と `AIServiceUnavailable` / `AIServiceError` に
+「`ETIMEDOUT` を 503 にするのは upload の Blob Storage の操作だけ」と明記してあり、
+`06_api_design.md` の §6.2「502 / 503 の振り分けと `message`」と `07_api_workflow.md` §4.1 の表も該当する）。
 
 ### `plantDetail` の 503 分岐2箇所にテストが無い
 
 `api/src/functions/plantDetail.ts` は GET と DELETE で別々に
 `ENOTFOUND` / `ECONNREFUSED` の 503 分岐を持つが、
 `tests/functions/plantDetail.test.ts` に 503 を期待するテストが1件も無い
-（他の5ハンドラにはある）。
+（他の6ハンドラにはある。`identify` の 503 のテストはエラー分類の修正で加わった）。
 
 偽物は `forcedReadError` / `forcedDeleteError` を既に持っているので、
 `code` を設定したエラーを入れるだけで書ける。上記の `ETIMEDOUT` の作業と
 同じ箇所を触るため、**まとめてやるのが効率的**。
-
-### `upload` の AI 判定がメッセージ文字列依存で分類順の先頭にある
-
-`api/src/functions/upload.ts` の catch は
-`error.message.includes('OpenAI') || error.message.includes('LLM')` を
-最初に評価する。そのため `code === 'ENOTFOUND'` を持つエラーでも、
-メッセージに `LLM` / `OpenAI` が含まれていれば 502 `AI_SERVICE_ERROR` が勝つ。
-
-現状 `StorageService` の包み直しメッセージは日本語で `Storage` も `LLM` も
-含まないため**実害は観測できない**。ただし将来メッセージを変えると
-分類が静かに入れ替わる脆さがある。
-
-**判断が必要な点**: 分類を文字列から型・`code` に寄せるか。
-
-**推奨**: **当面そのまま。** 実害が書けない以上、優先度は低い。
-`identify` の `code` 問題（上記）を直すときに、エラー分類の方式そのものを
-見直す文脈でまとめて扱うのが筋。
 
 ### テストの軽微な改善（優先度低）
 
 test-reviewer が指摘した、原則違反ではないが締められる点。
 
 - **`openAIVisionService.test.ts` の `.rejects.toThrow('植物識別に失敗しました')`
-  が前方一致。** catch が全例外を同じ接頭辞で包むため、**別の原因で落ちても通る**。
+  が部分一致。** catch が全例外を同じ接頭辞で包むため、**別の原因で落ちても通る**。
   `storageService.test.ts` は `/^…$/` でアンカーしており、そちらに揃えるのが素直
 - **`FakeCosmosBackend<TDoc>` は止めたい方向を型で止められていない。**
   `FakeCosmosBackend<PlantSummary>` に完全な `Plant` を入れても通る（構造的部分型）。
@@ -587,25 +555,6 @@ api / mobile の全テスト197件を仕様書（docs/01〜08、OpenAPI、README
 事実の追記と、どちらが正しいか明らかな食い違いは仕様書側を直した。
 ここに残すのは**判断が必要なもの**と、**コード・テスト側のバグ**。
 
-### 500 と 502 の振り分けがエラーメッセージの文字列に依存し、仕様と食い違う
-
-仕様書は「上流（AI・Blob Storage）に到達したがエラー応答だった → 502、到達できない → 503」と意味で書いている。
-実装は文字列で振り分けるため、意味の上では 502 のはずの失敗が 500 になる経路がある。
-
-| 経路 | 実装の判定 | 結果 |
-|---|---|---|
-| identify・upload の AI 呼び出しの失敗 | `error.message` に `OpenAI` / `LLM` を含むか、`code === 'insufficient_quota'` | 含まなければ 500。OpenAI SDK の `APIError` の message は `${status} ${msg}` で、SDK 自身は `OpenAI` を付けない |
-| AI の応答で `choices` が空 | `TypeError` になり上の文字列に当たらない | 500（`content` が null や JSON 不正なら `LLM` を含み 502） |
-| upload の一時保存の失敗（`code` なし） | `error.message.includes('Storage')` | `StorageService` の包み直しメッセージは日本語で `Storage` を含まないので 500 |
-
-テストは分岐に届くよう注入するメッセージを選んでいる（`identify.test.ts` の `'OpenAI API error'`、`upload.test.ts` の `'Storage service error'`）。
-実 SDK がその形を作るかは検証されていない。上記「`upload` の AI 判定がメッセージ文字列依存で分類順の先頭にある」と同根。
-
-**判断が必要な点**: (A) 仕様書を実装に合わせる（文字列条件を仕様に書く）、(B) 実装を直し、AI クライアント・`StorageService` 由来の失敗を型や発生箇所で分類する。
-
-**推奨**: **(B)。** 仕様書の書き方（意味による分類）の方がクライアントの再試行判断に役立つ。
-(A) は「メッセージに特定の英単語を含むか」を契約にすることになり、SDK の更新で静かに変わる。
-
 ### エラーの `details` に内部例外のメッセージをそのまま返している
 
 409 `DATABASE_ERROR`・500・502・503 では、catch した例外の `message`（SDK 由来の英語や、内部で包み直した文言）が
@@ -614,7 +563,7 @@ api / mobile の全テスト197件を仕様書（docs/01〜08、OpenAPI、README
 **決定済み（2026-10-11、人間）: `details` は契約外。** 契約はステータス・`code`・`message` まで（CLAUDE.md「レスポンス規約」）。
 
 **残っている作業: テストが `details` の文言を固定するのをやめる。** `api/tests/functions/` の7ファイルで
-`details:` を `toEqual` などで固定している箇所が37あり（2026-10-11 時点）、入力検証の固定文言と内部例外の文言の両方を含む。
+`details:` を `toEqual` などで固定している箇所が35あり（2026-10-11、エラー分類の修正後の時点。修正前は37）、入力検証の固定文言と内部例外の文言の両方を含む。
 付くか付かないかを確かめる必要があるもの以外は、`details` を期待値から外す（`expect.objectContaining` で
 `code` と `message` だけを見るなど）。テストだけの変更なので、全テストが緑のまま1ファイルずつ直す（Refactor 段と同じ規律）。
 
@@ -641,18 +590,12 @@ Flutter の `userMessage` は 429 に「リクエスト数が制限を超えま�
 **やること**: 壊れた multipart を実際に送って何が返るか確かめる。500 になるなら判定条件を見直す。
 仕様書には到達を確認できるまで書かない。
 
-### AI 候補の `confidence` の範囲を検査していない
-
-`validateAnalysisResult()` は候補の `confidence` が数値かどうかしか見ない（トップレベルの `confidence` は 0〜100 を検査している）。
-OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値もそのまま返る。
-
-**判断が必要な点**: 範囲外を 502 として弾くか、丸めるか、現状のままにするか。
-
 ### 有効期限1年の SAS 付き一時 URL をログに出している
 
 `upload.ts` は一時保存の URL（読み取り専用 SAS 付き、有効期限 8760 時間）を `context.log` に出力している。
 ログ（Application Insights）を読める人は、一時コンテナの画像を1年間取得できる。
-一時ファイルは植物でなければ削除され、植物なら永続コンテナへ移動するので、実際に残る期間は短い。
+一時ファイルは植物でなければ削除され、植物なら永続コンテナへ移動するので、通常は残る期間が短い。
+ただし AI 識別や移動が失敗した場合は残り続ける（「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
 
 **判断が必要な点**: ログから SAS を除く（URL のクエリを落として出す）か、SAS の有効期限を短くするか。
 **推奨**: **両方。** AI 識別に必要な時間は数十秒で、1年は長すぎる。
@@ -682,14 +625,11 @@ OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値も�
 
 仕様との食い違いではなく、テストそのものの不備。
 
-- **`openAIVisionService.test.ts` が Azure 側の分岐でしか動いていない。**
-  `process.env.AZURE_OPENAI_ENDPOINT = undefined` は Node では文字列 `"undefined"` になるため、
-  コメントの「OpenAI APIを使用」とは逆に `isAzure` が真になる。仕様にある「未設定なら OpenAI 公式 API へフォールバック」を
-  検証しているテストが無い。`delete process.env.AZURE_OPENAI_ENDPOINT` に直す
 - **`response.test.ts` の「有効なUUID v4形式を受け入れる」は4件中3件が v1 形式。** テスト名と中身が合っていない
 - **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
-  テスト名と検証対象がずれている。同ファイルのエラー系は前方一致 `toThrow('植物識別に失敗しました')` のため、
-  ハンドラで 500 になる経路と 502 になる経路を区別できない（原則7）
+  テスト名と検証対象がずれている。同ファイルのエラー系は部分一致 `toThrow('植物識別に失敗しました')` のため、
+  どの原因で失敗したかを区別できない（原則7。`identifyPlant()` の失敗はハンドラでどれも 502 / 503 に分類されるので、
+  以前のような 500 と 502 の取り違えは起きなくなった）
 - **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
   PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
 - **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、
@@ -697,7 +637,7 @@ OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値も�
 - **Flutter のテストの偽レスポンスが OpenAPI と細部で違う**: アップロードの `identificationResult` に `reason` を入れている、
   `isPlant: true` なのに `candidates: []`、植物IDに UUID でない `plant-1` を使っている。検証には影響しない
 - **仕様にあるのにテストが無い振る舞い**: contextInfo の検証が一時保存と AI 呼び出しの前に行われること（upload の 501 文字のテストは Blob も OpenAI も見ていない）、
-  503 になる `ECONNREFUSED`（どのテストも `ENOTFOUND` だけ）、DELETE で画像の削除に失敗しても 200、upload の 502 `AI_SERVICE_ERROR`、
+  503 になる `ECONNREFUSED`（Cosmos DB を使うハンドラと upload の AI 由来のテストは `ENOTFOUND` だけ）、DELETE で画像の削除に失敗しても 200、
   identify の `contextInfo: null` と数値・オブジェクトの拒否、`CONTEXT_INFO_MAX_LENGTH` に有効な値を設定した場合
 - **`api/host.json` の `http` がトップレベルにある**（正しくは `extensions.http`）。`routePrefix: "api"` は既定値と同じなので実害は無いが、
   `maxOutstandingRequests` などを設定するつもりでここに書いても効かない

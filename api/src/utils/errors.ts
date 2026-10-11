@@ -1,20 +1,47 @@
 /**
- * エラーを文脈付きのメッセージで包み直す
+ * エラーの `cause` をたどり、指定した `code`（errno）を持つものがあるかを判定する
  *
- * ハンドラの catch 節は `error.code` を見て障害の種類を振り分けている
- * （`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT` なら 503 など）。
- * ところが `new Error(...)` で包むと元の `code` が落ちるため、
- * 実際には接続障害なのに分類に失敗して 500 を返していた。
- * メッセージを足しつつ、分類に使われるプロパティだけを引き継ぐ。
+ * SDK の接続エラーは errno を深い位置に持つ。OpenAI SDK（openai 7.x / Node の native fetch）の実測:
  *
- * @param message 文脈を加えた新しいメッセージ
- * @param cause 元のエラー
- * @returns `code` を引き継いだエラー
+ *   深さ0  APIConnectionError   code=undefined  "Connection error."
+ *   深さ1  TypeError            code=undefined  "fetch failed"
+ *   深さ2  Error                code="ENOTFOUND"
+ *
+ * トップレベルの `code` だけを見ると、接続できない障害を見逃して 502 / 500 に分類してしまう。
+ * 循環した `cause` で止まらないよう、たどる深さに上限を設ける
+ *
+ * @param error 判定するエラー
+ * @param codes 探す errno（`ENOTFOUND` など）
  */
-export function wrapError(message: string, cause: any): Error {
-  const wrapped: Error & { code?: unknown } = new Error(message);
-  if (cause?.code !== undefined) {
-    wrapped.code = cause.code;
+export function hasCauseCode(error: unknown, codes: readonly string[]): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 10 && current !== null && current !== undefined; depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && codes.includes(code)) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
   }
-  return wrapped;
+  return false;
+}
+
+/** 失敗した上流のサービス */
+export type UpstreamService = 'ai' | 'storage';
+
+/**
+ * 上流のサービス（AI など）の呼び出しで起きたエラー
+ *
+ * ハンドラは、どこで失敗したかで 502 / 503 / 500 を振り分ける。
+ * 以前は `error.message` に `OpenAI` や `Storage` といった英単語を含むかで振り分けていたが、
+ * SDK のエラーのメッセージにその単語は入らないため、上流の失敗が 500 になっていた。
+ */
+export class UpstreamError extends Error {
+  constructor(
+    message: string,
+    readonly service: UpstreamService,
+    readonly cause: unknown
+  ) {
+    super(message);
+    this.name = 'UpstreamError';
+  }
 }

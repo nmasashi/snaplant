@@ -169,6 +169,7 @@ Blob Storage のコンテナは2つで役割が違う：`images`（永続・公�
 - 成功: `createSuccessResponse(data, statusCode?)` → `{ success: true, data }`
 - 失敗: `createErrorResponse(code, message, statusCode, details?)` → `{ success: false, error: { code, message, details } }`
 - 定型エラー: `createValidationError()` / `createNotFoundError()` / `createInternalError()`
+- 上流（AI・Blob Storage）の失敗: `createUpstreamErrorResponse(error)`。サービスは失敗を `UpstreamError`（`utils/errors.ts`、`service: 'ai' | 'storage'`）で投げ、ハンドラは `error instanceof UpstreamError` で受けてこれに渡す。接続できない（`cause` をたどって errno を探す `hasCauseCode()`）なら 503、接続できたうえでの失敗なら 502。**メッセージの文字列で分類しない**（SDK のメッセージに `OpenAI` や `Storage` は入らない）。Cosmos DB 側のハンドラはまだトップレベルの `code` で 503 を判定している（`docs/09_backlog.md`）
 
 `code` は `types/api.ts` の `ErrorCode` enum、ステータスは `HttpStatusCode` enum から選ぶ。新しいエラー種別が必要なら enum に追加する。
 
@@ -488,10 +489,17 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 `toEqual` で固定しない（上記「レスポンス規約」）。仕様書との突き合わせは TDD のサイクル中ではなく、
 作業単位が終わってから行う（「レビューのタイミング」）。
 
-**エラーを注入するときは、実装の判定条件に合わせた文字列を作らない。** 実装が
-`error.message.includes('OpenAI')` のように文字列で分岐しているとき、その文字列を含む
-エラーを注入すると、実 SDK が作らない形でしか分岐を通らないテストになる（2026-10-11 の監査で複数見つかった）。
-実 SDK が投げる形（`APIError` のステータスや `code`）を再現する。
+**エラーを注入するときは、実装の判定条件に合わせた文字列を作らない。** 実装が文字列で
+分岐しているとき（かつて identify / upload は `error.message.includes('OpenAI')` で 502 を判定していた）、
+その文字列を含むエラーを注入すると、実 SDK が作らない形でしか分岐を通らないテストになる
+（2026-10-11 の監査で複数見つかり、分類は「どこで失敗したか」に改めた）。
+実 SDK が投げる形を再現する。既存のテストにある例:
+
+| 失敗 | 再現する形 |
+|---|---|
+| OpenAI のエラー応答 | `Object.assign(new Error('500 The server had an error...'), { name: 'InternalServerError', status: 500 })`（message に `OpenAI` は入らない） |
+| OpenAI に接続できない | `APIConnectionError`（code なし）→ `TypeError: fetch failed` → `Error`（code `ENOTFOUND`）の3段の `cause` |
+| Blob Storage の操作の失敗 | `name: 'RestError'`・`statusCode`・`code`（例 `AuthorizationFailure`）を持つエラー。接続できないときは `code` に errno が直接載る |
 
 **環境変数を消すときは `delete process.env.X` を使う。** `process.env.X = undefined` は
 文字列 `"undefined"` になり、「未設定」の分岐を通らない。

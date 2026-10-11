@@ -470,7 +470,9 @@ paths:
                             example: true
                           confidence:
                             type: number
-                            description: 植物判定の信頼度 (0-100)
+                            description: |
+                              植物判定の信頼度 (0-100)。AI の応答の値が数値でないか範囲外の場合は
+                              502 `AI_SERVICE_ERROR` になる（`IdentificationResult.confidence` と同じ）
                             example: 95
                           candidates:
                             type: array
@@ -539,13 +541,16 @@ paths:
           $ref: '#/components/responses/InternalError'
         '502':
           description: |
-            上流サービスがエラー応答を返した。このエンドポイントでは2種類ある。
+            上流サービスの呼び出しが、接続できたうえで失敗した。コードは失敗した場所で決まり、
+            エラーメッセージの文言では判定しない。このエンドポイントでは2種類ある。
 
-            - `AI_SERVICE_ERROR`: AI識別の呼び出しが失敗した
-            - `STORAGE_ERROR`: Blob Storage の操作が失敗した（接続自体はできている）
+            - `AI_SERVICE_ERROR`: AI識別の呼び出しが失敗した。条件は `POST /plants/identify` の
+              502（`AIServiceError`）と同じ
+            - `STORAGE_ERROR`: Blob Storage の操作（一時保存・SAS URL の生成・永続コンテナへの移動・
+              植物でない画像の一時ファイルの削除）が失敗した。植物でない画像の一時ファイルの削除に
+              失敗した場合は、400 `NOT_A_PLANT` ではなくこの応答になる
 
-            接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）は
-            502 ではなく 503 `STORAGE_ERROR` になる。
+            接続できない場合は 502 ではなく 503 になる（503 を参照）。
           content:
             application/json:
               schema:
@@ -566,7 +571,37 @@ paths:
                       code: "STORAGE_ERROR"
                       message: "ストレージサービスでエラーが発生しました"
         '503':
-          $ref: '#/components/responses/StorageUnavailable'
+          description: |
+            上流サービスへ接続できない（到達できていない）。コードは失敗した場所で決まる。
+            このエンドポイントでは2種類ある。
+
+            - `AI_SERVICE_ERROR`: AI識別サービスへ接続できない（`ENOTFOUND` / `ECONNREFUSED`）。
+              条件は `POST /plants/identify` の 503（`AIServiceUnavailable`）と同じ
+            - `STORAGE_ERROR`: Blob Storage へ接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）
+
+            AI識別サービスへ接続できない障害が `STORAGE_ERROR` になることはない。
+            `ETIMEDOUT` を 503 に分類するのは、このエンドポイントの Blob Storage の操作だけで、
+            AI識別の呼び出しでは 502 `AI_SERVICE_ERROR`、Cosmos DB を使うエンドポイントでは
+            500 `INTERNAL_ERROR` になる。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                ai:
+                  summary: AI識別サービスへ接続できない
+                  value:
+                    success: false
+                    error:
+                      code: "AI_SERVICE_ERROR"
+                      message: "植物識別サービスに接続できません"
+                storage:
+                  summary: ストレージへ接続できない
+                  value:
+                    success: false
+                    error:
+                      code: "STORAGE_ERROR"
+                      message: "ストレージサービスに接続できません"
 
 
 components:
@@ -885,7 +920,9 @@ components:
           type: number
           minimum: 0
           maximum: 100
-          description: 植物判定の信頼度
+          description: |
+            植物判定の信頼度（0 と 100 を含む）。
+            AI の応答の値が数値でないか範囲外の場合は、結果を返さず 502 `AI_SERVICE_ERROR` になる。
           example: 95.5
         reason:
           type: string
@@ -936,7 +973,10 @@ components:
           type: number
           minimum: 0
           maximum: 100
-          description: AI識別の信頼度
+          description: |
+            AI識別の信頼度（0 と 100 を含む）。
+            植物と判定した AI の応答の候補に、この範囲外（または数値でない）の値が1件でもあれば、
+            候補を返さず 502 `AI_SERVICE_ERROR` になる。
           example: 95.5
 
     DuplicateCheckResult:
@@ -1130,7 +1170,20 @@ components:
               details: "JPEG、PNG、WebP、GIFファイルのみアップロード可能です"
 
     AIServiceError:
-      description: AI識別サービスエラー
+      description: |
+        AI識別の呼び出し（リクエストの送信から応答の検証まで）で失敗した。
+        接続できない場合（503 `AIServiceUnavailable`）を除き、AI識別の呼び出しで起きた失敗は
+        すべてこの応答になる。判定はエラーメッセージの文言ではなく、失敗した場所で行う。
+
+        - AI識別サービスがエラー応答を返した（認証エラー・利用上限・サーバエラーなど）
+        - 応答の `choices` が空、応答の本文が空、または JSON として読めない
+        - 応答が想定の形を満たさない。`isPlant` が真偽値でない、`reason` が文字列でない、
+          `confidence` が数値でないか 0〜100 の範囲外、植物と判定した場合の `candidates` が
+          配列でない、候補の `name` / `characteristics` が無い（空文字列を含む）、
+          候補の `confidence` が数値でないか 0〜100 の範囲外
+        - 接続の失敗のうち、原因が `ENOTFOUND` / `ECONNREFUSED` でないもの（`ETIMEDOUT` を含む）
+
+        AI識別と関係のない箇所の失敗は 500 `INTERNAL_ERROR`。
       content:
         application/json:
           schema:
@@ -1157,26 +1210,12 @@ components:
               code: "DATABASE_ERROR"
               message: "データベースに接続できません"
 
-    StorageUnavailable:
-      description: |
-        Blob Storage へ接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`）。
-
-        `POST /images/upload` のネットワーク起因の失敗はすべてこのコードになる。
-        `ETIMEDOUT` を 503 に分類するのはこのエンドポイントだけで、
-        他のエンドポイントは `ENOTFOUND` / `ECONNREFUSED` のみを見る。
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            success: false
-            error:
-              code: "STORAGE_ERROR"
-              message: "ストレージサービスに接続できません"
-
     AIServiceUnavailable:
       description: |
-        AI識別サービスへ接続できない（`ENOTFOUND` / `ECONNREFUSED`）。
+        AI識別サービスへ接続できない（名前解決の失敗 `ENOTFOUND`、接続拒否 `ECONNREFUSED`）。
+        SDK が包んだエラーの奥にある原因までたどって判定する（OpenAI SDK の接続エラーは
+        errno を直接持たず、2段奥の原因に持つ）。
+        `ETIMEDOUT` はここに含まれず、502 `AI_SERVICE_ERROR` になる。
       content:
         application/json:
           schema:
@@ -1201,6 +1240,10 @@ components:
         - `POST /plants/identify`: 植物識別処理に失敗しました
         - `GET /plants/check-duplicate`: 重複チェックに失敗しました
         - `POST /images/upload`: 画像アップロード・植物判定に失敗しました
+
+        `POST /plants/identify` と `POST /images/upload` では、AI識別の呼び出しと
+        Blob Storage の操作で起きた失敗は 500 ではなく 502 / 503 になる（各エンドポイントの
+        502 / 503 を参照）。500 になるのは、それ以外の箇所で起きた失敗。
 
         `details` には元の例外のメッセージが入る（`Error.details` を参照）。
       content:
