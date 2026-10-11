@@ -92,7 +92,7 @@ GitHub Actions は以下の条件で自動実行されます：
   - 手動実行（workflow_dispatch）
 
 `mobile/`（Flutter）を対象にしたワークフローは存在しない。`flutter analyze` と
-`flutter test` は自動実行されず、Windows 側で手動実行する運用。
+`flutter test` は自動実行されず、PR を出す前にローカルで手動実行する運用。
 
 ### ワークフロー
 

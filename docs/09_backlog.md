@@ -11,12 +11,11 @@
 
 ---
 
-## Windows 側で行う作業
+## Flutter（Dart）の作業
 
-**WSL から `flutter analyze` / `flutter test` は実行できない**（CLAUDE.md 参照）。
-Dart に触る作業はここに集める。Windows 側でセッションを1回立てて**まとめて処理する**。
-
-散らばった項目を探し直さずに済むようにするための索引で、詳細は各項目にある。
+Dart に触る作業の索引。以前は WSL から `flutter test` を実行できず、Windows 側でまとめて処理するために
+集めていたが、2026-10-11 に開発環境を Windows に統一したので、その制約は無くなった（CLAUDE.md「開発環境」）。
+散らばった項目を探し直さずに済むよう、索引としては残している。詳細は各項目にある。
 **ここに書くのは Dart の変更が必要なもの（確認の結果で必要になりうるものを含む）だけ。**
 
 | 項目 | 判断 | 内容 |
@@ -47,8 +46,7 @@ HTTP は `http` 同梱の `MockClient` で足りている。新しい依存を�
 CLAUDE.md の「`provider` / `go_router` / `dio` / `uuid` / `intl` は使用実績ゼロ、
 使い始める前に方針を決める」を確認すること。
 
-**進め方**: テストを書いてから実装する順序は維持する。赤緑の確認が
-Windows 側に移るだけ（CLAUDE.md の TDD の節）。
+**進め方**: api と同じく TDD で進める（CLAUDE.md の TDD の節）。
 
 CI に `flutter analyze` を入れるかは
 [Flutter が CI の対象外](#flutter-が-ci-の対象外)にある。
@@ -155,7 +153,7 @@ API Management を前段に置くと固定費が発生し、`DEPLOYMENT.md` の�
 
 `flutter analyze` と `flutter test` は自動実行されていない。
 現状、Dart コードの変更は誰も自動で検証していない。
-WSL から実行できないため、人間が Windows 側で回すまで検証されない状態。
+PR を出す前にローカルで回すまで検証されない状態（CLAUDE.md「PR の粒度」）。
 
 **判断: 後回し**（人間がトリアージ済み）。
 
