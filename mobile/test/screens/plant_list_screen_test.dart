@@ -169,4 +169,26 @@ void main() {
 
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
   });
+
+  testWidgets('設定を促す表示が出たあと、設定画面から戻ったときに設定を読めなければ、促す表示ではなく「API設定の読み込みに失敗しました」を再試行つきで表示する', (tester) async {
+    final secureStorage = _SecureStorageWithFailureSwitch({});
+    FlutterSecureStoragePlatform.instance = secureStorage;
+    SharedPreferences.setMockInitialValues({});
+    await _openPlantListScreen(tester);
+    // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await _letFramesRun(tester);
+    expect(find.text('API設定が完了していません'), findsOneWidget);
+    await tester.tap(find.text('設定を開く'));
+    await _letFramesRun(tester);
+    expect(find.text('設定'), findsOneWidget);
+    secureStorage.failReads = true;
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await _letFramesRun(tester);
+
+    expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(find.text('API設定が完了していません'), findsNothing);
+  });
 }

@@ -93,6 +93,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
       _apiService?.dispose();
       _apiService = null;
       setState(() {
+        // 前に立った「設定してください」の表示が残ると、読み込みの失敗が隠れる
+        _needsSetup = false;
         _hasError = true;
         _errorMessage = 'API設定の読み込みに失敗しました';
         _isLoading = false;
