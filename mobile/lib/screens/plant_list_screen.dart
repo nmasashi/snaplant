@@ -24,6 +24,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
+  // API キーが未設定で一覧を読めない状態。読み込み中のまま止めず、設定を促す表示にする
+  bool _needsSetup = false;
   ApiService? _apiService;
 
   @override
@@ -57,6 +59,10 @@ class _PlantListScreenState extends State<PlantListScreen> {
       
       if (apiKey == null || apiKey.isEmpty) {
         print('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
+        setState(() {
+          _needsSetup = true;
+          _isLoading = false;
+        });
         // APIキーが設定されていない場合は設定画面へ
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _navigateToSettings();
@@ -65,6 +71,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
       }
       
       print('PlantListScreen: ApiService初期化開始');
+      _needsSetup = false;
       _apiService = ApiService(
         baseUrl: endpoint,
         functionKey: apiKey,
@@ -236,7 +243,11 @@ class _PlantListScreenState extends State<PlantListScreen> {
     if (_isLoading) {
       return _buildLoadingView(isLargeScreen);
     }
-    
+
+    if (_needsSetup) {
+      return _buildSetupNeededView(isLargeScreen);
+    }
+
     if (_hasError) {
       return _buildErrorView(isLargeScreen);
     }
@@ -271,6 +282,53 @@ class _PlantListScreenState extends State<PlantListScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// API キーが未設定のときの表示
+  Widget _buildSetupNeededView(bool isLargeScreen) {
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.settings,
+              size: isLargeScreen ? 80 : 64,
+              color: AppColors.textSecondary,
+            ),
+            SizedBox(height: isLargeScreen ? 24 : 16),
+            Text(
+              'API設定が完了していません',
+              style: AppTextStyles.headline2.copyWith(
+                fontSize: isLargeScreen ? 28 : 24,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: isLargeScreen ? 16 : 12),
+            Text(
+              '設定画面で API キーを入力してください',
+              style: AppTextStyles.body1.copyWith(
+                fontSize: isLargeScreen ? 20 : 18,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: isLargeScreen ? 32 : 24),
+            ElevatedButton.icon(
+              onPressed: _navigateToSettings,
+              icon: const Icon(Icons.settings),
+              label: const Text('設定を開く'),
+              style: ElevatedButton.styleFrom(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isLargeScreen ? 32 : 24,
+                  vertical: isLargeScreen ? 20 : 16,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
