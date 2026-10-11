@@ -131,9 +131,12 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
 
   /// 日付のフォーマット
   String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.year}年${dateTime.month}月${dateTime.day}日 '
-           '${dateTime.hour.toString().padLeft(2, '0')}:'
-           '${dateTime.minute.toString().padLeft(2, '0')}';
+    // サーバは UTC の ISO 文字列を返し、DateTime.parse() は UTC の値を作る。
+    // そのまま年月日・時分を取ると、日本時間 00:30 の保存が前日の 15:30 と表示される
+    final local = dateTime.toLocal();
+    return '${local.year}年${local.month}月${local.day}日 '
+           '${local.hour.toString().padLeft(2, '0')}:'
+           '${local.minute.toString().padLeft(2, '0')}';
   }
 
   @override
