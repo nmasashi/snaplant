@@ -396,7 +396,10 @@ Function App の応答確認 → 完了
 ### 7.2 データ保護
 - **Azure Cosmos DB**: 保存時暗号化・ネットワーク暗号化
 - **Azure Blob Storage**: アクセス制御・暗号化
-- **Application Insights**: 個人情報のマスキング
+  - 永続コンテナ `images` は公開読み取り、一時コンテナ `temp-images` は非公開
+  - AI 識別サービスには、一時 Blob 1つに対する読み取り専用・発行から15分で失効する SAS 付き URL で読ませる。
+    この URL はクライアントには返さず、一時保存の完了ログにも SAS を出さない
+    （[APIワークフロー設計書](./07_api_workflow.md)の 2.3）
 
 ## 8. 将来拡張性
 
