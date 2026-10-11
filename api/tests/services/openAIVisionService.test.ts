@@ -22,7 +22,8 @@ describe('OpenAIVisionService', () => {
 
     // 環境変数設定
     process.env.OPENAI_API_KEY = 'test-api-key';
-    process.env.AZURE_OPENAI_ENDPOINT = undefined; // OpenAI APIを使用
+    // OpenAI APIを使用する。undefined の代入は文字列 "undefined" になるため delete で消す
+    delete process.env.AZURE_OPENAI_ENDPOINT;
 
     service = new OpenAIVisionService();
   });
@@ -436,6 +437,20 @@ describe('OpenAIVisionService', () => {
 
       delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
       delete process.env.AZURE_OPENAI_API_VERSION;
+    });
+
+    it('Azure のエンドポイントが未設定なら、OpenAI 公式 API 向けの設定でクライアントを作る', async () => {
+      // tests/setup.ts が Azure の値を設定しているため、デプロイ名も含めて未設定の状態にする
+      delete process.env.AZURE_OPENAI_ENDPOINT;
+      delete process.env.AZURE_OPENAI_API_KEY;
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      process.env.OPENAI_API_KEY = 'openai-api-key';
+      MockedOpenAI.mockClear();
+
+      new OpenAIVisionService();
+
+      const clientOptions = MockedOpenAI.mock.calls[0][0];
+      expect(clientOptions).toEqual({ apiKey: 'openai-api-key' });
     });
   });
 });
