@@ -224,6 +224,9 @@ resource "azurerm_cognitive_deployment" "gpt5_luna" {
 
   sku {
     name = "GlobalStandard"
+    # 1分あたりのトークン数の上限（千単位）。省略すると既定値の 1（= 1K TPM）になり、
+    # 画像1枚の識別でも上限に達しうる。本番の値（150 = 150K TPM）を明示している
+    capacity = 150
   }
 }
 
