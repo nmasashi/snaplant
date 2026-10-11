@@ -91,8 +91,8 @@ flutter build apk --release
 Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上にある。
 Dart を変更したら、その場で `flutter analyze` / `flutter test` を回して検証する。
 
-`flutter analyze` は既存の info / warning（2026-10-12 時点で135件）で**終了コード 1** になる。エラーは0件。
-新規の指摘が無いかは件数ではなく、指摘の一覧を変更前と突き合わせて判断する。
+`flutter analyze` の指摘は0件にしてある（2026-10-12、#24）。info も含めて1件でも出れば CI（`flutter.yml`）が失敗するので、
+指摘を残したまま PR を出さない。
 
 `test/` の構成。
 
@@ -129,7 +129,7 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   `pump` を必要な回数だけ呼ぶ。ファイルの読み書きは `tester.runAsync` の中でないと進まない
 - **日時の表示のテストは、日本時間で動くことを前提にしている。** 期待値を日本時間の文字列で書き、
   テストの冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
-  CI に入れるときは `TZ=Asia/Tokyo` で動かす
+  CI（`flutter.yml`）は `TZ=Asia/Tokyo` で動かしている
 
 ### infrastructure/
 
@@ -339,9 +339,8 @@ PR が大きすぎることが、そのままレビューの穴になる。
   方針（下記「レビューのタイミング」）と、PR の粒度を一致させる
 - **`main` へのマージは本番デプロイを起動する**（`deploy-functions.yml`）。
   PR が小さいほど1回のデプロイの影響範囲が狭く、切り分けも早い
-- **`mobile/` の変更を含む PR は、マージ前に
-  `flutter analyze` / `flutter test` を通す。** `mobile/` は CI の対象外なので、
-  ここで見ないと誰も検証しない
+- **`mobile/` の変更を含む PR も、手元で `flutter analyze` / `flutter test` を回してから出す。**
+  CI（`flutter.yml`）でも回るが、手元で先に見る方が早い
 
 なお `ci.yml` と `terraform.yml` は `[main, develop]` をトリガにしているが、
 **`develop` ブランチは存在しない**。PR を `develop` に集約して `main` へは
@@ -623,7 +622,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 - `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
 - `.github/workflows/audit.yml` — `npm audit --audit-level=high`。`api/package*.json` の変更と、毎週月曜の定期実行。**失敗はそのまま失敗にするが、デプロイは止めない**（人間の判断）。ci.yml とは別のワークフローにしているのは terraform.yml と同じ理由。以前は ci.yml の中で `continue-on-error: true` にしており、critical の脆弱性があっても成功扱いで誰も気づけなかった。**`continue-on-error` で失敗を握りつぶさない**こと。デプロイを止めたくない検査は、別のワークフローに分ける
 - `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/**` と `.github/workflows/terraform.yml`（`main` / `develop` への push と `main` への PR）。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
-- **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（既存の指摘を解消してから入れる。`docs/09_backlog.md` 参照）。
+- `.github/workflows/flutter.yml` — `mobile/` の `flutter analyze`（info も含めて指摘があれば失敗）と `flutter test`（`TZ=Asia/Tokyo`。日時の表示のテストが日本時間を前提にしている）。トリガーは `mobile/**` と `flutter.yml` の変更。Flutter の版は手元と同じ 3.32.8 に固定しているので、上げるときは手元と一緒に上げる。ci.yml とは別のワークフロー（`mobile/` は本番デプロイと関係が無いため）。
 - `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
 - デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する。ビルドの後に `npm prune --omit=dev` で開発用の依存を外してから `api/` を丸ごと送るので、**実行時に読み込むパッケージは `dependencies` に置く**（`devDependencies` に置くと、テストは通るのに本番で読み込みに失敗する）
 

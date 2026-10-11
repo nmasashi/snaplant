@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screens/plant_list_screen.dart';
@@ -5,6 +6,11 @@ import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 
 void main() {
+  // 確認用のログ（debugPrint）は、補足情報やサーバのエラー本文も出す。
+  // 利用者の端末のログに残さないよう、リリース版では何も出さない
+  if (kReleaseMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
   runApp(const SnapPlantApp());
 }
 
@@ -36,7 +42,7 @@ class SnapPlantApp extends StatelessWidget {
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
-            textScaleFactor: 1.0, // フォントスケールを固定
+            textScaler: const TextScaler.linear(1.0), // フォントスケールを固定
           ),
           child: child!,
         );

@@ -32,9 +32,9 @@ class AppColors {
   static const Color info = Color(0xFF2196F3);
   
   // 透明度付きカラー
-  static Color primaryWithOpacity(double opacity) => primary.withOpacity(opacity);
-  static Color secondaryWithOpacity(double opacity) => secondary.withOpacity(opacity);
-  static Color surfaceWithOpacity(double opacity) => surface.withOpacity(opacity);
+  static Color primaryWithOpacity(double opacity) => primary.withValues(alpha: opacity);
+  static Color secondaryWithOpacity(double opacity) => secondary.withValues(alpha: opacity);
+  static Color surfaceWithOpacity(double opacity) => surface.withValues(alpha: opacity);
   
   // Material Color Swatch for Primary
   static const MaterialColor primarySwatch = MaterialColor(
@@ -71,7 +71,7 @@ class AppColors {
   // 信頼度に基づく色を取得
   static Color getConfidenceColor(double confidence) {
     if (confidence >= 90) return success;
-    if (confidence >= 70) return Color(0xFF8BC34A); // 薄い緑
+    if (confidence >= 70) return const Color(0xFF8BC34A); // 薄い緑
     if (confidence >= 50) return warning;
     return error;
   }

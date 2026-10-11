@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_colors.dart';
@@ -72,7 +71,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       // エンドポイントを保存
       await _settingsService!.saveApiEndpoint(_endpointController.text.trim());
-      
+
+      // 保存中に戻られていたら、破棄済みの画面に setState・pop しない
+      if (!mounted) return;
       setState(() {
         _isSaving = false;
       });
@@ -253,7 +254,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SizedBox(
             width: isLargeScreen ? 64 : 48,
             height: isLargeScreen ? 64 : 48,
-            child: CircularProgressIndicator(
+            child: const CircularProgressIndicator(
               strokeWidth: 3,
               valueColor: AlwaysStoppedAnimation(AppColors.primary),
             ),
@@ -412,10 +413,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       padding: EdgeInsets.all(isLargeScreen ? 16 : 12),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
+        color: statusColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: statusColor.withOpacity(0.3),
+          color: statusColor.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -426,7 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             color: statusColor,
             size: isLargeScreen ? 24 : 20,
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           Text(
             statusText,
             style: AppTextStyles.body2.copyWith(
@@ -450,12 +451,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: OutlinedButton.icon(
                 onPressed: _isTesting ? null : _testConnection,
                 icon: _isTesting 
-                    ? SizedBox(
+                    ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Icon(Icons.wifi_find),
+                    : const Icon(Icons.wifi_find),
                 label: Text(_isTesting ? 'テスト中...' : '接続テスト'),
                 style: OutlinedButton.styleFrom(
                   padding: EdgeInsets.symmetric(
@@ -469,7 +470,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ElevatedButton.icon(
                 onPressed: _isSaving ? null : _saveSettings,
                 icon: _isSaving 
-                    ? SizedBox(
+                    ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
@@ -477,7 +478,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           valueColor: AlwaysStoppedAnimation(Colors.white),
                         ),
                       )
-                    : Icon(Icons.save),
+                    : const Icon(Icons.save),
                 label: Text(_isSaving ? '保存中...' : '保存'),
                 style: ElevatedButton.styleFrom(
                   padding: EdgeInsets.symmetric(
@@ -495,8 +496,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           width: double.infinity,
           child: TextButton.icon(
             onPressed: _resetSettings,
-            icon: Icon(Icons.refresh, color: AppColors.error),
-            label: Text('設定をリセット'),
+            icon: const Icon(Icons.refresh, color: AppColors.error),
+            label: const Text('設定をリセット'),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.error,
               padding: EdgeInsets.symmetric(

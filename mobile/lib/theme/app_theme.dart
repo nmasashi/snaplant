@@ -16,7 +16,6 @@ class AppTheme {
         onPrimary: AppColors.textOnPrimary,
         secondary: AppColors.secondary,
         surface: AppColors.surface,
-        background: AppColors.background,
         error: AppColors.error,
       ),
       
@@ -35,14 +34,14 @@ class AppTheme {
       ),
       
       // カードテーマ
-      cardTheme: CardThemeData(
+      cardTheme: const CardThemeData(
         color: AppColors.cardBackground,
         shadowColor: AppColors.shadowColor,
         elevation: 4,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(16)),
         ),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       ),
       
       // ボタンテーマ
@@ -155,9 +154,9 @@ class AppTheme {
       ),
       
       // ダイアログテーマ
-      dialogTheme: DialogThemeData(
+      dialogTheme: const DialogThemeData(
         backgroundColor: AppColors.background,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(20)),
         ),
         titleTextStyle: AppTextStyles.headline2,
@@ -203,13 +202,13 @@ class AppTheme {
       
       // チェックボックステーマ
       checkboxTheme: CheckboxThemeData(
-        fillColor: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
             return AppColors.primary;
           }
           return AppColors.surface;
         }),
-        checkColor: MaterialStateProperty.all(AppColors.textOnPrimary),
+        checkColor: WidgetStateProperty.all(AppColors.textOnPrimary),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(4),
         ),
@@ -217,8 +216,8 @@ class AppTheme {
       
       // ラジオボタンテーマ
       radioTheme: RadioThemeData(
-        fillColor: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
             return AppColors.primary;
           }
           return AppColors.textSecondary;
@@ -227,10 +226,10 @@ class AppTheme {
       
       // スクロールバーテーマ
       scrollbarTheme: ScrollbarThemeData(
-        thumbColor: MaterialStateProperty.all(AppColors.textSecondary),
-        trackColor: MaterialStateProperty.all(AppColors.surface),
+        thumbColor: WidgetStateProperty.all(AppColors.textSecondary),
+        trackColor: WidgetStateProperty.all(AppColors.surface),
         radius: const Radius.circular(4),
-        thickness: MaterialStateProperty.all(6),
+        thickness: WidgetStateProperty.all(6),
       ),
     );
   }
@@ -255,14 +254,14 @@ class AppTheme {
     if (screenWidth >= 1400) {
       return baseTheme.copyWith(
         // 大画面向けのパディング調整
-        cardTheme: baseTheme.cardTheme?.copyWith(
+        cardTheme: baseTheme.cardTheme.copyWith(
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
         
         // ボタンサイズの調整
         elevatedButtonTheme: ElevatedButtonThemeData(
-          style: baseTheme.elevatedButtonTheme?.style?.copyWith(
-            padding: MaterialStateProperty.all(
+          style: baseTheme.elevatedButtonTheme.style?.copyWith(
+            padding: WidgetStateProperty.all(
               const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
             ),
           ),

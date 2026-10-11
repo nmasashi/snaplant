@@ -72,7 +72,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('植物を削除しました'),
             backgroundColor: AppColors.success,
             behavior: SnackBarBehavior.floating,
@@ -157,7 +157,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
   Widget _buildLoadingView(bool isLargeScreen) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('植物詳細'),
+        title: const Text('植物詳細'),
       ),
       body: Center(
         child: Column(
@@ -166,7 +166,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
             SizedBox(
               width: isLargeScreen ? 64 : 48,
               height: isLargeScreen ? 64 : 48,
-              child: CircularProgressIndicator(
+              child: const CircularProgressIndicator(
                 strokeWidth: 3,
                 valueColor: AlwaysStoppedAnimation(AppColors.primary),
               ),
@@ -189,7 +189,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
   Widget _buildErrorView(bool isLargeScreen) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('植物詳細'),
+        title: const Text('植物詳細'),
       ),
       body: Center(
         child: Padding(
@@ -221,8 +221,8 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
               SizedBox(height: isLargeScreen ? 32 : 24),
               ElevatedButton.icon(
                 onPressed: _loadPlantDetail,
-                icon: Icon(Icons.refresh),
-                label: Text('再試行'),
+                icon: const Icon(Icons.refresh),
+                label: const Text('再試行'),
                 style: ElevatedButton.styleFrom(
                   padding: EdgeInsets.symmetric(
                     horizontal: isLargeScreen ? 32 : 24,
@@ -284,7 +284,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
               Shadow(
                 offset: const Offset(1, 1),
                 blurRadius: 4,
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
               ),
             ],
           ),
@@ -299,7 +299,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: AppColors.surface,
-                  child: Center(
+                  child: const Center(
                     child: CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation(AppColors.primary),
                     ),
@@ -324,7 +324,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    Colors.black.withOpacity(0.7),
+                    Colors.black.withValues(alpha: 0.7),
                   ],
                 ),
               ),
@@ -386,7 +386,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   color: AppColors.primary,
                   size: isLargeScreen ? 28 : 24,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
                   '基本情報',
                   style: AppTextStyles.headline3.copyWith(
@@ -436,7 +436,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   color: AppColors.primary,
                   size: isLargeScreen ? 28 : 24,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
                   '特徴',
                   style: AppTextStyles.headline3.copyWith(
@@ -478,7 +478,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   color: AppColors.primary,
                   size: isLargeScreen ? 28 : 24,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
                   '詳細説明',
                   style: AppTextStyles.headline3.copyWith(
@@ -520,7 +520,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   color: AppColors.primary,
                   size: isLargeScreen ? 28 : 24,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
                   '保存情報',
                   style: AppTextStyles.headline3.copyWith(
@@ -589,10 +589,10 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
         vertical: isLargeScreen ? 8 : 6,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: color.withOpacity(0.3),
+          color: color.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -604,7 +604,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
             size: isLargeScreen ? 20 : 18,
             color: color,
           ),
-          SizedBox(width: 6),
+          const SizedBox(width: 6),
           Text(
             '${confidence.toInt()}%',
             style: AppTextStyles.confidence.copyWith(
@@ -625,7 +625,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
       child: ElevatedButton.icon(
         onPressed: _isDeleting ? null : _deletePlant,
         icon: _isDeleting
-            ? SizedBox(
+            ? const SizedBox(
                 width: 16,
                 height: 16,
                 child: CircularProgressIndicator(
@@ -633,7 +633,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   valueColor: AlwaysStoppedAnimation(Colors.white),
                 ),
               )
-            : Icon(Icons.delete),
+            : const Icon(Icons.delete),
         label: Text(_isDeleting ? '削除中...' : '植物を削除'),
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.error,

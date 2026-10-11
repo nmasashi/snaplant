@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -59,7 +58,7 @@ class ApiService {
   ApiException _handleError(dynamic error) {
     // デバッグ用ログ出力
     if (kDebugMode) {
-      print('ApiService Error: ${error.runtimeType} - $error');
+      debugPrint('ApiService Error: ${error.runtimeType} - $error');
     }
     
     if (error is ApiException) {
@@ -113,8 +112,8 @@ class ApiService {
   Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile, {String? contextInfo}) async {
     try {
       if (kDebugMode) {
-        print('ApiService: uploadAndIdentifyImage開始');
-        print('ApiService: imageFile type: ${imageFile.runtimeType}');
+        debugPrint('ApiService: uploadAndIdentifyImage開始');
+        debugPrint('ApiService: imageFile type: ${imageFile.runtimeType}');
       }
       
       final url = _buildUrl('/api/images/upload');
@@ -125,7 +124,7 @@ class ApiService {
         // Web環境の場合、Uint8Listを期待
         if (imageFile is Uint8List) {
           if (kDebugMode) {
-            print('ApiService: Web環境 - 画像サイズ: ${imageFile.length} bytes');
+            debugPrint('ApiService: Web環境 - 画像サイズ: ${imageFile.length} bytes');
           }
           request.files.add(
             http.MultipartFile.fromBytes(
@@ -143,8 +142,8 @@ class ApiService {
         if (imageFile is File) {
           final fileSize = await imageFile.length();
           if (kDebugMode) {
-            print('ApiService: モバイル環境 - ファイルパス: ${imageFile.path}');
-            print('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
+            debugPrint('ApiService: モバイル環境 - ファイルパス: ${imageFile.path}');
+            debugPrint('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
           }
           
           // 拡張子ではなく中身のシグネチャで判定する。判定に必要なのは先頭12バイトだけ
@@ -154,7 +153,7 @@ class ApiService {
           final mimeType = detectImageMimeType(Uint8List.fromList(header));
 
           if (kDebugMode) {
-            print('ApiService: 検出MIMEタイプ: $mimeType');
+            debugPrint('ApiService: 検出MIMEタイプ: $mimeType');
           }
           
           request.files.add(
@@ -174,22 +173,22 @@ class ApiService {
       if (contextInfo != null && contextInfo.isNotEmpty) {
         request.fields['contextInfo'] = contextInfo;
         if (kDebugMode) {
-          print('ApiService: コンテキスト情報追加: $contextInfo');
+          debugPrint('ApiService: コンテキスト情報追加: $contextInfo');
         }
       }
       
       if (kDebugMode) {
-        print('ApiService: HTTP リクエスト送信開始');
+        debugPrint('ApiService: HTTP リクエスト送信開始');
       }
       
       final streamedResponse = await _client.send(request);
       final response = await http.Response.fromStream(streamedResponse);
       
       if (kDebugMode) {
-        print('ApiService: HTTPレスポンス受信 - ステータス: ${response.statusCode}');
-        print('ApiService: レスポンスボディ長: ${response.body.length}');
+        debugPrint('ApiService: HTTPレスポンス受信 - ステータス: ${response.statusCode}');
+        debugPrint('ApiService: レスポンスボディ長: ${response.body.length}');
         if (response.statusCode != 200) {
-          print('ApiService: エラーレスポンス: ${response.body}');
+          debugPrint('ApiService: エラーレスポンス: ${response.body}');
         }
       }
       
@@ -197,12 +196,12 @@ class ApiService {
         response,
         (json) {
           if (kDebugMode) {
-            print('ApiService: レスポンス解析開始');
-            print('ApiService: json keys: ${json.keys}');
+            debugPrint('ApiService: レスポンス解析開始');
+            debugPrint('ApiService: json keys: ${json.keys}');
           }
           final data = json['data'] as Map<String, dynamic>;
           if (kDebugMode) {
-            print('ApiService: data keys: ${data.keys}');
+            debugPrint('ApiService: data keys: ${data.keys}');
           }
           return {
             'uploadResult': UploadResult(
@@ -215,7 +214,7 @@ class ApiService {
       );
     } catch (error) {
       if (kDebugMode) {
-        print('ApiService: uploadAndIdentifyImage エラー: $error');
+        debugPrint('ApiService: uploadAndIdentifyImage エラー: $error');
       }
       throw _handleError(error);
     }
@@ -235,7 +234,7 @@ class ApiService {
         response,
         (json) {
           if (kDebugMode) {
-            print('ApiService: 重複チェックレスポンス: $json');
+            debugPrint('ApiService: 重複チェックレスポンス: $json');
           }
           final data = json['data'] as Map<String, dynamic>?;
           if (data == null) {
@@ -246,7 +245,7 @@ class ApiService {
             );
           }
           if (kDebugMode) {
-            print('ApiService: 重複チェックdata: $data');
+            debugPrint('ApiService: 重複チェックdata: $data');
           }
           return DuplicateCheckResult.fromJson(data);
         },
@@ -300,19 +299,19 @@ class ApiService {
         response,
         (json) {
           if (kDebugMode) {
-            print('ApiService: レスポンス内容: $json');
+            debugPrint('ApiService: レスポンス内容: $json');
           }
           final data = json['data'] as Map<String, dynamic>?;
           if (data == null) {
             if (kDebugMode) {
-              print('ApiService: dataがnullのため空リストを返す');
+              debugPrint('ApiService: dataがnullのため空リストを返す');
             }
             return <PlantSummary>[];
           }
           final plants = data['plants'] as List<dynamic>?;
           if (plants == null) {
             if (kDebugMode) {
-              print('ApiService: plantsがnullのため空リストを返す');
+              debugPrint('ApiService: plantsがnullのため空リストを返す');
             }
             return <PlantSummary>[];
           }
@@ -340,7 +339,7 @@ class ApiService {
         response,
         (json) {
           if (kDebugMode) {
-            print('ApiService: 植物詳細レスポンス: $json');
+            debugPrint('ApiService: 植物詳細レスポンス: $json');
           }
           final data = json['data'] as Map<String, dynamic>?;
           if (data == null) {

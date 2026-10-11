@@ -64,7 +64,7 @@ class PlantCard extends StatelessWidget {
       tag: 'plant-image-${plant.id}',
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        child: Container(
+        child: SizedBox(
           height: imageHeight,
           width: double.infinity,
           child: CachedNetworkImage(
@@ -79,7 +79,7 @@ class PlantCard extends StatelessWidget {
                     SizedBox(
                       width: isLargeScreen ? 32 : 24,
                       height: isLargeScreen ? 32 : 24,
-                      child: CircularProgressIndicator(
+                      child: const CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation(AppColors.primary),
                       ),
@@ -145,7 +145,7 @@ class PlantCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 _buildConfidenceBadge(isLargeScreen),
               ],
             ),
@@ -174,7 +174,7 @@ class PlantCard extends StatelessWidget {
                   size: isLargeScreen ? 18 : 16,
                   color: AppColors.textSecondary,
                 ),
-                SizedBox(width: 6),
+                const SizedBox(width: 6),
                 Text(
                   _formatDate(plant.createdAt),
                   style: AppTextStyles.caption.copyWith(
@@ -199,10 +199,10 @@ class PlantCard extends StatelessWidget {
         vertical: isLargeScreen ? 6 : 4,
       ),
       decoration: BoxDecoration(
-        color: confidenceColor.withOpacity(0.1),
+        color: confidenceColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: confidenceColor.withOpacity(0.3),
+          color: confidenceColor.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -214,7 +214,7 @@ class PlantCard extends StatelessWidget {
             size: isLargeScreen ? 16 : 14,
             color: confidenceColor,
           ),
-          SizedBox(width: 4),
+          const SizedBox(width: 4),
           Text(
             '${plant.confidence.toInt()}%',
             style: AppTextStyles.confidence.copyWith(
@@ -240,13 +240,13 @@ class PlantCard extends StatelessWidget {
       return '${difference.inDays}日前';
     } else if (difference.inDays < 30) {
       final weeks = (difference.inDays / 7).floor();
-      return '${weeks}週間前';
+      return '$weeks週間前';
     } else if (difference.inDays < 365) {
       final months = (difference.inDays / 30).floor();
-      return '${months}ヶ月前';
+      return '$monthsヶ月前';
     } else {
       final years = (difference.inDays / 365).floor();
-      return '${years}年前';
+      return '$years年前';
     }
   }
 }

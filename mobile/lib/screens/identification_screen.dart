@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -77,7 +76,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
               Shadow(
                 offset: const Offset(1, 1),
                 blurRadius: 4,
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
               ),
             ],
           ),
@@ -96,7 +95,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    Colors.black.withOpacity(0.7),
+                    Colors.black.withValues(alpha: 0.7),
                   ],
                 ),
               ),
@@ -170,10 +169,10 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
       width: double.infinity,
       padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
       decoration: BoxDecoration(
-        color: AppColors.success.withOpacity(0.1),
+        color: AppColors.success.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.success.withOpacity(0.3),
+          color: AppColors.success.withValues(alpha: 0.3),
           width: 2,
         ),
       ),
@@ -319,10 +318,10 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
         vertical: isLargeScreen ? 6 : 4,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: color.withOpacity(0.3),
+          color: color.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -452,8 +451,8 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => Navigator.pop(context),
-                icon: Icon(Icons.arrow_back),
-                label: Text('やり直し'),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('やり直し'),
                 style: OutlinedButton.styleFrom(
                   padding: EdgeInsets.symmetric(
                     vertical: isLargeScreen ? 20 : 16,
@@ -466,7 +465,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
               child: ElevatedButton.icon(
                 onPressed: (_isSaving || _isCheckingDuplicate) ? null : _savePlant,
                 icon: (_isSaving || _isCheckingDuplicate)
-                    ? SizedBox(
+                    ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
@@ -474,7 +473,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
                           valueColor: AlwaysStoppedAnimation(Colors.white),
                         ),
                       )
-                    : Icon(Icons.save),
+                    : const Icon(Icons.save),
                 label: Text(
                   _isCheckingDuplicate ? '重複確認中...' 
                       : _isSaving ? '保存中...' 
@@ -550,7 +549,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('植物を保存しました'),
             backgroundColor: AppColors.success,
             behavior: SnackBarBehavior.floating,

@@ -106,8 +106,16 @@ GitHub Actions は以下の条件で自動実行されます：
   - `api/` または `.github/workflows/` 配下のファイル変更時
   - 手動実行（workflow_dispatch）
 
-`mobile/`（Flutter）を対象にしたワークフローは存在しない。`flutter analyze` と
-`flutter test` は自動実行されず、PR を出す前にローカルで手動実行する運用。
+- **Flutter 静的解析とテスト** (`/.github/workflows/flutter.yml`):
+  - `main` ブランチへのプッシュ
+  - `main` ブランチへのプルリクエスト
+  - プッシュ・プルリクエストとも、`mobile/` または `.github/workflows/flutter.yml` の変更時のみ
+  - 手動実行（workflow_dispatch）
+  - Flutter 3.32.8（stable）で、`mobile/` で `flutter pub get` → `flutter analyze` → `flutter test` を実行する
+  - `flutter analyze` は info も含めて指摘があれば失敗する（`continue-on-error` は付けていない）
+  - `flutter test` は `TZ=Asia/Tokyo` で実行する（日時の表示のテストが日本時間を前提にしているため）
+  - ci.yml とは別ワークフローにしている。`deploy-functions.yml` が ci.yml の成功を
+    デプロイの前提にしており、`mobile/` は本番デプロイと関係が無いため。ここが失敗しても**デプロイは止まらない**
 
 ### ワークフロー
 

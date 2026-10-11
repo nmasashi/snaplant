@@ -15,8 +15,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 - 🔍 **重複チェック** - 同名の植物があれば既存レコードの画像・信頼度を更新
 - ⚙️ **設定管理** - APIキーとエンドポイントのセキュア保存・接続テスト
 
-カメラ撮影（`CameraService.takePhoto()`）はサービス層にあるものの、画面からは
-呼び出していない。現状の取得経路はギャラリー選択のみ。
+カメラ撮影には対応していない。写真の取得経路はギャラリー選択のみ。
 
 ## 🏗️ アーキテクチャ
 
@@ -37,7 +36,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 ## 🚀 CI/CD
 
 このプロジェクトは GitHub Actions による CI/CD パイプラインを使用しています。
-ワークフローは4本です。
+ワークフローは5本です。
 
 | ワークフロー | 対象 | 内容 |
 |---|---|---|
@@ -45,8 +44,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `.github/workflows/audit.yml` | `api/package.json`・`api/package-lock.json` | `npm audit --audit-level=high`（開発用の依存も含む）。high 以上の脆弱性があれば失敗します。毎週月曜 9:00（日本時間）の定期実行と手動実行もあります。デプロイの前提にはしていないため、失敗してもデプロイは止まりません |
 | `.github/workflows/terraform.yml` | `infrastructure/` | `terraform fmt -check -recursive` と `terraform validate`（`-backend=false`）。Azure へは通信せず認証情報も不要で、`plan` は回しません |
 | `.github/workflows/deploy-functions.yml` | `api/` | main ブランチへのプッシュで ci.yml を呼び、成功後に本番デプロイ |
-
-`mobile/`（Flutter）は CI の対象外です。`flutter analyze` も `flutter test` も自動実行されません。
+| `.github/workflows/flutter.yml` | `mobile/` | Flutter 3.32.8 で `flutter pub get` → `flutter analyze`（info も含めて指摘があれば失敗します）→ `flutter test`（`TZ=Asia/Tokyo`）。手動実行もあります。デプロイの前提にはしていないため、失敗してもデプロイは止まりません |
 
 詳細は [DEPLOYMENT.md](./DEPLOYMENT.md) を参照してください。
 
