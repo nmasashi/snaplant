@@ -90,4 +90,25 @@ void main() {
     expect(find.text('API設定の読み込みに失敗しました'), findsNothing);
     expect(find.text('API設定が完了していません'), findsOneWidget);
   });
+
+  testWidgets('設定をリセットして一覧画面に戻ると、消したキーで通信し続けず「API設定が完了していません」と表示する', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({'api_key': 'old-key'});
+    SharedPreferences.setMockInitialValues({});
+    await _openPlantListScreen(tester);
+    // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.settings));
+    await _letFramesRun(tester);
+    await tester.ensureVisible(find.text('設定をリセット'));
+    await tester.pump();
+    await tester.tap(find.text('設定をリセット'));
+    await _letFramesRun(tester);
+    await tester.tap(find.text('リセット'));
+    await _letFramesRun(tester);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await _letFramesRun(tester);
+
+    expect(find.text('API設定が完了していません'), findsOneWidget);
+  });
 }

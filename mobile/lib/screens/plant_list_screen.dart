@@ -148,15 +148,14 @@ class _PlantListScreenState extends State<PlantListScreen> {
 
   /// 設定画面への遷移
   Future<void> _navigateToSettings() async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const SettingsScreen()),
     );
     
-    // 設定から戻ってきた場合は再初期化
-    if (result == true) {
-      await _initializeScreen();
-    }
+    // 設定から戻ったら、保存したかどうかに関わらず読み直す。リセットは保存せずに
+    // その場で反映され、戻り値も返さないので、結果を見て判断すると消したキーで通信し続ける
+    await _initializeScreen(openSettingsIfMissing: false);
   }
 
   /// 画像選択画面への遷移
