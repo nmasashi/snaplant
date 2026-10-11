@@ -120,7 +120,7 @@ paths:
             3つ目のグループ先頭のバージョン桁は `1`〜`5` を受け付ける（API が採番するのは小文字の v4）。
             4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b` のみ。
             形式の検査では大文字小文字を区別しない。
-            形式に合わなければ 400 `INVALID_REQUEST`。
+            形式に合わなければ 400 `INVALID_REQUEST`（message: 植物IDの形式が無効です）。
           schema:
             type: string
             format: uuid
@@ -157,7 +157,12 @@ paths:
 
     put:
       summary: 植物情報更新
-      description: 既存植物の画像と信頼度を更新（重複時の画像置き換え）
+      description: |
+        既存植物の画像と信頼度を更新（重複時の画像置き換え）。
+
+        更新されるのは `imagePath` / `confidence` / `updatedAt` だけで、
+        他の項目は既存ドキュメントの値がそのまま残る。ボディにそれ以外の項目
+        （`name` や `createdAt` など）が含まれていてもエラーにはせず、無視する。
       tags:
         - Plants
       parameters:
@@ -169,7 +174,8 @@ paths:
             3つ目のグループ先頭のバージョン桁は `1`〜`5` を受け付ける（API が採番するのは小文字の v4）。
             4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b` のみ。
             形式の検査では大文字小文字を区別しない。
-            形式に合わなければ 400 `INVALID_REQUEST`。
+            形式に合わなければ 400 `INVALID_REQUEST`（message: 植物IDの形式が無効です。GET / DELETE と同じ）。
+            ID の検査はボディの読み取りより前に行う。
           schema:
             type: string
             format: uuid
@@ -247,7 +253,7 @@ paths:
             3つ目のグループ先頭のバージョン桁は `1`〜`5` を受け付ける（API が採番するのは小文字の v4）。
             4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b` のみ。
             形式の検査では大文字小文字を区別しない。
-            形式に合わなければ 400 `INVALID_REQUEST`。
+            形式に合わなければ 400 `INVALID_REQUEST`（message: 植物IDの形式が無効です）。
           schema:
             type: string
             format: uuid
@@ -403,6 +409,10 @@ paths:
                     未指定の場合、またはファイル以外（テキストフィールド）で送られた場合は
                     400 `INVALID_REQUEST`
                     （message: 画像ファイルが指定されていません、details: imageフィールドでファイルを送信してください）。
+                    0 バイトのファイルは 400 `INVALID_REQUEST`（message: 画像ファイルが空です）。
+                    413 `FILE_TOO_LARGE` になるのは上限を超えた場合だけ。
+                    検査の順は、ファイルの有無 → 形式（415）→ 0 バイト（400）→ 上限（413）。
+                    いずれも一時保存とAI呼び出しの前に弾かれる。
                 contextInfo:
                   type: string
                   maxLength: 500
@@ -490,6 +500,13 @@ paths:
                       code: "INVALID_REQUEST"
                       message: "画像ファイルが指定されていません"
                       details: "imageフィールドでファイルを送信してください"
+                empty_file:
+                  summary: 画像ファイルが 0 バイト
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "画像ファイルが空です"
                 not_multipart:
                   summary: Content-Type が multipart/form-data でない（ヘッダ未指定を含む）
                   value:
@@ -674,6 +691,15 @@ components:
       description: |
         文字列の上限値は項目ごとの環境変数で変更でき、上限超過の `message` に含まれる数値も
         同じ値から生成される（下の各 message は既定値の場合）。
+
+        検査は最初に失敗した1件だけを返す。順序は、JSON のパース → ボディが `null` →
+        文字列項目の型（`name` → `characteristics` → `imagePath` → `scientificName` →
+        `familyName` → `description`）→ 必須項目の有無（`name` → `characteristics` → `imagePath`）→
+        `confidence` → 文字数の上限（`name` → `scientificName` → `familyName` → `description` →
+        `characteristics`）→ `imagePath` の形。
+        型の検査で弾くのは `null` 以外の文字列でない値（数値・真偽値・配列・オブジェクトなど）。
+        `null` は、必須項目では未指定と同じ扱い、任意項目では「指定なし」として受け付ける。
+        いずれも Cosmos DB へのアクセス（409 の重複チェックを含む）より前に弾かれる。
       required:
         - name
         - characteristics
@@ -684,10 +710,13 @@ components:
           type: string
           maxLength: 100
           description: |
-            植物名。
+            植物名。前後の空白を取り除いてから保存する（`GET /plants/check-duplicate` の比較と揃えるため）。
+            応答の `plant.name` も取り除いた後の値になる。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 植物名は文字列で指定してください）。
             未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
             （message: 植物名が指定されていません）。
             上限を超えると 400 `INVALID_REQUEST`（message: 植物名は100文字以内で指定してください）。
+            文字数は前後の空白を取り除く前の長さで判定する。
             上限値は環境変数 `PLANT_NAME_MAX_LENGTH` で変更可能（既定 100。
             正の整数として読めない値なら既定値が使われる）。
           example: "桜"
@@ -696,7 +725,8 @@ components:
           nullable: true
           maxLength: 150
           description: |
-            学名（任意）。
+            学名（任意）。`null` と未指定は「指定なし」として受け付ける。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 学名は文字列で指定してください）。
             上限を超えると 400 `INVALID_REQUEST`（message: 学名は150文字以内で指定してください）。
             上限値は環境変数 `PLANT_SCIENTIFIC_NAME_MAX_LENGTH` で変更可能（既定 150。
             正の整数として読めない値なら既定値が使われる）。
@@ -706,7 +736,8 @@ components:
           nullable: true
           maxLength: 100
           description: |
-            科名（任意）。
+            科名（任意）。`null` と未指定は「指定なし」として受け付ける。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 科名は文字列で指定してください）。
             上限を超えると 400 `INVALID_REQUEST`（message: 科名は100文字以内で指定してください）。
             上限値は環境変数 `PLANT_FAMILY_NAME_MAX_LENGTH` で変更可能（既定 100。
             正の整数として読めない値なら既定値が使われる）。
@@ -716,7 +747,8 @@ components:
           nullable: true
           maxLength: 1000
           description: |
-            詳細説明（任意）。
+            詳細説明（任意）。`null` と未指定は「指定なし」として受け付ける。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 説明は文字列で指定してください）。
             上限を超えると 400 `INVALID_REQUEST`（message: 説明は1000文字以内で指定してください）。
             上限値は環境変数 `PLANT_DESCRIPTION_MAX_LENGTH` で変更可能（既定 1000。
             正の整数として読めない値なら既定値が使われる）。
@@ -725,6 +757,7 @@ components:
           maxLength: 500
           description: |
             特徴。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 特徴は文字列で指定してください）。
             未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
             （message: 特徴が指定されていません）。
             上限を超えると 400 `INVALID_REQUEST`（message: 特徴は500文字以内で指定してください）。
@@ -744,6 +777,7 @@ components:
           format: uri
           description: |
             `POST /images/upload` が返した `imagePath` を指定する。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 画像パスは文字列で指定してください）。
             未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
             （message: 画像パスが指定されていません）。
             次のすべてを満たさないURLは 400 `INVALID_REQUEST`
@@ -765,6 +799,14 @@ components:
 
     PlantUpdateRequest:
       type: object
+      description: |
+        更新に使うのは `imagePath` と `confidence` の2項目だけ。それ以外の項目
+        （`name` や `createdAt` など）がボディに含まれていてもエラーにはせず、無視する
+        （既存ドキュメントの値は変わらない）。
+
+        検査は最初に失敗した1件だけを返す。順序は、植物ID（パス）→ JSON のパース →
+        ボディが `null` → `imagePath` の型 → `imagePath` の有無 → `confidence` → `imagePath` の形。
+        いずれも Cosmos DB へのアクセス（409 の重複チェックを含む）より前に弾かれる。
       required:
         - imagePath
         - confidence
@@ -774,6 +816,7 @@ components:
           format: uri
           description: |
             新しい画像URL。`POST /images/upload` が返した `imagePath` を指定する。
+            文字列以外（`null` を除く）は 400 `INVALID_REQUEST`（message: 画像パスは文字列で指定してください）。
             未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
             （message: 画像パスが指定されていません）。
             制約は `PlantCreateRequest.imagePath` と同じで、`https:` スキーム・
@@ -970,7 +1013,7 @@ components:
             $ref: '#/components/schemas/Error'
           examples:
             invalid_uuid:
-              summary: 植物IDがUUID形式でない
+              summary: 植物IDがUUID形式でない（GET / PUT / DELETE /plants/{id} で共通）
               value:
                 success: false
                 error:
@@ -1058,7 +1101,8 @@ components:
 
     FileTooLarge:
       description: |
-        ファイルサイズ超過。上限は環境変数 `MAX_FILE_SIZE`（既定 10485760 = 10MB）で、
+        ファイルサイズが上限を超えた（0 バイトのファイルはこれではなく 400 `INVALID_REQUEST`）。
+        上限は環境変数 `MAX_FILE_SIZE`（既定 10485760 = 10MB）で、
         `details` のメッセージも同じ値から生成される。
         正の整数として読めない値を設定した場合は既定値が使われる。
       content:
