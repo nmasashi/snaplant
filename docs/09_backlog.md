@@ -690,11 +690,6 @@ OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値も�
 - **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
   テスト名と検証対象がずれている。同ファイルのエラー系は前方一致 `toThrow('植物識別に失敗しました')` のため、
   ハンドラで 500 になる経路と 502 になる経路を区別できない（原則7）
-- **`cosmosService.test.ts` の updatePlant の期待値が実装と同じスプレッドで組まれている**（原則6違反。238〜242行・258〜262行付近など）。
-  PUT がボディの余分な項目（`name` / `createdAt` など）で既存の植物を上書きしていた不具合は、このテストでは検出できなかった。
-  不具合は修正済みで、外から見た振る舞いは `updatePlant.test.ts` が固定している。ただし絞り込みはハンドラ（`updatePlant.ts` の詰め直し）と
-  `CosmosService.updatePlant()`（2項目だけを反映）の二重になっており、`updatePlant.test.ts` はハンドラ経由なので、
-  **どちらか片方だけを外しても全テストが緑のまま**になる。`CosmosService.updatePlant()` に余分な項目を含む引数を渡すテストが無い
 - **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
   PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
 - **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、

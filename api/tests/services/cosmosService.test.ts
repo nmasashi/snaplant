@@ -236,8 +236,14 @@ describe('CosmosService', () => {
       const result = await service.updatePlant(plantId, updateData);
 
       expect(result).toEqual({
-        ...existingPlant,
-        ...updateData,
+        id: plantId,
+        name: '桜',
+        scientificName: 'Prunus serrulata',
+        familyName: 'バラ科',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 98.0,
+        imagePath: 'https://test.blob.core.windows.net/test-images/old-sakura.jpg',
+        createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       });
       // updatedAtが更新されたことを確認する（旧値のまま据え置かれていないか）
@@ -256,8 +262,14 @@ describe('CosmosService', () => {
       const result = await service.updatePlant(plantId, updateData);
 
       expect(result).toEqual({
-        ...existingPlant,
-        ...updateData,
+        id: plantId,
+        name: '桜',
+        scientificName: 'Prunus serrulata',
+        familyName: 'バラ科',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 97.0,
+        imagePath: 'https://example.com/new-sakura.jpg',
+        createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       });
       expect(result!.updatedAt).not.toBe(existingPlant.updatedAt);
@@ -273,6 +285,26 @@ describe('CosmosService', () => {
       const result = await service.updatePlant(plantId, updateData);
 
       expect(result).toBeNull();
+    });
+
+    it('更新対象の2項目以外（nameやcreatedAt）が渡されても、保存済みのnameとcreatedAtは変わらない', async () => {
+      // 型は実行時に何も保証しない。HTTPのボディ由来の余分な項目が紛れ込んだ状況を、
+      // 変数経由で渡すことで再現する
+      cosmosBackend.documents.set(plantId, existingPlant);
+      const bodyWithExtraFields = {
+        imagePath: 'https://test.blob.core.windows.net/test-images/old-sakura.jpg',
+        confidence: 98.0,
+        name: '乗っ取られた名前',
+        createdAt: '1999-12-31T00:00:00.000Z'
+      };
+
+      await service.updatePlant(plantId, bodyWithExtraFields);
+
+      expect(cosmosBackend.documents.get(plantId)).toMatchObject({
+        name: '桜',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        confidence: 98.0
+      });
     });
 
     it('更新エラーの場合、エラーをスローする', async () => {
@@ -311,8 +343,14 @@ describe('CosmosService', () => {
       const result = await service.updatePlant(plantId, updateData);
 
       expect(result).toEqual({
-        ...attackerControlledPlant,
-        ...updateData,
+        id: plantId,
+        name: '桜',
+        scientificName: 'Prunus serrulata',
+        familyName: 'バラ科',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 97.0,
+        imagePath: 'https://test.blob.core.windows.net/test-images/new-sakura.jpg',
+        createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       });
       expect(blobStore.has('test-images/victim-uuid.jpg')).toBe(true);
@@ -332,8 +370,14 @@ describe('CosmosService', () => {
       const result = await service.updatePlant(plantId, updateData);
 
       expect(result).toEqual({
-        ...existingPlant,
-        ...updateData,
+        id: plantId,
+        name: '桜',
+        scientificName: 'Prunus serrulata',
+        familyName: 'バラ科',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 97.0,
+        imagePath: 'https://example.com/new-sakura.jpg',
+        createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       });
       expect(result!.updatedAt).not.toBe(existingPlant.updatedAt);

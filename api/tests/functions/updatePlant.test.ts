@@ -199,8 +199,10 @@ describe('植物更新API', () => {
       } as any as HttpRequest;
 
       // 実行
-      await updatePlantHandler(request, mockContext);
+      const response = await updatePlantHandler(request, mockContext);
 
+      // 検証（更新自体は成功する）
+      expect(response.status).toBe(200);
       // 検証（偽物に保存された状態。imagePath と confidence だけが更新される）
       const saved = cosmosBackend.documents.get(existingPlant.id);
       expect(saved).toMatchObject({
@@ -240,6 +242,66 @@ describe('植物更新API', () => {
           message: '植物IDの形式が無効です'
         }
       });
+    });
+
+    it('植物IDが未指定の場合は400エラー', async () => {
+      // リクエストの作成（paramsにidなし）
+      const request = {
+        method: 'PUT',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: {},
+        json: jest.fn().mockResolvedValue({
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
+          confidence: 95.0
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証（detailsの文言は契約外なので固定しない）
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.message).toBe('植物IDが指定されていません');
+    });
+
+    it('画像パスにnullを指定した場合は、型違いではなく未指定として400エラーになり、保存済みの植物は変わらない', async () => {
+      const existingPlant: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+
+      // リクエストの作成（imagePathがnull。他のフィールドは正当な値）
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${existingPlant.id}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: existingPlant.id },
+        json: jest.fn().mockResolvedValue({
+          imagePath: null,
+          confidence: 95
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証（detailsの文言は契約外なので固定しない）
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.message).toBe('画像パスが指定されていません');
+      expect(cosmosBackend.documents.get(existingPlant.id)).toEqual(existingPlant);
     });
 
     it('画像パスが未指定の場合は400エラー', async () => {

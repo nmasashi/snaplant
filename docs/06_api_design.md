@@ -301,7 +301,7 @@ Content-Type: application/json
 9〜11行目の「指定されていません」になり、任意項目（`scientificName` / `familyName` / `description`）は
 「指定なし」として受け付けます（Flutter クライアントは空の任意項目を `null` で送ります）。
 
-文字数は前後の空白を取り除かずに数えます（`name` も、保存時に取り除く前の長さで判定します）。
+文字数は前後の空白を取り除かずに数えます。ただし `name` は、保存する値（前後の空白を取り除いた後）の長さで判定します。
 上限は環境変数 `PLANT_NAME_MAX_LENGTH` / `PLANT_SCIENTIFIC_NAME_MAX_LENGTH` /
 `PLANT_FAMILY_NAME_MAX_LENGTH` / `PLANT_DESCRIPTION_MAX_LENGTH` / `PLANT_CHARACTERISTICS_MAX_LENGTH`
 で変更でき、`message` の数値も追従します

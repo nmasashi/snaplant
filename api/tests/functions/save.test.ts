@@ -385,13 +385,13 @@ describe('植物保存API', () => {
     // 必須項目は .trim() で TypeError（500）に、任意項目は上限の検査をすり抜けて
     // そのまま保存されていた。どちらも文字列以外は一律400にする
     it.each([
-      ['name', '植物名は文字列で指定してください'],
-      ['characteristics', '特徴は文字列で指定してください'],
-      ['imagePath', '画像パスは文字列で指定してください'],
-      ['scientificName', '学名は文字列で指定してください'],
-      ['familyName', '科名は文字列で指定してください'],
-      ['description', '説明は文字列で指定してください']
-    ])('%sに文字列以外を指定した場合は400エラー', async (field, expectedMessage) => {
+      { field: 'name', label: '植物名', expectedMessage: '植物名は文字列で指定してください' },
+      { field: 'characteristics', label: '特徴', expectedMessage: '特徴は文字列で指定してください' },
+      { field: 'imagePath', label: '画像パス', expectedMessage: '画像パスは文字列で指定してください' },
+      { field: 'scientificName', label: '学名', expectedMessage: '学名は文字列で指定してください' },
+      { field: 'familyName', label: '科名', expectedMessage: '科名は文字列で指定してください' },
+      { field: 'description', label: '説明', expectedMessage: '説明は文字列で指定してください' }
+    ])('$labelに文字列以外を指定した場合は400エラー', async ({ field, expectedMessage }) => {
       // リクエストの作成（対象の項目だけ数値にし、他は正当な値にする）
       const request = {
         method: 'POST',
@@ -421,6 +421,32 @@ describe('植物保存API', () => {
         }
       });
       // 保存されていないことの状態検証
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    it('植物名にnullを指定した場合は、型違いではなく未指定として400エラーになる', async () => {
+      // 任意項目はnullを「なし」として受け付けるが、必須項目のnullは未指定と同じ扱い
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: null,
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証（detailsの文言は契約外なので固定しない）
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.message).toBe('植物名が指定されていません');
       expect(cosmosBackend.documents.size).toBe(0);
     });
 
