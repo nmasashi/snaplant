@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -30,9 +31,12 @@ const _tinyPng = <int>[
 
 /// ギャラリーの偽物。選ばれるたびに、渡されたファイルを先頭から順に返す
 class _FakeGallery extends ImagePickerPlatform with MockPlatformInterfaceMixin {
-  _FakeGallery(this._files);
+  _FakeGallery(this._files, {this.failWith});
 
   final List<File> _files;
+
+  /// 指定すると、取り込みのたびにこの例外を投げる
+  final Object? failWith;
   int _next = 0;
 
   @override
@@ -40,6 +44,7 @@ class _FakeGallery extends ImagePickerPlatform with MockPlatformInterfaceMixin {
     required ImageSource source,
     ImagePickerOptions options = const ImagePickerOptions(),
   }) async {
+    if (failWith != null) throw failWith!;
     return XFile(_files[_next++].path);
   }
 }
@@ -93,11 +98,13 @@ http.Response _uploadSucceeded() {
   );
 }
 
-/// 画像選択画面を開き、ギャラリーから1枚選ぶところまで進める
-Future<void> _openCameraScreenWithImageSelected(
+/// 画像選択画面を、一覧画面の上に積んだ状態で開く。
+/// ギャラリーは [galleryFiles] を順に返す（[galleryFailsWith] を渡すと取り込みで例外を投げる）
+Future<void> _openCameraScreen(
   WidgetTester tester, {
   required ApiService apiService,
   required List<File> galleryFiles,
+  Object? galleryFailsWith,
 }) async {
   // 画面が想定している実機の解像度に合わせる
   tester.view.physicalSize = const Size(1440, 2960);
@@ -105,7 +112,7 @@ Future<void> _openCameraScreenWithImageSelected(
   addTearDown(tester.view.reset);
 
   final originalPicker = ImagePickerPlatform.instance;
-  ImagePickerPlatform.instance = _FakeGallery(galleryFiles);
+  ImagePickerPlatform.instance = _FakeGallery(galleryFiles, failWith: galleryFailsWith);
   addTearDown(() => ImagePickerPlatform.instance = originalPicker);
 
   // 戻る操作を試せるよう、一覧画面の上に積む
@@ -125,6 +132,15 @@ Future<void> _openCameraScreenWithImageSelected(
   await tester.tap(find.text('撮影画面を開く'));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
+}
+
+/// 画像選択画面を開き、ギャラリーから1枚選ぶところまで進める
+Future<void> _openCameraScreenWithImageSelected(
+  WidgetTester tester, {
+  required ApiService apiService,
+  required List<File> galleryFiles,
+}) async {
+  await _openCameraScreen(tester, apiService: apiService, galleryFiles: galleryFiles);
   await tester.tap(find.text('ギャラリーから選択'));
   await _letRealIoAndFramesRun(tester);
 }
@@ -212,5 +228,20 @@ void main() {
     await _leaveWhileUploadingThenRespond(tester, _uploadFailedWithAiServiceError());
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ギャラリーから画像を取り込めなかったときは、例外の文字列ではなく決まった文言を表示する', (tester) async {
+    await _openCameraScreen(
+      tester,
+      apiService: _serviceWhereUploadWaitsFor(Completer<http.Response>()),
+      galleryFiles: [],
+      galleryFailsWith: PlatformException(code: 'no_valid_image_uri', message: 'Cannot find the selected image.'),
+    );
+
+    await tester.tap(find.text('ギャラリーから選択'));
+    await tester.pump();
+
+    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
+    expect(find.textContaining('PlatformException'), findsNothing);
   });
 }

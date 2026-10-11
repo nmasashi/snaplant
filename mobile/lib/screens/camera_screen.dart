@@ -90,7 +90,8 @@ class _CameraScreenState extends State<CameraScreen>
         await _setSelectedImage(image);
       }
     } catch (e) {
-      _showErrorSnackBar(e.toString());
+      // 例外の文字列（PlatformException(...) など）は利用者向けではないので出さない
+      _showErrorSnackBar('画像の読み込みに失敗しました');
     }
   }
 
