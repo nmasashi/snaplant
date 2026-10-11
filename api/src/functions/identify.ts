@@ -2,13 +2,12 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { OpenAIVisionService } from '../services/openAIVisionService';
 import { 
   createSuccessResponse, 
-  createErrorResponse, 
   createInternalError,
-  createValidationError
+  createValidationError,
+  createUpstreamErrorResponse
 } from '../utils/response';
-import { HttpStatusCode, ErrorCode } from '../types/api';
 import { IdentifyRequest } from '../types/plant';
-import { UpstreamError, hasCauseCode } from '../utils/errors';
+import { UpstreamError } from '../utils/errors';
 import { GENERAL_VALIDATION, CONTEXT_INFO_VALIDATION } from '../constants/validation';
 
 /**
@@ -75,23 +74,8 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
     // メッセージの文字列ではなく、どこで失敗したか（UpstreamError の service）で分類する。
     // SDK のエラーのメッセージは "500 The server had an error..." のような形で、
     // 'OpenAI' という語を含まないため、文字列で見ると上流の失敗が 500 になっていた
-    if (error instanceof UpstreamError && error.service === 'ai') {
-      // 接続できない（到達していない）なら 503、到達してエラー応答を受けたなら 502。
-      // SDK の接続エラーは errno を cause の奥（深さ2）に持つので、チェーンをたどる
-      if (hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED'])) {
-        return createErrorResponse(
-          ErrorCode.AI_SERVICE_ERROR,
-          '植物識別サービスに接続できません',
-          HttpStatusCode.SERVICE_UNAVAILABLE,
-          error.message
-        );
-      }
-      return createErrorResponse(
-        ErrorCode.AI_SERVICE_ERROR,
-        '植物識別サービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
+    if (error instanceof UpstreamError) {
+      return createUpstreamErrorResponse(error);
     }
 
     // JSONパースエラー

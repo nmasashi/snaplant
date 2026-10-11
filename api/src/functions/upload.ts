@@ -5,11 +5,12 @@ import {
   createSuccessResponse, 
   createErrorResponse, 
   createInternalError,
-  createValidationError
+  createValidationError,
+  createUpstreamErrorResponse
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
 import { FILE_UPLOAD, CONTEXT_INFO_VALIDATION } from '../constants/validation';
-import { UpstreamError, hasCauseCode } from '../utils/errors';
+import { UpstreamError } from '../utils/errors';
 
 /**
  * 画像アップロード・植物判定統合 API
@@ -143,46 +144,12 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
   } catch (error: any) {
     context.log('画像アップロード・植物判定エラー:', error);
     
-    // AI 識別サービスの呼び出しで起きたエラー。identify.ts と同じく、
-    // メッセージの文字列ではなく、どこで失敗したか（UpstreamError の service）で分類する
-    if (error instanceof UpstreamError && error.service === 'ai') {
-      // 接続できない（到達していない）なら 503、到達してエラー応答を受けたなら 502。
-      // この判定を下のストレージの接続障害の分岐より先に置く。後に置くと、
-      // AI に接続できない障害が「ストレージに接続できません」と報告される
-      if (hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED'])) {
-        return createErrorResponse(
-          ErrorCode.AI_SERVICE_ERROR,
-          '植物識別サービスに接続できません',
-          HttpStatusCode.SERVICE_UNAVAILABLE,
-          error.message
-        );
-      }
-      return createErrorResponse(
-        ErrorCode.AI_SERVICE_ERROR,
-        '植物識別サービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
-    }
-
-    // Blob Storage の操作で起きたエラー。StorageService は失敗を UpstreamError（service: 'storage'）で投げる。
-    // 包み直しのメッセージは日本語で 'Storage' を含まないため、文字列で見ていた頃は 500 になっていた。
-    // 接続できない（ENOTFOUND / ECONNREFUSED / ETIMEDOUT）なら 503、接続できたうえでの失敗なら 502
-    if (error instanceof UpstreamError && error.service === 'storage') {
-      if (hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])) {
-        return createErrorResponse(
-          ErrorCode.STORAGE_ERROR,
-          'ストレージサービスに接続できません',
-          HttpStatusCode.SERVICE_UNAVAILABLE,
-          error.message
-        );
-      }
-      return createErrorResponse(
-        ErrorCode.STORAGE_ERROR,
-        'ストレージサービスでエラーが発生しました',
-        HttpStatusCode.BAD_GATEWAY,
-        error.message
-      );
+    // AI 識別サービス・Blob Storage の呼び出しで起きたエラー。identify.ts と同じく、
+    // メッセージの文字列ではなく、どこで失敗したか（UpstreamError の service）で分類する。
+    // AI とストレージは service で区別されるので、AI に接続できない障害が
+    // 「ストレージに接続できません」と報告されることはない
+    if (error instanceof UpstreamError) {
+      return createUpstreamErrorResponse(error);
     }
 
     // ファイル処理エラー

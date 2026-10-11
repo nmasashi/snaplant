@@ -201,13 +201,17 @@ ${contextSection}
 			throw new Error("LLMからの応答が空です");
 		}
 
+		let parsed: unknown;
 		try {
-			const result = this.normalizeNulls(JSON.parse(content));
-			this.validateAnalysisResult(result);
-			return result;
+			parsed = JSON.parse(content);
 		} catch (parseError) {
 			throw new Error(`LLM応答のJSONパースに失敗しました: ${parseError}`);
 		}
+		// 検証はパースの try の外に置く。中に置くと、JSON としては正しいのに
+		// 中身が不正な応答まで「JSONパースに失敗しました」と記録され、原因の調査を誤らせる
+		const result = this.normalizeNulls(parsed);
+		this.validateAnalysisResult(result);
+		return result;
 	}
 
 	/**

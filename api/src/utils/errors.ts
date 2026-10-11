@@ -36,8 +36,6 @@ export type UpstreamService = 'ai' | 'storage';
  * SDK のエラーのメッセージにその単語は入らないため、上流の失敗が 500 になっていた。
  */
 export class UpstreamError extends Error {
-  readonly code?: unknown;
-
   constructor(
     message: string,
     readonly service: UpstreamService,
@@ -45,9 +43,5 @@ export class UpstreamError extends Error {
   ) {
     super(message);
     this.name = 'UpstreamError';
-    const causeCode = (cause as { code?: unknown } | null | undefined)?.code;
-    if (causeCode !== undefined) {
-      this.code = causeCode;
-    }
   }
 }
