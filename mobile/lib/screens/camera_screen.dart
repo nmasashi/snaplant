@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
 import '../services/api_service.dart';
-import '../services/camera_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'identification_screen.dart';
@@ -31,7 +30,6 @@ class _CameraScreenState extends State<CameraScreen>
   XFile? _selectedXFile;
   Uint8List? _webImageBytes;
   bool _isUploading = false;
-  final CameraService _cameraService = CameraService();
   late AnimationController _fadeController;
   late AnimationController _scaleController;
   late Animation<double> _fadeAnimation;

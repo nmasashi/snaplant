@@ -71,7 +71,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       // エンドポイントを保存
       await _settingsService!.saveApiEndpoint(_endpointController.text.trim());
-      
+
+      // 保存中に戻られていたら、破棄済みの画面に setState・pop しない
+      if (!mounted) return;
       setState(() {
         _isSaving = false;
       });
