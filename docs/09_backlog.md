@@ -146,6 +146,20 @@ API Management を前段に置くと固定費が発生し、`DEPLOYMENT.md` の�
 
 ## 既知の不具合・改善
 
+### Terraform 管理外の App Insights `func-snaplant-mk0w7s38` を削除する
+
+リソースグループには App Insights が2つある。Terraform が作った `appi-snaplant-mk0w7s38` と、
+ポータルで自動作成されたとみられる `func-snaplant-mk0w7s38`（Terraform の管理外）。
+
+2026-10-11 の時点で、Function App のテレメトリは**管理外の `func-snaplant-mk0w7s38` に送られていた**
+（Function App の `APPINSIGHTS_INSTRUMENTATIONKEY` がこちらのキーと一致することを Azure CLI で確認。
+Function App のタグ `hidden-link: /app-insights-resource-id` もこちらを指していた）。
+`main.tf` は `appi-snaplant-mk0w7s38` に送る定義なので、どこかでポータルから付け替えられていた。
+azurerm v4 への更新の `apply` で、人間の判断により `appi-snaplant-mk0w7s38` に揃えた。
+
+**やること**: 過去のログが要らなくなったら `func-snaplant-mk0w7s38` を削除する（Terraform の管理外なので `az` かポータルで）。
+保持期間の既定は 90 日。料金は取り込み量に応じてかかるので、送られなくなれば実質かからない。
+
 ### azurerm プロバイダを v5 に上げる（画像の公開設定に注意）
 
 2026-10-11 に v3 から v4（4.81.0）へ上げた。Node 22 の指定に v4 が必要だったため。
