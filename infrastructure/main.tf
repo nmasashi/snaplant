@@ -148,7 +148,7 @@ resource "azurerm_linux_function_app" "main" {
 
   site_config {
     application_stack {
-      node_version = "20"
+      node_version = "22"
     }
     cors {
       allowed_origins = ["*"]
@@ -157,7 +157,7 @@ resource "azurerm_linux_function_app" "main" {
 
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME"     = "node"
-    "WEBSITE_NODE_DEFAULT_VERSION" = "~20"
+    "WEBSITE_NODE_DEFAULT_VERSION" = "~22"
 
     # Cosmos DB接続設定
     "COSMOS_DB_ENDPOINT"  = azurerm_cosmosdb_account.main.endpoint

@@ -146,6 +146,37 @@ API Management を前段に置くと固定費が発生し、`DEPLOYMENT.md` の�
 
 ## 既知の不具合・改善
 
+### Functions を Flex Consumption プランへ移し、Node 24 に上げる（2027-04 まで）
+
+Functions は Linux の従量課金プラン（Y1）で、Node は 22（2026-10-11 に 20 から上げた）。
+
+| 事実 | 出典 |
+|---|---|
+| Node 22 の Functions でのサポート終了は **2027-04-30**。Node 24 は 2028-04-30 | Microsoft Learn「Supported languages in Azure Functions」（2026-08-27 更新） |
+| **Node 22 は Linux 従量課金で使える最後の Node**。Node 24 は Flex Consumption などでしか使えない | 同上 |
+| **Linux 従量課金プラン自体が 2028-09-30 に廃止**され、新しい機能も言語バージョンも追加されない | 同上 |
+
+つまり Node 22 のサポートが切れる前に、プランの移行が要る。
+
+移行で起きること（Microsoft Learn「Migrate Consumption plan apps to the Flex Consumption plan」）。
+
+- **既存の Function App は変換されず、新しい Function App が並べて作られる。** URL（ホスト名）が変わるので、
+  Flutter アプリの設定画面のエンドポイントを入れ替える必要がある。Function Key もおそらく変わる（未確認）
+- Flex では使えないアプリ設定がある（`FUNCTIONS_WORKER_RUNTIME`、`WEBSITE_NODE_DEFAULT_VERSION`、`WEBSITE_RUN_FROM_PACKAGE` など）。
+  ランタイムと版は `functionAppConfig` で指定する
+- デプロイ先のストレージコンテナが要る。GitHub Actions の `Azure/functions-action` の設定（Publish Profile が使えるか、`sku` の指定）は未確認
+- Terraform では `azurerm_service_plan`（Y1）+ `azurerm_linux_function_app` を `azurerm_function_app_flex_consumption` に置き換える。
+  **このリソースは azurerm v4 にしか無く、`main.tf` は `~>3.0`（v3.117.1）**なので、プロバイダのメジャー更新が先に要る
+
+**やること（着手時に確認しながら）**
+
+1. azurerm プロバイダを v4 に上げる（v3 → v4 の破壊的変更への追従。単独の PR にする）
+2. `azurerm_function_app_flex_consumption` で新しい Function App を作り、Node 24 にする（旧アプリは残す）
+3. デプロイのワークフローを新しいアプリ向けに直し、Publish Profile などの Secrets を取り直す
+4. 新しい URL で動作確認してから、Flutter の設定を切り替え、旧アプリを削除する
+
+`terraform plan` / `apply` には作業マシンにしか無い state が要る（CLAUDE.md「開発環境」）。
+
 ### Flutter が CI の対象外
 
 `terraform fmt -check` と `terraform validate` は

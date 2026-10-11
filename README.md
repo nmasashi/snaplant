@@ -71,7 +71,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 ### 前提条件
 
 **バックエンド開発:**
-- Node.js 20.x
+- Node.js 22.x
 - Azure Functions Core Tools
 - Azure CLI
 
