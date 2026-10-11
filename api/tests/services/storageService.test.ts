@@ -52,6 +52,7 @@ describe('StorageService', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
     delete process.env.STORAGE_CONNECTION_STRING;
     delete process.env.STORAGE_CONTAINER_NAME;
@@ -150,24 +151,24 @@ describe('StorageService', () => {
       // 有効期限は下の「発行から15分で切れる」が見る
       const [options] = mockedGenerateSas.mock.calls[0];
       expect(options.containerName).toBe('test-temp');
-      expect(options.permissions).toMatchObject({ read: true });
+      expect(options.permissions).toEqual({ read: true });
     });
 
     it('一時URLの読み取り許可は発行から15分で切れる', async () => {
       const imageBuffer = Buffer.from('temp image data');
-      const FIFTEEN_MINUTES_MS = 900000;
+      // 時刻だけを固定する。他のタイマーまで偽物にすると偽のBlobクライアントのawaitが止まりうる
+      jest.useFakeTimers({
+        now: new Date('2026-10-11T00:00:00.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
 
-      const before = Date.now();
       await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
-      const after = Date.now();
 
       // 有効期限もSASトークンの中に署名されていて復号できないため、
       // 署名に渡した引数で確かめる（原則3の例外。上のテストと同じ理由）。
-      // 呼び出しの前後で時刻を挟み、発行時刻がその間のどこでも成り立つ範囲で見る
+      // 時刻を固定してあるので、期待値は発行時刻の15分後をリテラルで書ける
       const [options] = mockedGenerateSas.mock.calls[0];
-      const expiresAt = options.expiresOn!.getTime();
-      expect(expiresAt).toBeGreaterThanOrEqual(before + FIFTEEN_MINUTES_MS);
-      expect(expiresAt).toBeLessThanOrEqual(after + FIFTEEN_MINUTES_MS);
+      expect(options.expiresOn).toEqual(new Date('2026-10-11T00:15:00.000Z'));
     });
 
     it('SAS生成に失敗した場合はエラーをスローする', async () => {
