@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -347,7 +346,7 @@ class _CameraScreenState extends State<CameraScreen>
                   )
                 : Container(
                     color: Colors.grey[300],
-                    child: Icon(Icons.error),
+                    child: const Icon(Icons.error),
                   ),
         builder: (context, child) {
           return Transform.scale(
@@ -369,7 +368,7 @@ class _CameraScreenState extends State<CameraScreen>
   Widget _buildImagePlaceholder(bool isLargeScreen) {
     return InkWell(
       onTap: _selectImageFromGallery,
-      child: Container(
+      child: SizedBox(
         width: double.infinity,
         height: double.infinity,
         child: Column(
@@ -425,7 +424,7 @@ class _CameraScreenState extends State<CameraScreen>
                 color: AppColors.primary,
                 size: isLargeScreen ? 20 : 18,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'コンテキスト情報（任意）',
                 style: AppTextStyles.headline3.copyWith(
@@ -460,7 +459,7 @@ class _CameraScreenState extends State<CameraScreen>
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppColors.primary, width: 2),
+                borderSide: const BorderSide(color: AppColors.primary, width: 2),
               ),
               filled: true,
               fillColor: Colors.white,
@@ -483,8 +482,8 @@ class _CameraScreenState extends State<CameraScreen>
         width: double.infinity,
         child: ElevatedButton.icon(
           onPressed: _pickFromGallery,
-          icon: Icon(Icons.photo_library),
-          label: Text('ギャラリーから選択'),
+          icon: const Icon(Icons.photo_library),
+          label: const Text('ギャラリーから選択'),
           style: ElevatedButton.styleFrom(
             padding: EdgeInsets.symmetric(
               vertical: isLargeScreen ? 20 : 16,
@@ -503,8 +502,8 @@ class _CameraScreenState extends State<CameraScreen>
             // 処理中に選び直すと、結果画面のヘッダーは新しい画像なのに、
             // 候補と保存される画像は送信済みの古い画像のものになる
             onPressed: _isUploading ? null : _pickFromGallery,
-            icon: Icon(Icons.photo_library),
-            label: Text('別の画像を選択'),
+            icon: const Icon(Icons.photo_library),
+            label: const Text('別の画像を選択'),
             style: OutlinedButton.styleFrom(
               padding: EdgeInsets.symmetric(
                 vertical: isLargeScreen ? 16 : 12,
@@ -536,12 +535,12 @@ class _CameraScreenState extends State<CameraScreen>
                       SizedBox(
                         width: isLargeScreen ? 24 : 20,
                         height: isLargeScreen ? 24 : 20,
-                        child: CircularProgressIndicator(
+                        child: const CircularProgressIndicator(
                           strokeWidth: 2,
                           valueColor: AlwaysStoppedAnimation(Colors.white),
                         ),
                       ),
-                      SizedBox(width: 12),
+                      const SizedBox(width: 12),
                       Text(
                         'アップロード中...',
                         style: TextStyle(
@@ -558,7 +557,7 @@ class _CameraScreenState extends State<CameraScreen>
                         Icons.psychology,
                         size: isLargeScreen ? 24 : 20,
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Text(
                         '植物を識別する',
                         style: TextStyle(

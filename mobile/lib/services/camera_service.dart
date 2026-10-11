@@ -63,14 +63,14 @@ class CameraService {
     // ファイルサイズをチェック（10MB以下）
     final fileSize = file.lengthSync();
     if (fileSize > 10 * 1024 * 1024) {
-      throw CameraException('画像ファイルが大きすぎます（10MB以下にしてください）');
+      throw const CameraException('画像ファイルが大きすぎます（10MB以下にしてください）');
     }
     
     // ファイル拡張子をチェック
     final extension = file.path.toLowerCase().split('.').last;
     final allowedExtensions = ['jpg', 'jpeg', 'png'];
     if (!allowedExtensions.contains(extension)) {
-      throw CameraException('サポートされていない画像形式です（JPG、PNG のみ対応）');
+      throw const CameraException('サポートされていない画像形式です（JPG、PNG のみ対応）');
     }
     
     return true;

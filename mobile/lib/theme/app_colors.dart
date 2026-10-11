@@ -71,7 +71,7 @@ class AppColors {
   // 信頼度に基づく色を取得
   static Color getConfidenceColor(double confidence) {
     if (confidence >= 90) return success;
-    if (confidence >= 70) return Color(0xFF8BC34A); // 薄い緑
+    if (confidence >= 70) return const Color(0xFF8BC34A); // 薄い緑
     if (confidence >= 50) return warning;
     return error;
   }

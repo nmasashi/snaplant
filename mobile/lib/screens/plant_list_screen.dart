@@ -242,7 +242,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
             color: AppColors.textOnPrimary,
             size: isLargeScreen ? 28 : 24,
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           Text(
             'SnapPlant',
             style: AppTextStyles.appBarTitle.copyWith(
@@ -296,7 +296,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
           SizedBox(
             width: isLargeScreen ? 64 : 48,
             height: isLargeScreen ? 64 : 48,
-            child: CircularProgressIndicator(
+            child: const CircularProgressIndicator(
               strokeWidth: 3,
               valueColor: AlwaysStoppedAnimation(AppColors.primary),
             ),
@@ -393,8 +393,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
             SizedBox(height: isLargeScreen ? 32 : 24),
             ElevatedButton.icon(
               onPressed: _retry,
-              icon: Icon(Icons.refresh),
-              label: Text('再試行'),
+              icon: const Icon(Icons.refresh),
+              label: const Text('再試行'),
               style: ElevatedButton.styleFrom(
                 padding: EdgeInsets.symmetric(
                   horizontal: isLargeScreen ? 32 : 24,
@@ -441,8 +441,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
             SizedBox(height: isLargeScreen ? 40 : 32),
             ElevatedButton.icon(
               onPressed: _navigateToImagePicker,
-              icon: Icon(Icons.photo_library),
-              label: Text('画像を選択'),
+              icon: const Icon(Icons.photo_library),
+              label: const Text('画像を選択'),
               style: ElevatedButton.styleFrom(
                 padding: EdgeInsets.symmetric(
                   horizontal: isLargeScreen ? 32 : 24,

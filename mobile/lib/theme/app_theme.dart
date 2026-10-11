@@ -35,14 +35,14 @@ class AppTheme {
       ),
       
       // カードテーマ
-      cardTheme: CardThemeData(
+      cardTheme: const CardThemeData(
         color: AppColors.cardBackground,
         shadowColor: AppColors.shadowColor,
         elevation: 4,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(16)),
         ),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       ),
       
       // ボタンテーマ
@@ -155,9 +155,9 @@ class AppTheme {
       ),
       
       // ダイアログテーマ
-      dialogTheme: DialogThemeData(
+      dialogTheme: const DialogThemeData(
         backgroundColor: AppColors.background,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(20)),
         ),
         titleTextStyle: AppTextStyles.headline2,
@@ -255,13 +255,13 @@ class AppTheme {
     if (screenWidth >= 1400) {
       return baseTheme.copyWith(
         // 大画面向けのパディング調整
-        cardTheme: baseTheme.cardTheme?.copyWith(
+        cardTheme: baseTheme.cardTheme.copyWith(
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
         
         // ボタンサイズの調整
         elevatedButtonTheme: ElevatedButtonThemeData(
-          style: baseTheme.elevatedButtonTheme?.style?.copyWith(
+          style: baseTheme.elevatedButtonTheme.style?.copyWith(
             padding: MaterialStateProperty.all(
               const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
             ),
