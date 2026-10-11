@@ -108,7 +108,7 @@ export class StorageService {
       // 後片付けする。一時コンテナにライフサイクルポリシーがないため、
       // 残すと孤児Blobが永久に蓄積する
       try {
-        return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
+        return this.generateTempSasUrl(blockBlobClient.url);
       } catch (sasError: any) {
         try {
           await blockBlobClient.delete();
@@ -236,13 +236,12 @@ export class StorageService {
   }
 
   /**
-   * SAS URLを生成する（外部からのアクセス用）
+   * 一時コンテナのBlobに読み取り専用のSASを付けたURLを生成する（AI識別サービスが読むため）
    * @param blobUrl 元のBlob URL
-   * @param containerName コンテナ名
    * @returns SAS URL（有効期限は TEMP_SAS_EXPIRY_MINUTES）
    * @throws 生成に失敗した場合（フォールバックしない）
    */
-  private generateSasUrl(blobUrl: string, containerName: string): string {
+  private generateTempSasUrl(blobUrl: string): string {
     try {
       // URLからファイル名を抽出
       const fileName = this.extractFileNameFromUrl(blobUrl);
@@ -266,7 +265,7 @@ export class StorageService {
       // SASクエリパラメータを生成
       const sasToken = generateBlobSASQueryParameters(
         {
-          containerName,
+          containerName: this.tempContainerName,
           blobName: fileName,
           permissions,
           expiresOn: expiryTime,
