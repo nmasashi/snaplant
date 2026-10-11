@@ -309,6 +309,40 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.status).toBe(201);
       expect(response.jsonBody.success).toBe(true);
     });
+
+    it('一時保存したURLの署名（SAS）をログに出さない', async () => {
+      // 読み取りSAS付きURLがログ（Application Insights）に残ると、ログを読める人が
+      // そのまま画像を取得できる。ログの文言や形式は契約ではないので固定せず、
+      // 秘密（SASの署名）がどのログ引数にも現れないことだけを見る
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+      const mockFormData = { get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null)) };
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証（保存まで進む経路を通っていること）
+      expect(response.status).toBe(201);
+      // 検証（ログに渡されたすべての引数を文字列化し、SASの署名が含まれない）。
+      // 秘密なのは署名（TEST_SAS_TOKEN の sig の値）で、有効期限や権限の項目は漏れても
+      // 画像を取得できない。ログ出力は管理外の依存（Application Insights）への出力で、
+      // 「秘密を出さない」はセキュリティ要件のため、出力内容を見ることを例外的に許容する
+      const loggedText = (mockContext.log as jest.Mock).mock.calls
+        .map((args: unknown[]) => args.map(arg => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '))
+        .join('\n');
+      expect(loggedText).not.toContain('testsignature');
+    });
   });
 
   describe('バリデーションエラー', () => {
