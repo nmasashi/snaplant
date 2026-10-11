@@ -172,12 +172,14 @@ class _CameraScreenState extends State<CameraScreen>
       }
 
     } catch (e) {
+      // 処理中に戻られていたら、知らせる画面がもう無い
+      if (!mounted) return;
       setState(() {
         _isUploading = false;
         _isIdentifying = false;
       });
 
-      final errorMessage = e is ApiException 
+      final errorMessage = e is ApiException
           ? e.userMessage 
           : '画像の処理に失敗しました';
       _showErrorSnackBar(errorMessage);

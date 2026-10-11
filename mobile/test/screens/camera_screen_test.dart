@@ -139,6 +139,39 @@ Future<void> _letRealIoAndFramesRun(WidgetTester tester) async {
   }
 }
 
+http.Response _uploadFailedWithAiServiceError() {
+  return http.Response(
+    json.encode({
+      'success': false,
+      'error': {
+        'code': 'AI_SERVICE_ERROR',
+        'message': '植物識別サービスでエラーが発生しました',
+      },
+    }),
+    502,
+    headers: _jsonHeaders,
+  );
+}
+
+/// 画像を選んで識別を始め、処理中に画面を戻ってから、サーバが [response] を返したところまで進める
+Future<void> _leaveWhileUploadingThenRespond(WidgetTester tester, http.Response response) async {
+  final uploadResponse = Completer<http.Response>();
+  await _openCameraScreenWithImageSelected(
+    tester,
+    apiService: _serviceWhereUploadWaitsFor(uploadResponse),
+    galleryFiles: [_writeImage('first.png')],
+  );
+  await tester.tap(find.text('植物を識別する'));
+  await _letRealIoAndFramesRun(tester);
+  await tester.tap(find.byIcon(Icons.arrow_back));
+  // 戻る操作は1フレーム目で始まり、次のフレームで進む
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+
+  uploadResponse.complete(response);
+  await _letRealIoAndFramesRun(tester);
+}
+
 /// ボタン本体（OutlinedButton.icon などの実体はサブクラス）を文言から探す
 Finder _buttonLabeled(String label) {
   return find.ancestor(of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
@@ -169,23 +202,15 @@ void main() {
   });
 
   testWidgets('処理中に画面を戻ると、処理が終わっても例外にならず識別結果画面にも移らない', (tester) async {
-    final uploadResponse = Completer<http.Response>();
-    await _openCameraScreenWithImageSelected(
-      tester,
-      apiService: _serviceWhereUploadWaitsFor(uploadResponse),
-      galleryFiles: [_writeImage('first.png')],
-    );
-    await tester.tap(find.text('植物を識別する'));
-    await _letRealIoAndFramesRun(tester);
-    await tester.tap(find.byIcon(Icons.arrow_back));
-    // 戻る操作は1フレーム目で始まり、次のフレームで進む
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    uploadResponse.complete(_uploadSucceeded());
-    await _letRealIoAndFramesRun(tester);
+    await _leaveWhileUploadingThenRespond(tester, _uploadSucceeded());
 
     expect(tester.takeException(), isNull);
     expect(find.text('識別結果'), findsNothing);
+  });
+
+  testWidgets('処理中に画面を戻ったあとでアップロードが失敗しても例外にならない', (tester) async {
+    await _leaveWhileUploadingThenRespond(tester, _uploadFailedWithAiServiceError());
+
+    expect(tester.takeException(), isNull);
   });
 }
