@@ -71,7 +71,7 @@ Application Insights へ送るのは Function App 側のログ・メトリクス
 - **Flutter SDK**: 3.16.x (安定版)
 - **Dart**: 3.2.x
 - **flutter/material**: Material Design 3.0 UI
-- **image_picker**: 画像選択・カメラ撮影
+- **image_picker**: ギャラリーからの画像選択（カメラ撮影は画面から呼び出していない）
 - **http**: HTTP通信・Azure API連携
 - **shared_preferences**: 設定データ永続化
 - **flutter_secure_storage**: APIキーのセキュア保存
@@ -186,8 +186,6 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 - **機能**:
   - アプリケーション パフォーマンス監視
   - エラー追跡
-  - ユーザー行動分析
-  - カスタムイベント追跡
 
 ## 4. 詳細技術仕様
 
@@ -296,7 +294,7 @@ lib/
 
 #### 植物識別フロー
 1. **認証確認**: 設定画面からAPIキー取得（flutter_secure_storage）
-2. **画像選択**: Flutter image_picker → 画像選択・撮影
+2. **画像選択**: Flutter image_picker → ギャラリーから画像を選択（カメラ撮影は画面から呼び出していない）
 3. **画像アップロード**: Flutter http → Azure Functions → Blob Storage (Function Key認証)
 4. **AI識別**: Azure Functions → Azure OpenAI Service → `gpt-5.6-luna`（画像入力・SAS URL対応）
 5. **結果表示**: API Response → Flutter UI (Material Design)
@@ -370,7 +368,6 @@ Function App の応答確認 → 完了
 #### MVP段階: Azure Function Key認証
 - **選定理由**:
   - Azure Functionsの標準機能で追加実装不要
-  - アプリ設定画面でのユーザー管理が可能
   - 個人開発に適したシンプルな認証方式
   - API呼び出し時のクエリパラメータで認証
 

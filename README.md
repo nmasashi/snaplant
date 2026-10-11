@@ -23,7 +23,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 ### フロントエンド
 - **Flutter 3.16+**: Material Design 3.0 による美しいUI
 - **Dart 3.2+**: 型安全な開発言語
-- **image_picker**: カメラ・ギャラリー連携
+- **image_picker**: ギャラリーからの画像選択（カメラ撮影は画面から呼び出していない）
 - **http**: Azure Functions API連携
 - **flutter_secure_storage**: セキュアなAPIキー管理
 
@@ -148,7 +148,6 @@ flutter build apk --release
 - [API設計書](./docs/06_api_design.md)
 - [OpenAPI仕様書](./docs/06_api_openapi.yaml)
 - [API ワークフロー](./docs/07_api_workflow.md)
-- [Flutter UI設計](./docs/08_flutter_ui_design.md)
 - [バックログ（未実装・既知の課題）](./docs/09_backlog.md)
 
 **運用:**
