@@ -53,7 +53,11 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
       );
     }
 
-    // ファイルサイズの検証
+    // ファイルサイズの検証。空のファイルは入力の誤りとして 400 に分ける。
+    // isValidFileSize() は 0 も偽にするため、先に判定しないと「大きすぎます」の 413 になる
+    if (file.size === 0) {
+      return createValidationError('画像ファイルが空です');
+    }
     if (!StorageService.isValidFileSize(file.size)) {
       return createErrorResponse(
         ErrorCode.FILE_TOO_LARGE,

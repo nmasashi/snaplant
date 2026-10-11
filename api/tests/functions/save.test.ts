@@ -146,6 +146,56 @@ describe('植物保存API', () => {
       expect(response.jsonBody.success).toBe(true);
       expect(response.jsonBody.data.plant.name).toBe('テスト植物');
     });
+
+    it('アプリが任意項目をnullで送っても保存できる', async () => {
+      // Flutterクライアントは空の任意項目をnullで送る。弾くとアプリからの保存が壊れる
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          scientificName: null,
+          familyName: null,
+          description: null,
+          characteristics: '基本的な特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(201);
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(cosmosBackend.documents.get(savedId)?.name).toBe('テスト植物');
+    });
+
+    it('名前の前後の空白を取り除いて保存する（重複確認と同じ名前で見つかるようにするため）', async () => {
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: '  桜  ',
+          characteristics: '基本的な特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(201);
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(cosmosBackend.documents.get(savedId)?.name).toBe('桜');
+    });
   });
 
   describe('バリデーションエラー', () => {
@@ -305,6 +355,48 @@ describe('植物保存API', () => {
         }
       });
       // 保存されていないことの状態検証（ドキュメントが増えていない）
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    // 必須項目は .trim() で TypeError（500）に、任意項目は上限の検査をすり抜けて
+    // そのまま保存されていた。どちらも文字列以外は一律400にする
+    it.each([
+      ['name', '植物名は文字列で指定してください'],
+      ['characteristics', '特徴は文字列で指定してください'],
+      ['imagePath', '画像パスは文字列で指定してください'],
+      ['scientificName', '学名は文字列で指定してください'],
+      ['familyName', '科名は文字列で指定してください'],
+      ['description', '説明は文字列で指定してください']
+    ])('%sに文字列以外を指定した場合は400エラー', async (field, expectedMessage) => {
+      // リクエストの作成（対象の項目だけ数値にし、他は正当な値にする）
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/test.jpg`,
+          [field]: 123
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: expectedMessage,
+          details: undefined
+        }
+      });
+      // 保存されていないことの状態検証
       expect(cosmosBackend.documents.size).toBe(0);
     });
 

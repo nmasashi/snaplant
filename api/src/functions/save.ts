@@ -42,7 +42,8 @@ export async function savePlantHandler(request: HttpRequest, context: Invocation
     // 日時はハンドラ側が常に捨てられる死んだコードで、id が生き残るのは
     // generateId() がスプレッドの前に置かれているという記述順の偶然だった
     const newPlant: PlantCreateRequest = {
-      name: requestBody.name,
+      // check-duplicate は name の前後の空白を除いて比較するので、保存側も揃える
+      name: requestBody.name.trim(),
       scientificName: requestBody.scientificName,
       familyName: requestBody.familyName,
       description: requestBody.description,
@@ -114,6 +115,25 @@ export async function savePlantHandler(request: HttpRequest, context: Invocation
 function validatePlantCreateRequest(request: PlantCreateRequest): HttpResponseInit | null {
   if (!request) {
     return createValidationError('リクエストボディが指定されていません');
+  }
+
+  // 型のチェック。以降の .trim() / .length より前に置く。
+  // 文字列以外を通すと、必須項目は .trim() の TypeError で 500 になり、
+  // 任意項目は上限の検査をすり抜けてそのまま保存される。
+  // 任意項目の null と未指定は「指定なし」として通す（Flutter は空の任意項目を null で送る）
+  const stringFields: Array<[keyof PlantCreateRequest, string]> = [
+    ['name', '植物名'],
+    ['characteristics', '特徴'],
+    ['imagePath', '画像パス'],
+    ['scientificName', '学名'],
+    ['familyName', '科名'],
+    ['description', '説明']
+  ];
+  for (const [field, label] of stringFields) {
+    const value = request[field];
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      return createValidationError(`${label}は文字列で指定してください`);
+    }
   }
 
   // 必須フィールドのチェック

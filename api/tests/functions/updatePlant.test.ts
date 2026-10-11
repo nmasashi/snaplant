@@ -169,6 +169,47 @@ describe('植物更新API', () => {
       expect(response.jsonBody.success).toBe(true);
       expect(response.jsonBody.data.plant.confidence).toBe(100);
     });
+
+    it('ボディにnameやcreatedAtが含まれていても、保存済みのnameとcreatedAtは変わらない', async () => {
+      // 仕様上、更新できるのは imagePath / confidence / updatedAt だけ
+      const existingPlant: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+
+      // リクエストの作成（更新対象外の name / createdAt を紛れ込ませる）
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${existingPlant.id}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: existingPlant.id },
+        json: jest.fn().mockResolvedValue({
+          imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
+          confidence: 95.0,
+          name: '乗っ取られた名前',
+          createdAt: '1999-12-31T00:00:00Z'
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      await updatePlantHandler(request, mockContext);
+
+      // 検証（偽物に保存された状態。imagePath と confidence だけが更新される）
+      const saved = cosmosBackend.documents.get(existingPlant.id);
+      expect(saved).toMatchObject({
+        name: '桜',
+        createdAt: '2024-01-15T10:30:00Z',
+        imagePath: `${TEST_IMAGE_BASE_URL}/new.jpg`,
+        confidence: 95.0
+      });
+    });
   });
 
   describe('バリデーションエラー', () => {
@@ -190,13 +231,13 @@ describe('植物更新API', () => {
       const response = await updatePlantHandler(request, mockContext);
 
       // 検証
+      // details は契約外のため文言を固定しない
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: '有効な植物IDが指定されていません',
-          details: 'IDはUUID形式で指定してください'
+          message: '植物IDの形式が無効です'
         }
       });
     });
@@ -227,6 +268,44 @@ describe('植物更新API', () => {
           details: undefined
         }
       });
+    });
+
+    it('画像パスに文字列以外を指定した場合は400エラーで、保存済みの植物は変わらない', async () => {
+      // 既存植物（バリデーションをすり抜けた場合に更新が成功しうる状態を作る）
+      const existingPlant: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        confidence: 85.0,
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+
+      // リクエストの作成（imagePathが数値。他のフィールドは正当な値）
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${existingPlant.id}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: existingPlant.id },
+        json: jest.fn().mockResolvedValue({
+          imagePath: 123,
+          confidence: 95
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await updatePlantHandler(request, mockContext);
+
+      // 検証（detailsの文言は契約外なので固定しない）
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.message).toBe('画像パスは文字列で指定してください');
+      // 更新されていないことの状態検証
+      expect(cosmosBackend.documents.get(existingPlant.id)).toEqual(existingPlant);
     });
 
     it('信頼度が範囲外の場合は400エラー', async () => {

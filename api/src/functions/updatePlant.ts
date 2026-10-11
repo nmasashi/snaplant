@@ -23,8 +23,12 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
     // パスパラメータからIDを取得
     const plantId = request.params.id;
     
-    if (!plantId || !isValidUUID(plantId)) {
-      return createValidationError('有効な植物IDが指定されていません', 'IDはUUID形式で指定してください');
+    // 文言は GET / DELETE（plantDetail.ts）と揃える。クライアントは 400 の message を画面にそのまま出す
+    if (!plantId) {
+      return createValidationError('植物IDが指定されていません');
+    }
+    if (!isValidUUID(plantId)) {
+      return createValidationError('植物IDの形式が無効です', GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_UUID);
     }
 
     // リクエストボディの取得
@@ -72,8 +76,12 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
       );
     }
 
-    // 植物更新
-    const updatedPlant = await cosmosService.updatePlant(plantId, requestBody);
+    // 植物更新。ボディを詰め直して、更新を許す2項目だけを渡す。
+    // そのまま渡すと、ボディに含まれた name や createdAt まで既存の植物に上書きされる
+    const updatedPlant = await cosmosService.updatePlant(plantId, {
+      imagePath: requestBody.imagePath,
+      confidence: requestBody.confidence
+    });
     
     if (!updatedPlant) {
       return createErrorResponse(
@@ -117,6 +125,11 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
 function validatePlantUpdateRequest(request: PlantUpdateRequest): HttpResponseInit | null {
   if (!request) {
     return createValidationError('リクエストボディが指定されていません');
+  }
+
+  // 型のチェック。.trim() より前に置く（文字列以外だと TypeError で 500 になるため。save.ts と同じ）
+  if (request.imagePath !== undefined && request.imagePath !== null && typeof request.imagePath !== 'string') {
+    return createValidationError('画像パスは文字列で指定してください');
   }
 
   // 必須フィールドのチェック
