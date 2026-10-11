@@ -127,49 +127,23 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _identifyPlant() async {
     if (_selectedXFile == null) return;
 
-    try {
-      setState(() {
-        _isUploading = true;
-      });
+    setState(() {
+      _isUploading = true;
+    });
 
+    // try で包むのは API の呼び出しと応答の解釈だけ。画面の更新や遷移まで包むと、
+    // プログラムの誤り（破棄後の setState など）が「画像の処理に失敗しました」に化けて見えなくなる
+    final UploadResult uploadResult;
+    final IdentificationResult identificationResult;
+    try {
       // 画像をアップロード・AI識別を実行（統合）
       final contextInfo = _contextController.text.trim();
-      final response = kIsWeb 
+      final response = kIsWeb
           ? await widget.apiService.uploadAndIdentifyImage(_webImageBytes!, contextInfo: contextInfo.isNotEmpty ? contextInfo : null)
           : await widget.apiService.uploadAndIdentifyImage(_selectedImage!, contextInfo: contextInfo.isNotEmpty ? contextInfo : null);
-      
-      final uploadResult = response['uploadResult'] as UploadResult;
-      final identificationResult = response['identificationResult'] as IdentificationResult;
 
-      // 処理中に戻られていたら、破棄済みの画面に setState すると例外になる
-      if (!mounted) return;
-      setState(() {
-        _isUploading = false;
-      });
-
-      // 識別結果画面へ遷移
-      if (mounted) {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => IdentificationScreen(
-              imageFile: kIsWeb ? null : _selectedImage,
-              xFile: _selectedXFile,
-              webImageBytes: _webImageBytes,
-              identificationResult: identificationResult,
-              imagePath: uploadResult.imagePath,
-              apiService: widget.apiService,
-            ),
-          ),
-        );
-
-        // 植物が保存された場合は親画面に通知
-        if (!mounted) return;
-        if (result == true) {
-          Navigator.pop(context, true);
-        }
-      }
-
+      uploadResult = response['uploadResult'] as UploadResult;
+      identificationResult = response['identificationResult'] as IdentificationResult;
     } catch (e) {
       // 処理中に戻られていたら、知らせる画面がもう無い
       if (!mounted) return;
@@ -178,9 +152,37 @@ class _CameraScreenState extends State<CameraScreen>
       });
 
       final errorMessage = e is ApiException
-          ? e.userMessage 
+          ? e.userMessage
           : '画像の処理に失敗しました';
       _showErrorSnackBar(errorMessage);
+      return;
+    }
+
+    // 処理中に戻られていたら、破棄済みの画面に setState すると例外になる
+    if (!mounted) return;
+    setState(() {
+      _isUploading = false;
+    });
+
+    // 識別結果画面へ遷移
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => IdentificationScreen(
+          imageFile: kIsWeb ? null : _selectedImage,
+          xFile: _selectedXFile,
+          webImageBytes: _webImageBytes,
+          identificationResult: identificationResult,
+          imagePath: uploadResult.imagePath,
+          apiService: widget.apiService,
+        ),
+      ),
+    );
+
+    // 植物が保存された場合は親画面に通知
+    if (!mounted) return;
+    if (result == true) {
+      Navigator.pop(context, true);
     }
   }
 
