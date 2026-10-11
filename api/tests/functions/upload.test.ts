@@ -1,3 +1,4 @@
+import { format } from 'node:util';
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { uploadImageHandler } from '../../src/functions/upload';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
@@ -25,8 +26,12 @@ jest.mock('openai');
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<typeof generateBlobSASQueryParameters>;
 
-// SASトークンの固定値（一時保存がSAS付きURLを返すことの土台。値自体の検証はstorageService.test.ts側の責務）
-const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
+// SASトークンの固定値（一時保存がSAS付きURLを返すことの土台）。
+// 権限や有効期限の検証はstorageService.test.ts側の責務。
+// 署名（sig）だけは「SASの署名をログに出さない」テストが漏れの有無を見る秘密として使うため、
+// 定数に切り出してトークンをそこから組み立てる（片方だけ書き換えても検証が空振りしない）
+const TEST_SAS_SIGNATURE = 'testsignature';
+const TEST_SAS_TOKEN = `sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=${TEST_SAS_SIGNATURE}`;
 
 
 describe('画像アップロード・植物判定統合API', () => {
@@ -308,6 +313,49 @@ describe('画像アップロード・植物判定統合API', () => {
       // ここでは拒否されていないことをステータスとsuccessで確認する）
       expect(response.status).toBe(201);
       expect(response.jsonBody.success).toBe(true);
+    });
+
+    it('一時保存したURLの署名（SAS）をログに出さない', async () => {
+      // 読み取りSAS付きURLがログ（Application Insights）に残ると、ログを読める人が
+      // そのまま画像を取得できる。ログの文言や形式は契約ではないので固定せず、
+      // 秘密（SASの署名）がどのログ引数にも現れないことだけを見る。
+      // 実物のInvocationContextにlogHandlerを渡し、context.log / info / warn / error など
+      // どのレベルで出されても拾う。@azure/functions v4 はログ引数を util.format で文字列化するので
+      // 同じ形で集める（JSON.stringify ではErrorのmessageが落ちて漏れを見逃す）
+      const logged: string[] = [];
+      const context = new InvocationContext({
+        logHandler: (_level, ...args) => {
+          logged.push(format(...args));
+        }
+      });
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+      const mockFormData = { get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null)) };
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, context);
+
+      // 検証（保存まで進む経路を通っていること）
+      expect(response.status).toBe(201);
+      // 検証（全レベルのログをランタイムと同じ util.format で文字列化し、SASの署名が含まれない）。
+      // 秘密なのは署名（TEST_SAS_SIGNATURE）で、有効期限や権限の項目は漏れても
+      // 画像を取得できない。
+      // これは原則4「ログ出力の内容を検証しない」の例外。ログは Application Insights を通じて
+      // 開発者以外も読む出力で、「秘密を出さない」はセキュリティ要件のため。文言や形式は固定せず、
+      // 秘密が現れないことだけを見るので、ログの書き換え（文言の変更・追加・削除）では落ちない。
+      // 範囲の狭い例外なので原則には書かず、ここに理由を残す（人間の判断）
+      expect(logged.join('\n')).not.toContain(TEST_SAS_SIGNATURE);
     });
   });
 

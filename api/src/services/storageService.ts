@@ -4,6 +4,17 @@ import { FILE_UPLOAD } from '../constants/validation';
 import { UpstreamError } from '../utils/errors';
 
 /**
+ * 一時URLのSASの有効期限（分）
+ *
+ * SAS付きURLはAI識別サービスが一時画像を読むためだけのもので、使うのは
+ * アップロードの1リクエストの間に限られる。その上限は host.json の
+ * functionTimeout（5分）なので、サーバ間の時計のずれの余裕を足して15分とする。
+ * 以前は1年で、ログやエラーに出たURLから長期間画像を取得できた。
+ * functionTimeout をこれより長くするなら合わせて見直す
+ */
+const TEMP_SAS_EXPIRY_MINUTES = 15;
+
+/**
  * 接続文字列から自アカウントのBlobエンドポイントのホストを組み立てる
  *
  * コンストラクタと静的バリデータの両方から使う。片方だけが古い組み立て方を
@@ -97,7 +108,7 @@ export class StorageService {
       // 後片付けする。一時コンテナにライフサイクルポリシーがないため、
       // 残すと孤児Blobが永久に蓄積する
       try {
-        return this.generateSasUrl(blockBlobClient.url, this.tempContainerName);
+        return this.generateTempSasUrl(blockBlobClient.url);
       } catch (sasError: any) {
         try {
           await blockBlobClient.delete();
@@ -225,14 +236,12 @@ export class StorageService {
   }
 
   /**
-   * SAS URLを生成する（外部からのアクセス用）
+   * 一時コンテナのBlobに読み取り専用のSASを付けたURLを生成する（AI識別サービスが読むため）
    * @param blobUrl 元のBlob URL
-   * @param containerName コンテナ名
-   * @param expiryHours 有効期限（時間、デフォルト: 8760時間=1年）
-   * @returns SAS URL
+   * @returns SAS URL（有効期限は TEMP_SAS_EXPIRY_MINUTES）
    * @throws 生成に失敗した場合（フォールバックしない）
    */
-  private generateSasUrl(blobUrl: string, containerName: string, expiryHours: number = 8760): string {
+  private generateTempSasUrl(blobUrl: string): string {
     try {
       // URLからファイル名を抽出
       const fileName = this.extractFileNameFromUrl(blobUrl);
@@ -245,8 +254,7 @@ export class StorageService {
       permissions.read = true;
 
       // 有効期限を設定
-      const expiryTime = new Date();
-      expiryTime.setHours(expiryTime.getHours() + expiryHours);
+      const expiryTime = new Date(Date.now() + TEMP_SAS_EXPIRY_MINUTES * 60 * 1000);
 
       // 認証情報を作成
       const sharedKeyCredential = new StorageSharedKeyCredential(
@@ -257,7 +265,7 @@ export class StorageService {
       // SASクエリパラメータを生成
       const sasToken = generateBlobSASQueryParameters(
         {
-          containerName,
+          containerName: this.tempContainerName,
           blobName: fileName,
           permissions,
           expiresOn: expiryTime,

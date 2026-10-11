@@ -93,7 +93,9 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     
     // 1. 画像を一時保存
     const tempImageUrl = await storageService.uploadImageToTemp(imageBuffer, file.type);
-    context.log(`一時保存完了: URL=${tempImageUrl}`);
+    // クエリ文字列の SAS は画像の読み取り権限そのもので、ログを読める人に渡してしまうため、
+    // ログにはパスまでを出す
+    context.log(`一時保存完了: URL=${tempImageUrl.split('?')[0]}`);
 
     // 2. AI識別サービス初期化・植物判定実行
     const visionService = new OpenAIVisionService();
