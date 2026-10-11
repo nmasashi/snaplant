@@ -96,7 +96,7 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 
 #### 選定：Azure Cosmos DB (無料枠)
 - **理由**:
-  - **永続無料枠**を有効化（`azurerm_cosmosdb_account.main` の `enable_free_tier = true`）。
+  - **永続無料枠**を有効化（`azurerm_cosmosdb_account.main` の `free_tier_enabled = true`）。
     コンテナへの割り当ては **400 RU/s**（`cosmos_db_throughput` の既定値）
   - MVPの小規模利用には十分
   - 自動スケーリング・高可用性

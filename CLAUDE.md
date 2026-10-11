@@ -34,6 +34,14 @@ api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C
   `.gitattributes` で `*.sh` を `eol=lf` にしている
 
 Terraform は Windows に導入済み（2026-10-11 時点で 1.16.5）。`plan` / `apply` には上記の state と `terraform.tfvars` が要る。
+azurerm プロバイダは v4 で、サブスクリプション ID を環境変数 `ARM_SUBSCRIPTION_ID` で渡す
+（`export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)`。`scripts/deploy.sh`・`destroy.sh` は自動で設定する）。
+
+**この環境からは HashiCorp（`registry.terraform.io`・`releases.hashicorp.com`）への通信が不安定。**
+IPv6 は接続直後に切られ、IPv4 も時々切られるため、`terraform init` のプロバイダのダウンロードが失敗する。
+そのときは `curl -4` で再試行しながらプロバイダの zip を落とし、公開されている `SHA256SUMS` と照合したうえで、
+`<dir>/registry.terraform.io/hashicorp/<name>/terraform-provider-<name>_<ver>_windows_amd64.zip` に置いて
+`terraform init -plugin-dir=<dir>` で読み込ませる。`terraform validate` は CI（`terraform.yml`）でも回る。
 
 Windows に入っていないツール（必要になったら入れる）。
 

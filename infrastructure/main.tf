@@ -3,7 +3,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~>3.0"
+      version = "~>4.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -14,6 +14,8 @@ terraform {
 }
 
 # Microsoft Azureプロバイダーの設定
+# v4 からサブスクリプション ID の指定が必須。ここには書かず、環境変数 ARM_SUBSCRIPTION_ID で渡す
+# （scripts/deploy.sh・destroy.sh が az login 中のサブスクリプションから設定する）
 provider "azurerm" {
   features {}
 }
@@ -88,7 +90,7 @@ resource "azurerm_cosmosdb_account" "main" {
   }
 
   # 無料枠を有効化 (400 RU/s + 25GB ストレージ)
-  enable_free_tier = true
+  free_tier_enabled = true
 
   tags = var.tags
 }
@@ -106,7 +108,7 @@ resource "azurerm_cosmosdb_sql_container" "plants" {
   resource_group_name = azurerm_resource_group.main.name
   account_name        = azurerm_cosmosdb_account.main.name
   database_name       = azurerm_cosmosdb_sql_database.main.name
-  partition_key_path  = "/id"
+  partition_key_paths = ["/id"]
 
   # 無料枠の共有スループットを使用
   throughput = var.cosmos_db_throughput
@@ -118,9 +120,8 @@ resource "azurerm_cosmosdb_sql_container" "plants" {
       path = "/*"
     }
 
-    excluded_path {
-      path = "/\"_etag\"/?"
-    }
+    # `/"_etag"/?` の除外は Cosmos がシステム側で自動的に付ける。azurerm v4 は読み戻すときに
+    # これを取り除くため、ここに書くと apply しても plan に「追加する」差分が出続ける
   }
 }
 
@@ -146,6 +147,10 @@ resource "azurerm_linux_function_app" "main" {
   storage_account_access_key = azurerm_storage_account.main.primary_access_key
   service_plan_id            = azurerm_service_plan.main.id
 
+  # azurerm v4 では、ランタイム関係のアプリ設定（FUNCTIONS_WORKER_RUNTIME・WEBSITE_NODE_DEFAULT_VERSION）は
+  # application_stack から、Application Insights のアプリ設定は site_config の専用項目から
+  # プロバイダが設定する。app_settings に直接書くとプロバイダが読み戻すときに取り除くため、
+  # plan のたびに「追加する」差分が出続け、apply のたびに再起動が起きる
   site_config {
     application_stack {
       node_version = "20"
@@ -153,12 +158,11 @@ resource "azurerm_linux_function_app" "main" {
     cors {
       allowed_origins = ["*"]
     }
+    application_insights_key               = azurerm_application_insights.main.instrumentation_key
+    application_insights_connection_string = azurerm_application_insights.main.connection_string
   }
 
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME"     = "node"
-    "WEBSITE_NODE_DEFAULT_VERSION" = "~20"
-
     # Cosmos DB接続設定
     "COSMOS_DB_ENDPOINT"  = azurerm_cosmosdb_account.main.endpoint
     "COSMOS_DB_KEY"       = azurerm_cosmosdb_account.main.primary_key
@@ -175,11 +179,6 @@ resource "azurerm_linux_function_app" "main" {
     "AZURE_OPENAI_API_KEY"         = azurerm_cognitive_account.openai.primary_access_key
     "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt5_luna.name
     "AZURE_OPENAI_API_VERSION"     = var.openai_api_version
-
-    # Application Insights設定
-    "APPINSIGHTS_INSTRUMENTATIONKEY"        = azurerm_application_insights.main.instrumentation_key
-    "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
-
   }
 
   tags = var.tags
@@ -220,8 +219,11 @@ resource "azurerm_cognitive_deployment" "gpt5_luna" {
     version = "2026-07-09"
   }
 
-  scale {
-    type = "GlobalStandard"
+  sku {
+    name = "GlobalStandard"
+    # 1分あたりのトークン数の上限（千単位）。省略すると既定値の 1（= 1K TPM）になり、
+    # 画像1枚の識別でも上限に達しうる。本番の値（150 = 150K TPM）を明示している
+    capacity = 150
   }
 }
 
