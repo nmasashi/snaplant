@@ -15,13 +15,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 コメント・エラーメッセージ・コミットメッセージはすべて日本語で記述する慣習。
 
+## 開発環境
+
+**Windows に統一している**（2026-10-11 に WSL との併用をやめた）。Claude Code の Bash ツールは Git Bash で動く。
+api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C:\Users\masas\git\snaplant`）で行い、検証もここで回す。
+
+以前は WSL 側に別のクローン（`/home/noguchi/git/snaplant`）があり、api は WSL、Flutter は Windows と分けていた。
+その名残で注意すること。
+
+- **`api/node_modules` はマシンごとに `npm ci` で作る。** WSL と共有していた時期は無く、Windows 側の
+  `node_modules` は 2025-08 から更新されていなかった（TypeScript 5.8 のままで、`tsconfig` の `module: node20` を読めず全テストが落ちた）。
+  `package-lock.json` が変わったら `npm ci` し直す
+- **リポジトリに入っていない作業マシン専用のファイルは、WSL 側のクローンにしか無かった。**
+  `infrastructure/terraform.tfstate`（と `.backup`）、`infrastructure/terraform.tfvars`、`api/local.settings.json`。
+  どれも秘密情報を含むので、人間が Windows 側の同じ場所へ移す。**WSL 側のクローンを消す前に必ず移すこと**（state を失うと
+  Terraform で既存の Azure リソースを管理できなくなる）
+- **シェルスクリプトは LF で取り出す。** `core.autocrlf` で CRLF になると Git Bash で `\r` が原因で失敗するため、
+  `.gitattributes` で `*.sh` を `eol=lf` にしている
+
+Windows に入っていないツール（必要になったら入れる）。
+
+| ツール | 用途 | 無い間にできないこと |
+|---|---|---|
+| Terraform | `infrastructure/` | `terraform plan` / `apply`、`scripts/*.sh`（`fmt` と `validate` は CI が回す） |
+| Azure Functions Core Tools（`func`） | api のローカル起動 | `npm start`（テストと型チェックには不要） |
+
 ## コマンド
 
 ### api/
 
 ```bash
 cd api
-npm install
+npm ci                    # package-lock.json どおりに入れる。lock が変わったらやり直す
 npm start                 # prestart で build + func extensions install を実行してから func start
 npm run build             # tsc（src のみ → dist/src/ 配下に出力）
 npm test
@@ -51,17 +76,8 @@ flutter test test/widget_test.dart
 flutter build apk --release
 ```
 
-**これらのコマンドは WSL から実行できない。** Flutter SDK は Windows 側
-(`/mnt/c/Users/masas/flutter`) にあり、シェルスクリプトが CRLF 改行のため
-`/usr/bin/env: 'bash\r': No such file or directory` で起動に失敗する。
-WSL 側で Android Studio が動かなかった経緯もあり、Flutter の実行・解析・テストは
-すべて Windows 側で行う運用。
-
-つまり **Dart コードを変更したら、WSL セッションでは検証できない。**
-静的解析やテストを試みず、「Windows 側で `flutter analyze` / `flutter test` を
-実行してください」と明示して引き渡すこと。実行していないものを実行したように書かない。
-
-api (TypeScript) 側は WSL で `npx tsc` / `npm test` が普通に動くので、こちらは自分で検証する。
+Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上にある。
+Dart を変更したら、その場で `flutter analyze` / `flutter test` を回して検証する。
 
 `flutter analyze` は既存の info / warning（141件）で**終了コード 1** になる。エラーは0件。
 新規の指摘が無いかは件数ではなく、指摘の一覧を変更前と突き合わせて判断する。
@@ -272,10 +288,9 @@ Kent Beck の Canon TDD に従い、**「リスト、レッド、グリーン、
 - **既存テストの書き直し・整理** — Red-Green のサイクルではない。
   本番コードの振る舞いを変えずにテストの構造を直す作業なので、
   Refactor 段と同じ規律（全テストが緑の状態で、1変更ごとに実行）で進める
-- **Flutter 側（`mobile/`）** — WSL から `flutter test` を実行できないため、
-  このシェルでは赤緑のサイクルを回せない。
-  テストを書いてから実装する順序は維持し、**実行と確認は Windows 側で行う**。
-  赤の確認を飛ばしたまま実装を進めないこと
+
+Flutter 側（`mobile/`）も api と同じく TDD で進める。以前は WSL から `flutter test` を
+実行できず例外扱いだったが、Windows に統一したのでその場で赤緑を確認できる。
 
 ## PR と Issue の運用
 
@@ -297,7 +312,7 @@ PR が大きすぎることが、そのままレビューの穴になる。
   方針（下記「レビューのタイミング」）と、PR の粒度を一致させる
 - **`main` へのマージは本番デプロイを起動する**（`deploy-functions.yml`）。
   PR が小さいほど1回のデプロイの影響範囲が狭く、切り分けも早い
-- **`mobile/` の変更を含む PR は、マージ前に Windows 側で
+- **`mobile/` の変更を含む PR は、マージ前に
   `flutter analyze` / `flutter test` を通す。** `mobile/` は CI の対象外なので、
   ここで見ないと誰も検証しない
 
@@ -309,7 +324,7 @@ PR が大きすぎることが、そのままレビューの穴になる。
 
 **作る**: 判断が済んでいて、着手できる状態の作業。
 
-- 担当や環境が分かれるもの（例: Windows 側でしかできない Dart の作業）
+- 担当や環境が分かれるもの（例: 人間が実機で確認する作業）
 - 複数の PR にまたがるもの
 - 他の作業の前提になっているもの
 

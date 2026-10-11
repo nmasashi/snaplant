@@ -1,0 +1,3 @@
+# シェルスクリプトは Git Bash で実行するため LF で取り出す。
+# core.autocrlf で CRLF になると、行末の CR が原因で bash が失敗する
+*.sh text eol=lf
