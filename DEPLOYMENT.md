@@ -121,9 +121,13 @@ GitHub Actions は以下の条件で自動実行されます：
    - `npm audit` はここでは実行しない（audit.yml に分けている）
 
 2. **本番デプロイ** (mainブランチのみ):
-   - 本番用ビルド
-   - Azure Functions へのデプロイ
+   - 依存関係のインストール（`npm ci`）と本番用ビルド（`npm run build`）
+   - 開発用の依存（Jest・TypeScript など）の除去（`npm prune --omit=dev`）
+   - Azure Functions へのデプロイ（`api/` を丸ごとパッケージにして送る。サーバ側ではビルドしない）
    - ヘルスチェック
+
+   開発用の依存は本番に載らないため、実行時に読み込むパッケージは `package.json` の
+   `dependencies` に置く必要がある（`devDependencies` に置くと、テストは通るが本番で読み込みに失敗する）。
 
 依存パッケージの脆弱性検査（audit.yml）はこの流れとは独立して走り、結果はデプロイに影響しない。
 

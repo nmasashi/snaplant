@@ -608,7 +608,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 - `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/**` と `.github/workflows/terraform.yml`（`main` / `develop` への push と `main` への PR）。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
 - **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（既存の指摘を解消してから入れる。`docs/09_backlog.md` 参照）。
 - `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
-- デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する
+- デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する。ビルドの後に `npm prune --omit=dev` で開発用の依存を外してから `api/` を丸ごと送るので、**実行時に読み込むパッケージは `dependencies` に置く**（`devDependencies` に置くと、テストは通るのに本番で読み込みに失敗する）
 
 ## ドキュメントの扱い
 

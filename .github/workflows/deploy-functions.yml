@@ -51,6 +51,14 @@ jobs:
         cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
         npm run build
 
+    # ビルドが済んだら開発用の依存（Jest・TypeScript など）を外す。
+    # このあと api/ を丸ごとパッケージにするので、外さないと実行時に使わないものまで本番に載る。
+    # サーバ側でビルドしない設定（scm-do-build-during-deployment: false）なので、ここで外した状態がそのまま届く
+    - name: Remove dev dependencies
+      run: |
+        cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        npm prune --omit=dev
+
     - name: Copy necessary files for deployment
       run: |
         cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
