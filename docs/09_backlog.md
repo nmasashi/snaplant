@@ -42,8 +42,9 @@ flutter test
 テストの書き方は `mobile/test/services/api_service_test.dart`（`MockClient` で HTTP を差し替える）と
 `mobile/test/screens/identification_screen_test.dart`（画面のテスト）が手本になる。
 
-`dev_dependencies` は `flutter_test` と `flutter_lints` だけ。テスト専用の
-補助パッケージ（mocktail などのモック生成）は入っていない。
+`dev_dependencies` は `flutter_test`・`flutter_lints` と、端末の機能をテストで差し替えるための
+プラットフォーム層（`image_picker_platform_interface`・`flutter_secure_storage_platform_interface`・
+`plugin_platform_interface`）だけ。モック生成の補助パッケージ（mocktail など）は入っていない。
 HTTP は `http` 同梱の `MockClient` で足りている。新しい依存を増やす前に
 CLAUDE.md「実装の慣習」の Flutter の構成方針を確認すること。
 
@@ -299,7 +300,7 @@ PR を出す前にローカルで回すまで検証されない状態（CLAUDE.m
 実際の不具合になりうるので、機械的に消さずに中身を見る（画像選択画面の同じ指摘は #23 で直した）。
 `invalid_null_aware_operator`（2件）はテーマの定義の不要な `?.` で、害は無い。
 
-`flutter test` は通る（2026-10-11 時点で27本。#2 で `ApiService` と保存画面のテストを追加）。
+`flutter test` は通る（2026-10-12 時点で38本。#2 で `ApiService` と保存画面、#23 で画像選択・一覧・詳細画面のテストを追加）。
 
 ### 判定できない画像形式を `image/jpeg` として送る
 
@@ -705,6 +706,8 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 
 `upload` は植物と判定した時点で、画像を永続コンテナ（公開読み取り）へ移す（`upload.ts`）。
 識別結果確認画面で「やり直し」や戻る操作をすると、どのレコードからも参照されない画像が残る。
+画像選択画面でアップロードと識別の処理中に戻った場合も同じ（クライアントは応答を待たずに画面を閉じるが、
+サーバ側の処理は続いて画像を永続コンテナへ移す）。
 画像だけを消す API は無く（`DELETE /api/plants/{id}` はレコード単位）、クライアントからは片付けられない。
 初期の画面設計は「キャンセル時、画像は削除済み」としていたが、実装されていなかった。
 
