@@ -88,6 +88,10 @@ class _PlantListScreenState extends State<PlantListScreen> {
       print('PlantListScreen: ApiService初期化完了');
     } catch (e) {
       print('PlantListScreen: APIサービス初期化エラー: $e');
+      // 前の設定の ApiService が残っていると、続く _loadPlants() がこのエラーを消して
+      // 古い設定のまま一覧を読み直してしまう
+      _apiService?.dispose();
+      _apiService = null;
       setState(() {
         _hasError = true;
         _errorMessage = 'API設定の読み込みに失敗しました';

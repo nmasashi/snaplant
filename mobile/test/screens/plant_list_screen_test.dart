@@ -39,6 +39,25 @@ class _SecureStorageFailingOnFirstRead extends TestFlutterSecureStoragePlatform 
   }
 }
 
+/// テストが [failReads] を立てた時点から、読み出しが失敗するセキュアストレージ。
+/// 読み出しの回数に頼らず、「設定画面から戻る直前」から壊すために使う
+class _SecureStorageWithFailureSwitch extends TestFlutterSecureStoragePlatform {
+  _SecureStorageWithFailureSwitch(super.data);
+
+  bool failReads = false;
+
+  @override
+  Future<String?> read({
+    required String key,
+    required Map<String, String> options,
+  }) async {
+    if (failReads) {
+      throw PlatformException(code: 'Exception encountered', message: 'Failed to decrypt');
+    }
+    return super.read(key: key, options: options);
+  }
+}
+
 /// 保存済みの設定を最初の1回だけ読めない状態にする（読み直せば、キーは未設定）
 void _givenFirstReadOfSettingsFails() {
   FlutterSecureStoragePlatform.instance = _SecureStorageFailingOnFirstRead();
@@ -131,5 +150,23 @@ void main() {
       find.descendant(of: find.byType(SnackBar), matching: find.text('API設定が完了していません')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('設定済みの状態で設定画面から戻ったときに設定を読めなければ、古い設定で一覧を読み直さず「API設定の読み込みに失敗しました」と表示する', (tester) async {
+    final secureStorage = _SecureStorageWithFailureSwitch({'api_key': 'old-key'});
+    FlutterSecureStoragePlatform.instance = secureStorage;
+    SharedPreferences.setMockInitialValues({});
+    await _openPlantListScreen(tester);
+    // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.settings));
+    await _letFramesRun(tester);
+    expect(find.text('設定'), findsOneWidget);
+    secureStorage.failReads = true;
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await _letFramesRun(tester);
+
+    expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
   });
 }
