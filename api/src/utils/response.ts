@@ -95,3 +95,14 @@ export function createInternalError(message: string = 'サーバー内部エラ�
 export function isValidUUID(uuid: string): boolean {
   return GENERAL_VALIDATION.UUID_REGEX.test(uuid);
 }
+
+/**
+ * 値が指定されていて、かつ文字列でないかを判定する
+ *
+ * 文字列であるべき入力の型の検査に使う。null と undefined は「指定なし」として false を返し、
+ * 必須かどうかの判定は呼び出し側に任せる（Flutter は空の任意項目を null で送るため）。
+ * save と PUT で同じ判定を揃えるために共通化している
+ */
+export function isPresentNonString(value: unknown): boolean {
+  return value !== undefined && value !== null && typeof value !== 'string';
+}

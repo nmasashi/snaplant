@@ -112,9 +112,13 @@ export class CosmosService {
     // 旧画像URLを保存（削除用）
     const oldImagePath = existingPlant.imagePath;
 
+    // 更新を許す2項目だけを反映する。updateData をそのまま展開すると、
+    // 実行時に余分な項目（name や createdAt）が含まれていたときに上書きされる。
+    // 呼び出し側（updatePlant.ts）でも詰め直しているが、ここでも絞って二重に守る
     const updatedPlant: Plant = {
       ...existingPlant,
-      ...updateData,
+      imagePath: updateData.imagePath,
+      confidence: updateData.confidence,
       updatedAt: new Date().toISOString()
     };
 

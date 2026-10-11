@@ -77,7 +77,9 @@ Terraform（`infrastructure/main.tf` の `azurerm_cosmosdb_sql_container.plants`
 
 ### 4.2 データ制約
 - **id**: UUID v4形式、一意性必須
-- **name**: 必須項目、最大100文字
+- **name**: 必須項目、最大100文字。新規登録時に前後の空白を取り除いて保存する
+  （重複確認の `WHERE c.name = @name` に渡す値も前後の空白を取り除いたものなので、それと揃えている）。
+  更新（`PUT /api/plants/{id}`）では変更されない
 - **characteristics**: 必須項目、最大500文字
 - **confidence**: 0.0以上100.0以下の数値
 - **imagePath**: 必須項目、画像アップロードAPIが返したURL（自ストレージアカウントの永続コンテナを指すURLのみ受け付ける）。

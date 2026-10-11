@@ -587,21 +587,6 @@ api / mobile の全テスト197件を仕様書（docs/01〜08、OpenAPI、README
 事実の追記と、どちらが正しいか明らかな食い違いは仕様書側を直した。
 ここに残すのは**判断が必要なもの**と、**コード・テスト側のバグ**。
 
-### `PUT /plants/{id}` がボディの全項目で既存の植物を上書きする（バグ）
-
-`api/src/functions/updatePlant.ts` はボディを詰め直さずに `cosmosService.updatePlant(plantId, requestBody)` へ渡し、
-`CosmosService.updatePlant()` は `{ ...existingPlant, ...updateData }` で展開する。
-検証は `imagePath` と `confidence` しか見ないので、ボディに `name` / `characteristics` / `createdAt` などが
-含まれていればそのまま上書きされる。`save.ts` は項目を1つずつ詰め直しているので非対称。
-
-**判断: 仕様が正（実装のバグ）。** 仕様書（`06_api_design.md` §5.5）は「更新されるのは `imagePath` / `confidence` / `updatedAt` だけ」。
-PUT の用途（重複時の画像置き換え）からも、他の項目を書き換える理由が無い。
-
-直し方: ハンドラで `imagePath` と `confidence` だけを詰め直して渡す。
-先に「余分な項目（`name` など）を送っても既存の値が残る」再現テストを書いて赤を確認すること。
-`api/tests/services/cosmosService.test.ts` の updatePlant のテスト（238〜242行、258〜262行付近）は
-期待値を実装と同じスプレッドで組み立てており（原則6違反）、この不具合を検出できない。あわせて直す。
-
 ### 500 と 502 の振り分けがエラーメッセージの文字列に依存し、仕様と食い違う
 
 仕様書は「上流（AI・Blob Storage）に到達したがエラー応答だった → 502、到達できない → 503」と意味で書いている。
@@ -621,27 +606,6 @@ PUT の用途（重複時の画像置き換え）からも、他の項目を書�
 **推奨**: **(B)。** 仕様書の書き方（意味による分類）の方がクライアントの再試行判断に役立つ。
 (A) は「メッセージに特定の英単語を含むか」を契約にすることになり、SDK の更新で静かに変わる。
 
-### 0 バイトのファイルが 413 `FILE_TOO_LARGE` になる
-
-`StorageService.isValidFileSize()` は `size > 0 && size <= MAX_SIZE` で、`upload.ts` はこれが偽なら
-413「ファイルサイズが大きすぎます」を返す。0 バイトのファイルにも同じ応答になる。
-仕様書の 413 は「ファイルサイズ超過」。API 経由の応答を確かめるテストは無い（`storageService.test.ts` が判定関数だけを見ている）。
-
-**判断が必要な点**: (a) 現状を仕様に書く、(b) 0 バイトは 400 `INVALID_REQUEST` に分ける。
-
-**推奨**: **(b)。** 413 は意味が合わず、クライアントは「大きすぎる」と表示してしまう。
-
-### `PUT /plants/{id}` の植物ID形式エラーの文言が GET / DELETE と違う
-
-GET・DELETE は「植物IDの形式が無効です」/「UUID形式で指定してください」（`GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_UUID`）、
-PUT は「有効な植物IDが指定されていません」/「IDはUUID形式で指定してください」を直書きしている（`updatePlant.ts`）。
-OpenAPI の 400 の例 `invalid_uuid` は GET・DELETE の文言で、PUT も同じ定義を参照している。
-クライアントは 400 の message をそのまま表示するので、文言は利用者に見える。
-
-**判断が必要な点**: (a) PUT を GET / DELETE に揃える（実装と `updatePlant.test.ts` の期待値を変える）、(b) 現状を仕様に書く。
-
-**推奨**: **(a)。** 同じ検証で文言が違う理由が無い。
-
 ### エラーの `details` に内部例外のメッセージをそのまま返している
 
 409 `DATABASE_ERROR`・500・502・503 では、catch した例外の `message`（SDK 由来の英語や、内部で包み直した文言）が
@@ -659,14 +623,6 @@ OpenAPI の 400 の例 `invalid_uuid` は GET・DELETE の文言で、PUT も同
 ヘルスチェックでは例外メッセージを出さない方針（上記「ヘルスチェックエンドポイント」）がある。
 
 **推奨**: **出さない方向。** 500 系の `details` は省くか固定文言にし、原因はログ（Application Insights）で追う。
-
-### 重複確認は `name` の前後の空白を除くが、保存は除かない
-
-`checkDuplicate.ts` は `name` を trim してから完全一致で比較する。`save.ts` は `name` を trim せずにそのまま保存する。
-そのため前後に空白を含む名前で保存されたレコードは、重複確認で見つからない。
-Flutter クライアントは AI の候補名をそのまま送るので、現状は実害が出にくい。
-
-**判断が必要な点**: 保存側も trim するか（既存データの扱いを含む）。
 
 ### 429 の表示文言がレート制限を示唆する（Dart）
 
@@ -691,14 +647,6 @@ Flutter の `userMessage` は 429 に「リクエスト数が制限を超えま�
 OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値もそのまま返る。
 
 **判断が必要な点**: 範囲外を 502 として弾くか、丸めるか、現状のままにするか。
-
-### save・PUT で必須の文字列項目に文字列以外を送ると 500 になる（バグ）
-
-`save.ts` と `updatePlant.ts` の検証は `name`・`characteristics`・`imagePath` などの必須項目に `.trim()` を呼ぶため、数値などを送ると `TypeError` になり、
-400 ではなく 500 `INTERNAL_ERROR` になる。任意項目（`scientificName` など）は型が違うと上限の検査をすり抜ける。
-
-**判断: 400 にすべき（実装のバグ）。** 仕様書は型を `string` と定めており、型違いは入力の誤り。
-直すときは、型違いが 400 になる再現テストを先に書く。
 
 ### 有効期限1年の SAS 付き一時 URL をログに出している
 
@@ -742,7 +690,6 @@ OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値も�
 - **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
   テスト名と検証対象がずれている。同ファイルのエラー系は前方一致 `toThrow('植物識別に失敗しました')` のため、
   ハンドラで 500 になる経路と 502 になる経路を区別できない（原則7）
-- **`cosmosService.test.ts` の updatePlant の期待値が実装と同じスプレッドで組まれている**（上記の PUT のバグを検出できない）
 - **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
   PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
 - **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、

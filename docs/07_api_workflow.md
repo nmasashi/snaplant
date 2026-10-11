@@ -193,6 +193,9 @@ Content-Type: multipart/form-data
 500文字以内の文字列で、文字列でない場合（`補足情報は文字列で指定してください`）と
 500文字超過の場合（`補足情報は500文字以内で指定してください`）は、
 いずれも一時保存とAI呼び出しの前に 400 `INVALID_REQUEST` で弾かれます。
+`image` も同じく一時保存の前に検査され、形式が合わなければ 415 `UNSUPPORTED_MEDIA_TYPE`、
+0 バイトなら 400 `INVALID_REQUEST`（`画像ファイルが空です`）、上限超過なら 413 `FILE_TOO_LARGE` です
+（検査の全体と順序は `06_api_design.md` §5.8）。
 
 クライアント（Flutter）は `image` パートの Content-Type を、拡張子や OS の申告値ではなく
 ファイル先頭のシグネチャから決めます（`mobile/lib/utils/image_mime_type.dart`）。
@@ -306,6 +309,9 @@ Content-Type: application/json
   "imagePath": "https://snaplant.blob.core.windows.net/images/12345678-uuid.jpg"
 }
 ```
+
+サーバは `name` の前後の空白を取り除いて保存します。ステップ3の重複確認も前後の空白を
+取り除いて比較するので、前後に空白の付いた名前で保存しても、後の重複確認で同じ名前として見つかります。
 
 同じ `imagePath` のレコードが既にある場合は保存せず 409 を返します。
 保存に成功したがレスポンスが届かず、クライアントが同じ `imagePath` で再送した場合

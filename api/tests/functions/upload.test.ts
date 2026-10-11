@@ -472,6 +472,43 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(blobStore.size).toBe(0);
     });
 
+    it('0バイトのファイルは「画像ファイルが空です」という400エラーになり、何も保存されず識別も行われない', async () => {
+      // 形式は正当だが中身が空のファイル
+      const mockFile = {
+        name: 'empty.jpg',
+        type: 'image/jpeg',
+        size: 0,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(0))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          return null;
+        })
+      };
+
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      const response = await uploadImageHandler(request, mockContext);
+
+      // details は契約外のため固定しない
+      expect(response.status).toBe(400);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
+      expect(response.jsonBody.error.message).toBe('画像ファイルが空です');
+      // 状態（一時コンテナにも永続コンテナにも書き込まれていない）
+      expect(blobStore.size).toBe(0);
+      // OpenAI は管理外の依存。課金に直結する呼び出しが起きていない
+      expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
+    });
+
     it('contextInfoが501文字の場合は400エラー', async () => {
       // 統合処理は beforeEach でモック済み（バリデーションで止まるはずだが、
       // 意図せず到達しても別の原因で落ちないようにしておく）
