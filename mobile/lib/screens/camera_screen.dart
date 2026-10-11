@@ -103,9 +103,9 @@ class _CameraScreenState extends State<CameraScreen>
       
       // デバッグ用：画像情報をログ出力
       if (kDebugMode) {
-        print('CameraScreen: 画像ファイル名: ${image.name}');
-        print('CameraScreen: 画像mimeType: ${image.mimeType}');
-        print('CameraScreen: 画像サイズ: ${_webImageBytes!.length} bytes');
+        debugPrint('CameraScreen: 画像ファイル名: ${image.name}');
+        debugPrint('CameraScreen: 画像mimeType: ${image.mimeType}');
+        debugPrint('CameraScreen: 画像サイズ: ${_webImageBytes!.length} bytes');
       }
     } else {
       // モバイル環境の場合はFileを作成

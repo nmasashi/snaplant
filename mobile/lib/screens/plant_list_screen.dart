@@ -39,29 +39,29 @@ class _PlantListScreenState extends State<PlantListScreen> {
   /// [openSettingsIfMissing] が true なら、API キーが未設定のとき設定画面へ自動で移る。
   /// 起動時だけ true にする。再試行などで毎回移ると、設定画面から抜けられなくなるため
   Future<void> _initializeScreen({bool openSettingsIfMissing = true}) async {
-    print('PlantListScreen: 初期化開始');
+    debugPrint('PlantListScreen: 初期化開始');
     await _initializeApiService(openSettingsIfMissing: openSettingsIfMissing);
-    print('PlantListScreen: APIサービス初期化完了');
+    debugPrint('PlantListScreen: APIサービス初期化完了');
     await _loadPlants();
-    print('PlantListScreen: 植物一覧読み込み完了');
+    debugPrint('PlantListScreen: 植物一覧読み込み完了');
   }
 
   /// APIサービスの初期化
   Future<void> _initializeApiService({required bool openSettingsIfMissing}) async {
     try {
-      print('PlantListScreen: SettingsService取得開始');
+      debugPrint('PlantListScreen: SettingsService取得開始');
       final settingsService = await SettingsService.getInstance();
-      print('PlantListScreen: SettingsService取得完了');
+      debugPrint('PlantListScreen: SettingsService取得完了');
       
-      print('PlantListScreen: APIキー取得開始');
+      debugPrint('PlantListScreen: APIキー取得開始');
       final apiKey = await settingsService.getApiKey();
-      print('PlantListScreen: APIキー取得完了: ${apiKey?.isNotEmpty == true ? "設定済み" : "未設定"}');
+      debugPrint('PlantListScreen: APIキー取得完了: ${apiKey?.isNotEmpty == true ? "設定済み" : "未設定"}');
       
       final endpoint = settingsService.getApiEndpoint();
-      print('PlantListScreen: エンドポイント: $endpoint');
+      debugPrint('PlantListScreen: エンドポイント: $endpoint');
       
       if (apiKey == null || apiKey.isEmpty) {
-        print('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
+        debugPrint('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
         // 前の設定で作った ApiService が残っていると、リセットで消したキーで通信し続ける
         _apiService?.dispose();
         _apiService = null;
@@ -79,7 +79,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
         return;
       }
       
-      print('PlantListScreen: ApiService初期化開始');
+      debugPrint('PlantListScreen: ApiService初期化開始');
       _needsSetup = false;
       // 設定画面から戻るたびに作り直すので、前の ApiService（の http.Client）を閉じる
       _apiService?.dispose();
@@ -87,9 +87,9 @@ class _PlantListScreenState extends State<PlantListScreen> {
         baseUrl: endpoint,
         functionKey: apiKey,
       );
-      print('PlantListScreen: ApiService初期化完了');
+      debugPrint('PlantListScreen: ApiService初期化完了');
     } catch (e) {
-      print('PlantListScreen: APIサービス初期化エラー: $e');
+      debugPrint('PlantListScreen: APIサービス初期化エラー: $e');
       // 前の設定の ApiService が残っていると、続く _loadPlants() がこのエラーを消して
       // 古い設定のまま一覧を読み直してしまう
       _apiService?.dispose();
@@ -106,37 +106,37 @@ class _PlantListScreenState extends State<PlantListScreen> {
 
   /// 植物一覧の読み込み
   Future<void> _loadPlants() async {
-    print('PlantListScreen: _loadPlants開始');
+    debugPrint('PlantListScreen: _loadPlants開始');
     
     if (_apiService == null) {
-      print('PlantListScreen: _apiServiceがnullのため処理をスキップ');
+      debugPrint('PlantListScreen: _apiServiceがnullのため処理をスキップ');
       return;
     }
     
     try {
-      print('PlantListScreen: ローディング状態に設定');
+      debugPrint('PlantListScreen: ローディング状態に設定');
       setState(() {
         _isLoading = true;
         _hasError = false;
       });
 
-      print('PlantListScreen: API呼び出し開始');
+      debugPrint('PlantListScreen: API呼び出し開始');
       final plants = await _apiService!.getPlants();
-      print('PlantListScreen: API呼び出し完了: ${plants.length}件の植物を取得');
+      debugPrint('PlantListScreen: API呼び出し完了: ${plants.length}件の植物を取得');
       
       setState(() {
         _plants = plants;
         _isLoading = false;
       });
-      print('PlantListScreen: 状態更新完了');
+      debugPrint('PlantListScreen: 状態更新完了');
     } catch (e) {
-      print('PlantListScreen: 植物一覧読み込みエラー: $e');
+      debugPrint('PlantListScreen: 植物一覧読み込みエラー: $e');
       setState(() {
         _hasError = true;
         _errorMessage = e is ApiException ? e.userMessage : '植物一覧の読み込みに失敗しました';
         _isLoading = false;
       });
-      print('PlantListScreen: エラー状態に設定完了');
+      debugPrint('PlantListScreen: エラー状態に設定完了');
     }
   }
 

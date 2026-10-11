@@ -298,9 +298,9 @@ class DuplicateCheckResult {
 
   factory DuplicateCheckResult.fromJson(Map<String, dynamic> json) {
     if (kDebugMode) {
-      print('DuplicateCheckResult.fromJson: json=$json');
+      debugPrint('DuplicateCheckResult.fromJson: json=$json');
       if (json['plant'] != null) {
-        print('DuplicateCheckResult.fromJson: plant=${json['plant']}');
+        debugPrint('DuplicateCheckResult.fromJson: plant=${json['plant']}');
       }
     }
     return DuplicateCheckResult(
