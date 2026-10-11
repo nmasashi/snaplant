@@ -32,7 +32,6 @@ class _CameraScreenState extends State<CameraScreen>
   XFile? _selectedXFile;
   Uint8List? _webImageBytes;
   bool _isUploading = false;
-  bool _isIdentifying = false;
   final CameraService _cameraService = CameraService();
   late AnimationController _fadeController;
   late AnimationController _scaleController;
@@ -131,7 +130,6 @@ class _CameraScreenState extends State<CameraScreen>
     try {
       setState(() {
         _isUploading = true;
-        _isIdentifying = true;
       });
 
       // 画像をアップロード・AI識別を実行（統合）
@@ -147,7 +145,6 @@ class _CameraScreenState extends State<CameraScreen>
       if (!mounted) return;
       setState(() {
         _isUploading = false;
-        _isIdentifying = false;
       });
 
       // 識別結果画面へ遷移
@@ -178,7 +175,6 @@ class _CameraScreenState extends State<CameraScreen>
       if (!mounted) return;
       setState(() {
         _isUploading = false;
-        _isIdentifying = false;
       });
 
       final errorMessage = e is ApiException
@@ -504,7 +500,7 @@ class _CameraScreenState extends State<CameraScreen>
           child: OutlinedButton.icon(
             // 処理中に選び直すと、結果画面のヘッダーは新しい画像なのに、
             // 候補と保存される画像は送信済みの古い画像のものになる
-            onPressed: (_isUploading || _isIdentifying) ? null : _pickFromGallery,
+            onPressed: _isUploading ? null : _pickFromGallery,
             icon: Icon(Icons.photo_library),
             label: Text('別の画像を選択'),
             style: OutlinedButton.styleFrom(
@@ -521,7 +517,7 @@ class _CameraScreenState extends State<CameraScreen>
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: (_isUploading || _isIdentifying) ? null : _identifyPlant,
+            onPressed: _isUploading ? null : _identifyPlant,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.secondary,
               padding: EdgeInsets.symmetric(
@@ -531,7 +527,7 @@ class _CameraScreenState extends State<CameraScreen>
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: _isUploading || _isIdentifying
+            child: _isUploading
                 ? Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -545,7 +541,7 @@ class _CameraScreenState extends State<CameraScreen>
                       ),
                       SizedBox(width: 12),
                       Text(
-                        _isUploading ? 'アップロード中...' : '識別中...',
+                        'アップロード中...',
                         style: TextStyle(
                           fontSize: isLargeScreen ? 20 : 18,
                           fontWeight: FontWeight.w600,
