@@ -132,21 +132,32 @@ SELECT * FROM c WHERE c.imagePath = @imagePath
 
 ### 5.5 植物識別結果保存
 ```typescript
-// 新規植物の登録（SDK使用）
-const newPlant = {
-  id: uuidv4(),
+// 呼び出し側（save.ts）: id と日時は設定しない
+const newPlant: PlantCreateRequest = {
   name: "桜",
   scientificName: "Prunus serrulata",
   familyName: "バラ科",
   description: "日本を代表する花木",
   characteristics: "春に美しいピンクの花を咲かせる",
   confidence: 95.5,
-  imagePath: "https://snaplant.blob.core.windows.net/images/sakura.jpg",
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
+  imagePath: "https://snaplant.blob.core.windows.net/images/sakura.jpg"
 };
-await container.items.create(newPlant);
+const savedPlant = await cosmosService.createPlant(newPlant);
+
+// CosmosService.createPlant(): id と日時を付与して登録（SDK使用）
+const now = new Date().toISOString();
+const plant: Plant = {
+  id: this.generateId(),
+  ...plantData,
+  createdAt: now,
+  updatedAt: now
+};
+const { resource } = await this.container.items.create<Plant>(plant);
 ```
+
+id と日時は `CosmosService.createPlant()` が付与します。引数の型 `PlantCreateRequest` は
+id も日時も持たず、呼び出し側は設定しません。id は `generateId()`（v4 形式）で採番し、
+`createdAt` と `updatedAt` には共通の `now` を入れるため、新規登録時の両者は一致します。
 
 ### 5.6 植物情報更新
 ```typescript
@@ -175,7 +186,10 @@ await container.item(plantId, plantId).replace(updatedPlant);
     （外部ホスト、`https:` 以外のスキーム、一時コンテナ、中間に余分なセグメントを
     挟んだURL、クエリ文字列・フラグメント・`user:pass@` 付き・ホスト名の大文字・
     先頭の空白はいずれも 400 で拒否）
-  - UUID: v4形式の正規表現チェック
+  - UUID（`GET` / `PUT` / `DELETE /api/plants/{id}` のパスの id）: 形式を正規表現でチェックする
+    （`8-4-4-4-12` 桁の16進、バージョン桁 1〜5、バリアント桁 8/9/a/b、大文字小文字は区別しない。
+    `GENERAL_VALIDATION.UUID_REGEX`）。API が採番する id は v4 だが、受け付ける形式は v4 に限らない。
+    形式に合わない id は 400 `INVALID_REQUEST`
 
 ### 6.2 ドキュメント削除
 ```typescript
@@ -184,6 +198,14 @@ await container.item(plantId, plantId).delete();
 ```
 削除前に `imagePath` を読んでおき、ドキュメント削除後に Blob Storage 上の画像も削除します
 （孤児Blobを残さないため）。画像削除の失敗はログ出力のみで、削除自体は成功として扱います。
+
+画像の削除（更新時の旧画像・削除時の画像とも）は、URL のホストが自ストレージアカウントの
+Blob エンドポイントと一致し、最初のパスセグメントが永続コンテナ名または一時コンテナ名と
+完全一致する場合に限って行います。満たさない URL は何も削除せず、ドキュメント操作は
+通常どおり成功します。入口（save / PUT の `imagePath` 検証）と出口（削除）の二層で、
+他レコードの Blob を消す経路を塞ぐためです（`StorageService.deleteImage()`）。
+削除する Blob 名はコンテナ名より後ろのパス全体です（最後のセグメントだけを取ると、
+中間にセグメントを挟んだ URL が別の Blob を指せてしまうため）。
 
 ## 7. 拡張性考慮
 

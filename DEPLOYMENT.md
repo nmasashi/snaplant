@@ -198,7 +198,7 @@ Function App に設定される主要な環境変数：
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（モデル名として使用） |
-| `AZURE_OPENAI_API_VERSION` | Azure OpenAI APIバージョン |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI APIバージョン（未設定時は `2024-12-01-preview`） |
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | Application Insights キー |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
 
@@ -207,6 +207,12 @@ Terraform が設定します。ローカル開発では `api/local.settings.json
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
+
+`AZURE_OPENAI_ENDPOINT` が設定されている場合（Azure）の要求先は
+`${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT_NAME}` で、
+クエリの `api-version` に `AZURE_OPENAI_API_VERSION`（未設定時は `2024-12-01-preview`）を付けます。
+キー（`AZURE_OPENAI_API_KEY`）は `api-key` ヘッダで送ります（`openai` SDK の `apiKey` にも
+同じ値を渡しているため、SDK 既定の `Authorization: Bearer` ヘッダも付きます）。
 
 ### `STORAGE_CONNECTION_STRING` の制約
 
@@ -220,6 +226,9 @@ URL を検証しているため、`BlobEndpoint=` で別のホストを指定さ
 「自分が生成した URL を自分で拒否する」状態になるためです。
 静かに誤動作させるのではなく、サービスの初期化時点で失敗させる方針です
 （`api/src/services/storageService.ts`）。
+
+組み立てるホストは `<AccountName>.blob.<EndpointSuffix>` です。`EndpointSuffix` を省いた場合は
+`core.windows.net` としてホストを組み立てます（`<AccountName>.blob.core.windows.net`）。
 
 Terraform が流し込む `azurerm_storage_account.main.primary_connection_string` は
 `BlobEndpoint=` を含まないため、本番でこの制約に触れることはありません。

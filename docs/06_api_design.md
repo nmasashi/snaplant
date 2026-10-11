@@ -74,9 +74,9 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
   "candidates": [
     {
       "name": "string",
-      "scientificName": "string | null",
-      "familyName": "string | null",
-      "description": "string | null",
+      "scientificName": "string（省略されることがある）",
+      "familyName": "string（省略されることがある）",
+      "description": "string（省略されることがある）",
       "characteristics": "string",
       "confidence": "number (0-100)"
     }
@@ -84,6 +84,14 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 }
 ```
 `isPlant: false` の場合、`candidates` は空配列になります。
+
+`confidence`（植物判定の信頼度）と `reason`（判定理由）は常に含まれます。
+候補の `scientificName` / `familyName` / `description` は、AI が特定できなかった場合
+`null` ではなく**キーごと省略**されます（AI の応答に含まれる `null` をサーバ側で
+`undefined` に置き換えているため、JSON にキーが現れません）。
+
+`POST /api/images/upload` の `identificationResult` は `isPlant` / `confidence` / `candidates` の
+3項目だけで、`reason` は含まれません（5.8 参照）。
 
 ### 4.3 Error Model
 失敗時も成功時と同じ封筒に包まれます（`success: false` + `error`）。
@@ -100,6 +108,10 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 ```
 `details` は省略されることがあります（`createErrorResponse()` に渡されなかった場合、
 JSON にキー自体が現れません）。
+
+409 `DATABASE_ERROR`・500 `INTERNAL_ERROR`・502・503 では、`details` にサーバ内部で発生した
+例外のメッセージ（`error.message`）がそのまま入ります。SDK 由来の英語のこともあり
+内容は安定しないので、クライアントは表示や分岐に使いません。
 
 ## 5. API詳細仕様
 
@@ -168,6 +180,13 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 （5.4 参照）は、このエンドポイントでは適用していません。
 指定されたURLはそのままAI識別サービスへ渡されます。
 
+- `imagePath` が未指定（`null`・空文字を含む）→ 400 `INVALID_REQUEST`（`画像URLが指定されていません`、`details` なし）
+- `imagePath` がURLとしてパースできない → 400 `INVALID_REQUEST`
+  （`画像URLの形式が無効です`、`details` は `有効なURL形式で指定してください`）
+
+検証は `imagePath`（上の2つ）→ `contextInfo`（下の2つ）の順に行い、最初に失敗した1件だけを返します。
+いずれもAI呼び出しの前に弾かれます。
+
 `contextInfo` は文字列で、500文字以内です。
 - 文字列以外（数値・配列・オブジェクトなど）→ 400 `INVALID_REQUEST`（`補足情報は文字列で指定してください`）
 - 500文字超過 → 400 `INVALID_REQUEST`（`補足情報は500文字以内で指定してください`）
@@ -194,6 +213,8 @@ Content-Type: application/json
   "data": {
     "result": {
       "isPlant": true,
+      "confidence": 95.5,
+      "reason": "画像に桜の花が写っており、植物と判定しました",
       "candidates": [
         {
           "name": "桜",
@@ -244,6 +265,32 @@ Content-Type: application/json
 だからです。表記の違うURLが保存されると、文字列の完全一致に頼っている2箇所
 （`save` の `imagePath` 重複チェックと、更新時に旧画像を消すかの判定）が誤作動します。
 
+#### 入力検証（400）
+
+検証は下の表の上から順に行い、最初に失敗した1件だけを返します。
+いずれも 400 `INVALID_REQUEST` で、Cosmos DB へのアクセス（409 の重複チェックを含む）より前に弾かれます。
+
+| 順 | 条件 | `message` | `details` |
+|----|------|-----------|-----------|
+| 1 | ボディが JSON としてパースできない | `リクエストボディの形式が無効です` | `JSON形式で送信してください` |
+| 2 | ボディが `null` | `リクエストボディが指定されていません` | なし |
+| 3 | `name` が未指定・空文字・空白のみ | `植物名が指定されていません` | なし |
+| 4 | `characteristics` が未指定・空文字・空白のみ | `特徴が指定されていません` | なし |
+| 5 | `imagePath` が未指定・空文字・空白のみ | `画像パスが指定されていません` | なし |
+| 6 | `confidence` が数値でない（未指定を含む）、または 0 未満・100 超（0 と 100 は可） | `信頼度は0から100の間の数値で指定してください` | なし |
+| 7 | `name` が100文字を超える | `植物名は100文字以内で指定してください` | なし |
+| 8 | `scientificName` が150文字を超える | `学名は150文字以内で指定してください` | なし |
+| 9 | `familyName` が100文字を超える | `科名は100文字以内で指定してください` | なし |
+| 10 | `description` が1000文字を超える | `説明は1000文字以内で指定してください` | なし |
+| 11 | `characteristics` が500文字を超える | `特徴は500文字以内で指定してください` | なし |
+| 12 | `imagePath` が上記の形の条件を満たさない | `画像アップロードAPIが返したURLを指定してください` | なし |
+
+文字数は前後の空白を取り除かずに数えます。
+上限は環境変数 `PLANT_NAME_MAX_LENGTH` / `PLANT_SCIENTIFIC_NAME_MAX_LENGTH` /
+`PLANT_FAMILY_NAME_MAX_LENGTH` / `PLANT_DESCRIPTION_MAX_LENGTH` / `PLANT_CHARACTERISTICS_MAX_LENGTH`
+で変更でき、`message` の数値も追従します
+（正の整数として読めない値を設定した場合は表の既定値が使われます）。
+
 #### 同じ画像の二重保存（409）
 
 同じ `imagePath` を持つレコードが既に存在する場合は保存せず、
@@ -263,8 +310,9 @@ Content-Type: application/json
 再送する」リトライを冪等にするためです。同じ `imagePath` のレコードが2件あると、
 一方の削除や画像更新でもう一方の画像まで消えてしまいます。
 
-応答に既存レコードの `id` は含めません。クライアントは 409 を受けたら
-「既に保存済み」と解釈し、`GET /api/plants` から該当レコードを探します。
+応答に既存レコードの `id` は含めません。クライアント（Flutter アプリ）は 409 `IMAGE_ALREADY_SAVED` を
+受けたら「既に保存済み」と解釈し、`message` をそのまま表示して一覧画面へ戻り、
+`GET /api/plants` で一覧を取り直します（該当レコードを探す処理はしません）。
 
 **リクエスト例:**
 ```http
@@ -319,6 +367,21 @@ save 側だけ塞いでも PUT から同じ状態を作れるため、入口を�
 なお Cosmos DB 側が返す 409 はこのエンドポイントでは変換していないため 500 になります
 （5.4 の新規登録だけが 409 `DATABASE_ERROR` に変換します）。
 
+#### 入力検証（400）
+
+検証は下の表の上から順に行い、最初に失敗した1件だけを返します。
+植物IDの検証はボディの読み取りより前に行うため、IDが不正ならボディが壊れていてもIDのエラーになります。
+いずれも 400 `INVALID_REQUEST` で、Cosmos DB へのアクセス（409 の重複チェックを含む）より前に弾かれます。
+
+| 順 | 条件 | `message` | `details` |
+|----|------|-----------|-----------|
+| 1 | 植物IDの形式が無効（文言は GET/DELETE と異なる。[09_backlog](./09_backlog.md) 参照） | — | — |
+| 2 | ボディが JSON としてパースできない | `リクエストボディの形式が無効です` | `JSON形式で送信してください` |
+| 3 | ボディが `null` | `リクエストボディが指定されていません` | なし |
+| 4 | `imagePath` が未指定・空文字・空白のみ | `画像パスが指定されていません` | なし |
+| 5 | `confidence` が数値でない（未指定を含む）、または 0 未満・100 超（0 と 100 は可） | `信頼度は0から100の間の数値で指定してください` | なし |
+| 6 | `imagePath` が上記の形の条件を満たさない | `画像アップロードAPIが返したURLを指定してください` | なし |
+
 **リクエスト例:**
 ```http
 PUT /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
@@ -359,6 +422,9 @@ Content-Type: application/json
 
 ### 5.6 重複確認
 同名の植物が既に登録されているかチェックします。
+`name` は前後の空白を取り除いてから、保存済みの `name` と完全一致で比較します。
+未指定・空文字・空白のみの場合は 400 `INVALID_REQUEST`
+（`植物名が指定されていません`、`details` は `nameクエリパラメータは必須です`）を返します。
 
 **リクエスト例:**
 ```http
@@ -415,10 +481,26 @@ DELETE /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 ### 5.8 画像アップロード・植物判定統合
 植物画像をBlob Storageにアップロードし、コンテキスト情報と合わせてAI識別を実行します。植物でない場合は画像を削除します。
 `contextInfo` はテキストフィールドで送る500文字以内の文字列です。
-- 文字列でない（ファイルとして送られた場合など）→ 400 `INVALID_REQUEST`（`補足情報は文字列で指定してください`）
-- 500文字超過 → 400 `INVALID_REQUEST`（`補足情報は500文字以内で指定してください`）
 
+#### 入力検証（400 / 413 / 415）
+
+検証は下の表の上から順に行い、最初に失敗した1件だけを返します。
 いずれも一時保存とAI呼び出しの前に弾かれます。
+
+| 順 | 条件 | ステータス・コード | `message` | `details` |
+|----|------|-------------------|-----------|-----------|
+| 1 | リクエストの Content-Type が `multipart/form-data` で始まらない（未指定を含む） | 400 `INVALID_REQUEST` | `Content-Typeがmultipart/form-dataではありません` | `multipart/form-dataでファイルを送信してください` |
+| 2 | `image` が未指定、またはファイルではなくテキストフィールドで送られた | 400 `INVALID_REQUEST` | `画像ファイルが指定されていません` | `imageフィールドでファイルを送信してください` |
+| 3 | `image` の Content-Type が `image/jpeg` / `image/jpg` / `image/png` / `image/webp` / `image/gif` のいずれでもない（大文字小文字は区別しない） | 415 `UNSUPPORTED_MEDIA_TYPE` | `サポートされていない画像形式です` | `JPEG、PNG、WebP、GIFファイルのみアップロード可能です` |
+| 4 | `image` のサイズが上限（既定 10MB = 10485760 バイト）を超える | 413 `FILE_TOO_LARGE` | `ファイルサイズが大きすぎます` | `ファイルサイズは10MB以下にしてください` |
+| 5 | `contextInfo` が文字列でない（ファイルとして送られた場合など） | 400 `INVALID_REQUEST` | `補足情報は文字列で指定してください` | なし |
+| 6 | `contextInfo` が500文字を超える | 400 `INVALID_REQUEST` | `補足情報は500文字以内で指定してください` | なし |
+
+415 は `image` の画像形式が合わない場合専用です。リクエスト自体の Content-Type が
+`multipart/form-data` でない場合は 415 ではなく 400（1行目）になります。
+サイズの上限は環境変数 `MAX_FILE_SIZE`（バイト）で変更でき、`details` の数値も追従します
+（MB 単位に切り捨て。正の整数として読めない値を設定した場合は既定値が使われます）。
+`contextInfo` の上限値は 5.3 と同じく `CONTEXT_INFO_MAX_LENGTH` で変わります。
 
 **リクエスト例:**
 ```http
@@ -461,6 +543,9 @@ Content-Type: multipart/form-data
 
 `fileName` はクライアントが送信したファイル名をそのまま返します。
 Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので、`imagePath` 末尾のファイル名とは一致しません。
+
+`identificationResult` は `isPlant` / `confidence` / `candidates` の3項目だけで、
+`POST /api/plants/identify` の結果（4.2）にある `reason` は含まれません。
 
 **レスポンス例（植物でない場合）:**
 ```json
@@ -511,6 +596,29 @@ Azure Functions のランタイムが 401 を返し、アプリケーション�
 そのため応答は `{ success, error }` の封筒にならず、`ErrorCode` にも
 対応する定義を持たない（以前は `UNAUTHORIZED` / `INVALID_API_KEY` が
 定義されていたが、生成箇所が構造的に存在しないため削除した）。
+
+**429 もこの表に載せていません。** 過負荷時に Azure Functions のランタイムが 429（"Too Busy"）を
+返すことがあり、これも 401 と同じくアプリケーションコードに到達せず、封筒なしの応答になります。
+従量課金プランでは host.json の `extensions.http.dynamicThrottlesEnabled`（既定 `true`）と
+`extensions.http.maxOutstandingRequests`（既定 200）によってこの拒否が有効になっており、
+`api/host.json` はどちらも変更していません。
+アプリケーションのレート制限（7 章、未実装）とは別物です。
+
+#### 500 `INTERNAL_ERROR` の `message`
+
+500 `INTERNAL_ERROR` の `message` はエンドポイントごとに固定で、失敗の原因によって変わりません
+（原因は `details` に入りますが、4.3 のとおり内容は安定しません）。
+
+| エンドポイント | `message` |
+|---------------|-----------|
+| `GET /api/plants` | `植物一覧の取得に失敗しました` |
+| `GET /api/plants/{id}` | `植物詳細の取得に失敗しました` |
+| `POST /api/plants/save` | `植物の保存に失敗しました` |
+| `PUT /api/plants/{id}` | `植物の更新に失敗しました` |
+| `DELETE /api/plants/{id}` | `植物の削除に失敗しました` |
+| `POST /api/plants/identify` | `植物識別処理に失敗しました` |
+| `POST /api/images/upload` | `画像アップロード・植物判定に失敗しました` |
+| `GET /api/plants/check-duplicate` | `重複チェックに失敗しました` |
 
 ## 7. 未実装の仕様
 

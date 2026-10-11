@@ -27,6 +27,10 @@ SnapPlant（スナップ植物）
 - **要件**:
   - JPEG, PNG, WebP, GIF 形式の画像をサポート（`image/jpeg`, `image/jpg`,
     `image/png`, `image/webp`, `image/gif`）。それ以外は 415 で拒否
+    - 判定はクライアントが送る Content-Type（multipart の画像パートの申告値）に対して行い、
+      中身は見ない。Flutter クライアントは中身の先頭バイト（シグネチャ）から Content-Type を決め、
+      判定できない中身は `image/jpeg` として送るため、現状 HEIC などは 415 にならず受け付けられる
+      （扱いは[バックログ](./09_backlog.md)の「判定できない画像形式を `image/jpeg` として送る」で判断待ち）
   - 1ファイル 10MB まで（環境変数 `MAX_FILE_SIZE` で変更可。正の整数として
     読めない値なら既定の 10MB。超過は 413 で拒否）
   - ギャラリーからの画像選択

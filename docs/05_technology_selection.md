@@ -144,6 +144,24 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の
 `azurerm_cognitive_deployment.gpt5_luna`（`gpt-5.6-luna` / GlobalStandard SKU）と一致させる。
 
+#### リクエストと応答の形式（`api/src/services/openAIVisionService.ts`）
+
+- **トークン上限**: 推論モデルのため `max_completion_tokens`（現在は `4000`。推論トークンも
+  ここから消費するため余裕を持たせている）を使い、`max_tokens` は送らない（送ると 400
+  `Unsupported parameter`）。`temperature` も送らない（既定値 1 のみサポートで、
+  それ以外を送ると 400 `Unsupported value`）
+- **応答の強制**: JSON Schema の strict モード（`response_format: json_schema`,
+  `strict: true`）で強制する。strict の制約により、
+  - 任意項目（候補の `scientificName` / `familyName` / `description`）は `["string", "null"]` の
+    null 許容で表す。植物でない場合の `plantAnalysis` も `["object", "null"]` で null を返させる
+  - 全プロパティを `required` に列挙し、`additionalProperties: false` とする
+  - `minimum` / `maximum` / `maxItems` は使えないため、スキーマでは範囲と件数を強制しない。
+    全体の `confidence` が 0〜100 かはサーバ側（`validateAnalysisResult()`）で検証し、
+    候補を最大3つにすることはプロンプトで指示する
+- **null の扱い**: null で返った任意項目はサーバ側で省略してクライアントに返す
+  （`normalizeNulls()` が `undefined` に置き換えるため、JSON 応答ではキーごと消える）。
+  植物でない場合（`isPlant` が false、または `plantAnalysis` が null）は `candidates: []` を返す
+
 ### 3.6 API管理・セキュリティ
 
 #### MVP段階：Azure Functions 標準機能
@@ -192,7 +210,7 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 - **@azure/cosmos**: Cosmos DB接続
 - **@azure/storage-blob**: Blob Storage操作
 - **openai**: Azure OpenAI / OpenAI API連携
-- **uuid**: Blob名・植物IDの生成
+- **uuid**: Blob名の生成（植物IDは `CosmosService.generateId()` の自前実装で生成しており、このパッケージは使っていない。統一するかは 09_backlog の「UUID の生成方法が2つある」）
 
 ファイルアップロードは Azure Functions v4 の `request.formData()` で処理する。
 multer は導入していない。
@@ -219,13 +237,15 @@ lib/
 │   ├── api_service.dart
 │   ├── camera_service.dart
 │   └── settings_service.dart
+├── utils/                 # ユーティリティ
+│   └── image_mime_type.dart  # 先頭バイトのシグネチャから画像の MIME タイプを判定
 └── theme/                 # テーマ・スタイル
     ├── app_theme.dart
     ├── app_colors.dart
     └── app_text_styles.dart
 ```
 
-ルーティング専用のディレクトリ（`navigation/`）やユーティリティ（`utils/`）は無く、
+ルーティング専用のディレクトリ（`navigation/`）は無く、
 画面遷移は `main.dart` の手書き、状態管理は `setState` である。
 `pubspec.yaml` には `provider` / `go_router` / `dio` / `uuid` / `intl` が宣言されているが
 使用実績はゼロで、アーキテクチャ方針は未決定（[提案文書](./10_proposals.md)に記録）。
@@ -243,6 +263,32 @@ lib/
 - **エラーハンドリング**: `ApiService._handleError()` が例外を `ApiException` に正規化し、
   `userMessage` でステータスコードごとの日本語メッセージを返す
 - **JSON変換**: dart:convert による型安全なシリアライゼーション
+
+##### エラー表示
+
+非 2xx の応答は `ApiException.fromResponse()` が例外にする。ボディをサーバの封筒
+（`{ success: false, error: { code, message } }`）として読めれば、`error.code` / `error.message` を
+`ApiException` の `code` / `message` に入れる。封筒として読めないボディ（Azure Functions
+ランタイムが返す 401、従量課金プランの過負荷時に返る 429 "Too Busy" など）では `code` は null、
+`message` はステータス付きの固定文言「サーバーでエラーが発生しました（ステータス: {ステータス}）」になる。
+それ以外の例外（通信例外や 2xx 応答の解析失敗など）は、`_handleError()` が
+ステータス 0 の `ApiException` にする。
+
+画面に出す文言は `ApiException.userMessage` がステータスから決める。
+
+| ステータス | 表示文言 |
+|---|---|
+| 0 | ネットワークに接続できません。インターネット接続を確認してください。 |
+| 401 | APIキーが無効です。設定を確認してください。 |
+| 404 | 要求されたデータが見つかりません。 |
+| 429 | リクエスト数が制限を超えました。しばらく待ってから再試行してください。 |
+| 500 | サーバーで問題が発生しています。しばらく待ってから再試行してください。 |
+| 502 | 外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。 |
+| 503 | サービスに一時的に接続できません。しばらく待ってから再試行してください。 |
+| それ以外（400・409・413・415 など） | `message`（サーバの `error.message`。封筒を読めなければ上記の固定文言） |
+
+ただし識別結果確認画面の 409 `IMAGE_ALREADY_SAVED` だけは、`userMessage` ではなくサーバの
+`message` をそのまま表示する（[画面設計](./03_screen_design.md)の「保存時の挙動」参照）。
 
 自動リトライは実装していない。再試行はユーザー操作（一覧・詳細画面の「再試行」ボタン）による。
 
