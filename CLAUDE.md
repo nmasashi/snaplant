@@ -619,7 +619,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 | 文書 | 内容 | 書き込む主体 |
 |---|---|---|
-| 仕様書・設計文書（`docs/01`〜`08`, README, DEPLOYMENT） | **実装済みの事実** | 人間、`contract-auditor` |
+| 仕様書・設計文書（`docs/01`〜`07`, README, DEPLOYMENT） | **実装済みの事実** | 人間、`contract-auditor` |
 | `docs/09_backlog.md` | **検証済みで実在する**課題・未実装機能 | 人間、根拠を確認したエージェント |
 | `docs/10_proposals.md` | **トリアージ待ちの提案**（未採用） | `improvement-scout` のみ |
 
