@@ -166,6 +166,7 @@ class _CameraScreenState extends State<CameraScreen>
         );
 
         // 植物が保存された場合は親画面に通知
+        if (!mounted) return;
         if (result == true) {
           Navigator.pop(context, true);
         }
