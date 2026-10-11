@@ -148,6 +148,10 @@ resource "azurerm_linux_function_app" "main" {
   storage_account_access_key = azurerm_storage_account.main.primary_access_key
   service_plan_id            = azurerm_service_plan.main.id
 
+  # azurerm v4 では、ランタイム関係のアプリ設定（FUNCTIONS_WORKER_RUNTIME・WEBSITE_NODE_DEFAULT_VERSION）は
+  # application_stack から、Application Insights のアプリ設定は site_config の専用項目から
+  # プロバイダが設定する。app_settings に直接書くとプロバイダが読み戻すときに取り除くため、
+  # plan のたびに「追加する」差分が出続け、apply のたびに再起動が起きる
   site_config {
     application_stack {
       node_version = "20"
@@ -155,12 +159,11 @@ resource "azurerm_linux_function_app" "main" {
     cors {
       allowed_origins = ["*"]
     }
+    application_insights_key               = azurerm_application_insights.main.instrumentation_key
+    application_insights_connection_string = azurerm_application_insights.main.connection_string
   }
 
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME"     = "node"
-    "WEBSITE_NODE_DEFAULT_VERSION" = "~20"
-
     # Cosmos DB接続設定
     "COSMOS_DB_ENDPOINT"  = azurerm_cosmosdb_account.main.endpoint
     "COSMOS_DB_KEY"       = azurerm_cosmosdb_account.main.primary_key
@@ -177,11 +180,6 @@ resource "azurerm_linux_function_app" "main" {
     "AZURE_OPENAI_API_KEY"         = azurerm_cognitive_account.openai.primary_access_key
     "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt5_luna.name
     "AZURE_OPENAI_API_VERSION"     = var.openai_api_version
-
-    # Application Insights設定
-    "APPINSIGHTS_INSTRUMENTATIONKEY"        = azurerm_application_insights.main.instrumentation_key
-    "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
-
   }
 
   tags = var.tags
