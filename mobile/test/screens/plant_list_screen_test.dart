@@ -8,7 +8,9 @@ import 'package:snaplant_mobile/screens/plant_list_screen.dart';
 
 // 設定の保存先（端末のセキュアストレージと SharedPreferences）は、画面から見て
 // プロセス外の依存なので、パッケージ同梱のテスト用の仕組みで差し替える。
-// サーバ（Azure Functions）は、このファイルのテストでは API キーが未設定なので呼ばれない。
+// サーバ（Azure Functions）は差し替えられない（一覧画面が ApiService を自分で作るため）。
+// API キーがある状態のテストでは一覧の取得が実際に呼ばれ、テスト環境の HTTP は常に 400 を返すので、
+// 一覧は「エラーが発生しました」の表示になる。キーが無い・読めない状態のテストでは呼ばれない。
 
 /// セキュアストレージを [platform] に差し替える。テストが終わったら元に戻す
 void _useSecureStorage(FlutterSecureStoragePlatform platform) {
