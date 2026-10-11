@@ -36,6 +36,12 @@ export interface FakeBlobBackend {
   store: Map<string, BlobEntry>;
   /** アップロードを失敗させる。Blob 単位ではなくバックエンド全体に効く */
   forcedUploadError?: Error | null;
+  /**
+   * 指定したコンテナへのアップロードだけを失敗させる（コンテナ名 → エラー）。
+   * 「一時保存は成功し、永続コンテナへの移動で失敗する」経路は
+   * バックエンド全体に効く forcedUploadError では再現できない。既定は未設定
+   */
+  forcedUploadErrorByContainer?: Record<string, Error>;
 }
 
 /** 実 SDK が存在しない Blob への操作で投げる形に合わせたエラー */
@@ -58,6 +64,10 @@ export function createFakeBlockBlobClient(
     upload: async (content: Buffer, _length: number, options?: any) => {
       if (backend.forcedUploadError) {
         throw backend.forcedUploadError;
+      }
+      const containerError = backend.forcedUploadErrorByContainer?.[containerName];
+      if (containerError) {
+        throw containerError;
       }
       backend.store.set(key, {
         content,

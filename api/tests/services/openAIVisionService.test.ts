@@ -270,6 +270,47 @@ describe('OpenAIVisionService', () => {
       await expect(service.identifyPlant('https://example.com/image.jpg'))
         .rejects.toThrow('候補の信頼度が数値ではありません');
     });
+
+    function llmResponseWithCandidateConfidence(confidence: number) {
+      return {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              isPlant: true,
+              confidence: 95.5,
+              reason: 'テスト',
+              plantAnalysis: {
+                candidates: [
+                  {
+                    name: '桜',
+                    scientificName: 'Prunus serrulata',
+                    familyName: 'バラ科',
+                    description: '日本を代表する花木',
+                    characteristics: '春に美しいピンクの花を咲かせる',
+                    confidence
+                  }
+                ]
+              }
+            })
+          }
+        }]
+      };
+    }
+
+    it.each([-1, 100.5])('候補の信頼度が範囲外（%s）の場合、エラーをスローする', async (confidence) => {
+      mockOpenAI.chat.completions.create.mockResolvedValue(llmResponseWithCandidateConfidence(confidence));
+
+      await expect(service.identifyPlant('https://example.com/image.jpg'))
+        .rejects.toThrow('候補の信頼度が0-100の範囲ではありません');
+    });
+
+    it.each([0, 100])('候補の信頼度が境界値（%s）の場合、受け入れる', async (confidence) => {
+      mockOpenAI.chat.completions.create.mockResolvedValue(llmResponseWithCandidateConfidence(confidence));
+
+      const result = await service.identifyPlant('https://example.com/image.jpg');
+
+      expect(result.candidates[0].confidence).toBe(confidence);
+    });
   });
 
   describe('エラーハンドリングの詳細テスト', () => {
@@ -450,7 +491,10 @@ describe('OpenAIVisionService', () => {
       new OpenAIVisionService();
 
       const clientOptions = MockedOpenAI.mock.calls[0][0];
-      expect(clientOptions).toEqual({ apiKey: 'openai-api-key' });
+      expect(clientOptions.apiKey).toBe('openai-api-key');
+      expect(clientOptions.baseURL).toBeUndefined();
+      expect(clientOptions.defaultQuery).toBeUndefined();
+      expect(clientOptions.defaultHeaders).toBeUndefined();
     });
   });
 });

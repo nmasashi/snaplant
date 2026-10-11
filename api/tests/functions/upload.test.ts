@@ -705,51 +705,6 @@ describe('画像アップロード・植物判定統合API', () => {
   });
 
   describe('Azure Storage エラー', () => {
-    it('Storageエラーの場合は502エラー', async () => {
-      // Azure Storage エラーのモック（一時保存のアップロードで発生させる）
-      const storageError = new Error('Storage service error');
-      backend.forcedUploadError = storageError;
-
-      // ファイルオブジェクトのモック
-      const mockFile = {
-        name: 'test.jpg',
-        type: 'image/jpeg',
-        size: 1024,
-        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
-      } as any;
-
-      const mockFormData = {
-        get: jest.fn().mockImplementation((key: string) => {
-          if (key === 'image') return mockFile;
-          if (key === 'contextInfo') return null;
-          return null;
-        })
-      };
-
-      // リクエストの作成
-      const request = {
-        method: 'POST',
-        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
-        formData: jest.fn().mockResolvedValue(mockFormData)
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await uploadImageHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(502);
-      expect(response.jsonBody).toEqual({
-        success: false,
-        error: {
-          code: 'STORAGE_ERROR',
-          message: 'ストレージサービスでエラーが発生しました',
-          details: '一時画像のアップロードに失敗しました: Storage service error'
-        }
-      });
-    });
-
     it('一時保存がストレージ側のエラー応答で失敗した場合は502エラー', async () => {
       // Azure Storage SDK（@azure/storage-blob）が接続できたうえで返す失敗の形を再現する。
       // 実 SDK は RestError（name: 'RestError'、HTTP ステータスと Storage のエラーコード付き）を投げ、
@@ -808,15 +763,15 @@ describe('画像アップロード・植物判定統合API', () => {
     it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])(
       '一時保存が%sで失敗した場合は503エラー', async (errorCode) => {
       // 一時保存のアップロードが接続障害で落ちた場合。
-      // StorageService は wrapError() でメッセージを足しつつ code を引き継ぐので、
-      // upload.ts の「ネットワークエラー」分岐（ENOTFOUND || ECONNREFUSED || ETIMEDOUT）
-      // に到達し、502 ではなく 503 になる。
-      // 到達できていないとサービスへの接続障害が 500 に紛れ、
-      // クライアントが再試行の判断をできない（これが元の不具合）。
-      // code: 'ENOTFOUND' という前提は実SDKに忠実で、Azureのtransportは
-      // RestError に `code: err.code ?? ...` で errno をそのまま載せる
-      const networkError: any = new Error(`接続に失敗しました (${errorCode})`);
-      networkError.code = errorCode;
+      // StorageService は失敗を UpstreamError（service: 'storage'）で包み、元の RestError を
+      // cause に持つ。Azure の transport は errno を RestError の code に直接載せるので
+      // （`code: err.code ?? ...`）、hasCauseCode が見つけて 502 ではなく 503 になる。
+      // 到達できていないとサービスへの接続障害が 502 に紛れ、
+      // クライアントが再試行の判断をできない（これが元の不具合）
+      const networkError: any = Object.assign(new Error(`接続に失敗しました (${errorCode})`), {
+        name: 'RestError',
+        code: errorCode
+      });
       backend.forcedUploadError = networkError;
 
       // ファイルオブジェクトのモック
@@ -848,15 +803,89 @@ describe('画像アップロード・植物判定統合API', () => {
       const response = await uploadImageHandler(request, mockContext);
 
       // 検証
+      // details は契約外なので固定しない
       expect(response.status).toBe(503);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'STORAGE_ERROR',
-          message: 'ストレージサービスに接続できません',
-          details: `一時画像のアップロードに失敗しました: 接続に失敗しました (${errorCode})`
+          message: 'ストレージサービスに接続できません'
         }
       });
+    });
+
+    it('永続保存への移動がストレージ側のエラー応答で失敗した場合は502エラーで、永続コンテナには何も残らない', async () => {
+      // 一時保存は成功し、永続コンテナ（images）への書き込みだけが RestError で失敗する。
+      // 一時保存の失敗とは別の場所（moveFromTempToPermanent）だが、同じ
+      // ストレージの障害として分類される
+      backend.forcedUploadErrorByContainer = {
+        images: Object.assign(
+          new Error('This request is not authorized to perform this operation.'),
+          { name: 'RestError', statusCode: 403, code: 'AuthorizationFailure' }
+        )
+      };
+
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+      const mockFormData = { get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null)) };
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証（details は契約外なので固定しない）
+      expect(response.status).toBe(502);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'STORAGE_ERROR',
+          message: 'ストレージサービスでエラーが発生しました'
+        }
+      });
+      expect([...blobStore.keys()].filter(key => key.startsWith('images/'))).toEqual([]);
+    });
+  });
+
+  describe('ストレージにもAIにも届かない失敗', () => {
+    it('受け取ったファイルの読み出しに失敗した場合は500エラーで、Blobには何も書かれない', async () => {
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockRejectedValue(new Error('stream failure'))
+      } as any;
+      const mockFormData = { get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null)) };
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await uploadImageHandler(request, mockContext);
+
+      // 検証（details は契約外なので固定しない）
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '画像アップロード・植物判定に失敗しました'
+        }
+      });
+      expect(blobStore.size).toBe(0);
     });
   });
 
@@ -905,16 +934,16 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.jsonBody.error.message).toBe('植物識別サービスでエラーが発生しました');
     });
 
-    it('AI識別サービスに接続できない場合はストレージではなくAIの障害として503エラーを返す', async () => {
+    it.each([
+      ['ENOTFOUND', 'getaddrinfo ENOTFOUND example.openai.azure.com'],
+      ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:443']
+    ])('AI識別サービスに接続できない場合（%s）はストレージではなくAIの障害として503エラーを返す', async (errno, sysMessage) => {
       // 実SDK（openai 7.x / Node標準のfetch）の接続エラーは3段のcauseチェーンになる。
-      //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code='ENOTFOUND'）
-      // ENOTFOUNDを持つのは最深部だけで、トップレベルにcodeは付かない。
+      //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code=errno）
+      // errnoを持つのは最深部だけで、トップレベルにcodeは付かない。
       // トップレベルにcodeを付けると実SDKが作らない形になるので付けない
-      const dnsError = Object.assign(
-        new Error('getaddrinfo ENOTFOUND example.openai.azure.com'),
-        { code: 'ENOTFOUND' }
-      );
-      const fetchError = Object.assign(new TypeError('fetch failed'), { cause: dnsError });
+      const sysError = Object.assign(new Error(sysMessage), { code: errno });
+      const fetchError = Object.assign(new TypeError('fetch failed'), { cause: sysError });
       const connectionError = Object.assign(new Error('Connection error.'), {
         name: 'APIConnectionError',
         cause: fetchError
