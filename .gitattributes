@@ -1,3 +1,13 @@
-# シェルスクリプトは Git Bash で実行するため LF で取り出す。
-# core.autocrlf で CRLF になると、行末の CR が原因で bash が失敗する
+# テキストは、リポジトリの中も作業ツリーも LF にそろえる。
+# Windows の core.autocrlf=true だと作業ツリーが CRLF になり、ツールが LF で書いたファイルと
+# 混ざって、バイト単位の比較や行末を見る検索が CR に邪魔される（2026-10-12 にそろえた）。
+# text=auto なので、画像などのバイナリは Git が判定して変換しない
+* text=auto eol=lf
+
+# シェルスクリプトは Git Bash で実行する。CR が混ざると bash が失敗するので、明示しておく
 *.sh text eol=lf
+
+# Windows でしか動かないスクリプトは CRLF のまま（今は無いが、置いたときのため）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

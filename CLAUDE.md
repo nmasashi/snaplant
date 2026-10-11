@@ -30,8 +30,11 @@ api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C
   `infrastructure/terraform.tfstate`（と `.backup`）、`infrastructure/terraform.tfvars`、`api/local.settings.json`。
   どれも秘密情報を含むので、人間が Windows 側の同じ場所へ移す。**WSL 側のクローンを消す前に必ず移すこと**（state を失うと
   Terraform で既存の Azure リソースを管理できなくなる）
-- **シェルスクリプトは LF で取り出す。** `core.autocrlf` で CRLF になると Git Bash で `\r` が原因で失敗するため、
-  `.gitattributes` で `*.sh` を `eol=lf` にしている
+- **テキストは作業ツリーも LF にそろえている**（`.gitattributes` の `* text=auto eol=lf`、2026-10-12）。
+  この PC の Git は `core.autocrlf=true` で、以前は作業ツリーが CRLF になり、ツールが LF で書いたファイルと混ざって
+  バイト比較や行末の検索が `\r` に邪魔され、Git Bash ではシェルスクリプトも失敗した。新しいファイルも LF で書くこと。
+  Windows 用のスクリプト（`.bat` / `.cmd` / `.ps1`）だけは CRLF。
+  `.gitattributes` が入る前のブランチを取り出すと、そのブランチのファイルは CRLF に戻る
 
 Terraform は Windows に導入済み（2026-10-11 時点で 1.16.5）。`plan` / `apply` には上記の state と `terraform.tfvars` が要る。
 azurerm プロバイダは v4 で、サブスクリプション ID を環境変数 `ARM_SUBSCRIPTION_ID` で渡す
