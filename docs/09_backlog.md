@@ -146,6 +146,23 @@ API Management を前段に置くと固定費が発生し、`DEPLOYMENT.md` の�
 
 ## 既知の不具合・改善
 
+### azurerm プロバイダを v5 に上げる（画像の公開設定に注意）
+
+2026-10-11 に v3 から v4（4.81.0）へ上げた。Node 22 の指定に v4 が必要だったため。
+最新は v5（2026-10-11 時点で 5.9.0）。v4 → v5 で、このリポジトリに影響する変更（azurerm の 5.0 移行ガイド）。
+
+- **`azurerm_storage_account` の `allow_nested_items_to_be_public` の既定値が `false` になる。**
+  `images` コンテナは公開読み取り（`container_access_type = "blob"`）で、Flutter はその公開 URL で画像を表示している。
+  **明示せずに上げると、画像がすべて表示されなくなる。** `allow_nested_items_to_be_public = true` を明示してから上げる
+- **`azurerm_storage_container` の `storage_account_name` が削除され、`storage_account_id` になる。**
+  指定方法を変えるとコンテナが作り直しになる可能性がある（`images` の中身が消える）。
+  `terraform plan` で replace が出ないことを必ず確かめる。出るなら `terraform state` 操作か import で回避する
+- `azurerm_application_insights` の `local_authentication_disabled`・`disable_ip_masking` が削除される（このリポジトリでは未使用）
+- `features` ブロックの中身の一部が変わる（`enhanced_validation` が中に移る、`skip_provider_registration` の削除）
+
+**判断が必要な点**: いつ上げるか。v4 のサポート期間中は急がない。Flex Consumption への移行（`azurerm_function_app_flex_consumption`）と
+同じ時期にまとめると、`plan` の確認が1回で済む。
+
 ### Flutter が CI の対象外
 
 `terraform fmt -check` と `terraform validate` は

@@ -3,7 +3,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~>3.0"
+      version = "~>4.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -14,6 +14,8 @@ terraform {
 }
 
 # Microsoft Azureプロバイダーの設定
+# v4 からサブスクリプション ID の指定が必須。ここには書かず、環境変数 ARM_SUBSCRIPTION_ID で渡す
+# （scripts/deploy.sh・destroy.sh が az login 中のサブスクリプションから設定する）
 provider "azurerm" {
   features {}
 }
@@ -88,7 +90,7 @@ resource "azurerm_cosmosdb_account" "main" {
   }
 
   # 無料枠を有効化 (400 RU/s + 25GB ストレージ)
-  enable_free_tier = true
+  free_tier_enabled = true
 
   tags = var.tags
 }
@@ -106,7 +108,7 @@ resource "azurerm_cosmosdb_sql_container" "plants" {
   resource_group_name = azurerm_resource_group.main.name
   account_name        = azurerm_cosmosdb_account.main.name
   database_name       = azurerm_cosmosdb_sql_database.main.name
-  partition_key_path  = "/id"
+  partition_key_paths = ["/id"]
 
   # 無料枠の共有スループットを使用
   throughput = var.cosmos_db_throughput
@@ -220,8 +222,8 @@ resource "azurerm_cognitive_deployment" "gpt5_luna" {
     version = "2026-07-09"
   }
 
-  scale {
-    type = "GlobalStandard"
+  sku {
+    name = "GlobalStandard"
   }
 }
 

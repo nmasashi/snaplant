@@ -53,6 +53,10 @@ az account show
 
 # 必要に応じてサブスクリプション変更
 az account set --subscription "your-subscription-id"
+
+# azurerm プロバイダ v4 からはサブスクリプション ID の指定が必須。
+# terraform を直接実行するときは環境変数で渡す（scripts/deploy.sh・destroy.sh は自動で設定する）
+export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 ```
 
 ## 使用方法
