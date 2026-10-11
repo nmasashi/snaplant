@@ -76,7 +76,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
               Shadow(
                 offset: const Offset(1, 1),
                 blurRadius: 4,
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
               ),
             ],
           ),
@@ -95,7 +95,7 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    Colors.black.withOpacity(0.7),
+                    Colors.black.withValues(alpha: 0.7),
                   ],
                 ),
               ),
@@ -169,10 +169,10 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
       width: double.infinity,
       padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
       decoration: BoxDecoration(
-        color: AppColors.success.withOpacity(0.1),
+        color: AppColors.success.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.success.withOpacity(0.3),
+          color: AppColors.success.withValues(alpha: 0.3),
           width: 2,
         ),
       ),
@@ -318,10 +318,10 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
         vertical: isLargeScreen ? 6 : 4,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: color.withOpacity(0.3),
+          color: color.withValues(alpha: 0.3),
           width: 1,
         ),
       ),

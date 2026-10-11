@@ -16,7 +16,6 @@ class AppTheme {
         onPrimary: AppColors.textOnPrimary,
         secondary: AppColors.secondary,
         surface: AppColors.surface,
-        background: AppColors.background,
         error: AppColors.error,
       ),
       
@@ -203,13 +202,13 @@ class AppTheme {
       
       // チェックボックステーマ
       checkboxTheme: CheckboxThemeData(
-        fillColor: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
             return AppColors.primary;
           }
           return AppColors.surface;
         }),
-        checkColor: MaterialStateProperty.all(AppColors.textOnPrimary),
+        checkColor: WidgetStateProperty.all(AppColors.textOnPrimary),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(4),
         ),
@@ -217,8 +216,8 @@ class AppTheme {
       
       // ラジオボタンテーマ
       radioTheme: RadioThemeData(
-        fillColor: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
             return AppColors.primary;
           }
           return AppColors.textSecondary;
@@ -227,10 +226,10 @@ class AppTheme {
       
       // スクロールバーテーマ
       scrollbarTheme: ScrollbarThemeData(
-        thumbColor: MaterialStateProperty.all(AppColors.textSecondary),
-        trackColor: MaterialStateProperty.all(AppColors.surface),
+        thumbColor: WidgetStateProperty.all(AppColors.textSecondary),
+        trackColor: WidgetStateProperty.all(AppColors.surface),
         radius: const Radius.circular(4),
-        thickness: MaterialStateProperty.all(6),
+        thickness: WidgetStateProperty.all(6),
       ),
     );
   }
@@ -262,7 +261,7 @@ class AppTheme {
         // ボタンサイズの調整
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: baseTheme.elevatedButtonTheme.style?.copyWith(
-            padding: MaterialStateProperty.all(
+            padding: WidgetStateProperty.all(
               const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
             ),
           ),

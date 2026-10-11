@@ -271,10 +271,10 @@ class _CameraScreenState extends State<CameraScreen>
       width: double.infinity,
       padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
       decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.1),
+        color: AppColors.primary.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.primary.withOpacity(0.2),
+          color: AppColors.primary.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -410,7 +410,7 @@ class _CameraScreenState extends State<CameraScreen>
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: AppColors.primary.withOpacity(0.2),
+          color: AppColors.primary.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -455,7 +455,7 @@ class _CameraScreenState extends State<CameraScreen>
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppColors.primary.withOpacity(0.3)),
+                borderSide: BorderSide(color: AppColors.primary.withValues(alpha: 0.3)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),

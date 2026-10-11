@@ -284,7 +284,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
               Shadow(
                 offset: const Offset(1, 1),
                 blurRadius: 4,
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
               ),
             ],
           ),
@@ -324,7 +324,7 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    Colors.black.withOpacity(0.7),
+                    Colors.black.withValues(alpha: 0.7),
                   ],
                 ),
               ),
@@ -589,10 +589,10 @@ class _PlantDetailScreenState extends State<PlantDetailScreen> {
         vertical: isLargeScreen ? 8 : 6,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: color.withOpacity(0.3),
+          color: color.withValues(alpha: 0.3),
           width: 1,
         ),
       ),

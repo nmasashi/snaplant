@@ -411,10 +411,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       padding: EdgeInsets.all(isLargeScreen ? 16 : 12),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
+        color: statusColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: statusColor.withOpacity(0.3),
+          color: statusColor.withValues(alpha: 0.3),
           width: 1,
         ),
       ),

@@ -32,9 +32,9 @@ class AppColors {
   static const Color info = Color(0xFF2196F3);
   
   // 透明度付きカラー
-  static Color primaryWithOpacity(double opacity) => primary.withOpacity(opacity);
-  static Color secondaryWithOpacity(double opacity) => secondary.withOpacity(opacity);
-  static Color surfaceWithOpacity(double opacity) => surface.withOpacity(opacity);
+  static Color primaryWithOpacity(double opacity) => primary.withValues(alpha: opacity);
+  static Color secondaryWithOpacity(double opacity) => secondary.withValues(alpha: opacity);
+  static Color surfaceWithOpacity(double opacity) => surface.withValues(alpha: opacity);
   
   // Material Color Swatch for Primary
   static const MaterialColor primarySwatch = MaterialColor(

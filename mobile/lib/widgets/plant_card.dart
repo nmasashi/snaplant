@@ -199,10 +199,10 @@ class PlantCard extends StatelessWidget {
         vertical: isLargeScreen ? 6 : 4,
       ),
       decoration: BoxDecoration(
-        color: confidenceColor.withOpacity(0.1),
+        color: confidenceColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: confidenceColor.withOpacity(0.3),
+          color: confidenceColor.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
