@@ -496,7 +496,9 @@ class _CameraScreenState extends State<CameraScreen>
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: _pickFromGallery,
+            // 処理中に選び直すと、結果画面のヘッダーは新しい画像なのに、
+            // 候補と保存される画像は送信済みの古い画像のものになる
+            onPressed: (_isUploading || _isIdentifying) ? null : _pickFromGallery,
             icon: Icon(Icons.photo_library),
             label: Text('別の画像を選択'),
             style: OutlinedButton.styleFrom(

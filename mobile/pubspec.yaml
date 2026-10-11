@@ -36,6 +36,10 @@ dev_dependencies:
 
   flutter_lints: ^3.0.1
 
+  # ギャラリー（OS の画像選択）をテストで偽物に差し替えるため
+  image_picker_platform_interface: ^2.10.1
+  plugin_platform_interface: ^2.1.8
+
 flutter:
   uses-material-design: true
 
