@@ -33,11 +33,12 @@ api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C
 - **シェルスクリプトは LF で取り出す。** `core.autocrlf` で CRLF になると Git Bash で `\r` が原因で失敗するため、
   `.gitattributes` で `*.sh` を `eol=lf` にしている
 
+Terraform は Windows に導入済み（2026-10-11 時点で 1.16.5）。`plan` / `apply` には上記の state と `terraform.tfvars` が要る。
+
 Windows に入っていないツール（必要になったら入れる）。
 
 | ツール | 用途 | 無い間にできないこと |
 |---|---|---|
-| Terraform | `infrastructure/` | `terraform plan` / `apply`、`scripts/*.sh`（`fmt` と `validate` は CI が回す） |
 | Azure Functions Core Tools（`func`） | api のローカル起動 | `npm start`（テストと型チェックには不要） |
 
 ## コマンド
