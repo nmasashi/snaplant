@@ -12,7 +12,8 @@ import 'package:snaplant_mobile/screens/plant_list_screen.dart';
 // API キーがある状態のテストでは一覧の取得が実際に呼ばれ、テスト環境の HTTP は常に 400 を返すので、
 // 一覧は「エラーが発生しました」の表示になる。キーが無い・読めない状態のテストでは呼ばれない。
 
-/// セキュアストレージを [platform] に差し替える。テストが終わったら元に戻す
+/// テストの間だけセキュアストレージを [platform] に差し替え、テストが終わったら差し替える前のものに戻す。
+/// セキュアストレージは全テストで共有する1つの置き場なので、戻さないと次のテストが偽物を引き継ぐ
 void _useSecureStorage(FlutterSecureStoragePlatform platform) {
   final original = FlutterSecureStoragePlatform.instance;
   FlutterSecureStoragePlatform.instance = platform;
