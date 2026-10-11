@@ -196,6 +196,30 @@ describe('植物保存API', () => {
       const savedId: string = response.jsonBody.data.plant.id;
       expect(cosmosBackend.documents.get(savedId)?.name).toBe('桜');
     });
+
+    it('前後に空白が付いていても、取り除いた後の名前が上限ちょうどなら保存できる（保存される名前と同じ長さで上限を判定するため）', async () => {
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          // 上限（100文字）ちょうどの名前の前後に半角空白を1つずつ付ける
+          name: ' ' + 'あ'.repeat(100) + ' ',
+          characteristics: '基本的な特徴',
+          confidence: 80.0,
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`
+        })
+      } as any as HttpRequest;
+
+      // 実行
+      const response = await savePlantHandler(request, mockContext);
+
+      // 検証
+      expect(response.status).toBe(201);
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(cosmosBackend.documents.get(savedId)?.name).toBe('あ'.repeat(100));
+    });
   });
 
   describe('バリデーションエラー', () => {

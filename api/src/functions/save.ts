@@ -5,7 +5,8 @@ import {
   createSuccessResponse, 
   createErrorResponse, 
   createInternalError,
-  createValidationError
+  createValidationError,
+  isPresentNonString
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
 import { PlantCreateRequest } from '../types/plant';
@@ -28,7 +29,9 @@ export async function savePlantHandler(request: HttpRequest, context: Invocation
       return validationError;
     }
 
-    context.log(`植物保存開始: 名前=${requestBody.name}`);
+    // 保存される値（前後の空白を除いた名前）を出す。そのまま出すと、
+    // ログの名前と保存された名前が食い違い、重複の調査で突き合わせられない
+    context.log(`植物保存開始: 名前=${requestBody.name.trim()}`);
 
     // 植物オブジェクト作成
     //
@@ -130,8 +133,7 @@ function validatePlantCreateRequest(request: PlantCreateRequest): HttpResponseIn
     ['description', '説明']
   ];
   for (const [field, label] of stringFields) {
-    const value = request[field];
-    if (value !== undefined && value !== null && typeof value !== 'string') {
+    if (isPresentNonString(request[field])) {
       return createValidationError(`${label}は文字列で指定してください`);
     }
   }
@@ -156,7 +158,8 @@ function validatePlantCreateRequest(request: PlantCreateRequest): HttpResponseIn
   }
 
   // 文字列長のチェック
-  if (request.name.length > PLANT_VALIDATION.MAX_LENGTH.NAME) {
+  // 保存されるのは前後の空白を取り除いた値なので、同じものの長さで判定する
+  if (request.name.trim().length > PLANT_VALIDATION.MAX_LENGTH.NAME) {
     return createValidationError(PLANT_VALIDATION.ERROR_MESSAGES.NAME_TOO_LONG);
   }
 

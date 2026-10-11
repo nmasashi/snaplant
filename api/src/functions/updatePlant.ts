@@ -9,7 +9,7 @@ import {
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
 import { PlantUpdateRequest } from '../types/plant';
-import { isValidUUID } from '../utils/response';
+import { isValidUUID, isPresentNonString } from '../utils/response';
 import { PLANT_VALIDATION, GENERAL_VALIDATION } from '../constants/validation';
 
 /**
@@ -77,7 +77,10 @@ export async function updatePlantHandler(request: HttpRequest, context: Invocati
     }
 
     // 植物更新。ボディを詰め直して、更新を許す2項目だけを渡す。
-    // そのまま渡すと、ボディに含まれた name や createdAt まで既存の植物に上書きされる
+    // そのまま渡すと、ボディに含まれた name や createdAt まで既存の植物に上書きされる。
+    // CosmosService.updatePlant() 側でも2項目だけを反映しており、テストはそちらの層を守っている。
+    // この層はプロセス内の CosmosService をモックしないと単独で検証できないため、
+    // 消してもテストは落ちない。save.ts と同じ「ハンドラで詰め直す」形を揃えるために残している
     const updatedPlant = await cosmosService.updatePlant(plantId, {
       imagePath: requestBody.imagePath,
       confidence: requestBody.confidence
@@ -128,7 +131,7 @@ function validatePlantUpdateRequest(request: PlantUpdateRequest): HttpResponseIn
   }
 
   // 型のチェック。.trim() より前に置く（文字列以外だと TypeError で 500 になるため。save.ts と同じ）
-  if (request.imagePath !== undefined && request.imagePath !== null && typeof request.imagePath !== 'string') {
+  if (isPresentNonString(request.imagePath)) {
     return createValidationError('画像パスは文字列で指定してください');
   }
 
