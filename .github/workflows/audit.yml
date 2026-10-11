@@ -1,0 +1,54 @@
+name: Dependency Audit
+
+# 依存パッケージの既知の脆弱性を検知する。
+#
+# ci.yml から分けているのは、deploy-functions.yml が ci.yml の成功をデプロイの前提にしているため。
+# ここが失敗してもデプロイは止まらない（個人利用なので止めるまではしない。人間の判断）。
+# かつて ci.yml の中で continue-on-error: true にしていたため、critical の脆弱性があっても
+# ジョブは成功扱いになり、誰も気づけなかった。ここでは失敗をそのまま失敗にして、
+# PR のチェックと main のコミットに赤い × で出す。
+#
+# 定期実行は、コードを触っていない間に公表された脆弱性を拾うため。
+# 定期実行が失敗すると、GitHub がワークフローの cron を最後に変更した人へ通知メールを送る。
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'api/package.json'
+      - 'api/package-lock.json'
+      - '.github/workflows/audit.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'api/package.json'
+      - 'api/package-lock.json'
+      - '.github/workflows/audit.yml'
+  schedule:
+    - cron: '0 0 * * 1' # 毎週月曜 9:00（日本時間）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.x'
+
+    # npm audit は package-lock.json だけを読むので、npm ci は要らない。
+    # 開発用の依存も対象に含める（デプロイのパッケージに入っているため）。
+    # high 以上で失敗させる。moderate を含めないのは、Jest の間接依存の sprintf-js に
+    # 修正版が出ておらず、含めると常に失敗して検知の意味が無くなるため
+    - name: Run npm audit
+      working-directory: api
+      run: npm audit --audit-level=high

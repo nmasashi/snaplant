@@ -37,11 +37,12 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 ## 🚀 CI/CD
 
 このプロジェクトは GitHub Actions による CI/CD パイプラインを使用しています。
-ワークフローは3本です。
+ワークフローは4本です。
 
 | ワークフロー | 対象 | 内容 |
 |---|---|---|
-| `.github/workflows/ci.yml` | `api/` | テスト・カバレッジ・ビルド・`npm audit`・CodeQL |
+| `.github/workflows/ci.yml` | `api/` | テスト・カバレッジ・ビルド・CodeQL |
+| `.github/workflows/audit.yml` | `api/package.json`・`api/package-lock.json` | `npm audit --audit-level=high`（開発用の依存も含む）。high 以上の脆弱性があれば失敗します。毎週月曜 9:00（日本時間）の定期実行と手動実行もあります。デプロイの前提にはしていないため、失敗してもデプロイは止まりません |
 | `.github/workflows/terraform.yml` | `infrastructure/` | `terraform fmt -check -recursive` と `terraform validate`（`-backend=false`）。Azure へは通信せず認証情報も不要で、`plan` は回しません |
 | `.github/workflows/deploy-functions.yml` | `api/` | main ブランチへのプッシュで ci.yml を呼び、成功後に本番デプロイ |
 
@@ -128,7 +129,8 @@ flutter build apk --release
 
 - Function Key 認証（クライアントは flutter_secure_storage にキーを保存）
 - 入力値検証（画像の形式・サイズ、文字数上限、`imagePath` のスキーム・ホスト・パス形）
-- セキュリティスキャンの自動実行（`npm audit` / CodeQL）
+- 依存パッケージの脆弱性検査（`audit.yml` の `npm audit --audit-level=high`。high 以上で失敗しますが、デプロイは止めません）
+- CodeQL による静的解析（`ci.yml`。解析ステップは `continue-on-error: true` のため、失敗してもワークフローは失敗しません）
 - CORS は Function App 側で**全オリジンを許可**（`infrastructure/main.tf` の `allowed_origins = ["*"]`）。オリジンの制限はしていません
 
 ## 📈 監視

@@ -104,11 +104,7 @@ jobs:
         cd api
         npm ci
 
-    - name: Run npm audit
-      run: |
-        cd api
-        npm audit --audit-level=high
-      continue-on-error: true
+    # npm audit は audit.yml に分けた（失敗してもデプロイを止めずに検知するため）
 
     - name: Run CodeQL Analysis
       uses: github/codeql-action/init@v3
