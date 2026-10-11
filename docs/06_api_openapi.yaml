@@ -943,15 +943,17 @@ components:
           properties:
             code:
               type: string
-              description: エラーコード
+              description: エラーコード（契約。クライアントは分岐に使ってよい）
             message:
               type: string
-              description: エラーメッセージ（日本語）
+              description: |
+                エラーメッセージ（日本語）。契約で、文言はこの仕様書の各エンドポイント・各スキーマに記載する。
+                Flutter クライアントは 400・409 などでこの文言をそのまま画面に表示する。
             details:
               type: string
               nullable: true
               description: |
-                詳細情報。
+                詳細情報。**契約外**で、文言を保証しない。
                 409 `DATABASE_ERROR`・500 `INTERNAL_ERROR`・502・503 では、サーバ内部で発生した
                 例外のメッセージがそのまま入る（SDK 由来の英語のメッセージや、内部で包み直した
                 「〜に失敗しました: <元のメッセージ>」の形など）。
