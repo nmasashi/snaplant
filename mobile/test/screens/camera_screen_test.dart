@@ -23,9 +23,9 @@ const _jsonHeaders = {'content-type': 'application/json'};
 const _tinyPng = <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
   0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-  0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
-  0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59, 0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
-  0x44, 0xAE, 0x42, 0x60, 0x82,
+  0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xFF, 0xFF, 0xFF,
+  0x7F, 0x00, 0x09, 0xFB, 0x03, 0xFD, 0x2A, 0x86, 0xE3, 0x8A, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+  0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ];
 
 /// ギャラリーの偽物。選ばれるたびに、渡されたファイルを先頭から順に返す
@@ -108,16 +108,35 @@ Future<void> _openCameraScreenWithImageSelected(
   ImagePickerPlatform.instance = _FakeGallery(galleryFiles);
   addTearDown(() => ImagePickerPlatform.instance = originalPicker);
 
-  await tester.pumpWidget(MaterialApp(home: CameraScreen(apiService: apiService)));
+  // 戻る操作を試せるよう、一覧画面の上に積む
+  await tester.pumpWidget(MaterialApp(
+    home: Builder(
+      builder: (context) => Scaffold(
+        body: TextButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => CameraScreen(apiService: apiService)),
+          ),
+          child: const Text('撮影画面を開く'),
+        ),
+      ),
+    ),
+  ));
+  await tester.tap(find.text('撮影画面を開く'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
   await tester.tap(find.text('ギャラリーから選択'));
   await _letRealIoAndFramesRun(tester);
 }
 
 /// 実際のファイル I/O は fake async の外で進める必要がある。
-/// アニメーションやスピナーで pumpAndSettle が終わらないため、pump で進める
+/// アニメーションやスピナーで pumpAndSettle が終わらないため、pump で進める。
+/// I/O の完了ごとに fake async 側のマイクロタスクを流す必要があるので、数回繰り返す
 Future<void> _letRealIoAndFramesRun(WidgetTester tester) async {
-  await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
-  await tester.pump(const Duration(milliseconds: 500));
+  for (var i = 0; i < 5; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
 }
 
 /// ボタン本体（OutlinedButton.icon などの実体はサブクラス）を文言から探す
@@ -147,5 +166,26 @@ void main() {
     // 後片付け: 保留を解いて処理を完了させる
     uploadResponse.complete(_uploadSucceeded());
     await _letRealIoAndFramesRun(tester);
+  });
+
+  testWidgets('処理中に画面を戻ると、処理が終わっても例外にならず識別結果画面にも移らない', (tester) async {
+    final uploadResponse = Completer<http.Response>();
+    await _openCameraScreenWithImageSelected(
+      tester,
+      apiService: _serviceWhereUploadWaitsFor(uploadResponse),
+      galleryFiles: [_writeImage('first.png')],
+    );
+    await tester.tap(find.text('植物を識別する'));
+    await _letRealIoAndFramesRun(tester);
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    // 戻る操作は1フレーム目で始まり、次のフレームで進む
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    uploadResponse.complete(_uploadSucceeded());
+    await _letRealIoAndFramesRun(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('識別結果'), findsNothing);
   });
 }

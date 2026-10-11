@@ -142,6 +142,8 @@ class _CameraScreenState extends State<CameraScreen>
       final uploadResult = response['uploadResult'] as UploadResult;
       final identificationResult = response['identificationResult'] as IdentificationResult;
 
+      // 処理中に戻られていたら、破棄済みの画面に setState すると例外になる
+      if (!mounted) return;
       setState(() {
         _isUploading = false;
         _isIdentifying = false;
