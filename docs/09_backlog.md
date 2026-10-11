@@ -21,9 +21,8 @@ Dart に触る作業の索引。以前は WSL から `flutter test` を実行で
 | 項目 | 判断 | 内容 |
 |---|---|---|
 | [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | **TODO: Android 実機で確認** | 確認結果を見て、既定値を残すかサーバに 415 で弾かせるかを決める |
-| [Flutter が CI の対象外](#flutter-が-ci-の対象外) | 指摘を解消してから入れる | `flutter analyze` の135件を解消し、CI で必須にする |
 | [科名の「科」が二重になる可能性](#科名の科が二重になる可能性要確認dart) | 要確認 | 実際の `familyName` を確かめてから |
-| [画像選択画面のタイトルに「撮影」とあるが、撮影できない](#画像選択画面のタイトルに撮影とあるが撮影できないdart) | 判断待ち | 撮影を実装するか、「撮影」を外すか |
+| [画像選択画面のタイトルに「撮影」とあるが、撮影できない](#画像選択画面のタイトルに撮影とあるが撮影できないdart) | 直す（判断済み） | タイトルと CAMERA 権限から「撮影」を外す |
 
 第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
 Content-Type のマジックバイト判定）は #2 で対応済み。その後、未使用の `identifyPlant()` の削除と、
@@ -50,8 +49,7 @@ CLAUDE.md「実装の慣習」の Flutter の構成方針を確認すること�
 
 **進め方**: api と同じく TDD で進める（CLAUDE.md の TDD の節）。
 
-CI に `flutter analyze` を入れる作業は
-[Flutter が CI の対象外](#flutter-が-ci-の対象外)にある。
+`flutter analyze` と `flutter test` は CI（`.github/workflows/flutter.yml`）で回る（#24）。
 
 ---
 
@@ -238,41 +236,6 @@ azurerm v4 への更新の `apply` で、人間の判断により `appi-snaplant
 
 **判断が必要な点**: いつ上げるか。v4 のサポート期間中は急がない。Flex Consumption への移行（`azurerm_function_app_flex_consumption`）と
 同じ時期にまとめると、`plan` の確認が1回で済む。
-
-### Flutter が CI の対象外
-
-`terraform fmt -check` と `terraform validate` は
-`.github/workflows/terraform.yml` として追加済み。残るのは Flutter。
-
-`flutter analyze` と `flutter test` は自動実行されていない。
-現状、Dart コードの変更は誰も自動で検証していない。
-PR を出す前にローカルで回すまで検証されない状態（CLAUDE.md「PR の粒度」）。
-
-**判断: 指摘を解消してから入れる**（2026-10-11 に人間が決定）。
-
-以前は `mobile/` のアーキテクチャ方針が未決定だったため後回しにしていた。
-方針は 2026-10-11 に決まった（CLAUDE.md「実装の慣習」）ので、その理由は無くなった。
-
-入れるときは `subosito/flutter-action` を使う。
-
-**実測（2026-10-12）**: `flutter analyze` は**エラー0件、info / warning 135件、終了コード1**
-（未宣言の `http_parser` の宣言と、#23 の不具合修正・到達しないコードの削除で141件から減った）。
-素朴に CI へ入れると既存の指摘で初日から落ちるので、先に解消して `flutter analyze` を必須にする。
-`--no-fatal-infos` / `--no-fatal-warnings` で当面エラーだけを失敗条件にする手もあるが、
-指摘が溜まり続けるので採らない。
-
-| 件数 | 指摘 | 直し方 |
-|---|---|---|
-| 68 | `prefer_const_constructors` | `dart fix --apply` で機械的に直る |
-| 32 | `deprecated_member_use`（`withOpacity`、`textScaleFactor` など） | 後継の API に置き換える |
-| 21 | `avoid_print` | 消すか `debugPrint` にする |
-| 14 | その他 | 個別に直す |
-
-その他のうち `use_build_context_synchronously`（1件、`settings_screen.dart`。`await` の後で `BuildContext` を使う）は
-実際の不具合になりうるので、機械的に消さずに中身を見る（画像選択画面の同じ指摘は #23 で直した）。
-`invalid_null_aware_operator`（2件）はテーマの定義の不要な `?.` で、害は無い。
-
-`flutter test` は通る（2026-10-12 時点で38本。#2 で `ApiService` と保存画面、#23 で画像選択・一覧・詳細画面のテストを追加）。
 
 ### 判定できない画像形式を `image/jpeg` として送る
 
@@ -698,9 +661,10 @@ AI が「バラ科」を返すと「バラ科科」と表示される。
 ### 画像選択画面のタイトルに「撮影」とあるが、撮影できない（Dart）
 
 タイトルは「植物を撮影・情報入力」だが、画面はギャラリーからの選択だけを使う。
-`CameraService.takePhoto()` は呼び出し元が無く、`AndroidManifest.xml` は CAMERA 権限を宣言している。
+`AndroidManifest.xml` は CAMERA 権限を宣言している（使われていなかった `CameraService` は #24 で削除した）。
 
-**判断が必要な点**: カメラ撮影を実装するか、タイトルと権限から「撮影」を外すか（下記「初期の設計にあって未実装の機能」）。
+**判断: タイトルと権限から「撮影」を外す。** 旅行アルバムの要件（`docs/travel-album/requirements.md` の「対象外・未定」）で、
+アプリからのカメラ撮影は当面入れないと決まった。
 
 ### 初期の設計にあって未実装の機能
 
@@ -709,7 +673,7 @@ AI が「バラ科」を返すと「バラ科科」と表示される。
 
 | 機能 | 初期の記述 | 現状 |
 |---|---|---|
-| カメラでの撮影 | 05 §3.1・§4.3「画像選択・撮影」 | ギャラリーからの選択だけ。`CameraService` は未使用 |
+| カメラでの撮影 | 05 §3.1・§4.3「画像選択・撮影」 | ギャラリーからの選択だけ（未使用だった `CameraService` は #24 で削除） |
 | 重複時の比較画面 | 03「重複確認画面」: 既存と新しい写真を並べ、保持か置き換えかをラジオボタンで選ぶ | 文言だけのダイアログ（「キャンセル」「上書き保存」） |
 | 識別結果でキャンセルしたときの画像の削除 | 03「キャンセル時、画像は削除済み」、07 §6.1「途中キャンセル時のクリーンアップ処理」 | 削除しない（上記「識別結果で保存しなかった画像が永続コンテナに残る」） |
 | 処理中の中断 | 07 §6.3「長時間処理の途中キャンセル機能」 | 中断する操作は無い |
