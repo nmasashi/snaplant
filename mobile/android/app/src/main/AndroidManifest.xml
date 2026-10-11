@@ -18,7 +18,7 @@
                      android:maxSdkVersion="29" />
 
     <application
-        android:label="SnapPlant"
+        android:label="SnapPlant 確認"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">

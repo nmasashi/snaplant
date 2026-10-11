@@ -42,7 +42,8 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.snaplant.mobile"
+        // 【試作】既存のアプリと並べて入れるため、別のアプリ ID にする（main にはマージしない）
+        applicationId "com.snaplant.mobile.spike"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
         minSdkVersion 21
