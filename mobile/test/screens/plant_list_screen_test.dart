@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,32 +10,18 @@ import 'package:snaplant_mobile/screens/plant_list_screen.dart';
 // プロセス外の依存なので、パッケージ同梱のテスト用の仕組みで差し替える。
 // サーバ（Azure Functions）は、このファイルのテストでは API キーが未設定なので呼ばれない。
 
+/// セキュアストレージを [platform] に差し替える。テストが終わったら元に戻す
+void _useSecureStorage(FlutterSecureStoragePlatform platform) {
+  final original = FlutterSecureStoragePlatform.instance;
+  FlutterSecureStoragePlatform.instance = platform;
+  addTearDown(() => FlutterSecureStoragePlatform.instance = original);
+}
+
 /// 端末に API キーもエンドポイントも保存されていない状態にする。
 /// 呼び出し側は、テスト間で状態を持ち越さないよう各テストの冒頭で呼ぶ
 void _givenNoSettingsSaved() {
-  FlutterSecureStorage.setMockInitialValues({});
+  _useSecureStorage(TestFlutterSecureStoragePlatform({}));
   SharedPreferences.setMockInitialValues({});
-}
-
-/// 1回目の読み出しだけ失敗するセキュアストレージ。
-/// Android の encryptedSharedPreferences は、復号できないと（バックアップの復元や
-/// 再インストールの後など）PlatformException を投げる。2回目以降は普通に読める
-class _SecureStorageFailingOnFirstRead extends TestFlutterSecureStoragePlatform {
-  _SecureStorageFailingOnFirstRead() : super({});
-
-  bool _hasFailed = false;
-
-  @override
-  Future<String?> read({
-    required String key,
-    required Map<String, String> options,
-  }) async {
-    if (!_hasFailed) {
-      _hasFailed = true;
-      throw PlatformException(code: 'Exception encountered', message: 'Failed to decrypt');
-    }
-    return super.read(key: key, options: options);
-  }
 }
 
 /// テストが [failReads] を立てた時点から、読み出しが失敗するセキュアストレージ。
@@ -56,12 +41,6 @@ class _SecureStorageWithFailureSwitch extends TestFlutterSecureStoragePlatform {
     }
     return super.read(key: key, options: options);
   }
-}
-
-/// 保存済みの設定を最初の1回だけ読めない状態にする（読み直せば、キーは未設定）
-void _givenFirstReadOfSettingsFails() {
-  FlutterSecureStoragePlatform.instance = _SecureStorageFailingOnFirstRead();
-  SharedPreferences.setMockInitialValues({});
 }
 
 /// 一覧画面を実機の解像度で開き、起動時の初期化（設定の読み出し）を進める
@@ -85,7 +64,7 @@ Future<void> _letFramesRun(WidgetTester tester) async {
 
 /// キーが保存済みの状態で一覧画面を開き、設定画面で設定をリセットして一覧画面へ戻る
 Future<void> _resetSavedSettingsAndReturnToPlantList(WidgetTester tester) async {
-  FlutterSecureStorage.setMockInitialValues({'api_key': 'old-key'});
+  _useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'old-key'}));
   SharedPreferences.setMockInitialValues({});
   await _openPlantListScreen(tester);
   // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
@@ -118,10 +97,14 @@ void main() {
     expect(find.text('植物一覧を読み込み中...'), findsNothing);
   });
 
-  testWidgets('保存済みの設定を読めなかったときに「再試行」を押すと、設定を読み直す', (tester) async {
-    _givenFirstReadOfSettingsFails();
+  testWidgets('保存済みの設定を読めなかったときに「再試行」を押すと、読み直した設定に応じた表示になる（キーが無ければ設定を促す）', (tester) async {
+    final secureStorage = _SecureStorageWithFailureSwitch({})..failReads = true;
+    _useSecureStorage(secureStorage);
+    SharedPreferences.setMockInitialValues({});
     await _openPlantListScreen(tester);
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
+
+    secureStorage.failReads = false;
 
     await tester.tap(find.text('再試行'));
     await _letFramesRun(tester);
@@ -130,7 +113,7 @@ void main() {
     expect(find.text('API設定が完了していません'), findsOneWidget);
   });
 
-  testWidgets('設定をリセットして一覧画面に戻ると、消したキーで通信し続けず「API設定が完了していません」と表示する', (tester) async {
+  testWidgets('設定をリセットして一覧画面に戻ると「API設定が完了していません」と表示する', (tester) async {
     await _resetSavedSettingsAndReturnToPlantList(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
@@ -154,7 +137,7 @@ void main() {
 
   testWidgets('設定済みの状態で設定画面から戻ったときに設定を読めなければ、古い設定で一覧を読み直さず「API設定の読み込みに失敗しました」と表示する', (tester) async {
     final secureStorage = _SecureStorageWithFailureSwitch({'api_key': 'old-key'});
-    FlutterSecureStoragePlatform.instance = secureStorage;
+    _useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
     await _openPlantListScreen(tester);
     // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
@@ -172,7 +155,7 @@ void main() {
 
   testWidgets('設定を促す表示が出たあと、設定画面から戻ったときに設定を読めなければ、促す表示ではなく「API設定の読み込みに失敗しました」を再試行つきで表示する', (tester) async {
     final secureStorage = _SecureStorageWithFailureSwitch({});
-    FlutterSecureStoragePlatform.instance = secureStorage;
+    _useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
     await _openPlantListScreen(tester);
     // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
@@ -190,5 +173,22 @@ void main() {
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
     expect(find.text('再試行'), findsOneWidget);
     expect(find.text('API設定が完了していません'), findsNothing);
+  });
+
+  testWidgets('APIキーを入れずに起動し、設定画面でキーを保存して戻ると、設定を促す表示が消えて一覧を読み込む', (tester) async {
+    _givenNoSettingsSaved();
+    await _openPlantListScreen(tester);
+    // 起動時に設定画面へ自動で移っている
+    expect(find.text('設定'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'new-function-key');
+    await tester.ensureVisible(find.text('保存'));
+    await tester.pump();
+
+    await tester.tap(find.text('保存'));
+    await _letFramesRun(tester);
+
+    expect(find.text('API設定が完了していません'), findsNothing);
+    // キーが入ったので一覧の取得を試みる。テスト環境の HTTP は 400 を返すのでエラー表示になる
+    expect(find.text('エラーが発生しました'), findsOneWidget);
   });
 }
