@@ -497,9 +497,10 @@ class ApiException implements Exception {
       case 404:
         return '要求されたデータが見つかりません。';
       // アプリはレート制限を実装していないが、従量課金プランの Functions ランタイムが
-      // 過負荷時に封筒なしの 429 "Too Busy" を返す（host.json の dynamicThrottlesEnabled 等の既定値）
+      // 過負荷時に封筒なしの 429 "Too Busy" を返す（host.json の dynamicThrottlesEnabled 等の既定値）。
+      // 利用者の操作回数の制限ではないので、「制限を超えた」ではなく混雑として伝える
       case 429:
-        return 'リクエスト数が制限を超えました。しばらく待ってから再試行してください。';
+        return 'サーバーが混雑しています。しばらく待ってから再試行してください。';
       case 500:
         return 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
       // サーバは 502 と 503 の意味を分けている。502 は上流（AI・ストレージ）に到達したが

@@ -290,7 +290,7 @@ void main() {
 
       final error = await _captureApiException(() => service.savePlant(_createRequest));
 
-      expect(error.userMessage, 'リクエスト数が制限を超えました。しばらく待ってから再試行してください。');
+      expect(error.userMessage, 'サーバーが混雑しています。しばらく待ってから再試行してください。');
     });
 
     test('500はサーバ内部の文言を出さず定型のメッセージにする', () async {
