@@ -29,6 +29,8 @@ dependencies:
   # データ保存
   shared_preferences: ^2.2.2
   flutter_secure_storage: ^9.0.0
+  exif: ^3.3.0
+  photo_manager: ^3.12.0
 
 dev_dependencies:
   flutter_test:

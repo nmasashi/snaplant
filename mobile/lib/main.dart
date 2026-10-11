@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/plant_list_screen.dart';
+import 'screens/photo_metadata_check_screen.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 
@@ -43,7 +43,8 @@ class SnapPlantApp extends StatelessWidget {
       },
       
       // 初期画面
-      home: const PlantListScreen(),
+      // 【試作】段階1の実機確認のため、起動したら確認画面を開く（main にはマージしない）
+      home: const PhotoMetadataCheckScreen(),
     );
   }
 }
