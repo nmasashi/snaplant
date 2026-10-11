@@ -153,7 +153,7 @@ resource "azurerm_linux_function_app" "main" {
   # plan のたびに「追加する」差分が出続け、apply のたびに再起動が起きる
   site_config {
     application_stack {
-      node_version = "20"
+      node_version = "22"
     }
     cors {
       allowed_origins = ["*"]
