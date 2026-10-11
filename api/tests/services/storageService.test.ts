@@ -143,14 +143,31 @@ describe('StorageService', () => {
 
       await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
 
-      // SASトークンは署名済みの不透明な文字列で、テストから権限や有効期限を
-      // 復号できない。一方この2つはAzure Storageが検証する外部との契約であり、
+      // SASトークンは署名済みの不透明な文字列で、テストから権限を
+      // 復号できない。一方権限はAzure Storageが検証する外部との契約であり、
       // read のはずが write になる退行は検出しなければならない。
-      // 引数の検証は原則3の例外として許容する（他に検証手段がないため）
+      // 引数の検証は原則3の例外として許容する（他に検証手段がないため）。
+      // 有効期限は下の「発行から15分で切れる」が見る
       const [options] = mockedGenerateSas.mock.calls[0];
       expect(options.containerName).toBe('test-temp');
       expect(options.permissions).toMatchObject({ read: true });
-      expect(options.expiresOn!.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('一時URLの読み取り許可は発行から15分で切れる', async () => {
+      const imageBuffer = Buffer.from('temp image data');
+      const FIFTEEN_MINUTES_MS = 900000;
+
+      const before = Date.now();
+      await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
+      const after = Date.now();
+
+      // 有効期限もSASトークンの中に署名されていて復号できないため、
+      // 署名に渡した引数で確かめる（原則3の例外。上のテストと同じ理由）。
+      // 呼び出しの前後で時刻を挟み、発行時刻がその間のどこでも成り立つ範囲で見る
+      const [options] = mockedGenerateSas.mock.calls[0];
+      const expiresAt = options.expiresOn!.getTime();
+      expect(expiresAt).toBeGreaterThanOrEqual(before + FIFTEEN_MINUTES_MS);
+      expect(expiresAt).toBeLessThanOrEqual(after + FIFTEEN_MINUTES_MS);
     });
 
     it('SAS生成に失敗した場合はエラーをスローする', async () => {
