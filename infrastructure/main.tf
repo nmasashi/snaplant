@@ -120,9 +120,8 @@ resource "azurerm_cosmosdb_sql_container" "plants" {
       path = "/*"
     }
 
-    excluded_path {
-      path = "/\"_etag\"/?"
-    }
+    # `/"_etag"/?` の除外は Cosmos がシステム側で自動的に付ける。azurerm v4 は読み戻すときに
+    # これを取り除くため、ここに書くと apply しても plan に「追加する」差分が出続ける
   }
 }
 
