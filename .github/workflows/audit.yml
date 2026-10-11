@@ -46,7 +46,8 @@ jobs:
         node-version: '22.x'
 
     # npm audit は package-lock.json だけを読むので、npm ci は要らない。
-    # 開発用の依存も対象に含める（デプロイのパッケージに入っているため）。
+    # 開発用の依存も対象に含める。本番のパッケージからは外しているが（deploy-functions.yml）、
+    # デプロイのジョブはビルドのために開発用の依存も入れて動かしており、そのジョブは本番の資格情報を持つため。
     # high 以上で失敗させる。moderate を含めないのは、Jest の間接依存の sprintf-js に
     # 修正版が出ておらず、含めると常に失敗して検知の意味が無くなるため
     - name: Run npm audit

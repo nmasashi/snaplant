@@ -352,7 +352,7 @@ Jest の間接依存の `sprintf-js` に修正版が出ておらず、含める�
 #### デプロイフロー
 ```
 開発者 → git push (main) → deploy-functions.yml →
-ci.yml（テスト・ビルド）→ npm run build → Azure Functions へデプロイ →
+ci.yml（テスト・ビルド）→ npm ci → npm run build → npm prune --omit=dev → Azure Functions へデプロイ →
 Function App の応答確認 → 完了
 ```
 
@@ -361,7 +361,9 @@ audit.yml はこの流れに含まれない（`api/package*.json` を変えた p
 
 サーバ側ビルドは行わない（`scm-do-build-during-deployment: false` /
 `enable-oryx-build: false`）ため、ワークフロー内でビルドした `dist/` が
-そのままパッケージされる。
+そのままパッケージされる。ビルドの後に `npm prune --omit=dev` で開発用の依存（Jest・TypeScript など）を
+外してから `api/` を丸ごと送るので、実行時に読み込むパッケージは `dependencies` に置く
+（`devDependencies` に置くと、テストは通るが本番で読み込みに失敗する）。
 
 ### 6.2 環境構成
 - **ローカル開発**: `api/local.settings.json`（Functions Core Tools）+ 実 Azure リソース
