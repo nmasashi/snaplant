@@ -74,6 +74,21 @@ GitHub Actions は以下の条件で自動実行されます：
   - `api/` または `.github/workflows/` 配下のファイル変更時
   - `deploy-functions.yml` からの `workflow_call`
 
+- **Dependency Audit** (`/.github/workflows/audit.yml`):
+  - `main` ブランチへのプッシュ
+  - `main` ブランチへのプルリクエスト
+  - プッシュ・プルリクエストとも、`api/package.json`・`api/package-lock.json`・
+    `.github/workflows/audit.yml` の変更時のみ
+  - 毎週月曜 0:00 UTC（日本時間 9:00）の定期実行（コードを触っていない間に公表された脆弱性を拾うため）
+  - 手動実行（workflow_dispatch）
+  - `api/` で `npm audit --audit-level=high` を実行する。`npm ci` はしない（`package-lock.json` だけを読む）。
+    開発用の依存も対象に含む
+  - high 以上の脆弱性があれば失敗する（`continue-on-error` は付けていない）。moderate を失敗条件に
+    含めないのは、Jest の間接依存の `sprintf-js` に修正版が出ておらず、含めると常に失敗するため
+  - 定期実行が失敗すると、GitHub がワークフローの cron を最後に変更した人へメールで通知する
+  - ci.yml とは別ワークフローにしている。`deploy-functions.yml` が ci.yml の成功を
+    デプロイの前提にしているため、ここが失敗しても**デプロイは止まらない**（検知はするが止めるまではしない判断）
+
 - **Terraform 静的チェック** (`/.github/workflows/terraform.yml`):
   - `main`, `develop` ブランチへのプッシュ
   - `main` ブランチへのプルリクエスト
@@ -99,15 +114,18 @@ GitHub Actions は以下の条件で自動実行されます：
 1. **テスト & ビルド**（ci.yml）:
    - 依存関係のインストール（`npm ci`）
    - テスト実行（`npm test` / `npm run test:coverage`）
-   - セキュリティスキャン（`npm audit --audit-level=high` / CodeQL。いずれも
-     `continue-on-error: true` なので検出されてもワークフローは失敗しない）
    - ビルド（`npm run build`）とビルド成果物のアーカイブ
    - `npm run lint` は存在しないためスキップされる（リンター未設定）
+   - 上とは別ジョブ（Security Scan）で CodeQL を並列に実行する。解析ステップは
+     `continue-on-error: true` なので、解析が失敗してもワークフローは失敗しない
+   - `npm audit` はここでは実行しない（audit.yml に分けている）
 
 2. **本番デプロイ** (mainブランチのみ):
    - 本番用ビルド
    - Azure Functions へのデプロイ
    - ヘルスチェック
+
+依存パッケージの脆弱性検査（audit.yml）はこの流れとは独立して走り、結果はデプロイに影響しない。
 
 ## 手動デプロイ
 

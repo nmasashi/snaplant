@@ -334,16 +334,22 @@ lib/
 
 #### 選定：GitHub Actions
 ソースコード管理は GitHub、CI/CD も GitHub Actions で完結させている
-（Azure DevOps / Azure Pipelines は使っていない）。ワークフローは3本。
+（Azure DevOps / Azure Pipelines は使っていない）。ワークフローは4本。
 
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
-| `.github/workflows/ci.yml` | `main` / `develop` への push、`main` への PR、`api/` または `.github/workflows/` の変更 | `npm ci` → テスト → カバレッジ → `npm audit` → CodeQL → `npm run build` → 成果物アーカイブ |
-| `.github/workflows/terraform.yml` | `main` / `develop` への push、`main` への PR、`infrastructure/` の変更 | `terraform fmt -check -recursive` と `terraform init -backend=false` → `terraform validate`。Azure へは通信しない |
-| `.github/workflows/deploy-functions.yml` | `main` への push、手動実行 | ci.yml を `workflow_call` で呼び、成功後に Azure Functions へデプロイ |
+| `.github/workflows/ci.yml` | `main` / `develop` への push、`main` への PR（いずれも `api/` または `.github/workflows/` の変更時）、deploy-functions.yml からの `workflow_call` | 2ジョブが並列に走る。Test and Build: `npm ci` → テスト → カバレッジ → `npm run build` → 成果物アーカイブ。Security Scan: `npm ci` → CodeQL（解析ステップは `continue-on-error: true`） |
+| `.github/workflows/audit.yml` | `main` への push と `main` への PR（いずれも `api/package.json`・`api/package-lock.json`・`.github/workflows/audit.yml` の変更時）、毎週月曜 0:00 UTC（9:00 JST）の定期実行、手動実行 | `api/` で `npm audit --audit-level=high`。開発用の依存も対象に含む。high 以上の脆弱性があれば失敗する（`continue-on-error` なし）。デプロイの前提にはしていない |
+| `.github/workflows/terraform.yml` | `main` / `develop` への push、`main` への PR（いずれも `infrastructure/` または `.github/workflows/terraform.yml` の変更時） | `terraform fmt -check -recursive` と `terraform init -backend=false` → `terraform validate`。Azure へは通信しない |
+| `.github/workflows/deploy-functions.yml` | `main` への push（`api/` または `.github/workflows/` の変更時）、手動実行 | ci.yml を `workflow_call` で呼び、成功後に Azure Functions へデプロイ |
 
 リンターは未設定のため、ci.yml の lint ステップはスキップされる。
 `mobile/`（Flutter）を対象にしたワークフローは無い。
+
+audit.yml と terraform.yml を ci.yml から分けているのは、deploy-functions.yml が
+ci.yml の成功をデプロイの前提にしているため。audit.yml が失敗してもデプロイは止まらない
+（検知はするが、止めるまではしない判断）。moderate を失敗条件に含めていないのは、
+Jest の間接依存の `sprintf-js` に修正版が出ておらず、含めると常に失敗するため。
 
 #### デプロイフロー
 ```
@@ -351,6 +357,9 @@ lib/
 ci.yml（テスト・ビルド）→ npm run build → Azure Functions へデプロイ →
 Function App の応答確認 → 完了
 ```
+
+audit.yml はこの流れに含まれない（`api/package*.json` を変えた push では並行して走るが、
+結果はデプロイに影響しない）。
 
 サーバ側ビルドは行わない（`scm-do-build-during-deployment: false` /
 `enable-oryx-build: false`）ため、ワークフロー内でビルドした `dist/` が

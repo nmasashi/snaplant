@@ -439,7 +439,7 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
 指摘への対応はメインセッションが行う。機械的に適用してよい指摘が多ければ
 `/code-review --fix` で差分へ適用できる。
 
-**レビューは CI の代替ではない。** push 後に CI がテスト・`npm audit`・CodeQL を回す。
+**レビューは CI の代替ではない。** push 後に CI がテスト・CodeQL を、`audit.yml` が `npm audit` を回す。
 レビューはその前段で、CI が見ない設計と可読性の問題を拾う。
 
 ### レビューしない領域
@@ -598,7 +598,8 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・`npm audit`・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
+- `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
+- `.github/workflows/audit.yml` — `npm audit --audit-level=high`。`api/package*.json` の変更と、毎週月曜の定期実行。**失敗はそのまま失敗にするが、デプロイは止めない**（人間の判断）。ci.yml とは別のワークフローにしているのは terraform.yml と同じ理由。以前は ci.yml の中で `continue-on-error: true` にしており、critical の脆弱性があっても成功扱いで誰も気づけなかった。**`continue-on-error` で失敗を握りつぶさない**こと。デプロイを止めたくない検査は、別のワークフローに分ける
 - `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/**` と `.github/workflows/terraform.yml`（`main` / `develop` への push と `main` への PR）。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
 - **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（`mobile/` のアーキテクチャ方針が未決定の間は入れない判断。`docs/09_backlog.md` 参照）。
 - `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
