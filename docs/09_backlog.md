@@ -42,14 +42,12 @@ flutter test
 `dev_dependencies` は `flutter_test` と `flutter_lints` だけ。テスト専用の
 補助パッケージ（mocktail などのモック生成）は入っていない。
 HTTP は `http` 同梱の `MockClient` で足りている。新しい依存を増やす前に
-CLAUDE.md の「`provider` / `go_router` / `dio` / `uuid` / `intl` は使用実績ゼロ、
-使い始める前に方針を決める」を確認すること。
+CLAUDE.md「実装の慣習」の Flutter の構成方針を確認すること。
 
 **進め方**: api と同じく TDD で進める（CLAUDE.md の TDD の節）。
 
-CI に `flutter analyze` を入れるかは
+CI に `flutter analyze` を入れる作業は
 [Flutter が CI の対象外](#flutter-が-ci-の対象外)にある。
-`mobile/` のアーキテクチャ方針が未決定の間は入れない判断になっている。
 
 ---
 
@@ -220,24 +218,28 @@ azurerm v4 への更新の `apply` で、人間の判断により `appi-snaplant
 現状、Dart コードの変更は誰も自動で検証していない。
 PR を出す前にローカルで回すまで検証されない状態（CLAUDE.md「PR の粒度」）。
 
-**判断: 後回し**（人間がトリアージ済み）。
+**判断: 指摘を解消してから入れる**（2026-10-11 に人間が決定）。
 
-`mobile/` のアーキテクチャ方針が未決定（`provider` / `go_router` / `dio` が
-`pubspec.yaml` にあるのに使用実績ゼロ）な状態で `flutter analyze` を
-必須化すると、方針を決める作業が CI に阻まれる可能性がある。
-先に方針を決める方が順序として自然。
+以前は `mobile/` のアーキテクチャ方針が未決定だったため後回しにしていた。
+方針は 2026-10-11 に決まった（CLAUDE.md「実装の慣習」）ので、その理由は無くなった。
 
 入れるときは `subosito/flutter-action` を使う。
 
-**実測（2026-10-10、Windows 側で確認）**: 現状の `flutter analyze` は
-**エラー0件、info / warning 141件、終了コード1**。この141件は
-`origin/main` と**完全に同一**で、PR #1 の変更による新規の指摘は無い。
+**実測（2026-10-11）**: `flutter analyze` は**エラー0件、info / warning 140件、終了コード1**
+（未宣言の `http_parser` を宣言して141件から1件減った）。
+素朴に CI へ入れると既存の指摘で初日から落ちるので、先に解消して `flutter analyze` を必須にする。
+`--no-fatal-infos` / `--no-fatal-warnings` で当面エラーだけを失敗条件にする手もあるが、
+指摘が溜まり続けるので採らない。
 
-つまり `flutter analyze` を素朴に CI へ入れると、**既存の141件で初日から落ちる**。
-入れるときは次のどちらかが必要。
+| 件数 | 指摘 | 直し方 |
+|---|---|---|
+| 70 | `prefer_const_constructors` | `dart fix --apply` で機械的に直る |
+| 34 | `deprecated_member_use`（`withOpacity`、`textScaleFactor` など） | 後継の API に置き換える |
+| 21 | `avoid_print` | 消すか `debugPrint` にする |
+| 15 | その他 | 個別に直す |
 
-- 先に141件を解消する（アーキテクチャ方針の決定と重なる作業）
-- `--no-fatal-infos` / `--no-fatal-warnings` で当面エラーのみを失敗条件にする
+その他のうち、`use_build_context_synchronously`（2件。`await` の後で `BuildContext` を使う）と
+`invalid_null_aware_operator`（2件）は実際の不具合になりうるので、機械的に消さずに中身を見る。
 
 `flutter test` は通る（2026-10-11 時点で27本。#2 で `ApiService` と保存画面のテストを追加）。
 

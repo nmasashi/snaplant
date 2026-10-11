@@ -465,14 +465,19 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
   `any` を使っている（api 側で20箇所）。`error.code` や `error.message` への
   アクセスのため。ここを `unknown` + 型ガードに変えるなら全体で揃えること。
   **1箇所だけ流儀を変えない**
-- **Flutter 側のアーキテクチャ方針は未決定。**
-  状態管理・ルーティング・HTTP クライアントの選択が `pubspec.yaml` の宣言と
-  実装で食い違っている（`docs/10_proposals.md` に検討課題として記録済み）。
-  決まるまでは**現状の実態に合わせる**こと:
-  状態管理は `setState`、HTTP は `http`、ルーティングは `main.dart` の手書き
+- **Flutter 側の構成方針**（2026-10-11 に人間が決定。実態に合わせた）。
 
-`provider` / `go_router` / `dio` / `uuid` / `intl` は `pubspec.yaml` にあるが
-使用実績ゼロ。**これらを使い始める前に方針を決めること。**
+  | 項目 | 方針 | 理由 |
+  |---|---|---|
+  | 状態管理 | `setState`。`ApiService` などは画面のコンストラクタで渡す | 画面をまたいで共有するクライアント状態が無く、扱うのはサーバのデータだけ |
+  | 画面遷移 | `Navigator.push` / `pop`（`MaterialPageRoute`）。名前付きルートは使わない | ディープリンクや Web の履歴に対応する予定が無い（Android のみ） |
+  | HTTP | `http`。テストは同梱の `MockClient` で差し替える | テストがこれに依存している |
+
+  **見直す条件**: 画面をまたいで共有するクライアント状態（お気に入り、絞り込み条件、
+  オフラインのキャッシュなど）が要る機能を足すとき。そのときは状態管理の方式を選び直し、
+  **全画面を一度に移す**（`setState` と混在させると状態の所在が追えなくなる）。
+  `pubspec.yaml` には使うパッケージだけを宣言する。かつて `provider` / `go_router` / `dio` /
+  `uuid` / `intl` が使われないまま宣言されており、どれを使うべきか判断がぶれていた
 
 ## テストの流儀
 
@@ -600,7 +605,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 - `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・`npm audit`・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
 - `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/**` と `.github/workflows/terraform.yml`（`main` / `develop` への push と `main` への PR）。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
-- **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（`mobile/` のアーキテクチャ方針が未決定の間は入れない判断。`docs/09_backlog.md` 参照）。
+- **`mobile/` は CI の対象外。** Flutter のテストも `flutter analyze` も自動実行されない（既存の指摘を解消してから入れる。`docs/09_backlog.md` 参照）。
 - `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
 - デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する
 
