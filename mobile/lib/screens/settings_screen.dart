@@ -123,8 +123,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       apiService.dispose();
-      
+
     } catch (e) {
+      // 今の ApiService.testConnection() は例外をすべて false にするので、ここには来ない。
+      // testConnection() の実装が変わっても処理中のまま固まらないよう、守りとして残している
       setState(() {
         _isTesting = false;
         _connectionStatus = 'error';

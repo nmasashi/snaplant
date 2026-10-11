@@ -24,6 +24,8 @@ class _PlantListScreenState extends State<PlantListScreen> {
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
+  // API キーが未設定で一覧を読めない状態。読み込み中のまま止めず、設定を促す表示にする
+  bool _needsSetup = false;
   ApiService? _apiService;
 
   @override
@@ -33,16 +35,19 @@ class _PlantListScreenState extends State<PlantListScreen> {
   }
 
   /// 画面初期化
-  Future<void> _initializeScreen() async {
+  ///
+  /// [openSettingsIfMissing] が true なら、API キーが未設定のとき設定画面へ自動で移る。
+  /// 起動時だけ true にする。再試行などで毎回移ると、設定画面から抜けられなくなるため
+  Future<void> _initializeScreen({bool openSettingsIfMissing = true}) async {
     print('PlantListScreen: 初期化開始');
-    await _initializeApiService();
+    await _initializeApiService(openSettingsIfMissing: openSettingsIfMissing);
     print('PlantListScreen: APIサービス初期化完了');
     await _loadPlants();
     print('PlantListScreen: 植物一覧読み込み完了');
   }
 
   /// APIサービスの初期化
-  Future<void> _initializeApiService() async {
+  Future<void> _initializeApiService({required bool openSettingsIfMissing}) async {
     try {
       print('PlantListScreen: SettingsService取得開始');
       final settingsService = await SettingsService.getInstance();
@@ -57,14 +62,27 @@ class _PlantListScreenState extends State<PlantListScreen> {
       
       if (apiKey == null || apiKey.isEmpty) {
         print('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
-        // APIキーが設定されていない場合は設定画面へ
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _navigateToSettings();
+        // 前の設定で作った ApiService が残っていると、リセットで消したキーで通信し続ける
+        _apiService?.dispose();
+        _apiService = null;
+        setState(() {
+          _needsSetup = true;
+          _hasError = false;
+          _isLoading = false;
         });
+        // APIキーが設定されていない場合は設定画面へ
+        if (openSettingsIfMissing) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _navigateToSettings();
+          });
+        }
         return;
       }
       
       print('PlantListScreen: ApiService初期化開始');
+      _needsSetup = false;
+      // 設定画面から戻るたびに作り直すので、前の ApiService（の http.Client）を閉じる
+      _apiService?.dispose();
       _apiService = ApiService(
         baseUrl: endpoint,
         functionKey: apiKey,
@@ -72,7 +90,13 @@ class _PlantListScreenState extends State<PlantListScreen> {
       print('PlantListScreen: ApiService初期化完了');
     } catch (e) {
       print('PlantListScreen: APIサービス初期化エラー: $e');
+      // 前の設定の ApiService が残っていると、続く _loadPlants() がこのエラーを消して
+      // 古い設定のまま一覧を読み直してしまう
+      _apiService?.dispose();
+      _apiService = null;
       setState(() {
+        // 前に立った「設定してください」の表示が残ると、読み込みの失敗が隠れる
+        _needsSetup = false;
         _hasError = true;
         _errorMessage = 'API設定の読み込みに失敗しました';
         _isLoading = false;
@@ -121,17 +145,28 @@ class _PlantListScreenState extends State<PlantListScreen> {
     await _loadPlants();
   }
 
+  /// エラー表示の「再試行」
+  ///
+  /// 設定を読めずに失敗していた場合は、一覧だけ読み直しても _apiService が無く何も起きない。
+  /// 設定の読み込みからやり直す
+  Future<void> _retry() async {
+    if (_apiService == null) {
+      await _initializeScreen(openSettingsIfMissing: false);
+    } else {
+      await _loadPlants();
+    }
+  }
+
   /// 設定画面への遷移
   Future<void> _navigateToSettings() async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const SettingsScreen()),
     );
     
-    // 設定から戻ってきた場合は再初期化
-    if (result == true) {
-      await _initializeScreen();
-    }
+    // 設定から戻ったら、保存したかどうかに関わらず読み直す。リセットは保存せずに
+    // その場で反映され、戻り値も返さないので、結果を見て判断すると消したキーで通信し続ける
+    await _initializeScreen(openSettingsIfMissing: false);
   }
 
   /// 画像選択画面への遷移
@@ -236,7 +271,11 @@ class _PlantListScreenState extends State<PlantListScreen> {
     if (_isLoading) {
       return _buildLoadingView(isLargeScreen);
     }
-    
+
+    if (_needsSetup) {
+      return _buildSetupNeededView(isLargeScreen);
+    }
+
     if (_hasError) {
       return _buildErrorView(isLargeScreen);
     }
@@ -275,6 +314,53 @@ class _PlantListScreenState extends State<PlantListScreen> {
     );
   }
 
+  /// API キーが未設定のときの表示
+  Widget _buildSetupNeededView(bool isLargeScreen) {
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.settings,
+              size: isLargeScreen ? 80 : 64,
+              color: AppColors.textSecondary,
+            ),
+            SizedBox(height: isLargeScreen ? 24 : 16),
+            Text(
+              'API設定が完了していません',
+              style: AppTextStyles.headline2.copyWith(
+                fontSize: isLargeScreen ? 28 : 24,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: isLargeScreen ? 16 : 12),
+            Text(
+              '設定画面で API キーを入力してください',
+              style: AppTextStyles.body1.copyWith(
+                fontSize: isLargeScreen ? 20 : 18,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: isLargeScreen ? 32 : 24),
+            ElevatedButton.icon(
+              onPressed: _navigateToSettings,
+              icon: const Icon(Icons.settings),
+              label: const Text('設定を開く'),
+              style: ElevatedButton.styleFrom(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isLargeScreen ? 32 : 24,
+                  vertical: isLargeScreen ? 20 : 16,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// エラー表示
   Widget _buildErrorView(bool isLargeScreen) {
     return Center(
@@ -306,7 +392,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
             ),
             SizedBox(height: isLargeScreen ? 32 : 24),
             ElevatedButton.icon(
-              onPressed: _refreshPlants,
+              onPressed: _retry,
               icon: Icon(Icons.refresh),
               label: Text('再試行'),
               style: ElevatedButton.styleFrom(

@@ -112,12 +112,9 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
     return SliverPadding(
       padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
       sliver: SliverList(
+        // 植物でない画像は upload が 400（NOT_A_PLANT）で返すので、この画面には来ない
         delegate: SliverChildListDelegate([
-          if (widget.identificationResult.isPlant) ...[
-            _buildPlantIdentificationContent(isLargeScreen),
-          ] else ...[
-            _buildNonPlantContent(isLargeScreen),
-          ],
+          _buildPlantIdentificationContent(isLargeScreen),
         ]),
       ),
     );
@@ -443,68 +440,6 @@ class _IdentificationScreenState extends State<IdentificationScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  /// 植物でない場合のコンテンツ
-  Widget _buildNonPlantContent(bool isLargeScreen) {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
-          decoration: BoxDecoration(
-            color: AppColors.warning.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppColors.warning.withOpacity(0.3),
-              width: 2,
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                size: isLargeScreen ? 64 : 48,
-                color: AppColors.warning,
-              ),
-              SizedBox(height: isLargeScreen ? 16 : 12),
-              Text(
-                '植物として識別できませんでした',
-                style: AppTextStyles.headline2.copyWith(
-                  color: AppColors.warning,
-                  fontSize: isLargeScreen ? 28 : 24,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: isLargeScreen ? 12 : 8),
-              Text(
-                widget.identificationResult.reason ?? '明確な植物の特徴を検出できませんでした',
-                style: AppTextStyles.body1.copyWith(
-                  fontSize: isLargeScreen ? 20 : 18,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-        
-        SizedBox(height: isLargeScreen ? 40 : 32),
-        
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context),
-            icon: Icon(Icons.refresh),
-            label: Text('やり直し'),
-            style: ElevatedButton.styleFrom(
-              padding: EdgeInsets.symmetric(
-                vertical: isLargeScreen ? 24 : 20,
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 

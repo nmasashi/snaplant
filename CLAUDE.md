@@ -88,7 +88,7 @@ flutter build apk --release
 Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上にある。
 Dart を変更したら、その場で `flutter analyze` / `flutter test` を回して検証する。
 
-`flutter analyze` は既存の info / warning（141件）で**終了コード 1** になる。エラーは0件。
+`flutter analyze` は既存の info / warning（2026-10-12 時点で135件）で**終了コード 1** になる。エラーは0件。
 新規の指摘が無いかは件数ではなく、指摘の一覧を変更前と突き合わせて判断する。
 
 `test/` の構成。
@@ -98,6 +98,9 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `widget_test.dart` | アプリが起動するスモークテスト |
 | `services/api_service_test.dart` | `ApiService` の封筒の解釈（成功・エラー）と送信する Content-Type |
 | `screens/identification_screen_test.dart` | 保存時の 409 の扱い |
+| `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
+| `screens/plant_list_screen_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた一覧画面の表示 |
+| `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `utils/image_mime_type_test.dart` | マジックバイトによる画像形式の判定 |
 
 テストで踏みやすい点。
@@ -113,6 +116,17 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 - **`tester.ensureVisible()` の後は `pump` が要る。** スクロール位置は次のフレームまで反映されない
 - **`ElevatedButton.icon` は `find.widgetWithText(ElevatedButton, ...)` で見つからない。**
   実体がサブクラスで、`byType` は型の完全一致を見るため。文言で探す
+- **端末の機能（OS の画像選択・セキュアストレージ）は、プラットフォーム層を偽物に差し替える。**
+  `ImagePickerPlatform.instance`（`camera_screen_test.dart`）、`FlutterSecureStoragePlatform.instance`
+  （`plant_list_screen_test.dart`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
+  `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
+  最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる）
+- **`pumpAndSettle` は使えないことが多い。** 読み込み中の `CircularProgressIndicator` や、
+  `CachedNetworkImage` のプレースホルダー（テスト環境の HTTP は 400 を返す）が回り続けて終わらない。
+  `pump` を必要な回数だけ呼ぶ。ファイルの読み書きは `tester.runAsync` の中でないと進まない
+- **日時の表示のテストは、日本時間で動くことを前提にしている。** 期待値を日本時間の文字列で書き、
+  テストの冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
+  CI に入れるときは `TZ=Asia/Tokyo` で動かす
 
 ### infrastructure/
 

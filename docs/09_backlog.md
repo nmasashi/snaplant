@@ -21,13 +21,9 @@ Dart に触る作業の索引。以前は WSL から `flutter test` を実行で
 | 項目 | 判断 | 内容 |
 |---|---|---|
 | [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | **TODO: Android 実機で確認** | 確認結果を見て、既定値を残すかサーバに 415 で弾かせるかを決める |
-| [Flutter が CI の対象外](#flutter-が-ci-の対象外) | 指摘を解消してから入れる | `flutter analyze` の140件を解消し、CI で必須にする |
-| [詳細画面の日時が UTC のまま表示される](#詳細画面の日時が-utc-のまま表示されるdart) | 直す（判断不要） | 表示の前に `toLocal()` |
-| [画像選択画面で、処理中に「別の画像を選択」と戻る操作ができる](#画像選択画面で処理中に別の画像を選択と戻る操作ができるdart) | 直す（判断不要） | 処理中はボタンを押せなくし、`mounted` を確かめる |
-| [一覧画面の初期化まわりの不具合](#一覧画面の初期化まわりの不具合dart) | 直す（判断不要） | 3件 |
+| [Flutter が CI の対象外](#flutter-が-ci-の対象外) | 指摘を解消してから入れる | `flutter analyze` の135件を解消し、CI で必須にする |
 | [科名の「科」が二重になる可能性](#科名の科が二重になる可能性要確認dart) | 要確認 | 実際の `familyName` を確かめてから |
 | [画像選択画面のタイトルに「撮影」とあるが、撮影できない](#画像選択画面のタイトルに撮影とあるが撮影できないdart) | 判断待ち | 撮影を実装するか、「撮影」を外すか |
-| [小さなもの（Dart、優先度低）](#小さなものdart優先度低) | 直す（判断不要） | 到達しないコード、例外の文字列の表示 |
 
 第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
 Content-Type のマジックバイト判定）は #2 で対応済み。その後、未使用の `identifyPlant()` の削除と、
@@ -38,7 +34,7 @@ Content-Type のマジックバイト判定）は #2 で対応済み。その後
 ```powershell
 cd mobile
 flutter pub get      # pubspec.lock はコミット済みだが .dart_tool/ は無いので必要
-flutter analyze      # 着手前の状態を確認する（既存の141件で終了コード1になる。CLAUDE.md 参照）
+flutter analyze      # 着手前の状態を確認する（既存の指摘で終了コード1になる。CLAUDE.md 参照）
 flutter test
 ```
 
@@ -46,8 +42,9 @@ flutter test
 テストの書き方は `mobile/test/services/api_service_test.dart`（`MockClient` で HTTP を差し替える）と
 `mobile/test/screens/identification_screen_test.dart`（画面のテスト）が手本になる。
 
-`dev_dependencies` は `flutter_test` と `flutter_lints` だけ。テスト専用の
-補助パッケージ（mocktail などのモック生成）は入っていない。
+`dev_dependencies` は `flutter_test`・`flutter_lints` と、端末の機能をテストで差し替えるための
+プラットフォーム層（`image_picker_platform_interface`・`flutter_secure_storage_platform_interface`・
+`plugin_platform_interface`）だけ。モック生成の補助パッケージ（mocktail など）は入っていない。
 HTTP は `http` 同梱の `MockClient` で足りている。新しい依存を増やす前に
 CLAUDE.md「実装の慣習」の Flutter の構成方針を確認すること。
 
@@ -286,23 +283,24 @@ PR を出す前にローカルで回すまで検証されない状態（CLAUDE.m
 
 入れるときは `subosito/flutter-action` を使う。
 
-**実測（2026-10-11）**: `flutter analyze` は**エラー0件、info / warning 140件、終了コード1**
-（未宣言の `http_parser` を宣言して141件から1件減った）。
+**実測（2026-10-12）**: `flutter analyze` は**エラー0件、info / warning 135件、終了コード1**
+（未宣言の `http_parser` の宣言と、#23 の不具合修正・到達しないコードの削除で141件から減った）。
 素朴に CI へ入れると既存の指摘で初日から落ちるので、先に解消して `flutter analyze` を必須にする。
 `--no-fatal-infos` / `--no-fatal-warnings` で当面エラーだけを失敗条件にする手もあるが、
 指摘が溜まり続けるので採らない。
 
 | 件数 | 指摘 | 直し方 |
 |---|---|---|
-| 70 | `prefer_const_constructors` | `dart fix --apply` で機械的に直る |
-| 34 | `deprecated_member_use`（`withOpacity`、`textScaleFactor` など） | 後継の API に置き換える |
+| 68 | `prefer_const_constructors` | `dart fix --apply` で機械的に直る |
+| 32 | `deprecated_member_use`（`withOpacity`、`textScaleFactor` など） | 後継の API に置き換える |
 | 21 | `avoid_print` | 消すか `debugPrint` にする |
-| 15 | その他 | 個別に直す |
+| 14 | その他 | 個別に直す |
 
-その他のうち、`use_build_context_synchronously`（2件。`await` の後で `BuildContext` を使う）と
-`invalid_null_aware_operator`（2件）は実際の不具合になりうるので、機械的に消さずに中身を見る。
+その他のうち `use_build_context_synchronously`（1件、`settings_screen.dart`。`await` の後で `BuildContext` を使う）は
+実際の不具合になりうるので、機械的に消さずに中身を見る（画像選択画面の同じ指摘は #23 で直した）。
+`invalid_null_aware_operator`（2件）はテーマの定義の不要な `?.` で、害は無い。
 
-`flutter test` は通る（2026-10-11 時点で27本。#2 で `ApiService` と保存画面のテストを追加）。
+`flutter test` は通る（2026-10-12 時点で38本。#2 で `ApiService` と保存画面、#23 で画像選択・一覧・詳細画面のテストを追加）。
 
 ### 判定できない画像形式を `image/jpeg` として送る
 
@@ -708,44 +706,14 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 
 `upload` は植物と判定した時点で、画像を永続コンテナ（公開読み取り）へ移す（`upload.ts`）。
 識別結果確認画面で「やり直し」や戻る操作をすると、どのレコードからも参照されない画像が残る。
+画像選択画面でアップロードと識別の処理中に戻った場合も同じ（クライアントは応答を待たずに画面を閉じるが、
+サーバ側の処理は続いて画像を永続コンテナへ移す）。
 画像だけを消す API は無く（`DELETE /api/plants/{id}` はレコード単位）、クライアントからは片付けられない。
 初期の画面設計は「キャンセル時、画像は削除済み」としていたが、実装されていなかった。
 
 **判断が必要な点**: どこで片付けるか。保存までは一時コンテナに置き、保存時に永続コンテナへ移す設計に変えるのが筋だが、
 `upload` と `save` の契約（`imagePath` が指すコンテナ）が変わる。上記「`upload` で AI の呼び出しが例外で失敗すると、
 一時保存した Blob が残る」のライフサイクル管理と合わせて考えるとよい。
-
-### 詳細画面の日時が UTC のまま表示される（Dart）
-
-`plant_detail_screen.dart` の `_formatDateTime()` は `toLocal()` をせずに年月日と時分を取る。
-`plant.dart` の `DateTime.parse()` は、サーバが返す `Z` 付きの ISO 文字列（`toISOString()`）から UTC の値を作る。
-
-**症状**: 日本時間 09:30 に保存した植物が「00:30」と表示される。0時から9時に保存したものは前日の日付になる。
-
-**直し方**: 表示の前に `toLocal()` する（UTC の ISO 文字列はサーバの契約なので、クライアントで直す）。再現テストを先に書く。
-
-### 画像選択画面で、処理中に「別の画像を選択」と戻る操作ができる（Dart）
-
-`camera_screen.dart` の「別の画像を選択」は、アップロードと識別の処理中も押せる。
-処理の完了後は `mounted` を確かめずに `setState` し、`Navigator.pop` する
-（`flutter analyze` の `use_build_context_synchronously`（`camera_screen.dart:168`）はこの箇所）。
-
-**症状**:
-- 処理中に画像を選び直すと、識別結果確認画面のヘッダーには新しい画像が出るが、候補と保存される画像は古い画像のもの
-- 処理中に戻ると、破棄済みの画面への `setState` で例外になる。アップロードした画像は残る
-
-**直し方**: 処理中はボタンを押せなくし、`await` の後で `mounted` を確かめる。
-
-### 一覧画面の初期化まわりの不具合（Dart）
-
-`plant_list_screen.dart` と `settings_screen.dart` の、設定の読み込みと受け渡しに関する3件。
-
-- **API キーが未設定のまま設定画面から戻ると、「植物一覧を読み込み中...」のまま止まる。** 画像選択ボタンを押すと
-  「API設定が完了していません」が出る。ヘッダーの設定ボタンからなら抜け出せる
-- **保存済みの設定を読めなかったときの「再試行」が何もしない。** `_apiService` が null のまま `_loadPlants()` を呼び、すぐに戻る。
-  `_initializeScreen()` を呼ぶべき
-- **設定をリセットしてから戻っても、一覧が古い設定で通信し続ける。** リセットはその場で保存されるが、
-  戻るときに結果を返さないので、一覧は設定を読み直さない。アプリを再起動するまで、消したはずのキーで通信する
 
 ### 科名の「科」が二重になる可能性（要確認、Dart）
 
@@ -761,14 +729,6 @@ AI が「バラ科」を返すと「バラ科科」と表示される。
 `CameraService.takePhoto()` は呼び出し元が無く、`AndroidManifest.xml` は CAMERA 権限を宣言している。
 
 **判断が必要な点**: カメラ撮影を実装するか、タイトルと権限から「撮影」を外すか（下記「初期の設計にあって未実装の機能」）。
-
-### 小さなもの（Dart、優先度低）
-
-- **到達しないコード**: 識別結果確認画面の「植物として識別できませんでした」の表示（`upload` は植物でない画像を
-  400 で返すので、この画面には来ない）。画像選択画面の「識別中...」（2つのフラグが常に同時に変わる）。
-  設定画面の接続テストの「接続エラー」の分岐（`testConnection()` が例外をすべて false にする）
-- **画像の取り込みに失敗すると、例外の文字列をそのまま表示する**（`camera_screen.dart` の `_pickFromGallery()`）。
-  `PlatformException(...)` のような文字列が利用者に見える
 
 ### 初期の設計にあって未実装の機能
 
