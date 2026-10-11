@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { LLMAnalysisResult, IdentificationResult } from "../types/plant";
-import { wrapError } from "../utils/errors";
+import { UpstreamError } from "../utils/errors";
 
 /**
  * 応答の構造を強制する JSON Schema（Structured Outputs）
@@ -126,7 +126,7 @@ export class OpenAIVisionService {
 						: [],
 			};
 		} catch (error: any) {
-			throw wrapError(`植物識別に失敗しました: ${error.message}`, error);
+			throw new UpstreamError(`植物識別に失敗しました: ${error.message}`, "ai", error);
 		}
 	}
 
@@ -270,6 +270,12 @@ ${contextSection}
 				}
 				if (typeof candidate.confidence !== "number") {
 					throw new Error("候補の信頼度が数値ではありません");
+				}
+				// strict モードのスキーマでは minimum / maximum を書けないため、範囲はここで検査する。
+				// 範囲外の値をそのまま返すと、仕様（PlantCandidate.confidence は 0〜100）に反した値が
+				// クライアントに渡り、保存時の検証（0〜100）で弾かれる
+				if (candidate.confidence < 0 || candidate.confidence > 100) {
+					throw new Error("候補の信頼度が0-100の範囲ではありません");
 				}
 			}
 		}

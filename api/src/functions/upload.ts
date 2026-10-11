@@ -9,6 +9,7 @@ import {
 } from '../utils/response';
 import { HttpStatusCode, ErrorCode } from '../types/api';
 import { FILE_UPLOAD, CONTEXT_INFO_VALIDATION } from '../constants/validation';
+import { UpstreamError, hasCauseCode } from '../utils/errors';
 
 /**
  * 画像アップロード・植物判定統合 API
@@ -142,8 +143,20 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
   } catch (error: any) {
     context.log('画像アップロード・植物判定エラー:', error);
     
-    // OpenAI API関連エラー
-    if (error.message.includes('OpenAI') || error.message.includes('LLM') || error.code === 'insufficient_quota') {
+    // AI 識別サービスの呼び出しで起きたエラー。identify.ts と同じく、
+    // メッセージの文字列ではなく、どこで失敗したか（UpstreamError の service）で分類する
+    if (error instanceof UpstreamError && error.service === 'ai') {
+      // 接続できない（到達していない）なら 503、到達してエラー応答を受けたなら 502。
+      // この判定を下のストレージの接続障害の分岐より先に置く。後に置くと、
+      // AI に接続できない障害が「ストレージに接続できません」と報告される
+      if (hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED'])) {
+        return createErrorResponse(
+          ErrorCode.AI_SERVICE_ERROR,
+          '植物識別サービスに接続できません',
+          HttpStatusCode.SERVICE_UNAVAILABLE,
+          error.message
+        );
+      }
       return createErrorResponse(
         ErrorCode.AI_SERVICE_ERROR,
         '植物識別サービスでエラーが発生しました',
@@ -152,22 +165,18 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
       );
     }
 
-    // ネットワークエラー
-    // ENOTFOUND（名前解決の失敗）はサービスに到達できていないので、
-    // 上流が不正な応答を返した 502 ではなく 503 に分類する。
-    // 他の6つのハンドラも ENOTFOUND を 503 として扱っており、ここだけ
-    // 502 になっていたためクライアントの再試行判断が揃わなかった
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      return createErrorResponse(
-        ErrorCode.STORAGE_ERROR,
-        'ストレージサービスに接続できません',
-        HttpStatusCode.SERVICE_UNAVAILABLE,
-        error.message
-      );
-    }
-
-    // Azure Storage関連エラー
-    if (error.message.includes('Storage')) {
+    // Blob Storage の操作で起きたエラー。StorageService は失敗を UpstreamError（service: 'storage'）で投げる。
+    // 包み直しのメッセージは日本語で 'Storage' を含まないため、文字列で見ていた頃は 500 になっていた。
+    // 接続できない（ENOTFOUND / ECONNREFUSED / ETIMEDOUT）なら 503、接続できたうえでの失敗なら 502
+    if (error instanceof UpstreamError && error.service === 'storage') {
+      if (hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])) {
+        return createErrorResponse(
+          ErrorCode.STORAGE_ERROR,
+          'ストレージサービスに接続できません',
+          HttpStatusCode.SERVICE_UNAVAILABLE,
+          error.message
+        );
+      }
       return createErrorResponse(
         ErrorCode.STORAGE_ERROR,
         'ストレージサービスでエラーが発生しました',

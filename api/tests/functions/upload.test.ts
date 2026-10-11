@@ -750,14 +750,18 @@ describe('画像アップロード・植物判定統合API', () => {
       });
     });
 
-    it('一時保存が未分類のエラーで失敗した場合は500エラー', async () => {
-      // 未分類のエラーのモック（一時保存のアップロードで発生させる）。
-      // **code を設定しない**ことがこのテストの条件。StorageService は
-      // wrapError() で code を引き継ぐが、引き継ぐ元が無いので
-      // upload.ts のどのネットワーク分岐にも当たらず、
-      // 実際に通るのは最終フォールバック（500）になる
-      const networkError = new Error('Connection timeout');
-      backend.forcedUploadError = networkError;
+    it('一時保存がストレージ側のエラー応答で失敗した場合は502エラー', async () => {
+      // Azure Storage SDK（@azure/storage-blob）が接続できたうえで返す失敗の形を再現する。
+      // 実 SDK は RestError（name: 'RestError'、HTTP ステータスと Storage のエラーコード付き）を投げ、
+      // message は英語の文で、文字列 "Storage" を含むとは限らない。
+      // 実装の判定条件に合わせた文字列（"Storage" を含む message）を作ると、
+      // 実 SDK が作らない形でしか分岐を通らないテストになるため、あえて含めない。
+      // ネットワーク系の code（ENOTFOUND など）も持たないので、接続はできている失敗を表す
+      const storageError = Object.assign(
+        new Error('This request is not authorized to perform this operation.'),
+        { name: 'RestError', statusCode: 403, code: 'AuthorizationFailure' }
+      );
+      backend.forcedUploadError = storageError;
 
       // ファイルオブジェクトのモック
       const mockFile = {
@@ -788,13 +792,13 @@ describe('画像アップロード・植物判定統合API', () => {
       const response = await uploadImageHandler(request, mockContext);
 
       // 検証
-      expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
+      // details は契約外なので文言を固定しない
+      expect(response.status).toBe(502);
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
-          code: 'INTERNAL_ERROR',
-          message: '画像アップロード・植物判定に失敗しました',
-          details: '一時画像のアップロードに失敗しました: Connection timeout'
+          code: 'STORAGE_ERROR',
+          message: 'ストレージサービスでエラーが発生しました'
         }
       });
     });
@@ -853,6 +857,99 @@ describe('画像アップロード・植物判定統合API', () => {
           details: `一時画像のアップロードに失敗しました: 接続に失敗しました (${errorCode})`
         }
       });
+    });
+  });
+
+  describe('AI サービスのエラー', () => {
+    it('AIの呼び出しがSDKのエラー応答で失敗した場合は502エラー', async () => {
+      // 実際の SDK（openai の APIError）に近い形のエラーを注入する。
+      // 実 SDK の message は "500 The server had an error while processing your request." の
+      // ように先頭にステータスが付くだけで、"OpenAI" も "LLM" も含まない。
+      // 実装の文字列判定に合わせて "OpenAI" を含むメッセージにすると、
+      // 実 SDK が作らない形でしか分岐を通らないテストになるため、含めない。
+      // 識別が失敗した時点で一時保存は成功済みである（失敗した場所は AI の呼び出し）
+      const sdkError = Object.assign(
+        new Error('500 The server had an error while processing your request.'),
+        { name: 'InternalServerError', status: 500 }
+      );
+      mockOpenAI.chat.completions.create.mockRejectedValue(sdkError);
+
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          return null;
+        })
+      };
+
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      const response = await uploadImageHandler(request, mockContext);
+
+      // details は契約外のため固定しない
+      expect(response.status).toBe(502);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('AI_SERVICE_ERROR');
+      expect(response.jsonBody.error.message).toBe('植物識別サービスでエラーが発生しました');
+    });
+
+    it('AI識別サービスに接続できない場合はストレージではなくAIの障害として503エラーを返す', async () => {
+      // 実SDK（openai 7.x / Node標準のfetch）の接続エラーは3段のcauseチェーンになる。
+      //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code='ENOTFOUND'）
+      // ENOTFOUNDを持つのは最深部だけで、トップレベルにcodeは付かない。
+      // トップレベルにcodeを付けると実SDKが作らない形になるので付けない
+      const dnsError = Object.assign(
+        new Error('getaddrinfo ENOTFOUND example.openai.azure.com'),
+        { code: 'ENOTFOUND' }
+      );
+      const fetchError = Object.assign(new TypeError('fetch failed'), { cause: dnsError });
+      const connectionError = Object.assign(new Error('Connection error.'), {
+        name: 'APIConnectionError',
+        cause: fetchError
+      });
+      mockOpenAI.chat.completions.create.mockRejectedValue(connectionError);
+
+      const mockFile = {
+        name: 'test.jpg',
+        type: 'image/jpeg',
+        size: 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+      } as any;
+
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'image') return mockFile;
+          return null;
+        })
+      };
+
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      const response = await uploadImageHandler(request, mockContext);
+
+      // details は契約外のため固定しない
+      expect(response.status).toBe(503);
+      expect(response.jsonBody.success).toBe(false);
+      expect(response.jsonBody.error.code).toBe('AI_SERVICE_ERROR');
+      expect(response.jsonBody.error.message).toBe('植物識別サービスに接続できません');
     });
   });
 });
