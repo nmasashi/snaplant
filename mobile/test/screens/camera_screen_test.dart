@@ -62,12 +62,17 @@ File _writeImage(String name) {
   return File('${dir.path}/$name')..writeAsBytesSync(_tinyPng);
 }
 
-/// アップロードへの応答を [uploadResponse] が完了するまで保留するサーバ
-ApiService _serviceWhereUploadWaitsFor(Completer<http.Response> uploadResponse) {
+/// アップロードへの応答を [uploadResponse] が完了するまで保留するサーバ。
+/// アップロードが届いた時点で [received] を完了させる（テストが応答待ちを確かめるため）
+ApiService _serviceWhereUploadWaitsFor(
+  Completer<http.Response> uploadResponse, {
+  Completer<void>? received,
+}) {
   return ApiService(
     baseUrl: 'https://api.example.test',
     client: MockClient((request) async {
       if (request.method == 'POST' && request.url.path == '/api/images/upload') {
+        if (received != null && !received.isCompleted) received.complete();
         return uploadResponse.future;
       }
       return http.Response('', 404);
@@ -142,17 +147,26 @@ Future<void> _openCameraScreenWithImageSelected(
 }) async {
   await _openCameraScreen(tester, apiService: apiService, galleryFiles: galleryFiles);
   await tester.tap(find.text('ギャラリーから選択'));
-  await _letRealIoAndFramesRun(tester);
+  await _runRealIoUntil(tester, () => find.text('別の画像を選択').evaluate().isNotEmpty, reason: '選んだ画像が表示されない');
 }
 
 /// 実際のファイル I/O は fake async の外で進める必要がある。
-/// アニメーションやスピナーで pumpAndSettle が終わらないため、pump で進める。
-/// I/O の完了ごとに fake async 側のマイクロタスクを流す必要があるので、数回繰り返す
-Future<void> _letRealIoAndFramesRun(WidgetTester tester) async {
-  for (var i = 0; i < 5; i++) {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
-    await tester.pump(const Duration(milliseconds: 100));
+/// 本番コードが await する I/O の段数に依存しないよう、回数を決め打ちせず
+/// [done] が真になるまで「実 I/O を少し待つ → pump」を繰り返す。
+/// 進み切らなければ [reason] を添えて落とす（黙って空振りさせない）。
+/// アニメーションやスピナーで pumpAndSettle が終わらないため、pump で進める
+Future<void> _runRealIoUntil(
+  WidgetTester tester,
+  bool Function() done, {
+  required String reason,
+  int maxRounds = 100,
+}) async {
+  for (var i = 0; i < maxRounds; i++) {
+    if (done()) return;
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.pump(const Duration(milliseconds: 20));
   }
+  if (!done()) fail('$maxRounds 回待っても条件を満たさなかった: $reason');
 }
 
 http.Response _uploadFailedWithAiServiceError() {
@@ -172,20 +186,22 @@ http.Response _uploadFailedWithAiServiceError() {
 /// 画像を選んで識別を始め、処理中に画面を戻ってから、サーバが [response] を返したところまで進める
 Future<void> _leaveWhileUploadingThenRespond(WidgetTester tester, http.Response response) async {
   final uploadResponse = Completer<http.Response>();
+  final received = Completer<void>();
   await _openCameraScreenWithImageSelected(
     tester,
-    apiService: _serviceWhereUploadWaitsFor(uploadResponse),
+    apiService: _serviceWhereUploadWaitsFor(uploadResponse, received: received),
     galleryFiles: [_writeImage('first.png')],
   );
   await tester.tap(find.text('植物を識別する'));
-  await _letRealIoAndFramesRun(tester);
+  await _runRealIoUntil(tester, () => received.isCompleted, reason: 'アップロードがサーバに届かない');
   await tester.tap(find.byIcon(Icons.arrow_back));
   // 戻る操作は1フレーム目で始まり、次のフレームで進む
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
 
+  // 届いた後は実 I/O が無いので、マイクロタスクを流すだけで応答の処理まで進む
   uploadResponse.complete(response);
-  await _letRealIoAndFramesRun(tester);
+  await tester.pump(const Duration(milliseconds: 500));
 }
 
 /// ボタン本体（OutlinedButton.icon などの実体はサブクラス）を文言から探す
@@ -200,21 +216,22 @@ bool _isEnabled(WidgetTester tester, Finder button) {
 void main() {
   testWidgets('アップロードと識別の処理中は「別の画像を選択」を押せない', (tester) async {
     final uploadResponse = Completer<http.Response>();
+    final received = Completer<void>();
     await _openCameraScreenWithImageSelected(
       tester,
-      apiService: _serviceWhereUploadWaitsFor(uploadResponse),
+      apiService: _serviceWhereUploadWaitsFor(uploadResponse, received: received),
       galleryFiles: [_writeImage('first.png')],
     );
 
     await tester.tap(find.text('植物を識別する'));
-    await _letRealIoAndFramesRun(tester);
+    await _runRealIoUntil(tester, () => received.isCompleted, reason: 'アップロードがサーバに届かない');
 
     expect(find.text('アップロード中...'), findsOneWidget);
     expect(_isEnabled(tester, _buttonLabeled('別の画像を選択')), isFalse);
 
     // 後片付け: 保留を解いて処理を完了させる
     uploadResponse.complete(_uploadSucceeded());
-    await _letRealIoAndFramesRun(tester);
+    await _runRealIoUntil(tester, () => find.text('識別結果').evaluate().isNotEmpty, reason: '識別結果画面に移らない');
   });
 
   testWidgets('処理中に画面を戻ると、処理が終わっても例外にならず識別結果画面にも移らない', (tester) async {
