@@ -110,6 +110,11 @@ Azure Blob Storage Container: temp-images
 └── existing-temp-files.jpg
 ```
 
+一時 URL の SAS は読み取り専用で、有効期限は発行から 8760 時間（1年）です。
+SAS が必要なのは AI 識別サービスが非公開の一時コンテナから画像を読むためで、
+サーバ自身の移動・削除は接続文字列の資格情報で行います。
+一時 URL はクライアントには返しません（レスポンスの `imagePath` は永続コンテナの公開 URL）。
+
 **②植物判定結果による分岐:**
 
 **植物の場合（永続保存）:**
@@ -122,6 +127,9 @@ Azure Blob Storage Container: images
 Azure Blob Storage Container: temp-images
 └── existing-temp-files.jpg  ← 対象ファイルは削除済み
 ```
+
+永続コンテナの Blob は一時 Blob と同じ Blob 名で、アップロード時の Content-Type を引き継ぎます
+（一時 Blob をダウンロードして永続コンテナへアップロードし直し、一時 Blob を削除する）。
 
 **植物でない場合（削除）:**
 ```
@@ -185,6 +193,24 @@ Content-Type: multipart/form-data
 500文字以内の文字列で、文字列でない場合（`補足情報は文字列で指定してください`）と
 500文字超過の場合（`補足情報は500文字以内で指定してください`）は、
 いずれも一時保存とAI呼び出しの前に 400 `INVALID_REQUEST` で弾かれます。
+
+クライアント（Flutter）は `image` パートの Content-Type を、拡張子や OS の申告値ではなく
+ファイル先頭のシグネチャから決めます（`mobile/lib/utils/image_mime_type.dart`）。
+
+| 形式 | 先頭のバイト列 | 送る Content-Type |
+|------|---------------|------------------|
+| PNG | `89 50 4E 47 0D 0A 1A 0A` | `image/png` |
+| JPEG | `FF D8 FF` | `image/jpeg` |
+| GIF | `GIF87a` または `GIF89a`（ASCII） | `image/gif` |
+| WebP | 先頭が `RIFF`、8バイト目から `WEBP`（ASCII） | `image/webp` |
+
+サーバは送られた Content-Type を許可する形式と照合するだけで中身は見ず、
+そこから Blob の Content-Type と拡張子を決めます。そのため拡張子が `.jpg` でも
+中身が PNG なら `image/png` で送ります。ファイル名は常に `plant_image.jpg` です
+（レスポンスの `fileName` にそのまま返るだけで、Blob 名には使われません）。
+どのシグネチャにも当たらない中身は `image/jpeg` として送ります。HEIC など4形式以外も
+この既定値のまま受理されます（扱いは `09_backlog.md` の
+「判定できない画像形式を `image/jpeg` として送る」で判断待ち）。
 
 **レスポンス（植物の場合）:**
 ```json
@@ -295,8 +321,20 @@ Content-Type: application/json
 }
 ```
 
-応答に既存レコードの `id` は含まれないため、クライアントは 409 を
-「既に保存済み」と解釈し、ステップ5の `GET /plants` から該当レコードを探します。
+応答に既存レコードの `id` は含まれません。Flutter クライアントは 409 を
+`error.code` が `IMAGE_ALREADY_SAVED` かどうかで判定し（同じ 409 でも
+`DATABASE_ERROR` は保存の失敗としてエラーを表示し、画面に留まる）、
+サーバの `message`（「この画像は既に保存されています」）を表示して植物一覧へ戻ります。
+一覧は戻った時点で `GET /plants` で取り直します（ステップ5）。
+同じ画像は1レコードにしか保存できず、識別結果画面で候補を選び直しても保存できないため、
+エラーとして画面に留めることはしません。
+
+なお Flutter クライアントは保存の前に名前で重複確認（ステップ3）をするため、
+レスポンスが届かなかった後に**同じ候補**で保存し直すと、既存の植物が見つかって
+`PUT /plants/{id}`（ステップ4b）に進みます。`PUT` は更新対象自身がその画像を
+持っていれば通すので 409 にはなりません。クライアントから 409 になるのは、
+レスポンスが届かなかった後に**別の候補**で保存し直したときです
+（その候補が未登録なら `POST /plants/save`、登録済みなら `PUT /plants/{id}` が 409 を返す）。
 
 #### ステップ4b: 既存植物更新（重複ありの場合）
 ```http
@@ -317,6 +355,8 @@ Content-Type: application/json
 5. レスポンス返却
 
 **レスポンス:**
+
+更新後のドキュメント全体（`06_api_openapi.yaml` の `Plant`）を返します。
 ```json
 {
   "success": true,
@@ -324,8 +364,13 @@ Content-Type: application/json
     "plant": {
       "id": "123e4567-e89b-12d3-a456-426614174000",
       "name": "桜",
-      "imagePath": "https://snaplant.blob.core.windows.net/images/12345678-uuid.jpg",
+      "scientificName": "Prunus serrulata",
+      "familyName": "バラ科",
+      "description": "日本を代表する花木",
+      "characteristics": "春に美しいピンクの花を咲かせる",
       "confidence": 95.5,
+      "imagePath": "https://snaplant.blob.core.windows.net/images/12345678-uuid.jpg",
+      "createdAt": "2024-01-10T14:20:00Z",
       "updatedAt": "2024-01-15T10:30:00Z"
     }
   }
@@ -426,7 +471,8 @@ sequenceDiagram
   "success": false,
   "error": {
     "code": "NOT_A_PLANT",
-    "message": "アップロードされた画像は植物ではありません"
+    "message": "アップロードされた画像は植物ではありません",
+    "details": "植物の画像を選択して再度お試しください"
   }
 }
 ```
@@ -438,7 +484,15 @@ sequenceDiagram
 503 で返るコードは `STORAGE_ERROR` だけです（`AI_SERVICE_ERROR` の 503 は
 `POST /plants/identify` 側にしかありません）。
 
-**対応**: ユーザーに再アップロードを促す
+**対応**: Flutter クライアントは画像選択画面（`CameraScreen`）にエラーを表示して画面に留まり、
+同じ画像のまま送り直せます。表示する文言は `ApiException.userMessage` がステータスで決めます。
+
+- 503（接続できない）: 時間を置いた再試行を促す
+  （「サービスに一時的に接続できません。しばらく待ってから再試行してください。」）
+- 502（上流がエラーを返した）: すぐ再試行しても同じ結果になりやすいので繰り返しは促さず、
+  「外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。」と伝える
+- 400 `NOT_A_PLANT` など `userMessage` が個別の文言を持たないステータスは、
+  サーバの `message` をそのまま表示する（`details` は表示しない）
 
 #### ステップ3エラー: 重複確認失敗
 ```json
@@ -450,7 +504,11 @@ sequenceDiagram
   }
 }
 ```
-**対応**: 重複確認をスキップして新規保存を試行
+**対応**: 重複確認をスキップして保存に進むことはしません。Flutter クライアントは
+保存（ステップ4）に進まず、識別結果画面（`IdentificationScreen`）にエラーを表示して
+画面に留まります。保存ボタンを押し直すと重複確認からやり直します。
+表示する文言はステップ1と同じく `userMessage` で決まります
+（上の `DATABASE_ERROR` は 503 で返るため、時間を置いた再試行を促す文言になる）。
 
 #### ステップ4エラー: 保存/更新失敗
 ```json
@@ -481,9 +539,12 @@ sequenceDiagram
   }
 }
 ```
-**対応**: データの再送信または後で再試行。
-ただし 409 `IMAGE_ALREADY_SAVED` は再送しても解消しないため、
-「既に保存済み」として扱い、`GET /plants` から該当レコードを探す
+**対応**: Flutter クライアントは識別結果画面にエラーを表示して画面に留まり、
+保存ボタンを押し直すと重複確認（ステップ3）からやり直します。
+ただし 409 `IMAGE_ALREADY_SAVED` は再送しても解消しないため、エラーとして画面に留めず、
+「この画像は既に保存されています」と表示して植物一覧へ戻り、一覧を `GET /plants` で取り直します。
+判定はステータスではなく `error.code` で行い、`save` の 409 `DATABASE_ERROR` は
+通常のエラーとして画面に留まります。409 になる経路はステップ4aを参照。
 
 なお旧画像の削除に失敗しても**エラーにはなりません**。`PUT /plants/{id}` も
 `DELETE /plants/{id}` も、Blob 削除の失敗はサーバ側のログ出力だけで、

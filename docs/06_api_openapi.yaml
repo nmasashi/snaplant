@@ -115,7 +115,12 @@ paths:
         - name: id
           in: path
           required: true
-          description: 植物ID (UUID)
+          description: |
+            植物ID。UUID 形式（`8-4-4-4-12` 桁の16進）で指定する。
+            3つ目のグループ先頭のバージョン桁は `1`〜`5` を受け付ける（API が採番するのは小文字の v4）。
+            4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b` のみ。
+            形式の検査では大文字小文字を区別しない。
+            形式に合わなければ 400 `INVALID_REQUEST`。
           schema:
             type: string
             format: uuid
@@ -159,7 +164,12 @@ paths:
         - name: id
           in: path
           required: true
-          description: 植物ID (UUID)
+          description: |
+            植物ID。UUID 形式（`8-4-4-4-12` 桁の16進）で指定する。
+            3つ目のグループ先頭のバージョン桁は `1`〜`5` を受け付ける（API が採番するのは小文字の v4）。
+            4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b` のみ。
+            形式の検査では大文字小文字を区別しない。
+            形式に合わなければ 400 `INVALID_REQUEST`。
           schema:
             type: string
             format: uuid
@@ -232,7 +242,12 @@ paths:
         - name: id
           in: path
           required: true
-          description: 植物ID (UUID)
+          description: |
+            植物ID。UUID 形式（`8-4-4-4-12` 桁の16進）で指定する。
+            3つ目のグループ先頭のバージョン桁は `1`〜`5` を受け付ける（API が採番するのは小文字の v4）。
+            4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b` のみ。
+            形式の検査では大文字小文字を区別しない。
+            形式に合わなければ 400 `INVALID_REQUEST`。
           schema:
             type: string
             format: uuid
@@ -324,7 +339,10 @@ paths:
         - name: name
           in: query
           required: true
-          description: 植物名
+          description: |
+            植物名。前後の空白を取り除いてから、保存済みの `name` と完全一致で比較する。
+            未指定、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
+            （message: 植物名が指定されていません、details: nameクエリパラメータは必須です）。
           schema:
             type: string
           example: "桜"
@@ -380,7 +398,11 @@ paths:
                 image:
                   type: string
                   format: binary
-                  description: 画像ファイル (JPEG, PNG, WebP, GIF)
+                  description: |
+                    画像ファイル (JPEG, PNG, WebP, GIF)。
+                    未指定の場合、またはファイル以外（テキストフィールド）で送られた場合は
+                    400 `INVALID_REQUEST`
+                    （message: 画像ファイルが指定されていません、details: imageフィールドでファイルを送信してください）。
                 contextInfo:
                   type: string
                   maxLength: 500
@@ -468,6 +490,14 @@ paths:
                       code: "INVALID_REQUEST"
                       message: "画像ファイルが指定されていません"
                       details: "imageフィールドでファイルを送信してください"
+                not_multipart:
+                  summary: Content-Type が multipart/form-data でない（ヘッダ未指定を含む）
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Content-Typeがmultipart/form-dataではありません"
+                      details: "multipart/form-dataでファイルを送信してください"
                 context_info_too_long:
                   summary: 補足情報が長すぎる
                   value:
@@ -593,11 +623,15 @@ components:
         createdAt:
           type: string
           format: date-time
-          description: 作成日時
+          description: |
+            作成日時。API が付与する値は UTC の `toISOString()` 形式
+            （ミリ秒3桁・末尾 `Z`。例 `2024-01-15T10:30:00.000Z`）。
         updatedAt:
           type: string
           format: date-time
-          description: 更新日時
+          description: |
+            更新日時。API が付与する値は UTC の `toISOString()` 形式
+            （ミリ秒3桁・末尾 `Z`。例 `2024-01-15T10:30:00.000Z`）。
 
     PlantSummary:
       type: object
@@ -637,6 +671,9 @@ components:
 
     PlantCreateRequest:
       type: object
+      description: |
+        文字列の上限値は項目ごとの環境変数で変更でき、上限超過の `message` に含まれる数値も
+        同じ値から生成される（下の各 message は既定値の場合）。
       required:
         - name
         - characteristics
@@ -645,36 +682,70 @@ components:
       properties:
         name:
           type: string
-          description: 植物名
+          maxLength: 100
+          description: |
+            植物名。
+            未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
+            （message: 植物名が指定されていません）。
+            上限を超えると 400 `INVALID_REQUEST`（message: 植物名は100文字以内で指定してください）。
+            上限値は環境変数 `PLANT_NAME_MAX_LENGTH` で変更可能（既定 100。
+            正の整数として読めない値なら既定値が使われる）。
           example: "桜"
         scientificName:
           type: string
           nullable: true
-          description: 学名
+          maxLength: 150
+          description: |
+            学名（任意）。
+            上限を超えると 400 `INVALID_REQUEST`（message: 学名は150文字以内で指定してください）。
+            上限値は環境変数 `PLANT_SCIENTIFIC_NAME_MAX_LENGTH` で変更可能（既定 150。
+            正の整数として読めない値なら既定値が使われる）。
           example: "Prunus serrulata"
         familyName:
           type: string
           nullable: true
-          description: 科名
+          maxLength: 100
+          description: |
+            科名（任意）。
+            上限を超えると 400 `INVALID_REQUEST`（message: 科名は100文字以内で指定してください）。
+            上限値は環境変数 `PLANT_FAMILY_NAME_MAX_LENGTH` で変更可能（既定 100。
+            正の整数として読めない値なら既定値が使われる）。
           example: "バラ科"
         description:
           type: string
           nullable: true
-          description: 詳細説明
+          maxLength: 1000
+          description: |
+            詳細説明（任意）。
+            上限を超えると 400 `INVALID_REQUEST`（message: 説明は1000文字以内で指定してください）。
+            上限値は環境変数 `PLANT_DESCRIPTION_MAX_LENGTH` で変更可能（既定 1000。
+            正の整数として読めない値なら既定値が使われる）。
         characteristics:
           type: string
-          description: 特徴
+          maxLength: 500
+          description: |
+            特徴。
+            未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
+            （message: 特徴が指定されていません）。
+            上限を超えると 400 `INVALID_REQUEST`（message: 特徴は500文字以内で指定してください）。
+            上限値は環境変数 `PLANT_CHARACTERISTICS_MAX_LENGTH` で変更可能（既定 500。
+            正の整数として読めない値なら既定値が使われる）。
           example: "春に美しいピンクの花を咲かせる"
         confidence:
           type: number
           minimum: 0
           maximum: 100
-          description: AI識別の信頼度
+          description: |
+            AI識別の信頼度（0 と 100 を含む）。
+            未指定、数値以外、または範囲外の場合は 400 `INVALID_REQUEST`
+            （message: 信頼度は0から100の間の数値で指定してください）。
         imagePath:
           type: string
           format: uri
           description: |
             `POST /images/upload` が返した `imagePath` を指定する。
+            未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
+            （message: 画像パスが指定されていません）。
             次のすべてを満たさないURLは 400 `INVALID_REQUEST`
             （message: 画像アップロードAPIが返したURLを指定してください）。
 
@@ -703,6 +774,8 @@ components:
           format: uri
           description: |
             新しい画像URL。`POST /images/upload` が返した `imagePath` を指定する。
+            未指定、`null`、または空白のみ（空文字列を含む）の場合は 400 `INVALID_REQUEST`
+            （message: 画像パスが指定されていません）。
             制約は `PlantCreateRequest.imagePath` と同じで、`https:` スキーム・
             自ストレージアカウントのBlobエンドポイント・ちょうど
             `/<永続コンテナ名>/<Blob名>` の2セグメント・正規形との文字列完全一致の
@@ -716,7 +789,10 @@ components:
           type: number
           minimum: 0
           maximum: 100
-          description: 新しい信頼度
+          description: |
+            新しい信頼度（0 と 100 を含む）。
+            未指定、数値以外、または範囲外の場合は 400 `INVALID_REQUEST`
+            （message: 信頼度は0から100の間の数値で指定してください）。
 
     IdentifyRequest:
       type: object
@@ -730,6 +806,11 @@ components:
             識別対象の画像URL。URLとしてパースできれば受け付ける
             （`PlantCreateRequest.imagePath` のようなスキーム・ホスト・パス形の制約は
             このエンドポイントでは適用されない）。指定されたURLはそのままAI識別サービスへ渡される。
+            未指定（`null`・空文字列を含む）の場合は 400 `INVALID_REQUEST`
+            （message: 画像URLが指定されていません）。
+            URLとしてパースできない場合は 400 `INVALID_REQUEST`
+            （message: 画像URLの形式が無効です、details: 有効なURL形式で指定してください）。
+            いずれもAI識別サービスの呼び出しより前に弾かれる。
           example: "https://stsnaplant.blob.core.windows.net/temp-images/12345678-uuid.jpg?sv=...&sig=..."
         contextInfo:
           type: string
@@ -749,6 +830,8 @@ components:
       type: object
       required:
         - isPlant
+        - confidence
+        - reason
         - candidates
       properties:
         isPlant:
@@ -775,6 +858,10 @@ components:
 
     PlantCandidate:
       type: object
+      description: |
+        AI識別の候補1件。
+        AI が特定できなかった `scientificName` / `familyName` / `description` は
+        `null` ではなくキーごと省略される（AI の応答に含まれる `null` をサーバ側で取り除いている）。
       required:
         - name
         - characteristics
@@ -863,7 +950,12 @@ components:
             details:
               type: string
               nullable: true
-              description: 詳細情報
+              description: |
+                詳細情報。
+                409 `DATABASE_ERROR`・500 `INTERNAL_ERROR`・502・503 では、サーバ内部で発生した
+                例外のメッセージがそのまま入る（SDK 由来の英語のメッセージや、内部で包み直した
+                「〜に失敗しました: <元のメッセージ>」の形など）。
+                内容は安定しないので、クライアントは表示や分岐に使わないこと。
 
   responses:
     BadRequest:
@@ -1050,7 +1142,21 @@ components:
               message: "植物識別サービスに接続できません"
 
     InternalError:
-      description: サーバー内部エラー
+      description: |
+        サーバー内部エラー。
+
+        `message` はエンドポイントごとに固定で、次のとおり。
+
+        - `GET /plants`: 植物一覧の取得に失敗しました
+        - `POST /plants/save`: 植物の保存に失敗しました
+        - `GET /plants/{id}`: 植物詳細の取得に失敗しました
+        - `PUT /plants/{id}`: 植物の更新に失敗しました
+        - `DELETE /plants/{id}`: 植物の削除に失敗しました
+        - `POST /plants/identify`: 植物識別処理に失敗しました
+        - `GET /plants/check-duplicate`: 重複チェックに失敗しました
+        - `POST /images/upload`: 画像アップロード・植物判定に失敗しました
+
+        `details` には元の例外のメッセージが入る（`Error.details` を参照）。
       content:
         application/json:
           schema:
@@ -1059,4 +1165,4 @@ components:
             success: false
             error:
               code: "INTERNAL_ERROR"
-              message: "サーバー内部エラーが発生しました"
+              message: "植物の保存に失敗しました"

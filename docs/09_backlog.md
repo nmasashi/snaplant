@@ -22,6 +22,7 @@ Dart に触る作業はここに集める。Windows 側でセッションを1回
 | 項目 | 判断 | 内容 |
 |---|---|---|
 | [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | **TODO: Android 実機で確認** | 確認結果を見て、既定値を残すかサーバに 415 で弾かせるかを決める |
+| [429 の表示文言がレート制限を示唆する](#429-の表示文言がレート制限を示唆するdart) | 判断待ち | 「混雑しています」などに変えるか |
 
 第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
 Content-Type のマジックバイト判定）は #2 で対応済み。その後、未使用の `identifyPlant()` の削除と、
@@ -517,3 +518,175 @@ test-reviewer が指摘した、原則違反ではないが締められる点。
 **判断: 当面は許容する**（人間がトリアージ済み）。合わせるならサーバ側を
 `[...str].length` にする方が利用者の直感に近いが、現行実装も妥当。
 補足情報は自由記述のヒントであり、境界ちょうどの入力が実務で問題になりにくい。
+
+---
+
+## テストと仕様書の監査（2026-10-11）で見つかった項目
+
+api / mobile の全テスト197件を仕様書（docs/01〜08、OpenAPI、README、DEPLOYMENT）と突き合わせた。
+事実の追記と、どちらが正しいか明らかな食い違いは仕様書側を直した。
+ここに残すのは**判断が必要なもの**と、**コード・テスト側のバグ**。
+
+### `PUT /plants/{id}` がボディの全項目で既存の植物を上書きする（バグ）
+
+`api/src/functions/updatePlant.ts` はボディを詰め直さずに `cosmosService.updatePlant(plantId, requestBody)` へ渡し、
+`CosmosService.updatePlant()` は `{ ...existingPlant, ...updateData }` で展開する。
+検証は `imagePath` と `confidence` しか見ないので、ボディに `name` / `characteristics` / `createdAt` などが
+含まれていればそのまま上書きされる。`save.ts` は項目を1つずつ詰め直しているので非対称。
+
+**判断: 仕様が正（実装のバグ）。** 仕様書（`06_api_design.md` §5.5）は「更新されるのは `imagePath` / `confidence` / `updatedAt` だけ」。
+PUT の用途（重複時の画像置き換え）からも、他の項目を書き換える理由が無い。
+
+直し方: ハンドラで `imagePath` と `confidence` だけを詰め直して渡す。
+先に「余分な項目（`name` など）を送っても既存の値が残る」再現テストを書いて赤を確認すること。
+`api/tests/services/cosmosService.test.ts` の updatePlant のテスト（238〜242行、258〜262行付近）は
+期待値を実装と同じスプレッドで組み立てており（原則6違反）、この不具合を検出できない。あわせて直す。
+
+### 500 と 502 の振り分けがエラーメッセージの文字列に依存し、仕様と食い違う
+
+仕様書は「上流（AI・Blob Storage）に到達したがエラー応答だった → 502、到達できない → 503」と意味で書いている。
+実装は文字列で振り分けるため、意味の上では 502 のはずの失敗が 500 になる経路がある。
+
+| 経路 | 実装の判定 | 結果 |
+|---|---|---|
+| identify・upload の AI 呼び出しの失敗 | `error.message` に `OpenAI` / `LLM` を含むか、`code === 'insufficient_quota'` | 含まなければ 500。OpenAI SDK の `APIError` の message は `${status} ${msg}` で、SDK 自身は `OpenAI` を付けない |
+| AI の応答で `choices` が空 | `TypeError` になり上の文字列に当たらない | 500（`content` が null や JSON 不正なら `LLM` を含み 502） |
+| upload の一時保存の失敗（`code` なし） | `error.message.includes('Storage')` | `StorageService` の包み直しメッセージは日本語で `Storage` を含まないので 500 |
+
+テストは分岐に届くよう注入するメッセージを選んでいる（`identify.test.ts` の `'OpenAI API error'`、`upload.test.ts` の `'Storage service error'`）。
+実 SDK がその形を作るかは検証されていない。上記「`upload` の AI 判定がメッセージ文字列依存で分類順の先頭にある」と同根。
+
+**判断が必要な点**: (A) 仕様書を実装に合わせる（文字列条件を仕様に書く）、(B) 実装を直し、AI クライアント・`StorageService` 由来の失敗を型や発生箇所で分類する。
+
+**推奨**: **(B)。** 仕様書の書き方（意味による分類）の方がクライアントの再試行判断に役立つ。
+(A) は「メッセージに特定の英単語を含むか」を契約にすることになり、SDK の更新で静かに変わる。
+
+### 0 バイトのファイルが 413 `FILE_TOO_LARGE` になる
+
+`StorageService.isValidFileSize()` は `size > 0 && size <= MAX_SIZE` で、`upload.ts` はこれが偽なら
+413「ファイルサイズが大きすぎます」を返す。0 バイトのファイルにも同じ応答になる。
+仕様書の 413 は「ファイルサイズ超過」。API 経由の応答を確かめるテストは無い（`storageService.test.ts` が判定関数だけを見ている）。
+
+**判断が必要な点**: (a) 現状を仕様に書く、(b) 0 バイトは 400 `INVALID_REQUEST` に分ける。
+
+**推奨**: **(b)。** 413 は意味が合わず、クライアントは「大きすぎる」と表示してしまう。
+
+### `PUT /plants/{id}` の植物ID形式エラーの文言が GET / DELETE と違う
+
+GET・DELETE は「植物IDの形式が無効です」/「UUID形式で指定してください」（`GENERAL_VALIDATION.ERROR_MESSAGES.INVALID_UUID`）、
+PUT は「有効な植物IDが指定されていません」/「IDはUUID形式で指定してください」を直書きしている（`updatePlant.ts`）。
+OpenAPI の 400 の例 `invalid_uuid` は GET・DELETE の文言で、PUT も同じ定義を参照している。
+クライアントは 400 の message をそのまま表示するので、文言は利用者に見える。
+
+**判断が必要な点**: (a) PUT を GET / DELETE に揃える（実装と `updatePlant.test.ts` の期待値を変える）、(b) 現状を仕様に書く。
+
+**推奨**: **(a)。** 同じ検証で文言が違う理由が無い。
+
+### エラーの `details` に内部例外のメッセージをそのまま返している
+
+409 `DATABASE_ERROR`・500・502・503 では、catch した例外の `message`（SDK 由来の英語や、内部で包み直した文言）が
+`details` に入る。仕様書には事実として追記した（「内容は安定しないのでクライアントは表示・分岐に使わない」）。
+テストの多くはこの `details` を `toEqual` で固定している。
+
+参考: 構成情報を応答に含めない方針（`api/src/constants/validation.ts` のコメント）と、
+ヘルスチェックでは例外メッセージを出さない方針（上記「ヘルスチェックエンドポイント」）がある。
+
+**判断が必要な点**: 内部例外の文言を外に出し続けるか。出し続けるなら、テストで `details` の文言まで固定し続けるか。
+
+**推奨**: **出さない方向。** 500 系の `details` は省くか固定文言にし、原因はログ（Application Insights）で追う。
+少なくとも、テストが `details` の文言を `toEqual` で固定するのはやめる（契約にしないものを固定すると、文言の変更で偽陽性になる）。
+
+### 重複確認は `name` の前後の空白を除くが、保存は除かない
+
+`checkDuplicate.ts` は `name` を trim してから完全一致で比較する。`save.ts` は `name` を trim せずにそのまま保存する。
+そのため前後に空白を含む名前で保存されたレコードは、重複確認で見つからない。
+Flutter クライアントは AI の候補名をそのまま送るので、現状は実害が出にくい。
+
+**判断が必要な点**: 保存側も trim するか（既存データの扱いを含む）。
+
+### 429 の表示文言がレート制限を示唆する（Dart）
+
+Flutter の `userMessage` は 429 に「リクエスト数が制限を超えました。しばらく待ってから再試行してください。」を出す。
+アプリはレート制限を実装しておらず、429 を返すのは過負荷時の Functions ランタイム（"Too Busy"）。
+
+**判断が必要な点**: 文言を「サーバーが混雑しています。しばらく待ってから再試行してください。」などに変えるか。
+
+### upload のフォームデータのパース失敗が 400 にならない疑い（要確認）
+
+`upload.ts` は「`TypeError` で、かつメッセージに `formData` を含む」ときだけ 400「ファイルの読み取りに失敗しました」を返す。
+同梱の undici（5.x）は multipart の解析失敗で busboy のエラーを包んだ `TypeError` か `DOMException` を投げ、
+`formData` を含む文言を作るのは multipart でない場合の分岐だけ（コードを読んでの推定。実行して確かめてはいない）。
+テストは `new TypeError('Failed to parse formData')` を注入しており、実ランタイムの形ではない。
+
+**やること**: 壊れた multipart を実際に送って何が返るか確かめる。500 になるなら判定条件を見直す。
+仕様書には到達を確認できるまで書かない。
+
+### AI 候補の `confidence` の範囲を検査していない
+
+`validateAnalysisResult()` は候補の `confidence` が数値かどうかしか見ない（トップレベルの `confidence` は 0〜100 を検査している）。
+OpenAPI の `PlantCandidate.confidence` は 0〜100 だが、範囲外の値もそのまま返る。
+
+**判断が必要な点**: 範囲外を 502 として弾くか、丸めるか、現状のままにするか。
+
+### save・PUT で必須の文字列項目に文字列以外を送ると 500 になる（バグ）
+
+`save.ts` と `updatePlant.ts` の検証は `name`・`characteristics`・`imagePath` などの必須項目に `.trim()` を呼ぶため、数値などを送ると `TypeError` になり、
+400 ではなく 500 `INTERNAL_ERROR` になる。任意項目（`scientificName` など）は型が違うと上限の検査をすり抜ける。
+
+**判断: 400 にすべき（実装のバグ）。** 仕様書は型を `string` と定めており、型違いは入力の誤り。
+直すときは、型違いが 400 になる再現テストを先に書く。
+
+### 有効期限1年の SAS 付き一時 URL をログに出している
+
+`upload.ts` は一時保存の URL（読み取り専用 SAS 付き、有効期限 8760 時間）を `context.log` に出力している。
+ログ（Application Insights）を読める人は、一時コンテナの画像を1年間取得できる。
+一時ファイルは植物でなければ削除され、植物なら永続コンテナへ移動するので、実際に残る期間は短い。
+
+**判断が必要な点**: ログから SAS を除く（URL のクエリを落として出す）か、SAS の有効期限を短くするか。
+**推奨**: **両方。** AI 識別に必要な時間は数十秒で、1年は長すぎる。
+
+### Cosmos のシステム項目が応答に含まれている可能性（要確認）
+
+`getPlantById()` などは Cosmos が返したドキュメントをそのまま返しており、`_rid` / `_self` / `_etag` / `_attachments` / `_ts`
+を除いていない。OpenAPI の `Plant` にこれらの項目は無い（コードを読んでの推定。実際の応答では確かめていない）。
+
+**やること**: デプロイ先で `GET /api/plants/{id}` の応答を確認する。含まれていれば、除くか仕様に書くかを決める。
+`GET /api/plants` は射影（`SELECT c.id, ...`）しているので含まれない（CLAUDE.md の「Cosmos のクエリを変更したら手で確認する」参照）。
+
+### 画面設計（03）と Flutter UI 設計（08）が実装に追従していない
+
+監査の副産物。今回は 03 に「保存時の挙動」を足しただけで、次は直していない。
+
+- 03 は重複確認を独立した画面とラジオボタンで描いているが、実装は AlertDialog
+- 03 の識別結果画面のボタンは `[保存][キャンセル]` だが、実装は「やり直し」「保存」
+- 03 の「キャンセル時、画像は削除済み」は実装されていない（一時画像ではなく永続コンテナに移った画像が残る）
+- 08 は IdentificationScreen を `result` と `imageFile` を持つ StatelessWidget として描いているが、実装は StatefulWidget で `apiService` と `imagePath` が必須
+- 08 の一覧画面の FAB は「撮影」だが、実装は「画像選択」
+
+**判断が必要な点**: 03 / 08 を実装の写しとして保つか、初期設計の記録として凍結し「現状は実装を見る」と明記するか。
+`mobile/` のアーキテクチャ方針（上記「Flutter が CI の対象外」）と合わせて決めるのが自然。
+
+### 監査で見つかったテスト側の問題
+
+仕様との食い違いではなく、テストそのものの不備。
+
+- **`openAIVisionService.test.ts` が Azure 側の分岐でしか動いていない。**
+  `process.env.AZURE_OPENAI_ENDPOINT = undefined` は Node では文字列 `"undefined"` になるため、
+  コメントの「OpenAI APIを使用」とは逆に `isAzure` が真になる。仕様にある「未設定なら OpenAI 公式 API へフォールバック」を
+  検証しているテストが無い。`delete process.env.AZURE_OPENAI_ENDPOINT` に直す
+- **`response.test.ts` の「有効なUUID v4形式を受け入れる」は4件中3件が v1 形式。** テスト名と中身が合っていない
+- **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
+  テスト名と検証対象がずれている。同ファイルのエラー系は前方一致 `toThrow('植物識別に失敗しました')` のため、
+  ハンドラで 500 になる経路と 502 になる経路を区別できない（原則7）
+- **`cosmosService.test.ts` の updatePlant の期待値が実装と同じスプレッドで組まれている**（上記の PUT のバグを検出できない）
+- **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
+  PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
+- **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、
+  `api/tests/services/storageService.test.ts` の 370〜371 行付近、`api/tests/functions/upload.test.ts` の 532〜536 行付近
+- **Flutter のテストの偽レスポンスが OpenAPI と細部で違う**: アップロードの `identificationResult` に `reason` を入れている、
+  `isPlant: true` なのに `candidates: []`、植物IDに UUID でない `plant-1` を使っている。検証には影響しない
+- **仕様にあるのにテストが無い振る舞い**: contextInfo の検証が一時保存と AI 呼び出しの前に行われること（upload の 501 文字のテストは Blob も OpenAI も見ていない）、
+  503 になる `ECONNREFUSED`（どのテストも `ENOTFOUND` だけ）、DELETE で画像の削除に失敗しても 200、upload の 502 `AI_SERVICE_ERROR`、
+  identify の `contextInfo: null` と数値・オブジェクトの拒否、`CONTEXT_INFO_MAX_LENGTH` に有効な値を設定した場合
+- **`api/host.json` の `http` がトップレベルにある**（正しくは `extensions.http`）。`routePrefix: "api"` は既定値と同じなので実害は無いが、
+  `maxOutstandingRequests` などを設定するつもりでここに書いても効かない
