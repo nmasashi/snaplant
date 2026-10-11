@@ -64,6 +64,26 @@ Future<void> _letFramesRun(WidgetTester tester) async {
   }
 }
 
+/// キーが保存済みの状態で一覧画面を開き、設定画面で設定をリセットして一覧画面へ戻る
+Future<void> _resetSavedSettingsAndReturnToPlantList(WidgetTester tester) async {
+  FlutterSecureStorage.setMockInitialValues({'api_key': 'old-key'});
+  SharedPreferences.setMockInitialValues({});
+  await _openPlantListScreen(tester);
+  // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
+  expect(find.text('エラーが発生しました'), findsOneWidget);
+  await tester.tap(find.byIcon(Icons.settings));
+  await _letFramesRun(tester);
+  await tester.ensureVisible(find.text('設定をリセット'));
+  await tester.pump();
+  await tester.tap(find.text('設定をリセット'));
+  await _letFramesRun(tester);
+  await tester.tap(find.text('リセット'));
+  await _letFramesRun(tester);
+
+  await tester.tap(find.byIcon(Icons.arrow_back));
+  await _letFramesRun(tester);
+}
+
 void main() {
   testWidgets('APIキーを入れずに設定画面から戻ると、読み込み中のまま止まらず「API設定が完了していません」と表示する', (tester) async {
     _givenNoSettingsSaved();
@@ -92,23 +112,24 @@ void main() {
   });
 
   testWidgets('設定をリセットして一覧画面に戻ると、消したキーで通信し続けず「API設定が完了していません」と表示する', (tester) async {
-    FlutterSecureStorage.setMockInitialValues({'api_key': 'old-key'});
-    SharedPreferences.setMockInitialValues({});
-    await _openPlantListScreen(tester);
-    // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
-    expect(find.text('エラーが発生しました'), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.settings));
-    await _letFramesRun(tester);
-    await tester.ensureVisible(find.text('設定をリセット'));
-    await tester.pump();
-    await tester.tap(find.text('設定をリセット'));
-    await _letFramesRun(tester);
-    await tester.tap(find.text('リセット'));
-    await _letFramesRun(tester);
-
-    await tester.tap(find.byIcon(Icons.arrow_back));
-    await _letFramesRun(tester);
+    await _resetSavedSettingsAndReturnToPlantList(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
+  });
+
+  testWidgets('設定をリセットして一覧画面に戻ったあとで「画像選択」を押しても、画像選択画面へ進まず、API設定が必要だと知らせる', (tester) async {
+    await _resetSavedSettingsAndReturnToPlantList(tester);
+
+    await tester.tap(find.text('画像選択'));
+    // リセット時に設定画面が出した「設定をリセットしました」がまだ表示中で、
+    // 新しいスナックバーはその後ろで待つ。前のが消える（既定で約4秒）まで時間を進める
+    await tester.pump(const Duration(seconds: 5));
+    await _letFramesRun(tester);
+
+    expect(find.text('植物を撮影・情報入力'), findsNothing);
+    expect(
+      find.descendant(of: find.byType(SnackBar), matching: find.text('API設定が完了していません')),
+      findsOneWidget,
+    );
   });
 }

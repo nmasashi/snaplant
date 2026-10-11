@@ -62,6 +62,9 @@ class _PlantListScreenState extends State<PlantListScreen> {
       
       if (apiKey == null || apiKey.isEmpty) {
         print('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
+        // 前の設定で作った ApiService が残っていると、リセットで消したキーで通信し続ける
+        _apiService?.dispose();
+        _apiService = null;
         setState(() {
           _needsSetup = true;
           _hasError = false;
