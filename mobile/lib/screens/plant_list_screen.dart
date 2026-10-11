@@ -35,16 +35,19 @@ class _PlantListScreenState extends State<PlantListScreen> {
   }
 
   /// 画面初期化
-  Future<void> _initializeScreen() async {
+  ///
+  /// [openSettingsIfMissing] が true なら、API キーが未設定のとき設定画面へ自動で移る。
+  /// 起動時だけ true にする。再試行などで毎回移ると、設定画面から抜けられなくなるため
+  Future<void> _initializeScreen({bool openSettingsIfMissing = true}) async {
     print('PlantListScreen: 初期化開始');
-    await _initializeApiService();
+    await _initializeApiService(openSettingsIfMissing: openSettingsIfMissing);
     print('PlantListScreen: APIサービス初期化完了');
     await _loadPlants();
     print('PlantListScreen: 植物一覧読み込み完了');
   }
 
   /// APIサービスの初期化
-  Future<void> _initializeApiService() async {
+  Future<void> _initializeApiService({required bool openSettingsIfMissing}) async {
     try {
       print('PlantListScreen: SettingsService取得開始');
       final settingsService = await SettingsService.getInstance();
@@ -61,12 +64,15 @@ class _PlantListScreenState extends State<PlantListScreen> {
         print('PlantListScreen: APIキーが未設定のため設定画面へ遷移');
         setState(() {
           _needsSetup = true;
+          _hasError = false;
           _isLoading = false;
         });
         // APIキーが設定されていない場合は設定画面へ
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _navigateToSettings();
-        });
+        if (openSettingsIfMissing) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _navigateToSettings();
+          });
+        }
         return;
       }
       
@@ -126,6 +132,18 @@ class _PlantListScreenState extends State<PlantListScreen> {
   /// 植物一覧のリフレッシュ
   Future<void> _refreshPlants() async {
     await _loadPlants();
+  }
+
+  /// エラー表示の「再試行」
+  ///
+  /// 設定を読めずに失敗していた場合は、一覧だけ読み直しても _apiService が無く何も起きない。
+  /// 設定の読み込みからやり直す
+  Future<void> _retry() async {
+    if (_apiService == null) {
+      await _initializeScreen(openSettingsIfMissing: false);
+    } else {
+      await _loadPlants();
+    }
   }
 
   /// 設定画面への遷移
@@ -364,7 +382,7 @@ class _PlantListScreenState extends State<PlantListScreen> {
             ),
             SizedBox(height: isLargeScreen ? 32 : 24),
             ElevatedButton.icon(
-              onPressed: _refreshPlants,
+              onPressed: _retry,
               icon: Icon(Icons.refresh),
               label: Text('再試行'),
               style: ElevatedButton.styleFrom(

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:snaplant_mobile/screens/plant_list_screen.dart';
@@ -12,6 +15,33 @@ import 'package:snaplant_mobile/screens/plant_list_screen.dart';
 /// 呼び出し側は、テスト間で状態を持ち越さないよう各テストの冒頭で呼ぶ
 void _givenNoSettingsSaved() {
   FlutterSecureStorage.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({});
+}
+
+/// 1回目の読み出しだけ失敗するセキュアストレージ。
+/// Android の encryptedSharedPreferences は、復号できないと（バックアップの復元や
+/// 再インストールの後など）PlatformException を投げる。2回目以降は普通に読める
+class _SecureStorageFailingOnFirstRead extends TestFlutterSecureStoragePlatform {
+  _SecureStorageFailingOnFirstRead() : super({});
+
+  bool _hasFailed = false;
+
+  @override
+  Future<String?> read({
+    required String key,
+    required Map<String, String> options,
+  }) async {
+    if (!_hasFailed) {
+      _hasFailed = true;
+      throw PlatformException(code: 'Exception encountered', message: 'Failed to decrypt');
+    }
+    return super.read(key: key, options: options);
+  }
+}
+
+/// 保存済みの設定を最初の1回だけ読めない状態にする（読み直せば、キーは未設定）
+void _givenFirstReadOfSettingsFails() {
+  FlutterSecureStoragePlatform.instance = _SecureStorageFailingOnFirstRead();
   SharedPreferences.setMockInitialValues({});
 }
 
@@ -47,5 +77,17 @@ void main() {
     expect(find.text('API設定が完了していません'), findsOneWidget);
     expect(find.text('設定を開く'), findsOneWidget);
     expect(find.text('植物一覧を読み込み中...'), findsNothing);
+  });
+
+  testWidgets('保存済みの設定を読めなかったときに「再試行」を押すと、設定を読み直す', (tester) async {
+    _givenFirstReadOfSettingsFails();
+    await _openPlantListScreen(tester);
+    expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
+
+    await tester.tap(find.text('再試行'));
+    await _letFramesRun(tester);
+
+    expect(find.text('API設定の読み込みに失敗しました'), findsNothing);
+    expect(find.text('API設定が完了していません'), findsOneWidget);
   });
 }
