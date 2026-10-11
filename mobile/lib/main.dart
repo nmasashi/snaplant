@@ -44,33 +44,6 @@ class SnapPlantApp extends StatelessWidget {
       
       // 初期画面
       home: const PlantListScreen(),
-      
-      // 画面遷移アニメーション
-      onGenerateRoute: (settings) {
-        return PageRouteBuilder(
-          settings: settings,
-          pageBuilder: (context, animation, secondaryAnimation) {
-            switch (settings.name) {
-              default:
-                return const PlantListScreen();
-            }
-          },
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            const begin = Offset(1.0, 0.0);
-            const end = Offset.zero;
-            const curve = Curves.easeInOutCubic;
-            
-            var tween = Tween(begin: begin, end: end).chain(
-              CurveTween(curve: curve),
-            );
-            
-            return SlideTransition(
-              position: animation.drive(tween),
-              child: child,
-            );
-          },
-        );
-      },
     );
   }
 }
