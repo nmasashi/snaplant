@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { createErrorResponse, createValidationError, isValidUUID } from './response';
 import { ErrorCode, HttpStatusCode } from '../types/api';
-import { FILE_UPLOAD, PHOTO_VALIDATION } from '../constants/validation';
+import { FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION } from '../constants/validation';
 
 /** 検証を通った写真の保存の入力 */
 export interface PhotoInput {
@@ -276,4 +276,54 @@ function isJson(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 検証を通った写真の移動の入力 */
+export interface MoveInput {
+  /** 移す写真 ID（重複を除いたもの） */
+  photoIds: string[];
+  /** 移す先の旅行 ID。旅行から外すなら null */
+  tripId: string | null;
+}
+
+/**
+ * 写真の移動（POST /api/photos/move）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.5 の表の順）
+ *
+ * 「旅行から外す」は tripId: null を明示させる（キーの省略と区別し、取り違えを検出する）
+ * @param request リクエスト
+ * @returns 検証を通った入力、または 400 の応答
+ */
+export async function readMoveInput(request: HttpRequest): Promise<{ input: MoveInput } | { error: HttpResponseInit }> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (error: any) {
+    if (error instanceof SyntaxError) {
+      return { error: createValidationError('リクエストボディの形式が無効です', 'JSON形式で送信してください') };
+    }
+    throw error;
+  }
+  if (body === null || body === undefined) {
+    return { error: createValidationError('リクエストボディが指定されていません') };
+  }
+  const { photoIds, tripId } = body as { photoIds?: unknown; tripId?: unknown };
+  if (!Array.isArray(photoIds)) {
+    return { error: createValidationError('写真IDは配列で指定してください') };
+  }
+  if (photoIds.length === 0) {
+    return { error: createValidationError('写真IDが指定されていません') };
+  }
+  if (photoIds.length > MOVE_VALIDATION.MAX_IDS) {
+    return { error: createValidationError(MOVE_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
+  }
+  if (!photoIds.every((id) => typeof id === 'string' && PHOTO_VALIDATION.ID_REGEX.test(id))) {
+    return { error: createValidationError('写真IDの形式が無効です') };
+  }
+  if (!('tripId' in (body as object))) {
+    return { error: createValidationError('移動先の旅行が指定されていません') };
+  }
+  if (tripId !== null && (typeof tripId !== 'string' || !isValidUUID(tripId))) {
+    return { error: createValidationError('旅行IDの形式が無効です') };
+  }
+  return { input: { photoIds: [...new Set(photoIds as string[])], tripId: tripId as string | null } };
 }

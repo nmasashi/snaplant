@@ -215,6 +215,36 @@ export class AlbumService {
   }
 
   /**
+   * 写真をまとめて旅行に入れる（tripId に null を渡すと旅行から外す）
+   *
+   * 写真ごとに tripId と updatedAt だけを patch する（AI が書く欄やコメントには触らない）。
+   * 無い写真は notFound に入れて続ける。それ以外の失敗は投げる（済んだ分は移っている。再送しても同じ結果になる）
+   * @param photoIds 写真 ID（重複は呼び出し側で除く）
+   * @param tripId 移す先の旅行 ID。外すなら null
+   */
+  async movePhotos(photoIds: string[], tripId: string | null): Promise<{ moved: string[]; notFound: string[] }> {
+    const now = new Date().toISOString();
+    const moved: string[] = [];
+    const notFound: string[] = [];
+    for (const id of photoIds) {
+      try {
+        await this.container.item(id, id).patch([
+          { op: 'set', path: '/tripId', value: tripId },
+          { op: 'set', path: '/updatedAt', value: now },
+        ]);
+        moved.push(id);
+      } catch (error: any) {
+        if (error.code === 404) {
+          notFound.push(id);
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { moved, notFound };
+  }
+
+  /**
    * 写真のドキュメントを作る
    *
    * 写真の id は中身の SHA-256 なので、同じ写真がほぼ同時に送られると、先に読んだときには

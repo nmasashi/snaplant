@@ -151,3 +151,13 @@ export const PHOTO_VALIDATION = {
     LIMIT_INVALID: `1ページの枚数は1〜${positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200)}で指定してください`
   }
 } as const;
+
+// 旅行アルバムの写真の移動の制限
+export const MOVE_VALIDATION = {
+  // 1回の要求で移せる写真の数（重複を除く前の件数）
+  MAX_IDS: positiveIntFromEnv(process.env.MOVE_MAX_IDS, 200),
+
+  ERROR_MESSAGES: {
+    TOO_MANY: `一度に移動できる写真は${positiveIntFromEnv(process.env.MOVE_MAX_IDS, 200)}枚までです`
+  }
+} as const;
