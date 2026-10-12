@@ -108,9 +108,11 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `services/api_service_test.dart` | `ApiService` の封筒の解釈（成功・エラー）と送信する Content-Type |
 | `screens/identification_screen_test.dart` | 保存時の 409 の扱い |
 | `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
-| `screens/plant_list_screen_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた一覧画面の表示 |
+| `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
+| `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `utils/image_mime_type_test.dart` | マジックバイトによる画像形式の判定 |
+| `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・表示サイズの設定 |
 
 テストで踏みやすい点。
 
@@ -118,7 +120,8 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   `ApiService` はコンストラクタで `http.Client` を受け取る。応答はメソッドとパスが
   一致したときだけ返し、それ以外は 404 にする（宛先の誤りを検出するため）。
   ヘッダは `content-type: application/json` を付ける。`http` は charset の無い
-  `application/json` を UTF-8 で読むが、ヘッダが無いと latin1 になり日本語が化ける
+  `application/json` を UTF-8 で読むが、ヘッダが無いと latin1 になり日本語が化ける。
+  アプリ全体を開くテストでは `SnapPlantApp(httpClient: ...)` で差し込む（`AppRoot` が作る `ApiService` に渡る）
 - **画面のテストは表示サイズを実機に合わせる。** 既定の 800×600 では
   `IdentificationScreen` の保存ボタンが画面外に出てタップが空振りする（警告だけで失敗しない）。
   `tester.view.physicalSize` / `devicePixelRatio` を設定し、`addTearDown(tester.view.reset)` で戻す
@@ -127,7 +130,7 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   実体がサブクラスで、`byType` は型の完全一致を見るため。文言で探す
 - **端末の機能（OS の画像選択・セキュアストレージ）は、プラットフォーム層を偽物に差し替える。**
   `ImagePickerPlatform.instance`（`camera_screen_test.dart`）、`FlutterSecureStoragePlatform.instance`
-  （`plant_list_screen_test.dart`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
+  （`helpers/app_test_helpers.dart` の `useSecureStorage`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
   最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる）
 - **`pumpAndSettle` は使えないことが多い。** 読み込み中の `CircularProgressIndicator` や、

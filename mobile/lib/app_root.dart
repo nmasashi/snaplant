@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'screens/plant_list_screen.dart';
+import 'package:http/http.dart' as http;
+import 'screens/home_shell.dart';
 import 'screens/settings_screen.dart';
 import 'services/api_service.dart';
 import 'services/settings_service.dart';
@@ -12,7 +13,10 @@ import 'theme/app_text_styles.dart';
 /// （docs/travel-album/03_screen_design.md §1「状態の持ち方」）。図鑑と旅行の2タブが同じ設定で通信するため、
 /// 各画面が自分で作らない。API キーが未設定なら、タブの中身の代わりに設定を促す表示を出す
 class AppRoot extends StatefulWidget {
-  const AppRoot({super.key});
+  const AppRoot({super.key, this.httpClient});
+
+  /// サーバとの通信に使う HTTP クライアント。テストで偽のサーバを差し込むためのもので、通常は null
+  final http.Client? httpClient;
 
   @override
   State<AppRoot> createState() => _AppRootState();
@@ -57,7 +61,8 @@ class _AppRootState extends State<AppRoot> {
       }
 
       setState(() {
-        _apiService = ApiService(baseUrl: endpoint, functionKey: apiKey);
+        _apiService = ApiService(
+            baseUrl: endpoint, functionKey: apiKey, client: widget.httpClient);
         _settingsLoadFailed = false;
         _isLoading = false;
       });
@@ -90,7 +95,7 @@ class _AppRootState extends State<AppRoot> {
     final apiService = _apiService;
     if (apiService != null) {
       // 設定が変わって ApiService を作り直したら、画面も作り直して新しい設定で読み直す
-      return PlantListScreen(
+      return HomeShell(
         key: ObjectKey(apiService),
         apiService: apiService,
         onOpenSettings: _openSettings,
