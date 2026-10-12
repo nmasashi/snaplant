@@ -53,6 +53,8 @@ Map<String, Object?> tripJson({
 /// 読み直したかどうかを、増えた旅行が出るかで見分けるため）。
 /// [holdCreateUntil] を渡すと、`POST /api/trips` の応答はそれが終わるまで返さない（作成中の状態を見るため）。
 /// 同じ旅行が二重に作られたかどうかは、作った旅行が一覧に何件載るかで見分けられる。
+/// [holdDeleteUntil] を渡すと、`DELETE /api/trips/{tripId}` の応答はそれが終わるまで返さない（削除中の状態を見るため。
+/// 削除は 2 回目が 404 になって成功扱いと区別しにくいので、二重に送られたかどうかは [deletePhotosSent] の件数で見る）。
 /// [failFirstDetail] を渡すと、詳細の取得（GET /api/trips/{tripId}）は最初のその回数だけ 503 を返し、以降は成功する。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
@@ -70,6 +72,7 @@ MockClient tripServer(
   List<Map<String, Object?>>? tripsFromSecondList,
   int failFirstDetail = 0,
   Future<void>? holdCreateUntil,
+  Future<void>? holdDeleteUntil,
 }) {
   var detailRequests = 0;
   var listRequests = 0;
@@ -87,6 +90,8 @@ MockClient tripServer(
       // （クライアントが何を載せたかを、返す枚数の違いで見分けるため）
       final deletePhotos = request.url.queryParameters['deletePhotos'];
       deletePhotosSent?.add(deletePhotos);
+      // 処理中の状態を見るため、削除の応答を [holdDeleteUntil] が終わるまで止める
+      if (holdDeleteUntil != null) await holdDeleteUntil;
       if (deleteTripNotFound) {
         return http.Response(
           json.encode({

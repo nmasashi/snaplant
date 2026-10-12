@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
@@ -282,5 +284,46 @@ void main() {
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
     expect(find.text('12枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
     expect(find.text('エラーが発生しました'), findsNothing);
+  });
+
+  testWidgets('旅行を削除している間は「削除」が「削除中...」になり、押し直しても削除の要求は二重に送られない', (tester) async {
+    // 削除の応答を止めておき、削除中の状態を見る。送った要求は deletePhotosSent に1件ずつ記録される
+    final release = Completer<void>();
+    final deletePhotosSent = <String?>[];
+    final server = tripServer(
+      [],
+      unassignedPhotoCount: 0,
+      holdDeleteUntil: release.future,
+      deletePhotosSent: deletePhotosSent,
+      tripDetails: {
+        _tripId: tripJson(
+          id: _tripId,
+          name: '北海道 2026秋',
+          photoCount: 12,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-08T17:30:00',
+        ),
+      },
+    );
+    await openDetailFromHome(tester, ApiService(client: server));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: dialog, matching: find.text('削除中...')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('削除')), findsNothing);
+
+    // 削除中のボタンを押し直しても、削除の要求は1回しか送られない。
+    // 2回目の削除は 404（成功扱い）になって結果からは見分けられないので、送られた要求の件数で見る
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除中...')));
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(deletePhotosSent, ['false']);
   });
 }

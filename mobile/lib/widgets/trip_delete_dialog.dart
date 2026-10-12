@@ -25,15 +25,19 @@ class TripDeleteDialog extends StatefulWidget {
 
 class _TripDeleteDialogState extends State<TripDeleteDialog> {
   bool _deletePhotos = false;
+  // 送信中は押せなくする（削除の要求を二重に送らないように）
+  bool _isDeleting = false;
 
   Future<void> _delete() async {
     TripDeleteResult result;
+    setState(() => _isDeleting = true);
     try {
       result = await widget.onDelete(_deletePhotos);
     } catch (e) {
       if (e is! ApiException || !e.isTripNotFound) {
         debugPrint('TripDeleteDialog: 旅行の削除エラー: $e');
         if (!mounted) return;
+        setState(() => _isDeleting = false);
         // ダイアログに留まる（そのまま再試行もキャンセルもできる）
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(e is ApiException ? e.userMessage : '旅行の削除に失敗しました')));
@@ -88,7 +92,10 @@ class _TripDeleteDialogState extends State<TripDeleteDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('キャンセル'),
         ),
-        ElevatedButton(onPressed: _delete, child: const Text('削除')),
+        ElevatedButton(
+          onPressed: _isDeleting ? null : _delete,
+          child: Text(_isDeleting ? '削除中...' : '削除'),
+        ),
       ],
     );
   }
