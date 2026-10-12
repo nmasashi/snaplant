@@ -11,6 +11,31 @@ import '../helpers/trip_test_helpers.dart';
 
 const _tripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
+/// 「詳細を開く」ボタンだけのホーム画面から、[_tripId] の旅行詳細を開く。
+/// 詳細画面の前に画面がある状態にする（削除したら戻る先）
+Future<void> openDetailFromHome(WidgetTester tester, ApiService apiService) async {
+  await openApp(
+    tester,
+    app: MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: ElevatedButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => TripDetailScreen(apiService: apiService, tripId: _tripId)),
+              ),
+              child: const Text('詳細を開く'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('詳細を開く'));
+  await letFramesRun(tester);
+}
+
 void main() {
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final server = tripServer(
@@ -66,28 +91,7 @@ void main() {
         ),
       },
     );
-    final apiService = ApiService(client: server);
-    // 詳細画面の前に画面がある状態にする（削除したら戻る先）
-    await openApp(
-      tester,
-      app: MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: ElevatedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => TripDetailScreen(apiService: apiService, tripId: _tripId)),
-                ),
-                child: const Text('詳細を開く'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('詳細を開く'));
-    await letFramesRun(tester);
+    await openDetailFromHome(tester, ApiService(client: server));
     await tester.tap(find.byIcon(Icons.more_vert));
     await letFramesRun(tester);
     await tester.tap(find.text('削除'));
@@ -107,6 +111,39 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.text('旅行を削除しました（写真12枚は「旅行に属さない写真」に移しました）'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('詳細を開く'), findsOneWidget);
+  });
+
+  testWidgets('削除の確認で「写真も削除する」を選んで削除すると、写真12枚を削除したと知らせて前の画面に戻る', (tester) async {
+    final server = tripServer(
+      [],
+      unassignedPhotoCount: 0,
+      tripDetails: {
+        _tripId: tripJson(
+          id: _tripId,
+          name: '北海道 2026秋',
+          photoCount: 12,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-08T17:30:00',
+        ),
+      },
+    );
+    await openDetailFromHome(tester, ApiService(client: server));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+    await tester.tap(find.descendant(of: dialog, matching: find.text('写真も削除する')));
+    await letFramesRun(tester);
+
+    // 何を送ったかは、偽のサーバが返す枚数（消した数）から現れる知らせで分かる
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    expect(find.text('旅行を削除しました（写真12枚を削除）'), findsOneWidget);
     expect(find.byType(Dialog), findsNothing);
     expect(find.byType(TripDetailScreen), findsNothing);
     expect(find.text('詳細を開く'), findsOneWidget);

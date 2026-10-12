@@ -72,9 +72,18 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     // 画面を閉じた後も残るよう、閉じる前に ScaffoldMessenger を取っておく
     final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
-    messenger.showSnackBar(SnackBar(
-        content: Text(
-            '旅行を削除しました（写真${result.detachedPhotoCount}枚は「旅行に属さない写真」に移しました）')));
+    messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
+  }
+
+  /// 削除の知らせ。写真を消したか移したかは応答の枚数で分かる（0枚の旅行ならどちらも 0）
+  String _deletedMessage(TripDeleteResult result) {
+    if (result.deletedPhotoCount > 0) {
+      return '旅行を削除しました（写真${result.deletedPhotoCount}枚を削除）';
+    }
+    if (result.detachedPhotoCount > 0) {
+      return '旅行を削除しました（写真${result.detachedPhotoCount}枚は「旅行に属さない写真」に移しました）';
+    }
+    return '旅行を削除しました';
   }
 
   @override
