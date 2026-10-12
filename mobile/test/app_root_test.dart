@@ -4,9 +4,11 @@ import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:snaplant_mobile/screens/plant_list_screen.dart';
+import 'package:snaplant_mobile/main.dart';
 
-// 設定の保存先（端末のセキュアストレージと SharedPreferences）は、画面から見て
+// アプリ全体（SnapPlantApp）を開き、利用者から見た設定の扱い（読み込み・未設定なら設定画面へ・
+// 設定画面から戻ったら読み直す・読めなかったときの再試行）を確かめる。
+// 設定の保存先（端末のセキュアストレージと SharedPreferences）は、アプリから見て
 // プロセス外の依存なので、パッケージ同梱のテスト用の仕組みで差し替える。
 // サーバ（Azure Functions）は差し替えられない（一覧画面が ApiService を自分で作るため）。
 // API キーがある状態のテストでは一覧の取得が実際に呼ばれ、テスト環境の HTTP は常に 400 を返すので、
@@ -46,14 +48,17 @@ class _SecureStorageWithFailureSwitch extends TestFlutterSecureStoragePlatform {
   }
 }
 
-/// 一覧画面を実機の解像度で開き、起動時の初期化（設定の読み出し）を進める
-Future<void> _openPlantListScreen(WidgetTester tester) async {
-  // 画面が想定している実機の解像度に合わせる
+/// アプリを実機の解像度で開き、起動時の初期化（設定の読み出し）を進める
+Future<void> _openApp(WidgetTester tester) async {
+  // 画面が想定している実機の解像度に合わせる。
+  // ただし密度は 3.5 でなく 3.0（幅 480dp）にする。アプリ本来のテーマではカードの余白が広く、
+  // テスト環境の既定のフォント（全角も半角も1文字が1em幅）では、設定画面の「開発者」行が
+  // 幅 411dp に収まらず RenderFlex の溢れで落ちるため（実機のフォントでは収まる）
   tester.view.physicalSize = const Size(1440, 2960);
-  tester.view.devicePixelRatio = 3.5;
+  tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);
 
-  await tester.pumpWidget(const MaterialApp(home: PlantListScreen()));
+  await tester.pumpWidget(const SnapPlantApp());
   await _letFramesRun(tester);
 }
 
@@ -65,11 +70,11 @@ Future<void> _letFramesRun(WidgetTester tester) async {
   }
 }
 
-/// キーが保存済みの状態で一覧画面を開き、設定画面で設定をリセットして一覧画面へ戻る
+/// キーが保存済みの状態でアプリを開き、設定画面で設定をリセットして一覧画面へ戻る
 Future<void> _resetSavedSettingsAndReturnToPlantList(WidgetTester tester) async {
   _useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'old-key'}));
   SharedPreferences.setMockInitialValues({});
-  await _openPlantListScreen(tester);
+  await _openApp(tester);
   // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
   expect(find.text('エラーが発生しました'), findsOneWidget);
   await tester.tap(find.byIcon(Icons.settings));
@@ -88,7 +93,7 @@ Future<void> _resetSavedSettingsAndReturnToPlantList(WidgetTester tester) async 
 void main() {
   testWidgets('APIキーを入れずに設定画面から戻ると、読み込み中のまま止まらず「API設定が完了していません」と表示する', (tester) async {
     _givenNoSettingsSaved();
-    await _openPlantListScreen(tester);
+    await _openApp(tester);
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
 
@@ -104,7 +109,7 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({})..failReads = true;
     _useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
-    await _openPlantListScreen(tester);
+    await _openApp(tester);
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
 
     secureStorage.failReads = false;
@@ -142,7 +147,7 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({'api_key': 'old-key'});
     _useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
-    await _openPlantListScreen(tester);
+    await _openApp(tester);
     // キーが保存済みなので設定画面には移らず、通信して（テスト環境の HTTP は 400 を返す）エラー表示になっている
     expect(find.text('エラーが発生しました'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.settings));
@@ -160,7 +165,7 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({});
     _useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
-    await _openPlantListScreen(tester);
+    await _openApp(tester);
     // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
     await tester.tap(find.byIcon(Icons.arrow_back));
     await _letFramesRun(tester);
@@ -180,7 +185,7 @@ void main() {
 
   testWidgets('APIキーを入れずに起動し、設定画面でキーを保存して戻ると、設定を促す表示が消えて一覧を読み込む', (tester) async {
     _givenNoSettingsSaved();
-    await _openPlantListScreen(tester);
+    await _openApp(tester);
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'new-function-key');
