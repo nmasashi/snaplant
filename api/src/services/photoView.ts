@@ -1,5 +1,5 @@
 import { Photo, PhotoDocument } from '../types/album';
-import { PhotoStorageService } from './photoStorageService';
+import { PhotoStorageService, photoUrlExpiresOn } from './photoStorageService';
 
 /**
  * 写真のドキュメントを応答の形にする
@@ -33,4 +33,16 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
     uploadedAt: doc.uploadedAt,
     updatedAt: doc.updatedAt,
   };
+}
+
+/**
+ * 写真1枚の応答の data（写真と、その URL の有効期限）を作る
+ *
+ * URL の期限はこの応答を作るときに決める。クライアントは urlExpiresAt を見て取り直す
+ * @param doc 写真のドキュメント
+ * @param storage URL を作る写真の Blob のサービス
+ */
+export function photoResponseData(doc: PhotoDocument, storage: PhotoStorageService): { photo: Photo; urlExpiresAt: string } {
+  const expiresOn = photoUrlExpiresOn();
+  return { photo: toPhoto(doc, storage, expiresOn), urlExpiresAt: expiresOn.toISOString() };
 }

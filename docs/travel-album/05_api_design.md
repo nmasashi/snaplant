@@ -183,6 +183,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 ### 5.1 `POST /api/photos`
 
+**実装済み**（PR 4a-1。`photos.ts`、検証は `utils/photoInput.ts`）。
+
 写真を1枚保存する。**冪等**で、同じ写真（同じ `photoId`）を何度送っても1枚になる。
 
 **リクエスト（`multipart/form-data`）:**
@@ -295,6 +297,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 - 500 の `message`: `写真一覧の取得に失敗しました`
 
 ### 5.3 `GET /api/photos/{photoId}`
+
+**実装済み**（PR 4a-1。`photoDetail.ts`）。
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|

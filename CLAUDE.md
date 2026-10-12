@@ -170,6 +170,8 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 | `/api/plants/{id}` | PUT | `functions/updatePlant.ts` |
 | `/api/trips` | GET, POST | `functions/trips.ts`（旅行アルバム） |
 | `/api/trips/{tripId}` | GET, PUT | `functions/tripDetail.ts`（旅行アルバム） |
+| `/api/photos` | POST | `functions/photos.ts`（旅行アルバム） |
+| `/api/photos/{photoId}` | GET | `functions/photoDetail.ts`（旅行アルバム） |
 
 `plants/{id}` は `plantDetail.ts` と `updatePlant.ts` の2ファイルが別々に登録している（メソッドが異なるため共存可能）。片方だけ見て全体を判断しないこと。
 

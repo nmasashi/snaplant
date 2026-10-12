@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
-import { toPhoto } from '../services/photoView';
+import { PhotoStorageService } from '../services/photoStorageService';
+import { photoResponseData } from '../services/photoView';
 import {
   createDatabaseErrorResponse,
   createNotFoundError,
@@ -39,8 +39,7 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
     // （送信は「入れる」ではない。入れたければ move を使う）
     const existing = await album.getPhoto(input.photoId);
     if (existing) {
-      const expiresOn = photoUrlExpiresOn();
-      return createSuccessResponse({ photo: toPhoto(existing, storage, expiresOn), urlExpiresAt: expiresOn.toISOString() });
+      return createSuccessResponse(photoResponseData(existing, storage));
     }
 
     const blobName = `${input.photoId}${FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE[input.contentType]}`;
@@ -80,11 +79,7 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
     const { photo, created } = await album.createPhoto(doc);
     context.log(`写真保存成功: ID=${photo.id}`);
 
-    const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse(
-      { photo: toPhoto(photo, storage, expiresOn), urlExpiresAt: expiresOn.toISOString() },
-      created ? HttpStatusCode.CREATED : HttpStatusCode.OK
-    );
+    return createSuccessResponse(photoResponseData(photo, storage), created ? HttpStatusCode.CREATED : HttpStatusCode.OK);
   } catch (error: any) {
     context.log('写真保存エラー:', error);
     // Blob の失敗を先に見る。UpstreamError は元のエラーを cause に持ち、isConnectivityError は cause の奥まで
