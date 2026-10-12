@@ -1,6 +1,6 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
-import { Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 
@@ -105,6 +105,16 @@ export class AlbumService {
       throw error;
     }
     return toTrip(updated);
+  }
+
+  /**
+   * 写真のドキュメントを作る
+   * @param doc 写真のドキュメント
+   * @returns 保存した写真のドキュメント
+   */
+  async createPhoto(doc: PhotoDocument): Promise<PhotoDocument> {
+    await this.container.items.create(doc);
+    return doc;
   }
 
   /**

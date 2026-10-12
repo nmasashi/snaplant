@@ -41,3 +41,69 @@ export interface TripInput {
   name: string;
   description: string | null;
 }
+
+/** 写真の位置情報 */
+export interface PhotoLocation {
+  latitude: number;
+  longitude: number;
+  /** 地名（市区町村など）。無ければ null */
+  placeName: string | null;
+  /** 地名の出どころ。段階2は端末の Geocoder（device）か null */
+  placeSource: 'device' | 'server' | null;
+}
+
+/** 写真の解析（分類・識別）の進み具合。段階2は state: none 固定 */
+export interface PhotoProcessing {
+  state: 'none' | 'pending' | 'classifying' | 'identifying' | 'done' | 'failed';
+  step: 'classify' | 'identify' | null;
+  attempts: number;
+  lastError: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * 写真の項目のうち、ドキュメントと応答で共通のもの
+ *
+ * 段階3・4で使う項目（category・classification など）も段階2から null で持つ。
+ * 項目が無いドキュメントと null のドキュメントは Cosmos SQL での振る舞いが違う
+ * （IS_NULL は欠損で偽）ため、「無い」を2通り扱わずに済むようにする
+ */
+interface PhotoFields {
+  /** 画像のバイト列の SHA-256（16進・小文字 64 文字） */
+  id: string;
+  /** 属する旅行。どの旅行にも属さないときは null を必ず書く（欠けると IS_NULL が偽になり一覧から消える） */
+  tripId: string | null;
+  contentType: string;
+  fileSize: number;
+  /** 撮影日時（タイムゾーン無しの YYYY-MM-DDTHH:mm:ss）。無ければ null */
+  takenAt: string | null;
+  takenAtSource: 'exif' | 'none';
+  /** 並べ替え用の日時（utils/sortAt.ts） */
+  sortAt: string;
+  location: PhotoLocation | null;
+  category: string | null;
+  tags: string[];
+  comment: string | null;
+  commentSource: 'ai' | 'user' | null;
+  hint: string | null;
+  classification: unknown | null;
+  identification: unknown | null;
+  processing: PhotoProcessing;
+  uploadedAt: string;
+  updatedAt: string;
+}
+
+/** 写真の Cosmos DB のドキュメント */
+export interface PhotoDocument extends PhotoFields {
+  type: 'photo';
+  /** photos コンテナの Blob 名 */
+  blobName: string;
+  /** サムネイルの Blob 名。無ければ null */
+  thumbnailBlobName: string | null;
+}
+
+/** 写真（API の応答の形）。Blob 名の代わりに SAS 付きの URL を持つ */
+export interface Photo extends PhotoFields {
+  imageUrl: string;
+  thumbnailUrl: string | null;
+}
