@@ -48,6 +48,7 @@ Map<String, Object?> tripJson({
 /// [failDelete] が true なら、削除は 503 `DATABASE_ERROR`（旅行は消さない）で失敗する。
 /// [deleteTripNotFound] が true なら、削除は 404 `TRIP_NOT_FOUND`（別の端末などで既に消されていた）で返す。
 /// 詳細の取得（GET）は表の旅行を返したまま。
+/// [holdListUntil] を渡すと、`GET /api/trips` の応答はそれが終わる（Completer の complete）まで返さない。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -60,6 +61,7 @@ MockClient tripServer(
   List<String?>? deletePhotosSent,
   bool failDelete = false,
   bool deleteTripNotFound = false,
+  Future<void>? holdListUntil,
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
@@ -201,6 +203,8 @@ MockClient tripServer(
       return http.Response('', 404);
     }
     listRequests++;
+    // 読み込み中の状態を見るため、一覧の応答を [holdListUntil] が終わるまで止める
+    if (holdListUntil != null) await holdListUntil;
     if (listRequests <= failFirst) {
       return http.Response(
         json.encode({

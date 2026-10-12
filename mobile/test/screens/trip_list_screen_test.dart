@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -263,5 +265,25 @@ void main() {
     expect(find.text('北海道 2026秋'), findsNothing);
     expect(find.text('大阪'), findsOneWidget);
     expect(find.text('20枚'), findsOneWidget);
+  });
+
+  testWidgets('旅行一覧は、最初の読み込みが終わるまで「旅行一覧を読み込み中...」を出し、読み込めたら消して一覧を出す', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    // 応答を止めておき、読み込み中の状態を見る
+    final release = Completer<void>();
+    final server = tripServer([], unassignedPhotoCount: 8, holdListUntil: release.future);
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    expect(find.text('旅行一覧を読み込み中...'), findsOneWidget);
+    expect(find.text('旅行に属さない写真'), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('旅行一覧を読み込み中...'), findsNothing);
+    expect(find.text('旅行に属さない写真'), findsOneWidget);
   });
 }

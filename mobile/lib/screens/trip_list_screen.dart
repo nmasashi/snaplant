@@ -122,7 +122,21 @@ class _TripListScreenState extends State<TripListScreen> {
     }
     final tripList = _tripList;
     if (tripList == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation(AppColors.primary)),
+            const SizedBox(height: 16),
+            Text(
+              '旅行一覧を読み込み中...',
+              style:
+                  AppTextStyles.body1.copyWith(color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      );
     }
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
