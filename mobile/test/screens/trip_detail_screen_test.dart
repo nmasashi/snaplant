@@ -210,4 +210,36 @@ void main() {
     expect(find.byType(TripDetailScreen), findsOneWidget);
     expect(find.textContaining('旅行を削除しました'), findsNothing);
   });
+
+  testWidgets('削除しようとした旅行が既に無い（404）ときは、削除できたときと同じく前の画面に戻り、「旅行を削除しました」と知らせる', (tester) async {
+    final server = tripServer(
+      [],
+      unassignedPhotoCount: 0,
+      deleteTripNotFound: true,
+      tripDetails: {
+        _tripId: tripJson(
+          id: _tripId,
+          name: '北海道 2026秋',
+          photoCount: 12,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-08T17:30:00',
+        ),
+      },
+    );
+    await openDetailFromHome(tester, ApiService(client: server));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    // 消したか移したかの枚数は分からないので、括弧書きは付けない
+    expect(find.text('旅行を削除しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('詳細を開く'), findsOneWidget);
+  });
 }

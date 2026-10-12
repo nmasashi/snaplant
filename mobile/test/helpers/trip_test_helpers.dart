@@ -44,6 +44,8 @@ Map<String, Object?> tripJson({
 /// 写真が0枚の旅行は `true` でも `false` でも応答が同じで、結果からは何を送ったか見分けられないときに使う
 /// （API が `deletePhotos` を必須にしている、という要求そのものが確かめたいとき）。
 /// [failDelete] が true なら、削除は 503 `DATABASE_ERROR`（旅行は消さない）で失敗する。
+/// [deleteTripNotFound] が true なら、削除は 404 `TRIP_NOT_FOUND`（別の端末などで既に消されていた）で返す。
+/// 詳細の取得（GET）は表の旅行を返したまま。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -55,6 +57,7 @@ MockClient tripServer(
   Map<String, Map<String, Object?>> tripDetails = const {},
   List<String?>? deletePhotosSent,
   bool failDelete = false,
+  bool deleteTripNotFound = false,
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
@@ -68,6 +71,16 @@ MockClient tripServer(
       // （クライアントが何を載せたかを、返す枚数の違いで見分けるため）
       final deletePhotos = request.url.queryParameters['deletePhotos'];
       deletePhotosSent?.add(deletePhotos);
+      if (deleteTripNotFound) {
+        return http.Response(
+          json.encode({
+            'success': false,
+            'error': {'code': 'TRIP_NOT_FOUND', 'message': '指定された旅行が見つかりません'},
+          }),
+          404,
+          headers: const {'content-type': 'application/json'},
+        );
+      }
       if (failDelete) {
         return http.Response(
           json.encode({

@@ -27,16 +27,21 @@ class _TripDeleteDialogState extends State<TripDeleteDialog> {
   bool _deletePhotos = false;
 
   Future<void> _delete() async {
-    final TripDeleteResult result;
+    TripDeleteResult result;
     try {
       result = await widget.onDelete(_deletePhotos);
     } catch (e) {
-      debugPrint('TripDeleteDialog: 旅行の削除エラー: $e');
-      if (!mounted) return;
-      // ダイアログに留まる（そのまま再試行もキャンセルもできる）
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e is ApiException ? e.userMessage : '旅行の削除に失敗しました')));
-      return;
+      if (e is! ApiException || !e.isTripNotFound) {
+        debugPrint('TripDeleteDialog: 旅行の削除エラー: $e');
+        if (!mounted) return;
+        // ダイアログに留まる（そのまま再試行もキャンセルもできる）
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is ApiException ? e.userMessage : '旅行の削除に失敗しました')));
+        return;
+      }
+      // 既に無い（別の端末で消された）なら、消したいという目的は果たせている。枚数は分からないので 0 にする
+      result =
+          const TripDeleteResult(deletedPhotoCount: 0, detachedPhotoCount: 0);
     }
     if (!mounted) return;
     Navigator.pop(context, result);
