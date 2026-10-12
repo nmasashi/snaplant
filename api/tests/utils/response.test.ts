@@ -1,6 +1,18 @@
-import { isValidUUID } from '../../src/utils/response';
+import { createNotFoundError, isValidUUID } from '../../src/utils/response';
+import { ErrorCode } from '../../src/types/api';
 
 describe('Response Utils', () => {
+  describe('createNotFoundError', () => {
+    it('見つからないものを指定して作ると、404とそのエラーコード・メッセージを返す', () => {
+      const response = createNotFoundError('旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+
+      expect(response.status).toBe(404);
+      expect((response.jsonBody as any).success).toBe(false);
+      expect((response.jsonBody as any).error.code).toBe('TRIP_NOT_FOUND');
+      expect((response.jsonBody as any).error.message).toBe('旅行が見つかりません');
+    });
+  });
+
   describe('isValidUUID', () => {
     describe('正常系', () => {
       it('有効なUUID v4形式を受け入れる', () => {

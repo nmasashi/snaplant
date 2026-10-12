@@ -93,10 +93,15 @@ export function createValidationError(message: string, details?: string): HttpRe
 
 /**
  * Not Foundエラーレスポンス
+ * @param message エラーメッセージ
+ * @param code 見つからなかったものを表すエラーコード（既定は植物）
  */
-export function createNotFoundError(message: string): HttpResponseInit {
+export function createNotFoundError(
+  message: string,
+  code: ErrorCode = ErrorCode.PLANT_NOT_FOUND
+): HttpResponseInit {
   return createErrorResponse(
-    ErrorCode.PLANT_NOT_FOUND,
+    code,
     message,
     HttpStatusCode.NOT_FOUND
   );

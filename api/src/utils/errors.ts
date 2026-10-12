@@ -45,3 +45,16 @@ export class UpstreamError extends Error {
     this.name = 'UpstreamError';
   }
 }
+
+/**
+ * Cosmos DB に接続できない障害（503 にするもの）かを判定する
+ *
+ * 旅行アルバムのハンドラが使う。植物図鑑の6つのハンドラはトップレベルの `code` だけを
+ * 手で比べているが、SDK は errno を `cause` の奥に持つことがあるので、こちらは
+ * `hasCauseCode()` でたどる。errno の集合は植物図鑑側と同じにしてある。
+ * `ETIMEDOUT` を含めるかはバックログで判断待ち（docs/09_backlog.md）
+ * @param error 判定するエラー
+ */
+export function isConnectivityError(error: unknown): boolean {
+  return hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED']);
+}

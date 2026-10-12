@@ -1,4 +1,4 @@
-import { hasCauseCode } from '../../src/utils/errors';
+import { hasCauseCode, isConnectivityError } from '../../src/utils/errors';
 
 describe('hasCauseCode', () => {
   // 循環ガードが外れると、このテストは同期の無限ループになる。
@@ -20,5 +20,41 @@ describe('hasCauseCode', () => {
     const top = Object.assign(new Error('Connection error.'), { cause: mid });
 
     expect(hasCauseCode(top, ['ENOTFOUND', 'ECONNREFUSED'])).toBe(true);
+  });
+});
+
+describe('isConnectivityError', () => {
+  it.each([
+    ['ENOTFOUND', 'getaddrinfo ENOTFOUND example.documents.azure.com'],
+    ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:8081'],
+  ])(
+    'トップレベルのcodeが%sのエラーは、接続できない障害と判定する',
+    (code, message) => {
+      const error = Object.assign(new Error(message), { code });
+
+      expect(isConnectivityError(error)).toBe(true);
+    }
+  );
+
+  it('接続できない原因がcauseの2段奥にあっても、接続できない障害と判定する', () => {
+    const root = Object.assign(new Error('getaddrinfo ENOTFOUND example.documents.azure.com'), {
+      code: 'ENOTFOUND',
+    });
+    const mid = Object.assign(new TypeError('fetch failed'), { cause: root });
+    const top = Object.assign(new Error('Connection error.'), { cause: mid });
+
+    expect(isConnectivityError(top)).toBe(true);
+  });
+
+  it.each([
+    ['codeの無い通常のエラー', new Error('something went wrong')],
+    [
+      'Cosmos DBが返す404のエラー',
+      Object.assign(new Error('Entity with the specified id does not exist in the system.'), {
+        code: 404,
+      }),
+    ],
+  ])('%sは、接続できない障害と判定しない', (_name, error) => {
+    expect(isConnectivityError(error)).toBe(false);
   });
 });
