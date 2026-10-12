@@ -105,7 +105,7 @@ export class StorageService {
       
       // 一時保存はSASトークン付きURLを返す（セキュリティ確保）
       // SAS生成はアップロードの後なので、失敗したらアップロード済みのBlobを
-      // 後片付けする。一時コンテナのライフサイクル管理は1日経つまで消さないため、
+      // 後片付けする。一時コンテナのライフサイクル管理は1日を過ぎるまで消さないため、
       // それまで孤児Blobとして残る
       try {
         return this.generateTempSasUrl(blockBlobClient.url);

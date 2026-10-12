@@ -101,6 +101,7 @@ resource "azurerm_storage_management_policy" "main" {
 
 - Cosmos DB の無料枠が「アカウントで 1000 RU/s」か「400 RU/s」か（ポータルの「無料枠」の表示）。400 なら `album` を足すと課金される（[04 §6](./04_data_design.md#6-無料枠と-ru-の見積もり)）
 - `plan` で `plants`・`images`・`temp-images`・Function App に replace や予期しない差分が出ないこと
+- ポータルで、ストレージアカウントにライフサイクル管理のルールが手で足されていないこと（ポリシーはアカウントに1つで、apply で丸ごと置き換わる）
 - apply 後にポータルで `photos` が非公開（匿名アクセスなし）であること
 
 ## 2. 段階3

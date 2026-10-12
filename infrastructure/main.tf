@@ -120,7 +120,8 @@ resource "azurerm_cosmosdb_account" "main" {
     failover_priority = 0
   }
 
-  # 無料枠を有効化 (400 RU/s + 25GB ストレージ)
+  # 無料枠を有効化。コンテナ（plants・album）ごとに cosmos_db_throughput を確保するので、
+  # 合計 RU/s が無料枠を超えないこと（docs/travel-album/04_data_design.md §6）
   free_tier_enabled = true
 
   tags = var.tags
