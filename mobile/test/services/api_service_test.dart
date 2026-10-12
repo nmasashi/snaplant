@@ -145,7 +145,7 @@ void main() {
 
     test('アップロードはdataから保存先のURLと識別結果を取り出す', () async {
       final file = File('${tempDir.path}/photo.jpg');
-      await file.writeAsBytes([0xFF, 0xD8, 0xFF, 0xE0, ...List.filled(32, 0)]);
+      await file.writeAsBytes(_withBody([0xFF, 0xD8, 0xFF, 0xE0]));
       final service = _serviceResponding('POST', '/api/images/upload', 201, {
         'success': true,
         'data': {
@@ -285,7 +285,9 @@ void main() {
 
   // userMessage は利用者に見える文言で、ステータスごとに決まる（docs/05 §4.2）。
   // 画面のテストは見ていないので、ここで固定する。
-  // どのエンドポイントでも例外は同じ経路（ApiException.fromResponse）で作られるので、保存で再現する。
+  // 例外の作り方（ApiException.fromResponse）と userMessage はエンドポイントによらず同じなので、表は保存で再現する。
+  // ただしエラーを例外にする経路は保存・アップロード・削除で別々なので、
+  // その配線は各エンドポイントのテストが見る（削除は「エラーレスポンス」、アップロードは下の502）。
   // 各行は (テスト名, ステータス, レスポンスのボディ, 例外が持つエラーコード, 利用者に表示する文言)。
   // 封筒でないボディからはコードが読めないので null（クライアントはコードで分岐する）
   group('ユーザー向けメッセージ', () {
@@ -326,16 +328,6 @@ void main() {
         'DATABASE_ERROR',
         'サービスに一時的に接続できません。しばらく待ってから再試行してください。',
       ),
-      (
-        '502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない',
-        502,
-        {
-          'success': false,
-          'error': {'code': 'AI_SERVICE_ERROR', 'message': '植物識別サービスでエラーが発生しました'},
-        },
-        'AI_SERVICE_ERROR',
-        '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。',
-      ),
     ];
 
     for (final (title, statusCode, body, expectedCode, expectedMessage) in userMessageCases) {
@@ -348,6 +340,25 @@ void main() {
         expect(error.userMessage, expectedMessage);
       });
     }
+
+    // 502（上流の AI・ストレージがエラーを返した）を返すのはアップロードだけで、クライアントが呼ぶのもそこだけ。
+    // アップロードは MultipartRequest を送って http.Response.fromStream で応答を作るので、
+    // 保存・削除とはエラーを例外にする経路が別。表には入れず、実際に 502 が返る経路で再現する
+    test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {
+      final tempDir = await Directory.systemTemp.createTemp('snaplant_test_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final file = File('${tempDir.path}/photo.jpg');
+      await file.writeAsBytes(_withBody([0xFF, 0xD8, 0xFF, 0xE0]));
+      final service = _serviceResponding('POST', '/api/images/upload', 502, {
+        'success': false,
+        'error': {'code': 'AI_SERVICE_ERROR', 'message': '植物識別サービスでエラーが発生しました'},
+      });
+
+      final error = await _captureApiException(() => service.uploadAndIdentifyImage(file));
+
+      expect(error.code, 'AI_SERVICE_ERROR');
+      expect(error.userMessage, '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。');
+    });
   });
 }
 

@@ -90,7 +90,7 @@ flutter pub get
 flutter run
 flutter analyze           # flutter_lints 準拠
 flutter test
-flutter test test/widget_test.dart
+flutter test test/services/api_service_test.dart
 flutter build apk --release
 ```
 
