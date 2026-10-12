@@ -1,6 +1,11 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
-import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters
+} from '@azure/storage-blob';
 import { createPhotoHandler } from '../../src/functions/photos';
 import { PhotoDocument, TripDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
@@ -23,6 +28,10 @@ const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
   typeof generateBlobSASQueryParameters
+>;
+const MockedBlobSASPermissions = BlobSASPermissions as jest.MockedClass<typeof BlobSASPermissions>;
+const MockedStorageSharedKeyCredential = StorageSharedKeyCredential as jest.MockedClass<
+  typeof StorageSharedKeyCredential
 >;
 
 const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
@@ -89,6 +98,9 @@ const formDataWith = (overrides: PhotoParts = {}): FormData => {
 const jpegFile = (bytes: Uint8Array | Buffer = IMAGE_BYTES, type = 'image/jpeg'): File =>
   new File([bytes], 'photo', { type });
 
+/** `<blobUrl>?<SAS>` の URL から、SAS トークンのクエリを取り出す（実 SDK で署名したトークンを読むテスト用） */
+const tokenOf = (url: string): URLSearchParams => new URLSearchParams(url.slice(url.indexOf('?') + 1));
+
 // 上限は既定値（原寸 10MB = 10485760、サムネイル 1MB = 1048576）。ちょうど1バイト超える大きさ
 const OVER_MAX_IMAGE = new Uint8Array(10485761);
 const OVER_MAX_THUMBNAIL = new Uint8Array(1048577);
@@ -97,6 +109,7 @@ describe('写真API', () => {
   let mockContext: InvocationContext;
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let blobStore: Map<string, BlobEntry>;
+  let blobBackend: FakeBlobBackend;
 
   beforeEach(() => {
     mockContext = { log: jest.fn() } as any;
@@ -110,13 +123,16 @@ describe('写真API', () => {
     } as unknown as CosmosClient));
 
     blobStore = new Map();
-    const blobBackend: FakeBlobBackend = { store: blobStore, forcedUploadError: null };
+    blobBackend = { store: blobStore, forcedUploadError: null };
     MockedBlobServiceClient.fromConnectionString = jest
       .fn()
       .mockReturnValue(createFakeBlobServiceClient(blobBackend));
 
     // jest.fn() のままだと undefined を返し、.toString() で例外になって署名の経路が検証されない
     mockedGenerateSas.mockReturnValue({ toString: () => TEST_SAS_TOKEN } as any);
+    // 署名を実 SDK に委譲するテストが、後のテストに実物の権限や資格情報を持ち越さないよう、毎回ここで戻す
+    MockedBlobSASPermissions.mockImplementation(() => ({}) as BlobSASPermissions);
+    MockedStorageSharedKeyCredential.mockImplementation(() => ({}) as StorageSharedKeyCredential);
 
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
     process.env.COSMOS_DB_KEY = 'test-key';
@@ -216,6 +232,158 @@ describe('写真API', () => {
           [`photos/${PHOTO_ID}.thumb.jpg`, { content: THUMBNAIL_BYTES, contentType: 'image/jpeg' }]
         ])
       );
+    });
+
+    it('写真IDと画像だけを送ると、サムネイル・撮影日時・位置情報なしの写真として保存される', async () => {
+      // 時刻だけを固定する。アップロード日時は UTC で 10日 20:00 で、日本時間に直すと翌 11日 05:00 になる
+      // （日付をまたぐので、UTC のまま切り出した誤りと区別できる）
+      jest.useFakeTimers({
+        now: new Date('2026-10-10T20:00:00.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
+      const request = createPhotoRequest(formDataWith());
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect((response.jsonBody as any).data.photo).toMatchObject({
+        thumbnailUrl: null,
+        takenAt: null,
+        takenAtSource: 'none',
+        sortAt: '2026-10-11T05:00:00',
+        location: null
+      });
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({
+        thumbnailBlobName: null,
+        takenAt: null,
+        takenAtSource: 'none',
+        sortAt: '2026-10-11T05:00:00',
+        location: null
+      });
+      // サムネイルを送っていないので、Blob は原寸だけ
+      expect(blobStore).toEqual(
+        new Map([[`photos/${PHOTO_ID}.jpg`, { content: IMAGE_BYTES, contentType: 'image/jpeg' }]])
+      );
+    });
+
+    it('緯度と経度だけを送ると、地名も地名の出どころも無い位置情報として保存される', async () => {
+      const request = createPhotoRequest(formDataWith({ latitude: '43.7706', longitude: '142.365' }));
+      const noPlaceLocation = { latitude: 43.7706, longitude: 142.365, placeName: null, placeSource: null };
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect((response.jsonBody as any).data.photo.location).toEqual(noPlaceLocation);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ location: noPlaceLocation });
+    });
+
+    // Blob 名の拡張子は、送られたファイル名ではなく原寸の Content-Type から決まる。
+    // image/jpeg は全項目の正常系が見ているので、ここは残りの形式。同じバイト列に別の Content-Type を付けて送る
+    // （形式はバイト列ではなく Content-Type で判定するので、写真IDの照合は通る）
+    it.each([
+      ['image/png', '.png'],
+      ['image/webp', '.webp'],
+      ['image/gif', '.gif']
+    ])('原寸が%sなら、Blobの拡張子は%sになる', async (contentType, extension) => {
+      const request = createPhotoRequest(formDataWith({ image: jpegFile(IMAGE_BYTES, contentType) }));
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect((response.jsonBody as any).data.photo.imageUrl).toBe(
+        `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}${extension}?${TEST_SAS_TOKEN}`
+      );
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({
+        blobName: `${PHOTO_ID}${extension}`,
+        contentType
+      });
+      expect(blobStore).toEqual(
+        new Map([[`photos/${PHOTO_ID}${extension}`, { content: IMAGE_BYTES, contentType }]])
+      );
+    });
+
+    // 緯度は -90〜90、経度は -180〜180 で、端の値ちょうども受け付ける。緯度と経度は上限が別なので行を分ける。
+    // 範囲を超える値が400になることは、入力検証の表が見ている
+    it.each([
+      ['緯度が90', '90', '142.365', { latitude: 90, longitude: 142.365 }],
+      ['緯度が-90', '-90', '142.365', { latitude: -90, longitude: 142.365 }],
+      ['経度が180', '43.7706', '180', { latitude: 43.7706, longitude: 180 }],
+      ['経度が-180', '43.7706', '-180', { latitude: 43.7706, longitude: -180 }]
+    ])('位置情報の端の値ちょうども受け付け、そのまま保存される（%s）', async (_case, latitude, longitude, expected) => {
+      const request = createPhotoRequest(formDataWith({ latitude, longitude }));
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect((response.jsonBody as any).data.photo.location).toMatchObject(expected);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ location: expected });
+    });
+
+    it('地名がちょうど100文字なら受け付け、そのまま保存される', async () => {
+      // 101文字が400になることは、入力検証の表が見ている
+      const placeName = 'あ'.repeat(100);
+      const request = createPhotoRequest(formDataWith({ latitude: '43.7706', longitude: '142.365', placeName }));
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect((response.jsonBody as any).data.photo.location).toEqual({
+        latitude: 43.7706,
+        longitude: 142.365,
+        placeName,
+        placeSource: 'device'
+      });
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({
+        location: { latitude: 43.7706, longitude: 142.365, placeName, placeSource: 'device' }
+      });
+    });
+
+    // 写真のURLの有効期限は PHOTO_SAS_EXPIRY_MINUTES（分）で決まり、読めない値なら60分になる。
+    // 応答の urlExpiresAt で見る。未設定は delete で作る（process.env.X = undefined は文字列 "undefined" になる）
+    it.each([
+      ['30分', () => { process.env.PHOTO_SAS_EXPIRY_MINUTES = '30'; }, '2026-10-10T03:42:45.000Z'],
+      ['未設定', () => { delete process.env.PHOTO_SAS_EXPIRY_MINUTES; }, '2026-10-10T04:12:45.000Z'],
+      ['数字でない値', () => { process.env.PHOTO_SAS_EXPIRY_MINUTES = 'abc'; }, '2026-10-10T04:12:45.000Z'],
+      ['0', () => { process.env.PHOTO_SAS_EXPIRY_MINUTES = '0'; }, '2026-10-10T04:12:45.000Z'],
+      ['負の値', () => { process.env.PHOTO_SAS_EXPIRY_MINUTES = '-5'; }, '2026-10-10T04:12:45.000Z']
+    ])('写真のURLの有効期限は、設定した分数だけ先になり、読めない設定なら60分先になる（%s）', async (_case, configure, expected) => {
+      jest.useFakeTimers({
+        now: new Date('2026-10-10T03:12:45.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
+      configure();
+      const request = createPhotoRequest(formDataWith());
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect((response.jsonBody as any).data.urlExpiresAt).toBe(expected);
+    });
+
+    it('写真のURLは発行の5分前から有効で、期限は応答のurlExpiresAtと同じになる', async () => {
+      jest.useFakeTimers({
+        now: new Date('2026-10-10T03:12:45.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
+      // このテストだけ、署名を実 SDK に委譲する。他のテストの固定トークンでは st・se が読めない。
+      // 署名はローカルの計算だけで Blob Storage へは通信しない。トークンの st・se・sp は平文で読める
+      const sdk = jest.requireActual<typeof import('@azure/storage-blob')>('@azure/storage-blob');
+      MockedBlobSASPermissions.mockImplementation(() => new sdk.BlobSASPermissions());
+      MockedStorageSharedKeyCredential.mockImplementation(
+        (accountName, accountKey) => new sdk.StorageSharedKeyCredential(accountName, accountKey as string)
+      );
+      mockedGenerateSas.mockImplementation(sdk.generateBlobSASQueryParameters);
+      const request = createPhotoRequest(formDataWith({ thumbnail: jpegFile(THUMBNAIL_BYTES) }));
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      // 原寸とサムネイルの両方の URL を同じ基準で見る
+      const { photo, urlExpiresAt } = (response.jsonBody as any).data;
+      const urls = [photo.imageUrl, photo.thumbnailUrl];
+      expect(response.status).toBe(201);
+      expect(urlExpiresAt).toBe('2026-10-10T04:12:45.000Z');
+      expect(urls.map((url) => tokenOf(url).get('se'))).toEqual(['2026-10-10T04:12:45Z', '2026-10-10T04:12:45Z']);
+      expect(urls.map((url) => tokenOf(url).get('st'))).toEqual(['2026-10-10T03:07:45Z', '2026-10-10T03:07:45Z']);
     });
 
     it('画像の内容と写真IDが一致しないと400で理由を返し、Blobにもデータベースにも何も保存しない', async () => {
@@ -415,6 +583,62 @@ describe('写真API', () => {
         const body = response.jsonBody as any;
         expect(body.success).toBe(false);
         expect(body.error.code).toBe(code);
+        expect(body.error.message).toBe(message);
+        expect(cosmosBackend.documents).toEqual(new Map());
+      }
+    );
+
+    // 画像の保存先（Blob Storage）の失敗。実 SDK が投げる形を再現する（実装の判定に合わせた文字列は作らない）:
+    // - 接続できたうえでの失敗は RestError（name・HTTP ステータス・Storage のエラーコード）で、
+    //   ネットワーク系の code は持たない。message は英語の文で、"Storage" を含むとは限らない
+    // - 接続できない失敗は、Azure の transport が errno を RestError の code に直接載せる
+    const storageRejected = () =>
+      Object.assign(new Error('This request is not authorized to perform this operation.'), {
+        name: 'RestError',
+        statusCode: 403,
+        code: 'AuthorizationFailure'
+      });
+    const storageUnreachable = (errno: string) =>
+      Object.assign(new Error(`接続に失敗しました (${errno})`), { name: 'RestError', code: errno });
+    const STORAGE_FAILED = 'ストレージサービスでエラーが発生しました';
+    const STORAGE_UNREACHABLE = 'ストレージサービスに接続できません';
+    const storageFailureCases: [string, (backend: FakeBlobBackend) => void, number, string][] = [
+      [
+        '原寸のアップロードが保存先のエラー応答で失敗したときは、502を返す',
+        (backend) => { backend.forcedUploadError = storageRejected(); },
+        502,
+        STORAGE_FAILED
+      ],
+      // 3つの errno は同じ分岐に並んでいる。1つだけ通すと残りを外しても気づけないので全部通す
+      ...['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].map(
+        (errno): [string, (backend: FakeBlobBackend) => void, number, string] => [
+          `原寸のアップロードが${errno}で失敗したときは、接続できないエラー（503）を返す`,
+          (backend) => { backend.forcedUploadError = storageUnreachable(errno); },
+          503,
+          STORAGE_UNREACHABLE
+        ]
+      ),
+      // 原寸とサムネイルは同じコンテナなので、サムネイルの Blob 名だけを失敗させる（原寸は書き込み済み）
+      [
+        'サムネイルのアップロードだけが保存先のエラー応答で失敗したときは、502を返す',
+        (backend) => { backend.forcedUploadErrorByKey = { [`photos/${PHOTO_ID}.thumb.jpg`]: storageRejected() }; },
+        502,
+        STORAGE_FAILED
+      ]
+    ];
+
+    it.each(storageFailureCases)(
+      '写真の保存で、画像の保存先が失敗したら理由を返し、写真のドキュメントは作られない（%s）',
+      async (_case, inject, status, message) => {
+        inject(blobBackend);
+        const request = createPhotoRequest(formDataWith({ thumbnail: jpegFile(THUMBNAIL_BYTES) }));
+
+        const response = await createPhotoHandler(request, mockContext);
+
+        expect(response.status).toBe(status);
+        const body = response.jsonBody as any;
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe('STORAGE_ERROR');
         expect(body.error.message).toBe(message);
         expect(cosmosBackend.documents).toEqual(new Map());
       }

@@ -10,3 +10,10 @@
  * （docs/travel-album/04_data_design.md §1.3）
  */
 export const SORT_AT_UTC_OFFSET_MINUTES = 540;
+
+/**
+ * 写真の URL（SAS）を、発行の何分前から有効にするか
+ *
+ * サーバと Blob Storage の時計がずれると、発行した直後の URL が「まだ有効でない」で 403 になる
+ */
+export const PHOTO_SAS_START_SKEW_MINUTES = 5;

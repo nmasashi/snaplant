@@ -2,7 +2,13 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
 import { toPhoto } from '../services/photoView';
-import { createDatabaseErrorResponse, createNotFoundError, createSuccessResponse } from '../utils/response';
+import {
+  createDatabaseErrorResponse,
+  createNotFoundError,
+  createSuccessResponse,
+  createUpstreamErrorResponse
+} from '../utils/response';
+import { UpstreamError } from '../utils/errors';
 import { readPhotoInput } from '../utils/photoInput';
 import { computeSortAt } from '../utils/sortAt';
 import { ErrorCode, HttpStatusCode } from '../types/api';
@@ -81,6 +87,11 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
     );
   } catch (error: any) {
     context.log('写真保存エラー:', error);
+    // Blob の失敗を先に見る。UpstreamError は元のエラーを cause に持ち、isConnectivityError は cause の奥まで
+    // errno を探すので、順序が逆だとストレージに接続できない障害が「データベースに接続できません」になる
+    if (error instanceof UpstreamError) {
+      return createUpstreamErrorResponse(error);
+    }
     return createDatabaseErrorResponse(error, '写真の保存に失敗しました');
   }
 }

@@ -42,6 +42,12 @@ export interface FakeBlobBackend {
    * バックエンド全体に効く forcedUploadError では再現できない。既定は未設定
    */
   forcedUploadErrorByContainer?: Record<string, Error>;
+  /**
+   * 指定した Blob へのアップロードだけを失敗させる（`コンテナ名/Blob名` → エラー。`store` のキーと同じ形）。
+   * 写真の原寸とサムネイルは同じコンテナに置くので、コンテナ単位の forcedUploadErrorByContainer では
+   * 区別できない。「原寸は成功し、サムネイルだけ失敗する」経路を作る。既定は未設定
+   */
+  forcedUploadErrorByKey?: Record<string, Error>;
 }
 
 /** 実 SDK が存在しない Blob への操作で投げる形に合わせたエラー */
@@ -68,6 +74,10 @@ export function createFakeBlockBlobClient(
       const containerError = backend.forcedUploadErrorByContainer?.[containerName];
       if (containerError) {
         throw containerError;
+      }
+      const blobError = backend.forcedUploadErrorByKey?.[key];
+      if (blobError) {
+        throw blobError;
       }
       backend.store.set(key, {
         content,

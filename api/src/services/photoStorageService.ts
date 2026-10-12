@@ -1,6 +1,7 @@
 import { BlobServiceClient, ContainerClient } from '@azure/storage-blob';
 import { generateReadSasUrl } from '../utils/blobSas';
 import { UpstreamError } from '../utils/errors';
+import { PHOTO_SAS_START_SKEW_MINUTES } from '../constants/album';
 
 /**
  * 旅行アルバムの写真の Blob（photos コンテナ）を扱うサービス
@@ -50,6 +51,7 @@ export class PhotoStorageService {
       containerName: this.containerName,
       blobName,
       expiresOn,
+      startsOn: new Date(Date.now() - PHOTO_SAS_START_SKEW_MINUTES * 60 * 1000),
     });
   }
 }

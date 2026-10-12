@@ -78,7 +78,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 3.2 `utils/blobSas.ts`
 
-- 読み取りのみの権限、発行から 60 分の `expiresOn`、5 分前の `startsOn` で署名する（偽のタイマー。引数をリテラルで検証。原則3の例外）
+- 読み取りのみの権限、発行から 60 分の `expiresOn`、5 分前の `startsOn` で署名する。**実 SDK で作ったトークンの `sp`・`se`・`st`・`sr` を `URLSearchParams` で読んで確かめる**（`sig` 以外は平文。引数を見る原則3の例外を使わずに済む。PR 4a-1 で決めた）。`startsOn` は `generateReadSasUrl()` の引数で、写真の側（`PhotoStorageService`）が渡し、一時画像の SAS は渡さない（既存の `upload` の振る舞いを変えない）
 - `PHOTO_SAS_EXPIRY_MINUTES` に正の整数を設定すると期限が変わる。読めない値なら 60
 - URL の形が `https://<host>/<container>/<blob>?<sas>` になる
 - `urlExpiresAt` が `expiresOn` と同じ ISO 文字列になる
