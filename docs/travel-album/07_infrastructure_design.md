@@ -255,6 +255,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `ORPHAN_BLOB_MIN_AGE_DAYS` | `1` | 文書の無い Blob を消す前に待つ日数 | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
 | `AZURE_OPENAI_DEPLOYMENT_NAME`（既存） | （必須。Terraform が `gpt5_luna` の名前を入れる） | 今のデプロイ名。植物図鑑の識別に加え、旅行アルバムの分類（段階3）と識別（段階4）にも当面はこれを使う | `OpenAIVisionService`・`PhotoClassifierService`・`PhotoIdentifierService` | 3・4 |
 | `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 分類用のデプロイ名。安いモデルのデプロイを足したときに設定する（#17） | `PhotoClassifierService` | 3 |
+| `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 識別用のデプロイ名。分類と同じく、別のモデルに変えるときに設定する | `PhotoIdentifierService` | 4 |
 | `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |
 
 AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変換の上限（`GEOCODING_DAILY_LIMIT`）は**置かない**。費用はデプロイの容量と予算アラートで抑える（§2、[06 §6](./06_processing_design.md#6-費用の抑え方)）。
