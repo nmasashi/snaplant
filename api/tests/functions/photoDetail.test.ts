@@ -15,8 +15,9 @@ import { databaseFailureCases } from '../helpers/databaseFailures';
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
 // SAS の署名に使う関数は、このファイルで固定のトークンを返す形に差し替える。
-// 署名はローカルの計算だけで Blob Storage へは通信しない。権限や有効期限は utils/blobSas の責務で、
-// ここでは「写真ごとの URL にトークンが付いて返る」ことだけを見る
+// 署名はローカルの計算だけで Blob Storage へは通信しない。署名の対象・権限・開始時刻は
+// photos.test.ts が実 SDK のトークンで見ているので、ここでは「写真ごとの URL にトークンが付いて返る」ことと
+// urlExpiresAt を見る
 jest.mock('@azure/storage-blob', () => ({
   BlobServiceClient: { fromConnectionString: jest.fn() },
   BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
@@ -37,6 +38,16 @@ const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13
 
 // 写真が属する旅行の id（UUID v4 の形）。写真を1枚取り出すときに旅行は引かないので、旅行のドキュメントは置かない
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
+
+// Cosmos DB が保存したドキュメントに実際に付けるシステム項目。偽物は付けないので、漏れを見るテストが自分で足す。
+// 応答の写真に混ざると、利用者に内部の識別子や ETag が見えてしまう
+const COSMOS_SYSTEM_FIELDS = {
+  _rid: 'q2cDAOZl6N8BAAAAAAAAAA==',
+  _self: 'dbs/q2cDAA==/colls/q2cDAOZl6N8=/docs/q2cDAOZl6N8BAAAAAAAAAA==/',
+  _etag: '"0000a1b2-0000-0d00-0000-6706a1b20000"',
+  _attachments: 'attachments/',
+  _ts: 1760065200
+};
 
 const createGetPhotoRequest = (photoId: string): HttpRequest =>
   ({
@@ -130,13 +141,13 @@ describe('写真詳細API', () => {
         blobName: `${PHOTO_ID}.jpg`,
         thumbnailBlobName: `${PHOTO_ID}.thumb.jpg`
       };
-      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto });
+      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto, ...COSMOS_SYSTEM_FIELDS });
       const request = createGetPhotoRequest(PHOTO_ID);
 
       const response = await getPhotoHandler(request, mockContext);
 
-      // blobName / thumbnailBlobName / type は含まず、代わりに SAS 付きの URL が付く。
-      // 写真の項目は完全一致で見る（余分な項目が混ざっても、足りなくても落ちる）
+      // blobName / thumbnailBlobName / type と Cosmos のシステム項目（_rid・_etag など）は含まず、
+      // 代わりに SAS 付きの URL が付く。写真の項目は完全一致で見る（余分な項目が混ざっても、足りなくても落ちる）
       expect(response.status).toBe(200);
       expect(response.jsonBody).toEqual({
         success: true,
@@ -152,31 +163,36 @@ describe('写真詳細API', () => {
     });
 
     // 写真IDの形式は小文字16進64文字だけ。大文字を許すと同じ写真に2つの id ができるので、大文字は400になる。
-    // 形式が正しければ、データベースに無い写真は404（documents は空のまま）。
     // code は文字列で固定する（クライアントがこの値で分岐する）
     it.each([
-      ['写真IDが3文字', 'abc', 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
-      ['写真IDが大文字の16進', PHOTO_ID.toUpperCase(), 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
-      ['写真IDが63文字', PHOTO_ID.slice(1), 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
-      ['写真IDが65文字', `${PHOTO_ID}0`, 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
-      [
-        '写真IDに16進でない文字が入っている',
-        `g${PHOTO_ID.slice(1)}`,
-        400,
-        'INVALID_REQUEST',
-        '写真IDの形式が無効です'
-      ],
-      ['形式は正しいが該当する写真が無い', PHOTO_ID, 404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません']
-    ])('取り出す写真の指定が正しくなければ、理由を返す（%s）', async (_case, photoId, status, code, message) => {
+      ['写真IDが3文字', 'abc'],
+      ['写真IDが大文字の16進', PHOTO_ID.toUpperCase()],
+      ['写真IDが63文字', PHOTO_ID.slice(1)],
+      ['写真IDが65文字', `${PHOTO_ID}0`],
+      ['写真IDに16進でない文字が入っている', `g${PHOTO_ID.slice(1)}`]
+    ])('取り出す写真の指定の形式が正しくなければ、400で理由を返す（%s）', async (_case, photoId) => {
       const request = createGetPhotoRequest(photoId);
 
       const response = await getPhotoHandler(request, mockContext);
 
-      expect(response.status).toBe(status);
+      expect(response.status).toBe(400);
       const body = response.jsonBody as any;
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe(code);
-      expect(body.error.message).toBe(message);
+      expect(body.error.code).toBe('INVALID_REQUEST');
+      expect(body.error.message).toBe('写真IDの形式が無効です');
+    });
+
+    it('形式は正しいが該当する写真が無ければ、404で理由を返す', async () => {
+      // documents は空のまま。形式の検証は通り、データベースの読み取りで見つからない
+      const request = createGetPhotoRequest(PHOTO_ID);
+
+      const response = await getPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(404);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('PHOTO_NOT_FOUND');
+      expect(body.error.message).toBe('指定された写真が見つかりません');
     });
 
     // 写真の読み取りで失敗したときの分類の表。接続できない障害は503、それ以外は500で、500の message は固定

@@ -53,6 +53,8 @@ import { TripDocument } from '../../src/types/album';
  *   だけなので、写真を置いても集計の行にはならず、枚数は0・期間は null に見える。集計の値は
  *   tripSummaries.test.ts（行から値を組み立てる関数）で確かめる。サービスやハンドラのテストでは、
  *   写真を置いて集計の値を主張しない
+ * - Cosmos のシステム項目（_rid・_self・_etag・_attachments・_ts）。偽物は付けない。応答への漏れを見るテストは、
+ *   偽物に置くドキュメントに自分で足す（photos.test.ts・photoDetail.test.ts の COSMOS_SYSTEM_FIELDS）
  */
 
 /**
