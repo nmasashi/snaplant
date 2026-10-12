@@ -77,7 +77,7 @@ export class PhotoStorageService {
       }
       try {
         await this.delete(blobName);
-      } catch (error) {
+      } catch (error: any) {
         log(`写真の Blob の削除に失敗しました（ドキュメントは削除済み）: ID=${photo.id}`, error);
       }
     }

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { createErrorResponse, createValidationError, isValidUUID } from './response';
+import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
 
@@ -294,15 +295,11 @@ export interface MoveInput {
  * @returns 検証を通った入力、または 400 の応答
  */
 export async function readMoveInput(request: HttpRequest): Promise<{ input: MoveInput } | { error: HttpResponseInit }> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (error: any) {
-    if (error instanceof SyntaxError) {
-      return { error: createValidationError('リクエストボディの形式が無効です', 'JSON形式で送信してください') };
-    }
-    throw error;
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read;
   }
+  const body = read.body;
   if (body === null || body === undefined) {
     return { error: createValidationError('リクエストボディが指定されていません') };
   }
@@ -347,15 +344,11 @@ export interface PhotoUpdateInput {
 export async function readPhotoUpdateInput(
   request: HttpRequest
 ): Promise<{ input: PhotoUpdateInput } | { error: HttpResponseInit }> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (error: any) {
-    if (error instanceof SyntaxError) {
-      return { error: createValidationError('リクエストボディの形式が無効です', 'JSON形式で送信してください') };
-    }
-    throw error;
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read;
   }
+  const body = read.body;
   if (body === null || body === undefined) {
     return { error: createValidationError('リクエストボディが指定されていません') };
   }

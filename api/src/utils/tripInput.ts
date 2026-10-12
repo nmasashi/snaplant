@@ -4,21 +4,34 @@ import { TripInput } from '../types/album';
 import { TRIP_VALIDATION } from '../constants/validation';
 
 /**
- * 旅行の作成・更新のボディを読んで検証する（POST /api/trips と PUT /api/trips/{tripId} が共有する）
+ * JSON のボディを読む。JSON として読めなければ 400
+ *
+ * 旅行の作成・更新、写真の移動・更新が共有する（文言をそろえるため）
  * @param request リクエスト
- * @returns 検証を通った入力、または 400 の応答
+ * @returns 読んだボディ（null もありうる）、または 400 の応答
  */
-export async function readTripInput(request: HttpRequest): Promise<{ input: TripInput } | { error: HttpResponseInit }> {
-  let body: unknown;
+export async function readJsonBody(request: HttpRequest): Promise<{ body: unknown } | { error: HttpResponseInit }> {
   try {
-    body = await request.json();
+    return { body: await request.json() };
   } catch (error: any) {
     if (error instanceof SyntaxError) {
       return { error: createValidationError('リクエストボディの形式が無効です', 'JSON形式で送信してください') };
     }
     throw error;
   }
-  return validateTripInput(body);
+}
+
+/**
+ * 旅行の作成・更新のボディを読んで検証する（POST /api/trips と PUT /api/trips/{tripId} が共有する）
+ * @param request リクエスト
+ * @returns 検証を通った入力、または 400 の応答
+ */
+export async function readTripInput(request: HttpRequest): Promise<{ input: TripInput } | { error: HttpResponseInit }> {
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read;
+  }
+  return validateTripInput(read.body);
 }
 
 /**
