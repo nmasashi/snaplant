@@ -1,7 +1,7 @@
 import { HttpResponseInit } from '@azure/functions';
 import { ApiResponse, ErrorResponse, HttpStatusCode, ErrorCode } from '../types/api';
 import { GENERAL_VALIDATION } from '../constants/validation';
-import { UpstreamError, UpstreamService, hasCauseCode } from './errors';
+import { UNREACHABLE_ERRNOS, UpstreamError, UpstreamService, hasCauseCode } from './errors';
 
 /**
  * 上流のサービスごとの、接続できない（到達していない）とみなす errno と応答
@@ -16,13 +16,13 @@ const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
 }> = {
   ai: {
     code: ErrorCode.AI_SERVICE_ERROR,
-    unreachableCodes: ['ENOTFOUND', 'ECONNREFUSED'],
+    unreachableCodes: UNREACHABLE_ERRNOS,
     unreachableMessage: '植物識別サービスに接続できません',
     failedMessage: '植物識別サービスでエラーが発生しました'
   },
   storage: {
     code: ErrorCode.STORAGE_ERROR,
-    unreachableCodes: ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'],
+    unreachableCodes: [...UNREACHABLE_ERRNOS, 'ETIMEDOUT'],
     unreachableMessage: 'ストレージサービスに接続できません',
     failedMessage: 'ストレージサービスでエラーが発生しました'
   }
@@ -94,11 +94,12 @@ export function createValidationError(message: string, details?: string): HttpRe
 /**
  * Not Foundエラーレスポンス
  * @param message エラーメッセージ
- * @param code 見つからなかったものを表すエラーコード（既定は植物）
+ * @param code 見つからなかったものを表すエラーコード。既定値は置かない（旅行や写真の 404 で
+ *   渡し忘れると植物のコードが返り、クライアントの分岐を誤らせるため）
  */
 export function createNotFoundError(
   message: string,
-  code: ErrorCode = ErrorCode.PLANT_NOT_FOUND
+  code: ErrorCode
 ): HttpResponseInit {
   return createErrorResponse(
     code,

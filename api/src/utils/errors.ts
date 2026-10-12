@@ -47,14 +47,22 @@ export class UpstreamError extends Error {
 }
 
 /**
+ * 接続できない（503 にする）とみなす errno
+ *
+ * Cosmos DB（isConnectivityError）と AI の判定（utils/response.ts）が共有する。
+ * ストレージだけは ETIMEDOUT も含めている（docs/09_backlog.md で揃えるか判断待ち）。
+ * 一覧を別々に持つと片方だけ直されて分類がずれるので、ここを唯一の実体にする
+ */
+export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED'];
+
+/**
  * Cosmos DB に接続できない障害（503 にするもの）かを判定する
  *
  * 旅行アルバムのハンドラが使う。植物図鑑の6つのハンドラはトップレベルの `code` だけを
  * 手で比べているが、SDK は errno を `cause` の奥に持つことがあるので、こちらは
- * `hasCauseCode()` でたどる。errno の集合は植物図鑑側と同じにしてある。
- * `ETIMEDOUT` を含めるかはバックログで判断待ち（docs/09_backlog.md）
+ * `hasCauseCode()` でたどる。errno の集合は UNREACHABLE_ERRNOS（植物図鑑側と同じ）
  * @param error 判定するエラー
  */
 export function isConnectivityError(error: unknown): boolean {
-  return hasCauseCode(error, ['ENOTFOUND', 'ECONNREFUSED']);
+  return hasCauseCode(error, UNREACHABLE_ERRNOS);
 }

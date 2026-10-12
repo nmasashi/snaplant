@@ -38,7 +38,7 @@ export async function getPlantByIdHandler(request: HttpRequest, context: Invocat
     
     if (!plant) {
       context.log(`植物が見つかりません: ID=${plantId}`);
-      return createNotFoundError('指定された植物が見つかりません');
+      return createNotFoundError('指定された植物が見つかりません', ErrorCode.PLANT_NOT_FOUND);
     }
     
     context.log(`植物詳細取得成功: ID=${plantId}, 名前=${plant.name}`);
@@ -91,7 +91,7 @@ export async function deletePlantHandler(request: HttpRequest, context: Invocati
     
     if (!deleted) {
       context.log(`削除対象の植物が見つかりません: ID=${plantId}`);
-      return createNotFoundError('指定された植物が見つかりません');
+      return createNotFoundError('指定された植物が見つかりません', ErrorCode.PLANT_NOT_FOUND);
     }
     
     context.log(`植物削除成功: ID=${plantId}`);
