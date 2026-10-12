@@ -563,7 +563,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 - `tests/setup.ts` が `setupFilesAfterEnv` でグローバルに環境変数と `openai` のモックを設定し、`console.log` も抑制する。**Azure SDK のモックは置いていない**（完全に死んでいたため削除した）
 - 各テストファイルは**それに加えて**個別に `jest.mock()` と環境変数を設定する二重構造。追いにくいため新規テストはファイル内で完結させる
-- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）。`tests/fakes/` だけが例外で、`src/` に対応するものが無い共有部品
+- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）。`tests/fakes/`（偽物）と `tests/helpers/`（複数のテストファイルが使うケースの表など。例 `databaseFailures.ts` の 503 / 500 の表）だけが例外で、`src/` に対応するものが無い共有部品
 - テスト名は非開発者にも通じる日本語の文で書く（この慣習は踏襲する）
 - `testTimeout` は 10 秒
 - **スタブへの呼び出し検証は解消済み。** 残る `toHaveBeenCalled*` は OpenAI（管理外の依存）に対するものだけで、これは正当。Cosmos / Blob に対して書き足さないこと

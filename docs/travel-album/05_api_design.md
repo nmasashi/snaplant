@@ -20,7 +20,9 @@
 - 応答は封筒 `{ success: true, data }` / `{ success: false, error: { code, message, details? } }`。`utils/response.ts` のヘルパー経由で作る
 - **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
-- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`hasCauseCode()` を使う述語を新設。既存6箇所の複製を増やさない）
+- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
+  errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有し、植物図鑑の Cosmos 側が手で比べている集合とも同じ。`ETIMEDOUT` は含めないので 500 になる）。
+  応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）
 - Blob Storage の失敗 → `UpstreamError('storage')` → 502 / 503 `STORAGE_ERROR`（既存の `message`）。AI の失敗は段階3以降で `'ai'`。
   **Storage Queue への投入の失敗は応答を変えない**（ログだけ出して成功を返す。写真は保存済みで、タイマーが拾う。[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）
 - 複数の文書や Blob にまたがる操作は、途中で止まったときに何が残り、どう直るかを [04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか) に表で書いてある。
@@ -55,7 +57,9 @@
 「この項目を消す」に当たる操作は、写真を消す（`DELETE /api/photos/{photoId}`）か、識別をやり直す（`process`。要件 5.5.1）で足りる。
 
 - `plants/{id}` と同じく、同じルートを複数ファイルが別々のメソッドで登録してよいが、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
-  `tripDetail.ts` が GET / PUT / DELETE をまとめて登録する（`plantDetail.ts` 121〜134行の形）
+  `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
+  実装済みの旅行の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）。
+  `plantDetail.ts` のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
   デプロイ後に `POST /api/photos/move` が `photoMove.ts` に届くことを手で確認する。届かなければ `/api/photo-moves` に変える
@@ -90,6 +94,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `photoCount` | integer | 写真の枚数 |
 | `firstTakenAt` / `lastTakenAt` | string \| null | 撮影日時のある写真の最初と最後（タイムゾーン無し）。無ければ `null` |
 | `coverThumbnailUrl` | string \| null | `sortAt` 順（撮影日時順）で先頭の写真のサムネイル（無ければ原寸）の SAS 付き URL。写真が無ければ `null`。旅行ごとに `TOP 1` で1枚だけ読む |
+
+`photoCount`・`firstTakenAt`・`lastTakenAt` は実装済み（PR 3）。**`coverThumbnailUrl` は未実装で、写真の API（PR 4a）で足すまで `GET /api/trips`・`GET /api/trips/{tripId}` とも常に `null`**（キーは出す）。
 
 ### 3.3 Photo
 
@@ -394,6 +400,8 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.8 `POST /api/trips`
 
+**実装済み**（PR 3。`trips.ts`、検証は `utils/tripInput.ts`）。
+
 **リクエスト:** `{ "name": string, "description"?: string | null }`
 
 | 順 | 条件 | ステータス・コード | `message` |
@@ -406,10 +414,16 @@ AI の解析をやり直す（要件 5.5.1）。
 | 6 | `name` が前後の空白を除いて 100 文字を超える | 400 `INVALID_REQUEST` | `旅行名は100文字以内で指定してください` |
 | 7 | `description` が 1000 文字を超える | 400 `INVALID_REQUEST` | `説明は1000文字以内で指定してください` |
 
-`name` は前後の空白を除いて保存。`description` はそのまま（空文字は `null` にする）。`tags` は `[]`。201 `{ trip }`（§3.1）。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `name` が無いものとして扱い、5 になる。`name`・`description` 以外のキー（`tags` など）は無視する。
+`description` の文字数は前後の空白を除かずに数える。
+
+`name` は前後の空白を除いて保存。`description` はそのまま（空文字は `null` にする。空白だけの文字列はそのまま保存する）。`tags` は `[]`。
+`createdAt` と `updatedAt` は同じ値。201 `{ trip }`（§3.1。集計は付かない）。
 500 の `message`: `旅行の作成に失敗しました`。
 
 ### 5.9 `GET /api/trips`
+
+**実装済み**（PR 3。`trips.ts`）。表紙を除く。
 
 `{ trips: TripSummary[], total, unassignedPhotoCount }`。`createdAt` 降順。`total` は旅行の数。
 集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
@@ -420,6 +434,8 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.10 `GET /api/trips/{tripId}`
 
+**実装済み**（PR 3。`tripDetail.ts`）。表紙を除く。
+
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
 | 1 | `tripId` が UUID 形式でない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
@@ -429,8 +445,12 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.11 `PUT /api/trips/{tripId}`
 
-`name`（必須）と `description`（任意）の全体置き換え。検証は `tripId` の形式（5.10 の 1）→ 5.8 の 1〜7 の順。無ければ 404 `TRIP_NOT_FOUND`。
-`tags` は変えない。`{ trip }`（集計無し）。500 の `message`: `旅行の更新に失敗しました`。
+**実装済み**（PR 3。`tripDetail.ts`、検証は 5.8 と同じ `utils/tripInput.ts`）。
+
+`name`（必須）と `description`（任意）の全体置き換え。検証は `tripId` の形式（5.10 の 1）→ 5.8 の 1〜7 の順。無ければ 404 `TRIP_NOT_FOUND`（読んだ後・置き換える前に旅行が消された場合も 404）
+（旅行があるかはボディの検証の後に見るので、無い旅行に不正なボディを送ると 400）。
+保存のしかたは 5.8 と同じ（`name` は前後の空白を除く、`description` の空文字は `null`）。**全体置き換えなので、`description` を省略するか `null` を送ると説明は消える。**
+`tags` と `createdAt` は変えず、`updatedAt` を更新する。200 `{ trip }`（§3.1。集計無し）。500 の `message`: `旅行の更新に失敗しました`。
 
 ### 5.12 `DELETE /api/trips/{tripId}?deletePhotos=true|false`
 
@@ -531,7 +551,8 @@ AI の解析をやり直す（要件 5.5.1）。
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
-`createNotFoundError(message, code = ErrorCode.PLANT_NOT_FOUND)` と第2引数を足す。
+`createNotFoundError(message, code)` は第2引数の `code` が**必須**（既定値を置かない。旅行や写真の 404 で渡し忘れると植物のコードが返り、クライアントの分岐を誤らせるため）。
+植物図鑑の呼び出しは `ErrorCode.PLANT_NOT_FOUND` を明示して渡す（実装済み）。
 
 ### 7.2 500 `INTERNAL_ERROR` の `message`
 

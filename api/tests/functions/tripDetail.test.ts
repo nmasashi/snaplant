@@ -285,5 +285,39 @@ describe('旅行詳細API', () => {
         expect(cosmosBackend.documents).toEqual(documentsBefore);
       }
     );
+
+    it('旅行の更新の途中で旅行が消されていたら、見つからない扱いになる', async () => {
+      cosmosBackend.documents.set(existingTripId, {
+        id: existingTripId,
+        type: 'trip',
+        name: '京都旅行',
+        description: '旧メモ',
+        tags: ['国内'],
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-02T00:00:00.000Z'
+      });
+      // 読んだ後・置き換える前に別のリクエストが旅行を消すと、置き換えが Cosmos の 404 で失敗する。
+      // 実 SDK は RestError の形（name・code）で投げる
+      cosmosBackend.forcedReplaceError = Object.assign(new Error('Entity with the specified id does not exist in the system.'), {
+        name: 'RestError',
+        code: 404
+      });
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${existingTripId}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { tripId: existingTripId },
+        json: validBody()
+      } as any as HttpRequest;
+
+      const response = await updateTripHandler(request, mockContext);
+
+      expect(response.status).toBe(404);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('TRIP_NOT_FOUND');
+      expect(body.error.message).toBe('指定された旅行が見つかりません');
+    });
   });
 });

@@ -89,7 +89,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 旅行:
 - 作成すると `type: "trip"`・`tags: []`・`description: null`・同じ `createdAt` / `updatedAt` で保存される。`name` の前後の空白が除かれる
 - 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
-- 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる。
+- 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる
+  （PR 3 では枚数と期間だけ。表紙の結果を渡すのは PR 4a で、それまで `coverThumbnailUrl` は常に `null`）。
   期間の行が無い旅行（撮影日時のある写真が無い）は `firstTakenAt` / `lastTakenAt` が `null`
 - 未所属の枚数: 枚数の行のうち `tripId` が `null` の行の `photoCount` が `unassignedPhotoCount` になる（旅行の一覧に無い id の行は数えない）
 - 表紙はサムネイルが無ければ原寸
@@ -168,8 +169,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 3.8 `response.ts` の拡張
 
-- `createNotFoundError(message)` は従来どおり `PLANT_NOT_FOUND`
-- `createNotFoundError(message, ErrorCode.TRIP_NOT_FOUND)` で `code` が変わる
+- `createNotFoundError(message, ErrorCode.TRIP_NOT_FOUND)` で 404・`TRIP_NOT_FOUND`・渡した `message` になる（`tests/utils/response.test.ts`。実装済み）
+- `code` は必須で既定値が無い（型で強制されるのでテストは書かない。[05 §7.1](./05_api_design.md#71-エラーコード一覧追加分)）
 
 ### 3.9 段階3・4で足すシナリオ（骨格）
 
@@ -257,7 +258,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
 | 応答に `_rid` などが出ない | `GET /api/photos/{photoId}` の JSON を目で見る | 余分なキー |
 | ライフサイクル | `temp-images` に Blob を置いて 2 日後に消えている。`photos`・`images`・`azure-webjobs-*` が消えていない | 消えない・消えすぎ |
-| 関数の登録 | ポータルの「関数」に `trips`・`tripDetail`・`photos`・`photoDetail`・`photoMove` がある | 404（`app.ts` の import 忘れ） |
+| 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の関数（`photos.ts`・`photoDetail.ts`・`photoMove.ts` が登録するもの）がある | 404（`app.ts` の import 忘れ） |
 
 ### 5.3 段階3・4で足すもの
 

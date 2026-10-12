@@ -94,7 +94,16 @@ export class AlbumService {
       description: input.description,
       updatedAt: new Date().toISOString(),
     };
-    await this.container.item(id, id).replace(updated);
+    try {
+      await this.container.item(id, id).replace(updated);
+    } catch (error: any) {
+      // 読んだ後・置き換える前に旅行が消された（旅行の削除と重なった）。
+      // replace は NotFound を例外で投げるので、読み取りで無かったときと同じく null にする
+      if (error.code === 404) {
+        return null;
+      }
+      throw error;
+    }
     return toTrip(updated);
   }
 
