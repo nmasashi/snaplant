@@ -114,3 +114,18 @@ export const GENERAL_VALIDATION = {
     IMAGE_PATH_NOT_ALLOWED: '画像アップロードAPIが返したURLを指定してください'
   }
 } as const;
+// 旅行アルバムの旅行の文字数制限
+export const TRIP_VALIDATION = {
+  MAX_LENGTH: {
+    NAME: positiveIntFromEnv(process.env.TRIP_NAME_MAX_LENGTH, 100),
+    DESCRIPTION: positiveIntFromEnv(process.env.TRIP_DESCRIPTION_MAX_LENGTH, 1000)
+  },
+
+  ERROR_MESSAGES: {
+    NAME_NOT_A_STRING: '旅行名は文字列で指定してください',
+    DESCRIPTION_NOT_A_STRING: '説明は文字列で指定してください',
+    NAME_REQUIRED: '旅行名が指定されていません',
+    NAME_TOO_LONG: `旅行名は${positiveIntFromEnv(process.env.TRIP_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
+    DESCRIPTION_TOO_LONG: `説明は${positiveIntFromEnv(process.env.TRIP_DESCRIPTION_MAX_LENGTH, 1000)}文字以内で指定してください`
+  }
+} as const;
