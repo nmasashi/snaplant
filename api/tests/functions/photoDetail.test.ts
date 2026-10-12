@@ -10,6 +10,7 @@ import { deletePhotoHandler, getPhotoHandler } from '../../src/functions/photoDe
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, cosmosNotFoundError, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { COSMOS_SYSTEM_FIELDS, photoDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
@@ -45,16 +46,6 @@ const OTHER_PHOTO_ID = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15
 // 形式は正しいが、保存されていない写真の id（空のデータの SHA-256。削除のテストはこの id の写真を置かない）
 const MISSING_PHOTO_ID = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
-// Cosmos DB が保存したドキュメントに実際に付けるシステム項目。偽物は付けないので、漏れを見るテストが自分で足す。
-// 応答の写真に混ざると、利用者に内部の識別子や ETag が見えてしまう
-const COSMOS_SYSTEM_FIELDS = {
-  _rid: 'q2cDAOZl6N8BAAAAAAAAAA==',
-  _self: 'dbs/q2cDAA==/colls/q2cDAOZl6N8=/docs/q2cDAOZl6N8BAAAAAAAAAA==/',
-  _etag: '"0000a1b2-0000-0d00-0000-6706a1b20000"',
-  _attachments: 'attachments/',
-  _ts: 1760065200
-};
-
 const createGetPhotoRequest = (photoId: string): HttpRequest =>
   ({
     method: 'GET',
@@ -73,30 +64,12 @@ const createDeletePhotoRequest = (photoId: string): HttpRequest =>
     params: { photoId }
   }) as any as HttpRequest;
 
-/** サムネイルのある、保存済みの写真のドキュメント。削除に関係しない項目は既定値 */
-const savedPhotoWithThumbnail = (id: string): PhotoDocument => ({
-  id,
-  type: 'photo',
-  tripId: TRIP_ID,
-  blobName: `${id}.jpg`,
-  thumbnailBlobName: `${id}.thumb.jpg`,
-  contentType: 'image/jpeg',
-  fileSize: 1234567,
-  takenAt: null,
-  takenAtSource: 'none',
-  sortAt: '2026-10-10T12:12:44',
-  location: null,
-  category: null,
-  tags: [],
-  comment: null,
-  commentSource: null,
-  hint: null,
-  classification: null,
-  identification: null,
-  processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
-  uploadedAt: '2026-10-10T03:12:44.000Z',
-  updatedAt: '2026-10-10T03:12:44.000Z'
-});
+/**
+ * サムネイルのある、保存済みの写真のドキュメント。削除のテストは Blob 名(`<id>.jpg` / `<id>.thumb.jpg`)で
+ * 消えた画像を見分けるので、ここで決める。ほかの項目は削除に関係しない
+ */
+const savedPhotoWithThumbnail = (id: string): PhotoDocument =>
+  photoDocument(id, { tripId: TRIP_ID, blobName: `${id}.jpg`, thumbnailBlobName: `${id}.thumb.jpg` });
 
 describe('写真詳細API', () => {
   let mockContext: InvocationContext;
@@ -176,12 +149,11 @@ describe('写真詳細API', () => {
         uploadedAt: '2026-09-21T01:00:00.000Z',
         updatedAt: '2026-09-22T02:30:00.000Z'
       };
-      const savedPhoto: PhotoDocument = {
+      const savedPhoto = photoDocument(PHOTO_ID, {
         ...photoFields,
-        type: 'photo',
         blobName: `${PHOTO_ID}.jpg`,
         thumbnailBlobName: `${PHOTO_ID}.thumb.jpg`
-      };
+      });
       cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto, ...COSMOS_SYSTEM_FIELDS });
       const request = createGetPhotoRequest(PHOTO_ID);
 
@@ -261,30 +233,8 @@ describe('写真詳細API', () => {
     it('写真の保存先の設定に鍵が無ければ、壊れたURLを返さず500で決まった文言を返す', async () => {
       process.env.STORAGE_CONNECTION_STRING =
         'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
-      const savedPhoto: PhotoDocument = {
-        id: PHOTO_ID,
-        type: 'photo',
-        tripId: null,
-        blobName: `${PHOTO_ID}.jpg`,
-        thumbnailBlobName: null,
-        contentType: 'image/jpeg',
-        fileSize: 10,
-        takenAt: null,
-        takenAtSource: 'none',
-        sortAt: '2026-10-10T12:12:44',
-        location: null,
-        category: null,
-        tags: [],
-        comment: null,
-        commentSource: null,
-        hint: null,
-        classification: null,
-        identification: null,
-        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
-        uploadedAt: '2026-10-10T03:12:44.000Z',
-        updatedAt: '2026-10-10T03:12:44.000Z'
-      };
-      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto });
+      const savedPhoto = photoDocument(PHOTO_ID, { blobName: `${PHOTO_ID}.jpg`, thumbnailBlobName: null });
+      cosmosBackend.documents.set(PHOTO_ID, savedPhoto);
       const request = createGetPhotoRequest(PHOTO_ID);
 
       const response = await getPhotoHandler(request, mockContext);

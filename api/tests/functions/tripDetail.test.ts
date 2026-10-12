@@ -2,9 +2,9 @@ import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { getTripHandler, updateTripHandler } from '../../src/functions/tripDetail';
-import { PhotoDocument, TripDocument } from '../../src/types/album';
-import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
+import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
@@ -36,45 +36,21 @@ const KYOTO_FIRST_PHOTO_ID = '2'.repeat(64);
 const KYOTO_SECOND_PHOTO_ID = '3'.repeat(64);
 
 /**
- * 保存済みの写真のドキュメント。表紙に関係しない項目は既定値。
- * サムネイルは既定ではあり(`<id>.thumb.jpg`)、null を渡すとサムネイルの無い写真になる。
- * このファイルの偽物の Cosmos は旅行の型で作ってあるので、置くときは旅行の型に合わせる(偽物は型を問わない)
+ * 保存済みの写真のドキュメント。表紙は旅行(tripId)と並べ替え用の日時(sortAt)で選ばれ、
+ * URL は Blob 名(原寸は `<id>.jpg`)に基づくので、ここで決める。ほかの項目は表紙に関係しない。
+ * サムネイルは既定ではあり(`<id>.thumb.jpg`)、null を渡すとサムネイルの無い写真になる
  */
-const photoDocumentAsStored = (
+const storedPhoto = (
   id: string,
   tripId: string,
   sortAt: string,
   thumbnailBlobName: string | null = `${id}.thumb.jpg`
-): TripDocument => {
-  const photo: PhotoDocument = {
-    id,
-    type: 'photo',
-    tripId,
-    blobName: `${id}.jpg`,
-    thumbnailBlobName,
-    contentType: 'image/jpeg',
-    fileSize: 1234567,
-    takenAt: null,
-    takenAtSource: 'none',
-    sortAt,
-    location: null,
-    category: null,
-    tags: [],
-    comment: null,
-    commentSource: null,
-    hint: null,
-    classification: null,
-    identification: null,
-    processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
-    uploadedAt: '2026-10-10T03:12:44.000Z',
-    updatedAt: '2026-10-10T03:12:44.000Z'
-  };
-  return photo as unknown as TripDocument;
-};
+) => photoDocument(id, { tripId, sortAt, blobName: `${id}.jpg`, thumbnailBlobName });
 
 describe('旅行詳細API', () => {
   let mockContext: InvocationContext;
-  let cosmosBackend: FakeCosmosBackend<TripDocument>;
+  // 旅行も写真も置くので、偽物の型は絞り込みに使う最小の項目だけにする
+  let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
 
   beforeEach(() => {
     mockContext = { log: jest.fn() } as any;
@@ -151,31 +127,45 @@ describe('旅行詳細API', () => {
       });
     });
 
+    // 写真の無い旅行の詳細は、写真の保存先(Blob Storage)の設定に頼らない。設定が無い環境でも旅行の詳細は返る。
+    // 外側の beforeEach は設定を入れてあるので、このテストが設定を消す。
+    // 表紙にする写真が無いのに Blob のサービスを作る退行は、設定が無いので 500 になって落ちる
+    it('写真の保存先の設定が無くても、写真の無い旅行なら詳細が返り、表紙はnull', async () => {
+      delete process.env.STORAGE_CONNECTION_STRING;
+      delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
+      const request = {
+        method: 'GET',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map(),
+        params: { tripId: KYOTO_TRIP_ID }
+      } as any as HttpRequest;
+
+      const response = await getTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      const body = response.jsonBody as any;
+      expect(body.data.trip.coverThumbnailUrl).toBeNull();
+    });
+
     it('旅行に写真があれば、先頭の写真のサムネイルが表紙になる', async () => {
       // 集計(photoCount など)は偽物では解釈できないので、このテストは表紙の URL だけを見る。
       // 偽物は ORDER BY を解釈せず挿入順で返すので、京都の写真は sortAt の昇順になる順(1枚目 → 2枚目)で置く。
       // 札幌の写真は京都の写真より先に置く: 旅行での絞り込みが効いていないと、これが先頭になって表紙を取り違える。
       // 京都の写真はどちらもサムネイルがあり、2枚目が使われても区別できる
-      cosmosBackend.documents.set(KYOTO_TRIP_ID, {
-        id: KYOTO_TRIP_ID,
-        type: 'trip',
-        name: '京都旅行',
-        description: null,
-        tags: [],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-02T00:00:00.000Z'
-      });
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
       cosmosBackend.documents.set(
         SAPPORO_PHOTO_ID,
-        photoDocumentAsStored(SAPPORO_PHOTO_ID, SAPPORO_TRIP_ID, '2026-10-01T09:00:00')
+        storedPhoto(SAPPORO_PHOTO_ID, SAPPORO_TRIP_ID, '2026-10-01T09:00:00')
       );
       cosmosBackend.documents.set(
         KYOTO_FIRST_PHOTO_ID,
-        photoDocumentAsStored(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00')
+        storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00')
       );
       cosmosBackend.documents.set(
         KYOTO_SECOND_PHOTO_ID,
-        photoDocumentAsStored(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00')
+        storedPhoto(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00')
       );
       const request = {
         method: 'GET',
@@ -198,22 +188,14 @@ describe('旅行詳細API', () => {
       // 先頭の写真だけサムネイルが無く、2枚目にはある。サムネイルがある写真まで探して表紙にしたり、
       // 先頭の写真の原寸を使わなかったりすると、期待の URL と食い違う。
       // 偽物は ORDER BY を解釈しないので、sortAt の昇順になる順(1枚目 → 2枚目)で置く
-      cosmosBackend.documents.set(KYOTO_TRIP_ID, {
-        id: KYOTO_TRIP_ID,
-        type: 'trip',
-        name: '京都旅行',
-        description: null,
-        tags: [],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-02T00:00:00.000Z'
-      });
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
       cosmosBackend.documents.set(
         KYOTO_FIRST_PHOTO_ID,
-        photoDocumentAsStored(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00', null)
+        storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00', null)
       );
       cosmosBackend.documents.set(
         KYOTO_SECOND_PHOTO_ID,
-        photoDocumentAsStored(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00')
+        storedPhoto(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00')
       );
       const request = {
         method: 'GET',
@@ -246,7 +228,7 @@ describe('旅行詳細API', () => {
       ['同じIDのものが写真だけ', photoId, 404, 'TRIP_NOT_FOUND', '指定された旅行が見つかりません']
     ])('取り出す旅行の指定が正しくなければ、理由を返す（%s）', async (_case, tripId, status, code, message) => {
       // 写真のドキュメントは旅行の型ではないが、旅行と取り違えないことを確かめるために置く
-      cosmosBackend.documents.set(photoId, { id: photoId, type: 'photo' } as unknown as TripDocument);
+      cosmosBackend.documents.set(photoId, { id: photoId, type: 'photo' });
       const request = {
         method: 'GET',
         url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}?code=test-key`,
@@ -290,15 +272,15 @@ describe('旅行詳細API', () => {
   describe('旅行更新API', () => {
     it('旅行を更新すると、名前と説明が置き換わった旅行が返り、タグは変わらない', async () => {
       const tripId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-      cosmosBackend.documents.set(tripId, {
-        id: tripId,
-        type: 'trip',
-        name: '京都旅行',
-        description: '旧メモ',
-        tags: ['国内'],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-02T00:00:00.000Z'
-      });
+      cosmosBackend.documents.set(
+        tripId,
+        tripDocument(tripId, '京都旅行', {
+          description: '旧メモ',
+          tags: ['国内'],
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-02T00:00:00.000Z'
+        })
+      );
       const request = {
         method: 'PUT',
         url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}?code=test-key`,
@@ -326,16 +308,21 @@ describe('旅行詳細API', () => {
         }
       });
       const saved = cosmosBackend.documents.get(tripId);
-      expect(saved?.name).toBe('新しい名前');
-      expect(saved?.description).toBeNull();
-      expect(saved?.tags).toEqual(['国内']);
-      expect(saved?.updatedAt).not.toBe('2026-10-02T00:00:00.000Z');
+      expect(saved).toMatchObject({ name: '新しい名前', description: null, tags: ['国内'] });
+      expect(saved).not.toMatchObject({ updatedAt: '2026-10-02T00:00:00.000Z' });
     });
 
     const existingTripId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const photoDocId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     const missingTripId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     const validBody = () => jest.fn().mockResolvedValue({ name: '新しい名前' });
+    // 更新される前の旅行。説明・タグ・更新日時を既定値でない値にして、何も変わらないことを見分けられるようにする
+    const existingTrip = () =>
+      tripDocument(existingTripId, '京都旅行', {
+        description: '旧メモ',
+        tags: ['国内'],
+        updatedAt: '2026-10-02T00:00:00.000Z'
+      });
 
     it.each([
       ['旅行IDがUUIDの形式でない', 'abc', validBody(), 400, 'INVALID_REQUEST', '旅行IDの形式が無効です'],
@@ -366,17 +353,9 @@ describe('旅行詳細API', () => {
       ['該当する旅行が無い', missingTripId, validBody(), 404, 'TRIP_NOT_FOUND', '指定された旅行が見つかりません'],
       ['同じIDのものが写真だけ', photoDocId, validBody(), 404, 'TRIP_NOT_FOUND', '指定された旅行が見つかりません']
     ])('旅行の更新で指定や入力が正しくなければ、理由を返し何も変えない（%s）', async (_case, tripId, json, status, code, message) => {
-      cosmosBackend.documents.set(existingTripId, {
-        id: existingTripId,
-        type: 'trip',
-        name: '京都旅行',
-        description: '旧メモ',
-        tags: ['国内'],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-02T00:00:00.000Z'
-      });
+      cosmosBackend.documents.set(existingTripId, existingTrip());
       // 写真のドキュメントは旅行の型ではないが、旅行と取り違えないことを確かめるために置く
-      cosmosBackend.documents.set(photoDocId, { id: photoDocId, type: 'photo' } as unknown as TripDocument);
+      cosmosBackend.documents.set(photoDocId, { id: photoDocId, type: 'photo' });
       const documentsBefore = structuredClone(cosmosBackend.documents);
       const request = {
         method: 'PUT',
@@ -398,7 +377,7 @@ describe('旅行詳細API', () => {
     });
 
     // 失敗する箇所（読み取り・書き込み）ごとに同じ分類の表を回す。どちらで失敗しても応答は同じになる
-    const failurePoints: [string, (backend: FakeCosmosBackend<TripDocument>, error: Error) => void][] = [
+    const failurePoints: [string, (backend: FakeCosmosBackend<FakeCosmosDocument>, error: Error) => void][] = [
       ['読み取りで', (backend, error) => { backend.forcedReadError = error; }],
       ['書き込みで', (backend, error) => { backend.forcedReplaceError = error; }]
     ];
@@ -412,15 +391,7 @@ describe('旅行詳細API', () => {
     it.each(failureRows)(
       '旅行の更新の%s（何も変わらない）',
       async (_case, inject, error, status, code, message) => {
-        cosmosBackend.documents.set(existingTripId, {
-          id: existingTripId,
-          type: 'trip',
-          name: '京都旅行',
-          description: '旧メモ',
-          tags: ['国内'],
-          createdAt: '2026-10-01T00:00:00.000Z',
-          updatedAt: '2026-10-02T00:00:00.000Z'
-        });
+        cosmosBackend.documents.set(existingTripId, existingTrip());
         const documentsBefore = structuredClone(cosmosBackend.documents);
         inject(cosmosBackend, error);
         const request = {
@@ -444,15 +415,7 @@ describe('旅行詳細API', () => {
     );
 
     it('旅行の更新の途中で旅行が消されていたら、見つからない扱いになる', async () => {
-      cosmosBackend.documents.set(existingTripId, {
-        id: existingTripId,
-        type: 'trip',
-        name: '京都旅行',
-        description: '旧メモ',
-        tags: ['国内'],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-02T00:00:00.000Z'
-      });
+      cosmosBackend.documents.set(existingTripId, existingTrip());
       // 読んだ後・置き換える前に別のリクエストが旅行を消すと、置き換えが Cosmos の 404 で失敗する。
       // 実 SDK は RestError の形（name・code）で投げる
       cosmosBackend.forcedReplaceError = Object.assign(new Error('Entity with the specified id does not exist in the system.'), {

@@ -43,7 +43,8 @@ import { TripDocument } from '../../src/types/album';
  * 呼び直しても続きから返す（実 SDK と同じく、iterator が位置を持つ）。
  * 渡されたトークンが JSON として読めなければ、実 SDK（`ContinuationTokenParser`）と同じく、`code` の無い普通の
  * Error（`Failed to parse continuation token: ...`）を投げる。JSON だが偽物が作った形でないトークンには、
- * 実 SDK が受け付けないトークンに返す 400 と同じく、数値の `code` に 400 を持つエラーを投げる
+ * 数値の `code` に 400 を持つエラーを投げる。こちらは**推測の再現**で、サービスが受け付けないトークンを
+ * 400 で拒むかは実環境で確かめていない（05 §5.2 の表の 7 も「推測」）。実 SDK と同じと見なさないこと
  * （どちらも `fetchNext` を呼んだときに投げる）。
  * `fetchAll()` はページに関係なく絞り込み後の全件を返す（`enableQueryControl` の影響を受けない）。
  *
@@ -94,7 +95,7 @@ import { TripDocument } from '../../src/types/album';
  *   tripSummaries.test.ts（行から値を組み立てる関数）で確かめる。サービスやハンドラのテストでは、
  *   写真を置いて集計の値を主張しない
  * - Cosmos のシステム項目（_rid・_self・_etag・_attachments・_ts）。偽物は付けない。応答への漏れを見るテストは、
- *   偽物に置くドキュメントに自分で足す（photos.test.ts・photoDetail.test.ts の COSMOS_SYSTEM_FIELDS）
+ *   偽物に置くドキュメントに自分で足す（tests/helpers/albumDocuments.ts の COSMOS_SYSTEM_FIELDS）
  */
 
 /**
@@ -184,8 +185,8 @@ function continuationTokenOf(token: FakeContinuationToken): string {
 /**
  * トークンから読み進め方を復元する。無ければ先頭から（空のページは `emptyPages` 回）。
  * JSON として読めなければ、実 SDK と同じく `code` の無い普通の Error を投げる。
- * JSON だが偽物が作った形でなければ、実 SDK が受け付けないトークンに返す 400 と同じく、
- * 数値の `code` に 400 を持つエラーを投げる
+ * JSON だが偽物が作った形でなければ、数値の `code` に 400 を持つエラーを投げる
+ * （サービスが受け付けないトークンを 400 で拒む、という推測の再現。実環境では確かめていない）
  */
 function cursorFromContinuationToken(token: string | undefined, emptyPages: number): FakeCursor {
   if (token === undefined) return { position: 0, emptyPagesLeft: emptyPages };

@@ -303,9 +303,9 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 | 2 | `tripId` が `none` でも UUID でもない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
 | 3 | `category` があり、定義表のキーでも `other` でもない | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
 | 4 | `limit` があり、1〜200 の整数でない | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |
-| 5 | `continuationToken` があり、空 | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
+| 5 | `continuationToken` があり、空か JSON として読めない（Cosmos の継続トークンは JSON。読めないものを SDK に渡すと `code` の無い Error になり 500 と区別できないので、渡す前に弾く） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 | 6 | `tripId` の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
-| 7 | `continuationToken` を Cosmos が受け付けない（別の絞り込みのトークン、壊れた文字列。SDK が 400 を返す。推測） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
+| 7 | `continuationToken` が JSON だが Cosmos が受け付けない（別の絞り込みのトークンなど。サーバが 400 で拒む。推測。一覧のクエリの失敗だけをこれとみなす） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 
 並びは `sortAt` の昇順（撮影日時順。撮影日時が無い写真はアップロード日時を日本時間に直した位置。[04 §1.3](./04_data_design.md#13-写真type-photo)・[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 **`total` は返さない**（数えるには別のクエリが要り、ページごとに数えるのは無駄。旅行の枚数は `GET /api/trips` / `GET /api/trips/{tripId}` の `photoCount`、未所属の枚数は `GET /api/trips` の `unassignedPhotoCount` で取る）。
