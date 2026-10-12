@@ -36,6 +36,11 @@ output "temp_images_container_name" {
   value       = azurerm_storage_container.temp_images.name
 }
 
+output "photos_container_name" {
+  description = "Name of the travel album photos blob container (private)"
+  value       = azurerm_storage_container.photos.name
+}
+
 # Cosmos DB outputs
 output "cosmos_db_account_name" {
   description = "Name of the Cosmos DB account"
@@ -61,6 +66,11 @@ output "cosmos_db_database_name" {
 output "cosmos_db_container_name" {
   description = "Name of the Cosmos DB container"
   value       = azurerm_cosmosdb_sql_container.plants.name
+}
+
+output "album_container_name" {
+  description = "Name of the travel album Cosmos DB container"
+  value       = azurerm_cosmosdb_sql_container.album.name
 }
 
 

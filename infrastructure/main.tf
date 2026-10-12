@@ -70,6 +70,37 @@ resource "azurerm_storage_container" "temp_images" {
   container_access_type = "private"
 }
 
+# 旅行アルバムの写真（原寸・サムネイル）用 Blob コンテナ。
+# images と違い公開しない。読み取りは Blob 単位の SAS（有効期限は PHOTO_SAS_EXPIRY_MINUTES）
+resource "azurerm_storage_container" "photos" {
+  name                  = "photos"
+  storage_account_name  = azurerm_storage_account.main.name
+  container_access_type = "private"
+}
+
+# temp-images に残った Blob を最終更新から1日で消す。
+# upload が途中で失敗すると一時 Blob が残り、コードの後片付けでは拾えない場合がある
+# （関数のタイムアウト・プロセスの停止・削除自体の失敗）
+resource "azurerm_storage_management_policy" "main" {
+  storage_account_id = azurerm_storage_account.main.id
+
+  rule {
+    name    = "delete-temp-images"
+    enabled = true
+    filters {
+      # 接頭辞で必ず絞る。同じアカウントを AzureWebJobsStorage が使っており、
+      # 絞らないと Functions の鍵（azure-webjobs-secrets）や images・photos まで消える
+      prefix_match = ["${azurerm_storage_container.temp_images.name}/"]
+      blob_types   = ["blockBlob"]
+    }
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = 1
+      }
+    }
+  }
+}
+
 # Cosmos DBアカウントの作成
 resource "azurerm_cosmosdb_account" "main" {
   name                = "cosmos-${var.project_name}-${random_string.suffix.result}"
@@ -125,6 +156,26 @@ resource "azurerm_cosmosdb_sql_container" "plants" {
   }
 }
 
+# 旅行アルバムの Cosmos DB コンテナ。旅行と写真を type で区別して置く。
+# 写真が旅行をまたいで移動するので、PK は tripId ではなく /id。
+# コンテナごとに RU/s を確保するため、種類ごとに分けず1つにまとめている（docs/travel-album/04 §6）
+resource "azurerm_cosmosdb_sql_container" "album" {
+  name                = "album"
+  resource_group_name = azurerm_resource_group.main.name
+  account_name        = azurerm_cosmosdb_account.main.name
+  database_name       = azurerm_cosmosdb_sql_database.main.name
+  partition_key_paths = ["/id"]
+  throughput          = var.cosmos_db_throughput
+
+  indexing_policy {
+    indexing_mode = "consistent"
+
+    included_path {
+      path = "/*"
+    }
+  }
+}
+
 
 # Azure Functions用App Service Planの作成
 resource "azurerm_service_plan" "main" {
@@ -168,6 +219,11 @@ resource "azurerm_linux_function_app" "main" {
     "COSMOS_DB_KEY"       = azurerm_cosmosdb_account.main.primary_key
     "COSMOS_DB_DATABASE"  = azurerm_cosmosdb_sql_database.main.name
     "COSMOS_DB_CONTAINER" = azurerm_cosmosdb_sql_container.plants.name
+
+    # 旅行アルバム
+    "COSMOS_DB_ALBUM_CONTAINER"    = azurerm_cosmosdb_sql_container.album.name
+    "PHOTO_STORAGE_CONTAINER_NAME" = azurerm_storage_container.photos.name
+    "PHOTO_SAS_EXPIRY_MINUTES"     = "60"
 
     # ストレージ接続設定
     "STORAGE_CONNECTION_STRING"   = azurerm_storage_account.main.primary_connection_string

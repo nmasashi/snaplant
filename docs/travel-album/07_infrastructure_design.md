@@ -15,6 +15,8 @@ PR の順序は [09_implementation_plan.md](./09_implementation_plan.md) を参�
 
 ## 1. 段階2
 
+**実装済み**（#30。`infrastructure/main.tf`・`outputs.tf`）。apply は人間が行う。
+
 ### 1.1 追加するリソース
 
 | リソース | 名前 | 設定 | 注意 |

@@ -19,8 +19,8 @@ infrastructure/
 ```
 
 リソースは `main.tf` 1ファイルにまとめている（再利用可能なモジュールには分割していない）。
-定義しているのは、リソースグループ / Storage Account（`images`・`temp-images` の2コンテナ）/
-Cosmos DB（`snaplant-db`・`plants`）/ App Service Plan / Linux Function App /
+定義しているのは、リソースグループ / Storage Account（`images`・`temp-images`・`photos` の3コンテナと、`temp-images` を1日で消すライフサイクル管理）/
+Cosmos DB（`snaplant-db`・`plants`・`album`）/ App Service Plan / Linux Function App /
 Application Insights / Azure OpenAI（`gpt-5.6-luna` デプロイメント）。
 Azure API Management と Key Vault は**定義していない**。
 
