@@ -170,8 +170,8 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 | `/api/plants/{id}` | PUT | `functions/updatePlant.ts` |
 | `/api/trips` | GET, POST | `functions/trips.ts`（旅行アルバム） |
 | `/api/trips/{tripId}` | GET, PUT | `functions/tripDetail.ts`（旅行アルバム） |
-| `/api/photos` | POST | `functions/photos.ts`（旅行アルバム） |
-| `/api/photos/{photoId}` | GET | `functions/photoDetail.ts`（旅行アルバム） |
+| `/api/photos` | GET, POST | `functions/photos.ts`（旅行アルバム） |
+| `/api/photos/{photoId}` | GET, DELETE | `functions/photoDetail.ts`（旅行アルバム） |
 
 `plants/{id}` は `plantDetail.ts` と `updatePlant.ts` の2ファイルが別々に登録している（メソッドが異なるため共存可能）。片方だけ見て全体を判断しないこと。
 
@@ -691,6 +691,9 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 | `GET /api/plants` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失 |
 | `GET /api/plants/check-duplicate` が別名の植物を拾わないか | `WHERE` 句の消失 |
 | `GET /api/trips` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失（`AlbumService.listTrips`） |
+| `GET /api/photos?tripId=...` が撮影日時（`sortAt`）の昇順か、継続トークンでページが続くか | `ORDER BY c.sortAt ASC` の消失。偽物は挿入順で返す |
+| `GET /api/photos?tripId=none` が `tripId` が `null` の写真だけを返すか（`c.tripId = @tripId` に null を渡す） | 未所属の一覧が空か、旅行の写真が混ざる |
+| `GET /api/trips` の表紙が各旅行の撮影日時の最初の写真か（`queryCover` の `TOP 1 … ORDER BY`） | 別の写真が表紙になる |
 | `GET /api/trips` の枚数・撮影期間・旅行に属さない写真の枚数（`albumQueries.ts` の `GROUP BY`。`tripId` が `null` の写真が1つのグループになるか） | 集計が崩れる。偽物は集計を解釈しないので単体テストでは見えない |
 
 偽物は渡したドキュメントをそのまま返すので、**射影の崩れは実際の Cosmos でしか観測できない。**

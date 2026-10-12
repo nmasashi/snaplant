@@ -96,7 +96,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `firstTakenAt` / `lastTakenAt` | string \| null | 撮影日時のある写真の最初と最後（タイムゾーン無し）。無ければ `null` |
 | `coverThumbnailUrl` | string \| null | `sortAt` 順（撮影日時順）で先頭の写真のサムネイル（無ければ原寸）の SAS 付き URL。写真が無ければ `null`。旅行ごとに `TOP 1` で1枚だけ読む |
 
-`photoCount`・`firstTakenAt`・`lastTakenAt` は実装済み（PR 3）。**`coverThumbnailUrl` は未実装で、写真の一覧の API（PR 4a-2）で足すまで `GET /api/trips`・`GET /api/trips/{tripId}` とも常に `null`**（キーは出す）。
+すべて実装済み（集計は PR 3、表紙は PR 4a-2）。表紙の URL は写真の URL と同じく SAS 付きで期限があるが、**旅行の一覧・詳細の応答には `urlExpiresAt` を付けない**（旅行の画面は開くたびに取り直すので、期限切れになりにくい。2026-10-12 に決めた）。表紙の写真が無ければ写真の保存先の設定を読まない。
 
 ### 3.3 Photo
 
@@ -279,6 +279,8 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 
 ### 5.2 `GET /api/photos`
 
+**実装済み**（PR 4a-2。`photos.ts`、クエリの検証は `utils/photoInput.ts` の `readPhotoListQuery`。`category` は段階3）。`limit` の先頭のゼロ（`01`）・符号・指数表記・空白は 4 の 400。`tripId=` （空）は 2 の 400。継続トークンの大きさは 2KB に抑える（`PHOTO_CONTINUATION_TOKEN_LIMIT_KB`）。トークンを渡していない要求で Cosmos が 400 を返したら 500。
+
 | クエリ | 必須 | 内容 | 段階 |
 |---|---|---|---|
 | `tripId` | 段階2では○ | 旅行の id（UUID）、または `none`（旅行に属さない写真） | 2 |
@@ -326,6 +328,8 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 URL は署名だけで作り、Blob があるかは確かめない（Blob の無い写真でも 200 で URL を返し、画像の取得が 404 になる。[04 §7.1](./04_data_design.md#71-操作ごとの表)）。
 
 ### 5.4 `DELETE /api/photos/{photoId}`
+
+**実装済み**（PR 4a-2。`photoDetail.ts`）。原寸の削除が失敗してもサムネイルは消しにいく。読んだ後・消す前に他のリクエストが消していたら 404。Blob が既に無いのは成功とみなす。
 
 検証は 5.3 と同じ。ドキュメントを消してから原寸とサムネイルの Blob を消す。Blob の削除の失敗はログだけで 200（残った Blob は掃除のタイマーが消す。[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）。
 段階4でも図鑑側の後始末は無い（項目は写真からまとめるので、写真が消えれば項目からも消える）。
@@ -454,7 +458,7 @@ AI の解析をやり直す（要件 5.5.1）。
 集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
 `unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のもの。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
 同じ `GROUP BY` の結果から出す。旅行一覧の画面はこれで先頭の行の枚数を出し、別のリクエストを送らない。ページングは無い（旅行は数十件）。
-未所属の枚数をここで返すことは #27 の案どおり実装した（PR 3。§5.2 の `total` を外すかは写真の API で決める）。表紙（`coverThumbnailUrl`）は写真の一覧の API（PR 4a-2）で足すまで常に `null`。
+未所属の枚数をここで返すことは #27 の案どおり実装した（PR 3。§5.2 の `total` を外すかは写真の API で決める）。表紙（`coverThumbnailUrl`）は旅行ごとに `TOP 1` を並列に読む（PR 4a-2）。
 500 の `message`: `旅行一覧の取得に失敗しました`。
 
 ### 5.10 `GET /api/trips/{tripId}`

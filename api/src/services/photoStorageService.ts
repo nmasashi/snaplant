@@ -45,6 +45,21 @@ export class PhotoStorageService {
   }
 
   /**
+   * Blob を消す。既に無ければ成功とみなす
+   * @param blobName Blob 名
+   */
+  async delete(blobName: string): Promise<void> {
+    try {
+      await this.containerClient.getBlockBlobClient(blobName).delete();
+    } catch (error: any) {
+      if (error.statusCode === 404) {
+        return;
+      }
+      throw new UpstreamError(`写真の削除に失敗しました: ${error.message}`, 'storage', error);
+    }
+  }
+
+  /**
    * 読み取り専用の SAS を付けた URL を作る
    * @param blobName Blob 名
    * @param expiresOn 有効期限

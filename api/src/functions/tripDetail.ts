@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
+import { coverUrlMaker } from '../services/photoView';
 import {
   createDatabaseErrorResponse,
   createNotFoundError,
@@ -21,7 +22,7 @@ export async function getTripHandler(request: HttpRequest, context: InvocationCo
     return createValidationError('旅行IDの形式が無効です');
   }
   try {
-    const trip = await new AlbumService().getTrip(tripId);
+    const trip = await new AlbumService().getTrip(tripId, coverUrlMaker());
     if (!trip) {
       return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
     }

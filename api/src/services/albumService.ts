@@ -1,9 +1,12 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
 import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
-import { queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
+import { queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB } from '../constants/album';
+
+/** Blob 名から表紙の URL（SAS 付き）を作る関数 */
+export type CoverUrlOf = (blobName: string) => string;
 
 /**
  * 旅行アルバムの Cosmos DB（album コンテナ）を扱うサービス
@@ -46,16 +49,17 @@ export class AlbumService {
    * @param id 旅行 ID
    * @returns 旅行。無ければ null
    */
-  async getTrip(id: string): Promise<TripSummary | null> {
+  async getTrip(id: string, coverUrlOf?: CoverUrlOf): Promise<TripSummary | null> {
     const resource = await this.readTrip(id);
     if (!resource) {
       return null;
     }
-    const [counts, ranges] = await Promise.all([
+    const [counts, ranges, coverUrls] = await Promise.all([
       queryPhotoCounts(this.container, id),
       queryTakenAtRanges(this.container, id),
+      this.coverUrls([id], coverUrlOf),
     ]);
-    return buildTripSummaries([toTrip(resource)], counts, ranges).trips[0];
+    return buildTripSummaries([toTrip(resource)], counts, ranges, coverUrls).trips[0];
   }
 
   /**
@@ -64,7 +68,7 @@ export class AlbumService {
    * 写真を全部読まずに、旅行ごとの枚数と撮影期間を GROUP BY で数える
    * （docs/travel-album/04_data_design.md §5.1）。旅行に属さない写真の枚数も同じ集計から出す
    */
-  async listTrips(): Promise<{ trips: TripSummary[]; unassignedPhotoCount: number }> {
+  async listTrips(coverUrlOf?: CoverUrlOf): Promise<{ trips: TripSummary[]; unassignedPhotoCount: number }> {
     const [{ resources: tripDocs }, counts, ranges] = await Promise.all([
       this.container.items
         .query<TripDocument>({
@@ -75,7 +79,28 @@ export class AlbumService {
       queryPhotoCounts(this.container),
       queryTakenAtRanges(this.container),
     ]);
-    return buildTripSummaries(tripDocs.map(toTrip), counts, ranges);
+    const coverUrls = await this.coverUrls(tripDocs.map((trip) => trip.id), coverUrlOf);
+    return buildTripSummaries(tripDocs.map(toTrip), counts, ranges, coverUrls);
+  }
+
+  /**
+   * 旅行ごとの表紙（並べ替え用の日時で最初の写真のサムネイル、無ければ原寸）の URL を作る
+   * @param tripIds 旅行 ID
+   * @param coverUrlOf Blob 名から URL を作る関数。無ければ表紙を作らない
+   */
+  private async coverUrls(tripIds: string[], coverUrlOf: CoverUrlOf | undefined): Promise<Map<string, string>> {
+    const urls = new Map<string, string>();
+    if (!coverUrlOf) {
+      return urls;
+    }
+    const covers = await Promise.all(tripIds.map((tripId) => queryCover(this.container, tripId)));
+    tripIds.forEach((tripId, i) => {
+      const cover = covers[i];
+      if (cover) {
+        urls.set(tripId, coverUrlOf(cover.thumbnailBlobName ?? cover.blobName));
+      }
+    });
+    return urls;
   }
 
   /**
@@ -154,6 +179,29 @@ export class AlbumService {
       )
       .fetchNext();
     return { photos: page.resources, continuationToken: page.continuationToken ?? null };
+  }
+
+  /**
+   * 写真のドキュメントを消す
+   * @param id 写真 ID
+   * @returns 消した写真のドキュメント（Blob を消すために使う）。無ければ null
+   */
+  async deletePhoto(id: string): Promise<PhotoDocument | null> {
+    const photo = await this.getPhoto(id);
+    if (!photo) {
+      return null;
+    }
+    try {
+      await this.container.item(id, id).delete();
+    } catch (error: any) {
+      // 読んだ後・消す前に他のリクエストが消した。無かったときと同じく null にする
+      // （画像は先に消した側が消すので、こちらでは触らない）
+      if (error.code === 404) {
+        return null;
+      }
+      throw error;
+    }
+    return photo;
   }
 
   /**

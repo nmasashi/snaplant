@@ -1,13 +1,76 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
+import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { getTripHandler, updateTripHandler } from '../../src/functions/tripDetail';
-import { TripDocument } from '../../src/types/album';
+import { PhotoDocument, TripDocument } from '../../src/types/album';
 import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
+import { BlobEntry, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
+// 表紙の SAS の署名に使う関数は、このファイルで固定のトークンを返す形に差し替える。
+// 署名はローカルの計算だけで Blob Storage へは通信しない。署名の対象・権限・開始時刻は
+// photos.test.ts が実 SDK のトークンで見ているので、ここでは「表紙の URL にトークンが付いて返る」ことを見る
+jest.mock('@azure/storage-blob', () => ({
+  BlobServiceClient: { fromConnectionString: jest.fn() },
+  BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
+  StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
+  generateBlobSASQueryParameters: jest.fn()
+}));
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
+const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
+const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
+  typeof generateBlobSASQueryParameters
+>;
+
+const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
+
+// 表紙のテストで使う旅行(京都)と、別の旅行(札幌)の id
+const KYOTO_TRIP_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const SAPPORO_TRIP_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+// 写真の id(小文字16進 64 文字)。表紙では画像のバイト列は使わないので、写真を見分けられる値にしている
+const SAPPORO_PHOTO_ID = '1'.repeat(64);
+const KYOTO_FIRST_PHOTO_ID = '2'.repeat(64);
+const KYOTO_SECOND_PHOTO_ID = '3'.repeat(64);
+
+/**
+ * 保存済みの写真のドキュメント。表紙に関係しない項目は既定値。
+ * サムネイルは既定ではあり(`<id>.thumb.jpg`)、null を渡すとサムネイルの無い写真になる。
+ * このファイルの偽物の Cosmos は旅行の型で作ってあるので、置くときは旅行の型に合わせる(偽物は型を問わない)
+ */
+const photoDocumentAsStored = (
+  id: string,
+  tripId: string,
+  sortAt: string,
+  thumbnailBlobName: string | null = `${id}.thumb.jpg`
+): TripDocument => {
+  const photo: PhotoDocument = {
+    id,
+    type: 'photo',
+    tripId,
+    blobName: `${id}.jpg`,
+    thumbnailBlobName,
+    contentType: 'image/jpeg',
+    fileSize: 1234567,
+    takenAt: null,
+    takenAtSource: 'none',
+    sortAt,
+    location: null,
+    category: null,
+    tags: [],
+    comment: null,
+    commentSource: null,
+    hint: null,
+    classification: null,
+    identification: null,
+    processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+    uploadedAt: '2026-10-10T03:12:44.000Z',
+    updatedAt: '2026-10-10T03:12:44.000Z'
+  };
+  return photo as unknown as TripDocument;
+};
 
 describe('旅行詳細API', () => {
   let mockContext: InvocationContext;
@@ -28,10 +91,23 @@ describe('旅行詳細API', () => {
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
     process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
+
+    // 表紙の URL を作るために偽物のサービスクライアントが要る(表紙の Blob の中身は読まない)
+    MockedBlobServiceClient.fromConnectionString = jest
+      .fn()
+      .mockReturnValue(createFakeBlobServiceClient({ store: new Map<string, BlobEntry>() }));
+    // jest.fn() のままだと undefined を返し、.toString() で例外になって署名の経路が検証されない
+    mockedGenerateSas.mockReturnValue({ toString: () => TEST_SAS_TOKEN } as any);
+    // ホストは TEST_BLOB_HOST(test.blob.core.windows.net)になる
+    process.env.STORAGE_CONNECTION_STRING =
+      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+    process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    delete process.env.STORAGE_CONNECTION_STRING;
+    delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
     delete process.env.COSMOS_DB_ENDPOINT;
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
@@ -73,6 +149,87 @@ describe('旅行詳細API', () => {
           }
         }
       });
+    });
+
+    it('旅行に写真があれば、先頭の写真のサムネイルが表紙になる', async () => {
+      // 集計(photoCount など)は偽物では解釈できないので、このテストは表紙の URL だけを見る。
+      // 偽物は ORDER BY を解釈せず挿入順で返すので、京都の写真は sortAt の昇順になる順(1枚目 → 2枚目)で置く。
+      // 札幌の写真は京都の写真より先に置く: 旅行での絞り込みが効いていないと、これが先頭になって表紙を取り違える。
+      // 京都の写真はどちらもサムネイルがあり、2枚目が使われても区別できる
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, {
+        id: KYOTO_TRIP_ID,
+        type: 'trip',
+        name: '京都旅行',
+        description: null,
+        tags: [],
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-02T00:00:00.000Z'
+      });
+      cosmosBackend.documents.set(
+        SAPPORO_PHOTO_ID,
+        photoDocumentAsStored(SAPPORO_PHOTO_ID, SAPPORO_TRIP_ID, '2026-10-01T09:00:00')
+      );
+      cosmosBackend.documents.set(
+        KYOTO_FIRST_PHOTO_ID,
+        photoDocumentAsStored(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00')
+      );
+      cosmosBackend.documents.set(
+        KYOTO_SECOND_PHOTO_ID,
+        photoDocumentAsStored(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00')
+      );
+      const request = {
+        method: 'GET',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map(),
+        params: { tripId: KYOTO_TRIP_ID }
+      } as any as HttpRequest;
+
+      const response = await getTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      const body = response.jsonBody as any;
+      expect(body.data.trip.coverThumbnailUrl).toBe(
+        `https://${TEST_BLOB_HOST}/photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
+      );
+    });
+
+    it('先頭の写真にサムネイルが無ければ、原寸が表紙になる', async () => {
+      // 先頭の写真だけサムネイルが無く、2枚目にはある。サムネイルがある写真まで探して表紙にしたり、
+      // 先頭の写真の原寸を使わなかったりすると、期待の URL と食い違う。
+      // 偽物は ORDER BY を解釈しないので、sortAt の昇順になる順(1枚目 → 2枚目)で置く
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, {
+        id: KYOTO_TRIP_ID,
+        type: 'trip',
+        name: '京都旅行',
+        description: null,
+        tags: [],
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-02T00:00:00.000Z'
+      });
+      cosmosBackend.documents.set(
+        KYOTO_FIRST_PHOTO_ID,
+        photoDocumentAsStored(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00', null)
+      );
+      cosmosBackend.documents.set(
+        KYOTO_SECOND_PHOTO_ID,
+        photoDocumentAsStored(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00')
+      );
+      const request = {
+        method: 'GET',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map(),
+        params: { tripId: KYOTO_TRIP_ID }
+      } as any as HttpRequest;
+
+      const response = await getTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      const body = response.jsonBody as any;
+      expect(body.data.trip.coverThumbnailUrl).toBe(
+        `https://${TEST_BLOB_HOST}/photos/${KYOTO_FIRST_PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`
+      );
     });
 
     const photoId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';

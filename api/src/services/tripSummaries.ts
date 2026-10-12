@@ -12,12 +12,14 @@ import { PhotoCountRow, TakenAtRangeRow } from './albumQueries';
  * @param trips 旅行
  * @param counts 旅行ごとの写真の枚数の行。tripId が null の行は旅行に属さない写真
  * @param ranges 旅行ごとの撮影期間の行。撮影日時のある写真が無い旅行は行が無い
+ * @param coverUrls 旅行 ID ごとの表紙の URL。無い旅行は表紙なし
  * @returns 集計付きの旅行と、旅行に属さない写真の枚数
  */
 export function buildTripSummaries(
   trips: Trip[],
   counts: PhotoCountRow[],
-  ranges: TakenAtRangeRow[]
+  ranges: TakenAtRangeRow[],
+  coverUrls: Map<string, string> = new Map()
 ): { trips: TripSummary[]; unassignedPhotoCount: number } {
   const countByTrip = new Map(counts.map((row) => [row.tripId, row.photoCount]));
   const rangeByTrip = new Map(ranges.map((row) => [row.tripId, row]));
@@ -27,8 +29,7 @@ export function buildTripSummaries(
       photoCount: countByTrip.get(trip.id) ?? 0,
       firstTakenAt: rangeByTrip.get(trip.id)?.firstTakenAt ?? null,
       lastTakenAt: rangeByTrip.get(trip.id)?.lastTakenAt ?? null,
-      // 表紙は写真の API（段階2の PR 4a）で足す
-      coverThumbnailUrl: null,
+      coverThumbnailUrl: coverUrls.get(trip.id) ?? null,
     })),
     unassignedPhotoCount: countByTrip.get(null) ?? 0,
   };

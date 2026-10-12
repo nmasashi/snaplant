@@ -411,7 +411,7 @@ SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.t
 
 `container.item(tripId, tripId).read()`。`resource` が無いか、あっても `type` が `"trip"` でなければ無いものとして扱う（旅行と写真が同じコンテナにあるため。更新の前の読み取りも同じ。`AlbumService` の `readTrip()`）。
 集計は §5.1 の枚数・期間の `GROUP BY` のクエリに `AND c.tripId = @tripId` を足したもの（`albumQueries.ts` の同じ関数に `tripId` を渡す）。
-行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙の `TOP 1` は写真の一覧の API（PR 4a-2）で足す（それまで `null`）。
+行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙は `queryCover()`（`TOP 1`）で読む（PR 4a-2）。
 
 ### 5.3 旅行の写真一覧
 
