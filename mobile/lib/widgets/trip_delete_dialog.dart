@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
+import '../services/api_service.dart';
 
 /// 旅行の削除の確認ダイアログ（docs/travel-album/03_screen_design.md §4.4「削除」）
 ///
@@ -26,7 +27,17 @@ class _TripDeleteDialogState extends State<TripDeleteDialog> {
   bool _deletePhotos = false;
 
   Future<void> _delete() async {
-    final result = await widget.onDelete(_deletePhotos);
+    final TripDeleteResult result;
+    try {
+      result = await widget.onDelete(_deletePhotos);
+    } catch (e) {
+      debugPrint('TripDeleteDialog: 旅行の削除エラー: $e');
+      if (!mounted) return;
+      // ダイアログに留まる（そのまま再試行もキャンセルもできる）
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '旅行の削除に失敗しました')));
+      return;
+    }
     if (!mounted) return;
     Navigator.pop(context, result);
   }
