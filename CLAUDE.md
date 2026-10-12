@@ -168,6 +168,8 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 | `/api/plants` | GET | `functions/plants.ts` |
 | `/api/plants/{id}` | GET, DELETE | `functions/plantDetail.ts` |
 | `/api/plants/{id}` | PUT | `functions/updatePlant.ts` |
+| `/api/trips` | GET, POST | `functions/trips.ts`（旅行アルバム） |
+| `/api/trips/{tripId}` | GET, PUT | `functions/tripDetail.ts`（旅行アルバム） |
 
 `plants/{id}` は `plantDetail.ts` と `updatePlant.ts` の2ファイルが別々に登録している（メソッドが異なるため共存可能）。片方だけ見て全体を判断しないこと。
 
@@ -561,7 +563,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 - `tests/setup.ts` が `setupFilesAfterEnv` でグローバルに環境変数と `openai` のモックを設定し、`console.log` も抑制する。**Azure SDK のモックは置いていない**（完全に死んでいたため削除した）
 - 各テストファイルは**それに加えて**個別に `jest.mock()` と環境変数を設定する二重構造。追いにくいため新規テストはファイル内で完結させる
-- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）。`tests/fakes/` だけが例外で、`src/` に対応するものが無い共有部品
+- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）。`tests/fakes/`（偽物）と `tests/helpers/`（複数のテストファイルが使うケースの表など。例 `databaseFailures.ts` の 503 / 500 の表）だけが例外で、`src/` に対応するものが無い共有部品
 - テスト名は非開発者にも通じる日本語の文で書く（この慣習は踏襲する）
 - `testTimeout` は 10 秒
 - **スタブへの呼び出し検証は解消済み。** 残る `toHaveBeenCalled*` は OpenAI（管理外の依存）に対するものだけで、これは正当。Cosmos / Blob に対して書き足さないこと
@@ -686,6 +688,8 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 | `GET /api/plants` のレスポンスに余分なキーが出ていないか | 射影が崩れると `description` / `updatedAt` / `scientificName` が漏れ、`PlantSummary` の契約が壊れる |
 | `GET /api/plants` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失 |
 | `GET /api/plants/check-duplicate` が別名の植物を拾わないか | `WHERE` 句の消失 |
+| `GET /api/trips` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失（`AlbumService.listTrips`） |
+| `GET /api/trips` の枚数・撮影期間・旅行に属さない写真の枚数（`albumQueries.ts` の `GROUP BY`。`tripId` が `null` の写真が1つのグループになるか） | 集計が崩れる。偽物は集計を解釈しないので単体テストでは見えない |
 
 偽物は渡したドキュメントをそのまま返すので、**射影の崩れは実際の Cosmos でしか観測できない。**
 

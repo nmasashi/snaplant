@@ -1,5 +1,6 @@
 import { Container } from '@azure/cosmos';
 import { Plant, PlantSummary } from '../../src/types/plant';
+import { TripDocument } from '../../src/types/album';
 
 /**
  * 引数を見分ける状態持ちの偽物 Cosmos DB。
@@ -36,9 +37,9 @@ import { Plant, PlantSummary } from '../../src/types/plant';
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
- * （`@name` / `@imagePath`）の値で絞り込むだけに留める。クエリ文字列自体への
+ * （`@name` / `@imagePath` / `@type`）の値で絞り込むだけに留める。クエリ文字列自体への
  * 依存はリファクタリング耐性を失うため見ない。この簡略化の結果、
- * 次の3点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
+ * 次の点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
  * もしくは E2E テストに委ねる）:
  *
  * - WHERE句が実際に name / imagePath で絞り込む条件になっているか
@@ -46,16 +47,26 @@ import { Plant, PlantSummary } from '../../src/types/plant';
  *   この偽物は気づかない）
  * - `ORDER BY c.createdAt DESC` による並び順（偽物は Map の挿入順をそのまま返す）
  * - SELECT の列指定（射影）が正しいか（偽物はドキュメント全体を返す）
+ * - WHERE 句が `type` でも絞り込む条件になっているか（偽物は `@type` パラメータの値で絞るだけで、
+ *   WHERE 句から type の条件を削除しても気づかない）
+ * - 集計（GROUP BY / COUNT / MIN / MAX）の値。偽物は `@type` で絞ったドキュメントをそのまま行として返す
+ *   だけなので、写真を置いても集計の行にはならず、枚数は0・期間は null に見える。集計の値は
+ *   tripSummaries.test.ts（行から値を組み立てる関数）で確かめる。サービスやハンドラのテストでは、
+ *   写真を置いて集計の値を主張しない
  */
 
-/** 偽物が絞り込みに使う最小のフィールド。Plant と PlantSummary の共通部分 */
+/**
+ * 偽物が絞り込みに使う最小のフィールド。
+ * 旅行のドキュメントは name を持つが imagePath を持たないため、どちらも任意にしている
+ */
 export interface FakeCosmosDocument {
   id: string;
-  name: string;
-  imagePath: string;
+  type?: string;
+  name?: string;
+  imagePath?: string;
 }
 
-export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | PlantSummary> {
+export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | PlantSummary | TripDocument> {
   // Cosmosは射影（SELECTの列指定）に応じてPlantの部分集合しか返さないことがある。
   // 既定を Plant 固定にすると「常に完全なPlantが返る」という誤った前提を型で
   // 固定してしまうため、射影結果として渡す PlantSummary も受け入れる。
@@ -92,12 +103,16 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
         const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
         const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
+        const typeParam = parameters.find((p: any) => p.name === '@type')?.value;
         let docs = Array.from(backend.documents.values());
         if (nameParam !== undefined) {
           docs = docs.filter((d) => d.name === nameParam);
         }
         if (imagePathParam !== undefined) {
           docs = docs.filter((d) => d.imagePath === imagePathParam);
+        }
+        if (typeParam !== undefined) {
+          docs = docs.filter((d) => d.type === typeParam);
         }
         return {
           fetchAll: async () => {

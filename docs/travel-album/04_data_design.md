@@ -409,8 +409,9 @@ SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.t
 
 ### 5.2 旅行の詳細
 
-`container.item(tripId, tripId).read()`。無ければ `resource` が無い応答（`plants` と同じ。`resource || null`）。
-集計は §5.1 と同じ形を `tripId` で絞って行う（枚数 `SELECT VALUE COUNT(1) …`、期間 `SELECT MIN(c.takenAt) …, MAX(c.takenAt) … WHERE … AND IS_STRING(c.takenAt)`、表紙 `TOP 1`）。
+`container.item(tripId, tripId).read()`。`resource` が無いか、あっても `type` が `"trip"` でなければ無いものとして扱う（旅行と写真が同じコンテナにあるため。更新の前の読み取りも同じ。`AlbumService` の `readTrip()`）。
+集計は §5.1 の枚数・期間の `GROUP BY` のクエリに `AND c.tripId = @tripId` を足したもの（`albumQueries.ts` の同じ関数に `tripId` を渡す）。
+行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙の `TOP 1` は写真の API（PR 4a）で足す（それまで `null`）。
 
 ### 5.3 旅行の写真一覧
 
@@ -569,6 +570,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
 | `create` の後、応答が届かない | 旅行はできている | 失敗に見える。押し直すと同じ名前の旅行が2つ | **手**（空の方を消す）。アプリは自動で再試行しない（[03 §3](./03_screen_design.md#3-全画面共通)）ので、利用者が押し直したときだけ。写真と同じくクライアントが id を振れば冪等になるが、段階2では入れない（§7.5） |
+| 更新で、読んだ後・置き換える前に旅行が消された（旅行の削除と重なった） | 何も変わらない（旅行は消えたまま） | 404 `TRIP_NOT_FOUND` | 不要（`replace` の NotFound を「旅行が無い」として扱う。PR 3） |
 | `replace` | 何も変わらない | 失敗 | 再送（同じ値なので冪等） |
 
 **旅行の削除**（`DELETE /api/trips/{tripId}?deletePhotos=true|false`。[05 §5.12](./05_api_design.md#512-delete-apitripstripiddeletephotostruefalse)。

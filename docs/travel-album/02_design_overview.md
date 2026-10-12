@@ -100,7 +100,7 @@ Azure Functions で動くものは3種類あり、どれも同じ Function App�
 | 既存の仕組み | 扱い | 根拠・参照 |
 |---|---|---|
 | レスポンスの封筒と契約（`api/src/utils/response.ts`。`details` は契約外） | そのまま流用。`ErrorCode`（`api/src/types/api.ts` 30〜41行）に `TRIP_NOT_FOUND`・`PHOTO_NOT_FOUND` を足す（図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない） | `ApiException.fromResponse()`（`mobile/lib/services/api_service.dart` 454行）が封筒を前提にしている |
-| `createNotFoundError()`（`response.ts` 97〜103行、`PLANT_NOT_FOUND` 固定） | 第2引数で `code` を取れるように拡張（既定は今のまま） | 既存の呼び出しを変えない |
+| `createNotFoundError()`（`utils/response.ts`。もとは `PLANT_NOT_FOUND` 固定） | 第2引数で `code` を取る形に拡張した。**`code` は必須で既定値を置かない**。既存の呼び出し（`plantDetail.ts`）は `PLANT_NOT_FOUND` を明示して渡す（実装済み。PR 2） | 既定値を置くと、旅行や写真の 404 で渡し忘れたときに植物のコードが返り、クライアントの分岐を誤らせる |
 | `UpstreamError` と 502 / 503 の分類（`utils/errors.ts`、`createUpstreamErrorResponse()`） | 流用。`PhotoStorageService` と Storage Queue は `'storage'`、分類器・識別器は `'ai'`。段階3で Azure Maps を入れるなら `UpstreamService` に `'geocoding'` を足す | 「どこで失敗したか」で分類する方針（CLAUDE.md「レスポンス規約」） |
 | Cosmos DB 側の 503 判定（6箇所に複製。`docs/09_backlog.md`） | 新ハンドラは `hasCauseCode()` を使う述語 `isConnectivityError()` を1つ作って使う。既存6箇所の置き換えは別作業 | 7箇所目を作らない |
 | Function Key 認証、`app.ts` の import 登録 | 流用。**新しい関数ファイルは `app.ts` に import を足す** | CLAUDE.md「関数の登録経路」 |
