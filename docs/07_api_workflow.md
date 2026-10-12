@@ -147,8 +147,8 @@ Azure Blob Storage Container: temp-images
 
 **AI 識別や永続コンテナへの移動が失敗した場合（502 / 503）:**
 一時ファイルは削除されず temp-images に残ります。移動が一時ファイルの削除の段階で失敗した場合は、
-images コンテナへの複製も残ります。一時コンテナにはライフサイクル管理が無いので、自動では消えません
-（[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
+images コンテナへの複製も残ります。一時コンテナの Blob はライフサイクル管理（Terraform の `azurerm_storage_management_policy`。apply 後に有効）により、最終更新から1日を過ぎると自動的に削除されます（Azure が1日1回処理するため、実際には1〜2日後）
+（images の複製は消えません。[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
 一時コンテナは非公開で、一時 URL の SAS は発行から15分で切れるため、それ以降は一時 URL から読めません。
 
 #### ステップ4a後: Cosmos DB新規保存の状態

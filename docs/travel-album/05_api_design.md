@@ -4,7 +4,7 @@
 
 旅行アルバムの REST API を書く。書き方は [docs/06_api_design.md](../06_api_design.md)（実装の写し）に合わせ、
 エラーの契約（ステータス・`code`・`message`）は文言まで決める。**未実装を含む目指す姿**で、
-実装したエンドポイントはそのときに `docs/06_api_design.md`・`docs/06_api_openapi.yaml`・`README.md` のエンドポイント表へ取り込む。
+実装したエンドポイントは `docs/06_api_design.md`・`docs/06_api_openapi.yaml`・`README.md` のエンドポイント表へ取り込む（開発中はこの一式を正として都度直し、取り込みは機能が固まってから後でまとめて行う。2026-10-12 に人間が決定）。
 
 データの形は [04_data_design.md](./04_data_design.md)、裏の処理は [06_processing_design.md](./06_processing_design.md)、
 画面からの使い方は [03_screen_design.md](./03_screen_design.md) を参照する。

@@ -175,7 +175,7 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 4. 植物なら `moveFromTempToPermanent()` で images コンテナへ移動（公開 URL を返す）
 5. 画像 URL と識別候補をまとめて返す
 
-Blob Storage のコンテナは2つで役割が違う：`images`（永続・公開 URL）と `temp-images`（一時・SAS 付き URL）。コンテナ名は環境変数から取る。`'temp'` は `TEMP_STORAGE_CONTAINER_NAME` が未設定のときのコード側のフォールバック値にすぎず、Terraform が作るのは `temp-images`。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返す。コンテナはパスの最初のセグメントで決め、永続コンテナ名・一時コンテナ名のどちらとも完全一致しなければやはり何も削除せず `false` を返す（未知のコンテナを永続側にフォールバックさせると、永続側の同名 Blob を消せてしまうため）。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
+Blob Storage のコンテナは植物図鑑の2つで役割が違う：`images`（永続・公開 URL）と `temp-images`（一時・SAS 付き URL）。`temp-images` はライフサイクル管理で最終更新から1日を過ぎると消える。旅行アルバムの `photos`（非公開）と Cosmos DB の `album` もあるが、使うコードは段階2で入る（`docs/travel-album/`）。コンテナ名は環境変数から取る。`'temp'` は `TEMP_STORAGE_CONTAINER_NAME` が未設定のときのコード側のフォールバック値にすぎず、Terraform が作るのは `temp-images`。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返す。コンテナはパスの最初のセグメントで決め、永続コンテナ名・一時コンテナ名のどちらとも完全一致しなければやはり何も削除せず `false` を返す（未知のコンテナを永続側にフォールバックさせると、永続側の同名 Blob を消せてしまうため）。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
 
 **接続文字列に `BlobEndpoint=` があるとコンストラクタが例外を投げる**（未対応）。SDK はそのエンドポイントを使う一方で `StorageService` は `AccountName` と `EndpointSuffix` からホストを組み立てるため、食い違うと自分が生成した URL を自分で弾いて孤児 Blob が残る。Azurite はこの形式なので使えない。
 
@@ -636,7 +636,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 | 文書 | 内容 | 書き込む主体 |
 |---|---|---|
 | 仕様書・設計文書（`docs/01`〜`07`, README, DEPLOYMENT） | **実装済みの事実** | 人間、`contract-auditor` |
-| `docs/travel-album/` | 旅行アルバムの**目指す姿**（要件・設計）。**未実装の要件を書いてよい**（2026-10-12 に決定）。実装したら `docs/01`〜`07` へ取り込む | 人間、メインセッション |
+| `docs/travel-album/` | 旅行アルバムの**目指す姿**（要件・設計）。**未実装の要件を書いてよい**（2026-10-12 に決定）。開発中はこちらを正として都度直す。`docs/01`〜`07`・`DEPLOYMENT.md` への取り込みは機能が固まってから後でまとめて行う（2026-10-12 に決定。開発中に何度も変わるため） | 人間、メインセッション |
 | `docs/09_backlog.md` | **検証済みで実在する**課題・未実装機能 | 人間、根拠を確認したエージェント |
 | `docs/10_proposals.md` | **トリアージ待ちの提案**（未採用） | `improvement-scout` のみ |
 
