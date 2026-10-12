@@ -61,3 +61,15 @@ class TripList {
 
   const TripList({required this.trips, required this.unassignedPhotoCount});
 }
+
+/// 旅行の削除の結果（`DELETE /api/trips/{tripId}`）
+class TripDeleteResult {
+  /// 写真も消したときの枚数（写真を残したなら 0）
+  final int deletedPhotoCount;
+
+  /// 写真を残したとき、旅行に属さない写真に移した枚数（写真も消したなら 0）
+  final int detachedPhotoCount;
+
+  const TripDeleteResult(
+      {required this.deletedPhotoCount, required this.detachedPhotoCount});
+}

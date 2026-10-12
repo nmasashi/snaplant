@@ -51,4 +51,64 @@ void main() {
     expect(find.text('旅行を更新しました'), findsOneWidget);
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026冬')), findsOneWidget);
   });
+
+  testWidgets('メニューの「削除」で写真12枚の扱いを選ぶ確認が出て、既定の「写真は残す」のまま削除すると、写真が旅行に属さない写真へ移ったと知らせて前の画面に戻る', (tester) async {
+    final server = tripServer(
+      [],
+      unassignedPhotoCount: 0,
+      tripDetails: {
+        _tripId: tripJson(
+          id: _tripId,
+          name: '北海道 2026秋',
+          photoCount: 12,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-08T17:30:00',
+        ),
+      },
+    );
+    final apiService = ApiService(client: server);
+    // 詳細画面の前に画面がある状態にする（削除したら戻る先）
+    await openApp(
+      tester,
+      app: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => TripDetailScreen(apiService: apiService, tripId: _tripId)),
+                ),
+                child: const Text('詳細を開く'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('詳細を開く'));
+    await letFramesRun(tester);
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    // 写真の扱いを選ぶ確認。補足の文言も出ている
+    final dialog = find.byType(Dialog);
+    expect(find.descendant(of: dialog, matching: find.text('旅行を削除')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.textContaining('「北海道 2026秋」を削除します。')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.textContaining('中の写真12枚はどうしますか？')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('写真は残す')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.textContaining('「旅行に属さない写真」に移ります')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('写真も削除する')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.textContaining('この操作は元に戻せません')), findsOneWidget);
+
+    // 選択を変えずに削除する。何を送ったかは、偽のサーバが返す枚数（移した数）から現れる知らせで分かる
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    expect(find.text('旅行を削除しました（写真12枚は「旅行に属さない写真」に移しました）'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('詳細を開く'), findsOneWidget);
+  });
 }

@@ -38,6 +38,8 @@ Map<String, Object?> tripJson({
 /// [rejectCreateWith] を渡すと、作成は 400 `INVALID_REQUEST`（message はその文言）で拒み、旅行は作らない。
 /// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。表に無い id は 404。
 /// PUT /api/trips/{tripId} には、本文の `name`（前後の空白を除く）と `description` で表の旅行を置き換え、200 `{ trip }` を返す。
+/// DELETE /api/trips/{tripId}?deletePhotos=true|false には、表の旅行を消して 200 を返す。`false` なら写真は未所属に移したものとして
+/// `detachedPhotoCount` に枚数を、`true` なら `deletedPhotoCount` に枚数を載せる。`deletePhotos` が無い・違う値なら 400。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -53,6 +55,41 @@ MockClient tripServer(
   // PUT で置き換えるため、渡された表を写して持つ
   final details = {...tripDetails};
   return MockClient((request) async {
+    if (request.method == 'DELETE' && request.url.path.startsWith('/api/trips/')) {
+      final id = request.url.pathSegments.last;
+      final current = details[id];
+      // 実際のサーバと同じく、deletePhotos は小文字の true / false だけを受け付け、無ければ 400
+      // （クライアントが何を載せたかを、返す枚数の違いで見分けるため）
+      final deletePhotos = request.url.queryParameters['deletePhotos'];
+      if (deletePhotos != 'true' && deletePhotos != 'false') {
+        return http.Response(
+          json.encode({
+            'success': false,
+            'error': {
+              'code': 'INVALID_REQUEST',
+              'message': deletePhotos == null ? '写真を削除するかどうかを指定してください' : '写真を削除するかどうかの指定が無効です',
+            },
+          }),
+          400,
+          headers: const {'content-type': 'application/json'},
+        );
+      }
+      if (current == null) return http.Response('', 404);
+      details.remove(id);
+      final photoCount = current['photoCount'] as int;
+      return http.Response(
+        json.encode({
+          'success': true,
+          'data': {
+            'message': '旅行が正常に削除されました',
+            'deletedPhotoCount': deletePhotos == 'true' ? photoCount : 0,
+            'detachedPhotoCount': deletePhotos == 'false' ? photoCount : 0,
+          },
+        }),
+        200,
+        headers: const {'content-type': 'application/json'},
+      );
+    }
     if (request.method == 'PUT' && request.url.path.startsWith('/api/trips/')) {
       final id = request.url.pathSegments.last;
       final current = details[id];

@@ -491,6 +491,27 @@ class ApiService {
     }
   }
 
+  /// 旅行削除。中の写真を消すか、旅行に属さない写真に移すかを [deletePhotos] で選ぶ
+  /// DELETE /api/trips/{tripId}?deletePhotos=true|false
+  ///
+  /// サーバは deletePhotos を必須にしている（省略時の既定で写真が消える・残る事故を防ぐため）
+  Future<TripDeleteResult> deleteTrip(String tripId,
+      {required bool deletePhotos}) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId?deletePhotos=$deletePhotos');
+      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return TripDeleteResult(
+          deletedPhotoCount: data['deletedPhotoCount'] as int,
+          detachedPhotoCount: data['detachedPhotoCount'] as int,
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 接続テスト
   Future<bool> testConnection() async {
     try {

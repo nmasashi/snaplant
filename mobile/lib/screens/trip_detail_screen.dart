@@ -3,6 +3,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
+import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
 
 /// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
@@ -56,6 +57,26 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     await _loadTrip();
   }
 
+  /// 旅行を削除する（中の写真をどうするかはダイアログで選ぶ）。削除できたら前の画面に戻る
+  Future<void> _deleteTrip(TripSummary trip) async {
+    final result = await showDialog<TripDeleteResult>(
+      context: context,
+      builder: (context) => TripDeleteDialog(
+        tripName: trip.name,
+        photoCount: trip.photoCount,
+        onDelete: (deletePhotos) =>
+            widget.apiService.deleteTrip(trip.id, deletePhotos: deletePhotos),
+      ),
+    );
+    if (result == null || !mounted) return;
+    // 画面を閉じた後も残るよう、閉じる前に ScaffoldMessenger を取っておく
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.pop(context);
+    messenger.showSnackBar(SnackBar(
+        content: Text(
+            '旅行を削除しました（写真${result.detachedPhotoCount}枚は「旅行に属さない写真」に移しました）')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
@@ -69,6 +90,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               itemBuilder: (context) => [
                 PopupMenuItem(
                     onTap: () => _editTrip(trip), child: const Text('編集')),
+                PopupMenuItem(
+                    onTap: () => _deleteTrip(trip), child: const Text('削除')),
               ],
             ),
         ],
