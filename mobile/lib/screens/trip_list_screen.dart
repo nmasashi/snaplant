@@ -138,24 +138,30 @@ class _TripListScreenState extends State<TripListScreen> {
         ),
       );
     }
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      children: [
-        _TripRow(
-          icon: Icons.photo_library_outlined,
-          title: '旅行に属さない写真',
-          subtitle: '${tripList.unassignedPhotoCount}枚',
-        ),
-        if (tripList.trips.isEmpty) const _NoTripsMessage(),
-        for (final trip in tripList.trips)
+    return RefreshIndicator(
+      onRefresh: _loadTrips,
+      color: AppColors.primary,
+      child: ListView(
+        // 旅行が少なく画面に収まっていても、下に引っ張って読み直せるように
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
           _TripRow(
-            icon: Icons.luggage_outlined,
-            title: trip.name,
-            subtitle:
-                '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
-            onTap: () => _openTrip(trip),
+            icon: Icons.photo_library_outlined,
+            title: '旅行に属さない写真',
+            subtitle: '${tripList.unassignedPhotoCount}枚',
           ),
-      ],
+          if (tripList.trips.isEmpty) const _NoTripsMessage(),
+          for (final trip in tripList.trips)
+            _TripRow(
+              icon: Icons.luggage_outlined,
+              title: trip.name,
+              subtitle:
+                  '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
+              onTap: () => _openTrip(trip),
+            ),
+        ],
+      ),
     );
   }
 }

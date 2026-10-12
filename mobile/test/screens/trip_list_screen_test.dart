@@ -286,4 +286,30 @@ void main() {
     expect(find.text('旅行一覧を読み込み中...'), findsNothing);
     expect(find.text('旅行に属さない写真'), findsOneWidget);
   });
+
+  testWidgets('旅行一覧を下に引っ張ると読み直し、別の端末で作られた旅行が出る', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    final osaka = tripJson(id: '3f2504e0-4f89-41d3-9a0c-0305e82c3302', name: '大阪', photoCount: 3);
+    // 最初の一覧は旅行1件。2回目以降は、その間に別の端末で作られた旅行が加わる
+    final server = tripServer(
+      [osaka],
+      unassignedPhotoCount: 0,
+      tripsFromSecondList: [
+        tripJson(id: '3f2504e0-4f89-41d3-9a0c-0305e82c3303', name: '京都', photoCount: 0),
+        osaka,
+      ],
+    );
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    expect(find.text('京都'), findsNothing);
+
+    await tester.fling(find.text('旅行に属さない写真'), const Offset(0, 400), 1000);
+    await letFramesRun(tester);
+
+    expect(find.text('京都'), findsOneWidget);
+    expect(find.text('大阪'), findsOneWidget);
+  });
 }

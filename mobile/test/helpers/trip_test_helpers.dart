@@ -49,6 +49,8 @@ Map<String, Object?> tripJson({
 /// [deleteTripNotFound] が true なら、削除は 404 `TRIP_NOT_FOUND`（別の端末などで既に消されていた）で返す。
 /// 詳細の取得（GET）は表の旅行を返したまま。
 /// [holdListUntil] を渡すと、`GET /api/trips` の応答はそれが終わる（Completer の complete）まで返さない。
+/// [tripsFromSecondList] を渡すと、`GET /api/trips` の2回目以降の一覧はこの旅行にする（別の端末で旅行が増えた想定。
+/// 読み直したかどうかを、増えた旅行が出るかで見分けるため）。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -62,6 +64,7 @@ MockClient tripServer(
   bool failDelete = false,
   bool deleteTripNotFound = false,
   Future<void>? holdListUntil,
+  List<Map<String, Object?>>? tripsFromSecondList,
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
@@ -215,12 +218,16 @@ MockClient tripServer(
         headers: const {'content-type': 'application/json'},
       );
     }
+    // 2回目以降の一覧は、別の端末で旅行が増減した想定で [tripsFromSecondList] に差し替える
+    final shownTrips = listRequests >= 2 && tripsFromSecondList != null
+        ? tripsFromSecondList
+        : [...created, ...listed];
     return http.Response(
       json.encode({
         'success': true,
         'data': {
-          'trips': [...created, ...listed],
-          'total': created.length + listed.length,
+          'trips': shownTrips,
+          'total': shownTrips.length,
           'unassignedPhotoCount': unassigned,
         },
       }),
