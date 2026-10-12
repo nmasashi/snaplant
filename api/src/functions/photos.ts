@@ -1,15 +1,16 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService } from '../services/photoStorageService';
-import { photoResponseData } from '../services/photoView';
+import { photoListResponseData, photoResponseData } from '../services/photoView';
 import {
   createDatabaseErrorResponse,
   createNotFoundError,
   createSuccessResponse,
-  createUpstreamErrorResponse
+  createUpstreamErrorResponse,
+  createValidationError
 } from '../utils/response';
 import { UpstreamError } from '../utils/errors';
-import { readPhotoInput } from '../utils/photoInput';
+import { readPhotoInput, readPhotoListQuery } from '../utils/photoInput';
 import { computeSortAt } from '../utils/sortAt';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { PhotoDocument } from '../types/album';
@@ -92,6 +93,45 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
     return createDatabaseErrorResponse(error, '写真の保存に失敗しました');
   }
 }
+
+/**
+ * 写真一覧 API（旅行の写真、またはどの旅行にも属さない写真を、撮影日時の順にページで返す）
+ * GET /api/photos?tripId={tripId|none}&limit={1-200}&continuationToken={token}&code={FUNCTION_KEY}
+ */
+export async function listPhotosHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  context.log('写真一覧リクエストを受信');
+  const validated = readPhotoListQuery(request.query);
+  if ('error' in validated) {
+    return validated.error;
+  }
+  const { tripId, limit, continuationToken } = validated.query;
+  try {
+    const album = new AlbumService();
+    if (tripId !== null && !(await album.tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const page = await album.listPhotos(tripId, limit, continuationToken);
+    return createSuccessResponse({
+      ...photoListResponseData(page.photos, new PhotoStorageService()),
+      continuationToken: page.continuationToken,
+    });
+  } catch (error: any) {
+    context.log('写真一覧取得エラー:', error);
+    // Cosmos は受け付けない継続トークン（壊れた文字列、別の絞り込みのもの）に 400 を返す。
+    // トークンを渡したときの 400 だけをトークンの不正とみなす（トークン無しの 400 は 500 にする）
+    if (continuationToken !== undefined && error.code === 400) {
+      return createValidationError('継続トークンの形式が無効です');
+    }
+    return createDatabaseErrorResponse(error, '写真一覧の取得に失敗しました');
+  }
+}
+
+app.http('listPhotos', {
+  methods: ['GET'],
+  authLevel: 'function',
+  route: 'photos',
+  handler: listPhotosHandler,
+});
 
 app.http('createPhoto', {
   methods: ['POST'],

@@ -286,7 +286,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 | `continuationToken` | × | 前の応答の `continuationToken` をそのまま返す。無ければ先頭から | 2 |
 | `category` | × | カテゴリ（`plant` / `food` / `landscape` / `other`）。`tripId` と両方あれば AND。`tripId` 無しなら旅行をまたぐ | 3 |
 
-`tripId=none` は「`tripId` が `null` の写真」を返す（`IS_NULL(c.tripId)`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
+`tripId=none` は「`tripId` が `null` の写真」を返す（同じ SQL に `@tripId = null`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 旅行の削除と送信・移動が重なって残った「存在しない旅行を指す写真」は含めない（段階3の掃除のタイマーが `null` に戻してから出る。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）。
 図鑑の項目の写真は `GET /api/catalog/entry`（§5.14）で取る。
 

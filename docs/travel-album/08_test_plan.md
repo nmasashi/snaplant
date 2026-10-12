@@ -36,7 +36,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 拡張 | 中身 | 理由 |
 |---|---|---|
-| `query` の絞り込み | `@type`・`@tripId`（旅行の写真。未所属は `tripId` が `null` のものだけで、パラメータは無い。SQL の `IS_NULL` 自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
+| `query` の絞り込み | `@type`・`@tripId`（`tripId` が値と厳密に等しいものだけ。未所属は `@tripId = null` で、`tripId` が `null` のものだけ。項目が無いものは含めない。SQL の null の比較自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
 | `query` のページ | `fetchNext()` が `maxItemCount` 件ずつ返し、続きがあれば `continuationToken`（偽物では挿入順の位置を表す文字列）を返す。同じトークンを渡すと続きから返す。`fetchAll()` も残す | 写真一覧のページの切れ目とトークンの受け渡し（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。`ORDER BY` は解釈しないので、**並び順は挿入順になる**（並びそのものは手で確かめる。§5.2） |
 | 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts` に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、集計の行から `TripSummary` / `CatalogEntry` を組み立てる所は純粋関数（`services/tripSummaries.ts` など）に分け、行を直接渡して単体で確かめる（`albumQueries` を差し替えない。PR 3 で決めた）。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
@@ -111,7 +111,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - `create` が 409 を返したら既存を読んで返す
 - 一覧: `@tripId` に旅行の id を渡すとその旅行の写真だけ
 - 未所属: `tripId` が `null` の写真だけが返り、旅行の写真も、存在しない旅行を指す写真も返らない
-  （偽物はパラメータの規則で絞るだけなので、SQL の `IS_NULL` 自体は手で確かめる。§5.2）
+  （偽物はパラメータの規則で絞るだけなので、SQL の null の比較自体は手で確かめる。§5.2）
 - ページ: 3 枚の旅行で `limit: 2` なら 2 枚と `continuationToken`、そのトークンで残り 1 枚と `continuationToken: null`。`limit` を渡さなければ既定の 100。`ORDER BY c.sortAt` の並びそのものは手で確かめる（§5.2）
 - 応答の Photo に `imageUrl` / `thumbnailUrl`・`sortAt`・`category` があり、`blobName` / `thumbnailBlobName` / `type` / `_rid` などが無い
 - サムネイルが無い写真は `thumbnailUrl: null`
@@ -251,7 +251,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 確かめること | 手順 | 崩れたときの症状 |
 |---|---|---|
-| `IS_NULL(c.tripId)` の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
+| `c.tripId = @tripId`（`@tripId = null`）の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
 | `GROUP BY` の集計（旅行一覧） | `GET /api/trips` の `photoCount`・期間・表紙・`unassignedPhotoCount` が実際の写真と合う。`tripId` が `null` の写真が `unassignedPhotoCount` に数えられる（`null` の鍵がグループになるか）。撮影日時の無い写真があっても期間が `null` にならない | 枚数ずれ・未所属が 0・期間が `null` |
 | `ORDER BY c.sortAt` とページ | `GET /api/photos?tripId=…&limit=50` を `continuationToken` でめくり、撮影日時順で重複・欠落が無い。撮影日時の無い写真がアップロード日時（日本時間）の位置にある。別の `tripId` のトークンを渡すと 400 | 順が崩れる・二重に出る・抜ける |
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |

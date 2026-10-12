@@ -34,18 +34,33 @@ import { TripDocument } from '../../src/types/album';
  * 「見つからない」という結果を受け取り、正しいドキュメントを期待する
  * テストが失敗する。
  *
+ * ## ページ（`fetchNext`）
+ *
+ * `query(spec, { maxItemCount, continuationToken })` に対し `fetchNext()` が
+ * `{ resources, continuationToken }` を返す。`maxItemCount` 件ずつ返し（無ければ残り全部）、続きがあれば
+ * 絞り込み後の挿入順の位置を表す文字列を `continuationToken` に入れ、最後のページでは undefined にする
+ * （実 SDK と同じ）。同じトークンを渡すと続きから返す。偽物が作った形でないトークンには、実 SDK が
+ * 不正なトークンに返す 400 と同じく、数値の `code` に 400 を持つエラーを投げる（`fetchNext` を呼んだときに投げる）。
+ * `fetchAll()` はページに関係なく絞り込み後の全件を返す。
+ *
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
- * （`@name` / `@imagePath` / `@type`）の値で絞り込むだけに留める。クエリ文字列自体への
+ * （`@name` / `@imagePath` / `@type` / `@tripId`）の値で絞り込むだけに留める。クエリ文字列自体への
  * 依存はリファクタリング耐性を失うため見ない。この簡略化の結果、
  * 次の点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
  * もしくは E2E テストに委ねる）:
  *
- * - WHERE句が実際に name / imagePath で絞り込む条件になっているか
+ * - WHERE句が実際に name / imagePath / tripId で絞り込む条件になっているか
  *   （パラメータの値さえ渡っていれば、絞り込み条件を丸ごと削除しても
  *   この偽物は気づかない）
- * - `ORDER BY c.createdAt DESC` による並び順（偽物は Map の挿入順をそのまま返す）
+ * - `@tripId` に null を渡したとき、実際の Cosmos が「tripId が null のものだけ」に絞るか。
+ *   偽物は `tripId` が値と厳密に等しいものだけを返す（null なら null のものだけで、`tripId` の項目が
+ *   無いドキュメントは含めない）。`c.tripId = @tripId` が null と項目の欠損をこう区別する前提は
+ *   実環境で手で確かめる
+ * - `ORDER BY c.createdAt DESC` や `ORDER BY c.sortAt` による並び順（偽物は Map の挿入順をそのまま返す）
+ * - 継続トークンが別の絞り込みのものでないか。偽物のトークンは絞り込み後の挿入順の位置にすぎず、
+ *   絞り込みを変えて渡し直しても拒まない（偽物が拒むのは、偽物が作った形でないトークンだけ）
  * - SELECT の列指定（射影）が正しいか（偽物はドキュメント全体を返す）
  * - WHERE 句が `type` でも絞り込む条件になっているか（偽物は `@type` パラメータの値で絞るだけで、
  *   WHERE 句から type の条件を削除しても気づかない）
@@ -66,6 +81,8 @@ export interface FakeCosmosDocument {
   type?: string;
   name?: string;
   imagePath?: string;
+  /** 写真の属する旅行。旅行に属さないときは null、旅行のドキュメントなどは項目ごと持たない */
+  tripId?: string | null;
 }
 
 export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | PlantSummary | TripDocument> {
@@ -106,6 +123,31 @@ export function cosmosConflictError(): any {
   return err;
 }
 
+/**
+ * 偽物が作る継続トークン。絞り込み後の挿入順の位置を表す。
+ * 数字だけにしないのは、テストや実装が作った文字列が偶然トークンとして通らないようにするため
+ */
+const CONTINUATION_TOKEN_PREFIX = 'fake-position:';
+
+function continuationTokenAt(position: number): string {
+  return `${CONTINUATION_TOKEN_PREFIX}${position}`;
+}
+
+/**
+ * トークンが指す位置を読む。無ければ先頭（0）。
+ * 偽物が作った形でなければ、実 SDK が不正なトークンに返す 400 と同じく、数値の `code` に 400 を持つエラーを投げる
+ */
+function positionFromContinuationToken(token: string | undefined): number {
+  if (token === undefined) return 0;
+  const match = new RegExp(`^${CONTINUATION_TOKEN_PREFIX}(\\d+)$`).exec(token);
+  if (!match) {
+    const err: any = new Error('Invalid continuation token');
+    err.code = 400;
+    throw err;
+  }
+  return Number(match[1]);
+}
+
 export function createFakeContainer<TDoc extends FakeCosmosDocument>(
   backend: FakeCosmosBackend<TDoc>
 ): Container {
@@ -120,11 +162,13 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         backend.documents.set(doc.id, doc);
         return { resource: doc };
       },
-      query: (querySpec: any) => {
+      query: (querySpec: any, options?: { maxItemCount?: number; continuationToken?: string }) => {
         const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
         const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
         const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
         const typeParam = parameters.find((p: any) => p.name === '@type')?.value;
+        // @tripId は null を値として渡せる（旅行に属さない写真）ので、値ではなくパラメータがあるかで判断する
+        const tripIdParam = parameters.find((p: any) => p.name === '@tripId');
         let docs = Array.from(backend.documents.values());
         if (nameParam !== undefined) {
           docs = docs.filter((d) => d.name === nameParam);
@@ -135,10 +179,23 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         if (typeParam !== undefined) {
           docs = docs.filter((d) => d.type === typeParam);
         }
+        if (tripIdParam !== undefined) {
+          // 厳密な一致。null を渡せば tripId が null のものだけで、項目が無い（undefined の）ドキュメントは含めない
+          docs = docs.filter((d) => d.tripId === tripIdParam.value);
+        }
         return {
           fetchAll: async () => {
             if (backend.forcedQueryError) throw backend.forcedQueryError;
             return { resources: docs };
+          },
+          fetchNext: async () => {
+            if (backend.forcedQueryError) throw backend.forcedQueryError;
+            const start = positionFromContinuationToken(options?.continuationToken);
+            const end = options?.maxItemCount === undefined ? docs.length : start + options.maxItemCount;
+            return {
+              resources: docs.slice(start, end),
+              continuationToken: end < docs.length ? continuationTokenAt(end) : undefined
+            };
           }
         };
       }

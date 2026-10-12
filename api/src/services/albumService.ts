@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
+import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB } from '../constants/album';
 
 /**
  * 旅行アルバムの Cosmos DB（album コンテナ）を扱うサービス
@@ -123,6 +124,36 @@ export class AlbumService {
   async getPhoto(id: string): Promise<PhotoDocument | null> {
     const { resource } = await this.container.item(id, id).read<PhotoDocument>();
     return resource?.type === 'photo' ? resource : null;
+  }
+
+  /**
+   * 旅行の写真（または、どの旅行にも属さない写真）を、並べ替え用の日時の順に1ページ分読む
+   *
+   * どの旅行にも属さない写真は tripId に null を渡す（c.tripId = null は値が null のものだけに一致し、
+   * 項目が無いドキュメントには一致しない。写真は必ず tripId を書くので漏れない）
+   * @param tripId 旅行 ID。どの旅行にも属さない写真なら null
+   * @param limit 1ページの最大枚数
+   * @param continuationToken 前のページの継続トークン。先頭からなら undefined
+   * @returns 写真と、次のページの継続トークン（最後のページなら null）
+   */
+  async listPhotos(
+    tripId: string | null,
+    limit: number,
+    continuationToken: string | undefined
+  ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
+    const page = await this.container.items
+      .query<PhotoDocument>(
+        {
+          query: 'SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC',
+          parameters: [
+            { name: '@type', value: 'photo' },
+            { name: '@tripId', value: tripId },
+          ],
+        },
+        { maxItemCount: limit, continuationToken, continuationTokenLimitInKB: PHOTO_CONTINUATION_TOKEN_LIMIT_KB }
+      )
+      .fetchNext();
+    return { photos: page.resources, continuationToken: page.continuationToken ?? null };
   }
 
   /**

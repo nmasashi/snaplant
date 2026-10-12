@@ -211,3 +211,54 @@ function toCoordinate(value: FormValue, limit: number): number | null {
 function fail(message: string, details?: string): Result {
   return { error: createValidationError(message, details) };
 }
+
+/** 検証を通った写真一覧のクエリ */
+export interface PhotoListQuery {
+  /** 旅行 ID。どの旅行にも属さない写真なら null（クエリでは none） */
+  tripId: string | null;
+  limit: number;
+  /** 前のページの継続トークン。先頭からなら undefined */
+  continuationToken: string | undefined;
+}
+
+/**
+ * 写真一覧（GET /api/photos）のクエリを検証する
+ *
+ * 順序は docs/travel-album/05_api_design.md §5.2 の表のとおり。Cosmos に触る前に全部弾く。
+ * 「無い」と「空」を分ける（limit が無ければ既定の枚数、空なら 400。継続トークンが無ければ先頭から、空なら 400）
+ * @param query リクエストのクエリ
+ * @returns 検証を通ったクエリ、または 400 の応答
+ */
+export function readPhotoListQuery(
+  query: URLSearchParams
+): { query: PhotoListQuery } | { error: HttpResponseInit } {
+  const tripIdParam = query.get('tripId');
+  if (tripIdParam === null) {
+    return { error: createValidationError('絞り込み条件を指定してください') };
+  }
+  if (tripIdParam !== 'none' && !isValidUUID(tripIdParam)) {
+    return { error: createValidationError('旅行IDの形式が無効です') };
+  }
+
+  const limitParam = query.get('limit');
+  let limit: number = PHOTO_VALIDATION.PAGE_SIZE;
+  if (limitParam !== null) {
+    limit = /^[1-9][0-9]*$/.test(limitParam) ? Number(limitParam) : NaN;
+    if (!(limit <= PHOTO_VALIDATION.MAX_PAGE_SIZE)) {
+      return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
+    }
+  }
+
+  const continuationToken = query.get('continuationToken');
+  if (continuationToken === '') {
+    return { error: createValidationError('継続トークンの形式が無効です') };
+  }
+
+  return {
+    query: {
+      tripId: tripIdParam === 'none' ? null : tripIdParam,
+      limit,
+      continuationToken: continuationToken ?? undefined,
+    },
+  };
+}
