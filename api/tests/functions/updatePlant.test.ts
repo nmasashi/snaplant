@@ -548,8 +548,17 @@ describe('植物更新API', () => {
     });
 
     it('予期しないエラーの場合は500エラー', async () => {
-      // 予期しないエラーのモック
-      cosmosBackend.forcedReadError = new Error('Unexpected error');
+      // 更新（置き換え）の書き込みで予期しないエラーを起こす。読み取りの失敗は上の503のテストが見ている
+      cosmosBackend.documents.set('123e4567-e89b-12d3-a456-426614174000', {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        imagePath: `${TEST_IMAGE_BASE_URL}/old.jpg`,
+        confidence: 85.0,
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-15T10:30:00Z'
+      });
+      cosmosBackend.forcedReplaceError = new Error('Unexpected error');
 
       // リクエストの作成
       const request = {
@@ -689,6 +698,8 @@ describe('植物更新API', () => {
         updatedAt: '2024-01-15T10:30:00Z'
       };
       cosmosBackend.documents.set(existingPlant.id, existingPlant);
+      // 画像が変わらないときは、その画像を消してはいけない
+      blobStore.set(`${TEST_STORAGE_CONTAINER_NAME}/a.jpg`, { content: Buffer.from('a') });
 
       // リクエストの作成（imagePathは変えず、confidenceだけ変更する）
       const request = {
@@ -718,6 +729,7 @@ describe('植物更新API', () => {
           }
         }
       });
+      expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/a.jpg`)).toBe(true);
     });
 
     it('同じimagePathのレコードが既に2件存在する場合でも、一方を更新できる', async () => {

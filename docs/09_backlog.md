@@ -395,7 +395,7 @@ Flutter クライアントは失敗後に同じ画像を送り直せる（`07_ap
 | `openAIVisionService.ts` の `identifyPlant` | `identify.test.ts` / `upload.test.ts` の 502・503 |
 | `storageService.ts` の `uploadImageToTemp` | `upload.test.ts` の 502（`RestError` の形）と 503（`it.each` の3 code） |
 | `storageService.ts` の SAS URL 生成 | 呼び出し元の `uploadImageToTemp` が外側でもう一度包むので、ここの型は分類に効かない |
-| `storageService.ts` の `moveFromTempToPermanent` | **無し**。`storageService.test.ts` はメッセージの文言だけを見る |
+| `storageService.ts` の `moveFromTempToPermanent` | **無し**。`storageService.test.ts` は例外になることだけを見る（分類は見ない） |
 | `storageService.ts` の `deleteImage` | **無し**（同上）。`upload` で効くのは植物でない画像の一時ファイルの削除だけで、`CosmosService` 経由の呼び出しは失敗をログだけにして握りつぶす |
 
 つまり `upload` の**移動失敗・（植物でない画像の）削除失敗**の 502 / 503 分類は
@@ -511,17 +511,11 @@ AI 識別の呼び出しの `ETIMEDOUT` は 502 になる（OpenAI SDK のタイ
 
 test-reviewer が指摘した、原則違反ではないが締められる点。
 
-- **`openAIVisionService.test.ts` の `.rejects.toThrow('植物識別に失敗しました')`
-  が部分一致。** catch が全例外を同じ接頭辞で包むため、**別の原因で落ちても通る**。
-  `storageService.test.ts` は `/^…$/` でアンカーしており、そちらに揃えるのが素直
 - **`FakeCosmosBackend<TDoc>` は止めたい方向を型で止められていない。**
   `FakeCosmosBackend<PlantSummary>` に完全な `Plant` を入れても通る（構造的部分型）。
   現状はテスト側が `const x: PlantSummary[] = [...]` とリテラルで宣言している
   規律に依存している。射影と完全な `Plant` の両方を扱う `cosmosService.test.ts` が
   既定の union を使っているため、**区別が最も必要なファイルで区別が消えている**
-- **`cosmosService.test.ts` の検索語が常に「存在する側」。** `@name` に固定値を
-  渡す変異を入れてもサービス層のテストは緑で、ハンドラ側のテストだけが捕まえる。
-  片方の検索語を2件目の文書にすると変異が赤になる
 - **`upload.test.ts` が設定する `OPENAI_API_KEY` は死蔵。**
   `openAIVisionService.ts` は `AZURE_OPENAI_ENDPOINT` の有無で分岐し、
   それは `tests/setup.ts` のグローバル値が立ったまま。
@@ -607,7 +601,6 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 
 仕様との食い違いではなく、テストそのものの不備。
 
-- **`response.test.ts` の「有効なUUID v4形式を受け入れる」は4件中3件が v1 形式。** テスト名と中身が合っていない
 - **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
   テスト名と検証対象がずれている。同ファイルのエラー系は部分一致 `toThrow('植物識別に失敗しました')` のため、
   どの原因で失敗したかを区別できない（原則7。`identifyPlant()` の失敗はハンドラでどれも 502 / 503 に分類されるので、
@@ -615,7 +608,7 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 - **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
   PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
 - **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、
-  `api/tests/services/storageService.test.ts` の 370〜371 行付近、`api/tests/functions/upload.test.ts` の 532〜536 行付近
+  `api/tests/functions/upload.test.ts` の 532〜536 行付近
 - **Flutter のテストの偽レスポンスが OpenAPI と細部で違う**: アップロードの `identificationResult` に `reason` を入れている、
   `isPlant: true` なのに `candidates: []`、植物IDに UUID でない `plant-1` を使っている。検証には影響しない
 - **仕様にあるのにテストが無い振る舞い**: contextInfo の検証が一時保存と AI 呼び出しの前に行われること（upload の 501 文字のテストは Blob も OpenAI も見ていない）、

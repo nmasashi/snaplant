@@ -265,6 +265,39 @@ describe('植物詳細取得API', () => {
         }
       });
     });
+
+    it('データベースの削除に失敗した場合は500エラーになり、植物も画像も残る', async () => {
+      // 404（該当なし）とは区別される、予期しない失敗。detailsは契約外なので文言を固定しない
+      const existingPlant: Plant = {
+        id: validPlantId,
+        name: '桜',
+        characteristics: '春に美しい花を咲かせる',
+        confidence: 95.5,
+        imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z'
+      };
+      cosmosBackend.documents.set(validPlantId, existingPlant);
+      blobStore.set('test-images/sakura.jpg', { content: Buffer.from('dummy') });
+      cosmosBackend.forcedDeleteError = new Error('Delete failed');
+      const request = {
+        method: 'DELETE',
+        url: `https://func-snaplant.azurewebsites.net/api/plants/${validPlantId}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        params: { id: validPlantId },
+        headers: new Map()
+      } as any as HttpRequest;
+
+      const response = await deletePlantHandler(request, mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: '植物の削除に失敗しました' }
+      });
+      expect(cosmosBackend.documents.has(validPlantId)).toBe(true);
+      expect(blobStore.has('test-images/sakura.jpg')).toBe(true);
+    });
   });
 
 });

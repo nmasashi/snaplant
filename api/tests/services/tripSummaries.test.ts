@@ -2,35 +2,6 @@ import { buildTripSummaries } from '../../src/services/tripSummaries';
 import { Trip } from '../../src/types/album';
 
 describe('buildTripSummaries', () => {
-  it('写真の無い旅行は、枚数0・撮影期間なし・表紙なしで、旅行に属さない写真も0枚になる', () => {
-    const trip: Trip = {
-      id: '11111111-1111-4111-8111-111111111111',
-      name: '京都旅行',
-      description: null,
-      tags: ['国内'],
-      createdAt: '2026-10-01T00:00:00.000Z',
-      updatedAt: '2026-10-01T00:00:00.000Z',
-    };
-
-    const result = buildTripSummaries([trip], [], []);
-
-    expect(result.trips).toEqual([
-      {
-        id: '11111111-1111-4111-8111-111111111111',
-        name: '京都旅行',
-        description: null,
-        tags: ['国内'],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-01T00:00:00.000Z',
-        photoCount: 0,
-        firstTakenAt: null,
-        lastTakenAt: null,
-        coverThumbnailUrl: null,
-      },
-    ]);
-    expect(result.unassignedPhotoCount).toBe(0);
-  });
-
   it('各旅行の枚数と撮影期間は、並びに関係なくその旅行の行から埋まる', () => {
     const tripA: Trip = {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

@@ -28,7 +28,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | テスト名は日本語の文 | 既存と同じ |
 
 ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`、
-`tests/services/albumService.test.ts`・`photoStorageService.test.ts`、`tests/utils/blobSas.test.ts`・`errors.test.ts`（`isConnectivityError`）。
+`tests/services/albumService.test.ts`・`photoStorageService.test.ts`。`utils/blobSas.ts`・`sortAt.ts` と `isConnectivityError()` は単体のテストを持たず、ハンドラのテストが通す（Issue #41 で上位に従属するテストを削除した）。
 
 ## 2. テスト用の差し替え部品の拡張
 

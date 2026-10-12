@@ -127,8 +127,6 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
   // Plant しか入れないテストは FakeCosmosBackend<Plant> と明示して絞れる
   documents: Map<string, TDoc>;
   forcedCreateError?: Error | null;
-  /** 作成は成功するが resource が返らない（SDK が稀に返す形）を再現する */
-  forcedCreateNoResource?: boolean;
   /**
    * `create` の冒頭で呼ばれる。「読んだ後・作る直前に、他のリクエストが同じ id を作った」を再現する
    * （コールバックの中で `documents` に足す）。足された後なので、この `create` は 409 になる。
@@ -284,7 +282,6 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
       create: async (doc: TDoc) => {
         backend.beforeCreate?.();
         if (backend.forcedCreateError) throw backend.forcedCreateError;
-        if (backend.forcedCreateNoResource) return { resource: undefined };
         // 実 SDK は同じ id（パーティションキーも id なので同じ論理パーティション）の create を 409 にする
         if (backend.documents.has(doc.id)) throw cosmosConflictError();
         backend.documents.set(doc.id, doc);

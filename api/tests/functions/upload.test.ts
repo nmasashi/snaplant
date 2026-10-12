@@ -27,7 +27,7 @@ const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof Blo
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<typeof generateBlobSASQueryParameters>;
 
 // SASトークンの固定値（一時保存がSAS付きURLを返すことの土台）。
-// 権限や有効期限の検証はstorageService.test.ts側の責務。
+// 権限は photos.test.ts（実SDKで署名）、一時URLの有効期限は storageService.test.ts が見ている。
 // 署名（sig）だけは「SASの署名をログに出さない」テストが漏れの有無を見る秘密として使うため、
 // 定数に切り出してトークンをそこから組み立てる（片方だけ書き換えても検証が空振りしない）
 const TEST_SAS_SIGNATURE = 'testsignature';
@@ -222,6 +222,56 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
     });
 
+    it('Content-Typeが大文字（IMAGE/PNG）でもアップロードでき、Blob名に.pngが付く', async () => {
+      // 形式の判定と拡張子の引き当ての両方が、大文字小文字を区別しないことを見る
+      const mockFile = {
+        name: 'test.png',
+        type: 'IMAGE/PNG',
+        size: 2048,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(2048))
+      } as any;
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null))
+      };
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      const response = await uploadImageHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect(response.jsonBody.data.imagePath).toMatch(/\.png$/);
+    });
+
+    it('ファイルサイズが上限ちょうど（10MB）の場合は正常にアップロードできる', async () => {
+      // 上限を1バイト超えると413になる（バリデーションエラーの節）。その境界の内側を見る
+      const mockFile = {
+        name: 'limit.jpg',
+        type: 'image/jpeg',
+        size: 10 * 1024 * 1024,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(10 * 1024 * 1024))
+      } as any;
+      const mockFormData = {
+        get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null))
+      };
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+        formData: jest.fn().mockResolvedValue(mockFormData)
+      } as any as HttpRequest;
+
+      const response = await uploadImageHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      expect(response.jsonBody.data.fileSize).toBe(10485760);
+    });
+
     it('コンテキスト情報ありで画像を正常にアップロードできる', async () => {
       // 統合処理は beforeEach でモック済み
 
@@ -269,7 +319,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // （管理外の依存への送信内容は出力が不透明ではないが、プロンプトへの
       // 混入を確認する手段がこの呼び出し引数の検査以外にないため見る）。
       // 固定ラベル「撮影時の環境やコンテキスト情報: 」はプロンプトの文言そのもので、
-      // それは openAIVisionService.test.ts の責務。ここで見るのは
+      // それはテストで固定しない（プロンプトの文言は実装の詳細）。ここで見るのは
       // 利用者が入力した値がプロンプトに届いていることだけなので、
       // 値の部分だけを検証する
       const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
@@ -483,12 +533,12 @@ describe('画像アップロード・植物判定統合API', () => {
     });
 
     it('ファイルサイズが上限を超える場合は413エラー', async () => {
-      // 大きなファイルオブジェクトのモック（11MB）
+      // 上限（10MB）を1バイト超えるファイルオブジェクトのモック
       const mockFile = {
         name: 'large.jpg',
         type: 'image/jpeg',
-        size: 11 * 1024 * 1024, // 11MB
-        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(11 * 1024 * 1024))
+        size: 10 * 1024 * 1024 + 1,
+        arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(10 * 1024 * 1024 + 1))
       } as any;
 
       const mockFormData = {
