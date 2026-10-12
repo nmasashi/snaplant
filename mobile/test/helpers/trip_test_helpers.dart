@@ -34,17 +34,32 @@ Map<String, Object?> tripJson({
 /// 図鑑タブは旅行のテストの関心の外で、404 でもエラー表示になるだけで旅行タブには影響しない。
 /// [failFirst] を渡すと、一覧の取得は最初のその回数だけ 503（データベースに接続できない）を返し、以降は成功する
 /// （再試行で読み直したかどうかを、2回目の成功で見分けるため）。
+/// [rejectCreateWith] を渡すと、作成は 400 `INVALID_REQUEST`（message はその文言）で拒み、旅行は作らない。
+/// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。表に無い id は 404。
+/// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
 MockClient tripServer(
   List<Map<String, Object?>> trips, {
   required int unassignedPhotoCount,
   int failFirst = 0,
+  String? rejectCreateWith,
+  Map<String, Map<String, Object?>> tripDetails = const {},
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
   return MockClient((request) async {
     if (request.method == 'POST' && request.url.path == '/api/trips') {
+      if (rejectCreateWith != null) {
+        return http.Response(
+          json.encode({
+            'success': false,
+            'error': {'code': 'INVALID_REQUEST', 'message': rejectCreateWith},
+          }),
+          400,
+          headers: const {'content-type': 'application/json'},
+        );
+      }
       final body = json.decode(request.body) as Map<String, dynamic>;
       final trip = tripJson(
         id: '3f2504e0-4f89-41d3-9a0c-0305e82c33${created.length.toString().padLeft(2, '0')}',
@@ -58,6 +73,18 @@ MockClient tripServer(
           'data': {'trip': trip},
         }),
         201,
+        headers: const {'content-type': 'application/json'},
+      );
+    }
+    if (request.method == 'GET' && request.url.path.startsWith('/api/trips/')) {
+      final trip = tripDetails[request.url.pathSegments.last];
+      if (trip == null) return http.Response('', 404);
+      return http.Response(
+        json.encode({
+          'success': true,
+          'data': {'trip': trip},
+        }),
+        200,
         headers: const {'content-type': 'application/json'},
       );
     }

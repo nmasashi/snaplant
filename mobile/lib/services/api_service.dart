@@ -437,6 +437,21 @@ class ApiService {
     }
   }
 
+  /// 旅行詳細取得（枚数・撮影期間つき）
+  /// GET /api/trips/{tripId}
+  Future<TripSummary> getTrip(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return TripSummary.fromJson(data['trip'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 旅行作成
   /// POST /api/trips
   Future<Trip> createTrip(String name, String? description) async {

@@ -3,6 +3,8 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../utils/trip_period.dart';
+import 'trip_detail_screen.dart';
 import '../widgets/message_view.dart';
 import '../widgets/trip_edit_dialog.dart';
 
@@ -50,6 +52,17 @@ class _TripListScreenState extends State<TripListScreen> {
       setState(() => _errorMessage =
           e is ApiException ? e.userMessage : '旅行一覧の読み込みに失敗しました');
     }
+  }
+
+  /// 旅行詳細画面を開く
+  Future<void> _openTrip(TripSummary trip) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            TripDetailScreen(apiService: widget.apiService, tripId: trip.id),
+      ),
+    );
   }
 
   /// 旅行の作成ダイアログを開く
@@ -125,6 +138,7 @@ class _TripListScreenState extends State<TripListScreen> {
             title: trip.name,
             subtitle:
                 '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
+            onTap: () => _openTrip(trip),
           ),
       ],
     );
@@ -164,11 +178,15 @@ class _NoTripsMessage extends StatelessWidget {
 /// 旅行一覧の1行（先頭の「旅行に属さない写真」と各旅行で共通）
 class _TripRow extends StatelessWidget {
   const _TripRow(
-      {required this.icon, required this.title, required this.subtitle});
+      {required this.icon,
+      required this.title,
+      required this.subtitle,
+      this.onTap});
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -179,23 +197,8 @@ class _TripRow extends StatelessWidget {
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
       ),
     );
   }
 }
-
-/// 旅行の撮影期間の表記（docs/travel-album/03_screen_design.md §3）
-///
-/// 撮影日時はタイムゾーン無しの文字列（撮影した土地での時刻）なので、[DateTime] に直さず日付の部分だけを使う。
-/// 端末のタイムゾーンに変換すると、旅先と時差がある端末で日付がずれる
-String formatTripPeriod(String? firstTakenAt, String? lastTakenAt) {
-  if (firstTakenAt == null || lastTakenAt == null) {
-    return '撮影日時なし';
-  }
-  final first = _dateOf(firstTakenAt);
-  final last = _dateOf(lastTakenAt);
-  return first == last ? first : '$first 〜 $last';
-}
-
-/// `YYYY-MM-DDTHH:mm:ss` から `YYYY/MM/DD` を取り出す
-String _dateOf(String takenAt) => takenAt.substring(0, 10).replaceAll('-', '/');

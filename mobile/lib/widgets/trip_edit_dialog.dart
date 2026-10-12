@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 
 /// 旅行の作成・編集ダイアログ（docs/travel-album/03_screen_design.md §4.3）
 ///
@@ -32,8 +33,17 @@ class _TripEditDialogState extends State<TripEditDialog> {
       return;
     }
     final description = _descriptionController.text;
-    await widget.onSave(
-        _nameController.text.trim(), description.isEmpty ? null : description);
+    try {
+      await widget.onSave(_nameController.text.trim(),
+          description.isEmpty ? null : description);
+    } catch (e) {
+      debugPrint('TripEditDialog: 旅行の保存エラー: $e');
+      if (!mounted) return;
+      // ダイアログに留まり、入力は残す（直して送り直せるように）
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '旅行の保存に失敗しました')));
+      return;
+    }
     if (!mounted) return;
     Navigator.pop(context, true);
   }

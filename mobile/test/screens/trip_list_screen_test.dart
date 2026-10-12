@@ -157,4 +157,65 @@ void main() {
     expect(find.text('0枚 · 撮影日時なし'), findsOneWidget);
     expect(find.text('まだ旅行がありません'), findsNothing);
   });
+
+  testWidgets('旅行の作成にサーバが失敗を返すと、ダイアログは開いたまま旅行名が残り、エラーの文言を出す', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    // 400 の文言はサーバのものがそのまま画面に出る（ApiException.userMessage）
+    final server = tripServer([], unassignedPhotoCount: 0, rejectCreateWith: '旅行名は100文字以内で指定してください');
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.byType(FloatingActionButton));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+    await tester.enterText(find.descendant(of: dialog, matching: find.byType(TextField)).first, '北海道 2026秋');
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('作成')));
+    await letFramesRun(tester);
+
+    expect(find.text('旅行名は100文字以内で指定してください'), findsOneWidget);
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('旅行を作成しました'), findsNothing);
+  });
+
+  testWidgets('旅行の行をタップすると旅行詳細が開き、上部に旅行名、その下に取り直した枚数と撮影の期間を出す', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    const tripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+    // 一覧では10枚、詳細では12枚（一覧を読んだ後に写真が増えた）。詳細が取り直していれば12枚が出る
+    final server = tripServer(
+      [
+        tripJson(
+          id: tripId,
+          name: '北海道 2026秋',
+          photoCount: 10,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-07T17:30:00',
+        ),
+      ],
+      unassignedPhotoCount: 0,
+      tripDetails: {
+        tripId: tripJson(
+          id: tripId,
+          name: '北海道 2026秋',
+          photoCount: 12,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-08T17:30:00',
+        ),
+      },
+    );
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('12枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+  });
 }
