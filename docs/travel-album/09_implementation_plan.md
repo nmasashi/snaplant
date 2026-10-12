@@ -26,7 +26,7 @@ PR の粒度・レビュー・Issue の基準は CLAUDE.md（「PR と Issue の
 | # | 内容 | 行数 | 依存 | 完了条件 | レビュー |
 |---|---|---|---|---|---|
 | 1 | **infra**: `photos` コンテナ、`temp-images` のライフサイクル、`album` コンテナ（PK `/id`）、`app_settings`、`outputs`（[07 §1](./07_infrastructure_design.md#1-段階2)） | ~150 | — | `terraform fmt`・`validate` が緑。**人間がポータルで無料枠を確認してから apply**。ポータルで `photos` が非公開 | `/code-review medium`、`/security-review`（公開設定・ライフサイクルの接頭辞） |
-| 2 | **api の土台**: `ErrorCode` の追加、`createNotFoundError(code?)`、`isConnectivityError()`、`utils/blobSas.ts` の切り出し（`generateTempSasUrl()` を包みに）、`types/album.ts`、`constants/validation.ts` の追加（`TRIP_` / `PHOTO_` / `MOVE_` / `TAG_VALIDATION`）、`constants/tags.ts`、偽物の拡張（[08 §2.1](./08_test_plan.md#21-testsfakescosmosts)） | ~750 | — | 既存テスト全緑（**SAS の切り出し後も `storageService.test.ts` と `upload.test.ts` が通る**）。`blobSas`・`isConnectivityError`・偽物の新しい振る舞いのテスト | `/code-review high`（既存の `upload` に触る）、`test-reviewer` |
+| 2 | **api の土台**: `ErrorCode` の追加、`createNotFoundError(code?)`、`isConnectivityError()`、`utils/blobSas.ts` の切り出し（`generateTempSasUrl()` を包みに）、`types/album.ts`、`constants/validation.ts` の追加（`TRIP_` / `PHOTO_` / `MOVE_` / `TAG_VALIDATION`）、`constants/tags.ts`、テスト用の差し替え部品の拡張（[08 §2.1](./08_test_plan.md#21-testsfakescosmosts)） | ~750 | — | 既存テスト全緑（**SAS の切り出し後も `storageService.test.ts` と `upload.test.ts` が通る**）。`blobSas`・`isConnectivityError`・差し替え部品の新しい振る舞いのテスト | `/code-review high`（既存の `upload` に触る）、`test-reviewer` |
 | 3 | **api: 旅行**: `AlbumService`（旅行の CRUD と集計）、`PhotoStorageService`（削除だけ）、`trips.ts`・`tripDetail.ts`、`app.ts` の import、仕様書 | ~1,000 | 2 | TDD のリストが空。仕様書（OpenAPI・06）と一致。デプロイ後に `GET /api/trips` を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
 | 4a | **api: 写真**: `POST /api/photos`（ハッシュ照合・既存 200・Blob→create）、`GET /api/photos`（`tripId` / `none`、並び、SAS）、`GET` / `DELETE /api/photos/{photoId}`、仕様書 | ~1,500 | 3 | 同上。デプロイ後に SAS で表示できること、応答に `_rid` が無いこと | `/code-review high`、`test-reviewer`、`contract-auditor`、`/security-review`（multipart・ハッシュ・SAS） |
 | 4b | **api: 出し入れと更新**: `POST /api/photos/move`、旅行削除の連鎖（3 の `DELETE` を写真付きに）、`PATCH /api/photos/{photoId}`（`comment`・`tags` の構造だけ）、仕様書 | ~700 | 4a | 同上。デプロイ後に `/api/photos/move` のルートと 300 枚の move を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
@@ -104,7 +104,7 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 ## 7. 段階2の完了の定義
 
 - 要件定義書 §5.1・§5.1.1・§5.2・§5.3（段階2の印のもの）がすべて実機で動く
-- [08 §5.1・§5.2](./08_test_plan.md#5-偽物で確かめられず手で確かめる項目) の手での確認が済み、実測が `docs/09_backlog.md` に残っている
+- [08 §5.1・§5.2](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目) の手での確認が済み、実測が `docs/09_backlog.md` に残っている
 - 仕様書（`docs/03`・`04`・`06`・`06_api_openapi.yaml`・`07`・`README`）が実装の写しになっている
 - CLAUDE.md の「実際のルート」の表と「Cosmos のクエリを変更したら手で確認する」の表が更新されている
 - Issue #22 の段階2のチェックが埋まっている

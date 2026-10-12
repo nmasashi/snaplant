@@ -92,14 +92,14 @@ flowchart LR
 | `UpstreamError` と 502 / 503 の分類（`utils/errors.ts`、`createUpstreamErrorResponse()`） | 流用。`PhotoStorageService` と Storage Queue は `'storage'`、分類器・識別器は `'ai'`。段階3で Azure Maps を入れるなら `UpstreamService` に `'geocoding'` を足す | 「どこで失敗したか」で分類する方針（CLAUDE.md「レスポンス規約」） |
 | Cosmos DB 側の 503 判定（6箇所に複製。`docs/09_backlog.md`） | 新ハンドラは `hasCauseCode()` を使う述語 `isConnectivityError()` を1つ作って使う。既存6箇所の置き換えは別作業 | 7箇所目を作らない |
 | Function Key 認証、`app.ts` の import 登録 | 流用。**新しい関数ファイルは `app.ts` に import を足す** | CLAUDE.md「関数の登録経路」 |
-| `container.item(id, id)` の形と偽物の `id !== partitionKey` 検出（`tests/fakes/cosmos.ts` 110〜130行） | そのまま流用。`album` も PK `/id` | [04 §1](./04_data_design.md#1-cosmos-db) |
+| `container.item(id, id)` の形（`api/src/services/cosmosService.ts` 42行） | そのまま流用。`album` も PK `/id` | [04 §1](./04_data_design.md#1-cosmos-db) |
 | `StorageService` の URL 検証（4条件）と削除の二層防御 | **設計で不要にする。** 写真 API は URL を受け取らず Blob 名を保存し、URL はサーバが応答のたびに組み立てる | [05 §6](./05_api_design.md#6-sas-付き-url) |
 | `StorageService` の SAS 生成（`storageService.ts` 244〜286行） | `utils/blobSas.ts` に切り出して流用。`generateTempSasUrl()` はそれを呼ぶ薄い包みにする | AI 用の一時 URL と写真の表示 URL は同じ仕組み |
 | `upload.ts` の一時→AI→永続 | 段階2では使わない。段階3・4で「AI に非公開 Blob を SAS で読ませる」部分だけ流用。段階4で廃止 | [06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) |
 | `OpenAIVisionService`（`services/openAIVisionService.ts`） | 段階3で、デプロイ名・スキーマ・プロンプトを引数で受ける形に小さく一般化。`identifyPlant()` と `PLANT_IDENTIFICATION_SCHEMA`（15〜84行）は段階4で定義表から生成するスキーマに置き換え、廃止と同時に消す | strict モードの罠（同ファイル 5〜14行）を踏み直さない |
 | `contextInfo` の検証（`identify.ts` 40〜48行、`upload.ts` 76〜85行）と埋め込み（`openAIVisionService.ts` 137〜141行）、`CONTEXT_INFO_VALIDATION`（`constants/validation.ts` 95〜102行） | やり直しの `hint` にそのまま流用（同じ定数・同じ `message`） | 要件 5.5.1 |
 | バリデーション定数（`positiveIntFromEnv()`、`UUID_REGEX`） | 流用。`TRIP_VALIDATION` / `PHOTO_VALIDATION` / `MOVE_VALIDATION` / `TAG_VALIDATION` を同じ形で追加 | [05 §4](./05_api_design.md#4-入力検証の定数) |
-| `tests/fakes/cosmos.ts`・`blob.ts` | 流用・拡張（`@type`・`@tripId`・`@tag`・`@entryId` の絞り込み、同じ id の `create` で 409、`item().patch()`） | [08 §2](./08_test_plan.md#2-偽物の拡張) |
+| テスト用の Cosmos・Blob の差し替え部品（`api/tests/fakes/`） | 流用・拡張（`@type`・`@tripId`・`@tag`・`@entryId` の絞り込み、同じ id の `create` で 409、`item().patch()`） | [08 §2](./08_test_plan.md#2-偽物の拡張) |
 | Flutter の `ApiService` + `MockClient`、`detectImageMimeType()`、`cached_network_image`、`SettingsService`、`setState` | 流用。`ApiService` は根（`AppRoot`）で1つ作って各画面に渡す | CLAUDE.md「実装の慣習」の Flutter の構成方針 |
 | Terraform の書き方、CI/CD | 流用 | [07](./07_infrastructure_design.md) |
 
@@ -118,7 +118,7 @@ flowchart LR
 | 判断 | 理由 |
 |---|---|
 | 旅行・写真・図鑑の項目を `type` で区別して1つの `album` コンテナに置く | コンテナを増やすと無料枠（推測 1000 RU/s。§5）を段階4の移行中に超えうる。`plants` 400 + `album` 400 = 800 なら枠内 |
-| PK は `/id` | 写真が旅行をまたいで移動する（要件 5.1.1・5.2 ③）。PK を `/tripId` にすると移動がパーティション横断になり原子性が無い。`/id` なら移動は同じパーティション内の Patch 1回。`container.item(id, id)` と偽物がそのまま使える |
+| PK は `/id` | 写真が旅行をまたいで移動する（要件 5.1.1・5.2 ③）。PK を `/tripId` にすると移動がパーティション横断になり原子性が無い。`/id` なら移動は同じパーティション内の Patch 1回。既存の `container.item(id, id)` の形がそのまま使える |
 | 写真の id = 画像バイト列の SHA-256（16進 64 文字） | 「クライアントが振る id による冪等性」と「同じ中身は1枚」（要件 5.2）が1つの仕組みに畳まれる。サーバは受け取ったバイト列のハッシュを計算し直して照合するので id を偽れない。PK `/id` では一意キーが張れないが、id 自体が中身から決まるので `create` の 409 で DB が保証する |
 | 旅行に属さない写真は `tripId: null`（予約済みの「受信箱」旅行は作らない） | 受信箱を旅行にすると、旅行一覧・削除・集計のすべてで特別扱いが要る。`IS_NULL(c.tripId)` で絞れる |
 
@@ -133,9 +133,17 @@ flowchart LR
 
 ### 4.3 図鑑の項目は `album` の `type: "entry"`、id は（種類, 名前）から決定的に作る（要件 5.5）
 
-別コンテナ `catalog`（PK は種類、名前に一意キー）という案もあったが、無料枠と偽物の都合で `album` に置く。
-`id = "<kind>-" + sha256(name.trim())` なので「同じ種類・同じ名前は1件」を `create` の 409 で DB に保証させられる
-（写真と同じ仕組み）。種類と項目は `api/src/catalog/kinds.ts` の定義表 `CATALOG_KINDS` 1か所に持ち、
+`kind` は図鑑の種類（`plant`＝植物・`food`＝食べ物・`landscape`＝風景。定義表 `CATALOG_KINDS` の1行が1種類）。
+項目の id は `"<kind>-" + sha256(name.trim())` で、「同じ種類・同じ名前は1件」を `create` の 409 で DB に保証させる（写真と同じ仕組み）。
+頭に `kind` を付けるのは、同じ名前が別の種類で現れうるため（例: 畑のメロンは植物、皿のメロンは食べ物）。名前をハッシュにするのは、
+Cosmos の id に使えない文字（`/`・`?` など）を避け、長さをそろえるため。
+
+別コンテナ `catalog`（PK は種類、名前に一意キー）という案もあったが、コンテナが増えると無料枠（1000 RU/s と思われる）を
+植物図鑑の移行中に超えうるので、`album` に置く。
+
+id に種類と名前が入るので、**項目の種類や名前はその場で書き換えられない**。変えるときは「新しい項目を作る（同じ種類・名前の項目が
+既にあればそこへまとめる）→ 写真の `entryId` を付け替える → 写真が0枚になった古い項目を消す」になる。種類が変わるのは主に写真の
+解析のやり直し（要件 5.5.1）のときで、そのときは写真ごとに付け替わるので自然にこの形になる。手順は [04 §3.3](./04_data_design.md#33-項目の種類や名前を変えるとき)。種類と項目は `api/src/catalog/kinds.ts` の定義表 `CATALOG_KINDS` 1か所に持ち、
 分類 AI の選択肢・識別 AI のスキーマ・`GET /api/catalog/kinds`・Flutter の表示が追従する
 （要件 5.5「項目も種類も後から増やせる」）。詳細は [04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)。
 
@@ -172,16 +180,16 @@ flowchart LR
 
 | 項目 | 決めたこと | 理由 | 参照 |
 |---|---|---|---|
-| 撮影日時順の並べ方 | Cosmos の `ORDER BY` ではなく、取得後にサーバの中で並べる（`takenAt` 昇順、null は末尾、同値は `uploadedAt` 昇順） | Cosmos の `ORDER BY` は null を先頭に置き、項目が無いドキュメントを結果から**外す**（推測。要確認）。1旅行数百枚ならメモリで並べて困らず、偽物でも検証できる | [04 §5.3](./04_data_design.md#53-旅行の写真一覧) |
-| 旅行一覧の集計 | 写真の射影を1クエリで取り、枚数・期間・表紙をサーバの中で集計する（`GROUP BY` は代案） | 表紙（最初の写真のサムネイル）は `GROUP BY` では取れず、別クエリが要る。1クエリに畳むと偽物で集計を検証できる | [04 §5.1](./04_data_design.md#51-旅行一覧) |
+| 撮影日時順の並べ方 | Cosmos の `ORDER BY` ではなく、取得後にサーバの中で並べる（`takenAt` 昇順、null は末尾、同値は `uploadedAt` 昇順） | Cosmos の `ORDER BY` は null を先頭に置き、項目が無いドキュメントを結果から**外す**（推測。要確認）。「null は末尾」を SQL で書くと2クエリになる。1旅行数百枚ならメモリで並べて困らない | [04 §5.3](./04_data_design.md#53-旅行の写真一覧) |
+| 旅行一覧の集計 | 写真の射影を1クエリで取り、枚数・期間・表紙をサーバの中で集計する（`GROUP BY` は代案） | 表紙（最初の写真のサムネイル）は `GROUP BY` では取れず、別クエリが要る。1クエリに畳める | [04 §5.1](./04_data_design.md#51-旅行一覧) |
 | `takenAtSource` | リクエストでは受け取らず、サーバが `takenAt` の有無から `exif` / `none` を入れる | 段階2の出どころは EXIF だけ。項目はドキュメントに残し、段階6で出どころが増えたら受け取る | [05 §5.1](./05_api_design.md#51-post-apiphotos) |
 | 写真 id の表記 | 小文字の16進のみ | Blob 名と id の文字列比較を単純にする。Dart の `crypto` も小文字を返す | [05 §4](./05_api_design.md#4-入力検証の定数) |
 | 単一の写真の応答 | `{ photo, urlExpiresAt }`（第3版は `{ photo }`） | 一覧と同じく、クライアントが URL の期限を知る必要がある | [05 §5.3](./05_api_design.md#53-get-apiphotosphotoid) |
 | 応答から外す項目 | `blobName`・`thumbnailBlobName` と Cosmos のシステム項目（`_rid` など） | クライアントは URL だけを使う。Blob 名は内部の都合 | [05 §3](./05_api_design.md#3-データモデル) |
 | 旅行の更新 | `PUT` は `name`（必須）と `description`（任意）の全体置き換え | 作成と同じ検証を使い回す。段階2で直せるのはこの2つだけ | [05 §5.11](./05_api_design.md#511-put-apitripstripid) |
 | 旅行の削除の順序 | 写真（ドキュメント→Blob）を先に消し、最後に旅行を消す | 途中で落ちても「写真が減った旅行」が残るだけで、再実行で続きができる。逆順だと存在しない旅行を指す写真が残る | [05 §5.12](./05_api_design.md#512-delete-apitripstripid) |
-| 旅行に属さない写真の絞り込み | 1本の SQL `(IS_NULL(@tripId) AND IS_NULL(c.tripId)) OR c.tripId = @tripId` に `@tripId` を null でも渡す | 旅行ありと未所属で SQL を分けると、偽物が区別できない。パラメータの値で分岐させれば偽物でも絞り込みを検証できる（Cosmos がパラメータに `IS_NULL` を使えるかは要確認） | [04 §5.3](./04_data_design.md#53-旅行の写真一覧) |
-| キューへの投入 | 出力バインディングではなく `@azure/storage-queue` の `QueueClient` を直接使う | 偽物で差し替えられる。`dependencies` に置く（`devDependencies` だと本番で読み込めない。CLAUDE.md「CI/CD」） | [06 §1](./06_processing_design.md#1-キューとワーカー段階3) |
+| 旅行に属さない写真の絞り込み | 旅行ありは `c.tripId = @tripId`、未所属は `IS_NULL(c.tripId)` の2本の SQL に分ける | `c.tripId = null` は Cosmos SQL では偽になるので、未所属は `IS_NULL` で書く。2本に分けた方がそれぞれの意味が素直に読める | [04 §5.3](./04_data_design.md#53-旅行の写真一覧) |
+| キューへの投入 | 出力バインディングではなく `@azure/storage-queue` の `QueueClient` を直接使う | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`dependencies` に置く（`devDependencies` だと本番で読み込めない。CLAUDE.md「CI/CD」） | [06 §1](./06_processing_design.md#1-キューとワーカー段階3) |
 | 画面の文言・エラーの `message`・上限値 | [03](./03_screen_design.md)・[05](./05_api_design.md) に列挙 | 既存の文言（`植物IDの形式が無効です` など）と同じ型で作った | — |
 
 ## 5. 人間に決めてもらう点（推奨付き）
@@ -208,6 +216,17 @@ flowchart LR
 | 15 | §4.9 の細部（並べ方・集計・`takenAtSource`・id の表記・応答の形・削除の順序・SQL の形・キューの投入） | 推奨どおり |
 | 16 | 画面の文言・`message`・上限値（[03](./03_screen_design.md)・[05](./05_api_design.md)） | 推奨どおり。変えるなら実装前に |
 | 17 | 分類に使うモデル（安価なデプロイ）と、1日あたりの AI 呼び出しの上限値 | 段階3の着手時に価格表を見て決める。[06 §6](./06_processing_design.md#6-費用の見積もり方と上限) |
+| 18 | **図鑑の項目を文書として持つか（検討中。段階4の前に決める）** | 下の2案。メインセッションは B を推す。人間が検討中 |
+
+**18 の2案**（2026-10-12 の議論。段階2の設計には影響しない）:
+
+| | A. 項目の文書を持つ（この一式の設計） | B. 項目の文書を持たず、写真から毎回まとめる |
+|---|---|---|
+| 持ち方 | `type: "entry"` の文書に名前・説明・属性を保存し、写真は `entryId` で指す | 識別の結果（種類・名前・属性・信頼度）は写真の中にだけ持つ。図鑑は写真を「種類と名前」でまとめて表示する |
+| 写真をやり直して別の項目になったとき | 項目を探す・作る、写真を付け替える、0枚になった項目を消す（[04 §3.3](./04_data_design.md#33-項目の種類や名前を変えるとき)） | 写真の識別結果を書き換えるだけ |
+| 項目の説明・属性 | 項目に保存する。どの写真の結果を使うかの決まりが要る | 表示のときに、その名前の写真のうち信頼度が最も高いものから取る |
+| 図鑑を開くとき | 項目を読むだけ | 写真をまとめる計算をする（個人の規模なら問題ないと思われる） |
+| 苦手なこと | 種類や名前の変更が作り直しになる | 項目そのものにコメントやお気に入りを付けたくなったら、そのときに項目の文書を足す |
 
 ## 6. リスク
 
@@ -221,7 +240,7 @@ flowchart LR
 | `/api/photos/move` と `/api/photos/{photoId}` のルートの優先順（推測。デプロイ後に手で確認） | move が 400 になる | メソッドが違う（POST と GET/DELETE/PATCH）うえ、リテラルは変数より優先されるはず。ダメなら `/api/photo-moves` に変える |
 | SAS 生成の切り出しが既存の `upload` に触る | 既存の 502 / 503 の分類が崩れる | `/code-review high` と `test-reviewer`。`storageService.test.ts` が通ることを完了条件にする |
 | Cosmos の `ORDER BY` と null / 欠損の扱い、パラメータへの `IS_NULL`（推測） | 一覧から写真が消える | サーバの中で並べる（§4.9）。SQL はデプロイ後に手で確認する |
-| 従量課金の 429、SAS の時計のずれ、ライフサイクルの接頭辞の付け忘れ、Cosmos のクエリは偽物で検証できない、送信キューがメモリだけ、Terraform state が作業マシンにしか無い | 既存と同じ | それぞれ [05 §6](./05_api_design.md#6-sas-付き-url)・[07](./07_infrastructure_design.md)・[08 §5](./08_test_plan.md#5-偽物で確かめられず手で確かめる項目) |
+| 従量課金の 429、SAS の時計のずれ、ライフサイクルの接頭辞の付け忘れ、Cosmos のクエリ（絞り込み・並び順・射影）は単体テストで検証できない、送信キューがメモリだけ、Terraform state が作業マシンにしか無い | 既存と同じ | それぞれ [05 §6](./05_api_design.md#6-sas-付き-url)・[07](./07_infrastructure_design.md)・[08 §5](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目) |
 
 ## 7. 既存の不具合との関係（`docs/09_backlog.md`）
 

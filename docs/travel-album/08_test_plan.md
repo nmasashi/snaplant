@@ -7,7 +7,10 @@
 テストリストは List 段で各 PR のときにここから作る（この文書のシナリオをそのまま List にしてよい）。
 
 API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞いは [03_screen_design.md](./03_screen_design.md)、
-クエリと偽物の限界は [04 §5](./04_data_design.md#5-クエリ) を参照する。
+クエリと、単体テストで確かめられる範囲の限界は [04 §5](./04_data_design.md#5-クエリ) を参照する。
+
+この文書の「偽物」は、テストで Cosmos DB・Blob Storage・Storage Queue の代わりに使う、状態を持つ差し替え部品のこと
+（`api/tests/fakes/`。CLAUDE.md「偽物は `tests/fakes/` に置く」と同じ用語）。
 
 ---
 
@@ -33,7 +36,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 拡張 | 中身 | 理由 |
 |---|---|---|
-| `query` の絞り込み | `@type`・`@tripId`（**値が `null` のときは `tripId === null` のものに絞る**）・`@tag`（`tags.includes`）・`@entryId`・`@kind` のパラメータで絞る。`@name`・`@imagePath` は残す | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
+| `query` の絞り込み | `@type`・`@tripId`（旅行の写真のクエリ。未所属のクエリは `IS_NULL(c.tripId)` でパラメータが無いため、偽物では絞り込めず手で確かめる。§5.2）・`@tag`（`tags.includes`）・`@entryId`・`@kind` のパラメータで絞る。`@name`・`@imagePath` は残す | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真と項目の冪等性は `create` の 409 で成り立つ |
 | `item().patch(body)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }` | move・PATCH・ワーカーが使う |
 | `replace` の `_etag` 条件 | `options.accessCondition` が渡され、ドキュメントの `_etag` と違えば `{ code: 412 }`。`create` / `replace` のたびに `_etag` を振る | 段階4の併合 |
@@ -96,7 +99,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 既に同じ id があれば既存を返し、Blob の `store` は変わらない
 - Blob（原寸→サムネイル）が `store` に入ってからドキュメントが作られる（サムネイルで失敗すると原寸は残りドキュメントは無い）
 - `create` が 409 を返したら既存を読んで返す
-- 一覧: `@tripId` に旅行の id を渡すとその旅行の写真だけ、`null` を渡すと未所属だけ
+- 一覧: `@tripId` に旅行の id を渡すとその旅行の写真だけ（未所属の絞り込みは単体テストでは確かめられない。§5.2）
 - 並び: 撮影日時昇順、無しは末尾、同じ撮影日時は `uploadedAt` 昇順
 - 応答の Photo に `imageUrl` / `thumbnailUrl` があり、`blobName` / `thumbnailBlobName` / `type` / `_rid` などが無い
 - サムネイルが無い写真は `thumbnailUrl: null`
@@ -195,7 +198,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 旅行に入れる: 旅行を選ぶダイアログに今の旅行が出ない。成功のスナックバーに枚数と旅行名。`notFound` があれば文言が足される。200 件を超えると分けて送られる（`MockClient` が受けた回数と中身）
 - 削除（複数）: 1 枚ずつ送られ、404 は成功に数える
 
-## 5. 偽物で確かめられず手で確かめる項目
+## 5. 単体テストで確かめられず手で確かめる項目
 
 ### 5.1 実機（SC-03K、段階2）
 
@@ -214,7 +217,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 確かめること | 手順 | 崩れたときの症状 |
 |---|---|---|
-| `IS_NULL(c.tripId)` の絞り込み（パラメータへの `IS_NULL`） | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
+| `IS_NULL(c.tripId)` の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
 | 射影（旅行一覧の集計） | `GET /api/trips` の `photoCount`・期間・表紙が実際の写真と合う | 枚数ずれ |
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |

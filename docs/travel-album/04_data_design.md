@@ -159,6 +159,9 @@ export function isCategoryTag(tag: string): boolean { return tag.startsWith(CATE
 
 ## 3. 図鑑の項目と定義表（段階4）
 
+図鑑の項目は「種類（`kind`）ごとに、名前1つにつき1件」。`kind` は図鑑の種類で、今は `plant`（植物）・`food`（食べ物）・`landscape`（風景）の3つ。
+種類の一覧は §3.2 の定義表 `CATALOG_KINDS` が持ち、表の1行が1種類になる。
+
 ### 3.1 項目（`type: "entry"`）
 
 ```json
@@ -245,6 +248,32 @@ export const CATALOG_KINDS = {
 種類を足す手順: 表に1行足す → 分類の選択肢・識別のスキーマ・`GET /api/catalog/kinds` が追従 → アプリは再ビルド不要（タブと項目はサーバから）。
 種類ごとのアイコンや色など見た目を足すならアプリの更新が要る。
 
+### 3.3 項目の種類や名前を変えるとき
+
+項目の id は `"<kind>-" + sha256(name.trim())`（§1.4）なので、種類や名前を変えると id が変わる。**項目の種類や名前は、その場で書き換えない。**
+
+- **頭に種類を付ける理由**: 同じ名前が別の種類で現れうる（例: 畑のメロンは植物、皿のメロンは食べ物）。名前だけで id を作ると、別の種類の項目が1件に混ざる
+- **名前をハッシュにする理由**: Cosmos の id に使えない文字（`/`・`\`・`?`・`#`）が名前に入っても困らないようにし、長さもそろえる
+
+変えるときの手順:
+
+1. 変更後の種類・名前で、新しい項目の id を作る。その id の項目が既にあれば、そこへまとめる（併合。§5.6）。無ければ `create` する
+2. 古い項目に付いていた写真の `entryId` を、新しい id に付け替える（写真1枚につき Patch 1回）
+3. 写真が0枚になった古い項目を消す
+
+この形になるのは、主に次の2つのとき。
+
+| きっかけ | 段階 | どう起きるか |
+|---|---|---|
+| 写真の解析のやり直し（要件 5.5.1） | 4 | やり直しの結果、写真が別の種類・別の名前の項目に付く。写真1枚ずつの付け替えなので、手順の 2 が自然に起きる |
+| 名前の揺れをそろえる（要件 §8 の未決の論点） | 未定 | 「ソメイヨシノ」と「サクラ」のような項目を1つにまとめる。本質が併合なので、id の作り方によらず写真の付け替えが要る |
+
+項目の種類を直接書き換える操作は、段階4では入れない（要件 5.5.1 はやり直しで直すのが基本）。入れるときもこの手順で書ける。
+個人の規模では1項目の写真は数枚〜数十枚なので、付け替えの書き込みが問題になることは無い（推測）。
+
+代案として、id を UUID にして「種類と名前 → id」の索引を別の文書で持てば、項目の種類はその場で書き換えられ、写真も触らずに済む。
+ただし項目と索引の2つを常に食い違わないよう保つ必要があり、作りが複雑になる。種類の書き換えが頻繁になったら検討する。
+
 ## 4. Blob Storage
 
 ### 4.1 コンテナ
@@ -278,15 +307,15 @@ export const CATALOG_KINDS = {
 
 ## 5. クエリ
 
-**偽物（`tests/fakes/cosmos.ts`）は Cosmos SQL を解釈しない。** WHERE 句・ORDER BY・射影は偽物で検証できないため、
-下の表で「手で確認」の印が付いたものは、デプロイ後に手で確かめる（[08 §5](./08_test_plan.md#5-偽物で確かめられず手で確かめる項目)）。
-サービスは絞り込みの値を**必ずパラメータ**で渡す（偽物はパラメータの値で絞る）。
+**単体テストは Cosmos SQL を解釈しない。** WHERE 句・ORDER BY・射影は単体テストで検証できないため、
+下の表で「手で確認」の印が付いたものは、デプロイ後に手で確かめる（[08 §5](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目)）。
+サービスは絞り込みの値を**必ずパラメータ**で渡す（SQL に値を文字列で埋め込まない）。
 
-| # | 画面・処理 | クエリ | 偽物で検証 | 手で確認 |
+| # | 画面・処理 | クエリ | 単体テストで検証 | 手で確認 |
 |---|---|---|---|---|
 | 5.1 | 旅行一覧（集計） | 写真の射影 + サーバで集計 | 集計は○ | 射影 |
 | 5.2 | 旅行一覧（旅行） | `SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt DESC` | `@type` の絞り込みのみ | 並び順 |
-| 5.3 | 旅行の写真一覧・未所属 | `WHERE c.type = @type AND ((IS_NULL(@tripId) AND IS_NULL(c.tripId)) OR c.tripId = @tripId)` | `@tripId` の値（null 含む）で絞る | `IS_NULL` の挙動 |
+| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId`／未所属: `WHERE c.type = @type AND IS_NULL(c.tripId)` | `@tripId` で絞る | `IS_NULL` の挙動 |
 | 5.4 | タグ横断（段階3） | `WHERE c.type = @type AND ARRAY_CONTAINS(c.tags, @tag)` | `@tag` で絞る | `ARRAY_CONTAINS` |
 | 5.5 | タグ一覧（段階3） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
 | 5.6 | 図鑑の項目一覧（段階4） | 項目: `WHERE c.type = @type AND c.kind = @kind`。枚数: 写真の `entryId` の射影をサーバで数える | `@kind`・`@entryId` で絞る | 射影 |
@@ -306,7 +335,7 @@ FROM c WHERE c.type = @type
 表紙（§5.3 の並びで先頭の写真の `thumbnailBlobName`、無ければ `blobName`）を導く。未所属（`tripId: null`）の件数も同じ結果から出せる。
 
 代案は `SELECT c.tripId, COUNT(1) AS photoCount, MIN(c.takenAt) ..., MAX(c.takenAt) ... FROM c WHERE c.type = 'photo' GROUP BY c.tripId`。
-RU は少ないが、表紙が取れず別クエリが要り、偽物で集計を検証できない。写真が数千枚になって射影の RU が気になったら切り替える（§6）。
+RU は少ないが、表紙が取れず別クエリが要る。写真が数千枚になって射影の RU が気になったら切り替える（§6）。
 
 ### 5.2 旅行の詳細
 
@@ -316,18 +345,18 @@ RU は少ないが、表紙が取れず別クエリが要り、偽物で集計�
 ### 5.3 旅行の写真一覧
 
 ```sql
-SELECT * FROM c
-WHERE c.type = @type
-  AND ((IS_NULL(@tripId) AND IS_NULL(c.tripId)) OR c.tripId = @tripId)
+-- 旅行の写真
+SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId
+-- 旅行に属さない写真
+SELECT * FROM c WHERE c.type = @type AND IS_NULL(c.tripId)
 ```
 
-`@tripId` は旅行の id か `null`。`c.tripId = null` は Cosmos SQL では偽になるので `IS_NULL` を使う。
-SQL を旅行あり・未所属で分けないのは、偽物がパラメータの値で分岐を検証できるようにするため（パラメータへの `IS_NULL` が使えるかは**要確認**。
-使えなければ SQL を2本にし、偽物は `@tripId` の有無で分ける）。
+`c.tripId = null` は Cosmos SQL では偽になるので、未所属は `IS_NULL` で書く。`tripId` は写真の作成時に必ず `null` を明示して書く
+（項目が欠けていると `IS_NULL` も偽になり、一覧から静かに外れる）。
 
 **並び順はサーバの中で付ける。** `takenAt` 昇順、`takenAt` が null のものは末尾、同値は `uploadedAt` 昇順、さらに同値は `id` 昇順。
 Cosmos の `ORDER BY c.takenAt ASC` は null を先頭に置き、項目が無いドキュメントを結果から**外す**（推測。要確認）ため、
-「null は末尾」を SQL で書くと2クエリになる。1旅行数百枚（要件 §2）ならメモリで並べて困らず、偽物で並び順を検証できる。
+「null は末尾」を SQL で書くと2クエリになる。1旅行数百枚（要件 §2）ならメモリで並べて困らず、並べ方をコードで明示できる。
 ページングは段階2では入れない（タグ横断で件数が増える段階3で継続トークンを検討する）。
 
 `SELECT *` には Cosmos のシステム項目（`_rid` など）が含まれるので、応答に出す項目はサービスが詰め替える（[05 §3](./05_api_design.md#3-データモデル)）。

@@ -20,7 +20,7 @@
 |---|---|---|
 | キュー | Azure Storage Queue `photo-processing`（既存のストレージアカウント。`AzureWebJobsStorage` と同じ） | 追加のリソースが要らず、Functions のトリガーが標準で使える。Service Bus は過剰 |
 | メッセージ | `{ "photoId": "<id>", "step": "classify" \| "identify", "hint": string \| null }`（JSON） | ワーカーは写真を読み直すので、メッセージには最小限だけ |
-| 投入 | HTTP 関数から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 出力バインディングより偽物で差し替えやすい。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
+| 投入 | HTTP 関数から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
 | ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName, connection: 'AzureWebJobsStorage', handler })` | HTTP 関数と同じ Function App に同居 |
 | 直列化 | `host.json` の `extensions.queues` で `batchSize: 1`・`newBatchThreshold: 0` | AI のレート上限（TPM）と費用を抑える。1回の旅行で数百枚を一気に投入しても、順に流れる |
 | 可視性タイムアウト・再試行 | `visibilityTimeout: 00:01:00`、`maxDequeueCount: 3`。3回失敗すると `photo-processing-poison` に落ちる | 一時的な失敗（429・503）は自動で再試行され、恒久的な失敗は止まる |
