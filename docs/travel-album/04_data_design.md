@@ -505,11 +505,12 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 
 ### 6.1 無料枠
 
-`infrastructure/main.tf` 92行のコメントは「400 RU/s + 25GB」だが、Cosmos DB の無料枠は**アカウントで最初の 1000 RU/s と 25 GB**だと思われる（推測。**人間がポータルで確認する**）。
+Cosmos DB の無料枠は**アカウントで最初の 1000 RU/s と 25 GB**（Microsoft のドキュメント。ポータルや CLI には数値が出ず、`enableFreeTier: true` だけが分かる）。
+2026-10-12 に `album` を apply した。数日後にポータルの「コスト管理」で Cosmos DB の請求が 0 円のままかを人間が確認する。
 
 | 時期 | コンテナ | 合計 RU/s | 枠内か |
 |---|---|---|---|
-| 段階2〜4の移行前 | `plants` 400 + `album` 400 | 800 | 1000 なら枠内。400 なら超過（月数百円程度の推測） |
+| 段階2〜4の移行前 | `plants` 400 + `album` 400 | 800 | 1000 なら枠内。400 なら超過（`album` の 400 RU/s 分で月 3,000〜3,500 円程度。100 RU/s あたり 1 時間 $0.008 からの推測） |
 | 段階4の移行後 | `album` 400 | 400 | 枠内 |
 
 `catalog` を別コンテナにすると移行中に 1200 になり枠を超えうるのが、`album` 1コンテナにした理由の1つ。
