@@ -89,7 +89,7 @@ resource "azurerm_storage_management_policy" "main" {
 |---|---|---|
 | `COSMOS_DB_ALBUM_CONTAINER` | `azurerm_cosmosdb_sql_container.album.name` | `AlbumService` |
 | `PHOTO_STORAGE_CONTAINER_NAME` | `azurerm_storage_container.photos.name` | `PhotoStorageService` |
-| `PHOTO_SAS_EXPIRY_MINUTES` | `"60"` | `utils/blobSas.ts` |
+| `PHOTO_SAS_EXPIRY_MINUTES` | `"60"` | `photoUrlExpiresOn()`（`services/photoStorageService.ts`） |
 
 既存の `COSMOS_DB_CONTAINER`（`plants`）・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は段階4まで残す。
 検証の上限（`TRIP_NAME_MAX_LENGTH` など）やページの大きさ（`PHOTO_PAGE_SIZE` など）は既定値で動くので `app_settings` には書かない（変えたいときだけ足す）。
@@ -238,8 +238,8 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | 名前 | 既定値 | 意味 | どこで使うか | 段階 |
 |---|---|---|---|---|
 | `COSMOS_DB_ALBUM_CONTAINER` | （必須。Terraform が `album` を入れる） | 旅行・写真のコンテナ名 | `AlbumService` | 2 |
-| `PHOTO_STORAGE_CONTAINER_NAME` | `photos` | 写真の Blob コンテナ名 | `PhotoStorageService` | 2 |
-| `PHOTO_SAS_EXPIRY_MINUTES` | `60` | 写真の表示用 SAS の有効期限（分） | `utils/blobSas.ts`（[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
+| `PHOTO_STORAGE_CONTAINER_NAME` | （必須。コードにフォールバックは無い。Terraform が `photos` を入れる） | 写真の Blob コンテナ名 | `PhotoStorageService` | 2 |
+| `PHOTO_SAS_EXPIRY_MINUTES` | `60` | 写真の表示用 SAS の有効期限（分）。`positiveIntFromEnv()` ではなく `parseInt` で応答ごとに読むが、読めない値・0・負なら同じく 60 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
 | `TEMP_SAS_EXPIRY_MINUTES`（既存） | `15` | AI に渡す読み取り SAS の有効期限（分） | ワーカー（[06 §2.1](./06_processing_design.md#21-モデルとサービス)） | 3 |
 | `TRIP_NAME_MAX_LENGTH` | `100` | 旅行名の上限（文字） | `POST` / `PUT /api/trips` | 2 |
 | `TRIP_DESCRIPTION_MAX_LENGTH` | `1000` | 旅行のメモの上限 | 同上 | 2 |
@@ -270,8 +270,8 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `PHOTO_VALIDATION.ID_REGEX`（`constants/validation.ts`） | `/^[0-9a-f]{64}$/` | 写真 id の形（小文字16進） | 写真 id を受けるすべて | 2 |
 | `PHOTO_VALIDATION.TAKEN_AT_REGEX` | `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/` + 実在する日時 | 撮影日時の形 | `POST /api/photos` | 2 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | 旅行 id の形 | 旅行 id を受けるすべて | 2 |
-| `SORT_AT_UTC_OFFSET_MINUTES`（`constants/album.ts`） | `540`（日本時間） | 撮影日時が無い写真の `sortAt` を `uploadedAt` から作るときのずらし | `AlbumService.createPhoto()`（[04 §1.3](./04_data_design.md#13-写真type-photo)） | 2 |
-| SAS の `startsOn`（`utils/blobSas.ts`） | 発行の 5 分前 | 時計のずれの吸収 | SAS の生成 | 2 |
+| `SORT_AT_UTC_OFFSET_MINUTES`（`constants/album.ts`） | `540`（日本時間） | 撮影日時が無い写真の `sortAt` を `uploadedAt` から作るときのずらし | `computeSortAt()`（`utils/sortAt.ts`。`POST /api/photos` のハンドラが呼ぶ。[04 §1.3](./04_data_design.md#13-写真type-photo)） | 2 |
+| `PHOTO_SAS_START_SKEW_MINUTES`（`constants/album.ts`） | `5`（発行の 5 分前から有効） | SAS の `startsOn`。時計のずれの吸収 | `PhotoStorageService.readUrl()`（一時画像の SAS には付けない） | 2 |
 | `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |
 | `OTHER_KIND`・`CATALOG_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表 | カテゴリと図鑑の種類 | 分類の選択肢・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
 | `geocache` の丸め | 小数3桁（≒ 100 m） | 地名のキャッシュの鍵 | `GeocodingService` | 3・任意 |

@@ -386,6 +386,33 @@ describe('写真API', () => {
       expect(urls.map((url) => tokenOf(url).get('st'))).toEqual(['2026-10-10T03:07:45Z', '2026-10-10T03:07:45Z']);
     });
 
+    // SAS の期限（se）は秒の単位までしか持てない。応答の urlExpiresAt をミリ秒まで出すと、実際の期限の方が
+    // 最大1秒早く切れ、クライアントが urlExpiresAt ぎりぎりまで使うと最後の1秒未満で403になる。
+    // 期限は秒に切り捨て、urlExpiresAt と se を一致させる。時刻はミリ秒（.678）を持つ値に固定する
+    // （他のテストの .000 では、ミリ秒を残してもずれず、この誤りを見逃す）
+    it('写真のURLの期限は秒の単位で、応答のurlExpiresAtと実際の期限がずれない', async () => {
+      jest.useFakeTimers({
+        now: new Date('2026-10-10T03:12:45.678Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
+      // 実際の期限（se）を読むため、署名を実 SDK に委譲する。固定トークンでは se が読めない。
+      // 署名はローカルの計算だけで Blob Storage へは通信しない。トークンの se は平文で読める
+      const sdk = jest.requireActual<typeof import('@azure/storage-blob')>('@azure/storage-blob');
+      MockedBlobSASPermissions.mockImplementation(() => new sdk.BlobSASPermissions());
+      MockedStorageSharedKeyCredential.mockImplementation(
+        (accountName, accountKey) => new sdk.StorageSharedKeyCredential(accountName, accountKey as string)
+      );
+      mockedGenerateSas.mockImplementation(sdk.generateBlobSASQueryParameters);
+      const request = createPhotoRequest(formDataWith());
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      const { photo, urlExpiresAt } = (response.jsonBody as any).data;
+      expect(response.status).toBe(201);
+      expect(urlExpiresAt).toBe('2026-10-10T04:12:45.000Z');
+      expect(tokenOf(photo.imageUrl).get('se')).toBe('2026-10-10T04:12:45Z');
+    });
+
     it('画像の内容と写真IDが一致しないと400で理由を返し、Blobにもデータベースにも何も保存しない', async () => {
       // 写真IDの形式は正しい（小文字16進64文字）が、送った画像のSHA-256ではない。
       // サムネイルも付けて、原寸だけでなくサムネイルも書かれないことを見る
@@ -498,6 +525,43 @@ describe('写真API', () => {
         new Map([[`photos/${PHOTO_ID}.jpg`, { content: savedBytes, contentType: 'image/jpeg' }]])
       );
       expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual(savedPhoto);
+    });
+
+    it('保存済みの写真を再送したときは、送り先の旅行が消えていても、200で保存済みの写真を返す', async () => {
+      // 「送信に成功したが応答が届かず、その間に送り先の旅行が消され、同じ写真を同じ旅行付きで再送した」状態。
+      // 保存済みの写真は旅行（TRIP_ID）に入れて保存したもので、偽物には旅行のドキュメントを置かない（消えた後）。
+      // 同じ写真は何度送っても1枚（冪等）なので、旅行の有無にかかわらず保存済みのものがそのまま返る
+      const savedPhoto: PhotoDocument = {
+        id: PHOTO_ID,
+        type: 'photo',
+        tripId: TRIP_ID,
+        blobName: `${PHOTO_ID}.jpg`,
+        thumbnailBlobName: null,
+        contentType: 'image/jpeg',
+        fileSize: 10,
+        takenAt: null,
+        takenAtSource: 'none',
+        sortAt: '2026-10-10T12:12:44',
+        location: null,
+        category: null,
+        tags: [],
+        comment: null,
+        commentSource: null,
+        hint: null,
+        classification: null,
+        identification: null,
+        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+        uploadedAt: '2026-10-10T03:12:44.000Z',
+        updatedAt: '2026-10-10T03:12:44.000Z'
+      };
+      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto });
+      const request = createPhotoRequest(formDataWith({ tripId: TRIP_ID }));
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo.id).toBe(PHOTO_ID);
+      expect(cosmosBackend.documents).toEqual(new Map([[PHOTO_ID, savedPhoto]]));
     });
 
     it('同じ写真がほぼ同時に送られ、保存の直前に別の送信が先に作っていたら、200で先に作られた写真を返す', async () => {
@@ -972,6 +1036,33 @@ describe('写真API', () => {
         expect(body.success).toBe(false);
         expect(body.error.code).toBe(code);
         expect(body.error.message).toBe(message);
+        expect(blobStore).toEqual(new Map());
+        expect(cosmosBackend.documents).toEqual(new Map());
+      }
+    );
+
+    // 緯度・経度は10進の数（符号は先頭の - だけ）しか受け付けない。どの行も JavaScript の Number() なら
+    // 読める形で、値も範囲（緯度 ±90）の中に収まる（26・10・15・43.7・10・43.7）ので、範囲の検証では弾かれず、
+    // 形の検証でだけ弾かれる。経度は正しい値のままにして、緯度の形だけを壊す
+    it.each([
+      ['16進', '0x1A'],
+      ['2進', '0b1010'],
+      ['8進', '0o17'],
+      ['前後に空白がある', ' 43.7 '],
+      ['指数表記', '1e1'],
+      ['先頭に+がある', '+43.7']
+    ])(
+      '緯度・経度が10進の数でなければ、400で位置情報の形式が無効ですを返し、何も保存しない（緯度が%s）',
+      async (_case, latitude) => {
+        const request = createPhotoRequest(formDataWith({ latitude, longitude: '142.365' }));
+
+        const response = await createPhotoHandler(request, mockContext);
+
+        expect(response.status).toBe(400);
+        const body = response.jsonBody as any;
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe('INVALID_REQUEST');
+        expect(body.error.message).toBe('位置情報の形式が無効です');
         expect(blobStore).toEqual(new Map());
         expect(cosmosBackend.documents).toEqual(new Map());
       }

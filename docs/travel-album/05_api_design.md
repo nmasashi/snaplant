@@ -58,7 +58,8 @@
 
 - `plants/{id}` と同じく、同じルートを複数ファイルが別々のメソッドで登録してよいが、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
-  実装済みの旅行の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）。
+  実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）、
+  `photos.ts` が `createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）。
   `plantDetail.ts` のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
@@ -95,7 +96,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `firstTakenAt` / `lastTakenAt` | string \| null | 撮影日時のある写真の最初と最後（タイムゾーン無し）。無ければ `null` |
 | `coverThumbnailUrl` | string \| null | `sortAt` 順（撮影日時順）で先頭の写真のサムネイル（無ければ原寸）の SAS 付き URL。写真が無ければ `null`。旅行ごとに `TOP 1` で1枚だけ読む |
 
-`photoCount`・`firstTakenAt`・`lastTakenAt` は実装済み（PR 3）。**`coverThumbnailUrl` は未実装で、写真の API（PR 4a）で足すまで `GET /api/trips`・`GET /api/trips/{tripId}` とも常に `null`**（キーは出す）。
+`photoCount`・`firstTakenAt`・`lastTakenAt` は実装済み（PR 3）。**`coverThumbnailUrl` は未実装で、写真の一覧の API（PR 4a-2）で足すまで `GET /api/trips`・`GET /api/trips/{tripId}` とも常に `null`**（キーは出す）。
 
 ### 3.3 Photo
 
@@ -174,8 +175,12 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `TAG_VALIDATION.MAX_LENGTH` | `TAG_MAX_LENGTH` | 30 | `PATCH /api/photos/{photoId}` |
 | `FILE_UPLOAD.MAX_SIZE`・`SUPPORTED_IMAGE_TYPES`（既存） | `MAX_FILE_SIZE` | 10MB | `POST /api/photos` の原寸 |
 | `CONTEXT_INFO_VALIDATION.MAX_LENGTH`（既存） | `CONTEXT_INFO_MAX_LENGTH` | 500 | `process` の `hint` |
-| `PHOTO_SAS_EXPIRY_MINUTES`（`utils/blobSas.ts`） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
+| `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
+
+実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`MAX_LENGTH.PLACE_NAME`・`THUMBNAIL_MAX_SIZE`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4a-1 時点）。
+`PAGE_SIZE` / `MAX_PAGE_SIZE`・`MAX_LENGTH.COMMENT`・`MOVE_VALIDATION`・`TAG_VALIDATION`・`CATALOG_VALIDATION` は、使うエンドポイントと一緒に足す。
+`PHOTO_SAS_EXPIRY_MINUTES` は `positiveIntFromEnv()` を通さず `parseInt` で読むが、正の整数として読めない値（数字でない・0・負）は同じく 60 にする。
 
 文字数は既存と同じく `String.length`（UTF-16 コードユニット）で数える（`docs/09_backlog.md`「contextInfo の文字数の数え方」と同じ扱い）。
 
@@ -193,23 +198,29 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 |---|---|---|---|
 | `photoId` | テキスト | ○ | 画像のバイト列の SHA-256（16進・小文字 64 文字）。サーバが計算し直して照合する |
 | `image` | ファイル | ○ | 原寸。`image/jpeg` / `image/jpg` / `image/png` / `image/webp` / `image/gif`、10MB 以下 |
-| `thumbnail` | ファイル | × | サムネイル（JPEG）。1MB 以下。無ければ `thumbnailUrl: null` |
+| `thumbnail` | ファイル | × | サムネイル（JPEG を想定。形式は `image` と同じものを受け付ける）。1MB 以下。無ければ `thumbnailUrl: null` |
 | `tripId` | テキスト | × | 送り先の旅行（UUID）。無ければ旅行に属さない写真 |
 | `takenAt` | テキスト | × | 撮影日時 `YYYY-MM-DDTHH:mm:ss`（タイムゾーン無し） |
-| `latitude` / `longitude` | テキスト | × | 緯度・経度（10進）。**両方そろったときだけ**位置情報として扱う |
+| `latitude` / `longitude` | テキスト | × | 緯度・経度（10進）。**両方そろえて送る**（片方だけは 400。下の表の 14）。どちらも無ければ `location: null` |
 | `placeName` | テキスト | × | 地名。緯度・経度と一緒に送る。1〜100 文字 |
 
 `takenAtSource` は受け取らない。サーバが `takenAt` の有無から `exif` / `none` を入れる。
 `sortAt` もサーバが決める（`takenAt` があればそれ、無ければ `uploadedAt` を日本時間に直したもの。[04 §1.3](./04_data_design.md#13-写真type-photo)）。`category` は `null`、`tags` は `[]` で作る。
+`location.placeSource` は `placeName` を送ったときだけ `"device"`、緯度・経度だけなら `placeName`・`placeSource` とも `null`。
+`comment`・`commentSource`・`hint`・`classification`・`identification` は `null`、`processing` は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`、
+`fileSize` は原寸のバイト数、`uploadedAt` と `updatedAt` は同じ値（保存した時刻）。
+
+任意のパートは、値が無ければ**パートごと省く**。空文字のパートは「指定あり」として検証され 400 になる（`tripId` は 12、`takenAt` は 13、`latitude` / `longitude` は 15（片方だけなら 14）、`placeName` は 17（緯度・経度が無ければ 16））。
 
 **処理の順序:**
 
 1. 入力検証（下の表。Blob・Cosmos に触らない）
 2. `image` のバイト列の SHA-256 を計算し、`photoId` と一致しなければ 400
-3. `tripId` があれば旅行を読み、無ければ 404 `TRIP_NOT_FOUND`
-4. `item(photoId, photoId).read()`。既にあれば **200** で既存を返す（Blob には触らない。`tripId` も変えない）
+3. `item(photoId, photoId).read()`。既にあれば **200** で既存を返す（Blob には触らない。`tripId` も変えない。既存にサムネイルが無ければ、送ったサムネイルも足さず `thumbnailUrl: null` のまま）
+4. `tripId` があれば旅行を読み、無ければ 404 `TRIP_NOT_FOUND`。**保存済みの確認（3）の後に見る**ので、保存済みの写真の再送は、送り先の旅行が消えていても 200
+   （先に見ると、保存に成功して応答が届かず、その間に旅行が消されたときの再送が 404 になり、冪等でなくなる）
 5. 原寸を `photos/<photoId><拡張子>` に上書きアップロード。サムネイルがあれば `photos/<photoId>.thumb.jpg` に上書き
-6. ドキュメントを `create`。409（4 と 5 の間に並行リクエストが作った）なら既存を読んで 200
+6. ドキュメントを `create`。409（3 と 6 の間に並行リクエストが作った）なら既存を読んで 200
 7. **201** で `{ photo, urlExpiresAt }`
 
 `tripId` を付けて送ったが既存だった（`tripId: null` または別の旅行）とき: 既存をそのまま 200 で返し、旅行は変えない。
@@ -220,7 +231,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
-| 1 | リクエストの Content-Type が `multipart/form-data` で始まらない | 400 `INVALID_REQUEST` | `Content-Typeがmultipart/form-dataではありません` |
+| 1 | リクエストの Content-Type が `multipart/form-data` で始まらない（ヘッダが無い場合を含む） | 400 `INVALID_REQUEST` | `Content-Typeがmultipart/form-dataではありません` |
 | 1.5 | multipart の本文を読めない（`request.formData()` が失敗する） | 400 `INVALID_REQUEST` | `ファイルの読み取りに失敗しました` |
 | 2 | `photoId` が未指定・空（ファイルとして送られた場合を含む） | 400 `INVALID_REQUEST` | `写真IDが指定されていません` |
 | 3 | `photoId` が小文字16進 64 文字でない | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
@@ -237,28 +248,34 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | 14 | `latitude` と `longitude` の片方だけがある | 400 `INVALID_REQUEST` | `緯度と経度は両方指定してください` |
 | 15 | `latitude` / `longitude` が数値でない、または範囲外（緯度 -90〜90、経度 -180〜180） | 400 `INVALID_REQUEST` | `位置情報の形式が無効です` |
 | 16 | `placeName` があり、緯度・経度が無い | 400 `INVALID_REQUEST` | `地名は緯度・経度と一緒に指定してください` |
-| 17 | `placeName` が空白のみ、または 100 文字を超える | 400 `INVALID_REQUEST` | `地名は100文字以内で指定してください` |
+| 17 | `placeName` が空・空白のみ・ファイル、または 100 文字を超える | 400 `INVALID_REQUEST` | `地名は100文字以内で指定してください` |
 | 18 | `image` の SHA-256 が `photoId` と一致しない | 400 `INVALID_REQUEST` | `写真IDが画像の内容と一致しません` |
 
-1〜7 は `upload.ts` 23〜70行と同じ順序・同じ `message`。`details` は既存に倣って付けるが契約外。
+1・1.5・4〜7 は `upload.ts` 23〜70行と同じ順序・同じ `message`（間に `photoId` の 2・3 が入る）。`details` は付く行（1・1.5・4・5・9）と付かない行があり、契約外。
+`tripId`・`takenAt` がファイルで送られたときも 12・13 になる。
 18 はバイト列を読む必要があるので最後。1.5 は `upload.ts` と同じ `message` だが、エラーの文字列では判定せず `formData()` の失敗をそのまま 400 にする。
-緯度・経度は `Number()` で読み、有限で範囲内なら受け入れる（指数表記も可。`Infinity`・`NaN`・空文字は 15）。
-`placeName` は送られたまま保存する（前後の空白も除かずに数える）。サムネイルは JPEG を想定するが、対応形式なら受け付け、Blob 名は `.thumb.jpg`、Content-Type は送られたものにする。空白だけの `placeName` は「指定なし」ではなく 400 にする（クライアントは null を送るか省く）。
+緯度・経度は10進（`-?数字(.数字)?`。`PHOTO_VALIDATION.COORDINATE_REGEX`）で範囲内のものだけを受け入れる（16進・2進・8進・指数表記・前後の空白・先頭の `+`・`Infinity`・`NaN`・空文字は 15。`Number()` に任せるとこれらが数値として通るため）。
+`placeName` は送られたまま保存する（前後の空白も除かずに数える）。サムネイルは JPEG を想定するが、対応形式なら受け付け、Blob 名は `.thumb.jpg`、Content-Type は送られたものにする。空白だけの `placeName` は「指定なし」ではなく 400 にする（地名が無ければクライアントはパートを省く。multipart に null は無く、文字列 `null` を送るとその文字列が地名として保存される）。
 
 #### 検証の後
 
 | 条件 | ステータス・コード | `message` |
 |---|---|---|
 | `tripId` の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
-| Blob の操作の失敗 | 502 / 503 `STORAGE_ERROR` | 既存の `message` |
-| Cosmos へ接続できない | 503 `DATABASE_ERROR` | `データベースに接続できません` |
+| 原寸・サムネイルのアップロードが、Blob Storage に接続できずに失敗（`cause` をたどって `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT`） | 503 `STORAGE_ERROR` | `ストレージサービスに接続できません` |
+| 原寸・サムネイルのアップロードが、それ以外で失敗（Blob Storage のエラー応答など） | 502 `STORAGE_ERROR` | `ストレージサービスでエラーが発生しました` |
+| Cosmos へ接続できない（旅行の読み取り・写真の読み取り・作成のどれでも） | 503 `DATABASE_ERROR` | `データベースに接続できません` |
 | それ以外 | 500 `INTERNAL_ERROR` | `写真の保存に失敗しました` |
+
+Blob の失敗はどれも、写真のドキュメントを作る前に止まる（残るものは [04 §7.1](./04_data_design.md#71-操作ごとの表)）。
 
 **レスポンス例（201）:**
 
 ```json
 { "success": true, "data": { "photo": { "...": "§3.3 の Photo" }, "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
 ```
+
+既存を返す 200（処理の順序の 3・6）も同じ形で、`photo` は保存済みの内容、URL と `urlExpiresAt` はこの応答で発行し直したもの。
 
 ### 5.2 `GET /api/photos`
 
@@ -305,7 +322,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | 1 | `photoId` が小文字16進 64 文字でない | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 2 | 無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
-`{ photo, urlExpiresAt }`。500 の `message`: `写真詳細の取得に失敗しました`。
+200 `{ photo, urlExpiresAt }`（`POST /api/photos` と同じ形）。Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真詳細の取得に失敗しました`。
+URL は署名だけで作り、Blob があるかは確かめない（Blob の無い写真でも 200 で URL を返し、画像の取得が 404 になる。[04 §7.1](./04_data_design.md#71-操作ごとの表)）。
 
 ### 5.4 `DELETE /api/photos/{photoId}`
 
@@ -436,7 +454,7 @@ AI の解析をやり直す（要件 5.5.1）。
 集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
 `unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のもの。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
 同じ `GROUP BY` の結果から出す。旅行一覧の画面はこれで先頭の行の枚数を出し、別のリクエストを送らない。ページングは無い（旅行は数十件）。
-未所属の枚数をここで返すことは #27 の案どおり実装した（PR 3。§5.2 の `total` を外すかは写真の API で決める）。表紙（`coverThumbnailUrl`）は写真の API（PR 4a）で足すまで常に `null`。
+未所属の枚数をここで返すことは #27 の案どおり実装した（PR 3。§5.2 の `total` を外すかは写真の API で決める）。表紙（`coverThumbnailUrl`）は写真の一覧の API（PR 4a-2）で足すまで常に `null`。
 500 の `message`: `旅行一覧の取得に失敗しました`。
 
 ### 5.10 `GET /api/trips/{tripId}`
@@ -537,11 +555,13 @@ AI の解析をやり直す（要件 5.5.1）。
 |---|---|---|
 | 対象 | Blob 単位（原寸・サムネイルそれぞれ） | コンテナ単位の SAS は「見せたい写真」より広い。段階2は本人だけだが、共有を足すときに写真単位で出せる形にしておく |
 | 権限 | 読み取りのみ | |
-| 有効期限 | 発行から 60 分（`PHOTO_SAS_EXPIRY_MINUTES`） | 旅行詳細を開いて眺める時間として十分で、ログに残っても長期間は読めない |
-| `startsOn` | 発行の 5 分前 | サーバと Blob の時計のずれで「まだ有効でない」になるのを防ぐ |
-| 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC） | クライアントが期限を知って取り直せる |
+| 有効期限 | 発行から 60 分（`PHOTO_SAS_EXPIRY_MINUTES`。読めない値・0・負なら 60） | 旅行詳細を開いて眺める時間として十分で、ログに残っても長期間は読めない |
+| `startsOn` | 発行の 5 分前（`PHOTO_SAS_START_SKEW_MINUTES`。`constants/album.ts`） | サーバと Blob の時計のずれで「まだ有効でない」になるのを防ぐ |
+| 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC。ミリ秒まで） | クライアントが期限を知って取り直せる |
 
-- 生成は `utils/blobSas.ts`（`storageService.ts` 244〜286行の切り出し）。`generateTempSasUrl()` はこれを呼ぶ薄い包みにし、既存の `upload` の振る舞いを変えない
+- 署名は `utils/blobSas.ts` の `generateReadSasUrl()`（`storageService.ts` から切り出したもの）。写真の URL は `PhotoStorageService.readUrl()` が `startsOn` を付けて呼び、
+  期限は `photoUrlExpiresOn()`（`services/photoStorageService.ts`）が応答ごとに1回決めて、その応答のすべての URL と `urlExpiresAt` に同じ値を使う。
+  一時画像の `generateTempSasUrl()` は `startsOn` を渡さない薄い包みで、既存の `upload` の振る舞いを変えない
 - 1応答で数百枚分を生成するが、SAS の生成はローカルの署名計算だけで Blob へは通信しない
 - URL をクライアントから受け取る API は無い。クライアントは `cacheKey` に `photo-<id>` / `thumb-<id>` を使い、URL の変化に影響されない
 - 期限切れの URL は Blob が 403 を返す。クライアントは一覧を取り直す

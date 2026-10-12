@@ -90,7 +90,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 作成すると `type: "trip"`・`tags: []`・`description: null`・同じ `createdAt` / `updatedAt` で保存される。`name` の前後の空白が除かれる
 - 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
 - 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる
-  （PR 3 では枚数と期間だけ。表紙の結果を渡すのは PR 4a で、それまで `coverThumbnailUrl` は常に `null`）。
+  （PR 3 では枚数と期間だけ。表紙の結果を渡すのは PR 4a-2 で、それまで `coverThumbnailUrl` は常に `null`）。
   期間の行が無い旅行（撮影日時のある写真が無い）は `firstTakenAt` / `lastTakenAt` が `null`
 - 未所属の枚数: 枚数の行のうち `tripId` が `null` の行の `photoCount` が `unassignedPhotoCount` になる（旅行の一覧に無い id の行は数えない）
 - 表紙はサムネイルが無ければ原寸

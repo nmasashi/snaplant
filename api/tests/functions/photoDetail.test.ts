@@ -195,5 +195,48 @@ describe('写真詳細API', () => {
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
     });
+
+    // 写真のURLは、接続文字列のアカウント名と鍵で署名して作る。鍵が無いまま空の鍵で署名すると、
+    // 見かけは普通のURLなのに Blob Storage が403で拒む壊れたURLを返してしまう。
+    // このファイルでは署名の関数を固定のトークンを返す形に差し替えているので、空の鍵で署名したことは
+    // 応答からは見えない。だから「鍵が無ければURLを作らず、500で決まった文言を返す」ことで確かめる。
+    // 写真は保存済みにして、設定以外はすべて正しい状態にする
+    it('写真の保存先の設定に鍵が無ければ、壊れたURLを返さず500で決まった文言を返す', async () => {
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const savedPhoto: PhotoDocument = {
+        id: PHOTO_ID,
+        type: 'photo',
+        tripId: null,
+        blobName: `${PHOTO_ID}.jpg`,
+        thumbnailBlobName: null,
+        contentType: 'image/jpeg',
+        fileSize: 10,
+        takenAt: null,
+        takenAtSource: 'none',
+        sortAt: '2026-10-10T12:12:44',
+        location: null,
+        category: null,
+        tags: [],
+        comment: null,
+        commentSource: null,
+        hint: null,
+        classification: null,
+        identification: null,
+        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+        uploadedAt: '2026-10-10T03:12:44.000Z',
+        updatedAt: '2026-10-10T03:12:44.000Z'
+      };
+      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto });
+      const request = createGetPhotoRequest(PHOTO_ID);
+
+      const response = await getPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(500);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('INTERNAL_ERROR');
+      expect(body.error.message).toBe('写真詳細の取得に失敗しました');
+    });
   });
 });

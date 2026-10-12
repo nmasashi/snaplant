@@ -115,8 +115,8 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
 | `location` | object \| null | ○（null 可） | 2 | 位置情報。無ければ `null`（要件 5.2「位置情報は必須にしない」） |
 | `location.latitude` / `longitude` | number | ○ | 2 | 緯度（-90〜90）・経度（-180〜180） |
-| `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`） |
-| `location.placeSource` | `"device"` \| `"server"` \| null | ○（null 可） | 2 | 地名の出どころ。段階2は `"device"`（端末の Geocoder）か `null`。段階3で Azure Maps が埋めたら `"server"` |
+| `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`）で、空白だけは不可。送られたまま保存する（前後の空白を除かない） |
+| `location.placeSource` | `"device"` \| `"server"` \| null | ○（null 可） | 2 | 地名の出どころ。段階2は、`placeName` を送られたら `"device"`（端末の Geocoder）、無ければ `null`。段階3で Azure Maps が埋めたら `"server"` |
 | `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーだけが書く。横断は `c.category = @category`（§5 の 5.4） |
 | `tags` | string[] | ○ | 2 | 利用者が付けるタグだけ（§2）。段階2は `[]`。AI は書かない |
 | `comment` | string \| null | ○（null 可） | 2（値は4） | 一言コメント。500 文字まで（`PHOTO_COMMENT_MAX_LENGTH`） |
@@ -125,7 +125,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `classification` | object \| null | ○（null 可） | 3 | `{ kind, confidence, model, at }`。[06 §2](./06_processing_design.md#2-分類段階3) |
 | `identification` | object \| null | ○（null 可） | 4 | `{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`（§3.1）。**図鑑はこの項目からまとめる**。「種類ごとの1件に写真が複数」（要件 5.5）は `identification.kind` と `identification.name` が同じ写真の集まりとして表す。[06 §3](./06_processing_design.md#3-識別段階4) |
 | `processing` | object | ○ | 2（値は3） | `{ state, step, attempts, lastError, updatedAt }`。`state` は `none` / `pending` / `classifying` / `identifying` / `done` / `failed`、`step` は `null` / `classify` / `identify`（次にやる、またはやっている処理。タイマーが再投入するときに見る。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。段階2は `state: "none"`・`step: null` 固定 |
-| `uploadedAt` / `updatedAt` | string (ISO 8601, UTC) | ○ | 2 | サーバが付ける |
+| `uploadedAt` / `updatedAt` | string (ISO 8601, UTC) | ○ | 2 | サーバが付ける。作成時は同じ値 |
 
 段階2から**全項目を書く**（段階3・4で使う項目も `null` で）。項目が無いドキュメントと `null` のドキュメントは Cosmos SQL で振る舞いが違う
 （`IS_NULL` は欠損で偽、`IS_DEFINED` は null で真）ので、後から項目を足すときに「無い」を2通り扱わずに済むようにする。
@@ -338,14 +338,14 @@ export const CATALOG_KINDS = {
 | `images`（既存） | `blob`（公開） | 植物図鑑の画像。段階4で廃止 | — |
 | `temp-images`（既存） | `private` | `upload` の一時保存。段階2でライフサイクル（1日で削除）を足す。段階4で廃止 | — |
 
-コンテナ名は環境変数 `PHOTO_STORAGE_CONTAINER_NAME` から取る（`'photos'` はコードのフォールバック。Terraform が作るのも `photos`）。
+コンテナ名は環境変数 `PHOTO_STORAGE_CONTAINER_NAME` から取る（Terraform が作るのは `photos`）。**コードにフォールバックは無い**（`temp-images` の `'temp'` と違い、未設定なら既定のコンテナ名を使わない）。
 
 ### 4.2 Blob 名
 
 | Blob | 名前 | Content-Type | 上限 |
 |---|---|---|---|
 | 原寸 | `<photoId><拡張子>`。拡張子は検証済みの Content-Type から `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE` で引く（クライアントのファイル名は使わない。既存と同じ理由） | 送られたもの | `MAX_FILE_SIZE`（10MB） |
-| サムネイル | `<photoId>.thumb.jpg` | `image/jpeg` 固定 | `THUMBNAIL_MAX_SIZE`（1MB） |
+| サムネイル | `<photoId>.thumb.jpg`（送られた形式に依らず `.thumb.jpg`） | 送られたもの（JPEG を想定するが、`FILE_UPLOAD.SUPPORTED_IMAGE_TYPES` のどれでも受け付ける） | `THUMBNAIL_MAX_SIZE`（1MB） |
 
 - 名前が `photoId` から決まるので、**同じ写真の再送は同じ Blob への上書き**（冪等）。孤児が残りうるのは「ドキュメント作成前にアプリが落ちた Blob」だけで、
   名前から機械的に見つけられる（`photos` の Blob 名の先頭 64 文字が `album` に無いもの）
@@ -411,7 +411,7 @@ SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.t
 
 `container.item(tripId, tripId).read()`。`resource` が無いか、あっても `type` が `"trip"` でなければ無いものとして扱う（旅行と写真が同じコンテナにあるため。更新の前の読み取りも同じ。`AlbumService` の `readTrip()`）。
 集計は §5.1 の枚数・期間の `GROUP BY` のクエリに `AND c.tripId = @tripId` を足したもの（`albumQueries.ts` の同じ関数に `tripId` を渡す）。
-行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙の `TOP 1` は写真の API（PR 4a）で足す（それまで `null`）。
+行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙の `TOP 1` は写真の一覧の API（PR 4a-2）で足す（それまで `null`）。
 
 ### 5.3 旅行の写真一覧
 
@@ -547,13 +547,14 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 ### 7.1 操作ごとの表
 
-**写真の送信**（`POST /api/photos`。[05 §5.1](./05_api_design.md#51-post-apiphotos)。順: 文書を読む → 原寸 → サムネイル → `create`）
+**写真の送信**（`POST /api/photos`。[05 §5.1](./05_api_design.md#51-post-apiphotos)。順: 写真の文書を読む（あれば 200 で返して終わり）→（`tripId` があれば）旅行を読む → 原寸 → サムネイル → `create`）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| 原寸の Blob | 何も残らない（10 MB 以下の `uploadData` は1回の書き込みで、途中の状態は見えない。推測） | 送信の失敗 | 再送 |
-| サムネイルの Blob | 原寸の Blob だけ。文書は無い | 送信の失敗。一覧に出ない | 再送（同じ Blob 名に上書き）。送り直さなければ孤児 Blob → 掃除 |
-| `create`（409 以外） | 原寸・サムネイルの Blob。文書は無い | 同上 | 同上 |
+| 旅行・写真の文書の読み取り | 何も残らない | 送信の失敗（503 / 500） | 再送 |
+| 原寸の Blob | 何も残らない（`BlockBlobClient.upload()` は Put Blob 1回の書き込みで、途中の状態は見えない。推測） | 送信の失敗（502 / 503） | 再送 |
+| サムネイルの Blob | 原寸の Blob だけ。文書は無い | 送信の失敗（502 / 503）。一覧に出ない | 再送（同じ Blob 名に上書き）。送り直さなければ孤児 Blob → 掃除 |
+| `create`（409 以外） | 原寸・サムネイルの Blob。文書は無い | 送信の失敗（503 / 500）。一覧に出ない | 同上 |
 | `create` の後、応答が届かない | 正しい状態 | 送信の失敗に見える | 再送で 200（既存） |
 | `tripId` の旅行が、存在の検査の後に消された（旅行の削除との競合） | 消えた旅行を指す写真 | どの一覧にも出ない（写真は消えていない） | 掃除（段階3のタイマーが未所属に戻す。段階2の間は見えないまま）。アプリは削除の前に送信を止める（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）のでまれ（§7.3） |
 | 同じ写真の削除と重なる（削除が文書を消した後に送信が文書を作り、削除が Blob を消す） | Blob の無い文書 | 「画像を読み込めません」 | **手**（写真を削除して送り直す。再送は既存を返すので直らない）。削除の文書の削除と Blob の削除の間に送信の読み取り・Blob・`create` が全部挟まる必要があり、1人で使う限り実質起きない。掃除のタイマーが検出してログに出す |

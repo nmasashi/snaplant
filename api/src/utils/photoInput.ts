@@ -10,8 +10,8 @@ export interface PhotoInput {
   image: Buffer;
   /** 原寸の Content-Type（小文字にそろえたもの） */
   contentType: string;
-  thumbnail: Buffer | null;
-  thumbnailContentType: string | null;
+  /** サムネイル。送られなければ null */
+  thumbnail: { data: Buffer; contentType: string } | null;
   tripId: string | null;
   takenAt: string | null;
   location: { latitude: number; longitude: number; placeName: string | null } | null;
@@ -124,8 +124,9 @@ export async function readPhotoInput(request: HttpRequest): Promise<Result> {
       photoId,
       image: imageBuffer,
       contentType: image.type.toLowerCase(),
-      thumbnail: thumbnail ? Buffer.from(await thumbnail.arrayBuffer()) : null,
-      thumbnailContentType: thumbnail ? thumbnail.type.toLowerCase() : null,
+      thumbnail: thumbnail
+        ? { data: Buffer.from(await thumbnail.arrayBuffer()), contentType: thumbnail.type.toLowerCase() }
+        : null,
       tripId: tripId as string | null,
       takenAt: takenAt as string | null,
       location: hasLocation ? { latitude: lat!, longitude: lng!, placeName: placeName as string | null } : null,
@@ -195,7 +196,7 @@ function isExistingDateTime(value: string): boolean {
  * @param limit 絶対値の上限（緯度 90、経度 180）
  */
 function toCoordinate(value: FormValue, limit: number): number | null {
-  if (typeof value !== 'string' || value.trim() === '') {
+  if (typeof value !== 'string' || !PHOTO_VALIDATION.COORDINATE_REGEX.test(value)) {
     return null;
   }
   const n = Number(value);

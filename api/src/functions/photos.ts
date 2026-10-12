@@ -29,10 +29,6 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
   try {
     const album = new AlbumService();
 
-    if (input.tripId && !(await album.tripExists(input.tripId))) {
-      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-    }
-
     const storage = new PhotoStorageService();
 
     // 同じ写真は1枚。既にあれば Blob にも触らず、送り先の旅行も変えずにそのまま返す
@@ -42,12 +38,18 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
       return createSuccessResponse(photoResponseData(existing, storage));
     }
 
+    // 旅行の確認は保存済みの確認の後。先にすると、保存に成功して応答が届かず、その間に旅行が
+    // 消されたときの再送が 404 になり、冪等でなくなる
+    if (input.tripId && !(await album.tripExists(input.tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+
     const blobName = `${input.photoId}${FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE[input.contentType]}`;
     const thumbnailBlobName = input.thumbnail ? `${input.photoId}.thumb.jpg` : null;
 
     await storage.upload(blobName, input.image, input.contentType);
     if (input.thumbnail && thumbnailBlobName) {
-      await storage.upload(thumbnailBlobName, input.thumbnail, input.thumbnailContentType!);
+      await storage.upload(thumbnailBlobName, input.thumbnail.data, input.thumbnail.contentType);
     }
 
     const now = new Date().toISOString();

@@ -17,7 +17,7 @@
  * @param fallback 読めない場合に使う既定値
  * @returns 正の整数
  */
-function positiveIntFromEnv(value: string | undefined, fallback: number): number {
+export function positiveIntFromEnv(value: string | undefined, fallback: number): number {
   const parsed = parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -136,6 +136,8 @@ export const PHOTO_VALIDATION = {
   ID_REGEX: /^[0-9a-f]{64}$/,
   // 撮影日時はタイムゾーン無し（Z や +09:00 を付けると Flutter の toLocal() で9時間ずれる）
   TAKEN_AT_REGEX: /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/,
+  // 緯度・経度は10進だけ。Number() に任せると 16進・2進・8進・指数表記・前後の空白も数値として通る
+  COORDINATE_REGEX: /^-?[0-9]+(\.[0-9]+)?$/,
   MAX_LENGTH: {
     PLACE_NAME: positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)
   },
