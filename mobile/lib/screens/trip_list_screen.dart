@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/message_view.dart';
+import '../widgets/trip_edit_dialog.dart';
 
 /// 旅行一覧画面（旅行タブ。docs/travel-album/03_screen_design.md §4.2）
 ///
@@ -51,6 +52,21 @@ class _TripListScreenState extends State<TripListScreen> {
     }
   }
 
+  /// 旅行の作成ダイアログを開く
+  Future<void> _openCreateDialog() async {
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (context) => TripEditDialog(
+        onSave: (name, description) =>
+            widget.apiService.createTrip(name, description),
+      ),
+    );
+    if (created != true || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('旅行を作成しました')));
+    await _loadTrips();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -64,6 +80,15 @@ class _TripListScreenState extends State<TripListScreen> {
         ],
       ),
       body: _buildBody(),
+      floatingActionButton: FloatingActionButton.extended(
+        // 図鑑タブの FAB と同時に存在する（IndexedStack）。既定のタグのままだと画面遷移の Hero が重複する
+        heroTag: 'createTrip',
+        onPressed: _openCreateDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('旅行を作る'),
+        backgroundColor: AppColors.secondary,
+        foregroundColor: AppColors.textOnPrimary,
+      ),
     );
   }
 

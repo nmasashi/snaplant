@@ -29,17 +29,38 @@ Map<String, Object?> tripJson({
 }
 
 /// GET /api/trips に、[trips]（この順）と [unassignedPhotoCount] を返す偽のサーバ。
+/// POST /api/trips には、本文の `name` で旅行を作って 201 を返し、以降の一覧の先頭に加える（0枚・撮影日時なし）。
 /// それ以外のメソッドやパス（図鑑タブの GET /api/plants を含む）は 404 にする。
 /// 図鑑タブは旅行のテストの関心の外で、404 でもエラー表示になるだけで旅行タブには影響しない。
 /// [failFirst] を渡すと、一覧の取得は最初のその回数だけ 503（データベースに接続できない）を返し、以降は成功する
-/// （再試行で読み直したかどうかを、2回目の成功で見分けるため）
+/// （再試行で読み直したかどうかを、2回目の成功で見分けるため）。
+/// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
+/// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
 MockClient tripServer(
   List<Map<String, Object?>> trips, {
   required int unassignedPhotoCount,
   int failFirst = 0,
 }) {
   var listRequests = 0;
+  final created = <Map<String, Object?>>[];
   return MockClient((request) async {
+    if (request.method == 'POST' && request.url.path == '/api/trips') {
+      final body = json.decode(request.body) as Map<String, dynamic>;
+      final trip = tripJson(
+        id: '3f2504e0-4f89-41d3-9a0c-0305e82c33${created.length.toString().padLeft(2, '0')}',
+        name: (body['name'] as String).trim(),
+        photoCount: 0,
+      );
+      created.insert(0, trip);
+      return http.Response(
+        json.encode({
+          'success': true,
+          'data': {'trip': trip},
+        }),
+        201,
+        headers: const {'content-type': 'application/json'},
+      );
+    }
     if (request.method != 'GET' || request.url.path != '/api/trips') {
       return http.Response('', 404);
     }
@@ -58,8 +79,8 @@ MockClient tripServer(
       json.encode({
         'success': true,
         'data': {
-          'trips': trips,
-          'total': trips.length,
+          'trips': [...created, ...trips],
+          'total': created.length + trips.length,
           'unassignedPhotoCount': unassignedPhotoCount,
         },
       }),

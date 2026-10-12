@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -106,5 +107,54 @@ void main() {
     expect(find.text('北海道 2026秋'), findsOneWidget);
     expect(find.text('8枚'), findsOneWidget);
     expect(find.text('エラーが発生しました'), findsNothing);
+  });
+
+  testWidgets('旅行を作るダイアログで旅行名が空白だけのまま「作成」を押すと、入力欄の下に注意を出し、旅行は作られない', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    // 送られたら成功して旅行が増える偽のサーバ。送られなかったことは、旅行が増えず、ダイアログが開いたままであることで見る
+    final server = tripServer([], unassignedPhotoCount: 0);
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.byType(FloatingActionButton));
+    await letFramesRun(tester);
+    // 「旅行を作る」は一覧の案内文・ボタン・ダイアログの見出しに出るので、ダイアログの中に絞って見る
+    final dialog = find.byType(Dialog);
+    expect(find.descendant(of: dialog, matching: find.text('旅行を作る')), findsOneWidget);
+    await tester.enterText(find.descendant(of: dialog, matching: find.byType(TextField)).first, '   ');
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('作成')));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: dialog, matching: find.text('旅行名を入力してください')), findsOneWidget);
+    expect(find.text('旅行を作成しました'), findsNothing);
+    // 一覧には旅行が増えておらず、0件の案内のまま
+    expect(find.text('まだ旅行がありません'), findsOneWidget);
+  });
+
+  testWidgets('旅行を作るダイアログで旅行名を入れて「作成」を押すと、ダイアログが閉じて「旅行を作成しました」と出て、一覧に新しい旅行が加わる', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    // 作った旅行は偽のサーバが覚え、読み直した一覧に載せる。最初の一覧は0件
+    final server = tripServer([], unassignedPhotoCount: 0);
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.byType(FloatingActionButton));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+    await tester.enterText(find.descendant(of: dialog, matching: find.byType(TextField)).first, '北海道 2026秋');
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('作成')));
+    await letFramesRun(tester);
+
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行を作成しました'), findsOneWidget);
+    expect(find.text('北海道 2026秋'), findsOneWidget);
+    expect(find.text('0枚 · 撮影日時なし'), findsOneWidget);
+    expect(find.text('まだ旅行がありません'), findsNothing);
   });
 }

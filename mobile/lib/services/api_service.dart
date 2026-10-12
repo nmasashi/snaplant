@@ -437,6 +437,25 @@ class ApiService {
     }
   }
 
+  /// 旅行作成
+  /// POST /api/trips
+  Future<Trip> createTrip(String name, String? description) async {
+    try {
+      final url = _buildUrl('/api/trips');
+      final response = await _client.post(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'name': name, 'description': description}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Trip.fromJson(data['trip'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 接続テスト
   Future<bool> testConnection() async {
     try {
