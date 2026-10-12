@@ -10,25 +10,29 @@ import '../utils/image_mime_type.dart';
 /// Azure Functions API との通信を担当するサービスクラス
 /// Function Key認証を使用してAPIにアクセス
 class ApiService {
-  static const String _defaultBaseUrl = 'https://func-snaplant-mk0w7s38.azurewebsites.net';
-  
+  static const String _defaultBaseUrl =
+      'https://func-snaplant-mk0w7s38.azurewebsites.net';
+
   final String baseUrl;
   final String? functionKey;
   final http.Client _client;
-  
+  // 自分で作った client だけを閉じる。渡された client は渡した側のもので、閉じると渡した側が使い回せなくなる
+  final bool _ownsClient;
+
   ApiService({
     String? baseUrl,
     this.functionKey,
     http.Client? client,
   })  : baseUrl = baseUrl ?? _defaultBaseUrl,
-        _client = client ?? http.Client();
-  
+        _client = client ?? http.Client(),
+        _ownsClient = client == null;
+
   /// API リクエストのヘッダーを取得
   Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  };
-  
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
   /// Function Key付きのURLを構築
   String _buildUrl(String endpoint) {
     final uri = Uri.parse('$baseUrl$endpoint');
@@ -40,7 +44,7 @@ class ApiService {
     }
     return uri.toString();
   }
-  
+
   /// HTTP レスポンスをパース
   T _parseResponse<T>(
     http.Response response,
@@ -53,14 +57,14 @@ class ApiService {
       throw ApiException.fromResponse(response);
     }
   }
-  
+
   /// エラーハンドリング
   ApiException _handleError(dynamic error) {
     // デバッグ用ログ出力
     if (kDebugMode) {
       debugPrint('ApiService Error: ${error.runtimeType} - $error');
     }
-    
+
     if (error is ApiException) {
       return error;
     } else if (error is SocketException && !kIsWeb) {
@@ -83,8 +87,8 @@ class ApiService {
         message: 'API接続エラーが発生しました',
         body: error.toString(),
       );
-    } else if (error.toString().contains('NetworkException') || 
-               error.toString().contains('Failed host lookup')) {
+    } else if (error.toString().contains('NetworkException') ||
+        error.toString().contains('Failed host lookup')) {
       return ApiException(
         statusCode: 0,
         message: 'ネットワークに接続できません',
@@ -106,19 +110,20 @@ class ApiService {
       );
     }
   }
-  
+
   /// 画像アップロードとAI識別を統合実行
   /// POST /api/images/upload（docsワークフローに準拠）
-  Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile, {String? contextInfo}) async {
+  Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile,
+      {String? contextInfo}) async {
     try {
       if (kDebugMode) {
         debugPrint('ApiService: uploadAndIdentifyImage開始');
         debugPrint('ApiService: imageFile type: ${imageFile.runtimeType}');
       }
-      
+
       final url = _buildUrl('/api/images/upload');
       final request = http.MultipartRequest('POST', Uri.parse(url));
-      
+
       // Web環境とモバイル環境で異なる処理
       if (kIsWeb) {
         // Web環境の場合、Uint8Listを期待
@@ -145,7 +150,7 @@ class ApiService {
             debugPrint('ApiService: モバイル環境 - ファイルパス: ${imageFile.path}');
             debugPrint('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
           }
-          
+
           // 拡張子ではなく中身のシグネチャで判定する。判定に必要なのは先頭12バイトだけ
           final header = await imageFile
               .openRead(0, 12)
@@ -155,7 +160,7 @@ class ApiService {
           if (kDebugMode) {
             debugPrint('ApiService: 検出MIMEタイプ: $mimeType');
           }
-          
+
           request.files.add(
             await http.MultipartFile.fromPath(
               'image',
@@ -168,7 +173,7 @@ class ApiService {
           throw ArgumentError('モバイル環境では画像データはFileである必要があります');
         }
       }
-      
+
       // コンテキスト情報がある場合は追加
       if (contextInfo != null && contextInfo.isNotEmpty) {
         request.fields['contextInfo'] = contextInfo;
@@ -176,14 +181,14 @@ class ApiService {
           debugPrint('ApiService: コンテキスト情報追加: $contextInfo');
         }
       }
-      
+
       if (kDebugMode) {
         debugPrint('ApiService: HTTP リクエスト送信開始');
       }
-      
+
       final streamedResponse = await _client.send(request);
       final response = await http.Response.fromStream(streamedResponse);
-      
+
       if (kDebugMode) {
         debugPrint('ApiService: HTTPレスポンス受信 - ステータス: ${response.statusCode}');
         debugPrint('ApiService: レスポンスボディ長: ${response.body.length}');
@@ -191,7 +196,7 @@ class ApiService {
           debugPrint('ApiService: エラーレスポンス: ${response.body}');
         }
       }
-      
+
       return _parseResponse(
         response,
         (json) {
@@ -208,7 +213,8 @@ class ApiService {
               imagePath: data['imagePath'] as String,
               imageUrl: data['imagePath'] as String,
             ),
-            'identificationResult': IdentificationResult.fromJson(data['identificationResult']),
+            'identificationResult':
+                IdentificationResult.fromJson(data['identificationResult']),
           };
         },
       );
@@ -224,12 +230,13 @@ class ApiService {
   /// GET /api/plants/check-duplicate（docsワークフローに準拠）
   Future<DuplicateCheckResult> checkDuplicate(String plantName) async {
     try {
-      final url = _buildUrl('/api/plants/check-duplicate?name=${Uri.encodeComponent(plantName)}');
+      final url = _buildUrl(
+          '/api/plants/check-duplicate?name=${Uri.encodeComponent(plantName)}');
       final response = await _client.get(
         Uri.parse(url),
         headers: _headers,
       );
-      
+
       return _parseResponse(
         response,
         (json) {
@@ -254,7 +261,7 @@ class ApiService {
       throw _handleError(error);
     }
   }
-  
+
   /// 植物保存
   /// POST /api/plants/save
   Future<Plant> savePlant(PlantCreateRequest request) async {
@@ -265,7 +272,7 @@ class ApiService {
         headers: _headers,
         body: json.encode(request.toJson()),
       );
-      
+
       return _parseResponse(
         response,
         (json) {
@@ -284,7 +291,7 @@ class ApiService {
       throw _handleError(error);
     }
   }
-  
+
   /// 植物一覧取得
   /// GET /api/plants
   Future<List<PlantSummary>> getPlants() async {
@@ -294,7 +301,7 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
       );
-      
+
       return _parseResponse(
         response,
         (json) {
@@ -324,7 +331,7 @@ class ApiService {
       throw _handleError(error);
     }
   }
-  
+
   /// 植物詳細取得
   /// GET /api/plants/{id}
   Future<Plant> getPlant(String id) async {
@@ -334,7 +341,7 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
       );
-      
+
       return _parseResponse(
         response,
         (json) {
@@ -356,10 +363,11 @@ class ApiService {
       throw _handleError(error);
     }
   }
-  
+
   /// 植物更新
   /// PUT /api/plants/{id}
-  Future<Plant> updatePlant(String id, String imagePath, double confidence) async {
+  Future<Plant> updatePlant(
+      String id, String imagePath, double confidence) async {
     try {
       final url = _buildUrl('/api/plants/$id');
       final response = await _client.put(
@@ -370,7 +378,7 @@ class ApiService {
           'confidence': confidence,
         }),
       );
-      
+
       return _parseResponse(
         response,
         (json) {
@@ -389,7 +397,7 @@ class ApiService {
       throw _handleError(error);
     }
   }
-  
+
   /// 植物削除
   /// DELETE /api/plants/{id}
   Future<void> deletePlant(String id) async {
@@ -399,7 +407,7 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
       );
-      
+
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException.fromResponse(response);
       }
@@ -407,7 +415,7 @@ class ApiService {
       throw _handleError(error);
     }
   }
-  
+
   /// 接続テスト
   Future<bool> testConnection() async {
     try {
@@ -416,16 +424,18 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
       );
-      
+
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (error) {
       return false;
     }
   }
-  
+
   /// リソースのクリーンアップ
   void dispose() {
-    _client.close();
+    if (_ownsClient) {
+      _client.close();
+    }
   }
 }
 
@@ -464,7 +474,8 @@ class ApiException implements Exception {
     return ApiException(
       statusCode: response.statusCode,
       code: error?.code,
-      message: error?.message ?? 'サーバーでエラーが発生しました（ステータス: ${response.statusCode}）',
+      message:
+          error?.message ?? 'サーバーでエラーが発生しました（ステータス: ${response.statusCode}）',
       body: response.body,
     );
   }
@@ -480,12 +491,12 @@ class ApiException implements Exception {
   /// PUT は自分自身を重複から除外するので 409 にはならない。
   /// 同じ 409 でも `DATABASE_ERROR` は本当の失敗なので、ステータスではなくコードで判定する
   bool get isImageAlreadySaved => code == 'IMAGE_ALREADY_SAVED';
-  
+
   @override
   String toString() {
     return 'ApiException(statusCode: $statusCode, message: $message)';
   }
-  
+
   /// ユーザー向けのエラーメッセージを取得
   String get userMessage {
     switch (statusCode) {

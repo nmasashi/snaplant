@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/plant_list_screen.dart';
+import 'package:http/http.dart' as http;
+import 'app_root.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 
@@ -17,7 +18,11 @@ void main() {
 /// SnapPlant アプリケーションのメインクラス
 /// Material Design 3.0と植物テーマを採用
 class SnapPlantApp extends StatelessWidget {
-  const SnapPlantApp({super.key});
+  const SnapPlantApp({super.key, this.httpClient});
+
+  /// サーバとの通信に使う HTTP クライアント。テストで偽のサーバ（MockClient）を差し込むためのもので、
+  /// 通常は null（設定を読むたびに新しいクライアントを作る）
+  final http.Client? httpClient;
 
   @override
   Widget build(BuildContext context) {
@@ -34,10 +39,10 @@ class SnapPlantApp extends StatelessWidget {
     return MaterialApp(
       title: 'SnapPlant',
       debugShowCheckedModeBanner: false,
-      
+
       // テーマ設定
       theme: AppTheme.lightTheme,
-      
+
       // 1440×2960画面向けのレスポンシブ対応
       builder: (context, child) {
         return MediaQuery(
@@ -47,9 +52,9 @@ class SnapPlantApp extends StatelessWidget {
           child: child!,
         );
       },
-      
+
       // 初期画面
-      home: const PlantListScreen(),
+      home: AppRoot(httpClient: httpClient),
     );
   }
 }
