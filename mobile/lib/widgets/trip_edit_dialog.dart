@@ -37,6 +37,8 @@ class _TripEditDialogState extends State<TripEditDialog> {
   late final _descriptionController =
       TextEditingController(text: widget.initialDescription ?? '');
   String? _nameError;
+  // 送信中は押せなくする（同じ旅行を二重に作らないように）
+  bool _isSaving = false;
 
   @override
   void dispose() {
@@ -52,12 +54,14 @@ class _TripEditDialogState extends State<TripEditDialog> {
       return;
     }
     final description = _descriptionController.text;
+    setState(() => _isSaving = true);
     try {
       await widget.onSave(_nameController.text.trim(),
           description.isEmpty ? null : description);
     } catch (e) {
       debugPrint('TripEditDialog: 旅行の保存エラー: $e');
       if (!mounted) return;
+      setState(() => _isSaving = false);
       // ダイアログに留まり、入力は残す（直して送り直せるように）
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.userMessage : '旅行の保存に失敗しました')));
@@ -99,7 +103,11 @@ class _TripEditDialogState extends State<TripEditDialog> {
           child: const Text('キャンセル'),
         ),
         ElevatedButton(
-            onPressed: _submit, child: Text(widget.isEditing ? '保存' : '作成')),
+          onPressed: _isSaving ? null : _submit,
+          child: Text(widget.isEditing
+              ? (_isSaving ? '保存中...' : '保存')
+              : (_isSaving ? '作成中...' : '作成')),
+        ),
       ],
     );
   }

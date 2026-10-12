@@ -312,4 +312,33 @@ void main() {
     expect(find.text('京都'), findsOneWidget);
     expect(find.text('大阪'), findsOneWidget);
   });
+
+  testWidgets('旅行を作っている間は「作成」が「作成中...」になり、押し直しても旅行は二重に作られない', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    // 作成の応答を止めておき、作成中の状態を見る
+    final release = Completer<void>();
+    final server = tripServer([], unassignedPhotoCount: 0, holdCreateUntil: release.future);
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.byType(FloatingActionButton));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+    await tester.enterText(find.descendant(of: dialog, matching: find.byType(TextField)).first, '北海道 2026秋');
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('作成')));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: dialog, matching: find.text('作成中...')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('作成')), findsNothing);
+
+    // 作成中のボタンを押し直しても、応答が返った後に旅行が1つしか載らない
+    await tester.tap(find.descendant(of: dialog, matching: find.text('作成中...')));
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('北海道 2026秋'), findsOneWidget);
+  });
 }

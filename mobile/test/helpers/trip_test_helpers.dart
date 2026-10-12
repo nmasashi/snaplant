@@ -51,6 +51,8 @@ Map<String, Object?> tripJson({
 /// [holdListUntil] を渡すと、`GET /api/trips` の応答はそれが終わる（Completer の complete）まで返さない。
 /// [tripsFromSecondList] を渡すと、`GET /api/trips` の2回目以降の一覧はこの旅行にする（別の端末で旅行が増えた想定。
 /// 読み直したかどうかを、増えた旅行が出るかで見分けるため）。
+/// [holdCreateUntil] を渡すと、`POST /api/trips` の応答はそれが終わるまで返さない（作成中の状態を見るため）。
+/// 同じ旅行が二重に作られたかどうかは、作った旅行が一覧に何件載るかで見分けられる。
 /// [failFirstDetail] を渡すと、詳細の取得（GET /api/trips/{tripId}）は最初のその回数だけ 503 を返し、以降は成功する。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
@@ -67,6 +69,7 @@ MockClient tripServer(
   Future<void>? holdListUntil,
   List<Map<String, Object?>>? tripsFromSecondList,
   int failFirstDetail = 0,
+  Future<void>? holdCreateUntil,
 }) {
   var detailRequests = 0;
   var listRequests = 0;
@@ -158,6 +161,8 @@ MockClient tripServer(
       );
     }
     if (request.method == 'POST' && request.url.path == '/api/trips') {
+      // 処理中の状態を見るため、作成の応答を [holdCreateUntil] が終わるまで止める
+      if (holdCreateUntil != null) await holdCreateUntil;
       if (rejectCreateWith != null) {
         return http.Response(
           json.encode({
