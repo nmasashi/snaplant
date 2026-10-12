@@ -2,9 +2,10 @@ import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { createPhotoHandler } from '../../src/functions/photos';
-import { TripDocument } from '../../src/types/album';
+import { PhotoDocument, TripDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -39,6 +40,17 @@ const THUMBNAIL_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
 
 // 送り先の旅行の id（UUID v4 の形）
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
+
+/** TRIP_ID の旅行のドキュメント（偽物の documents に置いて「旅行がある」状態を作る） */
+const tripDocument = (): TripDocument => ({
+  id: TRIP_ID,
+  type: 'trip',
+  name: '北海道 2026秋',
+  description: null,
+  tags: [],
+  createdAt: '2026-10-04T09:00:00.000Z',
+  updatedAt: '2026-10-04T09:00:00.000Z'
+});
 
 const multipartHeaders = (): Map<string, string> =>
   new Map([['content-type', 'multipart/form-data; boundary=---test']]);
@@ -227,16 +239,7 @@ describe('写真API', () => {
     });
 
     it('送り先の旅行を指定すると、その旅行の写真として保存される', async () => {
-      const trip: TripDocument = {
-        id: TRIP_ID,
-        type: 'trip',
-        name: '北海道 2026秋',
-        description: null,
-        tags: [],
-        createdAt: '2026-10-04T09:00:00.000Z',
-        updatedAt: '2026-10-04T09:00:00.000Z'
-      };
-      cosmosBackend.documents.set(trip.id, trip);
+      cosmosBackend.documents.set(TRIP_ID, tripDocument());
       const request = createPhotoRequest(formDataWith({ tripId: TRIP_ID }));
 
       const response = await createPhotoHandler(request, mockContext);
@@ -245,6 +248,177 @@ describe('写真API', () => {
       expect((response.jsonBody as any).data.photo.tripId).toBe(TRIP_ID);
       expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ type: 'photo', tripId: TRIP_ID });
     });
+
+    it('送り先に指定した旅行が無いと404で理由を返し、Blobにもデータベースにも何も保存しない', async () => {
+      // tripId の形式は正しい（UUID）が、その旅行はデータベースに無い（documents は空のまま）。
+      // サムネイルも付けて、原寸だけでなくサムネイルも書かれないことを見る
+      const request = createPhotoRequest(
+        formDataWith({ tripId: TRIP_ID, thumbnail: jpegFile(THUMBNAIL_BYTES) })
+      );
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(404);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('TRIP_NOT_FOUND');
+      expect(body.error.message).toBe('指定された旅行が見つかりません');
+      expect(blobStore).toEqual(new Map());
+      expect(cosmosBackend.documents).toEqual(new Map());
+    });
+
+    it('同じ写真をもう一度送ると、200で保存済みの写真を返し、画像は上書きしない', async () => {
+      jest.useFakeTimers({
+        now: new Date('2026-10-10T03:12:45.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
+      // 保存済みの写真。送る内容と区別できるよう、旅行に属さず（tripId: null）、サムネイルも無く、
+      // 保存後に利用者が付けたカテゴリ・タグ・コメントがあり、画像のバイト列も送るものと違う
+      const savedBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+      const savedFields: Omit<PhotoDocument, 'type' | 'blobName' | 'thumbnailBlobName'> = {
+        id: PHOTO_ID,
+        tripId: null,
+        contentType: 'image/jpeg',
+        fileSize: 12,
+        takenAt: '2026-09-20T08:15:30',
+        takenAtSource: 'exif',
+        sortAt: '2026-09-20T08:15:30',
+        location: { latitude: 35.6586, longitude: 139.7454, placeName: '東京都港区', placeSource: 'device' },
+        category: 'food',
+        tags: ['朝食'],
+        comment: 'ホテルの朝食',
+        commentSource: 'user',
+        hint: null,
+        classification: null,
+        identification: null,
+        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+        uploadedAt: '2026-09-21T01:00:00.000Z',
+        updatedAt: '2026-09-22T02:30:00.000Z'
+      };
+      const savedPhoto: PhotoDocument = {
+        ...savedFields,
+        type: 'photo',
+        blobName: `${PHOTO_ID}.jpg`,
+        thumbnailBlobName: null
+      };
+      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto });
+      cosmosBackend.documents.set(TRIP_ID, tripDocument());
+      blobStore.set(`photos/${PHOTO_ID}.jpg`, { content: savedBytes, contentType: 'image/jpeg' });
+      // 旅行（tripId）とサムネイルを付けて、同じ写真（同じ photoId・同じ画像）をもう一度送る
+      const request = createPhotoRequest(
+        formDataWith({ tripId: TRIP_ID, thumbnail: jpegFile(THUMBNAIL_BYTES) })
+      );
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      // 応答: 保存済みの内容がそのまま返る。tripId は null のまま（送った旅行に入れ替えない）で、
+      // 保存済みの写真にサムネイルは無いので thumbnailUrl は null
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          photo: {
+            ...savedFields,
+            imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
+            thumbnailUrl: null
+          },
+          urlExpiresAt: '2026-10-10T04:12:45.000Z'
+        }
+      });
+      // 状態: 画像は保存済みの中身のまま、サムネイルの Blob は作られず、ドキュメントも変わらない
+      expect(blobStore).toEqual(
+        new Map([[`photos/${PHOTO_ID}.jpg`, { content: savedBytes, contentType: 'image/jpeg' }]])
+      );
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual(savedPhoto);
+    });
+
+    it('同じ写真がほぼ同時に送られ、保存の直前に別の送信が先に作っていたら、200で先に作られた写真を返す', async () => {
+      jest.useFakeTimers({
+        now: new Date('2026-10-10T03:12:45.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
+      // 先に作られた写真。この送信が作るものとは、uploadedAt / updatedAt（と、そこから決まる sortAt）が
+      // 1秒前であることだけが違う。応答がどちらの内容かをそこで区別する
+      const firstFields: Omit<PhotoDocument, 'type' | 'blobName' | 'thumbnailBlobName'> = {
+        id: PHOTO_ID,
+        tripId: null,
+        contentType: 'image/jpeg',
+        fileSize: 10,
+        takenAt: null,
+        takenAtSource: 'none',
+        sortAt: '2026-10-10T12:12:44',
+        location: null,
+        category: null,
+        tags: [],
+        comment: null,
+        commentSource: null,
+        hint: null,
+        classification: null,
+        identification: null,
+        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+        uploadedAt: '2026-10-10T03:12:44.000Z',
+        updatedAt: '2026-10-10T03:12:44.000Z'
+      };
+      const firstCreated: PhotoDocument = {
+        ...firstFields,
+        type: 'photo',
+        blobName: `${PHOTO_ID}.jpg`,
+        thumbnailBlobName: null
+      };
+      // この送信が写真を読んだ時点では無く、ドキュメントを作る直前に別の送信が作る
+      cosmosBackend.beforeCreate = () => {
+        cosmosBackend.documents.set(PHOTO_ID, { ...firstCreated });
+      };
+      const request = createPhotoRequest(formDataWith());
+
+      const response = await createPhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          photo: {
+            ...firstFields,
+            imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
+            thumbnailUrl: null
+          },
+          urlExpiresAt: '2026-10-10T04:12:45.000Z'
+        }
+      });
+      // 状態: 写真のドキュメントは先に作られた1件のまま（この送信のもので置き換わらない）
+      expect(cosmosBackend.documents).toEqual(new Map([[PHOTO_ID, firstCreated]]));
+    });
+
+    // データベースの失敗する箇所（写真を読む・写真を作る）ごとに同じ分類の表を回す。どちらで失敗しても応答は同じになる。
+    // 作成の失敗の表には 409 の行が無い。409 は「先に作られていた」で、別のテストで確かめている。
+    // 409 以外の作成の失敗が握りつぶされず、ここで 503 / 500 になることも、この表が見ている
+    const failurePoints: [string, (backend: FakeCosmosBackend<FakeCosmosDocument>, error: Error) => void][] = [
+      ['写真の読み取りで', (backend, error) => { backend.forcedReadError = error; }],
+      ['写真の作成で', (backend, error) => { backend.forcedCreateError = error; }]
+    ];
+    const failureRows = failurePoints.flatMap(([point, inject]) =>
+      databaseFailureCases('写真の保存に失敗しました').map(
+        ([caseName, error, status, code, message]) =>
+          [`${point}、${caseName}`, inject, error, status, code, message] as const
+      )
+    );
+
+    it.each(failureRows)(
+      '写真の保存の%s（写真のドキュメントは作られない）',
+      async (_case, inject, error, status, code, message) => {
+        inject(cosmosBackend, error);
+        const request = createPhotoRequest(formDataWith());
+
+        const response = await createPhotoHandler(request, mockContext);
+
+        expect(response.status).toBe(status);
+        const body = response.jsonBody as any;
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe(code);
+        expect(body.error.message).toBe(message);
+        expect(cosmosBackend.documents).toEqual(new Map());
+      }
+    );
 
     // 05 §5.1 の入力検証の表（1〜17）と、multipart として読み取れない場合。18（SHA-256 の照合）は上のテスト。
     // 各行は「正しい送信内容」から1か所だけ壊す。行は表の順に並べ、最後に検証の順序を確かめる行を置く。
