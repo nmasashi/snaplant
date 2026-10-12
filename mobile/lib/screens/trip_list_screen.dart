@@ -38,10 +38,8 @@ class _TripListScreenState extends State<TripListScreen> {
 
   /// 旅行一覧（と旅行に属さない写真の枚数）を読み込む
   Future<void> _loadTrips() async {
-    setState(() {
-      _tripList = null;
-      _errorMessage = null;
-    });
+    // 読み直しの間は今の一覧を出したままにする（詳細から戻るたびにスピナーに戻すと、スクロール位置も失う）
+    setState(() => _errorMessage = null);
     try {
       final tripList = await widget.apiService.getTrips();
       if (!mounted) return;
@@ -63,6 +61,9 @@ class _TripListScreenState extends State<TripListScreen> {
             TripDetailScreen(apiService: widget.apiService, tripId: trip.id),
       ),
     );
+    // 詳細で編集・削除しうるので、戻ったら読み直す
+    if (!mounted) return;
+    await _loadTrips();
   }
 
   /// 旅行の作成ダイアログを開く

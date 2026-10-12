@@ -39,7 +39,8 @@ Map<String, Object?> tripJson({
 /// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。
 /// 表に無い id は 404 `TRIP_NOT_FOUND`（別の端末などで消された旅行）の封筒を返す。
 /// PUT /api/trips/{tripId} には、本文の `name`（前後の空白を除く）と `description` で表の旅行を置き換え、200 `{ trip }` を返す。
-/// DELETE /api/trips/{tripId}?deletePhotos=true|false には、表の旅行を消して 200 を返す。`false` なら写真は未所属に移したものとして
+/// DELETE /api/trips/{tripId}?deletePhotos=true|false には、表の旅行を消して（以降の一覧からも外し、`false` なら
+/// 写真の枚数だけ未所属の枚数を増やして）200 を返す。`false` なら写真は未所属に移したものとして
 /// `detachedPhotoCount` に枚数を、`true` なら `deletedPhotoCount` に枚数を載せる。`deletePhotos` が無い・違う値なら 400。
 /// [deletePhotosSent] を渡すと、削除の要求ごとの `deletePhotos` の値（無ければ null）をここに記録する。
 /// 写真が0枚の旅行は `true` でも `false` でも応答が同じで、結果からは何を送ったか見分けられないときに使う
@@ -62,6 +63,9 @@ MockClient tripServer(
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
+  // 削除で一覧と未所属の枚数にも反映するため、渡された一覧と枚数を写して持つ
+  final listed = [...trips];
+  var unassigned = unassignedPhotoCount;
   // PUT で置き換えるため、渡された表を写して持つ
   final details = {...tripDetails};
   return MockClient((request) async {
@@ -107,7 +111,10 @@ MockClient tripServer(
       }
       if (current == null) return http.Response('', 404);
       details.remove(id);
+      listed.removeWhere((trip) => trip['id'] == id);
+      created.removeWhere((trip) => trip['id'] == id);
       final photoCount = current['photoCount'] as int;
+      if (deletePhotos == 'false') unassigned += photoCount;
       return http.Response(
         json.encode({
           'success': true,
@@ -208,9 +215,9 @@ MockClient tripServer(
       json.encode({
         'success': true,
         'data': {
-          'trips': [...created, ...trips],
-          'total': created.length + trips.length,
-          'unassignedPhotoCount': unassignedPhotoCount,
+          'trips': [...created, ...listed],
+          'total': created.length + listed.length,
+          'unassignedPhotoCount': unassigned,
         },
       }),
       200,

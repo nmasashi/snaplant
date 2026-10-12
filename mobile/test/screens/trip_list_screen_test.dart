@@ -218,4 +218,50 @@ void main() {
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
     expect(find.text('12枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
   });
+
+  testWidgets('旅行詳細で旅行を削除して一覧に戻ると、消した旅行が一覧になく、旅行に属さない写真の枚数が移った分だけ増えている', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await useDefaultEndpoint(tester);
+    const hokkaidoId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+    final hokkaido = tripJson(
+      id: hokkaidoId,
+      name: '北海道 2026秋',
+      photoCount: 12,
+      firstTakenAt: '2026-10-05T09:00:00',
+      lastTakenAt: '2026-10-08T17:30:00',
+    );
+    // 削除した旅行は、偽のサーバが以降の一覧から外し、写真（既定の「写真は残す」）の枚数だけ未所属を増やす
+    final server = tripServer(
+      [
+        hokkaido,
+        tripJson(
+          id: '3f2504e0-4f89-41d3-9a0c-0305e82c3302',
+          name: '大阪',
+          photoCount: 3,
+          firstTakenAt: '2026-09-20T10:00:00',
+          lastTakenAt: '2026-09-20T18:00:00',
+        ),
+      ],
+      unassignedPhotoCount: 8,
+      tripDetails: {hokkaidoId: hokkaido},
+    );
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    expect(find.text('北海道 2026秋'), findsNothing);
+    expect(find.text('大阪'), findsOneWidget);
+    expect(find.text('20枚'), findsOneWidget);
+  });
 }
