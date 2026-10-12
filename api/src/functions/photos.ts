@@ -3,6 +3,7 @@ import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
 import { toPhoto } from '../services/photoView';
 import { createSuccessResponse } from '../utils/response';
+import { readPhotoInput } from '../utils/photoInput';
 import { computeSortAt } from '../utils/sortAt';
 import { HttpStatusCode } from '../types/api';
 import { PhotoDocument } from '../types/album';
@@ -14,41 +15,36 @@ import { FILE_UPLOAD } from '../constants/validation';
  */
 export async function createPhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('写真保存リクエストを受信');
-  const formData = await request.formData();
-  const photoId = formData.get('photoId') as string;
-  const image = formData.get('image') as unknown as File;
-  const thumbnail = formData.get('thumbnail') as unknown as File | null;
-  const takenAt = (formData.get('takenAt') as string | null) ?? null;
-  const latitude = formData.get('latitude') as string | null;
-  const longitude = formData.get('longitude') as string | null;
-  const placeName = (formData.get('placeName') as string | null) ?? null;
+  const validated = await readPhotoInput(request);
+  if ('error' in validated) {
+    return validated.error;
+  }
+  const input = validated.input;
 
-  const imageBuffer = Buffer.from(await image.arrayBuffer());
-  const blobName = `${photoId}${FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE[image.type]}`;
-  const thumbnailBlobName = thumbnail ? `${photoId}.thumb.jpg` : null;
+  const blobName = `${input.photoId}${FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE[input.contentType]}`;
+  const thumbnailBlobName = input.thumbnail ? `${input.photoId}.thumb.jpg` : null;
 
   const storage = new PhotoStorageService();
-  await storage.upload(blobName, imageBuffer, image.type);
-  if (thumbnail && thumbnailBlobName) {
-    await storage.upload(thumbnailBlobName, Buffer.from(await thumbnail.arrayBuffer()), thumbnail.type);
+  await storage.upload(blobName, input.image, input.contentType);
+  if (input.thumbnail && thumbnailBlobName) {
+    await storage.upload(thumbnailBlobName, input.thumbnail, input.thumbnailContentType!);
   }
 
   const now = new Date().toISOString();
   const doc: PhotoDocument = {
-    id: photoId,
+    id: input.photoId,
     type: 'photo',
-    tripId: null,
+    tripId: input.tripId,
     blobName,
     thumbnailBlobName,
-    contentType: image.type,
-    fileSize: image.size,
-    takenAt,
-    takenAtSource: takenAt ? 'exif' : 'none',
-    sortAt: computeSortAt(takenAt, now),
-    location:
-      latitude !== null && longitude !== null
-        ? { latitude: Number(latitude), longitude: Number(longitude), placeName, placeSource: placeName ? 'device' : null }
-        : null,
+    contentType: input.contentType,
+    fileSize: input.image.length,
+    takenAt: input.takenAt,
+    takenAtSource: input.takenAt ? 'exif' : 'none',
+    sortAt: computeSortAt(input.takenAt, now),
+    location: input.location
+      ? { ...input.location, placeSource: input.location.placeName ? 'device' : null }
+      : null,
     category: null,
     tags: [],
     comment: null,

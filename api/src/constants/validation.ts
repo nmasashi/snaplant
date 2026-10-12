@@ -129,3 +129,19 @@ export const TRIP_VALIDATION = {
     DESCRIPTION_TOO_LONG: `説明は${positiveIntFromEnv(process.env.TRIP_DESCRIPTION_MAX_LENGTH, 1000)}文字以内で指定してください`
   }
 } as const;
+
+// 旅行アルバムの写真の入力検証
+export const PHOTO_VALIDATION = {
+  // 写真 ID は画像のバイト列の SHA-256（16進・小文字のみ）。大文字を許すと同じ写真に2つの id ができる
+  ID_REGEX: /^[0-9a-f]{64}$/,
+  // 撮影日時はタイムゾーン無し（Z や +09:00 を付けると Flutter の toLocal() で9時間ずれる）
+  TAKEN_AT_REGEX: /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/,
+  MAX_LENGTH: {
+    PLACE_NAME: positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)
+  },
+  THUMBNAIL_MAX_SIZE: positiveIntFromEnv(process.env.THUMBNAIL_MAX_SIZE, 1048576), // デフォルト: 1MB
+
+  ERROR_MESSAGES: {
+    PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`
+  }
+} as const;

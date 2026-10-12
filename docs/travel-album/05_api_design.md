@@ -219,6 +219,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
 | 1 | リクエストの Content-Type が `multipart/form-data` で始まらない | 400 `INVALID_REQUEST` | `Content-Typeがmultipart/form-dataではありません` |
+| 1.5 | multipart の本文を読めない（`request.formData()` が失敗する） | 400 `INVALID_REQUEST` | `ファイルの読み取りに失敗しました` |
 | 2 | `photoId` が未指定・空（ファイルとして送られた場合を含む） | 400 `INVALID_REQUEST` | `写真IDが指定されていません` |
 | 3 | `photoId` が小文字16進 64 文字でない | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 4 | `image` が未指定、またはテキストフィールドで送られた | 400 `INVALID_REQUEST` | `画像ファイルが指定されていません` |
@@ -238,7 +239,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | 18 | `image` の SHA-256 が `photoId` と一致しない | 400 `INVALID_REQUEST` | `写真IDが画像の内容と一致しません` |
 
 1〜7 は `upload.ts` 23〜70行と同じ順序・同じ `message`。`details` は既存に倣って付けるが契約外。
-18 はバイト列を読む必要があるので最後。空白だけの `placeName` は「指定なし」ではなく 400 にする（クライアントは null を送るか省く）。
+18 はバイト列を読む必要があるので最後。1.5 は `upload.ts` と同じ `message` だが、エラーの文字列では判定せず `formData()` の失敗をそのまま 400 にする。
+緯度・経度は `Number()` で読み、有限で範囲内なら受け入れる（指数表記も可。`Infinity`・`NaN`・空文字は 15）。空白だけの `placeName` は「指定なし」ではなく 400 にする（クライアントは null を送るか省く）。
 
 #### 検証の後
 

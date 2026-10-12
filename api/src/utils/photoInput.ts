@@ -1,0 +1,212 @@
+import { createHash } from 'node:crypto';
+import { HttpRequest, HttpResponseInit } from '@azure/functions';
+import { createErrorResponse, createValidationError, isValidUUID } from './response';
+import { ErrorCode, HttpStatusCode } from '../types/api';
+import { FILE_UPLOAD, PHOTO_VALIDATION } from '../constants/validation';
+
+/** 検証を通った写真の保存の入力 */
+export interface PhotoInput {
+  photoId: string;
+  image: Buffer;
+  /** 原寸の Content-Type（小文字にそろえたもの） */
+  contentType: string;
+  thumbnail: Buffer | null;
+  thumbnailContentType: string | null;
+  tripId: string | null;
+  takenAt: string | null;
+  location: { latitude: number; longitude: number; placeName: string | null } | null;
+}
+
+type Result = { input: PhotoInput } | { error: HttpResponseInit };
+
+/** multipart のパートの値（DOM の FormDataEntryValue は lib に無いので FormData から取る） */
+type FormValue = ReturnType<FormData['get']>;
+
+/** multipart のファイルのパート */
+type FilePart = Exclude<FormValue, string | null>;
+
+/**
+ * 写真の保存（POST /api/photos）の multipart を読んで検証する
+ *
+ * 順序は docs/travel-album/05_api_design.md §5.1 の表のとおり。Blob と Cosmos に触る前に全部弾く。
+ * 画像の内容と写真 ID の照合（18）はバイト列を読む必要があるので最後
+ * @param request リクエスト
+ * @returns 検証を通った入力、または 400 / 413 / 415 の応答
+ */
+export async function readPhotoInput(request: HttpRequest): Promise<Result> {
+  const contentType = request.headers.get('content-type');
+  if (!contentType || !contentType.startsWith('multipart/form-data')) {
+    return fail('Content-Typeがmultipart/form-dataではありません', 'multipart/form-dataで送信してください');
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    // 壊れた multipart。エラーの文字列では判定しない（SDK の文言は変わりうる）
+    return fail('ファイルの読み取りに失敗しました', '有効なmultipart/form-dataを送信してください');
+  }
+
+  const photoId = formData.get('photoId');
+  if (typeof photoId !== 'string' || photoId === '') {
+    return fail('写真IDが指定されていません');
+  }
+  if (!PHOTO_VALIDATION.ID_REGEX.test(photoId)) {
+    return fail('写真IDの形式が無効です');
+  }
+
+  const image = formData.get('image');
+  if (!isFile(image)) {
+    return fail('画像ファイルが指定されていません', 'imageフィールドでファイルを送信してください');
+  }
+  const imageError = checkFile(image, FILE_UPLOAD.MAX_SIZE, '画像ファイルが空です', 'ファイルサイズが大きすぎます');
+  if (imageError) {
+    return { error: imageError };
+  }
+
+  const thumbnail = formData.get('thumbnail');
+  if (thumbnail !== null && !isFile(thumbnail)) {
+    return fail('サムネイルはファイルで送信してください');
+  }
+  if (thumbnail !== null) {
+    const thumbnailError = checkFile(
+      thumbnail,
+      PHOTO_VALIDATION.THUMBNAIL_MAX_SIZE,
+      'サムネイルが空です',
+      'サムネイルのサイズが大きすぎます'
+    );
+    if (thumbnailError) {
+      return { error: thumbnailError };
+    }
+  }
+
+  const tripId = formData.get('tripId');
+  if (tripId !== null && (typeof tripId !== 'string' || !isValidUUID(tripId))) {
+    return fail('旅行IDの形式が無効です');
+  }
+
+  const takenAt = formData.get('takenAt');
+  if (takenAt !== null && (typeof takenAt !== 'string' || !isExistingDateTime(takenAt))) {
+    return fail('撮影日時の形式が無効です');
+  }
+
+  const latitude = formData.get('latitude');
+  const longitude = formData.get('longitude');
+  if ((latitude === null) !== (longitude === null)) {
+    return fail('緯度と経度は両方指定してください');
+  }
+  const hasLocation = latitude !== null && longitude !== null;
+  const lat = toCoordinate(latitude, 90);
+  const lng = toCoordinate(longitude, 180);
+  if (hasLocation && (lat === null || lng === null)) {
+    return fail('位置情報の形式が無効です');
+  }
+
+  const placeName = formData.get('placeName');
+  if (placeName !== null && !hasLocation) {
+    return fail('地名は緯度・経度と一緒に指定してください');
+  }
+  if (
+    placeName !== null &&
+    (typeof placeName !== 'string' || placeName.trim() === '' || placeName.length > PHOTO_VALIDATION.MAX_LENGTH.PLACE_NAME)
+  ) {
+    return fail(PHOTO_VALIDATION.ERROR_MESSAGES.PLACE_NAME_INVALID);
+  }
+
+  const imageBuffer = Buffer.from(await image.arrayBuffer());
+  // 写真の id は中身の SHA-256 で、同じ写真が1枚になる根拠。クライアントの計算を信用せず照合する
+  if (createHash('sha256').update(imageBuffer).digest('hex') !== photoId) {
+    return fail('写真IDが画像の内容と一致しません');
+  }
+
+  return {
+    input: {
+      photoId,
+      image: imageBuffer,
+      contentType: image.type.toLowerCase(),
+      thumbnail: thumbnail ? Buffer.from(await thumbnail.arrayBuffer()) : null,
+      thumbnailContentType: thumbnail ? thumbnail.type.toLowerCase() : null,
+      tripId: tripId as string | null,
+      takenAt: takenAt as string | null,
+      location: hasLocation ? { latitude: lat!, longitude: lng!, placeName: placeName as string | null } : null,
+    },
+  };
+}
+
+/**
+ * multipart のパートがファイルか（テキストで送られたものは string になる）
+ * @param value パートの値
+ */
+function isFile(value: FormValue): value is FilePart {
+  return value !== null && typeof value !== 'string' && typeof value.arrayBuffer === 'function';
+}
+
+/**
+ * ファイルの形式と大きさを検証する（形式 415 → 空 400 → 大きすぎ 413 の順）
+ * @param file ファイル
+ * @param maxSize 上限（バイト）
+ * @param emptyMessage 空のときの文言
+ * @param tooLargeMessage 大きすぎるときの文言
+ */
+function checkFile(file: FilePart, maxSize: number, emptyMessage: string, tooLargeMessage: string): HttpResponseInit | null {
+  if (!(FILE_UPLOAD.SUPPORTED_IMAGE_TYPES as readonly string[]).includes(file.type.toLowerCase())) {
+    return createErrorResponse(
+      ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+      'サポートされていない画像形式です',
+      HttpStatusCode.UNSUPPORTED_MEDIA_TYPE,
+      FILE_UPLOAD.ERROR_MESSAGES.UNSUPPORTED_TYPE
+    );
+  }
+  if (file.size === 0) {
+    return createValidationError(emptyMessage);
+  }
+  if (file.size > maxSize) {
+    return createErrorResponse(ErrorCode.FILE_TOO_LARGE, tooLargeMessage, HttpStatusCode.PAYLOAD_TOO_LARGE);
+  }
+  return null;
+}
+
+/**
+ * タイムゾーン無しの `YYYY-MM-DDTHH:mm:ss` で、実在する日時か
+ *
+ * new Date() は 2月30日を3月2日に繰り上げて通すので、組み立て直して一致を確かめる
+ * @param value 日時の文字列
+ */
+function isExistingDateTime(value: string): boolean {
+  const match = PHOTO_VALIDATION.TAKEN_AT_REGEX.exec(value);
+  if (!match) {
+    return false;
+  }
+  const [, y, mo, d, h, mi, s] = match.map(Number);
+  const date = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === mo - 1 &&
+    date.getUTCDate() === d &&
+    date.getUTCHours() === h &&
+    date.getUTCMinutes() === mi &&
+    date.getUTCSeconds() === s
+  );
+}
+
+/**
+ * 緯度・経度を数値にする。有限で ±limit の範囲内でなければ null
+ * @param value パートの値
+ * @param limit 絶対値の上限（緯度 90、経度 180）
+ */
+function toCoordinate(value: FormValue, limit: number): number | null {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) && Math.abs(n) <= limit ? n : null;
+}
+
+/**
+ * 400 INVALID_REQUEST の結果を作る
+ * @param message 文言
+ * @param details 補足（契約外）
+ */
+function fail(message: string, details?: string): Result {
+  return { error: createValidationError(message, details) };
+}

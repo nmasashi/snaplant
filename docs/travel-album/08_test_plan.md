@@ -48,7 +48,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 2.2 `tests/fakes/blob.ts`
 
-そのまま使える（`store` のキーは `photos/<blobName>`）。`forcedUploadErrorByContainer` で「原寸は成功しサムネイルで失敗」を作れる。
+`store` のキーは `photos/<blobName>`。原寸とサムネイルは同じ `photos` コンテナなので `forcedUploadErrorByContainer` では区別できず、「原寸は成功しサムネイルで失敗」は Blob 名ごとの失敗（`forcedUploadErrorByKey`。PR 4a-1 で足す）で作る。
 `TEST_BLOB_HOST` で SAS 付き URL のホストを固定できる。
 
 ### 2.3 `tests/fakes/queue.ts`（段階3）
