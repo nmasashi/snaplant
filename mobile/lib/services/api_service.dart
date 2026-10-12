@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
+import '../models/trip.dart';
 import '../utils/image_mime_type.dart';
 
 /// Azure Functions API との通信を担当するサービスクラス
@@ -411,6 +412,26 @@ class ApiService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException.fromResponse(response);
       }
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 旅行一覧取得（旅行に属さない写真の枚数も同じ応答で返る）
+  /// GET /api/trips
+  Future<TripList> getTrips() async {
+    try {
+      final url = _buildUrl('/api/trips');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return TripList(
+          trips: (data['trips'] as List<dynamic>)
+              .map((e) => TripSummary.fromJson(e as Map<String, dynamic>))
+              .toList(),
+          unassignedPhotoCount: data['unassignedPhotoCount'] as int,
+        );
+      });
     } catch (error) {
       throw _handleError(error);
     }
