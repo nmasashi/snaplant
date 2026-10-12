@@ -112,7 +112,7 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `utils/image_mime_type_test.dart` | マジックバイトによる画像形式の判定 |
-| `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・表示サイズの設定 |
+| `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
 
 テストで踏みやすい点。
 
@@ -132,7 +132,8 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   `ImagePickerPlatform.instance`（`camera_screen_test.dart`）、`FlutterSecureStoragePlatform.instance`
   （`helpers/app_test_helpers.dart` の `useSecureStorage`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
-  最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる）
+  最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる。
+  偽のサーバを使うテストは冒頭で `useDefaultEndpoint` を呼び、既定の宛先に戻す）
 - **`pumpAndSettle` は使えないことが多い。** 読み込み中の `CircularProgressIndicator` や、
   `CachedNetworkImage` のプレースホルダー（テスト環境の HTTP は 400 を返す）が回り続けて終わらない。
   `pump` を必要な回数だけ呼ぶ。ファイルの読み書きは `tester.runAsync` の中でないと進まない
