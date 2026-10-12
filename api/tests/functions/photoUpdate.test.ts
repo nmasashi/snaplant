@@ -181,7 +181,8 @@ describe('写真更新API', () => {
         urlExpiresAt: '2026-10-12T06:30:00.000Z'
       }
     });
-    // 保存されたドキュメントも、同じ3項目だけが変わる
+    // 保存されたドキュメントも、同じ3項目だけが変わる。偽物の patch は Cosmos のシステム項目(_etag・_ts)を更新しないので、
+    // それらが変わらないことは見ていない(実際の Cosmos は書くたびに更新する)
     expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
       ...savedPhoto,
       comment: '夕食の懐石',
@@ -300,7 +301,7 @@ describe('写真更新API', () => {
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
   ])('写真の更新で指定が正しくなければ、400で理由を返し、何も変えない(%s)', async (_case, photoId, json, message) => {
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const before = new Map(cosmosBackend.documents);
+    const before = structuredClone(cosmosBackend.documents);
     const request = createUpdatePhotoRequestWithJson(photoId, json);
 
     const response = await updatePhotoHandler(request, mockContext);
@@ -349,6 +350,60 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉']);
   });
 
+  it('コメントとタグを同時に送ると、両方が保存される', async () => {
+    freezeNow();
+    const photo = storedPhoto({ tags: ['朝食', '旅館'], comment: 'ホテルの朝食', commentSource: 'ai' });
+    cosmosBackend.documents.set(PHOTO_ID, photo);
+    const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石', tags: ['夕食', '温泉'] });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    const body = response.jsonBody as any;
+    expect(body.data.photo.comment).toBe('夕食の懐石');
+    expect(body.data.photo.tags).toEqual(['夕食', '温泉']);
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
+      ...photo,
+      comment: '夕食の懐石',
+      commentSource: 'user',
+      tags: ['夕食', '温泉'],
+      updatedAt: UPDATED_AT
+    });
+  });
+
+  it('tagsに空の配列を送ると、タグが全部消え、コメントには触らない', async () => {
+    freezeNow();
+    const photo = storedPhoto({ tags: ['朝食', '旅館'] });
+    cosmosBackend.documents.set(PHOTO_ID, photo);
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [] });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    const body = response.jsonBody as any;
+    expect(body.data.photo.tags).toEqual([]);
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, tags: [], updatedAt: UPDATED_AT });
+  });
+
+  // 保存先(Blob Storage)の設定は応答の URL を作るために要る。足りないまま写真を書き換えると、
+  // 書き換えたのに 500 を返すことになるので、書き換える前に失敗させる。AccountKey が無い接続文字列で再現する
+  it('写真の保存先の設定が足りなければ、写真を書き換えずに500で返る', async () => {
+    process.env.STORAGE_CONNECTION_STRING =
+      'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const before = structuredClone(cosmosBackend.documents);
+    const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石' });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(500);
+    const body = response.jsonBody as any;
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('INTERNAL_ERROR');
+    expect(body.error.message).toBe('写真の更新に失敗しました');
+    expect(cosmosBackend.documents).toEqual(before);
+  });
+
   it('タグがちょうど20個なら保存できる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
@@ -375,7 +430,7 @@ describe('写真更新API', () => {
     // 形式は正しいが、その id の写真は無い。別の写真は保存済みで、patch が誤って作ったり書き換えたりしないことも見る
     const otherPhotoId = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
     cosmosBackend.documents.set(otherPhotoId, storedPhoto({ id: otherPhotoId }));
-    const before = new Map(cosmosBackend.documents);
+    const before = structuredClone(cosmosBackend.documents);
     const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石' });
 
     const response = await updatePhotoHandler(request, mockContext);
@@ -394,7 +449,7 @@ describe('写真更新API', () => {
   )('写真の更新で%s', async (_case, error, status, code, message) => {
     // 形式が正しい要求で、写真もある(検証や404で先に返らず、patch まで進む)
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const before = new Map(cosmosBackend.documents);
+    const before = structuredClone(cosmosBackend.documents);
     cosmosBackend.forcedPatchError = error;
     const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石' });
 

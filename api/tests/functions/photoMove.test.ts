@@ -204,6 +204,22 @@ describe('写真移動API', () => {
     });
   });
 
+  it('写真IDがちょうど200件なら受け付けて、全部移す', async () => {
+    freezeNow();
+    // 上限の境界(201件は 400 になる。下の表)。200枚とも保存済みで、全部が移る
+    const photoIds = manyPhotoIds(200);
+    cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '京都'));
+    photoIds.forEach((id) => cosmosBackend.documents.set(id, savedPhoto(id, null)));
+    const request = createMoveRequest({ photoIds, tripId: TRIP_A_ID });
+
+    const response = await movePhotosHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    expect(response.jsonBody).toEqual({ success: true, data: { moved: photoIds, notFound: [] } });
+    const photos = photoIds.map((id) => cosmosBackend.documents.get(id) as PhotoDocument);
+    expect(photos.filter((photo) => photo.tripId !== TRIP_A_ID)).toEqual([]);
+  });
+
   // 05 §5.5 の 1〜8 を、表の順に。どの行も、保存済みの旅行 A と未所属の写真2枚は何も変わらない。
   // 形式の合わない要素の行は、正しい写真1の id を先頭に置く(後ろの不正な要素で、先頭の写真だけ移してしまう実装を見分ける)。
   // 最後の行は検証の順序の例(photoIds が空で tripId のキーも無いときは、表で先の「写真IDが指定されていません」)
@@ -227,7 +243,7 @@ describe('写真移動API', () => {
     cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '京都'));
     cosmosBackend.documents.set(PHOTO_1_ID, savedPhoto(PHOTO_1_ID, null));
     cosmosBackend.documents.set(PHOTO_2_ID, savedPhoto(PHOTO_2_ID, null));
-    const before = new Map(cosmosBackend.documents);
+    const before = structuredClone(cosmosBackend.documents);
     const request = createMoveRequestWithJson(json);
 
     const response = await movePhotosHandler(request, mockContext);
@@ -244,7 +260,7 @@ describe('写真移動API', () => {
     // 旅行 A は置かない。写真は保存済みで、形式も正しい(旅行の確認で初めて断られる)
     cosmosBackend.documents.set(PHOTO_1_ID, savedPhoto(PHOTO_1_ID, null));
     cosmosBackend.documents.set(PHOTO_2_ID, savedPhoto(PHOTO_2_ID, null));
-    const before = new Map(cosmosBackend.documents);
+    const before = structuredClone(cosmosBackend.documents);
     const request = createMoveRequest({ photoIds: [PHOTO_1_ID, PHOTO_2_ID], tripId: TRIP_A_ID });
 
     const response = await movePhotosHandler(request, mockContext);
@@ -275,7 +291,7 @@ describe('写真移動API', () => {
     cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '京都'));
     cosmosBackend.documents.set(PHOTO_1_ID, savedPhoto(PHOTO_1_ID, null));
     cosmosBackend.documents.set(PHOTO_2_ID, savedPhoto(PHOTO_2_ID, null));
-    const before = new Map(cosmosBackend.documents);
+    const before = structuredClone(cosmosBackend.documents);
     cosmosBackend[failureKey] = error;
     const request = createMoveRequest({ photoIds: [PHOTO_1_ID, PHOTO_2_ID], tripId: TRIP_A_ID });
 

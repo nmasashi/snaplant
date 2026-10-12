@@ -456,6 +456,25 @@ describe('旅行詳細API', () => {
   });
 
   describe('旅行削除API', () => {
+    // このブロックのテストで使う道具。deletePhotos は文字列で渡す(undefined なら指定なし)
+    const createDeleteRequest = (tripId: string, deletePhotos?: string): HttpRequest => {
+      // query は実際の HttpRequest と同じ URLSearchParams にする(無い項目の get は undefined ではなく null)
+      const query = new URLSearchParams({ code: 'test-key' });
+      if (deletePhotos !== undefined) {
+        query.set('deletePhotos', deletePhotos);
+      }
+      return {
+        method: 'DELETE',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}?${query.toString()}`,
+        query,
+        headers: new Map(),
+        params: { tripId }
+      } as any as HttpRequest;
+    };
+    const putBlobs = (...keys: string[]) =>
+      keys.forEach((key) => blobBackend.store.set(key, { content: Buffer.from('image') }));
+    const THIRD_KYOTO_PHOTO_ID = '5'.repeat(64);
+
     it('写真は残すを選んで旅行を削除すると、中の写真はどの旅行にも属さない写真として残り、旅行は消える', async () => {
       freezeNow();
       // 旅行 A(京都。削除する)の写真2枚、旅行 B(札幌)の写真1枚、どの旅行にも属さない写真1枚。
@@ -473,20 +492,10 @@ describe('旅行詳細API', () => {
       [kyoto, sapporo, kyotoFirst, kyotoSecond, sapporoPhoto, unaffiliatedPhoto].forEach((doc) =>
         cosmosBackend.documents.set(doc.id, doc)
       );
-      [KYOTO_FIRST_PHOTO_ID, KYOTO_SECOND_PHOTO_ID, SAPPORO_PHOTO_ID, unaffiliatedPhotoId].forEach((id) => {
-        blobBackend.store.set(`photos/${id}.jpg`, { content: Buffer.from('original') });
-        blobBackend.store.set(`photos/${id}.thumb.jpg`, { content: Buffer.from('thumbnail') });
-      });
-      const request = {
-        method: 'DELETE',
-        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?deletePhotos=false&code=test-key`,
-        query: new Map([
-          ['deletePhotos', 'false'],
-          ['code', 'test-key']
-        ]),
-        headers: new Map(),
-        params: { tripId: KYOTO_TRIP_ID }
-      } as any as HttpRequest;
+      [KYOTO_FIRST_PHOTO_ID, KYOTO_SECOND_PHOTO_ID, SAPPORO_PHOTO_ID, unaffiliatedPhotoId].forEach((id) =>
+        putBlobs(`photos/${id}.jpg`, `photos/${id}.thumb.jpg`)
+      );
+      const request = createDeleteRequest(KYOTO_TRIP_ID, 'false');
 
       const response = await deleteTripHandler(request, mockContext);
 
@@ -532,7 +541,7 @@ describe('旅行詳細API', () => {
       [kyoto, sapporo, kyotoFirst, kyotoSecond, sapporoPhoto, unaffiliatedPhoto].forEach((doc) =>
         cosmosBackend.documents.set(doc.id, doc)
       );
-      [
+      putBlobs(
         `photos/${KYOTO_FIRST_PHOTO_ID}.jpg`,
         `photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg`,
         `photos/${KYOTO_SECOND_PHOTO_ID}.jpg`,
@@ -540,17 +549,8 @@ describe('旅行詳細API', () => {
         `photos/${SAPPORO_PHOTO_ID}.thumb.jpg`,
         `photos/${unaffiliatedPhotoId}.jpg`,
         `photos/${unaffiliatedPhotoId}.thumb.jpg`
-      ].forEach((key) => blobBackend.store.set(key, { content: Buffer.from('image') }));
-      const request = {
-        method: 'DELETE',
-        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?deletePhotos=true&code=test-key`,
-        query: new Map([
-          ['deletePhotos', 'true'],
-          ['code', 'test-key']
-        ]),
-        headers: new Map(),
-        params: { tripId: KYOTO_TRIP_ID }
-      } as any as HttpRequest;
+      );
+      const request = createDeleteRequest(KYOTO_TRIP_ID, 'true');
 
       const response = await deleteTripHandler(request, mockContext);
 
@@ -575,25 +575,6 @@ describe('旅行詳細API', () => {
         `photos/${unaffiliatedPhotoId}.thumb.jpg`
       ]);
     });
-
-    // 以降のテストで使う道具。deletePhotos は文字列で渡す(undefined なら指定なし)
-    const createDeleteRequest = (tripId: string, deletePhotos?: string): HttpRequest => {
-      // query は実際の HttpRequest と同じ URLSearchParams にする(無い項目の get は undefined ではなく null)
-      const query = new URLSearchParams({ code: 'test-key' });
-      if (deletePhotos !== undefined) {
-        query.set('deletePhotos', deletePhotos);
-      }
-      return {
-        method: 'DELETE',
-        url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}?${query.toString()}`,
-        query,
-        headers: new Map(),
-        params: { tripId }
-      } as any as HttpRequest;
-    };
-    const putBlobs = (...keys: string[]) =>
-      keys.forEach((key) => blobBackend.store.set(key, { content: Buffer.from('image') }));
-    const THIRD_KYOTO_PHOTO_ID = '5'.repeat(64);
 
     it('写真も消すとき、画像の削除に失敗しても、写真のデータと旅行は消え、200で返る', async () => {
       // 京都の1枚目の原寸だけ、Blob の削除が失敗する。サムネイルの無い写真にして、失敗する Blob を1つに絞る。
@@ -633,7 +614,7 @@ describe('旅行詳細API', () => {
     it.each([
       ['写真も消す', 'true'],
       ['写真は残す', 'false']
-    ])('写真の無い旅行を削除すると、%sを選んでも旅行が消え、枚数は0（%s）', async (_choice, deletePhotos) => {
+    ])('写真の無い旅行を削除すると、%sを選んでも旅行が消え、枚数は0', async (_choice, deletePhotos) => {
       // 札幌の写真は、京都の削除で巻き込まれないことを見るために置く
       cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
       const sapporo = tripDocument(SAPPORO_TRIP_ID, '札幌旅行');
@@ -657,19 +638,31 @@ describe('旅行詳細API', () => {
       );
     });
 
+    // 3枚の写真(原寸とサムネイルの Blob つき)。「写真も消す」では全部消え、「写真は残す」では全部残る
+    const threeKyotoPhotoIds = [KYOTO_FIRST_PHOTO_ID, KYOTO_SECOND_PHOTO_ID, THIRD_KYOTO_PHOTO_ID];
+    const threeKyotoPhotoBlobKeys = [
+      `photos/${KYOTO_FIRST_PHOTO_ID}.jpg`,
+      `photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg`,
+      `photos/${KYOTO_SECOND_PHOTO_ID}.jpg`,
+      `photos/${KYOTO_SECOND_PHOTO_ID}.thumb.jpg`,
+      `photos/${THIRD_KYOTO_PHOTO_ID}.jpg`,
+      `photos/${THIRD_KYOTO_PHOTO_ID}.thumb.jpg`
+    ];
+
     it.each([
-      ['写真も消す', 'true', 3, 0],
-      ['写真は残す', 'false', 0, 3]
+      ['写真も消す', 'true', 3, 0, [], []],
+      ['写真は残す', 'false', 0, 3, threeKyotoPhotoIds, threeKyotoPhotoBlobKeys]
     ])(
       '結果の揃わない空のページが挟まっても、中の写真は全部処理される（%s）',
-      async (_choice, deletePhotos, deletedPhotoCount, detachedPhotoCount) => {
+      async (_choice, deletePhotos, deletedPhotoCount, detachedPhotoCount, remainingPhotoIds, remainingBlobKeys) => {
         // 偽物は、実際の結果を返す前に空のページと継続トークンを2回返す。
         // 空のページで読むのをやめると、写真が1枚も処理されない
         cosmosBackend.emptyPagesBeforeResults = 2;
         cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
-        [KYOTO_FIRST_PHOTO_ID, KYOTO_SECOND_PHOTO_ID, THIRD_KYOTO_PHOTO_ID].forEach((id) =>
+        threeKyotoPhotoIds.forEach((id) =>
           cosmosBackend.documents.set(id, storedPhoto(id, KYOTO_TRIP_ID, '2026-10-05T09:00:00'))
         );
+        putBlobs(...threeKyotoPhotoBlobKeys);
         const request = createDeleteRequest(KYOTO_TRIP_ID, deletePhotos);
 
         const response = await deleteTripHandler(request, mockContext);
@@ -679,10 +672,12 @@ describe('旅行詳細API', () => {
           success: true,
           data: { message: '旅行が正常に削除されました', deletedPhotoCount, detachedPhotoCount }
         });
-        // 旅行は消え、写真は消えたか(true)、全部 tripId が null になった(false)。tripId が残った写真は無い
+        // 旅行は消え、写真は消えたか(true)、全部残って tripId が null になった(false)。tripId が残った写真は無い
+        expect(Array.from(cosmosBackend.documents.keys())).toEqual(remainingPhotoIds);
         const remaining = Array.from(cosmosBackend.documents.values());
-        expect(remaining.filter((doc) => doc.tripId === KYOTO_TRIP_ID)).toEqual([]);
-        expect(remaining.length).toBe(detachedPhotoCount);
+        expect(remaining.filter((doc) => doc.tripId !== null)).toEqual([]);
+        // 写真を消したときだけ、その画像も消える
+        expect(Array.from(blobBackend.store.keys())).toEqual(remainingBlobKeys);
       }
     );
 
@@ -841,8 +836,8 @@ describe('旅行詳細API', () => {
     ][] = [
       ['旅行の読み取りで', 'false', (backend, error) => { backend.forcedReadError = error; }],
       ['写真の一覧の取得で', 'false', (backend, error) => { backend.forcedQueryError = error; }],
-      ['写真を旅行から外すとき', 'false', (backend, error) => { backend.forcedPatchError = error; }],
-      ['写真のデータを消すとき', 'true', (backend, error) => { backend.forcedDeleteError = error; }]
+      ['写真を旅行から外す操作で', 'false', (backend, error) => { backend.forcedPatchError = error; }],
+      ['写真のデータを消す操作で', 'true', (backend, error) => { backend.forcedDeleteError = error; }]
     ];
     const deleteFailureRows = deleteFailurePoints.flatMap(([point, deletePhotos, inject]) =>
       databaseFailureCases('旅行の削除に失敗しました').map(
@@ -859,6 +854,7 @@ describe('旅行詳細API', () => {
           KYOTO_FIRST_PHOTO_ID,
           storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00')
         );
+        putBlobs(`photos/${KYOTO_FIRST_PHOTO_ID}.jpg`, `photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg`);
         const documentsBefore = structuredClone(cosmosBackend.documents);
         inject(cosmosBackend, error);
         const request = createDeleteRequest(KYOTO_TRIP_ID, deletePhotos);
@@ -871,7 +867,69 @@ describe('旅行詳細API', () => {
         expect(body.error.code).toBe(code);
         expect(body.error.message).toBe(message);
         expect(cosmosBackend.documents).toEqual(documentsBefore);
+        // どこで失敗しても画像には触れない(写真のデータを消す前に画像を消す誤りを見分ける)
+        expect(Array.from(blobBackend.store.keys())).toEqual([
+          `photos/${KYOTO_FIRST_PHOTO_ID}.jpg`,
+          `photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg`
+        ]);
       }
     );
+
+    // 写真を旅行から外したあと、最後の旅行の削除が失敗したとき。旅行は残り、外した写真は戻らない
+    // (失敗してから再送しても、同じ結果になる)。404 は別のテストで成功として扱う
+    it.each(
+      databaseFailureCases('旅行の削除に失敗しました')
+    )('写真を外した後、旅行を消すときに%s（旅行は残り、外した写真はそのまま）', async (_case, error, status, code, message) => {
+      freezeNow();
+      const kyoto = tripDocument(KYOTO_TRIP_ID, '京都旅行');
+      const kyotoFirst = storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00');
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, kyoto);
+      cosmosBackend.documents.set(KYOTO_FIRST_PHOTO_ID, kyotoFirst);
+      cosmosBackend.forcedDeleteError = error;
+      const request = createDeleteRequest(KYOTO_TRIP_ID, 'false');
+
+      const response = await deleteTripHandler(request, mockContext);
+
+      expect(response.status).toBe(status);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe(code);
+      expect(body.error.message).toBe(message);
+      expect(Array.from(cosmosBackend.documents.keys())).toEqual([KYOTO_TRIP_ID, KYOTO_FIRST_PHOTO_ID]);
+      expect(cosmosBackend.documents.get(KYOTO_TRIP_ID)).toEqual(kyoto);
+      expect(cosmosBackend.documents.get(KYOTO_FIRST_PHOTO_ID)).toEqual({
+        ...kyotoFirst,
+        tripId: null,
+        updatedAt: DELETED_AT
+      });
+    });
+
+    // 画像を消すときだけ保存先を使うので、設定が足りないのは何かを消す前に分かる。
+    // AccountKey が無い接続文字列で、保存先のサービスが作れない(鍵が空だと署名が壊れるので作らせない)
+    it('写真も消すを選んだとき、写真の保存先の設定が足りなければ、何も消さずに500で返る', async () => {
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
+      cosmosBackend.documents.set(
+        KYOTO_FIRST_PHOTO_ID,
+        storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00')
+      );
+      putBlobs(`photos/${KYOTO_FIRST_PHOTO_ID}.jpg`, `photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg`);
+      const documentsBefore = structuredClone(cosmosBackend.documents);
+      const request = createDeleteRequest(KYOTO_TRIP_ID, 'true');
+
+      const response = await deleteTripHandler(request, mockContext);
+
+      expect(response.status).toBe(500);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('INTERNAL_ERROR');
+      expect(body.error.message).toBe('旅行の削除に失敗しました');
+      expect(cosmosBackend.documents).toEqual(documentsBefore);
+      expect(Array.from(blobBackend.store.keys())).toEqual([
+        `photos/${KYOTO_FIRST_PHOTO_ID}.jpg`,
+        `photos/${KYOTO_FIRST_PHOTO_ID}.thumb.jpg`
+      ]);
+    });
   });
 });
