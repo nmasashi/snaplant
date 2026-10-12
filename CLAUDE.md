@@ -40,8 +40,14 @@ Terraform は Windows に導入済み（2026-10-11 時点で 1.16.5）。`plan` 
 azurerm プロバイダは v4 で、サブスクリプション ID を環境変数 `ARM_SUBSCRIPTION_ID` で渡す
 （`export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)`。`scripts/deploy.sh`・`destroy.sh` は自動で設定する）。
 
-**この環境からは HashiCorp（`registry.terraform.io`・`releases.hashicorp.com`）への通信が不安定。**
-IPv6 は接続直後に切られ、IPv4 も時々切られるため、`terraform init` のプロバイダのダウンロードが失敗する。
+**この環境からは IPv4 か IPv6 の片方の接続が、日によって確立した直後に切られる。** HashiCorp（`registry.terraform.io`・
+`releases.hashicorp.com`）にも Azure の管理 API（`management.azure.com`）にも起きる。Terraform（Go）は IPv6 を先に使い、
+切られても IPv4 に切り替えない。再送しない POST（`listKeys` など）だけが `connection may have been reset` で失敗し、
+`plan` / `apply` が通らない。Windows の IPv4 優先の設定（`netsh interface ipv6 set prefixpolicy ::ffff:0:0/96 60 4`）は
+Terraform には効かなかった（2026-10-12）。**`infrastructurescripts	f.cmd plan` / `apply` で回す**（コマンドプロンプト・
+Git Bash のどちらからでも、どこからでも可）。IPv4 で Azure と HashiCorp につながれば IPv4 だけでつなぐ中継（`tf.js`。
+TLS は中身を見ずに転送する）を通し、つながらなければそのまま `terraform` を実行する。2026-10-12 の apply はこれで通した。
+`terraform init` のプロバイダのダウンロードもこれで通るはずだが未確認。通らなければ次の手順。
 そのときは `curl -4` で再試行しながらプロバイダの zip を落とし、公開されている `SHA256SUMS` と照合したうえで、
 `<dir>/registry.terraform.io/hashicorp/<name>/terraform-provider-<name>_<ver>_windows_amd64.zip` に置いて
 `terraform init -plugin-dir=<dir>` で読み込ませる。`terraform validate` は CI（`terraform.yml`）でも回る。

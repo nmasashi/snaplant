@@ -15,6 +15,7 @@ infrastructure/
     ├── deploy.sh              # terraform init → plan → apply
     ├── deploy-functions.sh    # Function App のコードデプロイ
     ├── destroy.sh             # terraform destroy
+    ├── tf.cmd / tf.js         # 通信の切れる日でも terraform を回す（IPv4 でつながれば IPv4 の中継を通す）
     └── get-publish-profile.sh # GitHub Secrets 用の Publish Profile 取得
 ```
 
