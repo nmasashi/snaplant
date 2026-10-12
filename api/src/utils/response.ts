@@ -1,7 +1,7 @@
 import { HttpResponseInit } from '@azure/functions';
 import { ApiResponse, ErrorResponse, HttpStatusCode, ErrorCode } from '../types/api';
 import { GENERAL_VALIDATION } from '../constants/validation';
-import { UNREACHABLE_ERRNOS, UpstreamError, UpstreamService, hasCauseCode } from './errors';
+import { UNREACHABLE_ERRNOS, UpstreamError, UpstreamService, hasCauseCode, isConnectivityError } from './errors';
 
 /**
  * 上流のサービスごとの、接続できない（到達していない）とみなす errno と応答
@@ -157,4 +157,24 @@ export function createUpstreamErrorResponse(error: UpstreamError): HttpResponseI
  */
 export function isPresentNonString(value: unknown): boolean {
   return value !== undefined && value !== null && typeof value !== 'string';
+}
+
+/**
+ * Cosmos DB の操作の失敗を応答にする（旅行アルバムのハンドラが使う）
+ *
+ * 接続できない障害は 503 DATABASE_ERROR、それ以外は 500 INTERNAL_ERROR。
+ * 植物図鑑のハンドラはまだトップレベルの code を手で比べている（docs/09_backlog.md）
+ * @param error 捕まえたエラー
+ * @param internalMessage 接続できない以外の失敗（500）で返す文言
+ */
+export function createDatabaseErrorResponse(error: any, internalMessage: string): HttpResponseInit {
+  if (isConnectivityError(error)) {
+    return createErrorResponse(
+      ErrorCode.DATABASE_ERROR,
+      'データベースに接続できません',
+      HttpStatusCode.SERVICE_UNAVAILABLE,
+      error.message
+    );
+  }
+  return createInternalError(internalMessage, error.message);
 }

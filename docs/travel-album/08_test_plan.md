@@ -38,7 +38,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 |---|---|---|
 | `query` の絞り込み | `@type`・`@tripId`（旅行の写真。未所属は `tripId` が `null` のものだけで、パラメータは無い。SQL の `IS_NULL` 自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
 | `query` のページ | `fetchNext()` が `maxItemCount` 件ずつ返し、続きがあれば `continuationToken`（偽物では挿入順の位置を表す文字列）を返す。同じトークンを渡すと続きから返す。`fetchAll()` も残す | 写真一覧のページの切れ目とトークンの受け渡し（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。`ORDER BY` は解釈しないので、**並び順は挿入順になる**（並びそのものは手で確かめる。§5.2） |
-| 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts` に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、`AlbumService` はその結果（`{ tripId, photoCount }` の行など）を受け取って `TripSummary` / `CatalogEntry` を組み立てる。`AlbumService` のテストでは `albumQueries` を固定の結果を返す実装に差し替える。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
+| 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts` に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、集計の行から `TripSummary` / `CatalogEntry` を組み立てる所は純粋関数（`services/tripSummaries.ts` など）に分け、行を直接渡して単体で確かめる（`albumQueries` を差し替えない。PR 3 で決めた）。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
 | `item().patch(body, options)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }`。`condition` はこの設計で使う2つの形（`FROM c WHERE c.processing.state = "<値>"` と `FROM c WHERE IS_NULL(c.<path>) OR c.<path> = "<値>"`）だけを解釈し、満たさなければ `{ code: 412 }`。**それ以外の形は例外にする**（知らない条件を黙って通さない） | move・PATCH・旅行の削除（未所属へ戻す）・ワーカー（担当の条件付き patch、コメントの条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）が使う。条件が実環境で意図どおりかは手で確かめる（§5.3） |
 | `FakeCosmosDocument` の緩和 | `name` / `imagePath` を必須にしない（`{ id: string; type?: string; … }`）。`FakeCosmosBackend<TDoc>` の既定の型に `Trip | Photo` を足す | 旅行・写真は `name` / `imagePath` を持たない |
@@ -89,7 +89,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 旅行:
 - 作成すると `type: "trip"`・`tags: []`・`description: null`・同じ `createdAt` / `updatedAt` で保存される。`name` の前後の空白が除かれる
 - 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
-- 集計（`albumQueries` を固定の結果に差し替えて）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる。
+- 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる。
   期間の行が無い旅行（撮影日時のある写真が無い）は `firstTakenAt` / `lastTakenAt` が `null`
 - 未所属の枚数: 枚数の行のうち `tripId` が `null` の行の `photoCount` が `unassignedPhotoCount` になる（旅行の一覧に無い id の行は数えない）
 - 表紙はサムネイルが無ければ原寸
@@ -183,7 +183,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - ワーカーは `state` が `pending` でない写真（担当の条件付き patch が 412。古い重複メッセージ）には何もしない。`done` / `failed` / `none` でも何もしない
 - タイマー（再投入）: 10 分以上更新されていない `pending` / `classifying` / `identifying` の写真が `{ photoId }` で積まれ、`attempts` が上限なら `failed` になる。**`failed` と `none` は拾わない**（`failed` の写真は何度タイマーが走っても `messages` に積まれない）
 - 掃除のタイマー: 文書の無い Blob のうち1日より古いものだけが `store` から消え、新しいものと文書のある Blob は残る。存在しない旅行を指す写真が `tripId: null` になる（消えない）。Blob の無い文書は消えない
-- 図鑑のまとめ（`albumQueries` を固定の結果に差し替えて）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並ぶ
+- 図鑑のまとめ（組み立ての純粋関数に行を直接渡して）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並ぶ
 - 図鑑の API（形は案。段階4の詳しい設計で決める。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400。該当する写真が無いときの応答、`name` の渡し方、ページの方式は決まってから書く
 - 移行スクリプト: 2 回流して `documents` の件数が変わらない。`imagePath` の Blob が無い植物は飛ばして一覧に出る。写真の `category` が `"plant"`、`tags` が `[]`、`identification.kind` が `"plant"` で `model: "migration"`、`sortAt` が `uploadedAt` を日本時間に直したもの
 

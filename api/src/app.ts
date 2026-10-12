@@ -7,6 +7,7 @@ import './functions/identify';
 import './functions/plantDetail';
 import './functions/plants';
 import './functions/save';
+import './functions/tripDetail';
 import './functions/trips';
 import './functions/updatePlant';
 import './functions/upload';
