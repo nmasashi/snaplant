@@ -14,6 +14,8 @@ export interface ReadSasParams {
   blobName: string;
   /** 有効期限 */
   expiresOn: Date;
+  /** 有効になる時刻。省略すると発行した時点から（トークンに st が付かない） */
+  startsOn?: Date;
 }
 
 /**
@@ -35,6 +37,7 @@ export function generateReadSasUrl(params: ReadSasParams): string {
       blobName: params.blobName,
       permissions,
       expiresOn: params.expiresOn,
+      startsOn: params.startsOn,
     },
     new StorageSharedKeyCredential(params.accountName, params.accountKey)
   ).toString();

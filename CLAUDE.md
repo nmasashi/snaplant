@@ -170,6 +170,8 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 | `/api/plants/{id}` | PUT | `functions/updatePlant.ts` |
 | `/api/trips` | GET, POST | `functions/trips.ts`（旅行アルバム） |
 | `/api/trips/{tripId}` | GET, PUT | `functions/tripDetail.ts`（旅行アルバム） |
+| `/api/photos` | POST | `functions/photos.ts`（旅行アルバム） |
+| `/api/photos/{photoId}` | GET | `functions/photoDetail.ts`（旅行アルバム） |
 
 `plants/{id}` は `plantDetail.ts` と `updatePlant.ts` の2ファイルが別々に登録している（メソッドが異なるため共存可能）。片方だけ見て全体を判断しないこと。
 
@@ -183,7 +185,7 @@ cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
 4. 植物なら `moveFromTempToPermanent()` で images コンテナへ移動（公開 URL を返す）
 5. 画像 URL と識別候補をまとめて返す
 
-Blob Storage のコンテナは植物図鑑の2つで役割が違う：`images`（永続・公開 URL）と `temp-images`（一時・SAS 付き URL）。`temp-images` はライフサイクル管理で最終更新から1日を過ぎると消える。旅行アルバムの `photos`（非公開）と Cosmos DB の `album` もあるが、使うコードは段階2で入る（`docs/travel-album/`）。コンテナ名は環境変数から取る。`'temp'` は `TEMP_STORAGE_CONTAINER_NAME` が未設定のときのコード側のフォールバック値にすぎず、Terraform が作るのは `temp-images`。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返す。コンテナはパスの最初のセグメントで決め、永続コンテナ名・一時コンテナ名のどちらとも完全一致しなければやはり何も削除せず `false` を返す（未知のコンテナを永続側にフォールバックさせると、永続側の同名 Blob を消せてしまうため）。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
+Blob Storage のコンテナは植物図鑑の2つで役割が違う：`images`（永続・公開 URL）と `temp-images`（一時・SAS 付き URL）。`temp-images` はライフサイクル管理で最終更新から1日を過ぎると消える。旅行アルバムの写真は `photos`（非公開。読み取りは Blob 単位の SAS で、`PhotoStorageService` が扱う）、旅行と写真のデータは Cosmos DB の `album`（`docs/travel-album/`）。コンテナ名は環境変数から取る。`'temp'` は `TEMP_STORAGE_CONTAINER_NAME` が未設定のときのコード側のフォールバック値にすぎず、Terraform が作るのは `temp-images`。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返す。コンテナはパスの最初のセグメントで決め、永続コンテナ名・一時コンテナ名のどちらとも完全一致しなければやはり何も削除せず `false` を返す（未知のコンテナを永続側にフォールバックさせると、永続側の同名 Blob を消せてしまうため）。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
 
 **接続文字列に `BlobEndpoint=` があるとコンストラクタが例外を投げる**（未対応）。SDK はそのエンドポイントを使う一方で `StorageService` は `AccountName` と `EndpointSuffix` からホストを組み立てるため、食い違うと自分が生成した URL を自分で弾いて孤児 Blob が残る。Azurite はこの形式なので使えない。
 

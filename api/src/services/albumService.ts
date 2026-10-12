@@ -1,6 +1,6 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
-import { Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 
@@ -105,6 +105,48 @@ export class AlbumService {
       throw error;
     }
     return toTrip(updated);
+  }
+
+  /**
+   * 旅行があるか（集計はしない）
+   * @param id 旅行 ID
+   */
+  async tripExists(id: string): Promise<boolean> {
+    return (await this.readTrip(id)) !== null;
+  }
+
+  /**
+   * 写真のドキュメントを読む
+   * @param id 写真 ID
+   * @returns 写真のドキュメント。無いか写真でなければ null
+   */
+  async getPhoto(id: string): Promise<PhotoDocument | null> {
+    const { resource } = await this.container.item(id, id).read<PhotoDocument>();
+    return resource?.type === 'photo' ? resource : null;
+  }
+
+  /**
+   * 写真のドキュメントを作る
+   *
+   * 写真の id は中身の SHA-256 なので、同じ写真がほぼ同時に送られると、先に読んだときには
+   * 無くても create の時点では別の送信が作っている。そのとき create は 409 になるので、
+   * 先に作られた方を読んで返す（同じ写真は1枚）
+   * @param doc 写真のドキュメント
+   * @returns 保存した（または先に作られていた）写真のドキュメントと、この呼び出しで作ったか
+   */
+  async createPhoto(doc: PhotoDocument): Promise<{ photo: PhotoDocument; created: boolean }> {
+    try {
+      await this.container.items.create(doc);
+      return { photo: doc, created: true };
+    } catch (error: any) {
+      if (error.code === 409) {
+        const existing = await this.getPhoto(doc.id);
+        if (existing) {
+          return { photo: existing, created: false };
+        }
+      }
+      throw error;
+    }
   }
 
   /**

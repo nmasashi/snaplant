@@ -4,6 +4,8 @@
 // 関数をimportすることで、app.httpの登録が実行される
 import './functions/checkDuplicate';
 import './functions/identify';
+import './functions/photoDetail';
+import './functions/photos';
 import './functions/plantDetail';
 import './functions/plants';
 import './functions/save';

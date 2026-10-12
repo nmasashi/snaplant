@@ -17,7 +17,7 @@
  * @param fallback 読めない場合に使う既定値
  * @returns 正の整数
  */
-function positiveIntFromEnv(value: string | undefined, fallback: number): number {
+export function positiveIntFromEnv(value: string | undefined, fallback: number): number {
   const parsed = parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -127,5 +127,23 @@ export const TRIP_VALIDATION = {
     NAME_REQUIRED: '旅行名が指定されていません',
     NAME_TOO_LONG: `旅行名は${positiveIntFromEnv(process.env.TRIP_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
     DESCRIPTION_TOO_LONG: `説明は${positiveIntFromEnv(process.env.TRIP_DESCRIPTION_MAX_LENGTH, 1000)}文字以内で指定してください`
+  }
+} as const;
+
+// 旅行アルバムの写真の入力検証
+export const PHOTO_VALIDATION = {
+  // 写真 ID は画像のバイト列の SHA-256（16進・小文字のみ）。大文字を許すと同じ写真に2つの id ができる
+  ID_REGEX: /^[0-9a-f]{64}$/,
+  // 撮影日時はタイムゾーン無し（Z や +09:00 を付けると Flutter の toLocal() で9時間ずれる）
+  TAKEN_AT_REGEX: /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/,
+  // 緯度・経度は10進だけ。Number() に任せると 16進・2進・8進・指数表記・前後の空白も数値として通る
+  COORDINATE_REGEX: /^-?[0-9]+(\.[0-9]+)?$/,
+  MAX_LENGTH: {
+    PLACE_NAME: positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)
+  },
+  THUMBNAIL_MAX_SIZE: positiveIntFromEnv(process.env.THUMBNAIL_MAX_SIZE, 1048576), // デフォルト: 1MB
+
+  ERROR_MESSAGES: {
+    PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`
   }
 } as const;
