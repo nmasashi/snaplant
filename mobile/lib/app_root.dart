@@ -43,6 +43,7 @@ class _AppRootState extends State<AppRoot> {
       final settingsService = await SettingsService.getInstance();
       final apiKey = await settingsService.getApiKey();
       final endpoint = settingsService.getApiEndpoint();
+      if (!mounted) return;
 
       // 設定画面から戻るたびに作り直すので、前の ApiService（の http.Client）を閉じる。
       // 残すと、リセットで消したキーで通信し続ける
@@ -68,6 +69,7 @@ class _AppRootState extends State<AppRoot> {
       });
     } catch (e) {
       debugPrint('AppRoot: 設定の読み込みエラー: $e');
+      if (!mounted) return;
       // 前の設定の ApiService が残っていると、古い設定のまま一覧を読み直してしまう
       _apiService?.dispose();
       setState(() {
@@ -87,6 +89,7 @@ class _AppRootState extends State<AppRoot> {
       context,
       MaterialPageRoute(builder: (context) => const SettingsScreen()),
     );
+    if (!mounted) return;
     await _loadSettings(openSettingsIfMissing: false);
   }
 

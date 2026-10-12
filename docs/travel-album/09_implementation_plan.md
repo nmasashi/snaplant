@@ -17,6 +17,7 @@ PR の粒度・レビュー・Issue の基準は CLAUDE.md（「PR と Issue の
 - **TDD（List → Red → Green → Refactor）。** List は [08 §3・§4](./08_test_plan.md#3-段階2のシナリオ一覧api) から作る。Red は `test-writer`、Green と Refactor はメインセッション
 - **レビューは作業単位ごとに 1 回**（テストリストが空になった時点）。`/code-review` は常に、`test-reviewer` はテストを書いた PR、`contract-auditor` は外から観測できる振る舞いを変えた PR、`/security-review` は入力・ストレージ・外部通信を触った PR
 - **設計書は都度直し、`docs/` 直下への取り込みは後でまとめて行う**（2026-10-12 に人間が決定）。開発中に設計と実装が食い違ったら、同じ PR でこの一式（`docs/travel-album/`）を直す。`docs/06_api_openapi.yaml`・`docs/06_api_design.md`・`docs/03_screen_design.md`・`docs/04_database_design.md`・`DEPLOYMENT.md` などへの取り込みは、機能が固まってから行う（開発中に何度も変わるため）。実装した節には「実装済み」の印を付ける
+  - **既存の画面の振る舞いを変えたもの**（取り込むときに `docs/` 直下も直す）: PR 5 で、API キーが未設定・設定を読めないときは下のタブも「画像選択」ボタンも出さず、設定を促す表示だけにした（`docs/03_screen_design.md` §1 の起動時の挙動は、図鑑の画面に「画像選択」が出たままの旧仕様）
 - **デプロイの順序**: インフラ（apply）→ API（マージ）→ アプリ（実機）。[07 §5](./07_infrastructure_design.md#5-cicd-への影響)
 - **`mobile/` の PR はマージ前に `flutter analyze` / `flutter test`。** 新規の指摘が無いことを一覧で突き合わせる（件数ではなく）
 - **積まない（stacked PR を避ける）。** 前の PR がマージされてから次を切る。やむを得ず積むなら、マージ先が `main` に戻っているか確認する（`MEMORY.md` の教訓）
