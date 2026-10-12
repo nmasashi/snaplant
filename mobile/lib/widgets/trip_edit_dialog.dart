@@ -5,7 +5,25 @@ import '../services/api_service.dart';
 ///
 /// 保存できたら true を返して閉じる。保存の処理は呼び出し側が [onSave] で渡す（作成と編集で API が違う）
 class TripEditDialog extends StatefulWidget {
-  const TripEditDialog({super.key, required this.onSave});
+  /// 作成のダイアログ
+  const TripEditDialog({super.key, required this.onSave})
+      : initialName = '',
+        initialDescription = null,
+        isEditing = false;
+
+  /// 編集のダイアログ。今の旅行名とメモを入れて開く
+  const TripEditDialog.edit(
+      {super.key,
+      required this.onSave,
+      required String name,
+      required String? description})
+      : initialName = name,
+        initialDescription = description,
+        isEditing = true;
+
+  final String initialName;
+  final String? initialDescription;
+  final bool isEditing;
 
   /// 前後の空白を除いた旅行名と、メモ（空なら null）を保存する
   final Future<void> Function(String name, String? description) onSave;
@@ -15,8 +33,9 @@ class TripEditDialog extends StatefulWidget {
 }
 
 class _TripEditDialogState extends State<TripEditDialog> {
-  final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
+  late final _nameController = TextEditingController(text: widget.initialName);
+  late final _descriptionController =
+      TextEditingController(text: widget.initialDescription ?? '');
   String? _nameError;
 
   @override
@@ -51,7 +70,7 @@ class _TripEditDialogState extends State<TripEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('旅行を作る'),
+      title: Text(widget.isEditing ? '旅行を編集' : '旅行を作る'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -79,7 +98,8 @@ class _TripEditDialogState extends State<TripEditDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('キャンセル'),
         ),
-        ElevatedButton(onPressed: _submit, child: const Text('作成')),
+        ElevatedButton(
+            onPressed: _submit, child: Text(widget.isEditing ? '保存' : '作成')),
       ],
     );
   }

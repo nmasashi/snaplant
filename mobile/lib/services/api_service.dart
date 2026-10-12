@@ -471,6 +471,26 @@ class ApiService {
     }
   }
 
+  /// 旅行更新（旅行名とメモの全体置き換え。メモを省くと消える）
+  /// PUT /api/trips/{tripId}
+  Future<Trip> updateTrip(
+      String tripId, String name, String? description) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId');
+      final response = await _client.put(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'name': name, 'description': description}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Trip.fromJson(data['trip'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 接続テスト
   Future<bool> testConnection() async {
     try {

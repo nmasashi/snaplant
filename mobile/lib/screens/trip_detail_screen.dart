@@ -3,6 +3,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
+import '../widgets/trip_edit_dialog.dart';
 
 /// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
 ///
@@ -38,12 +39,39 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     }
   }
 
+  /// 旅行名とメモを編集する。保存できたら旅行を取り直してタイトルに反映する
+  Future<void> _editTrip(TripSummary trip) async {
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (context) => TripEditDialog.edit(
+        name: trip.name,
+        description: trip.description,
+        onSave: (name, description) =>
+            widget.apiService.updateTrip(trip.id, name, description),
+      ),
+    );
+    if (updated != true || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('旅行を更新しました')));
+    await _loadTrip();
+  }
+
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
     return Scaffold(
       appBar: AppBar(
         title: Text(trip?.name ?? '', style: AppTextStyles.appBarTitle),
+        actions: [
+          if (trip != null)
+            PopupMenuButton<void>(
+              icon: const Icon(Icons.more_vert),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                    onTap: () => _editTrip(trip), child: const Text('編集')),
+              ],
+            ),
+        ],
       ),
       body: trip == null
           ? const Center(child: CircularProgressIndicator())

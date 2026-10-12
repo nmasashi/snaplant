@@ -11,13 +11,14 @@ Map<String, Object?> tripJson({
   required String id,
   required String name,
   required int photoCount,
+  String? description,
   String? firstTakenAt,
   String? lastTakenAt,
 }) {
   return {
     'id': id,
     'name': name,
-    'description': null,
+    'description': description,
     'tags': <String>[],
     'createdAt': '2026-10-01T09:00:00.000Z',
     'updatedAt': '2026-10-01T09:00:00.000Z',
@@ -36,6 +37,7 @@ Map<String, Object?> tripJson({
 /// （再試行で読み直したかどうかを、2回目の成功で見分けるため）。
 /// [rejectCreateWith] を渡すと、作成は 400 `INVALID_REQUEST`（message はその文言）で拒み、旅行は作らない。
 /// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。表に無い id は 404。
+/// PUT /api/trips/{tripId} には、本文の `name`（前後の空白を除く）と `description` で表の旅行を置き換え、200 `{ trip }` を返す。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -48,7 +50,30 @@ MockClient tripServer(
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
+  // PUT で置き換えるため、渡された表を写して持つ
+  final details = {...tripDetails};
   return MockClient((request) async {
+    if (request.method == 'PUT' && request.url.path.startsWith('/api/trips/')) {
+      final id = request.url.pathSegments.last;
+      final current = details[id];
+      if (current == null) return http.Response('', 404);
+      // 実際のサーバと同じく全体置き換え（name は前後の空白を除く。description は省略か null で消える）
+      final body = json.decode(request.body) as Map<String, dynamic>;
+      final replaced = {
+        ...current,
+        'name': (body['name'] as String).trim(),
+        'description': body['description'],
+      };
+      details[id] = replaced;
+      return http.Response(
+        json.encode({
+          'success': true,
+          'data': {'trip': replaced},
+        }),
+        200,
+        headers: const {'content-type': 'application/json'},
+      );
+    }
     if (request.method == 'POST' && request.url.path == '/api/trips') {
       if (rejectCreateWith != null) {
         return http.Response(
@@ -77,7 +102,7 @@ MockClient tripServer(
       );
     }
     if (request.method == 'GET' && request.url.path.startsWith('/api/trips/')) {
-      final trip = tripDetails[request.url.pathSegments.last];
+      final trip = details[request.url.pathSegments.last];
       if (trip == null) return http.Response('', 404);
       return http.Response(
         json.encode({
