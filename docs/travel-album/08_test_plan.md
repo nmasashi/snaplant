@@ -30,7 +30,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`・`photoDetail.test.ts`・`photoMove.test.ts`、
 `tests/services/albumService.test.ts`・`photoStorageService.test.ts`、`tests/utils/blobSas.test.ts`・`errors.test.ts`（`isConnectivityError`）。
 
-## 2. 偽物の拡張
+## 2. テスト用の差し替え部品の拡張
 
 ### 2.1 `tests/fakes/cosmos.ts`
 
