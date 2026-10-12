@@ -40,6 +40,9 @@ Map<String, Object?> tripJson({
 /// PUT /api/trips/{tripId} には、本文の `name`（前後の空白を除く）と `description` で表の旅行を置き換え、200 `{ trip }` を返す。
 /// DELETE /api/trips/{tripId}?deletePhotos=true|false には、表の旅行を消して 200 を返す。`false` なら写真は未所属に移したものとして
 /// `detachedPhotoCount` に枚数を、`true` なら `deletedPhotoCount` に枚数を載せる。`deletePhotos` が無い・違う値なら 400。
+/// [deletePhotosSent] を渡すと、削除の要求ごとの `deletePhotos` の値（無ければ null）をここに記録する。
+/// 写真が0枚の旅行は `true` でも `false` でも応答が同じで、結果からは何を送ったか見分けられないときに使う
+/// （API が `deletePhotos` を必須にしている、という要求そのものが確かめたいとき）。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -49,6 +52,7 @@ MockClient tripServer(
   int failFirst = 0,
   String? rejectCreateWith,
   Map<String, Map<String, Object?>> tripDetails = const {},
+  List<String?>? deletePhotosSent,
 }) {
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
@@ -61,6 +65,7 @@ MockClient tripServer(
       // 実際のサーバと同じく、deletePhotos は小文字の true / false だけを受け付け、無ければ 400
       // （クライアントが何を載せたかを、返す枚数の違いで見分けるため）
       final deletePhotos = request.url.queryParameters['deletePhotos'];
+      deletePhotosSent?.add(deletePhotos);
       if (deletePhotos != 'true' && deletePhotos != 'false') {
         return http.Response(
           json.encode({

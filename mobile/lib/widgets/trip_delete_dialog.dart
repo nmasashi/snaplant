@@ -39,27 +39,32 @@ class _TripDeleteDialogState extends State<TripDeleteDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('「${widget.tripName}」を削除します。\n'
-                '中の写真${widget.photoCount}枚はどうしますか？'),
-            const SizedBox(height: 8),
-            RadioListTile<bool>(
-              value: false,
-              groupValue: _deletePhotos,
-              onChanged: (value) => setState(() => _deletePhotos = value!),
-              title: const Text('写真は残す'),
-              subtitle: const Text('「旅行に属さない写真」に移ります'),
-              contentPadding: EdgeInsets.zero,
-            ),
-            RadioListTile<bool>(
-              value: true,
-              groupValue: _deletePhotos,
-              onChanged: (value) => setState(() => _deletePhotos = value!),
-              title: const Text('写真も削除する'),
-              subtitle: const Text('この操作は元に戻せません'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ],
+          children: widget.photoCount == 0
+              // 写真が無ければ選ばせることが無い（送る deletePhotos は false のまま）
+              ? [Text('「${widget.tripName}」を削除しますか？')]
+              : [
+                  Text('「${widget.tripName}」を削除します。\n'
+                      '中の写真${widget.photoCount}枚はどうしますか？'),
+                  const SizedBox(height: 8),
+                  RadioListTile<bool>(
+                    value: false,
+                    groupValue: _deletePhotos,
+                    onChanged: (value) =>
+                        setState(() => _deletePhotos = value!),
+                    title: const Text('写真は残す'),
+                    subtitle: const Text('「旅行に属さない写真」に移ります'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  RadioListTile<bool>(
+                    value: true,
+                    groupValue: _deletePhotos,
+                    onChanged: (value) =>
+                        setState(() => _deletePhotos = value!),
+                    title: const Text('写真も削除する'),
+                    subtitle: const Text('この操作は元に戻せません'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
         ),
       ),
       actions: [

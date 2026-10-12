@@ -148,4 +148,35 @@ void main() {
     expect(find.byType(TripDetailScreen), findsNothing);
     expect(find.text('詳細を開く'), findsOneWidget);
   });
+
+  testWidgets('写真が0枚の旅行を削除するときは写真の扱いを選ばせず、確認だけして削除でき、前の画面に戻る', (tester) async {
+    final deletePhotosSent = <String?>[];
+    final server = tripServer(
+      [],
+      unassignedPhotoCount: 0,
+      deletePhotosSent: deletePhotosSent,
+      tripDetails: {
+        _tripId: tripJson(id: _tripId, name: '京都', photoCount: 0),
+      },
+    );
+    await openDetailFromHome(tester, ApiService(client: server));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    final dialog = find.byType(Dialog);
+    expect(find.descendant(of: dialog, matching: find.textContaining('「京都」を削除しますか？')), findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('写真は残す')), findsNothing);
+    expect(find.descendant(of: dialog, matching: find.text('写真も削除する')), findsNothing);
+
+    await tester.tap(find.descendant(of: dialog, matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    expect(find.text('旅行を削除しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('詳細を開く'), findsOneWidget);
+    // 写真が0枚だと応答は true でも false でも同じ。API が必須にしている deletePhotos を、残す側（false）で載せたことは要求で確かめる
+    expect(deletePhotosSent, ['false']);
+  });
 }
