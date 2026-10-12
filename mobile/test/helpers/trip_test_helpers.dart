@@ -51,6 +51,7 @@ Map<String, Object?> tripJson({
 /// [holdListUntil] を渡すと、`GET /api/trips` の応答はそれが終わる（Completer の complete）まで返さない。
 /// [tripsFromSecondList] を渡すと、`GET /api/trips` の2回目以降の一覧はこの旅行にする（別の端末で旅行が増えた想定。
 /// 読み直したかどうかを、増えた旅行が出るかで見分けるため）。
+/// [failFirstDetail] を渡すと、詳細の取得（GET /api/trips/{tripId}）は最初のその回数だけ 503 を返し、以降は成功する。
 /// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
 /// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
 /// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
@@ -65,7 +66,9 @@ MockClient tripServer(
   bool deleteTripNotFound = false,
   Future<void>? holdListUntil,
   List<Map<String, Object?>>? tripsFromSecondList,
+  int failFirstDetail = 0,
 }) {
+  var detailRequests = 0;
   var listRequests = 0;
   final created = <Map<String, Object?>>[];
   // 削除で一覧と未所属の枚数にも反映するため、渡された一覧と枚数を写して持つ
@@ -182,6 +185,17 @@ MockClient tripServer(
       );
     }
     if (request.method == 'GET' && request.url.path.startsWith('/api/trips/')) {
+      detailRequests++;
+      if (detailRequests <= failFirstDetail) {
+        return http.Response(
+          json.encode({
+            'success': false,
+            'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
+          }),
+          503,
+          headers: const {'content-type': 'application/json'},
+        );
+      }
       final trip = details[request.url.pathSegments.last];
       if (trip == null) {
         return http.Response(

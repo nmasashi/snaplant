@@ -3,6 +3,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
+import '../widgets/message_view.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
 
@@ -24,6 +25,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   TripSummary? _trip;
   // 旅行が既に無い（一覧を読んだ後に別の端末で消された）
   bool _tripDeleted = false;
+  // 読み込みに失敗したときの文言（旅行が無い場合を除く）。null なら失敗していない
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -33,6 +36,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 旅行（枚数・撮影期間つき）を読み込む
   Future<void> _loadTrip() async {
+    setState(() => _errorMessage = null);
     try {
       final trip = await widget.apiService.getTrip(widget.tripId);
       if (!mounted) return;
@@ -42,7 +46,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       if (!mounted) return;
       if (e is ApiException && e.isTripNotFound) {
         setState(() => _tripDeleted = true);
+        return;
       }
+      setState(() =>
+          _errorMessage = e is ApiException ? e.userMessage : '旅行の読み込みに失敗しました');
     }
   }
 
@@ -99,7 +106,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       appBar: AppBar(
         title: Text(trip?.name ?? '', style: AppTextStyles.appBarTitle),
         actions: [
-          if (trip != null)
+          if (trip != null && _errorMessage == null)
             PopupMenuButton<void>(
               icon: const Icon(Icons.more_vert),
               itemBuilder: (context) => [
@@ -111,17 +118,36 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             ),
         ],
       ),
-      body: _tripDeleted
-          ? const Center(child: Text('この旅行は削除されています'))
-          : trip == null
-              ? const Center(child: CircularProgressIndicator())
-              : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
-                    style: AppTextStyles.body1,
-                  ),
-                ),
+      body: _buildBody(trip),
+    );
+  }
+
+  Widget _buildBody(TripSummary? trip) {
+    if (_tripDeleted) {
+      return const Center(child: Text('この旅行は削除されています'));
+    }
+    final errorMessage = _errorMessage;
+    if (errorMessage != null) {
+      return MessageView(
+        isLargeScreen: MediaQuery.of(context).size.width >= 1400,
+        icon: Icons.error_outline,
+        title: 'エラーが発生しました',
+        message: errorMessage,
+        buttonIcon: Icons.refresh,
+        buttonLabel: '再試行',
+        onPressed: _loadTrip,
+        isError: true,
+      );
+    }
+    if (trip == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Text(
+        '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
+        style: AppTextStyles.body1,
+      ),
     );
   }
 }

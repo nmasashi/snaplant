@@ -252,4 +252,35 @@ void main() {
     expect(find.text('この旅行は削除されています'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsNothing);
   });
+
+  testWidgets('旅行詳細の取得に失敗するとエラーと「再試行」を出し、「再試行」で取り直すと旅行名と枚数・期間が出る', (tester) async {
+    // 1回目は 503、2回目は成功。再試行で取り直したかどうかを、2回目の成功で見分ける
+    final server = tripServer(
+      [],
+      unassignedPhotoCount: 0,
+      failFirstDetail: 1,
+      tripDetails: {
+        _tripId: tripJson(
+          id: _tripId,
+          name: '北海道 2026秋',
+          photoCount: 12,
+          firstTakenAt: '2026-10-05T09:00:00',
+          lastTakenAt: '2026-10-08T17:30:00',
+        ),
+      },
+    );
+    await openDetailFromHome(tester, ApiService(client: server));
+    // 失敗したときの表示。旅行の中身とメニューは出ていない
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(find.text('12枚 · 2026/10/05 〜 2026/10/08'), findsNothing);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('12枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+  });
 }
