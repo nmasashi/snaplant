@@ -20,8 +20,8 @@
 |---|---|---|
 | キュー | Azure Storage Queue `photo-processing`（既存のストレージアカウント。`AzureWebJobsStorage` と同じ） | 追加のリソースが要らず、Functions のトリガーが標準で使える。Service Bus は過剰 |
 | メッセージ | `{ "photoId": "<id>" }`（JSON） | ワーカーは写真を読み直し、やる処理（`processing.step`）も手がかり（`hint`）も写真から取る。メッセージは「この写真を見ろ」という合図に過ぎない。メッセージに `step` や `hint` を載せると、再投入や重複配信で写真の中身と食い違ったものが届きうる（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
-| 投入 | HTTP 関数から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
-| ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName, connection: 'AzureWebJobsStorage', handler })` | HTTP 関数と同じ Function App に同居 |
+| 投入 | API（Azure Functions）から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
+| ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName, connection: 'AzureWebJobsStorage', handler })` | API と同じ Function App（Azure 上の1つのアプリ）に同居 |
 | 直列化 | `host.json` の `extensions.queues` で `batchSize: 1`・`newBatchThreshold: 0` | AI のレート上限（TPM）と費用を抑える。1回の旅行で数百枚を一気に投入しても、順に流れる |
 | 可視性タイムアウト・再試行 | `visibilityTimeout: 00:01:00`、`maxDequeueCount: 3`。3回失敗すると `photo-processing-poison` に落ちる | 一時的な失敗（429・503）は自動で再試行され、恒久的な失敗は止まる |
 | 再投入のタイマー | `api/src/functions/requeueStalePhotos.ts`。`app.timer`、10 分ごと。`processing.state` が `pending` / `classifying` / `identifying` のまま 10 分以上更新されていない写真を再投入（`{ photoId }`。やる処理は写真の `processing.step` にある）。**`failed` と `none` は拾わない** | poison に落ちたもの、投入前にプロセスが落ちたもの、投入に失敗したものを拾う。`attempts` が上限（3 回）なら再投入せず `failed` にする。`failed` を拾わないので、同じ画像で永遠に失敗し続けることが無い（§1.3） |
@@ -34,7 +34,7 @@
 ```mermaid
 sequenceDiagram
     participant C as クライアント
-    participant H as HTTP 関数<br/>POST /api/photos
+    participant H as API<br/>POST /api/photos
     participant Q as Storage Queue
     participant W as ワーカー
     participant DB as Cosmos album
@@ -247,7 +247,7 @@ AI の担当の欄だけを1回の patch で `set` する（条件は付けな�
 
 | 失敗 | どこで | 扱い |
 |---|---|---|
-| キューへの投入の失敗（HTTP 関数・ワーカー） | `POST /api/photos`・`process`・分類の後の識別の投入 | どれも写真に `pending`・`step` を書いた後なので、投入に失敗しても成功を返し（201 / 202）、タイマーが `step` を見て再投入する。失敗を返すと「失敗したのに後で勝手に走る」ことになる |
+| キューへの投入の失敗（API・ワーカー） | `POST /api/photos`・`process`・分類の後の識別の投入 | どれも写真に `pending`・`step` を書いた後なので、投入に失敗しても成功を返し（201 / 202）、タイマーが `step` を見て再投入する。失敗を返すと「失敗したのに後で勝手に走る」ことになる |
 | AI の 429 / 503 | ワーカー | 例外を投げてキューの再試行。3 回で poison → タイマーが `failed` に |
 | AI の応答の検証違反 | ワーカー | 同上（内容が変わる可能性があるので再試行する価値がある）。毎回失敗する画像でも 3 回で `failed` になり、以後は利用者が頼んだときだけ試す（§1.3） |
 | Blob の SAS 生成の失敗 | ワーカー | 同上 |

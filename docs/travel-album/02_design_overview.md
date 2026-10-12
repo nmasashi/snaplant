@@ -56,8 +56,8 @@ flowchart LR
     end
 
     subgraph Azure
-        Http[Azure Functions<br/>HTTP 関数<br/>段階2]
-        Worker[Azure Functions<br/>キュー・タイマー関数<br/>段階3]
+        Http[Azure Functions<br/>API（HTTP で呼ばれる関数）<br/>段階2]
+        Worker[Azure Functions<br/>ワーカー・タイマー（裏の処理）<br/>段階3]
         Queue[(Storage Queue<br/>photo-processing<br/>段階3)]
         Blob[(Blob Storage<br/>photos 非公開<br/>段階2)]
         Cosmos[(Cosmos DB<br/>album コンテナ PK /id<br/>段階2)]
@@ -81,6 +81,14 @@ flowchart LR
     class Http,Blob,Cosmos,Geo s2
     class Worker,Queue,AOAI,Maps s3
 ```
+
+Azure Functions で動くものは3種類あり、どれも同じ Function App（Azure 上の1つのアプリ。今の植物図鑑の API と同じもの）の中で動く。
+
+| 呼び方 | 何か | 段階 |
+|---|---|---|
+| API | アプリから HTTP で呼ばれる関数（HTTP トリガー）。今の `api/src/functions/` の関数と同じ種類 | 2 |
+| ワーカー | キューにたまった依頼（分類・識別）を1件ずつ処理する関数（キュー トリガー） | 3 |
+| タイマー | 決まった間隔で動く関数（タイマー トリガー）。止まった処理の拾い直しと掃除 | 3 |
 
 既存の植物図鑑（`plants` コンテナ・公開の `images` コンテナ・`POST /api/images/upload`）は段階2・3では**このまま並存**し、
 段階4で `album` に統合して廃止する（要件 5.8、[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4)）。
@@ -110,7 +118,7 @@ Blob Storage のコンテナはファイル（画像）の入れ物。段階2で
 段階4で植物図鑑を統合したあとは、この2つだけが残る（Cosmos の `plants`、Blob の `images`・`temp-images` は消す）。
 
 新しく作るもの（段階2）: Cosmos の `album` コンテナと `AlbumService`、Blob の `photos` コンテナと `PhotoStorageService`、
-旅行・写真の HTTP 関数（`trips.ts`・`tripDetail.ts`・`photos.ts`・`photoDetail.ts`・`photoMove.ts`）、`types/album.ts`、
+旅行・写真の API（Azure Functions の関数。`trips.ts`・`tripDetail.ts`・`photos.ts`・`photoDetail.ts`・`photoMove.ts`）、`types/album.ts`、
 `constants/album.ts`、Flutter の `AppRoot`・`HomeShell`・旅行一覧・旅行詳細・旅行に属さない写真・写真ビューア・
 `PhotoGrid`（複数選択・ページの続きの読み込み）・`UploadQueue`・EXIF / SHA-256 / サムネイル / 地名の読み取り。
 段階3: Storage Queue とワーカー、再投入と掃除のタイマー、`PhotoClassifierService`、カテゴリ横断画面。段階4: `catalog/kinds.ts`、`PhotoIdentifierService`、図鑑の API と画面、移行スクリプト。

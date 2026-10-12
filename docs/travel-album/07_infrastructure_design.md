@@ -248,7 +248,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `TAG_MAX_LENGTH` | `30` | 利用者のタグの上限（文字） | `PATCH /api/photos/{photoId}` | 2 |
 | `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | `100` / `200` | 写真一覧の1ページの既定と上限（枚） | `GET /api/photos`・`GET /api/catalog/entry` | 2 |
 | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | `50` / `100` | 図鑑の項目一覧の1ページの既定と上限（件） | `GET /api/catalog/entries` | 4 |
-| `PHOTO_QUEUE_NAME` | `photo-processing` | 分類・識別のキュー名 | 投入する HTTP 関数とワーカー | 3 |
+| `PHOTO_QUEUE_NAME` | `photo-processing` | 分類・識別のキュー名 | 投入する API とワーカー | 3 |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。超えたら `failed` | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)） | 3 |
 | `PHOTO_PROCESSING_STALE_MINUTES` | `10` | これより長く更新の無い処理中の写真を再投入する（分） | 再投入のタイマー | 3 |
 | `ORPHAN_BLOB_MIN_AGE_DAYS` | `1` | 文書の無い Blob を消す前に待つ日数 | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
