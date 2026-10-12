@@ -104,14 +104,12 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 
 | ファイル | 対象 |
 |---|---|
-| `widget_test.dart` | アプリが起動するスモークテスト |
-| `services/api_service_test.dart` | `ApiService` の封筒の解釈（成功・エラー）と送信する Content-Type |
+| `services/api_service_test.dart` | `ApiService` の封筒の解釈（成功・エラー）と、送信する Content-Type（マジックバイトによる画像形式の判定を含む） |
 | `screens/identification_screen_test.dart` | 保存時の 409 の扱い |
 | `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
 | `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
 | `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
-| `utils/image_mime_type_test.dart` | マジックバイトによる画像形式の判定 |
 | `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
 
 テストで踏みやすい点。
