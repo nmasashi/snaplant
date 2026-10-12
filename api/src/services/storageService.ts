@@ -1,7 +1,8 @@
-import { BlobServiceClient, BlockBlobClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
 import { v4 as uuidv4 } from 'uuid';
 import { FILE_UPLOAD } from '../constants/validation';
 import { UpstreamError } from '../utils/errors';
+import { generateReadSasUrl } from '../utils/blobSas';
 
 /**
  * 一時URLのSASの有効期限（分）
@@ -249,32 +250,14 @@ export class StorageService {
         throw new Error('URLからファイル名を抽出できません');
       }
 
-      // SAS権限を設定（読み取りのみ）
-      const permissions = new BlobSASPermissions();
-      permissions.read = true;
-
-      // 有効期限を設定
-      const expiryTime = new Date(Date.now() + TEMP_SAS_EXPIRY_MINUTES * 60 * 1000);
-
-      // 認証情報を作成
-      const sharedKeyCredential = new StorageSharedKeyCredential(
-        this.storageAccountName,
-        this.storageAccountKey
-      );
-
-      // SASクエリパラメータを生成
-      const sasToken = generateBlobSASQueryParameters(
-        {
-          containerName: this.tempContainerName,
-          blobName: fileName,
-          permissions,
-          expiresOn: expiryTime,
-        },
-        sharedKeyCredential
-      ).toString();
-
-      // SAS URLを構築
-      return `${blobUrl}?${sasToken}`;
+      return generateReadSasUrl({
+        accountName: this.storageAccountName,
+        accountKey: this.storageAccountKey,
+        blobUrl,
+        containerName: this.tempContainerName,
+        blobName: fileName,
+        expiresOn: new Date(Date.now() + TEMP_SAS_EXPIRY_MINUTES * 60 * 1000),
+      });
 
     } catch (error: any) {
       // 一時コンテナは非公開（container_access_type = "private"）のため、
