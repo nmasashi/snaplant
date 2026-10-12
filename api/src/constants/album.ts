@@ -17,3 +17,20 @@ export const SORT_AT_UTC_OFFSET_MINUTES = 540;
  * サーバと Blob Storage の時計がずれると、発行した直後の URL が「まだ有効でない」で 403 になる
  */
 export const PHOTO_SAS_START_SKEW_MINUTES = 5;
+
+/**
+ * 写真一覧の継続トークンの大きさの上限（KB）
+ *
+ * トークンはクエリパラメータで受け渡すので、URL の長さの上限に収める。
+ * Cosmos は ORDER BY の横断クエリでトークンが長くなりうるため、SDK に上限を渡して抑える
+ * （小さすぎると Cosmos が1ページに返す件数が減るだけで、結果は欠けない）
+ */
+export const PHOTO_CONTINUATION_TOKEN_LIMIT_KB = 2;
+
+/**
+ * 写真一覧で、結果が揃っていない空のページを読み直す回数の上限
+ *
+ * enableQueryControl の Cosmos は、まだ結果を返せないパーティションがあると空のページを返す。
+ * 上限に達したら空のページをトークン付きで返し、クライアントが続きを取る（無限に読み続けない）
+ */
+export const PHOTO_EMPTY_PAGE_RETRIES = 10;

@@ -36,6 +36,35 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
 }
 
 /**
+ * 表紙の URL を作る関数を返す
+ *
+ * 写真の Blob のサービスは、表紙にする写真が見つかって初めて作る（写真の無い旅行だけなら Blob の設定を読まない）
+ */
+export function coverUrlMaker(): (blobName: string) => string {
+  const expiresOn = photoUrlExpiresOn();
+  let storage: PhotoStorageService | null = null;
+  return (blobName) => {
+    storage ??= new PhotoStorageService();
+    return storage.readUrl(blobName, expiresOn);
+  };
+}
+
+/**
+ * 写真の一覧の応答の data（写真と、その URL の有効期限）を作る
+ *
+ * 一覧のすべての URL に同じ期限を使う（クライアントは urlExpiresAt を見てページを取り直す）
+ * @param docs 写真のドキュメント
+ * @param storage URL を作る写真の Blob のサービス
+ */
+export function photoListResponseData(
+  docs: PhotoDocument[],
+  storage: PhotoStorageService
+): { photos: Photo[]; urlExpiresAt: string } {
+  const expiresOn = photoUrlExpiresOn();
+  return { photos: docs.map((doc) => toPhoto(doc, storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() };
+}
+
+/**
  * 写真1枚の応答の data（写真と、その URL の有効期限）を作る
  *
  * URL の期限はこの応答を作るときに決める。クライアントは urlExpiresAt を見て取り直す

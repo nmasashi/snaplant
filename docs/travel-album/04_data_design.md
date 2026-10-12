@@ -105,7 +105,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 |---|---|---|---|---|
 | `id` | string (SHA-256 hex 64, 小文字) | ○ | 2 | 画像の中身から決まる。同じ中身は1枚（要件 5.2） |
 | `type` | `"photo"` | ○ | 2 | 固定 |
-| `tripId` | string (UUID) \| null | ○（null 可） | 2 | 属する旅行。**どの旅行にも属さないときは `null` を必ず書く**（欠けていると `IS_NULL(c.tripId)` が偽になり一覧から消える） |
+| `tripId` | string (UUID) \| null | ○（null 可） | 2 | 属する旅行。**どの旅行にも属さないときは `null` を必ず書く**（欠けていると `c.tripId = null` に一致せず一覧から消える） |
 | `blobName` | string | ○ | 2 | `photos` コンテナの Blob 名。`<id>` + 検証済み Content-Type から引いた拡張子 |
 | `thumbnailBlobName` | string \| null | ○（null 可） | 2 | サムネイルの Blob 名 `<id>.thumb.jpg`。クライアントが送らなければ `null` |
 | `contentType` | string | ○ | 2 | 原寸の Content-Type（`FILE_UPLOAD.SUPPORTED_IMAGE_TYPES` のいずれか） |
@@ -374,7 +374,7 @@ export const CATALOG_KINDS = {
 |---|---|---|---|---|
 | 5.1 | 旅行一覧（集計） | 枚数: `SELECT c.tripId, COUNT(1) AS photoCount FROM c WHERE c.type = @type GROUP BY c.tripId`／期間: `SELECT c.tripId, MIN(c.takenAt) AS firstTakenAt, MAX(c.takenAt) AS lastTakenAt FROM c WHERE c.type = @type AND IS_STRING(c.takenAt) GROUP BY c.tripId`／表紙: 旅行ごとに `SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC` | 集計の行から `TripSummary` と未所属の枚数を組み立てる所は○ | `GROUP BY`（`null` の鍵）・`MIN` / `MAX`・`TOP 1` |
 | 5.2 | 旅行一覧（旅行） | `SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt DESC` | `@type` の絞り込みのみ | 並び順 |
-| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`／未所属: `WHERE c.type = @type AND IS_NULL(c.tripId) ORDER BY c.sortAt ASC`。`maxItemCount` と継続トークンでページ | `@tripId` で絞る（未所属は `tripId` が `null` のもの）。ページの切れ目と継続トークンの受け渡し | `IS_NULL`・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
+| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`（未所属は同じ SQL に `@tripId = null`）。`maxItemCount` と継続トークンでページ | `@tripId` で絞る（未所属は `tripId` が `null` のもの）。ページの切れ目と継続トークンの受け渡し | `@tripId = null` が `null` の写真だけに一致すること・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
 | 5.4 | カテゴリ横断（段階3） | `WHERE c.type = @type AND c.category = @category ORDER BY c.sortAt ASC`。ページは 5.3 と同じ | `@category` で絞る | — |
 | 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
 | 5.6 | 図鑑の項目一覧（段階4） | 枚数: `SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE … AND c.identification.name = @name ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前順に並べてページに切る所は○ | `GROUP BY`・複合インデックスの `ORDER BY` |
@@ -411,31 +411,31 @@ SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.t
 
 `container.item(tripId, tripId).read()`。`resource` が無いか、あっても `type` が `"trip"` でなければ無いものとして扱う（旅行と写真が同じコンテナにあるため。更新の前の読み取りも同じ。`AlbumService` の `readTrip()`）。
 集計は §5.1 の枚数・期間の `GROUP BY` のクエリに `AND c.tripId = @tripId` を足したもの（`albumQueries.ts` の同じ関数に `tripId` を渡す）。
-行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙の `TOP 1` は写真の一覧の API（PR 4a-2）で足す（それまで `null`）。
+行は0か1つで、写真が無ければ行が無く、枚数 0・期間 `null` になる。表紙は `queryCover()`（`TOP 1`）で読む（PR 4a-2）。
 
 ### 5.3 旅行の写真一覧
 
 ```sql
--- 旅行の写真
+-- 旅行の写真（@tripId に旅行の id）・旅行に属さない写真（@tripId に null）
 SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC
--- 旅行に属さない写真
-SELECT * FROM c WHERE c.type = @type AND IS_NULL(c.tripId) ORDER BY c.sortAt ASC
 ```
 
 **未所属は「`tripId` が `null`」の写真だけ**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #19）。
 以前の案では「存在しない旅行を指す写真」（旅行の削除と送信・move が重なって残るもの。§7.3）も未所属に含め、旅行の id の配列を `NOT ARRAY_CONTAINS(@tripIds, c.tripId)` で引いていたが、
 めったに起きないケースのためにクエリと旅行の一覧の先読みを足さない。残った写真は段階3の掃除のタイマー（§7.2）が `null` に戻し、それまでは一覧に出ない。
 
-`c.tripId = null` は Cosmos SQL では偽になるので、`null` は `IS_NULL` で書く。`tripId` は写真の作成時に必ず `null` を明示して書く
-（項目が欠けていると `IS_NULL` も偽になり、一覧から静かに外れる）。
+旅行に属さない写真も同じ SQL に `@tripId = null` を渡して引く（PR 4a-2 で `IS_NULL` から改めた）。Cosmos SQL の等価比較は null 同士なら真で、
+項目が無い（undefined の）ドキュメントには一致しない（Microsoft のドキュメント「Equality and comparison operators」。以前この文書に「`c.tripId = null` は偽になる」と書いたのは誤り）。
+`tripId` は写真の作成時に必ず `null` を明示して書く（項目が欠けていると一致せず、一覧から静かに外れる）。実環境で手で確かめる（[08 §5.2](./08_test_plan.md#52-デプロイ後api段階2)）。
 
 **並び順は Cosmos の `ORDER BY c.sortAt ASC` で付け、継続トークンでページに分けて読む。** `sortAt`（§1.3）は全写真が必ず持つ文字列なので、
 `ORDER BY` が null を先頭に置くか・項目の無いドキュメントを外すかという問題が無い。撮影日時の無い写真はアップロード日時（日本時間）の位置に入る。
 同値の並びは固定しない（固定したければ複合インデックス（`sortAt`, `id`）を足す）。
 
-- 1ページは `maxItemCount`（`limit`。既定 100、上限 200。`PHOTO_PAGE_SIZE`）。SDK の `fetchNext()` が返す `continuationToken` をそのまま応答に載せ、クライアントは次の要求にそのまま返す（[05 §5.2](./05_api_design.md#52-get-apiphotos)）
+- 1ページは `maxItemCount`（`limit`。既定 100、上限 200。`PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE`）。SDK の `fetchNext()` が返す `continuationToken` をそのまま応答に載せ（無ければ `null`）、クライアントは次の要求にそのまま返す（[05 §5.2](./05_api_design.md#52-get-apiphotos)）
 - 継続トークンは Cosmos が作る不透明な文字列で、クエリ本文とパラメータが同じときだけ有効。数 KB になることがある（推測）ので、クエリ文字列ではなくヘッダか POST にする案もあるが、
-  まず `continuationToken` クエリパラメータで作り、長さが問題になったら変える（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #21）
+  まず `continuationToken` クエリパラメータで作り、長さが問題になったら変える（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27）。
+  実装（PR 4a-2）は SDK の `continuationTokenLimitInKB` に 2 を渡して大きさを抑えている（`PHOTO_CONTINUATION_TOKEN_LIMIT_KB`。`constants/album.ts` の説明では、小さく抑えると1ページの枚数が `limit` より減ることがあるだけで、結果は欠けない）
 - ページの途中で写真が増減しても、継続トークンは「並びの中の位置」を指すので、次のページが重複・欠落することは無い（推測。同じ `sortAt` の写真が同時に入った場合は除く）。
   一覧を取り直せば最新になる
 - 1旅行数百枚（要件 §2）なら数ページで、クライアントは下までスクロールするたびに次のページを読む（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）。
@@ -559,12 +559,13 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `tripId` の旅行が、存在の検査の後に消された（旅行の削除との競合） | 消えた旅行を指す写真 | どの一覧にも出ない（写真は消えていない） | 掃除（段階3のタイマーが未所属に戻す。段階2の間は見えないまま）。アプリは削除の前に送信を止める（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）のでまれ（§7.3） |
 | 同じ写真の削除と重なる（削除が文書を消した後に送信が文書を作り、削除が Blob を消す） | Blob の無い文書 | 「画像を読み込めません」 | **手**（写真を削除して送り直す。再送は既存を返すので直らない）。削除の文書の削除と Blob の削除の間に送信の読み取り・Blob・`create` が全部挟まる必要があり、1人で使う限り実質起きない。掃除のタイマーが検出してログに出す |
 
-**写真の削除**（`DELETE /api/photos/{photoId}`。順: 文書 → 原寸 → サムネイル）
+**写真の削除**（`DELETE /api/photos/{photoId}`。順: 文書を読む → 文書を消す → 原寸 → サムネイル）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| 文書の削除 | 何も変わらない | 失敗 | 再送。文書が既に無ければ 404 → アプリは成功扱い |
-| Blob の削除 | 孤児 Blob（文書は消えている） | 無し（200） | 掃除 |
+| 文書の読み取り・削除 | 何も変わらない（画像にも触らない） | 失敗（503 / 500） | 再送。文書が既に無ければ 404 → アプリは成功扱い |
+| 読んだ後・消す前に、同じ写真の別の削除が文書を消した | 何も変わらない（画像は先に消した側が消す） | 404 `PHOTO_NOT_FOUND` | 不要（アプリは成功扱い） |
+| Blob の削除 | 孤児 Blob（文書は消えている。原寸の削除に失敗してもサムネイルは消しにいく） | 無し（200） | 掃除 |
 
 **旅行の作成・更新**（`POST` / `PUT /api/trips`。文書1つ）
 

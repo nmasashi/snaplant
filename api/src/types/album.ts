@@ -66,12 +66,12 @@ export interface PhotoProcessing {
  *
  * 段階3・4で使う項目（category・classification など）も段階2から null で持つ。
  * 項目が無いドキュメントと null のドキュメントは Cosmos SQL での振る舞いが違う
- * （IS_NULL は欠損で偽）ため、「無い」を2通り扱わずに済むようにする
+ * （null との等価比較や IS_NULL は、項目が無いと偽）ため、「無い」を2通り扱わずに済むようにする
  */
 interface PhotoFields {
   /** 画像のバイト列の SHA-256（16進・小文字 64 文字） */
   id: string;
-  /** 属する旅行。どの旅行にも属さないときは null を必ず書く（欠けると IS_NULL が偽になり一覧から消える） */
+  /** 属する旅行。どの旅行にも属さないときは null を必ず書く（欠けると c.tripId = null に一致せず一覧から消える） */
   tripId: string | null;
   contentType: string;
   fileSize: number;

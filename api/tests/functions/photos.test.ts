@@ -7,9 +7,10 @@ import {
   generateBlobSASQueryParameters
 } from '@azure/storage-blob';
 import { createPhotoHandler } from '../../src/functions/photos';
-import { PhotoDocument, TripDocument } from '../../src/types/album';
+import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
@@ -51,27 +52,6 @@ const THUMBNAIL_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
 
 // 送り先の旅行の id（UUID v4 の形）
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
-
-// Cosmos DB が保存したドキュメントに実際に付けるシステム項目。偽物は付けないので、漏れを見るテストが自分で足す。
-// 応答の写真に混ざると、利用者に内部の識別子や ETag が見えてしまう
-const COSMOS_SYSTEM_FIELDS = {
-  _rid: 'q2cDAOZl6N8BAAAAAAAAAA==',
-  _self: 'dbs/q2cDAA==/colls/q2cDAOZl6N8=/docs/q2cDAOZl6N8BAAAAAAAAAA==/',
-  _etag: '"0000a1b2-0000-0d00-0000-6706a1b20000"',
-  _attachments: 'attachments/',
-  _ts: 1760065200
-};
-
-/** TRIP_ID の旅行のドキュメント（偽物の documents に置いて「旅行がある」状態を作る） */
-const tripDocument = (): TripDocument => ({
-  id: TRIP_ID,
-  type: 'trip',
-  name: '北海道 2026秋',
-  description: null,
-  tags: [],
-  createdAt: '2026-10-04T09:00:00.000Z',
-  updatedAt: '2026-10-04T09:00:00.000Z'
-});
 
 const multipartHeaders = (): Map<string, string> =>
   new Map([['content-type', 'multipart/form-data; boundary=---test']]);
@@ -527,7 +507,7 @@ describe('写真API', () => {
     });
 
     it('送り先の旅行を指定すると、その旅行の写真として保存される', async () => {
-      cosmosBackend.documents.set(TRIP_ID, tripDocument());
+      cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
       const request = createPhotoRequest(formDataWith({ tripId: TRIP_ID }));
 
       const response = await createPhotoHandler(request, mockContext);
@@ -580,16 +560,15 @@ describe('写真API', () => {
         uploadedAt: '2026-09-21T01:00:00.000Z',
         updatedAt: '2026-09-22T02:30:00.000Z'
       };
-      const savedPhoto: PhotoDocument = {
+      const savedPhoto = photoDocument(PHOTO_ID, {
         ...savedFields,
-        type: 'photo',
         blobName: `${PHOTO_ID}.jpg`,
         thumbnailBlobName: null
-      };
+      });
       // データベースに入っているドキュメントには、Cosmos のシステム項目が付いている
       const storedPhoto = { ...savedPhoto, ...COSMOS_SYSTEM_FIELDS };
       cosmosBackend.documents.set(PHOTO_ID, { ...storedPhoto });
-      cosmosBackend.documents.set(TRIP_ID, tripDocument());
+      cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
       blobStore.set(`photos/${PHOTO_ID}.jpg`, { content: savedBytes, contentType: 'image/jpeg' });
       // 旅行（tripId）とサムネイルを付けて、同じ写真（同じ photoId・同じ画像）をもう一度送る
       const request = createPhotoRequest(
@@ -623,29 +602,11 @@ describe('写真API', () => {
       // 「送信に成功したが応答が届かず、その間に送り先の旅行が消され、同じ写真を同じ旅行付きで再送した」状態。
       // 保存済みの写真は旅行（TRIP_ID）に入れて保存したもので、偽物には旅行のドキュメントを置かない（消えた後）。
       // 同じ写真は何度送っても1枚（冪等）なので、旅行の有無にかかわらず保存済みのものがそのまま返る
-      const savedPhoto: PhotoDocument = {
-        id: PHOTO_ID,
-        type: 'photo',
+      const savedPhoto = photoDocument(PHOTO_ID, {
         tripId: TRIP_ID,
         blobName: `${PHOTO_ID}.jpg`,
-        thumbnailBlobName: null,
-        contentType: 'image/jpeg',
-        fileSize: 10,
-        takenAt: null,
-        takenAtSource: 'none',
-        sortAt: '2026-10-10T12:12:44',
-        location: null,
-        category: null,
-        tags: [],
-        comment: null,
-        commentSource: null,
-        hint: null,
-        classification: null,
-        identification: null,
-        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
-        uploadedAt: '2026-10-10T03:12:44.000Z',
-        updatedAt: '2026-10-10T03:12:44.000Z'
-      };
+        thumbnailBlobName: null
+      });
       cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto });
       const request = createPhotoRequest(formDataWith({ tripId: TRIP_ID }));
 
@@ -680,12 +641,11 @@ describe('写真API', () => {
         uploadedAt: '2026-10-10T03:12:44.000Z',
         updatedAt: '2026-10-10T03:12:44.000Z'
       };
-      const firstCreated: PhotoDocument = {
+      const firstCreated = photoDocument(PHOTO_ID, {
         ...firstFields,
-        type: 'photo',
         blobName: `${PHOTO_ID}.jpg`,
         thumbnailBlobName: null
-      };
+      });
       // この送信が写真を読んだ時点では無く、ドキュメントを作る直前に別の送信が作る。
       // データベースに入ったドキュメントには、Cosmos のシステム項目が付いている
       const firstStored = { ...firstCreated, ...COSMOS_SYSTEM_FIELDS };

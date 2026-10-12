@@ -63,3 +63,31 @@ export async function queryTakenAtRanges(container: Container, tripId?: string):
     .fetchAll();
   return resources;
 }
+
+/** 表紙にする写真の Blob 名 */
+export interface CoverRow {
+  blobName: string;
+  thumbnailBlobName: string | null;
+}
+
+/**
+ * 旅行の表紙にする写真（並べ替え用の日時で最初の1枚）を読む
+ *
+ * 旅行ごとに TOP 1 を投げる（旅行は数十件。1本数 RU）。並び順は手で確かめる
+ * @param container album コンテナ
+ * @param tripId 旅行 ID
+ * @returns 表紙の写真の Blob 名。写真が無ければ null
+ */
+export async function queryCover(container: Container, tripId: string): Promise<CoverRow | null> {
+  const { resources } = await container.items
+    .query<CoverRow>({
+      query:
+        'SELECT TOP 1 c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC',
+      parameters: [
+        { name: '@type', value: 'photo' },
+        { name: '@tripId', value: tripId },
+      ],
+    })
+    .fetchAll();
+  return resources[0] ?? null;
+}

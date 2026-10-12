@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
+import { coverUrlMaker } from '../services/photoView';
 import { createDatabaseErrorResponse, createSuccessResponse } from '../utils/response';
 import { readTripInput } from '../utils/tripInput';
 import { HttpStatusCode } from '../types/api';
@@ -31,7 +32,7 @@ export async function createTripHandler(request: HttpRequest, context: Invocatio
 export async function listTripsHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('旅行一覧リクエストを受信');
   try {
-    const { trips, unassignedPhotoCount } = await new AlbumService().listTrips();
+    const { trips, unassignedPhotoCount } = await new AlbumService().listTrips(coverUrlMaker());
     return createSuccessResponse({ trips, total: trips.length, unassignedPhotoCount });
   } catch (error: any) {
     context.log('旅行一覧取得エラー:', error);

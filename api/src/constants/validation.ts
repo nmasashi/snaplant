@@ -142,8 +142,12 @@ export const PHOTO_VALIDATION = {
     PLACE_NAME: positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)
   },
   THUMBNAIL_MAX_SIZE: positiveIntFromEnv(process.env.THUMBNAIL_MAX_SIZE, 1048576), // デフォルト: 1MB
+  // 写真一覧の1ページの枚数（既定と上限）
+  PAGE_SIZE: positiveIntFromEnv(process.env.PHOTO_PAGE_SIZE, 100),
+  MAX_PAGE_SIZE: positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200),
 
   ERROR_MESSAGES: {
-    PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`
+    PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
+    LIMIT_INVALID: `1ページの枚数は1〜${positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200)}で指定してください`
   }
 } as const;
