@@ -250,7 +250,8 @@ export function readPhotoListQuery(
   }
 
   const continuationToken = query.get('continuationToken');
-  if (continuationToken === '') {
+  // Cosmos の継続トークンは JSON。読めないものを SDK に渡すと code の無い Error になり 500 と区別できないので、ここで弾く
+  if (continuationToken !== null && !isJson(continuationToken)) {
     return { error: createValidationError('継続トークンの形式が無効です') };
   }
 
@@ -261,4 +262,17 @@ export function readPhotoListQuery(
       continuationToken: continuationToken ?? undefined,
     },
   };
+}
+
+/**
+ * 文字列が JSON として読めるか（空文字は読めない）
+ * @param value 文字列
+ */
+function isJson(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
 }

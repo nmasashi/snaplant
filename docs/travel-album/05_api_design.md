@@ -59,7 +59,7 @@
 - `plants/{id}` と同じく、同じルートを複数ファイルが別々のメソッドで登録してよいが、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
   実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）、
-  `photos.ts` が `createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）。
+  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）。
   `plantDetail.ts` のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
@@ -168,6 +168,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `TRIP_VALIDATION.MAX_LENGTH.DESCRIPTION` | `TRIP_DESCRIPTION_MAX_LENGTH` | 1000 | 同上 |
 | `PHOTO_VALIDATION.ID_REGEX` | — | `/^[0-9a-f]{64}$/`（小文字のみ） | 写真 id を受けるすべて |
 | `PHOTO_VALIDATION.TAKEN_AT_REGEX` | — | `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/`（加えて実在する日時であること） | `POST /api/photos` |
+| `PHOTO_VALIDATION.COORDINATE_REGEX` | — | `/^-?[0-9]+(\.[0-9]+)?$/`（加えて緯度 ±90・経度 ±180 の範囲内） | `POST /api/photos` |
 | `PHOTO_VALIDATION.MAX_LENGTH.PLACE_NAME` | `PHOTO_PLACE_NAME_MAX_LENGTH` | 100 | `POST /api/photos` |
 | `PHOTO_VALIDATION.MAX_LENGTH.COMMENT` | `PHOTO_COMMENT_MAX_LENGTH` | 500 | `PATCH /api/photos/{photoId}` |
 | `PHOTO_VALIDATION.THUMBNAIL_MAX_SIZE` | `THUMBNAIL_MAX_SIZE` | 1048576（1MB） | `POST /api/photos` |
@@ -178,9 +179,10 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
 
-実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`MAX_LENGTH.PLACE_NAME`・`THUMBNAIL_MAX_SIZE`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4a-1 時点）。
-`PAGE_SIZE` / `MAX_PAGE_SIZE`・`MAX_LENGTH.COMMENT`・`MOVE_VALIDATION`・`TAG_VALIDATION`・`CATALOG_VALIDATION` は、使うエンドポイントと一緒に足す。
-`PHOTO_SAS_EXPIRY_MINUTES` は `positiveIntFromEnv()` を通さず `parseInt` で読むが、正の整数として読めない値（数字でない・0・負）は同じく 60 にする。
+実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4a-2 時点）。
+`MAX_LENGTH.COMMENT`・`MOVE_VALIDATION`・`TAG_VALIDATION`・`CATALOG_VALIDATION` は、使うエンドポイントと一緒に足す。
+`PHOTO_SAS_EXPIRY_MINUTES` は定数にせず、`photoUrlExpiresOn()` が応答を作るたびに `positiveIntFromEnv()` で読む（正の整数として読めない値（数字でない・0・負）は 60）。
+`limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。
 
 文字数は既存と同じく `String.length`（UTF-16 コードユニット）で数える（`docs/09_backlog.md`「contextInfo の文字数の数え方」と同じ扱い）。
 
@@ -279,7 +281,10 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 
 ### 5.2 `GET /api/photos`
 
-**実装済み**（PR 4a-2。`photos.ts`、クエリの検証は `utils/photoInput.ts` の `readPhotoListQuery`。`category` は段階3）。`limit` の先頭のゼロ（`01`）・符号・指数表記・空白は 4 の 400。`tripId=` （空）は 2 の 400。継続トークンの大きさは 2KB に抑える（`PHOTO_CONTINUATION_TOKEN_LIMIT_KB`）。トークンを渡していない要求で Cosmos が 400 を返したら 500。
+**実装済み**（PR 4a-2。`photos.ts`、クエリの検証は `utils/photoInput.ts` の `readPhotoListQuery`。`category` は段階3で、今は送っても読まない。`tripId` が無ければ `category` があっても 1 の 400）。
+`limit` は先頭がゼロでない10進の整数だけを受け付け、空（`limit=`）・先頭のゼロ（`01`）・符号・小数・指数表記・16進・前後の空白は 4 の 400。`tripId=` （空）は 2 の 400。
+`tripId=none` のときは旅行の確認（6）をしない。継続トークンの大きさは 2KB に抑える（`PHOTO_CONTINUATION_TOKEN_LIMIT_KB`）。
+トークンを渡していない要求で Cosmos が 400 を返したら 500。トークンを渡していても、Cosmos へ接続できない障害は 7 にせず 503 `DATABASE_ERROR`（`データベースに接続できません`）。
 
 | クエリ | 必須 | 内容 | 段階 |
 |---|---|---|---|
@@ -304,13 +309,15 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 
 並びは `sortAt` の昇順（撮影日時順。撮影日時が無い写真はアップロード日時を日本時間に直した位置。[04 §1.3](./04_data_design.md#13-写真type-photo)・[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 **`total` は返さない**（数えるには別のクエリが要り、ページごとに数えるのは無駄。旅行の枚数は `GET /api/trips` / `GET /api/trips/{tripId}` の `photoCount`、未所属の枚数は `GET /api/trips` の `unassignedPhotoCount` で取る）。
-`total` を外すことと、継続トークンをクエリパラメータで受け渡すことは**案**で、段階2の API の詳しい設計で決める（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27）。
+実装（PR 4a-2）は `total` を返さず、継続トークンをクエリパラメータで受け渡す（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27 の案のとおり。#27 は 02 では「詳細な設計の段階で決める」のまま）。
 
 ```json
 { "success": true, "data": { "photos": [ { "...": "Photo" } ], "continuationToken": "<Cosmos の継続トークン。最後のページは null>", "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
 ```
 
 - `continuationToken` は Cosmos が作る不透明な文字列で、クライアントは中身を見ず、次の要求の同じ名前のクエリに URL エンコードして載せる。`null` なら最後のページ
+- `limit` は1ページの上限（SDK の `maxItemCount`）で、Cosmos はそれより少なく返すことがある（継続トークンの大きさを抑えると減る。`constants/album.ts` の説明）。続きがあるかは枚数ではなく `continuationToken` が `null` かどうかで判断する
+- 旅行があって写真が1枚も無ければ 200 で `photos: []`・`continuationToken: null`（404 にしない）。旅行が無ければ、その旅行を指す写真が残っていても 404
 - トークンは同じ絞り込み（`tripId`・`category`）にだけ有効。絞り込みを変えるときは先頭から取り直す
 - 各ページの `urlExpiresAt` は、そのページの URL の期限（ページごとに SAS を発行する）
 - 500 の `message`: `写真一覧の取得に失敗しました`
@@ -329,7 +336,8 @@ URL は署名だけで作り、Blob があるかは確かめない（Blob の無
 
 ### 5.4 `DELETE /api/photos/{photoId}`
 
-**実装済み**（PR 4a-2。`photoDetail.ts`）。原寸の削除が失敗してもサムネイルは消しにいく。読んだ後・消す前に他のリクエストが消していたら 404。Blob が既に無いのは成功とみなす。
+**実装済み**（PR 4a-2。`photoDetail.ts`）。原寸の削除が失敗してもサムネイルは消しにいく。Blob が既に無いのは成功とみなす。
+読んだ後・消す前に他のリクエストが消していたら 404 `PHOTO_NOT_FOUND` で、画像には触らない（画像は先に消した側が消す）。ドキュメントの読み取り・削除に失敗したときも画像には触らない。
 
 検証は 5.3 と同じ。ドキュメントを消してから原寸とサムネイルの Blob を消す。Blob の削除の失敗はログだけで 200（残った Blob は掃除のタイマーが消す。[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）。
 段階4でも図鑑側の後始末は無い（項目は写真からまとめるので、写真が消えれば項目からも消える）。
@@ -338,7 +346,7 @@ URL は署名だけで作り、Blob があるかは確かめない（Blob の無
 { "success": true, "data": { "message": "写真が正常に削除されました" } }
 ```
 
-500 の `message`: `写真の削除に失敗しました`。
+Cosmos へ接続できなければ（読み取り・削除のどちらでも）503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真の削除に失敗しました`。
 
 ### 5.5 `POST /api/photos/move`
 
@@ -452,18 +460,18 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.9 `GET /api/trips`
 
-**実装済み**（PR 3。`trips.ts`）。表紙を除く。
+**実装済み**（PR 3。`trips.ts`。表紙は PR 4a-2）。
 
 `{ trips: TripSummary[], total, unassignedPhotoCount }`。`createdAt` 降順。`total` は旅行の数。
 集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
 `unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のもの。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
 同じ `GROUP BY` の結果から出す。旅行一覧の画面はこれで先頭の行の枚数を出し、別のリクエストを送らない。ページングは無い（旅行は数十件）。
-未所属の枚数をここで返すことは #27 の案どおり実装した（PR 3。§5.2 の `total` を外すかは写真の API で決める）。表紙（`coverThumbnailUrl`）は旅行ごとに `TOP 1` を並列に読む（PR 4a-2）。
+未所属の枚数をここで返すことは #27 の案どおり実装した（PR 3。写真の一覧（§5.2）も PR 4a-2 で案どおり `total` を返さない）。表紙（`coverThumbnailUrl`）は旅行ごとに `TOP 1` を並列に読む（PR 4a-2）。
 500 の `message`: `旅行一覧の取得に失敗しました`。
 
 ### 5.10 `GET /api/trips/{tripId}`
 
-**実装済み**（PR 3。`tripDetail.ts`）。表紙を除く。
+**実装済み**（PR 3。`tripDetail.ts`。表紙（§3.2）は PR 4a-2）。
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
@@ -561,7 +569,7 @@ AI の解析をやり直す（要件 5.5.1）。
 | 権限 | 読み取りのみ | |
 | 有効期限 | 発行から 60 分（`PHOTO_SAS_EXPIRY_MINUTES`。読めない値・0・負なら 60） | 旅行詳細を開いて眺める時間として十分で、ログに残っても長期間は読めない |
 | `startsOn` | 発行の 5 分前（`PHOTO_SAS_START_SKEW_MINUTES`。`constants/album.ts`） | サーバと Blob の時計のずれで「まだ有効でない」になるのを防ぐ |
-| 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC。ミリ秒まで） | クライアントが期限を知って取り直せる |
+| 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC。期限は SAS の `se` に合わせて秒に切り捨てるので、ミリ秒の桁は常に `.000`）。旅行の表紙（§3.2）には `urlExpiresAt` を付けない | クライアントが期限を知って取り直せる。秒を切り捨てないと `urlExpiresAt` が実際の期限より最大1秒遅れる |
 
 - 署名は `utils/blobSas.ts` の `generateReadSasUrl()`（`storageService.ts` から切り出したもの）。写真の URL は `PhotoStorageService.readUrl()` が `startsOn` を付けて呼び、
   期限は `photoUrlExpiresOn()`（`services/photoStorageService.ts`）が応答ごとに1回決めて、その応答のすべての URL と `urlExpiresAt` に同じ値を使う。

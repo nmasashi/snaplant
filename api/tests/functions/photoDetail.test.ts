@@ -483,5 +483,37 @@ describe('写真詳細API', () => {
         `photos/${OTHER_PHOTO_ID}.thumb.jpg`
       ]);
     });
+
+    // 画像を消す側の設定（鍵）が足りなければ、写真のデータを消す前に500で返す。
+    // 設定が足りないと画像を消すサービスが作れない。作るのが写真のデータを消した後だと、データだけ消えて
+    // 画像が残り（掃除のタイマーが消すまで）、しかも例外が応答にならず漏れる。
+    // 写真も画像も保存済みで、設定以外はすべて正しい状態にする
+    it('写真の保存先の設定に鍵が無ければ、写真を消さずに500で決まった文言を返す', async () => {
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      cosmosBackend.documents.set(PHOTO_ID, savedPhotoWithThumbnail(PHOTO_ID));
+      cosmosBackend.documents.set(OTHER_PHOTO_ID, savedPhotoWithThumbnail(OTHER_PHOTO_ID));
+      blobBackend.store.set(`photos/${PHOTO_ID}.jpg`, { content: Buffer.from('原寸'), contentType: 'image/jpeg' });
+      blobBackend.store.set(`photos/${PHOTO_ID}.thumb.jpg`, { content: Buffer.from('縮小'), contentType: 'image/jpeg' });
+      blobBackend.store.set(`photos/${OTHER_PHOTO_ID}.jpg`, { content: Buffer.from('別の原寸'), contentType: 'image/jpeg' });
+      blobBackend.store.set(`photos/${OTHER_PHOTO_ID}.thumb.jpg`, { content: Buffer.from('別の縮小'), contentType: 'image/jpeg' });
+      const request = createDeletePhotoRequest(PHOTO_ID);
+
+      const response = await deletePhotoHandler(request, mockContext);
+
+      expect(response.status).toBe(500);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('INTERNAL_ERROR');
+      expect(body.error.message).toBe('写真の削除に失敗しました');
+      // 保存済みの2枚のデータと画像は、どれも消えていない
+      expect(Array.from(cosmosBackend.documents.keys())).toEqual([PHOTO_ID, OTHER_PHOTO_ID]);
+      expect(Array.from(blobBackend.store.keys())).toEqual([
+        `photos/${PHOTO_ID}.jpg`,
+        `photos/${PHOTO_ID}.thumb.jpg`,
+        `photos/${OTHER_PHOTO_ID}.jpg`,
+        `photos/${OTHER_PHOTO_ID}.thumb.jpg`
+      ]);
+    });
   });
 });

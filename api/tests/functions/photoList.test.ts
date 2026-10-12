@@ -359,6 +359,45 @@ describe('写真一覧API', () => {
       });
     });
 
+    // album コンテナのパーティションキーは /id なので、一覧の ORDER BY はパーティションをまたぐクエリになる。
+    // この形で Cosmos は、結果がまだ揃っていないと、空のページ（resources: []）を継続トークン付きで返す。
+    // 空のページは「写真が無い」のではなく「まだ取れていない」なので、続きを読んで写真を返す。
+    // 空のページをそのまま返すと、写真があるのに空の一覧になり、続きのトークンだけが付く。
+    // 偽物は、実際の結果の前に空のページを2回返す。旅行の写真は2枚で、1ページに収まる
+    it('結果がまだ揃わず空のページが返っても、続きを読んで写真を返す', async () => {
+      freezeNow('2026-10-10T03:12:45.000Z');
+      cosmosBackend.emptyPagesBeforeResults = 2;
+      const fieldsA1 = photoFields(PHOTO_A1_ID, TRIP_A_ID, { sortAt: '2026-10-05T09:00:00', tags: ['朝'] });
+      const fieldsA2 = photoFields(PHOTO_A2_ID, TRIP_A_ID, { sortAt: '2026-10-06T12:30:15', tags: ['昼食'] });
+      cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
+      cosmosBackend.documents.set(PHOTO_A1_ID, photoDocument(fieldsA1));
+      cosmosBackend.documents.set(PHOTO_A2_ID, photoDocument(fieldsA2));
+      const request = createListPhotosRequest({ tripId: TRIP_A_ID });
+
+      const response = await listPhotosHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          photos: [
+            {
+              ...fieldsA1,
+              imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_A1_ID}.jpg?${TEST_SAS_TOKEN}`,
+              thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_A1_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
+            },
+            {
+              ...fieldsA2,
+              imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_A2_ID}.jpg?${TEST_SAS_TOKEN}`,
+              thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_A2_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
+            }
+          ],
+          continuationToken: null,
+          urlExpiresAt: '2026-10-10T04:12:45.000Z'
+        }
+      });
+    });
+
     // 05 §5.2 の表の 1〜5。上から順に見て、最初に失敗した1件だけを返す。各行は、検証したい指定1つだけを不正にする。
     // category は段階3なので、1 は「tripId が無い」だけで見る。code は文字列で固定する（クライアントがこの値で分岐する）。
     // 指定の検証は Cosmos DB に触る前に済ませる。forcedQueryError を立てておくと、検証が通って
@@ -452,14 +491,33 @@ describe('写真一覧API', () => {
       });
     });
 
-    // 05 §5.2 の表の 7。継続トークンは Cosmos が作る不透明な文字列で、別の絞り込みのものや壊れた文字列は
-    // Cosmos（SDK）が 400 で拒む。偽物は、自分が作った形でないトークンに、実 SDK と同じく数値の code 400 の
-    // 例外を投げる。これを 500 にせず、空のトークンと同じ 400 / 同じ文言で返す（クライアントは先頭から取り直す）。
+    // 05 §5.2 の表の 7。継続トークンは Cosmos が作る不透明な文字列だが、実体は JSON。JSON として読めない
+    // 文字列を SDK に渡すと、`code` の無い普通の Error（`Failed to parse continuation token: ...`）になり、
+    // 想定外の失敗（500）と区別できない。そのため、データベースに問い合わせる前に、空のトークンと同じ
+    // 400 / 同じ文言で返す（クライアントは先頭から取り直す）。
+    // JSON として読めるが、データベースが受け付けない形のトークンは、次のテストで見る。
     // 旅行と写真は置いてあり、トークン以外は正しい要求にする
     it('データベースが受け付けない継続トークンを渡すと、400で理由を返す', async () => {
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
       cosmosBackend.documents.set(PHOTO_A1_ID, photoDocument(photoFields(PHOTO_A1_ID, TRIP_A_ID)));
       const request = createListPhotosRequest({ tripId: TRIP_A_ID, continuationToken: 'not-a-real-token' });
+
+      const response = await listPhotosHandler(request, mockContext);
+
+      expect(response.status).toBe(400);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('INVALID_REQUEST');
+      expect(body.error.message).toBe('継続トークンの形式が無効です');
+    });
+
+    // 上のテストのトークンは JSON として読めない文字列。こちらは JSON として読めるが、データベースが
+    // 作った形ではないトークンで、実 SDK はこれを数値の code 400 のエラーで拒む（偽物も同じ）。
+    // どちらも同じ 400 / 同じ文言で返す。旅行と写真は置いてあり、トークン以外は正しい要求にする
+    it('JSONだがデータベースが受け付けない継続トークンを渡しても、400で理由を返す', async () => {
+      cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
+      cosmosBackend.documents.set(PHOTO_A1_ID, photoDocument(photoFields(PHOTO_A1_ID, TRIP_A_ID)));
+      const request = createListPhotosRequest({ tripId: TRIP_A_ID, continuationToken: '{"x":1}' });
 
       const response = await listPhotosHandler(request, mockContext);
 
@@ -525,7 +583,8 @@ describe('写真一覧API', () => {
           name: 'RestError',
           code: 'ENOTFOUND'
         }),
-        { tripId: TRIP_A_ID, continuationToken: 'token-from-the-previous-page' },
+        // JSON として読めるトークン（読めない文字列は、データベースに問い合わせる前に 400 で弾かれる）
+        { tripId: TRIP_A_ID, continuationToken: '{"fakePosition":1}' },
         503,
         'DATABASE_ERROR',
         'データベースに接続できません'

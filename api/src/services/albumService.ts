@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
-import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB } from '../constants/album';
+import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
 /** Blob 名から表紙の URL（SAS 付き）を作る関数 */
 export type CoverUrlOf = (blobName: string) => string;
@@ -166,18 +166,28 @@ export class AlbumService {
     limit: number,
     continuationToken: string | undefined
   ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
-    const page = await this.container.items
-      .query<PhotoDocument>(
-        {
-          query: 'SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC',
-          parameters: [
-            { name: '@type', value: 'photo' },
-            { name: '@tripId', value: tripId },
-          ],
-        },
-        { maxItemCount: limit, continuationToken, continuationTokenLimitInKB: PHOTO_CONTINUATION_TOKEN_LIMIT_KB }
-      )
-      .fetchNext();
+    // album は PK が /id なので、この ORDER BY はパーティションをまたぐ。@azure/cosmos 4.x では、この形で
+    // 継続トークンを使うには enableQueryControl が要る（無いと1ページ目にトークンが返らず、トークンを渡すと例外）。
+    // enableQueryControl では、結果が揃っていないと空のページをトークン付きで返すので、写真が取れるまで読み進める
+    const iterator = this.container.items.query<PhotoDocument>(
+      {
+        query: 'SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC',
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@tripId', value: tripId },
+        ],
+      },
+      {
+        maxItemCount: limit,
+        continuationToken,
+        continuationTokenLimitInKB: PHOTO_CONTINUATION_TOKEN_LIMIT_KB,
+        enableQueryControl: true,
+      }
+    );
+    let page = await iterator.fetchNext();
+    for (let i = 0; i < PHOTO_EMPTY_PAGE_RETRIES && page.resources.length === 0 && page.continuationToken; i++) {
+      page = await iterator.fetchNext();
+    }
     return { photos: page.resources, continuationToken: page.continuationToken ?? null };
   }
 

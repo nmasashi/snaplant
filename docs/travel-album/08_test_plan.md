@@ -27,7 +27,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | 環境変数を消すときは `delete` | `process.env.X = undefined` は文字列 `"undefined"` になる |
 | テスト名は日本語の文 | 既存と同じ |
 
-ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`・`photoDetail.test.ts`・`photoMove.test.ts`、
+ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`・`photoMove.test.ts`、
 `tests/services/albumService.test.ts`・`photoStorageService.test.ts`、`tests/utils/blobSas.test.ts`・`errors.test.ts`（`isConnectivityError`）。
 
 ## 2. テスト用の差し替え部品の拡張
@@ -90,7 +90,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 作成すると `type: "trip"`・`tags: []`・`description: null`・同じ `createdAt` / `updatedAt` で保存される。`name` の前後の空白が除かれる
 - 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
 - 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる
-  （PR 3 では枚数と期間だけ。表紙の結果を渡すのは PR 4a-2 で、それまで `coverThumbnailUrl` は常に `null`）。
+  （`tripSummaries.test.ts` は枚数と期間の行だけを渡す。表紙の URL は `buildTripSummaries()` の第4引数で、PR 4a-2 では
+  `queryCover()` の結果を偽物が挿入順の先頭で返すことを使い、ハンドラのテスト（`trips.test.ts`・`tripDetail.test.ts`）で確かめた）。
   期間の行が無い旅行（撮影日時のある写真が無い）は `firstTakenAt` / `lastTakenAt` が `null`
 - 未所属の枚数: 枚数の行のうち `tripId` が `null` の行の `photoCount` が `unassignedPhotoCount` になる（旅行の一覧に無い id の行は数えない）
 - 表紙はサムネイルが無ければ原寸
@@ -115,15 +116,16 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - ページ: 3 枚の旅行で `limit: 2` なら 2 枚と `continuationToken`、そのトークンで残り 1 枚と `continuationToken: null`。`limit` を渡さなければ既定の 100。`ORDER BY c.sortAt` の並びそのものは手で確かめる（§5.2）
 - 応答の Photo に `imageUrl` / `thumbnailUrl`・`sortAt`・`category` があり、`blobName` / `thumbnailBlobName` / `type` / `_rid` などが無い
 - サムネイルが無い写真は `thumbnailUrl: null`
-- 削除はドキュメントと原寸・サムネイルを消す。Blob の削除に失敗してもドキュメントは消え、真を返す。無ければ偽
+- 削除（`deletePhoto`）はドキュメントだけを消し、消したドキュメントを返す（原寸・サムネイルの Blob はハンドラが消す。§3.6）。無ければ、または読んだ後・消す前に消されていたら（404）`null`
 - move: 指定した id の `tripId` が変わり `updatedAt` が更新される。`null` で外せる。無い id は `notFound` に入り残りは動く。他の項目（`comment` など）は変わらない
 - PATCH: `comment` を保存して `commentSource: "user"`、`null` で消して `commentSource: null`。`tags` は置き換わり、重複は除かれる。`category`・`identification`・`processing` は変わらない（解析中の写真でも通る）
 
 ### 3.4 `functions/trips.ts` / `tripDetail.ts`
 
 - `POST`: 201 で `data.trip` が返る。[05 §5.8](./05_api_design.md#58-post-apitrips) の 1〜7 の各検証（順序を含む。例: `name` が数値で `description` も数値なら `旅行名は文字列で指定してください`）。`description` が `null`・未指定・空文字は通り `null` で保存
-- `GET /api/trips`: `data.trips`・`total`・`unassignedPhotoCount`。0 件で `[]`・`0`・`0`
-- `GET /api/trips/{tripId}`: 400（形式）・404 `TRIP_NOT_FOUND`・200 で集計付き
+- `GET /api/trips`: `data.trips`・`total`・`unassignedPhotoCount`。0 件で `[]`・`0`・`0`。
+  表紙は旅行ごとにその旅行の先頭の写真のサムネイル、写真の無い旅行は `null`（写真が無ければ Blob の設定が無くても 200）
+- `GET /api/trips/{tripId}`: 400（形式）・404 `TRIP_NOT_FOUND`（同じ id の写真しか無いときも）・200 で集計付き。表紙は先頭の写真のサムネイル、無ければ原寸
 - `PUT`: 形式 → ボディの順で検証。404。200 で更新後の旅行。`tags` が変わらない
 - `DELETE`: [05 §5.12](./05_api_design.md#512-delete-apitripstripiddeletephotostruefalse) の 1〜4 の各検証（`deletePhotos` 無しで 400、`yes` で 400）。404。
   `deletePhotos=true` で 200・`deletedPhotoCount`、偽物の `documents` から写真と旅行が消え、`store` から Blob が消える。
@@ -146,15 +148,20 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - Cosmos の接続失敗で 503 `DATABASE_ERROR`。500 の `message`
 
 `GET`:
-- `tripId` 無しで 400 `絞り込み条件を指定してください`。`tripId=abc` で 400。`limit=0` / `limit=201` / `limit=abc` で 400。`continuationToken=`（空）で 400。無い旅行で 404
-- `tripId=<uuid>` でその旅行の写真だけ、`tripId=none` で未所属（`tripId: null`）だけ
-- `limit=2` で 2 枚と `continuationToken`、同じトークンを渡すと続き、最後は `continuationToken: null`。`total` は無い
-- `urlExpiresAt` が返る
+- `tripId` 無しで 400 `絞り込み条件を指定してください`。`tripId=abc`・`tripId=`（空）で 400。`limit` が `0` / `201` / `-1` / `abc` / `1.5` / `01` / `1e2` / `0x10`・前に空白・空で 400。`continuationToken=`（空）で 400。
+  どれも Cosmos に触る前に返す。無い旅行で 404（その旅行を指す写真が残っていても）
+- `tripId=<uuid>` でその旅行の写真だけ、`tripId=none` で未所属（`tripId: null`）だけ（消えた旅行を指す写真・`tripId` の項目が無い写真は返らない）
+- `limit=2` で 2 枚と `continuationToken`、同じトークンを渡すと続き、最後は `continuationToken: null`。`total` は無い。`limit` の 1 と 200 は通る
+- 旅行はあるが写真が無ければ 200 で `photos: []`・`continuationToken: null`
+- Cosmos が受け付けないトークンで 400 `継続トークンの形式が無効です`。トークンを渡していない要求での Cosmos の 400 は 500。トークンを渡していても接続できない障害は 503
+- 旅行の確認・一覧のクエリのどちらで失敗しても、503 `DATABASE_ERROR` / 500 `写真一覧の取得に失敗しました`
+- `urlExpiresAt` が返る。Photo は項目が完全一致（`blobName` / `type` / `_rid` などが無い）
 
 ### 3.6 `functions/photoDetail.ts`
 
 - `GET`: 400（形式）・404 `PHOTO_NOT_FOUND`・200
-- `DELETE`: 400・404・200 `写真が正常に削除されました`。`store` から原寸とサムネイルが消える。Blob の削除失敗でも 200
+- `DELETE`: 400・404・200 `写真が正常に削除されました`。`store` から原寸とサムネイルが消え、別の写真は残る。サムネイルの無い写真は原寸だけ消える。
+  Blob の削除失敗でも 200 で、原寸で失敗してもサムネイルは消える。Cosmos の読み取り・削除の失敗（503 / 500）と、読んだ後・消す前に消されていた（404）ときは、ドキュメントも画像も変わらない
 - `PATCH`: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証。`comment` だけ・`tags` だけ・両方。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`
 
 ### 3.7 `functions/photoMove.ts`
@@ -253,12 +260,13 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 |---|---|---|
 | `c.tripId = @tripId`（`@tripId = null`）の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
 | `GROUP BY` の集計（旅行一覧） | `GET /api/trips` の `photoCount`・期間・表紙・`unassignedPhotoCount` が実際の写真と合う。`tripId` が `null` の写真が `unassignedPhotoCount` に数えられる（`null` の鍵がグループになるか）。撮影日時の無い写真があっても期間が `null` にならない | 枚数ずれ・未所属が 0・期間が `null` |
-| `ORDER BY c.sortAt` とページ | `GET /api/photos?tripId=…&limit=50` を `continuationToken` でめくり、撮影日時順で重複・欠落が無い。撮影日時の無い写真がアップロード日時（日本時間）の位置にある。別の `tripId` のトークンを渡すと 400 | 順が崩れる・二重に出る・抜ける |
+| `ORDER BY c.sortAt` とページ | `GET /api/photos?tripId=…&limit=50` を `continuationToken` でめくり、撮影日時順で重複・欠落が無い。撮影日時の無い写真がアップロード日時（日本時間）の位置にある。別の `tripId` のトークンを渡すと 400。トークンの大きさの上限（2KB）でも 300 枚をめくり切れる | 順が崩れる・二重に出る・抜ける |
+| 表紙の `TOP 1 … ORDER BY c.sortAt` | `GET /api/trips` と `GET /api/trips/{tripId}` の `coverThumbnailUrl` が、その旅行の撮影日時で最初の写真のサムネイル（無ければ原寸）を指す | 別の写真が表紙になる |
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
 | 応答に `_rid` などが出ない | `GET /api/photos/{photoId}` の JSON を目で見る | 余分なキー |
 | ライフサイクル | `temp-images` に Blob を置いて 2 日後に消えている。`photos`・`images`・`azure-webjobs-*` が消えていない | 消えない・消えすぎ |
-| 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の関数（`photos.ts`・`photoDetail.ts`・`photoMove.ts` が登録するもの）がある | 404（`app.ts` の import 忘れ） |
+| 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の `listPhotos`・`createPhoto`・`getPhoto`・`deletePhoto`（と 4b で `photoMove.ts`・`PATCH` が登録するもの）がある | 404（`app.ts` の import 忘れ） |
 
 ### 5.3 段階3・4で足すもの
 

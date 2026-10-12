@@ -44,7 +44,10 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
     return createValidationError('写真IDの形式が無効です');
   }
   let deleted;
+  let storage: PhotoStorageService;
   try {
+    // 保存先の設定が足りなければ、写真のデータを消す前に失敗させる（消した後だと画像が孤児として残る）
+    storage = new PhotoStorageService();
     deleted = await new AlbumService().deletePhoto(photoId);
   } catch (error: any) {
     context.log('写真削除エラー:', error);
@@ -53,7 +56,6 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
   if (!deleted) {
     return createNotFoundError('指定された写真が見つかりません', ErrorCode.PHOTO_NOT_FOUND);
   }
-  const storage = new PhotoStorageService();
   // Blob の削除の失敗はログだけにする。ドキュメントはもう無く、残った Blob は掃除のタイマー（段階3）が消す。
   // 原寸で失敗してもサムネイルは消しにいく
   for (const blobName of [deleted.blobName, deleted.thumbnailBlobName]) {
