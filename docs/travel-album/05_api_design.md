@@ -315,6 +315,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 { "success": true, "data": { "photos": [ { "...": "Photo" } ], "continuationToken": "<Cosmos の継続トークン。最後のページは null>", "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
 ```
 
+- **最後のページが空のことがある**（`photos: []` で `continuationToken: null`。Cosmos の enableQueryControl の性質。2026-10-12 に本番で確認）。クライアントはトークンが `null` になるまでめくる
 - `continuationToken` は Cosmos が作る不透明な文字列で、クライアントは中身を見ず、次の要求の同じ名前のクエリに URL エンコードして載せる。`null` なら最後のページ
 - `limit` は1ページの上限（SDK の `maxItemCount`）で、Cosmos はそれより少なく返すことがある（継続トークンの大きさを抑えると減る。`constants/album.ts` の説明）。続きがあるかは枚数ではなく `continuationToken` が `null` かどうかで判断する
 - 旅行があって写真が1枚も無ければ 200 で `photos: []`・`continuationToken: null`（404 にしない）。旅行が無ければ、その旅行を指す写真が残っていても 404
@@ -350,6 +351,8 @@ Cosmos へ接続できなければ（読み取り・削除のどちらでも）5
 
 ### 5.5 `POST /api/photos/move`
 
+**実装済み**（PR 4b。`photoMove.ts`、検証は `utils/photoInput.ts` の `readMoveInput`）。
+
 写真をまとめて旅行に入れる、または旅行から外す（`tripId: null`）。
 
 **リクエスト:** `{ "photoIds": ["<photoId>", ...], "tripId": "<uuid>" | null }`
@@ -380,6 +383,8 @@ Cosmos へ接続できなければ（読み取り・削除のどちらでも）5
 500 の `message`: `写真の移動に失敗しました`。
 
 ### 5.6 `PATCH /api/photos/{photoId}`
+
+**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
 
 利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント）・未定（タグ）。
 
@@ -490,6 +495,8 @@ AI の解析をやり直す（要件 5.5.1）。
 `tags` と `createdAt` は変えず、`updatedAt` を更新する。200 `{ trip }`（§3.1。集計無し）。500 の `message`: `旅行の更新に失敗しました`。
 
 ### 5.12 `DELETE /api/trips/{tripId}?deletePhotos=true|false`
+
+**実装済み**（PR 4b。`tripDetail.ts`）。`deletePhotos` が空文字なら 3（指定が無効）。最後に旅行を消すときに他の操作が先に消していた（404）なら成功とする。
 
 中の写真をどうするかを利用者が選ぶ（2026-10-12 に人間が決定。画面のダイアログは [03 §4.4](./03_screen_design.md#44-旅行詳細画面)）。
 

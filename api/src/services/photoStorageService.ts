@@ -60,6 +60,30 @@ export class PhotoStorageService {
   }
 
   /**
+   * 写真の原寸とサムネイルの Blob を消す。失敗はログに渡すだけで投げない
+   *
+   * 写真のドキュメントを消した後に呼ぶ。ドキュメントはもう無いので、残った Blob は掃除のタイマー（段階3）が消す。
+   * 原寸で失敗してもサムネイルは消しにいく
+   * @param photo 写真の id と Blob 名
+   * @param log 失敗を記録する関数
+   */
+  async deletePhotoBlobs(
+    photo: { id: string; blobName: string; thumbnailBlobName: string | null },
+    log: (message: string, error: unknown) => void
+  ): Promise<void> {
+    for (const blobName of [photo.blobName, photo.thumbnailBlobName]) {
+      if (!blobName) {
+        continue;
+      }
+      try {
+        await this.delete(blobName);
+      } catch (error) {
+        log(`写真の Blob の削除に失敗しました（ドキュメントは削除済み）: ID=${photo.id}`, error);
+      }
+    }
+  }
+
+  /**
    * 読み取り専用の SAS を付けた URL を作る
    * @param blobName Blob 名
    * @param expiresOn 有効期限

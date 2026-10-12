@@ -57,18 +57,7 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
   if (!deleted) {
     return createNotFoundError('指定された写真が見つかりません', ErrorCode.PHOTO_NOT_FOUND);
   }
-  // Blob の削除の失敗はログだけにする。ドキュメントはもう無く、残った Blob は掃除のタイマー（段階3）が消す。
-  // 原寸で失敗してもサムネイルは消しにいく
-  for (const blobName of [deleted.blobName, deleted.thumbnailBlobName]) {
-    if (!blobName) {
-      continue;
-    }
-    try {
-      await storage.delete(blobName);
-    } catch (error: any) {
-      context.log(`写真の Blob の削除に失敗しました（ドキュメントは削除済み）: ID=${photoId}`, error);
-    }
-  }
+  await storage.deletePhotoBlobs(deleted, (message, error) => context.log(message, error));
   return createSuccessResponse({ message: '写真が正常に削除されました' });
 }
 

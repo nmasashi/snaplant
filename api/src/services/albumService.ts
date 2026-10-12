@@ -5,6 +5,13 @@ import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from 
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
+/** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
+export interface PhotoBlobNames {
+  id: string;
+  blobName: string;
+  thumbnailBlobName: string | null;
+}
+
 /** Blob 名から表紙の URL（SAS 付き）を作る関数 */
 export type CoverUrlOf = (blobName: string) => string;
 
@@ -274,6 +281,78 @@ export class AlbumService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 旅行を消す。先に中の写真を消すか、どの旅行にも属さない写真に戻してから、最後に旅行を消す
+   *
+   * 中の写真は最初にページで全部読み（射影）、その分だけを処理する。削除の途中に届いた写真は消さない
+   * （段階3の掃除のタイマーが未所属に戻す。docs/travel-album/04_data_design.md §7.3）。
+   * 写真の処理が失敗したら投げる（旅行は残り、済んだ分はそのまま。再送で続きができる）
+   * @param id 旅行 ID
+   * @param deletePhotos 中の写真も消すなら true、残すなら false
+   * @param onPhotoDeleted 写真のドキュメントを消した後に呼ぶ（Blob を消すため）
+   * @returns 消した写真と未所属に戻した写真の枚数。旅行が無ければ null
+   */
+  async deleteTrip(
+    id: string,
+    deletePhotos: boolean,
+    onPhotoDeleted: (photo: PhotoBlobNames) => Promise<void>
+  ): Promise<{ deletedPhotoCount: number; detachedPhotoCount: number } | null> {
+    if (!(await this.readTrip(id))) {
+      return null;
+    }
+    const photos = await this.readTripPhotoBlobNames(id);
+    let deletedPhotoCount = 0;
+    let detachedPhotoCount = 0;
+    const now = new Date().toISOString();
+    for (const photo of photos) {
+      if (deletePhotos) {
+        await this.container.item(photo.id, photo.id).delete();
+        deletedPhotoCount++;
+        await onPhotoDeleted(photo);
+      } else {
+        await this.container.item(photo.id, photo.id).patch([
+          { op: 'set', path: '/tripId', value: null },
+          { op: 'set', path: '/updatedAt', value: now },
+        ]);
+        detachedPhotoCount++;
+      }
+    }
+    try {
+      await this.container.item(id, id).delete();
+    } catch (error: any) {
+      // 写真を処理している間に、他の操作が旅行を先に消していた。旅行が無いという結果は同じなので成功とする
+      if (error.code !== 404) {
+        throw error;
+      }
+    }
+    return { deletedPhotoCount, detachedPhotoCount };
+  }
+
+  /**
+   * 旅行の写真の id と Blob 名を、ページで全部読む
+   * @param tripId 旅行 ID
+   */
+  private async readTripPhotoBlobNames(tripId: string): Promise<PhotoBlobNames[]> {
+    const iterator = this.container.items.query<PhotoBlobNames>(
+      {
+        query: 'SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId',
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@tripId', value: tripId },
+        ],
+      },
+      { enableQueryControl: true }
+    );
+    const photos: PhotoBlobNames[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await iterator.fetchNext();
+      photos.push(...page.resources);
+      continuationToken = page.continuationToken;
+    } while (continuationToken);
+    return photos;
   }
 
   /**
