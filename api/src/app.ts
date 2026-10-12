@@ -5,6 +5,7 @@
 import './functions/checkDuplicate';
 import './functions/identify';
 import './functions/photoDetail';
+import './functions/photoMove';
 import './functions/photos';
 import './functions/plantDetail';
 import './functions/plants';

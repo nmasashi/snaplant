@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { createErrorResponse, createValidationError, isValidUUID } from './response';
+import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
-import { FILE_UPLOAD, PHOTO_VALIDATION } from '../constants/validation';
+import { FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
 
 /** 検証を通った写真の保存の入力 */
 export interface PhotoInput {
@@ -276,4 +277,112 @@ function isJson(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 検証を通った写真の移動の入力 */
+export interface MoveInput {
+  /** 移す写真 ID（重複を除いたもの） */
+  photoIds: string[];
+  /** 移す先の旅行 ID。旅行から外すなら null */
+  tripId: string | null;
+}
+
+/**
+ * 写真の移動（POST /api/photos/move）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.5 の表の順）
+ *
+ * 「旅行から外す」は tripId: null を明示させる（キーの省略と区別し、取り違えを検出する）
+ * @param request リクエスト
+ * @returns 検証を通った入力、または 400 の応答
+ */
+export async function readMoveInput(request: HttpRequest): Promise<{ input: MoveInput } | { error: HttpResponseInit }> {
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read;
+  }
+  const body = read.body;
+  if (body === null || body === undefined) {
+    return { error: createValidationError('リクエストボディが指定されていません') };
+  }
+  const { photoIds, tripId } = body as { photoIds?: unknown; tripId?: unknown };
+  if (!Array.isArray(photoIds)) {
+    return { error: createValidationError('写真IDは配列で指定してください') };
+  }
+  if (photoIds.length === 0) {
+    return { error: createValidationError('写真IDが指定されていません') };
+  }
+  if (photoIds.length > MOVE_VALIDATION.MAX_IDS) {
+    return { error: createValidationError(MOVE_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
+  }
+  if (!photoIds.every((id) => typeof id === 'string' && PHOTO_VALIDATION.ID_REGEX.test(id))) {
+    return { error: createValidationError('写真IDの形式が無効です') };
+  }
+  if (!('tripId' in (body as object))) {
+    return { error: createValidationError('移動先の旅行が指定されていません') };
+  }
+  if (tripId !== null && (typeof tripId !== 'string' || !isValidUUID(tripId))) {
+    return { error: createValidationError('旅行IDの形式が無効です') };
+  }
+  return { input: { photoIds: [...new Set(photoIds as string[])], tripId: tripId as string | null } };
+}
+
+/** 検証を通った写真の更新の入力（無い項目は undefined） */
+export interface PhotoUpdateInput {
+  /** 前後の空白を除いたコメント。消すなら null */
+  comment?: string | null;
+  /** 前後の空白を除き、重複を除いたタグ（置き換え） */
+  tags?: string[];
+}
+
+/**
+ * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.6 の 2〜9）
+ *
+ * コメントは前後の空白を除いてから数え、空なら null（消す）と同じ。タグは前後の空白を除いてから数え、
+ * 重複は除いた後の値で、先に出たものを残す
+ * @param request リクエスト
+ * @returns 検証を通った入力、または 400 の応答
+ */
+export async function readPhotoUpdateInput(
+  request: HttpRequest
+): Promise<{ input: PhotoUpdateInput } | { error: HttpResponseInit }> {
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read;
+  }
+  const body = read.body;
+  if (body === null || body === undefined) {
+    return { error: createValidationError('リクエストボディが指定されていません') };
+  }
+  const { comment, tags } = body as { comment?: unknown; tags?: unknown };
+  if (comment === undefined && tags === undefined) {
+    return { error: createValidationError('更新する項目が指定されていません') };
+  }
+  const input: PhotoUpdateInput = {};
+  if (comment !== undefined) {
+    if (comment !== null && typeof comment !== 'string') {
+      return { error: createValidationError('コメントは文字列で指定してください') };
+    }
+    const trimmed = comment === null ? null : comment.trim();
+    if (trimmed !== null && trimmed.length > PHOTO_VALIDATION.MAX_LENGTH.COMMENT) {
+      return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.COMMENT_TOO_LONG) };
+    }
+    input.comment = trimmed === '' ? null : trimmed;
+  }
+  if (tags !== undefined) {
+    if (!Array.isArray(tags)) {
+      return { error: createValidationError('タグは配列で指定してください') };
+    }
+    if (!tags.every((tag) => typeof tag === 'string')) {
+      return { error: createValidationError('タグは文字列で指定してください') };
+    }
+    const trimmed = (tags as string[]).map((tag) => tag.trim());
+    if (trimmed.some((tag) => tag === '' || tag.length > TAG_VALIDATION.MAX_LENGTH)) {
+      return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH) };
+    }
+    const unique = [...new Set(trimmed)];
+    if (unique.length > TAG_VALIDATION.MAX_COUNT) {
+      return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
+    }
+    input.tags = unique;
+  }
+  return { input };
 }

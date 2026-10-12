@@ -5,6 +5,13 @@ import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from 
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
+/** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
+export interface PhotoBlobNames {
+  id: string;
+  blobName: string;
+  thumbnailBlobName: string | null;
+}
+
 /** Blob 名から表紙の URL（SAS 付き）を作る関数 */
 export type CoverUrlOf = (blobName: string) => string;
 
@@ -212,6 +219,147 @@ export class AlbumService {
       throw error;
     }
     return photo;
+  }
+
+  /**
+   * 写真をまとめて旅行に入れる（tripId に null を渡すと旅行から外す）
+   *
+   * 写真ごとに tripId と updatedAt だけを patch する（AI が書く欄やコメントには触らない）。
+   * 無い写真は notFound に入れて続ける。それ以外の失敗は投げる（済んだ分は移っている。再送しても同じ結果になる）
+   * @param photoIds 写真 ID（重複は呼び出し側で除く）
+   * @param tripId 移す先の旅行 ID。外すなら null
+   */
+  async movePhotos(photoIds: string[], tripId: string | null): Promise<{ moved: string[]; notFound: string[] }> {
+    const now = new Date().toISOString();
+    const moved: string[] = [];
+    const notFound: string[] = [];
+    for (const id of photoIds) {
+      try {
+        await this.container.item(id, id).patch([
+          { op: 'set', path: '/tripId', value: tripId },
+          { op: 'set', path: '/updatedAt', value: now },
+        ]);
+        moved.push(id);
+      } catch (error: any) {
+        if (error.code === 404) {
+          notFound.push(id);
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { moved, notFound };
+  }
+
+  /**
+   * 写真の利用者のコメントとタグを直す
+   *
+   * 書くのは comment・commentSource・tags・updatedAt だけ（AI が書く欄には触らない）。解析中でも受け付ける
+   * @param id 写真 ID
+   * @param changes 直す項目（comment は null で消す。tags は置き換え）
+   * @returns 更新後の写真のドキュメント。無ければ null
+   */
+  async updatePhoto(
+    id: string,
+    changes: { comment?: string | null; tags?: string[] }
+  ): Promise<PhotoDocument | null> {
+    const operations: { op: 'set'; path: string; value: unknown }[] = [];
+    if (changes.comment !== undefined) {
+      operations.push({ op: 'set', path: '/comment', value: changes.comment });
+      operations.push({ op: 'set', path: '/commentSource', value: changes.comment === null ? null : 'user' });
+    }
+    if (changes.tags !== undefined) {
+      operations.push({ op: 'set', path: '/tags', value: changes.tags });
+    }
+    operations.push({ op: 'set', path: '/updatedAt', value: new Date().toISOString() });
+    try {
+      const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
+      return resource ?? null;
+    } catch (error: any) {
+      if (error.code === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 旅行を消す。先に中の写真を消すか、どの旅行にも属さない写真に戻してから、最後に旅行を消す
+   *
+   * 中の写真は最初にページで全部読み（射影）、その分だけを処理する。削除の途中に届いた写真は消さない
+   * （段階3の掃除のタイマーが未所属に戻す。docs/travel-album/04_data_design.md §7.3）。
+   * 写真の処理が失敗したら投げる（旅行は残り、済んだ分はそのまま。再送で続きができる）
+   * @param id 旅行 ID
+   * @param deletePhotos 中の写真も消すなら true、残すなら false
+   * @param onPhotoDeleted 写真のドキュメントを消した後に呼ぶ（Blob を消すため）
+   * @returns 消した写真と未所属に戻した写真の枚数。旅行が無ければ null
+   */
+  async deleteTrip(
+    id: string,
+    deletePhotos: boolean,
+    onPhotoDeleted: (photo: PhotoBlobNames) => Promise<void>
+  ): Promise<{ deletedPhotoCount: number; detachedPhotoCount: number } | null> {
+    if (!(await this.readTrip(id))) {
+      return null;
+    }
+    const photos = await this.readTripPhotoBlobNames(id);
+    let deletedPhotoCount = 0;
+    let detachedPhotoCount = 0;
+    const now = new Date().toISOString();
+    for (const photo of photos) {
+      try {
+        if (deletePhotos) {
+          await this.container.item(photo.id, photo.id).delete();
+          deletedPhotoCount++;
+          await onPhotoDeleted(photo);
+        } else {
+          await this.container.item(photo.id, photo.id).patch([
+            { op: 'set', path: '/tripId', value: null },
+            { op: 'set', path: '/updatedAt', value: now },
+          ]);
+          detachedPhotoCount++;
+        }
+      } catch (error: any) {
+        // 読んだ後に別の操作で写真が消されていた。消えたものとして読み飛ばし、枚数には数えない
+        if (error.code !== 404) {
+          throw error;
+        }
+      }
+    }
+    try {
+      await this.container.item(id, id).delete();
+    } catch (error: any) {
+      // 写真を処理している間に、他の操作が旅行を先に消していた。旅行が無いという結果は同じなので成功とする
+      if (error.code !== 404) {
+        throw error;
+      }
+    }
+    return { deletedPhotoCount, detachedPhotoCount };
+  }
+
+  /**
+   * 旅行の写真の id と Blob 名を、ページで全部読む
+   * @param tripId 旅行 ID
+   */
+  private async readTripPhotoBlobNames(tripId: string): Promise<PhotoBlobNames[]> {
+    const iterator = this.container.items.query<PhotoBlobNames>(
+      {
+        query: 'SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId',
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@tripId', value: tripId },
+        ],
+      },
+      { enableQueryControl: true }
+    );
+    const photos: PhotoBlobNames[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await iterator.fetchNext();
+      photos.push(...page.resources);
+      continuationToken = page.continuationToken;
+    } while (continuationToken);
+    return photos;
   }
 
   /**

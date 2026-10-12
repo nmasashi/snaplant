@@ -27,7 +27,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | 環境変数を消すときは `delete` | `process.env.X = undefined` は文字列 `"undefined"` になる |
 | テスト名は日本語の文 | 既存と同じ |
 
-ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`・`photoMove.test.ts`、
+ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`、
 `tests/services/albumService.test.ts`・`photoStorageService.test.ts`、`tests/utils/blobSas.test.ts`・`errors.test.ts`（`isConnectivityError`）。
 
 ## 2. テスト用の差し替え部品の拡張
@@ -102,6 +102,9 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 削除で写真のドキュメントの削除（または patch）に失敗すると例外になり、旅行は残る（済んだ分はそのまま）
 - 削除が読んだ射影に無かった写真（削除と重なって届いたもの）は消さない: 射影を読んだ後に同じ旅行を指す写真を偽物に足しても、`deletePhotos=true` でその写真は消えず残る（`tripId` もそのまま。未所属に戻すのは段階3の掃除のタイマー。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）
 
+PR 4b では、旅行の削除・move・PATCH をサービスではなくハンドラのテスト（`tripDetail.test.ts`・`photoMove.test.ts`・`photoUpdate.test.ts`）で確かめた（`albumService.test.ts` には足していない）。
+上の旅行の削除の項目のうち、「射影に無かった写真は消さない」と「途中で失敗したとき済んだ分はそのまま」はテストが無い（失敗の注入は全部の写真の操作に効くので、1枚目で止まり何も変わらない形だけを確かめている）。
+
 写真:
 - 作成すると `type: "photo"`・`tripId: null`（指定なし）・`category: null`・`tags: []`・`processing.state: "none"`・全項目が揃って保存される（**`tripId` キーが存在して `null`**）
 - `takenAt` があれば `takenAtSource: "exif"`、無ければ `"none"`
@@ -129,7 +132,10 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - `PUT`: 形式 → ボディの順で検証。404。200 で更新後の旅行。`tags` が変わらない
 - `DELETE`: [05 §5.12](./05_api_design.md#512-delete-apitripstripiddeletephotostruefalse) の 1〜4 の各検証（`deletePhotos` 無しで 400、`yes` で 400）。404。
   `deletePhotos=true` で 200・`deletedPhotoCount`、偽物の `documents` から写真と旅行が消え、`store` から Blob が消える。
-  `deletePhotos=false` で 200・`detachedPhotoCount`、写真は `tripId: null` で残り、`store` は変わらない
+  `deletePhotos=false` で 200・`detachedPhotoCount`、写真は `tripId: null` で残り、`store` は変わらない。
+  `deletePhotos` が `TRUE`・空文字で 400、無い旅行に `deletePhotos` を付け忘れると 400（検証が 404 より先）。同じ id のドキュメントが写真だけなら 404。
+  画像の削除に失敗しても 200 で写真と旅行の文書は消える。写真の無い旅行はどちらを選んでも 0 枚で消える。結果の揃わない空のページが挟まっても全部処理する。
+  最後の旅行の削除が 404 でも 200。旅行の読み取り・射影・写真の patch・写真の削除のどこで失敗しても 503 / 500 で、旅行は残る
 - 各エンドポイントの 503 `DATABASE_ERROR`（`it.each(['ENOTFOUND', 'ECONNREFUSED'])`。`cause` の奥に持つ形も1本）と 500 の `message`
 
 ### 3.5 `functions/photos.ts`
@@ -162,7 +168,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - `GET`: 400（形式）・404 `PHOTO_NOT_FOUND`・200
 - `DELETE`: 400・404・200 `写真が正常に削除されました`。`store` から原寸とサムネイルが消え、別の写真は残る。サムネイルの無い写真は原寸だけ消える。
   Blob の削除失敗でも 200 で、原寸で失敗してもサムネイルは消える。Cosmos の読み取り・削除の失敗（503 / 500）と、読んだ後・消す前に消されていた（404）ときは、ドキュメントも画像も変わらない
-- `PATCH`: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証。`comment` だけ・`tags` だけ・両方。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`
+- `PATCH`（`photoUpdate.test.ts`）: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証（順序の例を含む）。`comment` だけ・`tags` だけ（両方を送る正常系のテストは無い）。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`。
+  コメント 500 文字・タグ 30 文字は前後の空白を除いて数える（ちょうどなら通る）。前後の空白を除くと同じになるタグは1つにまとめる。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
 
 ### 3.7 `functions/photoMove.ts`
 
@@ -172,7 +179,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 一部が無いと `notFound` に入り、残りは動く
 - 重複した id は 1 回だけ数える
 - 無い旅行で 404。偽物の状態が変わらない
-- patch の予期しない失敗で 500（送れた分は変わっている）
+- 既にその旅行にある写真も `moved` に入る。移した写真は `tripId`・`updatedAt` 以外が変わらない
+- 旅行の確認・写真の patch の失敗で 503 / 500（`photoMove.test.ts` は1枚目で止まり何も変わらない形だけを確かめる。途中まで移った状態はテストが無い）
 
 ### 3.8 `response.ts` の拡張
 
@@ -266,7 +274,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
 | 応答に `_rid` などが出ない | `GET /api/photos/{photoId}` の JSON を目で見る | 余分なキー |
 | ライフサイクル | `temp-images` に Blob を置いて 2 日後に消えている。`photos`・`images`・`azure-webjobs-*` が消えていない | 消えない・消えすぎ |
-| 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の `listPhotos`・`createPhoto`・`getPhoto`・`deletePhoto`（と 4b で `photoMove.ts`・`PATCH` が登録するもの）がある | 404（`app.ts` の import 忘れ） |
+| 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`・`deleteTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の `listPhotos`・`createPhoto`・`getPhoto`・`deletePhoto`・`updatePhoto`・`movePhotos` がある | 404（`app.ts` の import 忘れ） |
 
 ### 5.3 段階3・4で足すもの
 

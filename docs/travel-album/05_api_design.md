@@ -58,8 +58,8 @@
 
 - `plants/{id}` と同じく、同じルートを複数ファイルが別々のメソッドで登録してよいが、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
-  実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）、
-  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）。
+  実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）・`deleteTrip`（DELETE）、
+  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）。
   `plantDetail.ts` のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
@@ -179,8 +179,9 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
 
-実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4a-2 時点）。
-`MAX_LENGTH.COMMENT`・`MOVE_VALIDATION`・`TAG_VALIDATION`・`CATALOG_VALIDATION` は、使うエンドポイントと一緒に足す。
+実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`MAX_LENGTH.COMMENT`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`MOVE_VALIDATION.MAX_IDS`、`TAG_VALIDATION.MAX_LENGTH`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4b 時点）。
+`CATALOG_VALIDATION` は、使うエンドポイント（段階4）と一緒に足す。
+コメント・タグ・move の上限も `message` に値を埋め込む（`コメントは500文字以内で指定してください`・`タグは1〜30文字で指定してください`・`一度に移動できる写真は200枚までです`）。
 `PHOTO_SAS_EXPIRY_MINUTES` は定数にせず、`photoUrlExpiresOn()` が応答を作るたびに `positiveIntFromEnv()` で読む（正の整数として読めない値（数字でない・0・負）は 60）。
 `limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。
 
@@ -309,12 +310,13 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 
 並びは `sortAt` の昇順（撮影日時順。撮影日時が無い写真はアップロード日時を日本時間に直した位置。[04 §1.3](./04_data_design.md#13-写真type-photo)・[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 **`total` は返さない**（数えるには別のクエリが要り、ページごとに数えるのは無駄。旅行の枚数は `GET /api/trips` / `GET /api/trips/{tripId}` の `photoCount`、未所属の枚数は `GET /api/trips` の `unassignedPhotoCount` で取る）。
-実装（PR 4a-2）は `total` を返さず、継続トークンをクエリパラメータで受け渡す（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27 の案のとおり。#27 は 02 では「詳細な設計の段階で決める」のまま）。
+実装（PR 4a-2）は `total` を返さず、継続トークンをクエリパラメータで受け渡す（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27。推奨どおり 2026-10-12 に決定）。
 
 ```json
 { "success": true, "data": { "photos": [ { "...": "Photo" } ], "continuationToken": "<Cosmos の継続トークン。最後のページは null>", "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
 ```
 
+- **最後のページが空のことがある**（`photos: []` で `continuationToken: null`。Cosmos の enableQueryControl の性質。2026-10-12 に本番で確認）。クライアントはトークンが `null` になるまでめくる
 - `continuationToken` は Cosmos が作る不透明な文字列で、クライアントは中身を見ず、次の要求の同じ名前のクエリに URL エンコードして載せる。`null` なら最後のページ
 - `limit` は1ページの上限（SDK の `maxItemCount`）で、Cosmos はそれより少なく返すことがある（継続トークンの大きさを抑えると減る。`constants/album.ts` の説明）。続きがあるかは枚数ではなく `continuationToken` が `null` かどうかで判断する
 - 旅行があって写真が1枚も無ければ 200 で `photos: []`・`continuationToken: null`（404 にしない）。旅行が無ければ、その旅行を指す写真が残っていても 404
@@ -350,6 +352,8 @@ Cosmos へ接続できなければ（読み取り・削除のどちらでも）5
 
 ### 5.5 `POST /api/photos/move`
 
+**実装済み**（PR 4b。`photoMove.ts`、検証は `utils/photoInput.ts` の `readMoveInput`）。
+
 写真をまとめて旅行に入れる、または旅行から外す（`tripId: null`）。
 
 **リクエスト:** `{ "photoIds": ["<photoId>", ...], "tripId": "<uuid>" | null }`
@@ -367,10 +371,13 @@ Cosmos へ接続できなければ（読み取り・削除のどちらでも）5
 | 9 | `tripId` の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
 
 「旅行から外す」は `tripId: null` を明示する（キーを省くと 7 で 400。省略と null を区別し、取り違えを検出するため）。
-重複した id は1つにまとめる。
+重複した id は1つにまとめる（最初に出た位置に残す）。5 の件数は重複を除く前に数える（同じ id を 201 個並べても 400）。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `photoIds` が無いものとして扱い、3 になる。`photoIds`・`tripId` 以外のキーは無視する。
+旅行があるか（9）は検証の後に1回だけ見る（`tripId: null` なら見ない）。
 
-処理: 各写真に `patch`（`tripId`・`updatedAt`）。404 なら `notFound` に入れて続ける。
-それ以外の失敗は中断して 500（送れた分は移っている。再送しても同じ結果になるので、クライアントは押し直せばよい）。
+処理: 各写真に `patch`（`tripId`・`updatedAt` だけ。`comment`・`category`・`processing` などには触らない）を、重複を除いた `photoIds` の順に1枚ずつ。404 なら `notFound` に入れて続ける。
+それ以外の失敗は中断する（送れた分は移っている。再送しても同じ結果になるので、クライアントは押し直せばよい）。
+Cosmos へ接続できなければ（旅行の確認・写真の patch のどちらでも）503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500。
 
 ```json
 { "success": true, "data": { "moved": ["<photoId>", "..."], "notFound": ["<photoId>"] } }
@@ -380,6 +387,8 @@ Cosmos へ接続できなければ（読み取り・削除のどちらでも）5
 500 の `message`: `写真の移動に失敗しました`。
 
 ### 5.6 `PATCH /api/photos/{photoId}`
+
+**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
 
 利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント）・未定（タグ）。
 
@@ -392,17 +401,24 @@ Cosmos へ接続できなければ（読み取り・削除のどちらでも）5
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
 | 4 | `comment` も `tags` も無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
-| 6 | `comment` が 500 文字を超える | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
+| 6 | `comment` が前後の空白を除いて 500 文字を超える | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
 | 8 | `tags` の要素に文字列でないものがある | 400 `INVALID_REQUEST` | `タグは文字列で指定してください` |
 | 9 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるものがある | 400 `INVALID_REQUEST` | `タグは1〜30文字で指定してください` |
+| 9.5 | `tags` が重複を除いて 20 個を超える（`TAG_MAX_COUNT`） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
-- `comment`: 文字列なら保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。前後の空白は除く（除いて空なら `null` と同じ）
-- `tags`: 利用者のタグを指定したものに**置き換える**。重複は除く。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
-- 書き込みは `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
+検証は `photoId`（1）→ ボディ（2〜9。`comment` の 5・6 を `tags` の 7〜9 より先）→ 写真があるか（10）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment` も `tags` も無いものとして扱い、4 になる。`comment`・`tags` 以外のキー（`hint` など）は無視し、それだけなら 4。
+
+- `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
+- `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は前後の空白を除いて保存し、除いた後の値で重複を除く（先に出たものを残し、並びは送った順）。
+  タグの数に上限は無い。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
+- 書き込みは `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
   **解析中（`processing.state` が `pending` / `classifying` / `identifying`）でも受け付ける**（ロックは無い）
-- 応答は `{ photo, urlExpiresAt }`。500 の `message`: `写真の更新に失敗しました`
+- 応答は 200 `{ photo, urlExpiresAt }`（§5.3 と同じ形。更新後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
+- Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真の更新に失敗しました`。
+  写真の保存先の設定（`STORAGE_CONNECTION_STRING` のアカウント名・鍵、`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ、写真を書き換える前に同じ 500
 
 ### 5.7 `POST /api/photos/{photoId}/process`（段階3）
 
@@ -491,6 +507,8 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.12 `DELETE /api/trips/{tripId}?deletePhotos=true|false`
 
+**実装済み**（PR 4b。`tripDetail.ts`、写真と旅行の処理は `AlbumService.deleteTrip()`、画像の削除は `PhotoStorageService.deletePhotoBlobs()`（`DELETE /api/photos/{photoId}` と共用））。
+
 中の写真をどうするかを利用者が選ぶ（2026-10-12 に人間が決定。画面のダイアログは [03 §4.4](./03_screen_design.md#44-旅行詳細画面)）。
 
 | クエリ | 必須 | 内容 |
@@ -504,22 +522,30 @@ AI の解析をやり直す（要件 5.5.1）。
 | 1 | `tripId` が UUID 形式でない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
 | 2 | `deletePhotos` が無い | 400 `INVALID_REQUEST` | `写真を削除するかどうかを指定してください` |
 | 3 | `deletePhotos` が `true` / `false` でない | 400 `INVALID_REQUEST` | `写真を削除するかどうかの指定が無効です` |
-| 4 | 無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
+| 4 | 無い（同じ id のドキュメントが写真でも） | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
+
+`deletePhotos` の値は小文字の `true` / `false` だけを受け付ける（`TRUE`・`yes`・空文字は 3）。旅行があるか（4）は 1〜3 の後に見るので、無い旅行に `deletePhotos` を付け忘れると 400。
 
 処理の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）:
 
-1. 中の写真の射影をページで読み（[04 §5](./04_data_design.md#5-クエリ) の 5.10）、1枚ずつ、`true` ならドキュメント → Blob の順に消す（Blob の失敗はログだけ）、`false` なら `tripId` を `null` に patch する（move の「外す」と同じ）
-2. 写真のドキュメントの削除・patch に失敗したら中断して 500（済んだ分はそのまま。再送で続きができる）
-3. 旅行を消す
+1. 旅行を読む（無ければ 404。写真にも画像にも触らない）
+2. 中の写真の射影をページで読み（[04 §5](./04_data_design.md#5-クエリ) の 5.10）、1枚ずつ、`true` ならドキュメント → 原寸とサムネイルの Blob の順に消す（Blob の失敗はログだけで続ける。原寸で失敗してもサムネイルは消しにいく。Blob が既に無いのは成功）、
+   `false` なら `tripId` を `null`・`updatedAt` を今に patch する（move の「外す」と同じ。他の項目と Blob には触らない）
+3. 写真のドキュメントの削除・patch に失敗したら中断する（済んだ分はそのまま。旅行は残り、再送で続きができる）
+4. 旅行を消す。他の操作が先に消していた（404）なら成功とする
 
-旅行を消した後の見直しはしない。削除の途中に届いた送信・move の写真が残っても消さず（`deletePhotos=true` でも、1 で読んだ射影に無かった写真は消さない）、
+旅行の読み取り・写真の射影の読み取り・写真の削除や patch・旅行の削除のどこで失敗しても、Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外は 500。
+写真の保存先の設定（`STORAGE_CONNECTION_STRING` のアカウント名・鍵、`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ、`deletePhotos=false` でも何も変える前に 500。
+
+旅行を消した後の見直しはしない。削除の途中に届いた送信・move の写真が残っても消さず（`deletePhotos=true` でも、2 で読んだ射影に無かった写真は消さない）、
 段階3の掃除のタイマーが未所属に戻す（まれで、写真は消えないので許容。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）。
 
 ```json
 { "success": true, "data": { "message": "旅行が正常に削除されました", "deletedPhotoCount": 12, "detachedPhotoCount": 0 } }
 ```
 
-`deletedPhotoCount` は消した写真の数（`false` なら 0）、`detachedPhotoCount` は未所属に移した数（`true` なら 0）。
+`deletedPhotoCount` は消した写真の数（`false` なら 0。画像の削除に失敗した写真も、ドキュメントを消せば数える）、`detachedPhotoCount` は未所属に移した数（`true` なら 0）。写真の無い旅行ならどちらも 0。
+途中で失敗して再送したときは、再送で処理した分だけを数える。
 500 の `message`: `旅行の削除に失敗しました`。
 
 ### 5.13 `GET /api/tags`（段階は未定）

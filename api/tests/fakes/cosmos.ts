@@ -65,6 +65,15 @@ import { TripDocument } from '../../src/types/album';
  * トークンを渡して作り直した iterator でも、同じ iterator の `fetchNext` の呼び直しでも読める。
  * 実際の結果のページの後も、次のページの前にまた同じ回数の空のページを返す（実 SDK はどのページの前でも空を返しうる）。
  *
+ * ## patch
+ *
+ * `item(id, pk).patch(body)` は、操作の配列か `{ operations, condition }` を受け、`set` / `replace` / `remove` を
+ * `path`（`/tripId` の1段、`/processing/state` の2段）に適用する。`id !== partitionKey` か、ドキュメントが無ければ
+ * 実 SDK と同じ数値 `code` 404 を投げる。存在しない path への `replace` / `remove` は `code` 400（実 SDK も拒む）。
+ * 適用は複製に対して行い、途中で失敗してもドキュメントは変わらない。
+ * **`condition` はまだ解釈しない。渡されたら例外にする**（知らない条件を黙って通さない）。
+ * 失敗の注入は `forcedPatchError`。
+ *
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
@@ -129,6 +138,15 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
   forcedReadError?: Error | null;
   forcedReplaceError?: Error | null;
   forcedDeleteError?: Error | null;
+  /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
+  forcedPatchError?: Error | null;
+  /**
+   * ドキュメントの id ごとに、`item(id).delete()` と `item(id).patch()` が投げるエラー。
+   * `forcedDeleteError` / `forcedPatchError` は全件に効くので、「読んだ後に1枚だけ他の操作で消された」のような
+   * 一部のドキュメントだけの失敗はこちらで起こす。エラーを投げるだけで、ドキュメント自体は Map に残る
+   * (消えたことにはならない)。全件に効く `forcedDeleteError` / `forcedPatchError` が先に評価される
+   */
+  forcedErrorById?: Record<string, Error>;
   forcedQueryError?: Error | null;
   /**
    * `fetchNext` が実際の結果を返す前に返す、結果がまだ揃っていない空のページ（`resources: []` と継続トークン）の数。
@@ -143,6 +161,54 @@ export function cosmosNotFoundError(): any {
   const err: any = new Error('NotFound');
   err.code = 404;
   return err;
+}
+
+/** `patch` の操作1つ。偽物が解釈するのは `set` / `replace` / `remove` だけ */
+export interface FakePatchOperation {
+  op: 'set' | 'replace' | 'remove';
+  /** `/tripId` のような1段、または `/processing/state` のような2段 */
+  path: string;
+  value?: unknown;
+}
+
+/** `patch` に渡せる形。操作の配列か、条件付きの `{ operations, condition }` */
+export type FakePatchBody = FakePatchOperation[] | { operations: FakePatchOperation[]; condition?: string };
+
+/** 実 SDK が、適用できない patch の操作（存在しない path の replace / remove など）に返す形に合わせたエラー */
+function cosmosBadPatchError(message: string): any {
+  const err: any = new Error(message);
+  err.code = 400;
+  return err;
+}
+
+/**
+ * patch の操作をドキュメントの複製に適用して返す（元のドキュメントは変えない。途中で失敗しても反映されない）。
+ * 偽物が扱えない操作や、3段以上の path は、黙って通さずに例外にする
+ */
+function applyPatchOperations(doc: object, operations: FakePatchOperation[]): object {
+  const next: Record<string, any> = structuredClone(doc);
+  for (const { op, path, value } of operations) {
+    const segments = path.split('/').slice(1);
+    if (!['set', 'replace', 'remove'].includes(op) || segments.length < 1 || segments.length > 2) {
+      throw new Error(`偽物の patch が扱えない操作です: ${op} ${path}`);
+    }
+    const key = segments[segments.length - 1];
+    let parent: Record<string, any> = next;
+    if (segments.length === 2) {
+      parent = next[segments[0]];
+      if (parent === null || typeof parent !== 'object') throw cosmosBadPatchError(`親の path がありません: ${path}`);
+    }
+    if (op === 'set') {
+      parent[key] = value;
+    } else if (!(key in parent)) {
+      throw cosmosBadPatchError(`存在しない path への ${op} です: ${path}`);
+    } else if (op === 'replace') {
+      parent[key] = value;
+    } else {
+      delete parent[key];
+    }
+  }
+  return next;
 }
 
 /**
@@ -306,8 +372,22 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         backend.documents.set(id, doc);
         return { resource: doc };
       },
+      patch: async (body: FakePatchBody) => {
+        if (backend.forcedPatchError) throw backend.forcedPatchError;
+        if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
+        // condition はまだ解釈できない。知らない条件を黙って通さず、使うテストを書くときに偽物を拡張させる
+        if (!Array.isArray(body) && body.condition !== undefined) {
+          throw new Error('偽物の patch は condition を解釈できません');
+        }
+        if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
+        const operations = Array.isArray(body) ? body : body.operations;
+        const patched = applyPatchOperations(backend.documents.get(id)!, operations) as TDoc;
+        backend.documents.set(id, patched);
+        return { resource: patched };
+      },
       delete: async () => {
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
+        if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
         backend.documents.delete(id);
         return { resource: { id } };
