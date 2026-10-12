@@ -706,6 +706,64 @@ describe('旅行詳細API', () => {
       });
     });
 
+    it('旅行の削除の途中で写真が別の操作で消されていても、残りの写真と旅行の削除は進む', async () => {
+      freezeNow();
+      // 写真は残す。京都の写真2枚のうち1枚目は、一覧を読んだ後・旅行から外す前に別のリクエストが消した。
+      // 偽物は読んだ後に消せないので、1枚目の patch だけが Cosmos の 404 で失敗する形にする(実 SDK は存在しない
+      // ドキュメントの patch を 404 にする)。消えた写真は処理した枚数に数えず、2枚目と旅行の削除は進む
+      const kyotoSecond = storedPhoto(KYOTO_SECOND_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-06T09:00:00');
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
+      cosmosBackend.documents.set(
+        KYOTO_FIRST_PHOTO_ID,
+        storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00')
+      );
+      cosmosBackend.documents.set(KYOTO_SECOND_PHOTO_ID, kyotoSecond);
+      cosmosBackend.forcedErrorById = { [KYOTO_FIRST_PHOTO_ID]: cosmosNotFoundError() };
+      const request = createDeleteRequest(KYOTO_TRIP_ID, 'false');
+
+      const response = await deleteTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: { message: '旅行が正常に削除されました', deletedPhotoCount: 0, detachedPhotoCount: 1 }
+      });
+      // 旅行は消え、2枚目は未所属に戻る。1枚目は消えたことにした偽物の都合で Map に残るので見ない
+      expect(cosmosBackend.documents.has(KYOTO_TRIP_ID)).toBe(false);
+      expect(cosmosBackend.documents.get(KYOTO_SECOND_PHOTO_ID)).toEqual({
+        ...kyotoSecond,
+        tripId: null,
+        updatedAt: DELETED_AT
+      });
+    });
+
+    // 「写真は残す」は画像に触れないので、写真の保存先(Blob Storage)の設定に頼らない。外側の beforeEach は設定を
+    // 入れてあるので、このテストが設定を消す。使わない保存先のサービスを作る退行は、設定が無いので 500 になって落ちる
+    it('写真は残すを選んだときは、写真の保存先の設定が無くても旅行を削除できる', async () => {
+      freezeNow();
+      delete process.env.STORAGE_CONNECTION_STRING;
+      delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
+      const kyotoFirst = storedPhoto(KYOTO_FIRST_PHOTO_ID, KYOTO_TRIP_ID, '2026-10-05T09:00:00');
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
+      cosmosBackend.documents.set(KYOTO_FIRST_PHOTO_ID, kyotoFirst);
+      const request = createDeleteRequest(KYOTO_TRIP_ID, 'false');
+
+      const response = await deleteTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: { message: '旅行が正常に削除されました', deletedPhotoCount: 0, detachedPhotoCount: 1 }
+      });
+      // 旅行だけが消え、写真は未所属に戻って残る
+      expect(Array.from(cosmosBackend.documents.keys())).toEqual([KYOTO_FIRST_PHOTO_ID]);
+      expect(cosmosBackend.documents.get(KYOTO_FIRST_PHOTO_ID)).toEqual({
+        ...kyotoFirst,
+        tripId: null,
+        updatedAt: DELETED_AT
+      });
+    });
+
     const missingTripId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     const photoOnlyId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 

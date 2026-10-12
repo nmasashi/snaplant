@@ -30,6 +30,9 @@ const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=tests
 // 写真の id(画像のバイト列の SHA-256。小文字16進 64 文字)。このファイルでは画像のバイト列は使わない
 const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1';
 
+// 重複しない個数 count のタグ(タグ1、タグ2、…)。個数の上限を境界で見るために使う
+const distinctTags = (count: number): string[] => Array.from({ length: count }, (_, i) => `タグ${i + 1}`);
+
 // 写真が属する旅行の id(UUID v4 の形)。写真を直すときに旅行は引かないので、旅行のドキュメントは置かない
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
 
@@ -291,6 +294,8 @@ describe('写真更新API', () => {
     ['tagsの要素が空の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', ''] }), 'タグは1〜30文字で指定してください'],
     ['tagsの要素が空白だけ', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', '   '] }), 'タグは1〜30文字で指定してください'],
     ['tagsの要素が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', ` ${'あ'.repeat(31)} `] }), 'タグは1〜30文字で指定してください'],
+    // 上限は重複を除いた後の個数で数える(21個とも違う値)。9 の後の行
+    ['tagsが重複を除いて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: distinctTags(21) }), 'タグは20個までです'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
   ])('写真の更新で指定が正しくなければ、400で理由を返し、何も変えない(%s)', async (_case, photoId, json, message) => {
@@ -342,6 +347,28 @@ describe('写真更新API', () => {
 
     expect(response.status).toBe(200);
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉']);
+  });
+
+  it('タグがちょうど20個なら保存できる', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: distinctTags(20) });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(distinctTags(20));
+  });
+
+  it('重複を含めて21個でも、重複を除いて20個なら保存できる', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [...distinctTags(20), 'タグ1'] });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(distinctTags(20));
   });
 
   it('更新する写真が無いと、404で理由を返し、何も変えない', async () => {

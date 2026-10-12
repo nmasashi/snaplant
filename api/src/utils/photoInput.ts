@@ -378,7 +378,11 @@ export async function readPhotoUpdateInput(
     if (trimmed.some((tag) => tag === '' || tag.length > TAG_VALIDATION.MAX_LENGTH)) {
       return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH) };
     }
-    input.tags = [...new Set(trimmed)];
+    const unique = [...new Set(trimmed)];
+    if (unique.length > TAG_VALIDATION.MAX_COUNT) {
+      return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
+    }
+    input.tags = unique;
   }
   return { input };
 }

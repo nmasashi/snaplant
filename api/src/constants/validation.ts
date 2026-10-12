@@ -167,8 +167,11 @@ export const MOVE_VALIDATION = {
 // 旅行アルバムの利用者のタグの制限
 export const TAG_VALIDATION = {
   MAX_LENGTH: positiveIntFromEnv(process.env.TAG_MAX_LENGTH, 30),
+  // 1枚の写真に付けられるタグの数（重複を除いた後）。大量のタグでドキュメントが Cosmos の上限（2MB）に近づかないように
+  MAX_COUNT: positiveIntFromEnv(process.env.TAG_MAX_COUNT, 20),
 
   ERROR_MESSAGES: {
-    INVALID_LENGTH: `タグは1〜${positiveIntFromEnv(process.env.TAG_MAX_LENGTH, 30)}文字で指定してください`
+    INVALID_LENGTH: `タグは1〜${positiveIntFromEnv(process.env.TAG_MAX_LENGTH, 30)}文字で指定してください`,
+    TOO_MANY: `タグは${positiveIntFromEnv(process.env.TAG_MAX_COUNT, 20)}個までです`
   }
 } as const;

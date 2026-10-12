@@ -140,6 +140,13 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
   forcedDeleteError?: Error | null;
   /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
   forcedPatchError?: Error | null;
+  /**
+   * ドキュメントの id ごとに、`item(id).delete()` と `item(id).patch()` が投げるエラー。
+   * `forcedDeleteError` / `forcedPatchError` は全件に効くので、「読んだ後に1枚だけ他の操作で消された」のような
+   * 一部のドキュメントだけの失敗はこちらで起こす。エラーを投げるだけで、ドキュメント自体は Map に残る
+   * (消えたことにはならない)。全件に効く `forcedDeleteError` / `forcedPatchError` が先に評価される
+   */
+  forcedErrorById?: Record<string, Error>;
   forcedQueryError?: Error | null;
   /**
    * `fetchNext` が実際の結果を返す前に返す、結果がまだ揃っていない空のページ（`resources: []` と継続トークン）の数。
@@ -367,6 +374,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
       },
       patch: async (body: FakePatchBody) => {
         if (backend.forcedPatchError) throw backend.forcedPatchError;
+        if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         // condition はまだ解釈できない。知らない条件を黙って通さず、使うテストを書くときに偽物を拡張させる
         if (!Array.isArray(body) && body.condition !== undefined) {
           throw new Error('偽物の patch は condition を解釈できません');
@@ -379,6 +387,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
       },
       delete: async () => {
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
+        if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
         backend.documents.delete(id);
         return { resource: { id } };

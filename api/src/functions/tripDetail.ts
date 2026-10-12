@@ -79,11 +79,12 @@ export async function deleteTripHandler(request: HttpRequest, context: Invocatio
     return createValidationError('写真を削除するかどうかの指定が無効です');
   }
   try {
-    // 写真の画像を消す場合に備え、保存先の設定が足りなければ何も消す前に失敗させる
-    const storage = new PhotoStorageService();
-    const result = await new AlbumService().deleteTrip(tripId, deletePhotosParam === 'true', (photo) =>
-      storage.deletePhotoBlobs(photo, (message, error) => context.log(message, error))
-    );
+    const deletePhotos = deletePhotosParam === 'true';
+    // 写真の画像を消すときだけ保存先を使う。設定が足りなければ、何も消す前に失敗させる
+    const storage = deletePhotos ? new PhotoStorageService() : null;
+    const result = await new AlbumService().deleteTrip(tripId, deletePhotos, async (photo) => {
+      await storage?.deletePhotoBlobs(photo, (message, error) => context.log(message, error));
+    });
     if (!result) {
       return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
     }

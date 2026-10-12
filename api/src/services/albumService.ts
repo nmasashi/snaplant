@@ -307,16 +307,23 @@ export class AlbumService {
     let detachedPhotoCount = 0;
     const now = new Date().toISOString();
     for (const photo of photos) {
-      if (deletePhotos) {
-        await this.container.item(photo.id, photo.id).delete();
-        deletedPhotoCount++;
-        await onPhotoDeleted(photo);
-      } else {
-        await this.container.item(photo.id, photo.id).patch([
-          { op: 'set', path: '/tripId', value: null },
-          { op: 'set', path: '/updatedAt', value: now },
-        ]);
-        detachedPhotoCount++;
+      try {
+        if (deletePhotos) {
+          await this.container.item(photo.id, photo.id).delete();
+          deletedPhotoCount++;
+          await onPhotoDeleted(photo);
+        } else {
+          await this.container.item(photo.id, photo.id).patch([
+            { op: 'set', path: '/tripId', value: null },
+            { op: 'set', path: '/updatedAt', value: now },
+          ]);
+          detachedPhotoCount++;
+        }
+      } catch (error: any) {
+        // 読んだ後に別の操作で写真が消されていた。消えたものとして読み飛ばし、枚数には数えない
+        if (error.code !== 404) {
+          throw error;
+        }
       }
     }
     try {
