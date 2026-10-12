@@ -127,20 +127,11 @@ void main() {
     expect(find.text('API設定が完了していません'), findsOneWidget);
   });
 
-  testWidgets('設定をリセットして一覧画面に戻ったあとで「画像選択」を押しても、画像選択画面へ進まず、API設定が必要だと知らせる', (tester) async {
+  testWidgets('設定をリセットして戻ると、設定を促す表示になり、画像選択のボタンは出ない（API設定が無いまま画像選択へ進めない）', (tester) async {
     await _resetSavedSettingsAndReturnToPlantList(tester);
 
-    await tester.tap(find.text('画像選択'));
-    // リセット時に設定画面が出した「設定をリセットしました」がまだ表示中で、
-    // 新しいスナックバーはその後ろで待つ。前のが消える（既定で約4秒）まで時間を進める
-    await tester.pump(const Duration(seconds: 5));
-    await _letFramesRun(tester);
-
-    expect(find.text('植物を撮影・情報入力'), findsNothing);
-    expect(
-      find.descendant(of: find.byType(SnackBar), matching: find.text('API設定が完了していません')),
-      findsOneWidget,
-    );
+    expect(find.text('API設定が完了していません'), findsOneWidget);
+    expect(find.text('画像選択'), findsNothing);
   });
 
   testWidgets('設定済みの状態で設定画面から戻ったときに設定を読めなければ、古い設定で一覧を読み直さず「API設定の読み込みに失敗しました」と表示する', (tester) async {

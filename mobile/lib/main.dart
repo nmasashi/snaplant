@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/plant_list_screen.dart';
+import 'app_root.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 
@@ -49,7 +49,7 @@ class SnapPlantApp extends StatelessWidget {
       },
       
       // 初期画面
-      home: const PlantListScreen(),
+      home: const AppRoot(),
     );
   }
 }
