@@ -36,7 +36,8 @@ Map<String, Object?> tripJson({
 /// [failFirst] を渡すと、一覧の取得は最初のその回数だけ 503（データベースに接続できない）を返し、以降は成功する
 /// （再試行で読み直したかどうかを、2回目の成功で見分けるため）。
 /// [rejectCreateWith] を渡すと、作成は 400 `INVALID_REQUEST`（message はその文言）で拒み、旅行は作らない。
-/// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。表に無い id は 404。
+/// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。
+/// 表に無い id は 404 `TRIP_NOT_FOUND`（別の端末などで消された旅行）の封筒を返す。
 /// PUT /api/trips/{tripId} には、本文の `name`（前後の空白を除く）と `description` で表の旅行を置き換え、200 `{ trip }` を返す。
 /// DELETE /api/trips/{tripId}?deletePhotos=true|false には、表の旅行を消して 200 を返す。`false` なら写真は未所属に移したものとして
 /// `detachedPhotoCount` に枚数を、`true` なら `deletedPhotoCount` に枚数を載せる。`deletePhotos` が無い・違う値なら 400。
@@ -170,7 +171,16 @@ MockClient tripServer(
     }
     if (request.method == 'GET' && request.url.path.startsWith('/api/trips/')) {
       final trip = details[request.url.pathSegments.last];
-      if (trip == null) return http.Response('', 404);
+      if (trip == null) {
+        return http.Response(
+          json.encode({
+            'success': false,
+            'error': {'code': 'TRIP_NOT_FOUND', 'message': '指定された旅行が見つかりません'},
+          }),
+          404,
+          headers: const {'content-type': 'application/json'},
+        );
+      }
       return http.Response(
         json.encode({
           'success': true,

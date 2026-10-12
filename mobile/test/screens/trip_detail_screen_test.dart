@@ -242,4 +242,14 @@ void main() {
     expect(find.byType(TripDetailScreen), findsNothing);
     expect(find.text('詳細を開く'), findsOneWidget);
   });
+
+  testWidgets('開こうとした旅行が既に無い（404）ときは、「この旅行は削除されています」と出し、編集・削除のメニューは出さない', (tester) async {
+    // 一覧を読んだ後に別の端末で消された旅行（詳細の表に無い）
+    final server = tripServer([], unassignedPhotoCount: 0);
+
+    await openDetailFromHome(tester, ApiService(client: server));
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
 }

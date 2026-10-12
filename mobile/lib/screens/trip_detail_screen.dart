@@ -22,6 +22,8 @@ class TripDetailScreen extends StatefulWidget {
 
 class _TripDetailScreenState extends State<TripDetailScreen> {
   TripSummary? _trip;
+  // 旅行が既に無い（一覧を読んだ後に別の端末で消された）
+  bool _tripDeleted = false;
 
   @override
   void initState() {
@@ -37,6 +39,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       setState(() => _trip = trip);
     } catch (e) {
       debugPrint('TripDetailScreen: 旅行の読み込みエラー: $e');
+      if (!mounted) return;
+      if (e is ApiException && e.isTripNotFound) {
+        setState(() => _tripDeleted = true);
+      }
     }
   }
 
@@ -105,15 +111,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             ),
         ],
       ),
-      body: trip == null
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
-                style: AppTextStyles.body1,
-              ),
-            ),
+      body: _tripDeleted
+          ? const Center(child: Text('この旅行は削除されています'))
+          : trip == null
+              ? const Center(child: CircularProgressIndicator())
+              : Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
+                    style: AppTextStyles.body1,
+                  ),
+                ),
     );
   }
 }
