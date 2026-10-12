@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
+import '../theme/app_colors.dart';
 
 /// 旅行の削除の確認ダイアログ（docs/travel-album/03_screen_design.md §4.4「削除」）
 ///
@@ -94,6 +95,12 @@ class _TripDeleteDialogState extends State<TripDeleteDialog> {
         ),
         ElevatedButton(
           onPressed: _isDeleting ? null : _delete,
+          // 写真も消すと元に戻せないので、ボタンの色で知らせる
+          style: _deletePhotos
+              ? ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.error,
+                  foregroundColor: AppColors.textOnPrimary)
+              : null,
           child: Text(_isDeleting ? '削除中...' : '削除'),
         ),
       ],

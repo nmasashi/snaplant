@@ -217,7 +217,8 @@ class _TripRow extends StatelessWidget {
         leading: Icon(icon, size: 40, color: AppColors.primary),
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
+        // 押して開く先が無い行（旅行に属さない写真の画面は PR 6b）に矢印を出さない
+        trailing: onTap == null ? null : const Icon(Icons.chevron_right),
         onTap: onTap,
       ),
     );
