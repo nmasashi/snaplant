@@ -139,7 +139,8 @@ export const PHOTO_VALIDATION = {
   // 緯度・経度は10進だけ。Number() に任せると 16進・2進・8進・指数表記・前後の空白も数値として通る
   COORDINATE_REGEX: /^-?[0-9]+(\.[0-9]+)?$/,
   MAX_LENGTH: {
-    PLACE_NAME: positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)
+    PLACE_NAME: positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100),
+    COMMENT: positiveIntFromEnv(process.env.PHOTO_COMMENT_MAX_LENGTH, 500)
   },
   THUMBNAIL_MAX_SIZE: positiveIntFromEnv(process.env.THUMBNAIL_MAX_SIZE, 1048576), // デフォルト: 1MB
   // 写真一覧の1ページの枚数（既定と上限）
@@ -148,6 +149,7 @@ export const PHOTO_VALIDATION = {
 
   ERROR_MESSAGES: {
     PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
+    COMMENT_TOO_LONG: `コメントは${positiveIntFromEnv(process.env.PHOTO_COMMENT_MAX_LENGTH, 500)}文字以内で指定してください`,
     LIMIT_INVALID: `1ページの枚数は1〜${positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200)}で指定してください`
   }
 } as const;
@@ -159,5 +161,14 @@ export const MOVE_VALIDATION = {
 
   ERROR_MESSAGES: {
     TOO_MANY: `一度に移動できる写真は${positiveIntFromEnv(process.env.MOVE_MAX_IDS, 200)}枚までです`
+  }
+} as const;
+
+// 旅行アルバムの利用者のタグの制限
+export const TAG_VALIDATION = {
+  MAX_LENGTH: positiveIntFromEnv(process.env.TAG_MAX_LENGTH, 30),
+
+  ERROR_MESSAGES: {
+    INVALID_LENGTH: `タグは1〜${positiveIntFromEnv(process.env.TAG_MAX_LENGTH, 30)}文字で指定してください`
   }
 } as const;

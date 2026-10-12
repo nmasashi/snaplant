@@ -245,6 +245,38 @@ export class AlbumService {
   }
 
   /**
+   * 写真の利用者のコメントとタグを直す
+   *
+   * 書くのは comment・commentSource・tags・updatedAt だけ（AI が書く欄には触らない）。解析中でも受け付ける
+   * @param id 写真 ID
+   * @param changes 直す項目（comment は null で消す。tags は置き換え）
+   * @returns 更新後の写真のドキュメント。無ければ null
+   */
+  async updatePhoto(
+    id: string,
+    changes: { comment?: string | null; tags?: string[] }
+  ): Promise<PhotoDocument | null> {
+    const operations: { op: 'set'; path: string; value: unknown }[] = [];
+    if (changes.comment !== undefined) {
+      operations.push({ op: 'set', path: '/comment', value: changes.comment });
+      operations.push({ op: 'set', path: '/commentSource', value: changes.comment === null ? null : 'user' });
+    }
+    if (changes.tags !== undefined) {
+      operations.push({ op: 'set', path: '/tags', value: changes.tags });
+    }
+    operations.push({ op: 'set', path: '/updatedAt', value: new Date().toISOString() });
+    try {
+      const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
+      return resource ?? null;
+    } catch (error: any) {
+      if (error.code === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * 写真のドキュメントを作る
    *
    * 写真の id は中身の SHA-256 なので、同じ写真がほぼ同時に送られると、先に読んだときには
