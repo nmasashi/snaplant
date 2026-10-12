@@ -688,6 +688,7 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 | `GET /api/plants` のレスポンスに余分なキーが出ていないか | 射影が崩れると `description` / `updatedAt` / `scientificName` が漏れ、`PlantSummary` の契約が壊れる |
 | `GET /api/plants` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失 |
 | `GET /api/plants/check-duplicate` が別名の植物を拾わないか | `WHERE` 句の消失 |
+| `GET /api/trips` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失（`AlbumService.listTrips`） |
 | `GET /api/trips` の枚数・撮影期間・旅行に属さない写真の枚数（`albumQueries.ts` の `GROUP BY`。`tripId` が `null` の写真が1つのグループになるか） | 集計が崩れる。偽物は集計を解釈しないので単体テストでは見えない |
 
 偽物は渡したドキュメントをそのまま返すので、**射影の崩れは実際の Cosmos でしか観測できない。**

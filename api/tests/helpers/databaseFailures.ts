@@ -15,9 +15,9 @@ const connectionFailureInDeepCause = () => {
 export const databaseFailureCases = (
   internalErrorMessage: string
 ): [string, Error, number, string, string][] => [
-  ['名前解決に失敗したときは', restError('ENOTFOUND', 'getaddrinfo ENOTFOUND example.documents.azure.com'), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
-  ['接続を拒否されたときは', restError('ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:8081'), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
-  ['接続できない原因が別のエラーに包まれていても', connectionFailureInDeepCause(), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
-  ['codeの無い想定外のエラーのときは', new Error('something went wrong'), 500, 'INTERNAL_ERROR', internalErrorMessage],
-  ['Cosmos DBが500を返したときは', restError(500, 'Internal Server Error'), 500, 'INTERNAL_ERROR', internalErrorMessage]
+  ['名前解決に失敗したときは、接続できないエラー（503）を返す', restError('ENOTFOUND', 'getaddrinfo ENOTFOUND example.documents.azure.com'), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
+  ['接続を拒否されたときは、接続できないエラー（503）を返す', restError('ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:8081'), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
+  ['接続できない原因が別のエラーに包まれていても、接続できないエラー（503）を返す', connectionFailureInDeepCause(), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
+  ['codeの無い想定外のエラーのときは、内部エラー（500）を返す', new Error('something went wrong'), 500, 'INTERNAL_ERROR', internalErrorMessage],
+  ['Cosmos DBが500を返したときは、内部エラー（500）を返す', restError(500, 'Internal Server Error'), 500, 'INTERNAL_ERROR', internalErrorMessage]
 ];

@@ -132,6 +132,29 @@ describe('旅行API', () => {
     });
 
     it.each([
+      [
+        '旅行名が前後の空白を除いてちょうど100文字',
+        { name: ` ${'あ'.repeat(100)} `, description: null },
+        { name: 'あ'.repeat(100), description: null }
+      ],
+      [
+        '説明がちょうど1000文字',
+        { name: '北海道', description: 'あ'.repeat(1000) },
+        { name: '北海道', description: 'あ'.repeat(1000) }
+      ]
+    ])('%sのときは、受け入れて保存する', async (_case, body, expected) => {
+      const request = requestWith(jest.fn().mockResolvedValue(body));
+
+      const response = await createTripHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      const savedTrip = (response.jsonBody as any).data.trip;
+      expect(savedTrip.name).toBe(expected.name);
+      expect(savedTrip.description).toBe(expected.description);
+      expect(cosmosBackend.documents.get(savedTrip.id)).toMatchObject(expected);
+    });
+
+    it.each([
       ['説明を省略した', { name: '北海道' }],
       ['説明にnullを指定した', { name: '北海道', description: null }],
       ['説明に空文字を指定した', { name: '北海道', description: '' }]
@@ -148,7 +171,7 @@ describe('旅行API', () => {
 
     it.each(
       databaseFailureCases('旅行の作成に失敗しました')
-    )('旅行の作成で%s、決まった文言のエラーを返す', async (_case, error, status, code, message) => {
+    )('旅行の作成で%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedCreateError = error;
       const request = requestWith(jest.fn().mockResolvedValue({ name: '北海道' }));
 
@@ -163,7 +186,7 @@ describe('旅行API', () => {
   });
 
   describe('旅行一覧API', () => {
-    it('旅行の一覧を取り出すと、旅行と件数と旅行に属さない写真の枚数が返る', async () => {
+    it('写真が無ければ、各旅行の枚数と旅行に属さない写真の枚数が0で返る', async () => {
       const kyoto = {
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         name: '京都旅行',
@@ -206,7 +229,7 @@ describe('旅行API', () => {
 
     it.each(
       databaseFailureCases('旅行一覧の取得に失敗しました')
-    )('旅行の一覧で%s、決まった文言のエラーを返す', async (_case, error, status, code, message) => {
+    )('旅行の一覧取得で%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedQueryError = error;
       const request = {
         method: 'GET',

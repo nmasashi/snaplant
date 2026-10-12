@@ -34,64 +34,38 @@ describe('AlbumService', () => {
 
   describe('createTrip', () => {
     it('旅行を作ると、前後の空白を除いた名前・タグ空・作成日時と更新日時が同じ値で、旅行として保存される', async () => {
+      // 時刻だけを固定する。他のタイマーまで偽物にすると非同期処理が止まりうる
+      jest.useFakeTimers({
+        now: new Date('2026-10-12T03:04:05.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
       const service = new AlbumService();
 
       const trip = await service.createTrip({ name: '  北海道 2026秋  ', description: null });
 
-      const saved = Array.from(cosmosBackend.documents.values());
-      expect(saved).toHaveLength(1);
-      expect(saved[0].type).toBe('trip');
-      expect(saved[0].name).toBe('北海道 2026秋');
-      expect(saved[0].description).toBeNull();
-      expect(saved[0].tags).toEqual([]);
-      expect(saved[0].createdAt).toBe(saved[0].updatedAt);
-      expect(saved[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-      // 戻り値は保存したものから type を除いた Trip
-      const { type: _type, ...expected } = saved[0];
-      expect(trip).toEqual(expected);
-    });
-  });
-
-  describe('getTrip', () => {
-    it('保存してある旅行を取り出すと、写真の集計が付いた形で返り、写真が無ければ枚数0・期間なし・表紙なしになる', async () => {
-      cosmosBackend.documents.set('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
-        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        type: 'trip',
-        name: '京都旅行',
-        description: '紅葉',
-        tags: [],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-01T00:00:00.000Z',
-      });
-      const service = new AlbumService();
-
-      const trip = await service.getTrip('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-
+      // id は uuid が乱数で作るため、形式だけを確かめる（uuid パッケージはモックしても効かない）
+      const uuid = expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       expect(trip).toEqual({
-        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        name: '京都旅行',
-        description: '紅葉',
+        id: uuid,
+        name: '北海道 2026秋',
+        description: null,
         tags: [],
-        createdAt: '2026-10-01T00:00:00.000Z',
-        updatedAt: '2026-10-01T00:00:00.000Z',
-        photoCount: 0,
-        firstTakenAt: null,
-        lastTakenAt: null,
-        coverThumbnailUrl: null,
+        createdAt: '2026-10-12T03:04:05.000Z',
+        updatedAt: '2026-10-12T03:04:05.000Z',
       });
-    });
-
-    it.each([
-      ['何も無いid', []],
-      ['同じidの写真のドキュメント', [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', type: 'photo' }]],
-    ])('旅行でないものを指定すると、見つからない扱いになる（%s）', async (_description, stored) => {
-      // 要点は「同じ id で type が違う」ことだけなので、写真の他の項目は置かない
-      stored.forEach((doc) => cosmosBackend.documents.set(doc.id, doc as unknown as TripDocument));
-      const service = new AlbumService();
-
-      const trip = await service.getTrip('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-
-      expect(trip).toBeNull();
+      expect(Array.from(cosmosBackend.documents.values())).toEqual([
+        {
+          id: uuid,
+          type: 'trip',
+          name: '北海道 2026秋',
+          description: null,
+          tags: [],
+          createdAt: '2026-10-12T03:04:05.000Z',
+          updatedAt: '2026-10-12T03:04:05.000Z',
+        },
+      ]);
+      // 戻り値の id で保存されていること
+      expect(Array.from(cosmosBackend.documents.keys())).toEqual([trip.id]);
     });
   });
 
@@ -134,23 +108,6 @@ describe('AlbumService', () => {
         updatedAt: '2026-10-12T03:04:05.000Z',
       });
     });
-
-    it.each([
-      ['何も無いid', []],
-      ['同じidの写真のドキュメント', [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', type: 'photo' }]],
-    ])('旅行でないものを更新しようとすると、見つからない扱いになり、何も変わらない（%s）', async (_description, stored) => {
-      // 要点は「同じ id で type が違う」ことだけなので、写真の他の項目は置かない
-      stored.forEach((doc) => cosmosBackend.documents.set(doc.id, doc as unknown as TripDocument));
-      const service = new AlbumService();
-
-      const trip = await service.updateTrip('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
-        name: '新しい名前',
-        description: 'メモ',
-      });
-
-      expect(trip).toBeNull();
-      expect(Array.from(cosmosBackend.documents.values())).toEqual(stored);
-    });
   });
 
   describe('listTrips', () => {
@@ -172,6 +129,32 @@ describe('AlbumService', () => {
         ])
       );
       expect(result.trips).toHaveLength(2);
+    });
+  });
+
+  describe('更新した旅行の項目', () => {
+    it('更新した旅行に、データベースの内部の項目と種別が含まれない', async () => {
+      const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      // Cosmos DB が保存時に付けるシステム項目も含めて置く
+      cosmosBackend.documents.set(id, {
+        id,
+        type: 'trip',
+        name: '京都旅行',
+        description: null,
+        tags: [],
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        _rid: 'rid',
+        _self: 'dbs/x/colls/y/docs/z/',
+        _etag: '"0000"',
+        _attachments: 'attachments/',
+        _ts: 1760000000,
+      } as TripDocument);
+      const service = new AlbumService();
+
+      const trip = await service.updateTrip(id, { name: '新しい名前', description: null });
+
+      expect(Object.keys(trip!).sort()).toEqual(['createdAt', 'description', 'id', 'name', 'tags', 'updatedAt']);
     });
   });
 

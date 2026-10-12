@@ -109,7 +109,7 @@ describe('旅行詳細API', () => {
 
     it.each(
       databaseFailureCases('旅行詳細の取得に失敗しました')
-    )('旅行を取り出すときに%s、決まった文言のエラーを返す', async (_case, error, status, code, message) => {
+    )('旅行の取得で%s', async (_case, error, status, code, message) => {
       const tripId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
       cosmosBackend.forcedReadError = error;
       const request = {
@@ -242,18 +242,18 @@ describe('旅行詳細API', () => {
 
     // 失敗する箇所（読み取り・書き込み）ごとに同じ分類の表を回す。どちらで失敗しても応答は同じになる
     const failurePoints: [string, (backend: FakeCosmosBackend<TripDocument>, error: Error) => void][] = [
-      ['旅行の読み取り', (backend, error) => { backend.forcedReadError = error; }],
-      ['旅行の書き込み', (backend, error) => { backend.forcedReplaceError = error; }]
+      ['読み取りで', (backend, error) => { backend.forcedReadError = error; }],
+      ['書き込みで', (backend, error) => { backend.forcedReplaceError = error; }]
     ];
     const failureRows = failurePoints.flatMap(([point, inject]) =>
       databaseFailureCases('旅行の更新に失敗しました').map(
         ([caseName, error, status, code, message]) =>
-          [`${point}で${caseName}`, inject, error, status, code, message] as const
+          [`${point}、${caseName}`, inject, error, status, code, message] as const
       )
     );
 
     it.each(failureRows)(
-      '旅行の更新で%s、決まった文言のエラーを返し何も変えない',
+      '旅行の更新の%s（何も変わらない）',
       async (_case, inject, error, status, code, message) => {
         cosmosBackend.documents.set(existingTripId, {
           id: existingTripId,
