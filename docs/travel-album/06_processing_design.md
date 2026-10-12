@@ -19,12 +19,13 @@
 | 項目 | 値 | 理由 |
 |---|---|---|
 | キュー | Azure Storage Queue `photo-processing`（既存のストレージアカウント。`AzureWebJobsStorage` と同じ） | 追加のリソースが要らず、Functions のトリガーが標準で使える。Service Bus は過剰 |
-| メッセージ | `{ "photoId": "<id>", "step": "classify" \| "identify", "hint": string \| null }`（JSON） | ワーカーは写真を読み直すので、メッセージには最小限だけ |
+| メッセージ | `{ "photoId": "<id>" }`（JSON） | ワーカーは写真を読み直し、やる処理（`processing.step`）も手がかり（`hint`）も写真から取る。メッセージは「この写真を見ろ」という合図に過ぎない。メッセージに `step` や `hint` を載せると、再投入や重複配信で写真の中身と食い違ったものが届きうる（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
 | 投入 | HTTP 関数から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
 | ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName, connection: 'AzureWebJobsStorage', handler })` | HTTP 関数と同じ Function App に同居 |
 | 直列化 | `host.json` の `extensions.queues` で `batchSize: 1`・`newBatchThreshold: 0` | AI のレート上限（TPM）と費用を抑える。1回の旅行で数百枚を一気に投入しても、順に流れる |
 | 可視性タイムアウト・再試行 | `visibilityTimeout: 00:01:00`、`maxDequeueCount: 3`。3回失敗すると `photo-processing-poison` に落ちる | 一時的な失敗（429・503）は自動で再試行され、恒久的な失敗は止まる |
-| 再投入のタイマー | `api/src/functions/requeueStalePhotos.ts`。`app.timer`、10 分ごと。`processing.state` が `pending` / `classifying` / `identifying` のまま 10 分以上更新されていない写真を再投入 | poison に落ちたもの、投入前にプロセスが落ちたものを拾う。`attempts` が上限なら `failed` にする |
+| 再投入のタイマー | `api/src/functions/requeueStalePhotos.ts`。`app.timer`、10 分ごと。`processing.state` が `pending` / `classifying` / `identifying` のまま 10 分以上更新されていない写真を再投入（`{ photoId }`。やる処理は写真の `processing.step` にある） | poison に落ちたもの、投入前にプロセスが落ちたもの、投入に失敗したものを拾う。`attempts` が上限なら `failed` にする |
+| 掃除のタイマー | `api/src/functions/sweepAlbum.ts`。`app.timer`、1日1回。文書の無い Blob（1日より古いもの）を消し、消えた旅行を指す写真を未所属に戻し、Blob の無い文書をログに出す | 途中で止まった操作の残骸を消す（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） |
 
 キュー名は環境変数 `PHOTO_QUEUE_NAME`（既定 `photo-processing`）。Terraform で作る（[07 §2](./07_infrastructure_design.md#2-段階3)）。
 
@@ -42,45 +43,49 @@ sequenceDiagram
 
     C->>H: 写真を送る
     H->>B: 原寸・サムネイル
-    H->>DB: create（processing.state = pending）
-    H->>Q: { photoId, step: classify }
+    H->>DB: create（processing.state = pending, step = classify）
+    H->>Q: { photoId }
     H-->>C: 201
 
     Q->>W: メッセージ
-    W->>DB: 写真を読む。state = classifying
+    W->>DB: 写真を読む（step = classify）。state = classifying
     W->>B: 原寸の読み取り SAS を発行
     W->>AI: 分類（安価なモデル・detail low）
     AI-->>W: { kind, confidence, reason }
-    W->>DB: tags に category:<kind>、classification、state = done
     alt kind が CATALOG_KINDS にある（段階4）
-        W->>Q: { photoId, step: identify }
+        W->>DB: tags に category:<kind>、classification、identification = null、state = pending, step = identify
+        W->>Q: { photoId }
         Q->>W: メッセージ
-        W->>DB: state = identifying
+        W->>DB: 写真を読む（step = identify）。state = identifying
         W->>AI: 識別（定義表のスキーマ・手がかり付き）
-        W->>DB: entry を作る／併合、写真に identification・entryId・comment
-        W->>DB: state = done
+        W->>DB: identification・comment、state = done（_etag 条件付き）
+    else other
+        W->>DB: tags に category:other、classification、identification = null、state = done
     end
 ```
 
-- 段階2の `POST /api/photos` は `processing.state: "none"` で保存し、キューには投入しない。段階3で `pending` + 投入に変える
+- 段階2の `POST /api/photos` は `processing.state: "none"`・`step: null` で保存し、キューには投入しない。段階3で `pending`・`step: "classify"` + 投入に変える
 - 段階3で、段階2に送った既存の写真（`state: "none"`）を分類するには、`POST /api/photos/{photoId}/process` を1枚ずつ呼ぶか、
   一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnclassified.ts`）で投入する。タイマーには `none` を拾わせない（意図せず全件に課金しないため）
-- `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）
+- `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。
+  分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
+- ワーカーの書き込みの決まり（結果は1回の patch、`_etag` 条件付き、利用者のコメントは消さない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)
 
 ### 1.3 状態と失敗
 
-`processing` の遷移。
+`processing` の遷移。`step` は「次にやる（またはやっている）処理」で、タイマーが再投入するときと、ワーカーがメッセージを受けたときに見る。
 
-| 状態 | 意味 | 次 |
-|---|---|---|
-| `none` | 裏の処理の対象になっていない（段階2の写真） | `process` で `pending` |
-| `pending` | キューに入っている（または入れようとした） | ワーカーが取ると `classifying` / `identifying` |
-| `classifying` / `identifying` | 処理中 | 成功で `done`、失敗で `pending`（再試行）か `failed` |
-| `done` | 済み | `process` で `pending` |
-| `failed` | 上限まで失敗した | `process` で `pending`（`attempts` を 0 に戻す） |
+| 状態 | 意味 | `step` | 次 |
+|---|---|---|---|
+| `none` | 裏の処理の対象になっていない（段階2の写真） | `null` | `process` で `pending` |
+| `pending` | キューに入っている（または入れようとした） | `classify` / `identify` | ワーカーが取ると `classifying` / `identifying` |
+| `classifying` / `identifying` | 処理中 | 同上 | 成功で `done`（分類の後に識別が続くなら `pending`・`identify`）、失敗で `pending`（再試行）か `failed` |
+| `done` | 済み | 最後にやった処理 | `process` で `pending` |
+| `failed` | 上限まで失敗した | 失敗した処理 | `process` で `pending`（`attempts` を 0 に戻す） |
 
 - ワーカーは取り出すたびに `attempts` を +1 し、`updatedAt` を更新する。失敗したら `lastError` に `{ service, status }` 程度を書く（例外のメッセージは入れない。SDK 由来の文言が残り続けるため）
 - `attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数）で `failed`。それ未満は例外を投げてキューの再試行に任せる
+- 読んだ写真の `state` が `done` / `failed` / `none` なら何もしない（古いメッセージの重複配信）。処理中で `updatedAt` が 10 分以内なら、別のインスタンスが処理中とみなして何もしない
 - AI の 429 は `UpstreamError('ai')` のまま投げ、キューの再試行（可視性タイムアウト後）で吸収する
 - ワーカーの 1 回の処理は `functionTimeout`（5 分）に収める。AI の呼び出しは 1 枚 1 回なので十分
 - 画面は `state` を見て「分類中...」「分類に失敗しました」「やり直す」を出す（[03 §5.1](./03_screen_design.md#51-写真ビューアへの追加)）
@@ -122,9 +127,12 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 
 ### 2.3 書き込み
 
+1回の patch（`_etag` 条件付き。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）で:
+
 - `tags` から `category:` で始まるものを除き、`category:<kind>` を1つ足す（利用者のタグは触らない）
 - `classification = { kind, confidence, model: <デプロイ名>, at: <ISO> }`
-- `kind` が `CATALOG_KINDS` にあれば（段階4）`{ step: "identify" }` を投入。`other` なら `done`
+- `identification = null`（やり直しで種類が変わったとき、古い識別が図鑑の別の種類に残らないように）
+- `kind` が `CATALOG_KINDS` にあれば（段階4）`processing = { state: "pending", step: "identify", ... }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもタイマーが拾う。`other` なら `done`
 
 ## 3. 識別（段階4）
 
@@ -159,16 +167,22 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 
   `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない
 
-### 3.2 書き込みと項目の併合
+### 3.2 書き込み
 
-1. `matchesKind: false` → `identification = { matchesKind: false, reason: comment, model, at }` を保存し、`entryId` は付けない。`done`。画面は「分類と合わない」と出す
-2. `matchesKind: true` → `entryId = "<kind>-" + sha256(name.trim())`
-   - `create` で項目を作る（`description`・`characteristics`・`attributes`・`confidence`）
-   - 409 なら既存を読み、新しい `confidence` が高ければ `_etag` 条件付きで `replace`（説明・特徴・属性・信頼度を更新）。412 なら読み直して再試行（最大 3 回）
-3. 写真に `patch`: `identification = { matchesKind: true, name, confidence, model, at }`、`entryId`、`comment`、`commentSource: "ai"`、`processing.state = done`
+項目の文書は無い（[04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)）ので、書くのは**写真1枚への patch 1回**だけ（`_etag` 条件付き。412 なら読み直して最大 3 回。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
+項目を探す・作る・併合する処理も、写真を付け替える処理も無い。図鑑はこの `identification` を読んでまとめる。
 
-やり直しの結果は `comment` を上書きし `commentSource: "ai"` に戻す（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9）。
-利用者の文を失わないよう、アプリのやり直し画面は `commentSource == "user"` なら現在のコメントを `hint` に事前入力する。
+| 結果 | `identification` | `comment` / `commentSource` | `processing` |
+|---|---|---|---|
+| `matchesKind: true` | `{ kind, matchesKind: true, name: name.trim(), confidence, description, characteristics, attributes, reason: null, model, at }` | `comment`・`"ai"`（下の決まり） | `state: "done"` |
+| `matchesKind: false` | `{ kind, matchesKind: false, name: null, confidence, description: null, characteristics: null, attributes: {}, reason: comment, model, at }`。図鑑には出ない | 触らない | `state: "done"`。画面は「分類と合わない」と出す |
+
+`comment` の決まり:
+
+- 読んだ写真の `commentSource` が `"user"` なら `comment` は書かない（送信直後の自動の解析が、利用者がその間に書いたコメントを消さないように）
+- やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる
+  （[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9「やり直しは利用者のコメントを上書きする」）。
+  利用者の文を失わないよう、アプリのやり直し画面は `commentSource == "user"` なら現在のコメントを、無ければ前回の `hint` を、手がかりに事前入力する
 
 ### 3.3 既存の `identifyPlant()` との関係
 
@@ -215,31 +229,37 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 
 | 失敗 | どこで | 扱い |
 |---|---|---|
-| キューへの投入の失敗（HTTP 関数） | `POST /api/photos`・`process` | `POST /api/photos` は写真を保存した後なので、投入に失敗しても 201 を返し、`state: "pending"` のままタイマーが拾う。`process` は 502 / 503 `STORAGE_ERROR` |
+| キューへの投入の失敗（HTTP 関数・ワーカー） | `POST /api/photos`・`process`・分類の後の識別の投入 | どれも写真に `pending`・`step` を書いた後なので、投入に失敗しても成功を返し（201 / 202）、タイマーが `step` を見て再投入する。失敗を返すと「失敗したのに後で勝手に走る」ことになる |
 | AI の 429 / 503 | ワーカー | 例外を投げてキューの再試行。3 回で poison → タイマーが `failed` に |
 | AI の応答の検証違反 | ワーカー | 同上（内容が変わる可能性があるので再試行する価値がある） |
 | Blob の SAS 生成の失敗 | ワーカー | 同上 |
-| Cosmos の 412（併合の競合） | ワーカー | 読み直して最大 3 回 |
+| Cosmos の 412（結果の patch の競合。利用者のコメント・move と重なった） | ワーカー | 読み直して最大 3 回。超えたら例外 → キューの再試行 |
+| 同じメッセージの重複配信 | ワーカー | 写真の `state` と `updatedAt` を見て飛ばす（§1.3） |
 | 地名変換の失敗 | ワーカー | ログだけ。分類は続ける |
-| 10 分以上 `pending` / `classifying` のまま | タイマー | 再投入（`attempts` 未満）か `failed` |
+| 10 分以上 `pending` / `classifying` / `identifying` のまま | タイマー | 再投入（`attempts` 未満）か `failed` |
+| 途中で止まった操作の残骸（孤児 Blob・消えた旅行を指す写真） | 掃除のタイマー | 1日1回消す・戻す（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） |
+
+操作ごとに「途中で失敗したら何が残り、どう直るか」は [04 §7.1](./04_data_design.md#71-操作ごとの表) の表。
 
 ## 6. 費用の見積もり方と上限
 
 - **実測してから見積もる。** 段階3の最初に 10 枚を分類し、応答の `usage`（プロンプト・補完のトークン数）をログに出して `docs/09_backlog.md` の「旅行アルバム（ロードマップ）」に記録する。段階4の識別も同じ
 - 見積もりの式: 1 枚あたりのトークン × 単価 × 1 旅行の枚数（数百）× 旅行の回数。識別は分類で絞った枚数（`other` を除く）だけ
-- 上限: 1 日あたりの AI 呼び出し回数 `AI_DAILY_CALL_LIMIT`（環境変数。既定は実測後に決める）。ワーカーはカウンタ（`type: "counter"` のドキュメント、id は日付）を見て、超えたら処理を翌日に回す（`pending` のまま。タイマーが再投入する）
+- 上限: 1 日あたりの AI 呼び出し回数 `AI_DAILY_CALL_LIMIT`（環境変数。既定は実測後に決める）。ワーカーはカウンタ（`type: "counter"` のドキュメント、id は `ai-calls-<YYYY-MM-DD>`）を見て、超えたら処理を翌日に回す（`pending` のまま。タイマーが再投入する）。
+  数えるのは patch の `incr`（原子的。読んで足して書く形だと、並列に走ったときに数え漏れる。[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）
 - Azure 側の予算アラート（`azurerm_consumption_budget_resource_group`）を Terraform に足すかは人間が決める（[07 §2](./07_infrastructure_design.md#2-段階3)）
 - 費用に効く設計: 分類は安価なモデルで `detail: "low"`、識別は必要な写真だけ、直列で流す（TPM の上限超えによる再試行の無駄を減らす）
 
 ## 7. 今の植物図鑑の統合と廃止（段階4）
 
-要件 5.8。前提: 段階4の新しい図鑑（`entry`・`GET /api/catalog/*`・Flutter の図鑑画面）が先に動いていること。
+要件 5.8。前提: 段階4の新しい図鑑（写真の `identification`・`GET /api/catalog/*`・Flutter の図鑑画面）が先に動いていること。
+図鑑の項目は文書として持たないので、**`plants` の記録は写真（`identification.kind = "plant"`）に移すだけ**になる。項目を作る・併合する手順は無い。
 
 | 手順 | 内容 | 担当 |
 |---|---|---|
 | 1. 退避 | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md` に書く） | 人間 |
-| 2. 移行 | `api/scripts/migratePlants.ts`（ローカルで実行。冪等）: `plants` を全件読み → `imagePath` の Blob を読んで SHA-256 → `photos/<hash>.jpg` に上げる → `photo`（`tripId: null`、`tags: ["category:plant"]`、`takenAt: null`・`takenAtSource: "none"`、`uploadedAt = plant.createdAt`、`comment = plant.characteristics`・`commentSource: "ai"`、`legacyPlantId`）を `create`（既にあれば飛ばす）→ `entry`（`kind: "plant"`、`name`、`description`、`characteristics`、`attributes: { scientificName, familyName }`、`confidence`）を `create` または信頼度で併合 → 写真に `identification`・`entryId` を `patch` | メインセッション（スクリプト）、人間（実行） |
-| 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ | 人間 |
+| 2. 移行 | `api/scripts/migratePlants.ts`（ローカルで実行。冪等）: `plants` を全件読み → `imagePath` の Blob を読んで SHA-256 → `photos/<hash>.jpg` に上げる（上書き）→ `photo` を `create`（既にあれば飛ばして一覧に出す）。写真の中身: `tripId: null`、`tags: ["category:plant"]`、`takenAt: null`・`takenAtSource: "none"`、`uploadedAt = plant.createdAt`、`comment = plant.characteristics`・`commentSource: "ai"`、`classification: { kind: "plant", confidence: null, model: "migration", at: plant.createdAt }`（分類 AI は通していないので `confidence` は `null`）、`identification: { kind: "plant", matchesKind: true, name: plant.name, confidence: plant.confidence, description: plant.description, characteristics: plant.characteristics, attributes: { scientificName, familyName }, reason: null, model: "migration", at: plant.createdAt }`、`processing: { state: "done", step: "identify", ... }`、`legacyPlantId`。Blob → `create` の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）。`imagePath` の Blob が無い植物は飛ばして一覧に出す | メインセッション（スクリプト）、人間（実行） |
+| 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の一覧（Blob が無い・同じ写真が先にあった）を人間が見て、捨てるか手で入れるかを決める | 人間 |
 | 4. アプリ | 図鑑タブを新しい図鑑画面に差し替え、`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除 | PR |
 | 5. API | `upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |
 | 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |

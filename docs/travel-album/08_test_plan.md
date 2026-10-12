@@ -36,11 +36,11 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 拡張 | 中身 | 理由 |
 |---|---|---|
-| `query` の絞り込み | `@type`・`@tripId`（旅行の写真のクエリ。未所属のクエリは `IS_NULL(c.tripId)` でパラメータが無いため、偽物では絞り込めず手で確かめる。§5.2）・`@tag`（`tags.includes`）・`@entryId`・`@kind` のパラメータで絞る。`@name`・`@imagePath` は残す | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
-| `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真と項目の冪等性は `create` の 409 で成り立つ |
-| `item().patch(body)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }` | move・PATCH・ワーカーが使う |
-| `replace` の `_etag` 条件 | `options.accessCondition` が渡され、ドキュメントの `_etag` と違えば `{ code: 412 }`。`create` / `replace` のたびに `_etag` を振る | 段階4の併合 |
-| `FakeCosmosDocument` の緩和 | `name` / `imagePath` を必須にしない（`{ id: string; type?: string; … }`）。`FakeCosmosBackend<TDoc>` の既定の型に `Trip | Photo | Entry` を足す | 旅行・写真は `name` / `imagePath` を持たない |
+| `query` の絞り込み | `@type`・`@tripId`（旅行の写真）・`@tripIds`（未所属。`tripId` が `null` か、配列に無い id を指すものを返す。SQL の `IS_NULL` / `ARRAY_CONTAINS` 自体は手で確かめる。§5.2）・`@tag`（`tags.includes`）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
+| `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
+| `item().patch(body, options)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` / `incr` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }`。`options.accessCondition`（`IfMatch`）が渡され、ドキュメントの `_etag` と違えば `{ code: 412 }` | move・PATCH・ワーカー（`_etag` 条件付きの結果の書き込み。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）・カウンタが使う |
+| `_etag` | `create` / `replace` / `patch` のたびに振り直し、`read` と `patch` の応答に返す | ワーカーが「読んでから書くまでに変わっていないこと」を条件にする |
+| `FakeCosmosDocument` の緩和 | `name` / `imagePath` を必須にしない（`{ id: string; type?: string; … }`）。`FakeCosmosBackend<TDoc>` の既定の型に `Trip | Photo` を足す | 旅行・写真は `name` / `imagePath` を持たない |
 | 挿入順の維持 | そのまま（並び順はサーバの中で付けるので偽物の順に依存しない） | |
 
 ### 2.2 `tests/fakes/blob.ts`
@@ -51,7 +51,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 ### 2.3 `tests/fakes/queue.ts`（段階3）
 
 `FakeQueueBackend { messages: string[]; forcedSendError?: Error }` と `createFakeQueueClient()`。`sendMessage(text)` は `messages` に積む。
-投入されたかは `messages` の中身（JSON を parse して `photoId`・`step`）で確かめ、呼び出しは検証しない。
+投入されたかは `messages` の中身（JSON を parse して `photoId`）で確かめ、呼び出しは検証しない。
+`forcedSendError` で「投入に失敗しても応答は成功で、写真は `pending` のまま」（[04 §7.1](./04_data_design.md#71-操作ごとの表)）を作る。
 
 ### 2.4 `mobile/test/`
 
@@ -90,7 +91,9 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 更新は `name`・`description`・`updatedAt` だけ変わり、`tags`・`createdAt` は変わらない
 - 削除は中の写真のドキュメントと Blob（原寸・サムネイル）を消してから旅行を消し、枚数を返す
 - 削除で Blob の削除に失敗しても旅行と写真のドキュメントは消え、枚数を返す
-- 削除で写真のドキュメントの削除に失敗すると例外になり、旅行は残る
+- 削除で写真のドキュメントの削除に失敗すると例外になり、旅行は残る（消せた分は消えている）
+- 旅行を消した後の見直し（[04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）: 消した旅行をまだ指している写真があれば `tripId: null` に戻る。
+  見直しは `AlbumService` の別メソッド（例: `detachPhotosOfTrip(tripId)`）にして単体で確かめ、削除の流れがそれを最後に呼ぶことは「旅行の文書が無く、その旅行を指す写真も無い」結果で確かめる
 
 写真:
 - 作成すると `type: "photo"`・`tripId: null`（指定なし）・`processing.state: "none"`・全項目が揃って保存される（**`tripId` キーが存在して `null`**）
@@ -99,7 +102,9 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 既に同じ id があれば既存を返し、Blob の `store` は変わらない
 - Blob（原寸→サムネイル）が `store` に入ってからドキュメントが作られる（サムネイルで失敗すると原寸は残りドキュメントは無い）
 - `create` が 409 を返したら既存を読んで返す
-- 一覧: `@tripId` に旅行の id を渡すとその旅行の写真だけ（未所属の絞り込みは単体テストでは確かめられない。§5.2）
+- 一覧: `@tripId` に旅行の id を渡すとその旅行の写真だけ
+- 未所属: 存在する旅行の id を `@tripIds` に渡すと、`tripId` が `null` の写真と、渡した id に無い旅行を指す写真の両方が返り、存在する旅行の写真は返らない
+  （偽物はパラメータの規則で絞るだけなので、SQL の `IS_NULL` / `NOT ARRAY_CONTAINS` 自体は手で確かめる。§5.2）
 - 並び: 撮影日時昇順、無しは末尾、同じ撮影日時は `uploadedAt` 昇順
 - 応答の Photo に `imageUrl` / `thumbnailUrl` があり、`blobName` / `thumbnailBlobName` / `type` / `_rid` などが無い
 - サムネイルが無い写真は `thumbnailUrl: null`
@@ -133,7 +138,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 `GET`:
 - `tripId` 無しで 400 `絞り込み条件を指定してください`。`tripId=abc` で 400。無い旅行で 404
-- `tripId=<uuid>` でその旅行の写真だけ、`tripId=none` で未所属だけ。並び順。`total`
+- `tripId=<uuid>` でその旅行の写真だけ、`tripId=none` で未所属だけ（`tripId: null` と、存在しない旅行を指すものの両方）。並び順。`total`
 - `urlExpiresAt` が返る
 
 ### 3.6 `functions/photoDetail.ts`
@@ -156,6 +161,23 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 - `createNotFoundError(message)` は従来どおり `PLANT_NOT_FOUND`
 - `createNotFoundError(message, ErrorCode.TRIP_NOT_FOUND)` で `code` が変わる
+
+### 3.9 段階3・4で足すシナリオ（骨格）
+
+整合性の表（[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）の「直り方」が成り立つことを、偽物の状態で確かめる。
+
+- `process`: 写真に `pending`・`step`・`hint` が書かれ、`comment` / `commentSource` が `null` になり、`messages` に `{ photoId }` が積まれる。**投入に失敗しても 202** で写真は `pending` のまま
+- ワーカー（分類）: `category:` のタグが入れ替わり、`classification` が書かれ、`identification` が `null` になる。識別対象なら `pending`・`step: "identify"` で `messages` に積まれ、投入に失敗しても写真はそのまま。`other` なら `done`
+- ワーカー（識別）: `identification` が `{ kind, matchesKind, name（trim 済み）, … }` で書かれ、`done`。`matchesKind: false` なら `name: null` で `comment` は変わらない
+- ワーカーは `commentSource: "user"` の `comment` を書き換えない
+- ワーカーの結果の patch が 412 になると読み直して書き直す（偽物の `_etag` を途中で進める）。3 回超えたら例外
+- ワーカーは `state` が `done` / `failed` / `none` の写真（古い重複メッセージ）には何もしない
+- タイマー（再投入）: 10 分以上更新されていない `pending` / `classifying` / `identifying` の写真が `{ photoId }` で積まれ、`attempts` が上限なら `failed` になる。`none` は拾わない
+- 掃除のタイマー: 文書の無い Blob のうち1日より古いものだけが `store` から消え、新しいものと文書のある Blob は残る。存在しない旅行を指す写真が `tripId: null` になる。Blob の無い文書は消えない
+- カウンタ: 同じ日に2回数えると `count` が 2 になる（`incr`）。文書が無ければ作られる
+- 図鑑のまとめ（サーバの中の計算なので単体で確かめられる）: 同じ名前の写真 2 枚で項目が 1 件、`photoCount: 2`、見出しが信頼度の高い方の `identification` から来る。同点なら `at` が新しい方。`matchesKind: false` の写真は数えない。名前の文字列順
+- `GET /api/catalog/entry`: `kind` 無効で 400、`name` 無しで 400、該当する写真が無ければ 200 で `entry: null`・`photos: []`。`name` は前後の空白を除いて比べる
+- 移行スクリプト: 2 回流して `documents` の件数が変わらない。`imagePath` の Blob が無い植物は飛ばして一覧に出る。写真の `identification.kind` が `"plant"` で `model: "migration"`
 
 ## 4. 段階2のシナリオ一覧（mobile）
 
@@ -217,7 +239,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 確かめること | 手順 | 崩れたときの症状 |
 |---|---|---|
-| `IS_NULL(c.tripId)` の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
+| `IS_NULL(c.tripId)` と `NOT ARRAY_CONTAINS(@tripIds, c.tripId)` の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない。`tripId` を手で存在しない UUID に書き換えた写真が未所属に出る | 一覧が空か混ざる。迷子の写真が出ない |
 | 射影（旅行一覧の集計） | `GET /api/trips` の `photoCount`・期間・表紙が実際の写真と合う | 枚数ずれ |
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
@@ -227,10 +249,12 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 5.3 段階3・4で足すもの
 
-- `ARRAY_CONTAINS` のタグ絞り込み、`DISTINCT` のタグ一覧、タイマーの再投入クエリ（[04 §5](./04_data_design.md#5-クエリ)）
+- `ARRAY_CONTAINS` のタグ絞り込み、`DISTINCT` のタグ一覧、タイマーの再投入クエリ、図鑑の射影と `c.identification.kind` の絞り込み（[04 §5](./04_data_design.md#5-クエリ)）
 - キューの直列化（`batchSize: 1`）と poison の挙動
 - 10 枚のトークン使用量の実測（[06 §6](./06_processing_design.md#6-費用の見積もり方と上限)）
-- 項目の併合（同じ名前の写真 2 枚で項目が 1 件、信頼度の高い方で説明が更新される）
-- 移行スクリプトの冪等性（2 回流して件数が変わらない）
+- 図鑑の1種類を開く RU と時間の実測（識別済みの枚数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）
+- 掃除のタイマー: `photos` に文書の無い Blob を手で置き、翌日消えている。文書のある Blob と、置いたばかりの Blob は残る
+- 旅行の削除中に送信: 数百枚の旅行の削除を押した直後に同じ旅行へ送信し、残った写真が未所属に出る（または掃き戻しで `null` になっている）
+- 移行スクリプトの冪等性（2 回流して件数が変わらない）。実環境でしか分からない「`imagePath` の Blob が無い植物」の一覧
 
 CLAUDE.md の「Cosmos のクエリを変更したら手で確認する」の表に、5.2 の該当行を足す。

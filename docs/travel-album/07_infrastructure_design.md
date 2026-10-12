@@ -31,7 +31,8 @@ resource "azurerm_storage_container" "photos" {
   container_access_type = "private"
 }
 
-# 旅行・写真・図鑑の項目を type で区別して置く Cosmos DB コンテナ。PK は /id
+# 旅行・写真を type で区別して置く Cosmos DB コンテナ。PK は /id
+# （図鑑の項目は文書として持たず、写真の identification からまとめる）
 resource "azurerm_cosmosdb_sql_container" "album" {
   name                = "album"
   resource_group_name = azurerm_resource_group.main.name
