@@ -55,6 +55,21 @@ void main() {
     expect(find.text('API設定が完了していません'), findsOneWidget);
   });
 
+  testWidgets('旅行のタブの設定ボタンから設定画面を開き、何も変えずに戻っても、旅行のタブのまま', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await openApp(tester);
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.byIcon(Icons.settings));
+    await letFramesRun(tester);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('旅行')), findsOneWidget);
+  });
+
   testWidgets('旅行のタブに切り替えて図鑑に戻っても、読み込んだ植物の一覧はそのまま表示される（読み直さない）', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});

@@ -45,7 +45,19 @@ class _AppRootState extends State<AppRoot> {
       final endpoint = settingsService.getApiEndpoint();
       if (!mounted) return;
 
-      // 設定画面から戻るたびに作り直すので、前の ApiService（の http.Client）を閉じる。
+      // 設定が変わっていなければ作り直さない。作り直すとホームも作り直され、開いていたタブと各タブの状態を失う
+      final current = _apiService;
+      if (current != null &&
+          current.baseUrl == endpoint &&
+          current.functionKey == apiKey) {
+        setState(() {
+          _settingsLoadFailed = false;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // 設定が変わったので作り直す。前の ApiService（の http.Client）を閉じる。
       // 残すと、リセットで消したキーで通信し続ける
       _apiService?.dispose();
       _apiService = null;
