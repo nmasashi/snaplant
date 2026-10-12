@@ -37,7 +37,7 @@ AI の書き込みの方針（担当の欄だけの Patch、カウンタ無し�
 |---|---|---|
 | 0. 片付け | 対象外（`docs/09_backlog.md` の「Flutter が CI の対象外」など） | — |
 | 1. 実機で確かめる | 完了（結果は `docs/09_backlog.md` の「段階1の結果」）。設計の前提として使う | — |
-| **2. 旅行アルバム（AI なし）** | **実装できる粒度で書く** | `album` コンテナ、`photos` コンテナ、旅行・写真の API、Flutter の2タブ・旅行・写真・送信キュー |
+| **2. 旅行アルバム（AI なし）** | **実装できる粒度で書く** | Cosmos DB の `album` コンテナ（旅行・写真の情報）、Blob Storage の `photos` コンテナ（画像ファイル）、旅行・写真の API、Flutter の2タブ・旅行・写真・送信キュー |
 | 3. 大分類 | 骨格 | Storage Queue とワーカー、分類器、カテゴリ横断、やり直し、掃除のタイマー |
 | 4. 詳しい識別と図鑑 | 骨格 | 定義表 `CATALOG_KINDS`、識別器、図鑑の API と画面（写真からまとめる）、植物図鑑の統合と廃止 |
 | 5. 旅行の自動まとめ | 段階2の設計で困らないことの確認だけ（§8） | — |
@@ -105,6 +105,10 @@ flowchart LR
 | Flutter の `ApiService` + `MockClient`、`detectImageMimeType()`、`cached_network_image`、`SettingsService`、`setState` | 流用。`ApiService` は根（`AppRoot`）で1つ作って各画面に渡す | CLAUDE.md「実装の慣習」の Flutter の構成方針 |
 | Terraform の書き方、CI/CD | 流用 | [07](./07_infrastructure_design.md) |
 
+「コンテナ」は Cosmos DB と Blob Storage の両方で使う言葉で、別物である。Cosmos DB のコンテナは文書（旅行・写真の情報）の入れ物、
+Blob Storage のコンテナはファイル（画像）の入れ物。段階2で足すのは Cosmos DB の `album` と Blob Storage の `photos` の1つずつで、
+段階4で植物図鑑を統合したあとは、この2つだけが残る（Cosmos の `plants`、Blob の `images`・`temp-images` は消す）。
+
 新しく作るもの（段階2）: Cosmos の `album` コンテナと `AlbumService`、Blob の `photos` コンテナと `PhotoStorageService`、
 旅行・写真の HTTP 関数（`trips.ts`・`tripDetail.ts`・`photos.ts`・`photoDetail.ts`・`photoMove.ts`）、`types/album.ts`、
 `constants/album.ts`、Flutter の `AppRoot`・`HomeShell`・旅行一覧・旅行詳細・旅行に属さない写真・写真ビューア・
@@ -119,7 +123,7 @@ flowchart LR
 
 | 判断 | 理由 |
 |---|---|
-| 旅行・写真を `type` で区別して1つの `album` コンテナに置く（図鑑の項目は文書として持たない。§4.3） | コンテナを増やすと無料枠（推測 1000 RU/s。§5）を段階4の移行中に超えうる。`plants` 400 + `album` 400 = 800 なら枠内 |
+| 旅行・写真を `type` で区別して1つの Cosmos DB の `album` コンテナに置く（図鑑の項目は文書として持たない。§4.3） | コンテナを増やすと無料枠（推測 1000 RU/s。§5）を段階4の移行中に超えうる。`plants` 400 + `album` 400 = 800 なら枠内 |
 | PK は `/id` | 写真が旅行をまたいで移動する（要件 5.1.1・5.2 ③）。PK を `/tripId` にすると移動がパーティション横断になり原子性が無い。`/id` なら移動は同じパーティション内の Patch 1回。既存の `container.item(id, id)` の形がそのまま使える |
 | 写真の id = 画像バイト列の SHA-256（16進 64 文字） | 「クライアントが振る id による冪等性」と「同じ中身は1枚」（要件 5.2）が1つの仕組みに畳まれる。サーバは受け取ったバイト列のハッシュを計算し直して照合するので id を偽れない。PK `/id` では一意キーが張れないが、id 自体が中身から決まるので `create` の 409 で DB が保証する |
 | 旅行に属さない写真は `tripId: null` で表す（特別な旅行を作って入れておく形にしない） | 特別な旅行を作ると、旅行一覧・削除・集計のすべてで特別扱いが要る。`IS_NULL(c.tripId)` で絞れる |
@@ -177,7 +181,7 @@ flowchart LR
 
 ### 4.6 画像は最初から非公開、URL はサーバが組み立てる（要件 §6 公開範囲）
 
-`photos` コンテナは `private`。一覧・詳細の応答に Blob 単位の読み取り SAS 付き URL（60分）を埋め、
+Blob Storage の `photos` コンテナは `private`。一覧・詳細の応答に Blob 単位の読み取り SAS 付き URL（60分）を埋め、
 クライアントから URL を受け取らない。保存するのは Blob 名だけなので、既存の `imagePath` の4条件の検証と削除の二層防御は要らない。
 [05 §6](./05_api_design.md#6-sas-付き-url)。
 
