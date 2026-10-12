@@ -23,7 +23,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | パーティションキー | `/id` | 写真が旅行をまたいで移動するため（[02 §4.1](./02_design_overview.md#41-album-を1コンテナ追加しpk-は-id写真の-id-は中身の-sha-256要件-51152)） |
 | スループット | `var.cosmos_db_throughput`（400 RU/s）。専用 | `plants` と同じ形。無料枠は §6 |
 | 一意キー | 無し | PK `/id` では意味が無い。id を決定的に作って `create` の 409 で代替する |
-| インデックス | 既定（`/*`） | `plants` と同じ。絞り込みは `type`・`tripId`・`tags`・`identification.kind`・`identification.name`・`processing.state` で、どれも `/*` に含まれる |
+| インデックス | 既定（`/*`）。段階4で複合インデックス（`/identification/confidence` 降順, `/identification/at` 降順）を足す | `plants` と同じ。絞り込みは `type`・`tripId`・`tags`・`identification.kind`・`identification.name`・`processing.state` で、どれも `/*` に含まれる。`ORDER BY c.sortAt`（§5.3）は単一項目なので既定のインデックスで引ける。2項目の `ORDER BY`（図鑑の見出しの写真。§5.6）だけ複合インデックスが要る（[07 §3](./07_infrastructure_design.md#3-段階4)） |
 | TTL | 無し | 削除は明示的に行う |
 
 ドキュメントは `type` で区別する。
@@ -32,7 +32,6 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 |---|---|---|---|
 | `trip` | 旅行 | 2 | UUID v4（サーバが `uuid` パッケージで振る） |
 | `photo` | 写真 | 2 | 画像バイト列の SHA-256（16進・小文字 64 文字。クライアントが計算し、サーバが照合する） |
-| `counter` | 1日あたりの AI 呼び出し回数（[06 §6](./06_processing_design.md#6-費用の見積もり方と上限)） | 3 | `"ai-calls-" + "<YYYY-MM-DD>"` |
 | `geocache` | 丸めた座標ごとの地名（Azure Maps を入れる場合だけ） | 3・任意 | `"geo-" + "<緯度3桁>_<経度3桁>"` |
 
 **図鑑の項目は文書として持たない**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #18 の案 B）。
@@ -66,7 +65,8 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `tags` | string[] | ○ | 利用者のタグ（§2）。段階2は常に `[]` |
 | `createdAt` / `updatedAt` | string (ISO 8601, UTC) | ○ | サーバが付ける。作成時は同じ値 |
 
-枚数・撮影期間・表紙は**保存しない**。写真から導く（§5.1）。カウンタを持つと同時更新で狂い、move のたびに2つの旅行を更新することになる。
+枚数・撮影期間・表紙は**保存しない**。写真から導く（§5.1。枚数と期間は `GROUP BY` の集計、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
+カウンタを持つと同時更新で狂い、move のたびに2つの旅行を更新することになる。
 
 ### 1.3 写真（`type: "photo"`）
 
@@ -81,12 +81,14 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
   "fileSize": 1234567,
   "takenAt": "2026-10-05T12:30:15",
   "takenAtSource": "exif",
+  "sortAt": "2026-10-05T12:30:15",
   "location": {
     "latitude": 43.7706,
     "longitude": 142.3650,
     "placeName": "北海道旭川市",
     "placeSource": "device"
   },
+  "category": null,
   "tags": [],
   "comment": null,
   "commentSource": null,
@@ -110,11 +112,13 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `fileSize` | number | ○ | 2 | 原寸のバイト数 |
 | `takenAt` | string \| null | ○（null 可） | 2 | 撮影日時。**タイムゾーン無し**の `YYYY-MM-DDTHH:mm:ss`。EXIF に無ければ `null`。`Z` を付けない（付けると Flutter の `toLocal()` で9時間ずれる。#23 と同型） |
 | `takenAtSource` | `"exif"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。段階6で出どころが増えたら値を足す |
+| `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
 | `location` | object \| null | ○（null 可） | 2 | 位置情報。無ければ `null`（要件 5.2「位置情報は必須にしない」） |
 | `location.latitude` / `longitude` | number | ○ | 2 | 緯度（-90〜90）・経度（-180〜180） |
 | `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`） |
 | `location.placeSource` | `"device"` \| `"server"` \| null | ○（null 可） | 2 | 地名の出どころ。段階2は `"device"`（端末の Geocoder）か `null`。段階3で Azure Maps が埋めたら `"server"` |
-| `tags` | string[] | ○ | 2 | §2。段階2は `[]`。段階3で `category:<kind>` が1つ入る |
+| `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーだけが書く。横断は `c.category = @category`（§5 の 5.4） |
+| `tags` | string[] | ○ | 2 | 利用者が付けるタグだけ（§2）。段階2は `[]`。AI は書かない |
 | `comment` | string \| null | ○（null 可） | 2（値は4） | 一言コメント。500 文字まで（`PHOTO_COMMENT_MAX_LENGTH`） |
 | `commentSource` | `"ai"` \| `"user"` \| null | ○（null 可） | 2（値は4） | コメントの出どころ |
 | `hint` | string \| null | ○（null 可） | 2（値は3） | 最後のやり直しで利用者が渡した手がかり。500 文字まで（`CONTEXT_INFO_VALIDATION`） |
@@ -128,6 +132,25 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 
 Blob 名に旅行の id を含めない。旅行への出し入れで Blob を触らないため。
 
+#### `sortAt` の決め方（撮影日時が無い写真はアップロード日時を使う）
+
+撮影日時順の一覧（要件 5.3）は Cosmos の `ORDER BY` とページングで少しずつ読む（§5.3）。そのために、**すべての写真が必ず持つ**並べ替え用の日時 `sortAt` を置く。
+
+| `takenAt` | `sortAt` | 例 |
+|---|---|---|
+| ある | `takenAt` そのまま | `takenAt: "2026-10-05T12:30:15"` → `sortAt: "2026-10-05T12:30:15"` |
+| 無い | `uploadedAt`（UTC）を UTC+9 にずらし、TZ の表記を外した `YYYY-MM-DDTHH:mm:ss` | `uploadedAt: "2026-10-10T03:12:45.000Z"` → `sortAt: "2026-10-10T12:12:45"` |
+
+- `takenAt` は TZ 無しの「撮影した土地での時刻」、`uploadedAt` は UTC で、そのまま文字列で比べると最大 9 時間ずれる。
+  利用者は日本在住で、国内の旅行では `takenAt` が日本時間なので、**`uploadedAt` を日本時間に直して揃える**（ずらす量はコードの定数 `SORT_AT_UTC_OFFSET_MINUTES = 540`。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）。
+  海外の旅行では撮影地の時刻と日本時間が混ざるが、撮影日時の無い写真は「その旅行の中でアップロードした順の位置」に入れば足りる（撮影日時の無い写真どうしの順は揃う）
+- `sortAt` は文字列として比べる（`YYYY-MM-DDTHH:mm:ss` は辞書順が時刻順と一致する）。同値の並びは Cosmos に任せる（固定したければ複合インデックス（`sortAt`, `id`）を足す。段階2では入れない）
+- **`null` の扱いの問題が無くなる。** Cosmos の `ORDER BY` が null を先頭に置くか、項目が無いドキュメントを結果から外すか（推測）を気にせずに済む。`sortAt` は常に文字列で、欠けることが無い
+- `takenAt` は `POST /api/photos` の後に変わらない（段階2〜4に `takenAt` を直す API は無い）ので、`sortAt` を作成時に1回決めれば食い違わない。
+  段階6で出どころが増えて `takenAt` を後から直す API を足すなら、同じ patch で `sortAt` も書き直す
+- 要件 5.2「撮影日時順に並べるときは末尾に置くなど」は、「撮影日時の無い写真はアップロード日時の位置に置く」で満たす。
+  ふつうは旅行中の撮影日時よりアップロードが後なので、結果として末尾付近に並ぶ
+
 ### 1.4 図鑑の項目（段階4）
 
 文書としては持たない。写真の `identification` からまとめる（§3）。
@@ -137,28 +160,19 @@ Blob 名に旅行の id を含めない。旅行への出し入れで Blob を�
 Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "geocache", "placeName": "北海道旭川市", "createdAt": "..." }`。
 丸めた座標（小数3桁 ≒ 100 m）ごとに1件。TTL は付けない（地名は変わらない）。
 
-## 2. タグの規約
+## 2. カテゴリとタグ
 
-旅行・写真の両方に `tags: string[]`。規約は `api/src/constants/tags.ts` に1か所で定義する。
+**カテゴリ（AI が付ける大分類）は写真の専用の欄 `category` に、タグ（`tags`）は利用者が付けるものだけにする**（2026-10-12 に人間が決定）。
+以前の案（`tags` に `category:<kind>` の予約名を混ぜる）は採らない。書く主体が欄で分かれるので、ワーカーと利用者が同じ配列を編集し合う処理（接頭辞で選り分けて結合する）が要らない。
 
-| 種類 | 形 | 付ける主体 | 例 |
+| 欄 | 形 | 付ける主体 | 例 |
 |---|---|---|---|
-| カテゴリ | `category:<kind>`。`<kind>` は `CATALOG_KINDS` のキー（§3）または `other` | 分類 AI（段階3）。**写真にちょうど1つ**。旅行には付かない | `category:plant`、`category:other` |
-| 利用者のタグ | `:` を含まない 1〜30 文字（`TAG_MAX_LENGTH`）。前後の空白を除く | 利用者（`PATCH /api/photos/{photoId}`。画面は後の段階） | `favorite`、`お気に入り` |
+| `category`（写真だけ） | `CATALOG_KINDS` のキー（§3）または `other`（`OTHER_KIND`。`api/src/catalog/kinds.ts`）。分類前は `null` | 分類 AI（段階3）。**写真にちょうど1つ** | `"food"`、`"other"` |
+| `tags`（旅行・写真） | 1〜30 文字（`TAG_MAX_LENGTH`）の文字列の配列。前後の空白を除く。重複は保存前に除き、並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は後の段階） | `favorite`、`お気に入り` |
 
-- `PATCH` で `category:` を含むタグを送ると 400（[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。`tags` を置き換えるとき、サーバは `category:` のタグを残して結合する
-- 再分類は `category:` で始まるものだけ入れ替え、利用者のタグには触らない
-- 分類の確信度やモデル名は `classification` に別に持つ。タグは「横断して見るための索引」、`classification` は「根拠」
-- 重複は保存前に除く。並び順は保存順（`category:` が先頭とは限らない）
-
-`tags.ts` の中身（予定）:
-
-```ts
-export const CATEGORY_TAG_PREFIX = 'category:';
-export const OTHER_KIND = 'other';
-export function categoryTag(kind: string): string { return `${CATEGORY_TAG_PREFIX}${kind}`; }
-export function isCategoryTag(tag: string): boolean { return tag.startsWith(CATEGORY_TAG_PREFIX); }
-```
+- 分類の確信度やモデル名は `classification` に別に持つ。`category` は「横断して見るための索引」、`classification` は「根拠」
+- 再分類は `category` を書き換えるだけで、`tags` には触らない
+- 横断は `WHERE c.category = @category`（§5 の 5.4）。利用者のタグでの横断（`ARRAY_CONTAINS(c.tags, @tag)`）は、タグを付ける画面を入れる段階で足す
 
 ## 3. 図鑑の項目と定義表（段階4）
 
@@ -190,7 +204,7 @@ export function isCategoryTag(tag: string): boolean { return tag.startsWith(CATE
 
 | 項目 | 型 | 説明 |
 |---|---|---|
-| `kind` | string | 識別したときの種類（`CATALOG_KINDS` のキー）。分類の `category:` タグと同じ値になるはずだが、分類のやり直しの途中では食い違いうるので、図鑑はこちらを見る |
+| `kind` | string | 識別したときの種類（`CATALOG_KINDS` のキー）。写真の `category` と同じ値になるはずだが、分類のやり直しの途中では食い違いうるので、図鑑はこちらを見る |
 | `matchesKind` | boolean | 分類どおりの種類が写っているか。`false` なら図鑑には出さない（`name` 以下は `null`、`reason` に理由） |
 | `name` | string \| null | 名前。ワーカーが `trim()` して保存（NFKC は当面入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #7）。1〜100 文字 |
 | `confidence` | number | 0〜100（要件 5.5） |
@@ -201,13 +215,13 @@ export function isCategoryTag(tag: string): boolean { return tag.startsWith(CATE
 
 図鑑の項目は、この `identification` を持つ写真を `kind` と `name` でまとめたもの（要件 5.5「同じ種類で同じ名前のものは1件。当面は名前の完全一致」）。
 
-| 項目の見出し | 導き方 |
+| 項目の見出し | 導き方（クエリは §5.6） |
 |---|---|
 | 名前 | `identification.name`。`matchesKind: true` の写真だけを数える |
-| 説明・特徴・属性・信頼度 | その名前の写真のうち **`identification.confidence` が最も高いもの**の値（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #8）。同点なら `identification.at` が新しい方（新しいモデルの結果を優先） |
-| 枚数 | 写真の数 |
+| 説明・特徴・属性・信頼度 | その名前の写真のうち **`identification.confidence` が最も高いもの**の値（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #8）。同点なら `identification.at` が新しい方（新しいモデルの結果を優先）。名前ごとに `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む |
+| 枚数 | `GROUP BY c.identification.name` の `COUNT(1)`（写真を読まずに数える） |
 | 表紙 | 見出しに使った写真のサムネイル（無ければ原寸） |
-| 項目の中の写真の並び | §5.3 と同じ（撮影日時順、無しは末尾） |
+| 項目の中の写真の並び | §5.3 と同じ（`sortAt` 昇順、継続トークンでページング） |
 
 この形で成り立つこと:
 
@@ -216,30 +230,39 @@ export function isCategoryTag(tag: string): boolean { return tag.startsWith(CATE
 - まとめる鍵に種類を含めるのは、同じ名前が別の種類で現れうるため（畑のメロンは植物、皿のメロンは食べ物）。名前だけでまとめると別の種類の写真が1件に混ざる
 - 項目そのものにコメントやお気に入りを付けたくなったら、そのときに項目の文書を足す。写真の側は変えなくてよい
 
-#### 規模の注意（図鑑を開くたびに写真を読む）
+#### 規模の注意（図鑑は写真を全部読まずにまとめる）
 
-図鑑の1種類を開くたびに、その種類の識別済みの写真の射影（§5.6）を**全件**読んでサーバでまとめる。読む量と RU は写真の枚数に比例して増える。
+図鑑を開くたびに写真からまとめる（案 B）が、**その種類の写真を全部読んでサーバでまとめる形はとらない**（2026-10-12 のレビューで、規模が大きくなると困ると判断）。
+1種類の項目一覧は次の3段で作る（クエリは §5.6）。
+
+| 段 | 何を読むか | 読む量 |
+|---|---|---|
+| 1. 名前ごとの枚数 | `GROUP BY c.identification.name` で `COUNT(1)`。結果は項目の数（数十〜数百行、1行 100 B 程度）だけ | 写真の枚数に依らず小さい。RU はインデックスを走査する分（推測） |
+| 2. 名前順に並べて1ページ分に切る | 1 の結果をサーバで `name` の文字列順に並べ、`offset` / `limit`（既定 50 件。`CATALOG_PAGE_SIZE`）で切る。`GROUP BY` と `ORDER BY` は同じクエリに書けない（推測）ので並べ替えはサーバで行うが、並べるのは項目の行だけで写真は読まない | 同上 |
+| 3. ページの項目ごとに見出しの写真 | 項目ごとに `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む（`identification` 全体・Blob 名）。1ページ 50 件なら 50 クエリを並列に投げる | 1項目 1 KB × ページの件数。写真の総数に依らない |
+
+項目の詳細も同じで、`COUNT(1)`・`TOP 1`・写真のページ（`sortAt` 順の継続トークン）の3クエリ。**どれも読む量が写真の総数に比例しない。**
+
 見積もり（**すべて推測**。段階4の最初に実測して `docs/09_backlog.md` に記録する）:
 
-| 前提 | 値 |
-|---|---|
-| 1枚の射影 | 約 1 KB（`identification` の説明 200 字・特徴 100 字・属性を含む） |
-| 読んだ量と RU | 1 MB あたり 100 RU 前後（Cosmos のクエリの RU は読んだ量にほぼ比例する） |
-| 識別済みの割合 | 送った写真の半分程度（`other` と `matchesKind: false` を除く）が、3種類に分かれる |
-
-| 写真の総数 | 1種類の識別済み写真 | 1回に読む量 | RU | 体感 |
+| 写真の総数 | 1種類の識別済み写真 | 項目の数 | 1ページを開くときの RU | 体感 |
 |---|---|---|---|---|
-| 数千枚（年に数回の旅行 × 数百枚 × 数年） | 数百〜2,000 枚 | 1〜2 MB | 100〜200 | 1〜2 秒。400 RU/s の枠に収まる |
-| 数万枚 | 1 万枚前後 | 10 MB | 1,000 前後 | 429 を SDK が再試行し、数秒〜十数秒待つ。Functions のメモリは 10 MB 程度なら問題ない |
+| 数千枚（年に数回の旅行 × 数百枚 × 数年） | 数百〜2,000 枚 | 数十〜数百 | `GROUP BY` 数十 + `TOP 1` 50 件 × 数 RU ≒ 200〜300 | 1 秒前後。400 RU/s の枠に収まる。往復は並列なので件数ほど遅くならない |
+| 数万枚 | 1 万枚前後 | 数百〜千 | `GROUP BY` 100 前後 + 同上 ≒ 300〜400 | 同上。項目が増えてもページの大きさは同じ |
 
-個人の規模（要件 §2「1回の旅行で数百枚」）では上の行に収まると見ている。読むのは開いた種類のタブの分だけで（3種類をまとめて読まない）、
-旅行の画面は図鑑の読み取りをしない。
+代償は、1ページを開くのに `limit` + 2 本のクエリを投げること。写真を全部読む形（1種類 2,000 枚で 1〜2 MB・100〜200 RU、1 万枚で 10 MB・1,000 RU）と比べ、
+小さな規模では RU がやや多く、大きな規模では桁で少ない。個人の規模でも 400 RU/s の枠に収まるので、最初からこの形にする。
 
-**重くなったら「写真から作り直せるまとめの控え（キャッシュ）」を足す。** `type: "catalogSummary"`、id `"catalog-<kind>"` の文書に上の表のまとめの結果を保存し、
+- 読むのは開いた種類のタブの分だけ（3種類をまとめて読まない）。旅行の画面は図鑑の読み取りをしない
+- 段 1 の `GROUP BY` は Cosmos SQL の集計で、null の鍵や `ORDER BY` との併用の制約がある（推測）。段階4の最初に手で確かめる（[08 §5.3](./08_test_plan.md#53-段階34で足すもの)）
+- 段 3 の2項目の `ORDER BY` には複合インデックス（`/identification/confidence` 降順, `/identification/at` 降順）が要る（[07 §3](./07_infrastructure_design.md#3-段階4)）。
+  無いと 400 になる（推測）ので、インフラの PR を API より先に apply する
+
+**それでも重くなったら「写真から作り直せるまとめの控え（キャッシュ）」を足す。** `type: "catalogSummary"`、id `"catalog-<kind>"` の文書に項目一覧（名前・枚数・見出し）を保存し、
 ワーカーが識別結果を書くたび（と写真を消すたび）にその種類の控えを作り直す。API は控えを読み、無ければ写真から作って保存する。
 
 - 正は写真のまま。控えは消して作り直せるので、**足すときも外すときもデータの移し替えは要らない**
-- 目安: 1種類の識別済み写真が 5,000 枚を超えたか、図鑑を開くのに 3 秒以上かかるようになったら
+- 目安: 図鑑の1ページを開くのに 3 秒以上かかるようになったら（`TOP 1` の並列が効かない場合）
 - 作り直しに失敗しても古い控えが残るだけで、次の識別で作り直される。`updatedAt` を持たせ、一定時間より古ければ API 側で作り直す
 
 ### 3.2 定義表 `CATALOG_KINDS`（`api/src/catalog/kinds.ts`）
@@ -334,54 +357,67 @@ export const CATALOG_KINDS = {
 
 - 写真の削除: ドキュメントを消してから原寸とサムネイルを消す。Blob の削除の失敗はログだけで、ドキュメント操作は成功扱い（`plants` と同じ方針）。404 は成功とみなす。
   残った Blob（孤児）は掃除のタイマーが消す（§7.2）
-- 旅行の削除: 中の写真を1枚ずつ上の手順で消し、最後に旅行を消す。消した後に、まだその旅行を指す写真が残っていないか見直して未所属に戻す（§7.3）
+- 旅行の削除: 利用者が「写真も消す」を選んだときだけ、中の写真を1枚ずつ上の手順で消す。「写真は残す」なら写真の `tripId` を `null` にして未所属に移す（Blob は触らない）。
+  どちらも最後に旅行を消し、消した後に、まだその旅行を指す写真が残っていないか見直して未所属に戻す（§7.3）。**食い違いで残った写真は消さず、未所属にする**
 - URL の検証による二層防御は要らない。削除する Blob 名はドキュメントの `blobName` / `thumbnailBlobName` から取り、クライアントから URL を受け取らない
 
 ## 5. クエリ
 
-**単体テストは Cosmos SQL を解釈しない。** WHERE 句・ORDER BY・射影は単体テストで検証できないため、
+**単体テストは Cosmos SQL を解釈しない。** WHERE 句・ORDER BY・射影・集計（`COUNT`・`MIN` / `MAX`・`GROUP BY`・`TOP 1`）は単体テストで検証できないため、
 下の表で「手で確認」の印が付いたものは、デプロイ後に手で確かめる（[08 §5](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目)）。
 サービスは絞り込みの値を**必ずパラメータ**で渡す（SQL に値を文字列で埋め込まない）。
 
+**写真を全部読むクエリを置かない**（2026-10-12 のレビュー）。一覧は `ORDER BY` と継続トークンで少しずつ読み、枚数・期間は `GROUP BY` で数え、表紙は `TOP 1` で1枚だけ読む。
+例外は掃除のタイマー（5.9）で、1日1回の一括処理なので全写真の薄い射影をページで読む。
+
 | # | 画面・処理 | クエリ | 単体テストで検証 | 手で確認 |
 |---|---|---|---|---|
-| 5.1 | 旅行一覧（集計） | 写真の射影 + サーバで集計 | 集計は○ | 射影 |
+| 5.1 | 旅行一覧（集計） | 枚数: `SELECT c.tripId, COUNT(1) AS photoCount FROM c WHERE c.type = @type GROUP BY c.tripId`／期間: `SELECT c.tripId, MIN(c.takenAt) AS firstTakenAt, MAX(c.takenAt) AS lastTakenAt FROM c WHERE c.type = @type AND IS_STRING(c.takenAt) GROUP BY c.tripId`／表紙: 旅行ごとに `SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC` | 集計の行から `TripSummary` と未所属の枚数を組み立てる所は○ | `GROUP BY`（`null` の鍵）・`MIN` / `MAX`・`TOP 1` |
 | 5.2 | 旅行一覧（旅行） | `SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt DESC` | `@type` の絞り込みのみ | 並び順 |
-| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId`／未所属: `WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId))` | `@tripId` / `@tripIds` で絞る | `IS_NULL`・`ARRAY_CONTAINS` の挙動 |
-| 5.4 | タグ横断（段階3） | `WHERE c.type = @type AND ARRAY_CONTAINS(c.tags, @tag)` | `@tag` で絞る | `ARRAY_CONTAINS` |
-| 5.5 | タグ一覧（段階3） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
-| 5.6 | 図鑑の項目一覧（段階4） | 写真の射影: `WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true`。名前ごとのまとめ（見出し・枚数・表紙）はサーバの中で行う | `@kind` で絞る。まとめは○ | 射影 |
-| 5.7 | 項目の写真（段階4） | `WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.name = @name` | `@kind`・`@name` で絞る | — |
-| 5.8 | 再投入のタイマー（段階3） | `WHERE c.type = @type AND c.processing.state IN ('pending','classifying','identifying') AND c.processing.updatedAt < @before` | × | 全部 |
-| 5.9 | 掃除のタイマー（段階3） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（全写真の射影）と、旅行の id の一覧（5.2） | 突き合わせは○ | 射影 |
+| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`／未所属: `WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId)) ORDER BY c.sortAt ASC`。`maxItemCount` と継続トークンでページ | `@tripId` / `@tripIds` で絞る。ページの切れ目と継続トークンの受け渡し | `IS_NULL`・`ARRAY_CONTAINS`・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
+| 5.4 | カテゴリ横断（段階3） | `WHERE c.type = @type AND c.category = @category ORDER BY c.sortAt ASC`。ページは 5.3 と同じ | `@category` で絞る | — |
+| 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
+| 5.6 | 図鑑の項目一覧（段階4） | 枚数: `SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE … AND c.identification.name = @name ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前順に並べてページに切る所は○ | `GROUP BY`・複合インデックスの `ORDER BY` |
+| 5.7 | 項目の写真（段階4） | `WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.name = @name ORDER BY c.sortAt ASC`。ページは 5.3 と同じ。枚数は `SELECT VALUE COUNT(1) FROM c WHERE …` | `@kind`・`@name` で絞る | `COUNT` |
+| 5.8 | 再投入のタイマー（段階3） | `WHERE c.type = @type AND c.processing.state IN ('pending','classifying','identifying') AND c.processing.updatedAt < @before`（**`failed` は含めない**。[06 §1.3](./06_processing_design.md#13-状態と失敗)） | × | 全部 |
+| 5.9 | 掃除のタイマー（段階3） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（全写真の薄い射影。ページで読む）と、旅行の id の一覧（5.2） | 突き合わせは○ | 射影 |
+| 5.10 | 旅行の削除（段階2） | `SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId`（ページで読み、1枚ずつ消す、または `tripId` を `null` に patch する。§5.7） | `@tripId` で絞る。消える・未所属になる結果は○ | 射影 |
 
 ### 5.1 旅行一覧
 
-旅行ごとの枚数・撮影期間・表紙を1クエリの射影から**サーバの中で集計する**。
+旅行ごとの枚数・撮影期間・表紙を、**写真を全部読まずに**導く。
 
 ```sql
-SELECT c.id, c.tripId, c.takenAt, c.uploadedAt, c.thumbnailBlobName, c.blobName
-FROM c WHERE c.type = @type
+-- 枚数（旅行ごと。tripId が null の写真も1つのグループになる。推測）
+SELECT c.tripId, COUNT(1) AS photoCount FROM c WHERE c.type = @type GROUP BY c.tripId
+-- 撮影期間（撮影日時のある写真だけ。MIN / MAX が null をどう扱うかに依存しないよう IS_STRING で絞る）
+SELECT c.tripId, MIN(c.takenAt) AS firstTakenAt, MAX(c.takenAt) AS lastTakenAt
+FROM c WHERE c.type = @type AND IS_STRING(c.takenAt) GROUP BY c.tripId
+-- 表紙（旅行ごとに1枚。sortAt 順で先頭）
+SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC
 ```
 
-`@type = 'photo'`。旅行ごとに `photoCount`（件数）、`firstTakenAt` / `lastTakenAt`（`takenAt` が null でないものの最小・最大）、
-表紙（§5.3 の並びで先頭の写真の `thumbnailBlobName`、無ければ `blobName`）を導く。未所属（`tripId` が `null` か、§5.2 の旅行の一覧に無い id を指すもの。§5.3）の件数も同じ結果から出せる。
+`@type = 'photo'`。`GROUP BY` の結果は旅行の数（数十行）だけで、写真の枚数に依らず小さい。表紙は旅行の一覧（§5.2）の各旅行について `TOP 1` を並列に投げる
+（数十クエリ。1本 数 RU。推測）。表紙の `thumbnailBlobName` が `null` なら `blobName` を使う。
 
-代案は `SELECT c.tripId, COUNT(1) AS photoCount, MIN(c.takenAt) ..., MAX(c.takenAt) ... FROM c WHERE c.type = 'photo' GROUP BY c.tripId`。
-RU は少ないが、表紙が取れず別クエリが要る。写真が数千枚になって射影の RU が気になったら切り替える（§6）。
+**未所属の枚数も同じ集計から出す。** 枚数の `GROUP BY` の行のうち、`tripId` が `null` の行と、§5.2 の旅行の一覧に無い id の行（消えた旅行を指す写真。§5.3）の `photoCount` を足す。
+`GET /api/trips` はこれを `unassignedPhotoCount` として返す（[05 §5.9](./05_api_design.md#59-get-apitrips)）ので、一覧の画面は `GET /api/photos` を別に呼ばない。
+
+`GROUP BY` は Cosmos SQL の制約で `ORDER BY` と同じクエリに書けず、`null` の鍵がグループになるかも推測（[08 §5.2](./08_test_plan.md#52-デプロイ後api段階2) で手で確かめる）。
+`null` がグループにならなければ、未所属の枚数だけ `SELECT VALUE COUNT(1) FROM c WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId))` を1本足す。
 
 ### 5.2 旅行の詳細
 
 `container.item(tripId, tripId).read()`。無ければ `resource` が無い応答（`plants` と同じ。`resource || null`）。
-集計は §5.1 と同じ射影を `tripId` で絞って行う（`WHERE c.type = @type AND c.tripId = @tripId`）。
+集計は §5.1 と同じ形を `tripId` で絞って行う（枚数 `SELECT VALUE COUNT(1) …`、期間 `SELECT MIN(c.takenAt) …, MAX(c.takenAt) … WHERE … AND IS_STRING(c.takenAt)`、表紙 `TOP 1`）。
 
 ### 5.3 旅行の写真一覧
 
 ```sql
 -- 旅行の写真
-SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId
+SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC
 -- 旅行に属さない写真（@tripIds は存在する旅行の id の配列）
-SELECT * FROM c WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId))
+SELECT * FROM c WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId)) ORDER BY c.sortAt ASC
 ```
 
 **未所属は「`tripId` が `null` か、存在しない旅行を指す」写真。** 先に旅行の一覧（§5.2 のクエリ。数十件）を読み、id の配列を `@tripIds` に渡す。
@@ -390,13 +426,20 @@ SELECT * FROM c WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAIN
 
 `c.tripId = null` は Cosmos SQL では偽になるので、`null` は `IS_NULL` で書く。`tripId` が `null` のとき `ARRAY_CONTAINS(@tripIds, c.tripId)` が偽を返すか
 未定義になるかは推測なので、`IS_NULL` を OR で残して `null` の扱いをそちらに任せる。パラメータに配列を渡して `ARRAY_CONTAINS` で引けることも
-推測（要確認。引けなければ、全写真の射影をサーバで突き合わせる §5.1 の形に倒す）。`tripId` は写真の作成時に必ず `null` を明示して書く
+推測（要確認。引けなければ、「`tripId` が `null`」だけを未所属にし、消えた旅行を指す写真は掃除のタイマー §7.2 が `null` に戻すのを待つ形に倒す）。`tripId` は写真の作成時に必ず `null` を明示して書く
 （項目が欠けていると `IS_NULL` も偽になり、一覧から静かに外れる）。
 
-**並び順はサーバの中で付ける。** `takenAt` 昇順、`takenAt` が null のものは末尾、同値は `uploadedAt` 昇順、さらに同値は `id` 昇順。
-Cosmos の `ORDER BY c.takenAt ASC` は null を先頭に置き、項目が無いドキュメントを結果から**外す**（推測。要確認）ため、
-「null は末尾」を SQL で書くと2クエリになる。1旅行数百枚（要件 §2）ならメモリで並べて困らず、並べ方をコードで明示できる。
-ページングは段階2では入れない（タグ横断で件数が増える段階3で継続トークンを検討する）。
+**並び順は Cosmos の `ORDER BY c.sortAt ASC` で付け、継続トークンでページに分けて読む。** `sortAt`（§1.3）は全写真が必ず持つ文字列なので、
+`ORDER BY` が null を先頭に置くか・項目の無いドキュメントを外すかという問題が無い。撮影日時の無い写真はアップロード日時（日本時間）の位置に入る。
+同値の並びは固定しない（固定したければ複合インデックス（`sortAt`, `id`）を足す）。
+
+- 1ページは `maxItemCount`（`limit`。既定 100、上限 200。`PHOTO_PAGE_SIZE`）。SDK の `fetchNext()` が返す `continuationToken` をそのまま応答に載せ、クライアントは次の要求にそのまま返す（[05 §5.2](./05_api_design.md#52-get-apiphotos)）
+- 継続トークンは Cosmos が作る不透明な文字列で、クエリ本文とパラメータが同じときだけ有効。数 KB になることがある（推測）ので、クエリ文字列ではなくヘッダか POST にする案もあるが、
+  まず `continuationToken` クエリパラメータで作り、長さが問題になったら変える（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #21）
+- ページの途中で写真が増減しても、継続トークンは「並びの中の位置」を指すので、次のページが重複・欠落することは無い（推測。同じ `sortAt` の写真が同時に入った場合は除く）。
+  一覧を取り直せば最新になる
+- 1旅行数百枚（要件 §2）なら数ページで、クライアントは下までスクロールするたびに次のページを読む（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）。
+  規模が大きくなっても1ページの読む量は変わらない
 
 `SELECT *` には Cosmos のシステム項目（`_rid` など）が含まれるので、応答に出す項目はサービスが詰め替える（[05 §3](./05_api_design.md#3-データモデル)）。
 
@@ -424,16 +467,25 @@ Blob を先、ドキュメントを後。逆だと「壊れた表示の写真」
 
 ### 5.6 図鑑のまとめ（段階4）
 
+写真を全部読まずにまとめる（§3.1 の「規模の注意」）。
+
 ```sql
-SELECT c.id, c.identification, c.takenAt, c.uploadedAt, c.thumbnailBlobName, c.blobName
+-- 1. 名前ごとの枚数（結果は項目の数だけ）
+SELECT c.identification.name AS name, COUNT(1) AS photoCount
 FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true
+GROUP BY c.identification.name
+-- 2.（サーバで name の文字列順に並べ、offset / limit で1ページ分に切る）
+-- 3. ページの項目ごとに見出しの写真を1枚（信頼度が最も高く、同点なら識別の日時が新しいもの。複合インデックスが要る）
+SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName
+FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @name
+ORDER BY c.identification.confidence DESC, c.identification.at DESC
 ```
 
-`@type = 'photo'`。結果を `identification.name` でまとめ、§3.1 の表のとおり見出し（説明・特徴・属性・信頼度）・枚数・表紙を導き、`name` の文字列順に並べる。
-項目の詳細（§5 の 5.7）は `@kind`・`@name` で絞って `SELECT *` し、並びは §5.3 と同じ。
+`@type = 'photo'`。1 の行と 3 の写真から、§3.1 の表のとおり `CatalogEntry`（名前・説明・特徴・属性・信頼度・枚数・表紙）を組み立てる。
+項目の詳細（§5 の 5.7）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、`@kind`・`@name` で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。
 
 識別結果の書き込みは**写真1枚への patch 1回**（[06 §3.2](./06_processing_design.md#32-書き込み)）。項目の文書が無いので、`create` の 409 も、
-信頼度を比べて項目を書き換える処理も、写真の付け替えも無い。読む量が写真の枚数に比例する点は §3.1 の「規模の注意」。
+信頼度を比べて項目を書き換える処理も、写真の付け替えも無い。
 
 ### 5.7 その他の単一ドキュメント操作
 
@@ -441,12 +493,13 @@ FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identificati
 |---|---|
 | 旅行の作成 | `items.create(trip)` |
 | 旅行の更新 | `item(id, id).replace({ ...existing, name, description, updatedAt })` |
-| 旅行の削除 | 写真を1枚ずつ `item(id, id).delete()` + Blob 削除 → `item(tripId, tripId).delete()` |
+| 旅行の削除（写真も消す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).delete()` + Blob 削除 → `item(tripId, tripId).delete()` → 掃き戻し（§7.3） |
+| 旅行の削除（写真は残す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, { op: 'set', path: '/updatedAt', value: now }])`（move の「外す」と同じ）→ `item(tripId, tripId).delete()` → 掃き戻し（§7.3） |
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
 | コメント・タグの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])` |
 | 処理状態の更新（段階3） | `item(id, id).patch([{ op: 'set', path: '/processing', ... }])` |
-| ワーカーの結果の書き込み（段階3・4） | `item(id, id).patch({ operations: [identification・comment・commentSource・processing の set], condition? }, { accessCondition: { type: 'IfMatch', condition: etag } })`。ワーカーが読んだ時点から写真が変わっていれば 412 → 読み直して再試行（§7.4） |
-| AI 呼び出しの回数（段階3） | `item(id, id).patch([{ op: 'incr', path: '/count', value: 1 }])`。文書が無ければ `create`（409 なら `incr` し直す）。`incr` は原子的で、同時に増やしても数え漏れが無い |
+| ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
+| ワーカーの結果の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。`_etag` の条件は付けない（§7.4）。コメントだけは `item(id, id).patch({ operations: [comment・commentSource の set], condition: 'FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"' })` の**条件付き patch** で、412（利用者のコメントがある）なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（§7.3） | `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, ...])` |
 
 ## 6. 無料枠と RU の見積もり
@@ -468,12 +521,12 @@ FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identificati
 | 操作 | 想定 RU | 頻度 | 備考 |
 |---|---|---|---|
 | 写真の作成（read 1 + create 1） | 約 1 + 10 | 1枚ごと | ドキュメント約 2 KB。300 枚で約 3,300 RU。同時 2 本なら数十秒に分散 |
-| 旅行の写真一覧（`SELECT *` 300 件） | 約 100〜300 | 画面を開くたび | 横断クエリ。個人規模では物理パーティションは1つ（推測） |
-| 旅行一覧の射影（全写真 3,000 件） | 約 100〜500 | 画面を開くたび | 射影は小さい。数万枚になったら `GROUP BY` に切り替える |
+| 旅行の写真一覧（`ORDER BY c.sortAt` で 1 ページ 100 件） | 約 50〜100 | ページを読むたび | 横断クエリ。個人規模では物理パーティションは1つ（推測）。1ページの RU は旅行の枚数に依らない |
+| 旅行一覧（`GROUP BY` 2 本 + 旅行ごとの `TOP 1`） | `GROUP BY` 各 10〜50 + 旅行 1 件あたり 3〜5 | 画面を開くたび | `GROUP BY` はインデックスを走査するので写真の枚数に緩やかに比例（推測）。旅行 30 件で 150 前後 |
 | move（patch 1 件） | 約 10 | 1枚ごと | 300 枚で約 3,000 RU。**400 RU/s を数秒超えるので SDK の再試行（429）が入る。関数の 5 分に収まるかは要実測**（[02 §6](./02_design_overview.md#6-リスク)） |
-| 旅行の削除（300 枚） | 約 3,000 + 一覧の読み取り | まれ | 同上 |
-| 図鑑の1種類を開く（識別済み 2,000 枚の射影。段階4） | 約 100〜200 | 種類のタブを開くたび | 写真の枚数に比例する。§3.1 の「規模の注意」 |
-| 掃除のタイマー（全写真の射影 + 旅行の一覧。段階3） | 約 100〜500 | 1日1回 | Blob の列挙は Cosmos の RU とは別 |
+| 旅行の削除（300 枚。写真も消す） | 約 3,000 + 射影の読み取り | まれ | 同上。「写真は残す」は patch 300 件で同程度 |
+| 図鑑の1種類の1ページを開く（`GROUP BY` + `TOP 1` 50 件。段階4） | 約 200〜400 | 種類のタブ・ページを開くたび | 写真の枚数に依らない。§3.1 の「規模の注意」 |
+| 掃除のタイマー（全写真の薄い射影 + 旅行の一覧。段階3） | 約 100〜500 | 1日1回 | 唯一の全件読み。ページで読む。Blob の列挙は Cosmos の RU とは別 |
 
 ストレージ: 写真 1 枚あたり原寸 1〜3 MB + サムネイル 30 KB。25 GB なら 1 万枚前後（Blob は Cosmos の枠とは別で、Blob は従量課金）。
 
@@ -517,18 +570,21 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `create` の後、応答が届かない | 旅行はできている | 失敗に見える。押し直すと同じ名前の旅行が2つ | **手**（空の方を消す）。アプリは自動で再試行しない（[03 §3](./03_screen_design.md#3-全画面共通)）ので、利用者が押し直したときだけ。写真と同じくクライアントが id を振れば冪等になるが、段階2では入れない（§7.5） |
 | `replace` | 何も変わらない | 失敗 | 再送（同じ値なので冪等） |
 
-**旅行の削除**（`DELETE /api/trips/{tripId}`。順: 写真を1枚ずつ（文書 → Blob）→ 旅行の文書 → 掃き戻し §7.3）
+**旅行の削除**（`DELETE /api/trips/{tripId}?deletePhotos=true|false`。[05 §5.12](./05_api_design.md#512-delete-apitripstripiddeletephotostruefalse)。
+順: 写真を1枚ずつ（`deletePhotos=true` は文書 → Blob、`false` は `tripId` を `null` に patch）→ 旅行の文書 → 掃き戻し §7.3）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| 写真の文書の削除 | 写真が減った旅行 | 500。枚数が減った旅行が残る | 再送（続きから。`deletedPhotoCount` は残りの分） |
-| 写真の Blob の削除 | 孤児 Blob | 無し（続行する） | 掃除 |
+| 写真の文書の削除（`true`） | 写真が減った旅行 | 500。枚数が減った旅行が残る | 再送（続きから。`deletedPhotoCount` は残りの分） |
+| 写真の Blob の削除（`true`） | 孤児 Blob | 無し（続行する） | 掃除 |
+| 写真の patch（`false`） | 一部だけ未所属になった旅行 | 500。枚数が減った旅行が残る | 再送（続きから。`detachedPhotoCount` は残りの分。patch は同じ値なら結果が同じ） |
 | 旅行の文書の削除 | 0枚の旅行 | 500。0枚の旅行 | 再送 |
-| 削除の途中・直後に送信や move がその旅行に届く | 消えた旅行を指す写真 | 未所属に出る | 自動（§7.3。それでも漏れたら掃除） |
+| 削除の途中・直後に送信や move がその旅行に届く | 消えた旅行を指す写真 | 未所属に出る。**`deletePhotos=true` でも消さない**（利用者が消すと決めたのは、確認のときに枚数を見た写真だけ） | 自動（§7.3。それでも漏れたら掃除） |
 | 掃き戻し §7.3 | 消えた旅行を指す写真 | 同上。応答は 200 | 自動（掃除） |
 
 逆順（旅行を先に消す）にしない理由: 途中で止まると、存在しない旅行を指す写真が数百枚残り、利用者が再実行する手段（旅行は 404）が無い。
-写真を先に消せば、残るのは「写真が減った旅行」で、同じ削除をもう一度押せば続きができる。
+写真を先に処理すれば、残るのは「写真が減った旅行」で、同じ削除をもう一度押せば続きができる。
+**旅行の削除と重なって残った写真は、どの経路でも消さずに未所属にする**（未所属の定義 §5.3、掃き戻し §7.3、掃除のタイマー §7.2 のすべてで同じ扱い）。
 
 **move**（`POST /api/photos/move`。写真1枚ずつ patch）
 
@@ -543,7 +599,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
 | patch | 何も変わらない | 失敗 | 再送 |
-| ワーカーの書き込みと重なる | patch は項目単位なので、`tags`・`comment` と `identification`・`processing` が互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは `_etag` 条件付きで書き、変わっていれば読み直して「利用者のコメントがあれば書かない」を判定し直す（§7.4） | — | 自動 |
+| ワーカーの書き込みと重なる | patch は項目単位で、利用者が書く欄（`comment`・`tags`・`tripId`）と AI が書く欄（`category`・`classification`・`identification`・`processing`）が分かれているので、互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch で書き、412 なら書かない（§7.4）。「解析中」で利用者の更新を止めるロックは置かない | — | 自動 |
 
 **やり直しの受付**（`POST /api/photos/{photoId}/process`。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。順: patch → キューに投入）
 
@@ -554,17 +610,19 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 投入を先にしない理由: 投入の後に patch で失敗すると、ワーカーが古い `step`・`hint` で走る。
 
-**ワーカーの分類・識別**（[06 §1](./06_processing_design.md#1-キューとワーカー段階3)・[06 §3](./06_processing_design.md#3-識別段階4)。順: 写真を読む → `state` を処理中に → AI → 結果を patch）
+**ワーカーの分類・識別**（[06 §1](./06_processing_design.md#1-キューとワーカー段階3)・[06 §3](./06_processing_design.md#3-識別段階4)。順: 写真を読む → `state` を処理中に（条件付き patch）→ AI → コメントを条件付き patch → 結果と `state` を patch）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| `state` を `classifying` / `identifying` にした後に落ちる | 処理中のまま | 「分類中...」 | 自動（10 分後にタイマーが再投入。`attempts` が上限なら `failed`） |
+| `state` を `classifying` / `identifying` にした後に落ちる | 処理中のまま | 「分類中...」 | 自動（10 分後にタイマーが再投入。`attempts` が上限（3 回）なら `failed`） |
 | AI の呼び出しが成功した後、結果の patch の前に落ちる | 結果が無い | 同上 | 自動（再実行。AI の費用が1回分無駄になる） |
-| 分類の結果を書いた後、識別の投入に失敗 | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
+| 分類の後、識別の投入に失敗 | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
+| **同じ画像で AI が毎回失敗する**（応答の検証違反・内容による拒否など、再試行しても直らない失敗） | `attempts: 3`・`failed`・`lastError` | 「分類に失敗しました」と「やり直す」 | **自動では直らず、永遠に回り続けもしない。** キューの再試行は `maxDequeueCount` 3 回で poison に落ち、タイマーは `attempts` が上限なら `failed` にし、**`failed` は再投入のクエリ（§5 の 5.8）に含めない**。利用者が `process` を頼んだときだけ `attempts` を 0 に戻してもう一度試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（[06 §6](./06_processing_design.md#6-費用の抑え方)） |
 | 分類で種類が変わったのに、識別が上限まで失敗 | `identification: null`（分類が先に消す）・`failed` | 「失敗」。図鑑に出ない | 利用者がやり直す。**古い種類・名前の下に残り続けることは無い** |
-| 結果の patch が 412（読んだ後に写真が変わった。利用者のコメント・move） | 何も変わらない | — | 自動（読み直して再試行、最大 3 回。超えたら例外 → キューの再試行） |
-| 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | ワーカーが読んだ `state` が `done` / `failed` / `none` なら何もしない。処理中で `updatedAt` が 10 分以内なら、別のインスタンスが処理中とみなして何もしない |
-| AI の回数のカウンタ | `incr` は原子的（§5.7）。文書が無いときの `create` の 409 は `incr` し直す | — | — |
+| コメントの条件付き patch が 412（AI の処理中に利用者がコメントを書いた） | 利用者のコメントが残る。AI のコメントは書かれない | 利用者の文 | 意図どおり（§7.4）。結果の patch には進む |
+| AI の処理中に利用者が `tags`・`tripId` を変えた（解析中に写真を編集した） | 利用者の変更と AI の結果の両方が残る | 両方 | 書く欄が分かれているので衝突しない。ロックも読み直しも要らない |
+| コメントの patch の後、結果の patch の前に落ちる | AI のコメントだけ書かれ、`state` は処理中のまま | 「分類中...」 | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される） |
+| 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | 担当の patch を `FROM c WHERE c.processing.state = "pending"` の条件付きにする（§5.7）。412 なら別のインスタンスが担当済みなので何もしない。読んだ `state` が `done` / `failed` / `none` でも何もしない |
 | 地名のキャッシュ（`geocache`）の `create` が 409 | 既に同じ座標の地名がある | — | 無視する |
 
 **移行スクリプト**（[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) 手順 2。植物1件ずつ: 旧 Blob を読む → `photos` に上げる → 写真の `create`）
@@ -587,10 +645,12 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 `api/src/functions/sweepAlbum.ts`。`app.timer`、1日1回（深夜）。`requeueStalePhotos` と同じ PR で入れる（[09 §3](./09_implementation_plan.md#3-段階3の-pr-の骨格)）。
 
-1. **孤児 Blob**: `photos` コンテナの Blob を列挙し、名前の先頭 64 文字を `photoId` として、全写真の射影（§5 の 5.9）の id の集合と突き合わせる。
+1. **孤児 Blob**: `photos` コンテナの Blob を列挙し、名前の先頭 64 文字を `photoId` として、全写真の薄い射影（§5 の 5.9。ページで読む）の id の集合と突き合わせる。
    文書が無く、**最終更新から1日より古い** Blob を消す（新しいものは送信の途中かもしれない。1日は [07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減) と同じ根拠）
-2. **消えた旅行を指す写真**: 同じ射影の `tripId` を旅行の id の集合と突き合わせ、無いものを `null` に patch する
+2. **消えた旅行を指す写真**: 同じ射影の `tripId` を旅行の id の集合と突き合わせ、無いものを `null` に patch する（**消さない。** 旅行の削除で「写真も消す」を選んでいても、削除と重なって残った写真は未所属にする。§7.1）
 3. **Blob の無い文書**: 突き合わせで原寸の Blob が無い写真をログに出す（消さない。手で直す）
+
+全写真の射影を読むのはこのタイマーだけ（1日1回の一括処理で、1万枚でも 1 MB 程度の射影）。画面から呼ばれる API には全件読みを置かない（§5）。
 
 件数と `photoId` をログに出す（[05 §1](./05_api_design.md#1-基本方針) の方針どおり、ファイル名や地名は出さない）。
 段階2の間は孤児 Blob を放置する（容量の費用だけで、利用者からは見えない）。気になれば同じ突き合わせを手でする。
@@ -598,18 +658,33 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 ### 7.3 旅行の削除の最後の掃き戻し
 
-旅行の文書を消した後、もう一度 `WHERE c.type = @type AND c.tripId = @tripId` を読み、残っていれば `tripId` を `null` に patch する。
-削除の途中に届いた送信・move（旅行の存在の検査は通ったが、書き込みは削除の後）を拾う。
+旅行の文書を消した後、もう一度 `WHERE c.type = @type AND c.tripId = @tripId`（§5 の 5.10 の射影）を読み、残っていれば `tripId` を `null` に patch する。
+削除の途中に届いた送信・move（旅行の存在の検査は通ったが、書き込みは削除の後）を拾う。**`deletePhotos=true` でもここで消さない**
+（利用者が確認のときに見た枚数に入っていない写真で、消してよいと決めたものではない）。
 この読み取りの後に届いたものは拾えないが、未所属の定義（§5.3）で見え、掃除のタイマー（§7.2）で `null` に戻る。
 掃き戻しの失敗はログだけで、応答は 200（旅行は消えている）。
 
 ### 7.4 ワーカーの書き込みの決まり
 
+**AI は担当の欄だけを部分更新（Patch）し、「解析中」で利用者の更新を止めるロックは置かない**（2026-10-12 に人間が決定）。
+ロックを置くと解析の間は利用者が何も変えられず、処理が落ちると解析中のまま残る。欄を分けて Patch する方が単純で、落ちても利用者の操作は妨げない。
+
+| 欄 | 書く主体 |
+|---|---|
+| `category`・`classification`・`identification`・`processing` | AI（ワーカー）と、やり直しの受付（`processing`・`hint`） |
+| `comment`・`commentSource` | **両方**（利用者の `PATCH` と AI）。衝突はここだけ |
+| `tags`・`tripId`・`updatedAt` | 利用者（`PATCH`・move・旅行の削除）。`updatedAt` はワーカーも書く |
+
 - メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）
-- 結果は写真1枚への patch 1回にまとめる（`identification`・`comment`・`commentSource`・`processing`）。項目の文書が無いので、これで図鑑も同時に更新される
-- patch は `_etag` 条件付き（読んだ時点の `_etag`。`state` を処理中にした patch の応答の `_etag` を使う）。412 なら読み直して再試行（最大 3 回）
-- `comment` は `commentSource` が `"user"` なら書かない（送信直後の自動の解析が、利用者がその間に書いたコメントを消さないように）。
-  やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる
+- 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending"` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）で、何もしない
+- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を `FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"` の条件付きで `set`。
+  412 なら利用者がその間にコメントを書いたので、書かずに進む（送信直後の自動の解析が、利用者のコメントを消さないように）。
+  **(2) 結果**: `category`・`classification`（分類）または `identification`（識別）と `processing`・`updatedAt` を `set`。条件は付けない（他に書く主体が無い）。
+  項目の文書が無いので、これで図鑑も同時に更新される
+- **`_etag` の条件と「412 なら読み直し」は置かない。** 欄が分かれているので、読んでから書くまでに利用者が `tags`・`tripId` を変えても（解析中に写真を編集しても）、Patch は互いの欄を上書きしない。
+  唯一の衝突である `comment` は、上の条件付き patch を Cosmos が原子的に評価するので、読み直しが要らない
+- `condition` の比較は `null` を `!=` で扱えない（`null != "user"` は未定義になる。推測）ので、`IS_NULL(...) OR ... = "ai"` の形で書く
+- やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果のコメントは必ず書かれる
 - 分類は `identification` を `null` に戻してから識別を投入する。種類が変わったのに古い識別が残り、図鑑の別の種類に出続けることを防ぐ
 
 ### 7.5 残すと決めた食い違い

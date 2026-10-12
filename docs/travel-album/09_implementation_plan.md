@@ -26,16 +26,16 @@ PR の粒度・レビュー・Issue の基準は CLAUDE.md（「PR と Issue の
 | # | 内容 | 行数 | 依存 | 完了条件 | レビュー |
 |---|---|---|---|---|---|
 | 1 | **infra**: `photos` コンテナ、`temp-images` のライフサイクル、`album` コンテナ（PK `/id`）、`app_settings`、`outputs`（[07 §1](./07_infrastructure_design.md#1-段階2)） | ~150 | — | `terraform fmt`・`validate` が緑。**人間がポータルで無料枠を確認してから apply**。ポータルで `photos` が非公開 | `/code-review medium`、`/security-review`（公開設定・ライフサイクルの接頭辞） |
-| 2 | **api の土台**: `ErrorCode` の追加、`createNotFoundError(code?)`、`isConnectivityError()`、`utils/blobSas.ts` の切り出し（`generateTempSasUrl()` を包みに）、`types/album.ts`、`constants/validation.ts` の追加（`TRIP_` / `PHOTO_` / `MOVE_` / `TAG_VALIDATION`）、`constants/tags.ts`、テスト用の差し替え部品の拡張（[08 §2.1](./08_test_plan.md#21-testsfakescosmosts)） | ~750 | — | 既存テスト全緑（**SAS の切り出し後も `storageService.test.ts` と `upload.test.ts` が通る**）。`blobSas`・`isConnectivityError`・差し替え部品の新しい振る舞いのテスト | `/code-review high`（既存の `upload` に触る）、`test-reviewer` |
-| 3 | **api: 旅行**: `AlbumService`（旅行の CRUD と集計）、`PhotoStorageService`（削除だけ）、`trips.ts`・`tripDetail.ts`、`app.ts` の import、仕様書 | ~1,000 | 2 | TDD のリストが空。仕様書（OpenAPI・06）と一致。デプロイ後に `GET /api/trips` を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
-| 4a | **api: 写真**: `POST /api/photos`（ハッシュ照合・既存 200・Blob→create）、`GET /api/photos`（`tripId` / `none`。`none` は `tripId: null` と存在しない旅行を指すものの両方。並び、SAS）、`GET` / `DELETE /api/photos/{photoId}`、仕様書 | ~1,500 | 3 | 同上。デプロイ後に SAS で表示できること、応答に `_rid` が無いこと、`NOT ARRAY_CONTAINS(@tripIds, …)` が引けること | `/code-review high`、`test-reviewer`、`contract-auditor`、`/security-review`（multipart・ハッシュ・SAS） |
-| 4b | **api: 出し入れと更新**: `POST /api/photos/move`、旅行削除の連鎖（3 の `DELETE` を写真付きに。最後に残った写真を未所属へ戻す [04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）、`PATCH /api/photos/{photoId}`（`comment`・`tags` の構造だけ）、仕様書 | ~700 | 4a | 同上。デプロイ後に `/api/photos/move` のルートと 300 枚の move を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
+| 2 | **api の土台**: `ErrorCode` の追加、`createNotFoundError(code?)`、`isConnectivityError()`、`utils/blobSas.ts` の切り出し（`generateTempSasUrl()` を包みに）、`types/album.ts`、`constants/validation.ts` の追加（`TRIP_` / `PHOTO_` / `MOVE_` / `TAG_` / `CATALOG_VALIDATION`）、`constants/album.ts`（`SORT_AT_UTC_OFFSET_MINUTES`）、テスト用の差し替え部品の拡張（ページ・`condition` 付き patch。[08 §2.1](./08_test_plan.md#21-testsfakescosmosts)） | ~800 | — | 既存テスト全緑（**SAS の切り出し後も `storageService.test.ts` と `upload.test.ts` が通る**）。`blobSas`・`isConnectivityError`・差し替え部品の新しい振る舞いのテスト | `/code-review high`（既存の `upload` に触る）、`test-reviewer` |
+| 3 | **api: 旅行**: `albumQueries.ts`（集計の SQL。`GROUP BY`・`TOP 1`）、`AlbumService`（旅行の CRUD と、集計の行から `TripSummary`・`unassignedPhotoCount` を組み立てる）、`PhotoStorageService`（削除だけ）、`trips.ts`・`tripDetail.ts`、`app.ts` の import、仕様書 | ~1,000 | 2 | TDD のリストが空。仕様書（OpenAPI・06）と一致。デプロイ後に `GET /api/trips` と `GROUP BY` の集計（`null` の鍵・`MIN` / `MAX`）を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
+| 4a | **api: 写真**: `POST /api/photos`（ハッシュ照合・`sortAt`・既存 200・Blob→create）、`GET /api/photos`（`tripId` / `none`。`none` は `tripId: null` と存在しない旅行を指すものの両方。`ORDER BY c.sortAt` と継続トークンのページ、SAS）、`GET` / `DELETE /api/photos/{photoId}`、仕様書 | ~1,500 | 3 | 同上。デプロイ後に SAS で表示できること、応答に `_rid` が無いこと、`NOT ARRAY_CONTAINS(@tripIds, …)` が引けること、300 枚をページでめくって重複・欠落が無いこと | `/code-review high`、`test-reviewer`、`contract-auditor`、`/security-review`（multipart・ハッシュ・SAS・継続トークンの受け渡し） |
+| 4b | **api: 出し入れと更新**: `POST /api/photos/move`、旅行削除の連鎖（3 の `DELETE` に `deletePhotos=true|false` を足す。写真を消す／未所属に patch、最後に残った写真を未所属へ戻す [04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）、`PATCH /api/photos/{photoId}`（`comment`・`tags` の構造だけ）、仕様書 | ~800 | 4a | 同上。デプロイ後に `/api/photos/move` のルートと 300 枚の move、両方の削除を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
 | 5 | **mobile: 土台**: `AppRoot`（設定の読み込み・`ApiService`・`UploadQueue` の置き場）、`HomeShell`（2 タブ）、`PlantListScreen` が `ApiService` を受け取る形に、旅行タブは仮の画面 | ~800 | 2 以降いつでも | **図鑑の既存の動きが変わらない**（既存の画面テストが通る。実機で起動・一覧・設定を確認）。`flutter analyze` に新規の指摘なし | `/code-review high`（既存の画面に触る）、`test-reviewer` |
-| 6 | **mobile: 旅行と写真の表示**: `Trip` / `Photo` モデル、`ApiService` の旅行・写真の取得メソッド、旅行一覧・作成・編集・削除、旅行詳細・未所属（`PhotoGrid` 表示のみ）、`cacheKey` と `CacheManager`、画面設計の取り込み | ~1,500 | 3・4a（API がデプロイ済み） | 実機で旅行の作成・一覧・削除、写真の表示（API 側で手で入れた写真） | `/code-review high`、`test-reviewer`、`contract-auditor`（画面設計） |
+| 6 | **mobile: 旅行と写真の表示**: `Trip` / `Photo` モデル、`ApiService` の旅行・写真の取得メソッド（ページ）、旅行一覧・作成・編集・削除（写真をどうするかのダイアログ）、旅行詳細・未所属（`PhotoGrid` 表示と下端での続きの読み込み）、`cacheKey` と `CacheManager`、画面設計の取り込み | ~1,600 | 3・4a・4b（API がデプロイ済み） | 実機で旅行の作成・一覧・両方の削除、写真の表示とページ（API 側で手で入れた写真） | `/code-review high`、`test-reviewer`、`contract-auditor`（画面設計） |
 | 7 | **mobile: 送信**: `pickMultiImage`、`photo_metadata`（EXIF・SHA-256・サムネイル）、Geocoder、`UploadQueue`、進み具合バナー、写真ビューア、`ApiService.uploadPhoto` / `deletePhoto` | ~1,800 | 4a・6 | **最初にハッシュの決定性を実機で確認。** 300 枚の送信が完走し、実測を `docs/09_backlog.md` に記録 | `/code-review high`、`test-reviewer`、`/security-review`（ファイル・位置情報の扱い） |
 | 8 | **mobile: 複数選択**: 選択モード、旅行に入れる（旅行を選ぶダイアログ）、旅行から外す、まとめて削除、`ApiService.movePhotos` | ~800 | 4b・7 | 実機で 100 枚の出し入れ | `/code-review high`、`test-reviewer` |
 
-順序: 1 → 2 → 3 → 4a → 4b（API の列）。5 は 2 以降いつでも、6 は 3 と 4a の後、7 は 4a の後、8 は 4b の後。
+順序: 1 → 2 → 3 → 4a → 4b（API の列）。5 は 2 以降いつでも、6 は 4b の後（旅行の削除のダイアログが `deletePhotos` を要るため）、7 は 4a の後、8 は 4b の後。
 API と mobile の列は並行できるが、**同時に進めるなら別のブランチで、積まない**。
 
 PR 7 が 1,800 行で上限に近い。超えそうなら「写真ビューア」を 7b に分ける。
@@ -52,18 +52,19 @@ PR 7 が 1,800 行で上限に近い。超えそうなら「写真ビューア�
 | # | 内容 | 依存 |
 |---|---|---|
 | 3-1 | infra: Storage Queue、分類用デプロイと変数、`app_settings`（[07 §2](./07_infrastructure_design.md#2-段階3)）。`host.json` の `extensions.queues` と `http` の位置 | 段階2完了 |
-| 3-2 | api: `OpenAIVisionService.analyze()` の一般化（`identifyPlant()` は残す）、`catalog/kinds.ts`（定義表。段階3では分類の選択肢にだけ使う）、`PhotoClassifierService`、`tests/fakes/queue.ts` | 3-1 |
-| 3-3 | api: ワーカー `processPhoto.ts`（写真の `processing.step` を見る。結果は `_etag` 条件付きの patch 1回。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）、タイマー `requeueStalePhotos.ts`・`sweepAlbum.ts`（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos` のキュー投入（`pending`・`step: "classify"`）、`POST /api/photos/{photoId}/process`（受付でコメントを消す。投入に失敗しても 202）、`GET /api/tags`、`GET /api/photos?tag=`、AI の回数のカウンタ（`incr`）。10 枚の実測を記録 | 3-2 |
-| 3-4 | mobile: カテゴリの表示、分類の状態、やり直しダイアログ、タグ横断画面 | 3-3 |
+| 3-2 | api: `OpenAIVisionService.analyze()` の一般化（`identifyPlant()` は残す）、`catalog/kinds.ts`（定義表と `OTHER_KIND`。段階3では分類の選択肢にだけ使う）、`PhotoClassifierService`、`tests/fakes/queue.ts` | 3-1 |
+| 3-3 | api: ワーカー `processPhoto.ts`（写真の `processing.step` を見る。担当は `state = "pending"` の条件付き patch。結果は AI の担当の欄だけの patch、コメントは条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）、タイマー `requeueStalePhotos.ts`（`failed` は拾わない）・`sweepAlbum.ts`（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos` のキュー投入（`pending`・`step: "classify"`）、`POST /api/photos/{photoId}/process`（受付でコメントを消し `attempts` を 0 に。投入に失敗しても 202）、`GET /api/photos?category=`。10 枚の実測を記録し、デプロイの容量（TPM）を見直す（[06 §6](./06_processing_design.md#6-費用の抑え方)） | 3-2 |
+| 3-4 | mobile: カテゴリの表示、分類の状態（`failed` と「やり直す」）、やり直しダイアログ、カテゴリ横断画面 | 3-3 |
 | 3-5 | （任意）api + infra: Azure Maps の `GeocodingService` と `geocache` | 実機確認で Geocoder が不十分だったとき |
 
 ## 4. 段階4の PR の骨格
 
 | # | 内容 | 依存 |
 |---|---|---|
+| 4-0 | infra: `album` に複合インデックス（`/identification/confidence`, `/identification/at` の降順。[07 §3.1](./07_infrastructure_design.md#31-図鑑の前に足すもの複合インデックス)）。人間が apply。**4-2 より先** | 段階3完了 |
 | 4-1 | api: 定義表からの識別スキーマ生成、`PhotoIdentifierService`、ワーカーの `identify` ステップ（写真の `identification` への patch だけ。項目の文書は無い。[06 §3.2](./06_processing_design.md#32-書き込み)）、分類の後の `identification` のクリアと `step: "identify"` の投入 | 段階3完了 |
-| 4-2 | api: `GET /api/catalog/kinds` / `entries` / `entry`（写真を読んでサーバでまとめる。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）。デプロイ後に1種類を開く RU と時間を実測して記録（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる） | 4-1 |
-| 4-3 | mobile: 図鑑画面（種類タブ・項目一覧・項目詳細。項目は `kind` と `name` で開く）、写真ビューアのコメント編集と項目へのリンク、`PATCH` の呼び出し | 4-2 |
+| 4-2 | api: `GET /api/catalog/kinds` / `entries`（`GROUP BY` + 項目ごとの `TOP 1`、`offset` / `limit`）/ `entry`（`TOP 1` + `COUNT` + 写真のページ。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）。デプロイ後に1種類の1ページを開く RU と時間を実測して記録（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる） | 4-0・4-1 |
+| 4-3 | mobile: 図鑑画面（種類タブ・項目一覧（`offset` でページ）・項目詳細（写真はページ）。項目は `kind` と `name` で開く）、写真ビューアのコメント編集と項目へのリンク、`PATCH` の呼び出し | 4-2 |
 | 4-4 | api: 移行スクリプト `scripts/migratePlants.ts`（[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) 手順 2。`plants` の記録を写真の `identification` に移すだけ）。人間が退避（手順 1）→ 実行 → 確認（手順 3。飛ばした植物の一覧を見る） | 4-3 |
 | 4-5 | mobile: 図鑑タブの差し替え、植物専用の画面・モデル・メソッド・テストの削除（手順 4） | 4-4 の確認 |
 | 4-6 | api: 植物専用の関数・サービス・型・テストの削除、`app.ts`、`docs/06`・`07`・`README`（手順 5） | 4-5 |

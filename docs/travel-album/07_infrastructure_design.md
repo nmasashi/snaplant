@@ -90,7 +90,8 @@ resource "azurerm_storage_management_policy" "main" {
 | `PHOTO_SAS_EXPIRY_MINUTES` | `"60"` | `utils/blobSas.ts` |
 
 既存の `COSMOS_DB_CONTAINER`（`plants`）・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は段階4まで残す。
-検証の上限（`TRIP_NAME_MAX_LENGTH` など。[05 §4](./05_api_design.md#4-入力検証の定数)）は既定値で動くので `app_settings` には書かない（変えたいときだけ足す）。
+検証の上限（`TRIP_NAME_MAX_LENGTH` など）やページの大きさ（`PHOTO_PAGE_SIZE` など）は既定値で動くので `app_settings` には書かない（変えたいときだけ足す）。
+環境変数とコードの定数の一覧は §6。
 
 `outputs.tf` に `photos_container_name`・`album_container_name` を足す。`deployment_summary` は変えない。
 
@@ -105,11 +106,20 @@ resource "azurerm_storage_management_policy" "main" {
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
 | `azurerm_storage_queue.photo_processing` | `photo-processing` | 既存のストレージアカウント | poison キュー（`photo-processing-poison`）は Functions が自動で作る |
-| `azurerm_cognitive_deployment.classifier` | `var.openai_classify_deployment_name` | `model { name = var.openai_classify_model_name, version = var.openai_classify_model_version }`、`sku { name = "GlobalStandard", capacity = var.openai_classify_capacity }` | モデルは人間が価格表を見て決める。既存の `gpt5_luna` と同じ `cognitive_account` |
-| `azurerm_maps_account.main`（任意） | `maps-${var.project_name}-${suffix}` | `sku_name = "G2"` | 端末の Geocoder で足りれば作らない |
-| `azurerm_consumption_budget_resource_group.main`（任意） | — | 月額の上限と通知先メール | AI の費用の安全弁。人間が決める |
+| `azurerm_cognitive_deployment.classifier` | `var.openai_classify_deployment_name` | `model { name = var.openai_classify_model_name, version = var.openai_classify_model_version }`、`sku { name = "GlobalStandard", capacity = var.openai_classify_capacity }` | モデルは人間が価格表を見て決める。既存の `gpt5_luna` と同じ `cognitive_account`。**`capacity` が費用の天井**（下記） |
+| `azurerm_maps_account.main`（任意） | `maps-${var.project_name}-${suffix}` | `sku_name = "G2"` | 端末の Geocoder で足りれば作らない。iOS に対応するときに改めて検討（[06 §4](./06_processing_design.md#4-地名への変換)） |
+| `azurerm_consumption_budget_resource_group.main` | — | 月額の上限と通知先メール（`var.monthly_budget_amount`・`var.budget_alert_email`） | AI の費用の安全弁。アプリに回数のカウンタを置かない代わりに入れる（[06 §6](./06_processing_design.md#6-費用の抑え方)）。金額は人間が決める |
 
-`variables.tf` に `openai_classify_deployment_name`（既定 `"classifier"`）・`openai_classify_model_name`・`openai_classify_model_version`・`openai_classify_capacity`（既定 `50`）を足す。
+`variables.tf` に `openai_classify_deployment_name`（既定 `"classifier"`）・`openai_classify_model_name`・`openai_classify_model_version`・`openai_classify_capacity`（既定 `10`）・
+`monthly_budget_amount`・`budget_alert_email` を足す。
+
+**デプロイの容量で費用を抑える**（2026-10-12 に人間が決定。アプリの中に1日の呼び出し回数のカウンタは置かない）。
+`capacity` は 1 単位 = 1,000 トークン/分（TPM）で、`capacity × 1,000 × 1,440 分 × 単価` が1日の費用の上限になる。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる。
+
+- 分類（`classifier`）: 既定 `10`（1 万 TPM）。1 枚 1,000 トークン（要実測）なら 1 分に 10 枚、1 旅行 300 枚で 30 分。段階3の最初の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）で見直す
+- 識別（既存の `gpt5_luna`。`infrastructure/main.tf` 226行の `capacity = 150`）: 段階4で識別に使い始めるとき、分類と同じ考え方で下げる（`var.openai_identify_capacity` に出して、既定を 150 より小さくする）。
+  植物図鑑の `upload` / `identify` も同じデプロイを使っているので、段階4より前に下げるなら既存の使い方に影響しないことを確かめる
+- 容量を下げても止まらず遅くなるだけなので、迷ったら小さくする
 
 | `app_settings` | 値 |
 |---|---|
@@ -117,12 +127,43 @@ resource "azurerm_storage_management_policy" "main" {
 | `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `azurerm_cognitive_deployment.classifier.name` |
 | `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `azurerm_cognitive_deployment.gpt5_luna.name`（段階4で使う。段階3で先に入れてよい） |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | `"3"` |
-| `AI_DAILY_CALL_LIMIT` | 実測後に決める |
-| `AZURE_MAPS_KEY`・`GEOCODING_DAILY_LIMIT` | Azure Maps を入れる場合だけ |
+| `AZURE_MAPS_KEY` | Azure Maps を入れる場合だけ |
 
 `AzureWebJobsStorage` は `azurerm_linux_function_app` が `storage_account_name` / `storage_account_access_key` から自動で設定する（既存）。キューのトリガーはこれを使う。
 
 ## 3. 段階4
+
+### 3.1 図鑑の前に足すもの（複合インデックス）
+
+図鑑の見出しの写真を `ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む（[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）ために、
+`album` に複合インデックスを足す。2項目の `ORDER BY` は複合インデックスが無いと失敗する（推測）ので、**図鑑の API（[09 §4](./09_implementation_plan.md#4-段階4の-pr-の骨格) の 4-2）より先に apply する**。
+
+```hcl
+resource "azurerm_cosmosdb_sql_container" "album" {
+  # ...（段階2の定義に足す）
+  indexing_policy {
+    indexing_mode = "consistent"
+    included_path {
+      path = "/*"
+    }
+    # 図鑑の見出しの写真（信頼度が最も高く、同点なら識別の日時が新しいもの）を TOP 1 で引くため
+    composite_index {
+      index {
+        path  = "/identification/confidence"
+        order = "descending"
+      }
+      index {
+        path  = "/identification/at"
+        order = "descending"
+      }
+    }
+  }
+}
+```
+
+インデックスの変更は既存のコンテナにそのまま適用され（replace にならない。`plan` で確かめる）、作り直しは裏で進む。既存の写真が少ない段階4の初めなら数分（推測）。
+
+### 3.2 植物図鑑の廃止
 
 植物図鑑の廃止（[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) の手順 6）。移行の確認（手順 3）が済んでから。
 
@@ -180,3 +221,69 @@ resource "azurerm_storage_management_policy" "main" {
   段階2の API は `AlbumService` のコンストラクタで環境変数を読むので、`album` が無い状態でデプロイすると旅行・写真の関数だけが 500 になり、植物図鑑は動く
 - Function Key は変わらない（同じ Function App に関数を足すだけ）
 - 新しい関数が登録されたことは、デプロイ後にポータルの「関数」一覧か `GET /api/trips` で確かめる（`app.ts` の import 忘れはここで分かる）
+
+## 6. 設定値の一覧
+
+環境変数で持つもの（`app_settings` で変えられる）と、コードの定数（変えるには実装を直す）と、Flutter 側の定数を1か所にまとめる。
+他の文書からはここを参照し、値の重複した記述を増やさない。既定値はすべてこの一式で決めたもので、変えるなら実装前に（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #16）。
+
+### 6.1 api の環境変数
+
+`positiveIntFromEnv()` で読むものは、正の整数として読めない値なら既定値にフォールバックする（CLAUDE.md「バリデーション定数」）。
+
+| 名前 | 既定値 | 意味 | どこで使うか | 段階 |
+|---|---|---|---|---|
+| `COSMOS_DB_ALBUM_CONTAINER` | （必須。Terraform が `album` を入れる） | 旅行・写真のコンテナ名 | `AlbumService` | 2 |
+| `PHOTO_STORAGE_CONTAINER_NAME` | `photos` | 写真の Blob コンテナ名 | `PhotoStorageService` | 2 |
+| `PHOTO_SAS_EXPIRY_MINUTES` | `60` | 写真の表示用 SAS の有効期限（分） | `utils/blobSas.ts`（[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
+| `TEMP_SAS_EXPIRY_MINUTES`（既存） | `15` | AI に渡す読み取り SAS の有効期限（分） | ワーカー（[06 §2.1](./06_processing_design.md#21-モデルとサービス)） | 3 |
+| `TRIP_NAME_MAX_LENGTH` | `100` | 旅行名の上限（文字） | `POST` / `PUT /api/trips` | 2 |
+| `TRIP_DESCRIPTION_MAX_LENGTH` | `1000` | 旅行のメモの上限 | 同上 | 2 |
+| `PHOTO_PLACE_NAME_MAX_LENGTH` | `100` | 地名の上限 | `POST /api/photos` | 2 |
+| `PHOTO_COMMENT_MAX_LENGTH` | `500` | 写真のコメントの上限 | `PATCH /api/photos/{photoId}` | 2 |
+| `THUMBNAIL_MAX_SIZE` | `1048576`（1MB） | サムネイルのバイト数の上限 | `POST /api/photos` | 2 |
+| `MAX_FILE_SIZE`（既存） | `10485760`（10MB） | 原寸のバイト数の上限 | `POST /api/photos`（既存の `upload` と共用） | 2 |
+| `CONTEXT_INFO_MAX_LENGTH`（既存） | `500` | やり直しの手がかり `hint` の上限 | `POST /api/photos/{photoId}/process`（既存の `contextInfo` と共用） | 3 |
+| `MOVE_MAX_IDS` | `200` | move の1回の上限（件） | `POST /api/photos/move` | 2 |
+| `TAG_MAX_LENGTH` | `30` | 利用者のタグの上限（文字） | `PATCH /api/photos/{photoId}` | 2 |
+| `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | `100` / `200` | 写真一覧の1ページの既定と上限（枚） | `GET /api/photos`・`GET /api/catalog/entry` | 2 |
+| `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | `50` / `100` | 図鑑の項目一覧の1ページの既定と上限（件） | `GET /api/catalog/entries` | 4 |
+| `PHOTO_QUEUE_NAME` | `photo-processing` | 分類・識別のキュー名 | 投入する HTTP 関数とワーカー | 3 |
+| `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。超えたら `failed` | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)） | 3 |
+| `PHOTO_PROCESSING_STALE_MINUTES` | `10` | これより長く更新の無い処理中の写真を再投入する（分） | 再投入のタイマー | 3 |
+| `ORPHAN_BLOB_MIN_AGE_DAYS` | `1` | 文書の無い Blob を消す前に待つ日数 | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
+| `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | （必須） | 分類用のデプロイ名 | `PhotoClassifierService` | 3 |
+| `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | （必須） | 識別用のデプロイ名 | `PhotoIdentifierService` | 4 |
+| `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |
+
+AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変換の上限（`GEOCODING_DAILY_LIMIT`）は**置かない**。費用はデプロイの容量と予算アラートで抑える（§2、[06 §6](./06_processing_design.md#6-費用の抑え方)）。
+
+### 6.2 api のコードの定数
+
+| 名前（置き場） | 値 | 意味 | どこで使うか | 段階 |
+|---|---|---|---|---|
+| `PHOTO_VALIDATION.ID_REGEX`（`constants/validation.ts`） | `/^[0-9a-f]{64}$/` | 写真 id の形（小文字16進） | 写真 id を受けるすべて | 2 |
+| `PHOTO_VALIDATION.TAKEN_AT_REGEX` | `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/` + 実在する日時 | 撮影日時の形 | `POST /api/photos` | 2 |
+| `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | 旅行 id の形 | 旅行 id を受けるすべて | 2 |
+| `SORT_AT_UTC_OFFSET_MINUTES`（`constants/album.ts`） | `540`（日本時間） | 撮影日時が無い写真の `sortAt` を `uploadedAt` から作るときのずらし | `AlbumService.createPhoto()`（[04 §1.3](./04_data_design.md#13-写真type-photo)） | 2 |
+| SAS の `startsOn`（`utils/blobSas.ts`） | 発行の 5 分前 | 時計のずれの吸収 | SAS の生成 | 2 |
+| `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |
+| `OTHER_KIND`・`CATALOG_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表 | カテゴリと図鑑の種類 | 分類の選択肢・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
+| 掃き戻しの範囲（`AlbumService.deleteTrip()`） | 旅行の文書を消した直後に1回 | 旅行の削除と重なった写真を未所属へ | [04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し) | 2 |
+| `geocache` の丸め | 小数3桁（≒ 100 m） | 地名のキャッシュの鍵 | `GeocodingService` | 3・任意 |
+| `host.json` の `extensions.queues` | `batchSize: 1`・`newBatchThreshold: 0`・`maxDequeueCount: 3`・`visibilityTimeout: 00:01:00`・`maxPollingInterval: 00:00:10` | キューの直列化・再試行・待ち時間 | ワーカー（§4） | 3 |
+| タイマーの間隔（`app.timer` の cron） | 再投入 10 分ごと、掃除 1日1回（深夜） | | `requeueStalePhotos.ts`・`sweepAlbum.ts` | 3 |
+| ライフサイクルの日数（Terraform） | `1` | `temp-images` の Blob を消すまでの日数 | §1.2 | 2 |
+
+### 6.3 Flutter 側の定数
+
+| 名前（置き場） | 値 | 意味 | 根拠 |
+|---|---|---|---|
+| 送信の同時本数（`UploadQueue`） | `2` | `POST /api/photos` を同時に送る数 | [02 §4.7](./02_design_overview.md#47-送り方は1リクエスト1枚クライアントが同時2本まで要件-52) |
+| 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ | [03 §4.7](./03_screen_design.md#47-写真の追加と送信の進み具合) |
+| サムネイル（`photo_metadata`） | 長辺 320px・画質 70・JPEG | 一覧用の小さな画像 | [04 §4.2](./04_data_design.md#42-blob-名) |
+| 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。ハッシュの決定性で見直す） | 原寸の大きさ | [09 §6](./09_implementation_plan.md#6-最初に実機で確かめること) |
+| 地名の変換（`photo_metadata`） | タイムアウト 5 秒、キャッシュの鍵は小数3桁 | 端末の Geocoder | [06 §4.2](./06_processing_design.md#42-段階2端末) |
+| 写真一覧のページ（`ApiService.getPhotos`） | `limit` を送らない（サーバの既定 100） | 下までスクロールで次のページ | [03 §4.4](./03_screen_design.md#44-旅行詳細画面) |
+| 画像キャッシュ（`photo_cache_manager.dart`） | 件数の上限を既定の 200 から引き上げる（値は実装時に決める） | 数百枚の旅行で入れ替わり続けないように | [03 §3](./03_screen_design.md#3-全画面共通) |
+| 旅行の削除ダイアログの既定 | 「写真は残す」 | 誤操作で写真が消えないように | [03 §4.4](./03_screen_design.md#44-旅行詳細画面) |

@@ -34,21 +34,21 @@
 | ルート | メソッド | `data` の中身 | 備考 | 段階 | ファイル（`api/src/functions/`） |
 |---|---|---|---|---|---|
 | `/api/trips` | POST | `{ trip }` 201 | `{ name, description? }` | 2 | `trips.ts` |
-| `/api/trips` | GET | `{ trips, total }` | 各旅行に `photoCount`・`firstTakenAt`・`lastTakenAt`・`coverThumbnailUrl`。`createdAt` 降順 | 2 | `trips.ts` |
+| `/api/trips` | GET | `{ trips, total, unassignedPhotoCount }` | 各旅行に `photoCount`・`firstTakenAt`・`lastTakenAt`・`coverThumbnailUrl`。`createdAt` 降順。旅行に属さない写真の枚数も返す | 2 | `trips.ts` |
 | `/api/trips/{tripId}` | GET | `{ trip }` | 集計付き | 2 | `tripDetail.ts` |
 | `/api/trips/{tripId}` | PUT | `{ trip }` | `{ name, description? }` | 2 | `tripDetail.ts` |
-| `/api/trips/{tripId}` | DELETE | `{ message, deletedPhotoCount }` | 中の写真と Blob も消す | 2 | `tripDetail.ts` |
+| `/api/trips/{tripId}` | DELETE | `{ message, deletedPhotoCount, detachedPhotoCount }` | `deletePhotos=true|false`（必須）。`true` なら中の写真と Blob も消す、`false` なら写真を未所属に移す | 2 | `tripDetail.ts` |
 | `/api/photos` | POST | `{ photo, urlExpiresAt }` 201（新規）/ 200（既存） | multipart。`tripId` は任意（送り方 ①②） | 2 | `photos.ts` |
-| `/api/photos` | GET | `{ photos, total, urlExpiresAt }` | `tripId=<uuid>` か `tripId=none`。段階3で `tag=`。撮影日時昇順、無しは末尾 | 2 | `photos.ts` |
+| `/api/photos` | GET | `{ photos, continuationToken, urlExpiresAt }` | `tripId=<uuid>` か `tripId=none`。段階3で `category=`。`sortAt` 昇順（撮影日時順、無い写真はアップロード日時）。`limit` と `continuationToken` でページ | 2 | `photos.ts` |
 | `/api/photos/move` | POST | `{ moved, notFound }` | `{ photoIds, tripId }`。送り方 ③ と「外す」。1回 200 件まで | 2 | `photoMove.ts` |
 | `/api/photos/{photoId}` | GET | `{ photo, urlExpiresAt }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags? }`。構造は2、画面は4 | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo }` 202 | `{ step, hint? }`。写真に `step`・`hint` を書いてキューに投入 | 3（`identify` は4） | `photoProcess.ts` |
-| `/api/tags` | GET | `{ tags }` | `DISTINCT` で導く | 3 | `tags.ts` |
+| `/api/tags` | GET | `{ tags }` | 利用者のタグの `DISTINCT` | 未定（タグを付ける画面と一緒） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表から | 4 | `catalogKinds.ts` |
-| `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須。識別済みの写真をサーバでまとめる。各項目に `photoCount`・`coverThumbnailUrl` | 4 | `catalogEntries.ts` |
-| `/api/catalog/entry` | GET | `{ entry, photos, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定。該当する写真が無ければ `entry: null` | 4 | `catalogEntry.ts` |
+| `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。`offset` / `limit` でページ。各項目に `photoCount`・`coverThumbnailUrl` | 4 | `catalogEntries.ts` |
+| `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング | 4 | `catalogEntry.ts` |
 
 図鑑の項目は文書として持たず、写真の `identification` からまとめる（[04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)）。
 そのため項目の id は無く、項目は `kind` と `name` で指定する。項目を削除する API は置かない。項目は写真の集まりに過ぎず、
@@ -89,7 +89,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 |---|---|---|
 | `photoCount` | integer | 写真の枚数 |
 | `firstTakenAt` / `lastTakenAt` | string \| null | 撮影日時のある写真の最初と最後（タイムゾーン無し）。無ければ `null` |
-| `coverThumbnailUrl` | string \| null | 撮影日時順で先頭の写真のサムネイル（無ければ原寸）の SAS 付き URL。写真が無ければ `null` |
+| `coverThumbnailUrl` | string \| null | `sortAt` 順（撮影日時順）で先頭の写真のサムネイル（無ければ原寸）の SAS 付き URL。写真が無ければ `null`。旅行ごとに `TOP 1` で1枚だけ読む |
 
 ### 3.3 Photo
 
@@ -103,7 +103,9 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
   "fileSize": 1234567,
   "takenAt": "2026-10-05T12:30:15",
   "takenAtSource": "exif",
+  "sortAt": "2026-10-05T12:30:15",
   "location": { "latitude": 43.7706, "longitude": 142.365, "placeName": "北海道旭川市", "placeSource": "device" },
+  "category": null,
   "tags": [],
   "comment": null,
   "commentSource": null,
@@ -117,7 +119,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 ```
 
 ドキュメントとの違い: `blobName` / `thumbnailBlobName` の代わりに `imageUrl` / `thumbnailUrl`（SAS 付き。§6）。`thumbnailUrl` はサムネイルが無ければ `null`。
-`takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。
+`takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
+`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
@@ -148,9 +151,12 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 `api/src/constants/validation.ts` に既存と同じ形（`positiveIntFromEnv()`、`ERROR_MESSAGES` に上限値を埋め込む）で追加する。
 **正の整数として読めない値は既定値にフォールバックする**（既存の方針）。
+環境変数・コードの定数・クライアントの定数を1か所にまとめた一覧は [07 §6](./07_infrastructure_design.md#6-設定値の一覧)。ここには入力検証に使うものだけを挙げる。
 
 | 定数 | 環境変数 | 既定値 | 使う所 |
 |---|---|---|---|
+| `PHOTO_VALIDATION.PAGE_SIZE` / `MAX_PAGE_SIZE` | `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | 100 / 200 | `GET /api/photos`・`GET /api/catalog/entry` の `limit` |
+| `CATALOG_VALIDATION.PAGE_SIZE` / `MAX_PAGE_SIZE` | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | 50 / 100 | `GET /api/catalog/entries` の `limit` |
 | `TRIP_VALIDATION.MAX_LENGTH.NAME` | `TRIP_NAME_MAX_LENGTH` | 100 | `POST` / `PUT /api/trips` |
 | `TRIP_VALIDATION.MAX_LENGTH.DESCRIPTION` | `TRIP_DESCRIPTION_MAX_LENGTH` | 1000 | 同上 |
 | `PHOTO_VALIDATION.ID_REGEX` | — | `/^[0-9a-f]{64}$/`（小文字のみ） | 写真 id を受けるすべて |
@@ -186,6 +192,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `placeName` | テキスト | × | 地名。緯度・経度と一緒に送る。1〜100 文字 |
 
 `takenAtSource` は受け取らない。サーバが `takenAt` の有無から `exif` / `none` を入れる。
+`sortAt` もサーバが決める（`takenAt` があればそれ、無ければ `uploadedAt` を日本時間に直したもの。[04 §1.3](./04_data_design.md#13-写真type-photo)）。`category` は `null`、`tags` は `[]` で作る。
 
 **処理の順序:**
 
@@ -247,7 +254,9 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | クエリ | 必須 | 内容 | 段階 |
 |---|---|---|---|
 | `tripId` | 段階2では○ | 旅行の id（UUID）、または `none`（旅行に属さない写真） | 2 |
-| `tag` | × | タグ（`category:plant` など）。`tripId` と両方あれば AND | 3 |
+| `limit` | × | 1ページの枚数。既定 100、上限 200（`PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE`） | 2 |
+| `continuationToken` | × | 前の応答の `continuationToken` をそのまま返す。無ければ先頭から | 2 |
+| `category` | × | カテゴリ（`plant` / `food` / `landscape` / `other`）。`tripId` と両方あれば AND。`tripId` 無しなら旅行をまたぐ | 3 |
 
 `tripId=none` は「`tripId` が `null` の写真」と「存在しない旅行を指す写真」の両方を返す
 （後者は旅行の削除と送信・移動が重なったときに残る。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)・[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）。
@@ -255,17 +264,25 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
-| 1 | `tripId`・`tag` のどちらも無い | 400 `INVALID_REQUEST` | `絞り込み条件を指定してください` |
+| 1 | `tripId`・`category` のどちらも無い | 400 `INVALID_REQUEST` | `絞り込み条件を指定してください` |
 | 2 | `tripId` が `none` でも UUID でもない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
-| 3 | `tripId` の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
+| 3 | `category` があり、定義表のキーでも `other` でもない | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
+| 4 | `limit` があり、1〜200 の整数でない | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |
+| 5 | `continuationToken` があり、空 | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
+| 6 | `tripId` の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
+| 7 | `continuationToken` を Cosmos が受け付けない（別の絞り込みのトークン、壊れた文字列。SDK が 400 を返す。推測） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 
-並びは撮影日時の昇順、撮影日時が無い写真は末尾（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。ページングは無い。
+並びは `sortAt` の昇順（撮影日時順。撮影日時が無い写真はアップロード日時を日本時間に直した位置。[04 §1.3](./04_data_design.md#13-写真type-photo)・[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
+**`total` は返さない**（数えるには別のクエリが要り、ページごとに数えるのは無駄。旅行の枚数は `GET /api/trips` / `GET /api/trips/{tripId}` の `photoCount`、未所属の枚数は `GET /api/trips` の `unassignedPhotoCount` で取る）。
 
 ```json
-{ "success": true, "data": { "photos": [ { "...": "Photo" } ], "total": 12, "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
+{ "success": true, "data": { "photos": [ { "...": "Photo" } ], "continuationToken": "<Cosmos の継続トークン。最後のページは null>", "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
 ```
 
-500 の `message`: `写真一覧の取得に失敗しました`。
+- `continuationToken` は Cosmos が作る不透明な文字列で、クライアントは中身を見ず、次の要求の同じ名前のクエリに URL エンコードして載せる。`null` なら最後のページ
+- トークンは同じ絞り込み（`tripId`・`category`）にだけ有効。絞り込みを変えるときは先頭から取り直す
+- 各ページの `urlExpiresAt` は、そのページの URL の期限（ページごとに SAS を発行する）
+- 500 の `message`: `写真一覧の取得に失敗しました`
 
 ### 5.3 `GET /api/photos/{photoId}`
 
@@ -334,12 +351,13 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | 6 | `comment` が 500 文字を超える | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
 | 8 | `tags` の要素に文字列でないものがある | 400 `INVALID_REQUEST` | `タグは文字列で指定してください` |
-| 9 | `tags` の要素に `category:` で始まるものがある | 400 `INVALID_REQUEST` | `category:で始まるタグは指定できません` |
-| 10 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるか `:` を含むものがある | 400 `INVALID_REQUEST` | `タグは1〜30文字で、「:」を含めずに指定してください` |
-| 11 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
+| 9 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるものがある | 400 `INVALID_REQUEST` | `タグは1〜30文字で指定してください` |
+| 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
 - `comment`: 文字列なら保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。前後の空白は除く（除いて空なら `null` と同じ）
-- `tags`: 利用者のタグを指定したものに**置き換える**。サーバは既存の `category:` のタグを残して結合する。重複は除く
+- `tags`: 利用者のタグを指定したものに**置き換える**。重複は除く。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
+- 書き込みは `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
+  **解析中（`processing.state` が `pending` / `classifying` / `identifying`）でも受け付ける**（ロックは無い）
 - 応答は `{ photo, urlExpiresAt }`。500 の `message`: `写真の更新に失敗しました`
 
 ### 5.7 `POST /api/photos/{photoId}/process`（段階3）
@@ -357,13 +375,15 @@ AI の解析をやり直す（要件 5.5.1）。
 | 5 | `hint` が文字列でない | 400 `INVALID_REQUEST` | `補足情報は文字列で指定してください`（既存） |
 | 6 | `hint` が 500 文字を超える | 400 `INVALID_REQUEST` | `補足情報は500文字以内で指定してください`（既存） |
 | 7 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
-| 8 | `step: "identify"` だが写真のカテゴリが識別対象でない（`category:other` か未分類） | 400 `INVALID_REQUEST` | `この写真は識別の対象ではありません` |
+| 8 | `step: "identify"` だが写真のカテゴリが識別対象でない（`category` が `other` か `null`） | 400 `INVALID_REQUEST` | `この写真は識別の対象ではありません` |
 
 処理の順:
 
-1. 写真に patch: `processing = { state: "pending", step, attempts: 0, lastError: null, updatedAt: now }`、`hint`（無ければ `null`）、
+1. 写真に patch: `processing = { state: "pending", step, attempts: 0, lastError: null, updatedAt: now }`（**`attempts` を 0 に戻す。** `failed` の写真をもう一度試せるのはこの操作だけ。[06 §1.3](./06_processing_design.md#13-状態と失敗)）、`hint`（無ければ `null`）、
    **`comment: null`・`commentSource: null`**（やり直しの結果で置き換えるため、受付の時点で消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9。
-   利用者が書いたコメントは、アプリが `hint` に事前入力してから頼む設計なので失われない）
+   利用者が書いたコメントは、アプリが `hint` に事前入力してから頼む設計なので失われない）。
+   解析中（`pending` / `classifying` / `identifying`）の写真にも受け付ける（最新の依頼で上書きされ、走っている処理の結果は `state` の条件付き patch で捨てられるか、次の処理で上書きされる）。
+   やり直しの回数に上限は置かない（費用は AI のデプロイの容量で抑える。[06 §6](./06_processing_design.md#6-費用の抑え方)）
 2. キューに `{ photoId }` を投入する（`step`・`hint` はワーカーが写真から読む）
 3. **202** `{ photo }`
 
@@ -390,7 +410,10 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.9 `GET /api/trips`
 
-`{ trips: TripSummary[], total }`。`createdAt` 降順。集計は [04 §5.1](./04_data_design.md#51-旅行一覧)。
+`{ trips: TripSummary[], total, unassignedPhotoCount }`。`createdAt` 降順。`total` は旅行の数。
+集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
+`unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のものと、存在しない旅行を指すものの合計。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
+同じ `GROUP BY` の結果から出す。旅行一覧の画面はこれで先頭の行の枚数を出し、別のリクエストを送らない。ページングは無い（旅行は数十件）。
 500 の `message`: `旅行一覧の取得に失敗しました`。
 
 ### 5.10 `GET /api/trips/{tripId}`
@@ -407,32 +430,56 @@ AI の解析をやり直す（要件 5.5.1）。
 `name`（必須）と `description`（任意）の全体置き換え。検証は `tripId` の形式（5.10 の 1）→ 5.8 の 1〜7 の順。無ければ 404 `TRIP_NOT_FOUND`。
 `tags` は変えない。`{ trip }`（集計無し）。500 の `message`: `旅行の更新に失敗しました`。
 
-### 5.12 `DELETE /api/trips/{tripId}`
+### 5.12 `DELETE /api/trips/{tripId}?deletePhotos=true|false`
 
-検証は 5.10 と同じ。中の写真を1枚ずつ消し（ドキュメント → Blob。Blob の失敗はログだけ）、最後に旅行を消す。
-写真のドキュメントの削除に失敗したら中断して 500（消せた分は消えている。再送で続きができる）。
-旅行を消した後、まだその旅行を指す写真（削除の途中に届いた送信・move）が残っていれば `tripId: null` に戻す（失敗はログだけで 200。[04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）。
+中の写真をどうするかを利用者が選ぶ（2026-10-12 に人間が決定。画面のダイアログは [03 §4.4](./03_screen_design.md#44-旅行詳細画面)）。
+
+| クエリ | 必須 | 内容 |
+|---|---|---|
+| `deletePhotos` | ○ | `true`: 中の写真（ドキュメントと Blob）も消す。`false`: 写真は消さず、旅行に属さない写真（`tripId: null`）に移す |
+
+必須にするのは、省略時の既定で写真が消える（または残る）事故を防ぐため。クライアントは必ず利用者の選択を載せる。
+
+| 順 | 条件 | ステータス・コード | `message` |
+|----|------|-------------------|-----------|
+| 1 | `tripId` が UUID 形式でない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
+| 2 | `deletePhotos` が無い | 400 `INVALID_REQUEST` | `写真を削除するかどうかを指定してください` |
+| 3 | `deletePhotos` が `true` / `false` でない | 400 `INVALID_REQUEST` | `写真を削除するかどうかの指定が無効です` |
+| 4 | 無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
+
+処理の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）:
+
+1. 中の写真の射影をページで読み（[04 §5](./04_data_design.md#5-クエリ) の 5.10）、1枚ずつ、`true` ならドキュメント → Blob の順に消す（Blob の失敗はログだけ）、`false` なら `tripId` を `null` に patch する（move の「外す」と同じ）
+2. 写真のドキュメントの削除・patch に失敗したら中断して 500（済んだ分はそのまま。再送で続きができる）
+3. 旅行を消す
+4. まだその旅行を指す写真（削除の途中に届いた送信・move）が残っていれば `tripId: null` に戻す（失敗はログだけで 200。[04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）。
+   **`deletePhotos=true` でもここで消さない**（利用者が確認のときに見た枚数に入っていない写真は消さず、未所属にする）
 
 ```json
-{ "success": true, "data": { "message": "旅行が正常に削除されました", "deletedPhotoCount": 12 } }
+{ "success": true, "data": { "message": "旅行が正常に削除されました", "deletedPhotoCount": 12, "detachedPhotoCount": 0 } }
 ```
 
+`deletedPhotoCount` は消した写真の数（`false` なら 0）、`detachedPhotoCount` は未所属に移した数（`false` の写真と、4 で掃き戻した写真の合計）。
 500 の `message`: `旅行の削除に失敗しました`。
 
-### 5.13 `GET /api/tags`（段階3）
+### 5.13 `GET /api/tags`（段階は未定）
 
-`{ tags: string[] }`。写真の `tags` の `DISTINCT`（`category:` を含む）。文字列順。500 の `message`: `タグ一覧の取得に失敗しました`。
+`{ tags: string[] }`。写真の `tags`（利用者のタグ）の `DISTINCT`。文字列順。タグを付ける画面を入れる段階で一緒に入れる（カテゴリは `GET /api/catalog/kinds` + `other` で分かるので、ここには含めない）。
+500 の `message`: `タグ一覧の取得に失敗しました`。
 
 ### 5.14 図鑑（段階4）
 
 項目は文書ではなく、識別済みの写真を `identification.kind` と `identification.name` でまとめたもの（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
-一覧も詳細も、呼ばれるたびに写真を読んでまとめる（読む量は写真の枚数に比例する。規模の見積もりは [04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「規模の注意」）。
+一覧も詳細も、呼ばれるたびに写真からまとめるが、**写真を全部読まない**（枚数は `GROUP BY`、見出しは項目ごとに `TOP 1`、写真はページ。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）。
 
 | エンドポイント | 内容 | エラー |
 |---|---|---|
 | `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。定義表から。DB に触らない | 500 `図鑑の種類の取得に失敗しました` |
-| `GET /api/catalog/entries?kind=` | `{ entries: CatalogEntry[], total }`（§3.3.1）。`kind` 必須、定義表に無ければ 400 `図鑑の種類が無効です`。`name` の文字列順。0 件なら `[]`・`0` | 500 `図鑑の一覧の取得に失敗しました` |
-| `GET /api/catalog/entry?kind=&name=` | `{ entry: CatalogEntry \| null, photos, urlExpiresAt }`。`photos` はその名前の写真（撮影日時順、無しは末尾）。該当する写真が無ければ **200** で `entry: null`・`photos: []` | 500 `図鑑の項目の取得に失敗しました` |
+| `GET /api/catalog/entries?kind=&offset=&limit=` | `{ entries: CatalogEntry[], total }`（§3.3.1）。`kind` 必須、定義表に無ければ 400 `図鑑の種類が無効です`。`name` の文字列順に並べ、`offset`（既定 0）から `limit`（既定 50、上限 100。`CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE`）件。`total` は項目の総数（ページに依らない）。0 件なら `[]`・`0`。`offset` / `limit` が 0 以上・1〜100 の整数でなければ 400 `ページの指定が無効です` | 500 `図鑑の一覧の取得に失敗しました` |
+| `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null` | 500 `図鑑の項目の取得に失敗しました` |
+
+項目一覧のページを `offset` / `limit` にするのは、`GROUP BY` の結果（項目の行）をサーバで名前順に並べてから切るためで、Cosmos の継続トークンが使えない。
+項目の行は小さいので、ページごとに `GROUP BY` をやり直しても読む量は写真の枚数に依らない（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「規模の注意」）。
 
 `GET /api/catalog/entry` の検証（順に。最初に失敗した1件だけ返す）:
 
@@ -507,12 +554,12 @@ AI の解析をやり直す（要件 5.5.1）。
 | メソッド | エンドポイント | 封筒の `data` から読む |
 |---|---|---|
 | `createTrip(name, description)` | `POST /api/trips` | `data['trip']` |
-| `getTrips()` | `GET /api/trips` | `data['trips']`・`data['total']` |
+| `getTrips()` | `GET /api/trips` | `data['trips']`・`data['total']`・`data['unassignedPhotoCount']` |
 | `getTrip(tripId)` | `GET /api/trips/{tripId}` | `data['trip']` |
 | `updateTrip(tripId, name, description)` | `PUT /api/trips/{tripId}` | `data['trip']` |
-| `deleteTrip(tripId)` | `DELETE /api/trips/{tripId}` | `data['deletedPhotoCount']` |
+| `deleteTrip(tripId, {required bool deletePhotos})` | `DELETE /api/trips/{tripId}?deletePhotos=` | `data['deletedPhotoCount']`・`data['detachedPhotoCount']` |
 | `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`・`data['urlExpiresAt']`。201 / 200 を呼び出し側に返す |
-| `getPhotos({tripId, tag})` | `GET /api/photos` | `data['photos']`・`data['total']`・`data['urlExpiresAt']` |
+| `getPhotos({tripId, category, limit, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）・`data['urlExpiresAt']`。`continuationToken` は `Uri.encodeQueryComponent()` で載せる |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
@@ -520,5 +567,5 @@ AI の解析をやり直す（要件 5.5.1）。
 
 `_parseResponse()` はボディ全体をコールバックに渡すので、各メソッドが `json['data']` を剥がす（CLAUDE.md「クライアント実装で踏みやすい罠」）。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）を足す。
-段階4で足すもの: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind)`（`data['entries']`・`data['total']`）、
-`getCatalogEntry(kind, name)`（`data['entry']`（null 可）・`data['photos']`・`data['urlExpiresAt']`。`name` は `Uri.encodeQueryComponent()`）。
+段階4で足すもの: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`）、
+`getCatalogEntry(kind, name, {limit, continuationToken})`（`data['entry']`（null 可）・`data['photos']`・`data['continuationToken']`・`data['urlExpiresAt']`。`name` は `Uri.encodeQueryComponent()`）。
