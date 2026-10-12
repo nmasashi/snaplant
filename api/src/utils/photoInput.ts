@@ -241,7 +241,8 @@ export function readPhotoListQuery(
   }
 
   const limitParam = query.get('limit');
-  let limit: number = PHOTO_VALIDATION.PAGE_SIZE;
+  // 既定の枚数も上限を超えない（環境変数の設定の誤りで上限が破られないように）
+  let limit: number = Math.min(PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
   if (limitParam !== null) {
     limit = /^[1-9][0-9]*$/.test(limitParam) ? Number(limitParam) : NaN;
     if (!(limit <= PHOTO_VALIDATION.MAX_PAGE_SIZE)) {

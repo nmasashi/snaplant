@@ -110,18 +110,23 @@ export async function listPhotosHandler(request: HttpRequest, context: Invocatio
     if (tripId !== null && !(await album.tripExists(tripId))) {
       return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
     }
-    const page = await album.listPhotos(tripId, limit, continuationToken);
+    let page;
+    try {
+      page = await album.listPhotos(tripId, limit, continuationToken);
+    } catch (error: any) {
+      // JSON としては読めるが Cosmos が受け付けない継続トークン（別の絞り込みのものなど）は、サーバが 400 で拒む
+      // （推測。実環境で確かめる）。一覧のクエリでトークンを渡したときの 400 だけをトークンの不正とみなす
+      if (continuationToken !== undefined && error.code === 400) {
+        return createValidationError('継続トークンの形式が無効です');
+      }
+      throw error;
+    }
     return createSuccessResponse({
       ...photoListResponseData(page.photos, new PhotoStorageService()),
       continuationToken: page.continuationToken,
     });
   } catch (error: any) {
     context.log('写真一覧取得エラー:', error);
-    // Cosmos は受け付けない継続トークン（壊れた文字列、別の絞り込みのもの）に 400 を返す。
-    // トークンを渡したときの 400 だけをトークンの不正とみなす（トークン無しの 400 は 500 にする）
-    if (continuationToken !== undefined && error.code === 400) {
-      return createValidationError('継続トークンの形式が無効です');
-    }
     return createDatabaseErrorResponse(error, '写真一覧の取得に失敗しました');
   }
 }

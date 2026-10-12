@@ -1,7 +1,7 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
 import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
-import { queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
+import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
@@ -54,11 +54,11 @@ export class AlbumService {
     if (!resource) {
       return null;
     }
-    const [counts, ranges, coverUrls] = await Promise.all([
+    const [counts, ranges] = await Promise.all([
       queryPhotoCounts(this.container, id),
       queryTakenAtRanges(this.container, id),
-      this.coverUrls([id], coverUrlOf),
     ]);
+    const coverUrls = await this.coverUrls(tripsWithPhotos([id], counts), coverUrlOf);
     return buildTripSummaries([toTrip(resource)], counts, ranges, coverUrls).trips[0];
   }
 
@@ -79,7 +79,7 @@ export class AlbumService {
       queryPhotoCounts(this.container),
       queryTakenAtRanges(this.container),
     ]);
-    const coverUrls = await this.coverUrls(tripDocs.map((trip) => trip.id), coverUrlOf);
+    const coverUrls = await this.coverUrls(tripsWithPhotos(tripDocs.map((trip) => trip.id), counts), coverUrlOf);
     return buildTripSummaries(tripDocs.map(toTrip), counts, ranges, coverUrls);
   }
 
@@ -267,4 +267,16 @@ function toTrip(doc: TripDocument): Trip {
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
+}
+
+/**
+ * 写真のある旅行だけに絞る（枚数の GROUP BY に行がある旅行）
+ *
+ * 表紙のクエリは旅行ごとに1本投げるので、写真の無い旅行の分を省く
+ * @param tripIds 旅行 ID
+ * @param counts 旅行ごとの写真の枚数の行
+ */
+function tripsWithPhotos(tripIds: string[], counts: PhotoCountRow[]): string[] {
+  const withPhotos = new Set(counts.map((row) => row.tripId));
+  return tripIds.filter((id) => withPhotos.has(id));
 }
