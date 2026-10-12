@@ -221,13 +221,10 @@ Function App に設定される主要な環境変数：
 | `COSMOS_DB_ENDPOINT` | Cosmos DB エンドポイント |
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
 | `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
-| `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名（植物図鑑の `plants`） |
+| `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名 |
 | `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`BlobEndpoint=` を含む形式は未対応） |
 | `STORAGE_CONTAINER_NAME` | 永続画像用 Blob コンテナ名 |
 | `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
-| `COSMOS_DB_ALBUM_CONTAINER` | 旅行アルバムの Cosmos DB コンテナ名（`album`） |
-| `PHOTO_STORAGE_CONTAINER_NAME` | 旅行アルバムの写真用 Blob コンテナ名（`photos`。非公開） |
-| `PHOTO_SAS_EXPIRY_MINUTES` | 写真の読み取り用 SAS の有効期限（分。Terraform は `60`） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（モデル名として使用） |

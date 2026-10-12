@@ -4,7 +4,7 @@
 
 送信を待たせずに裏で行う処理（分類・識別・地名の埋め直し）の設計を書く。段階3・4が中心で、
 段階2に関係するのは地名変換（§4 の端末側）だけ。**未実装を含む目指す姿**で、骨格の粒度。
-実装したときに `docs/07_api_workflow.md`（ワークフロー）・`docs/06_api_design.md` へ取り込む。
+実装した部分は `docs/07_api_workflow.md`（ワークフロー）・`docs/06_api_design.md` へ取り込む（開発中はこの一式を正として都度直し、取り込みは機能が固まってから後でまとめて行う。2026-10-12 に人間が決定）。
 
 データの項目は [04_data_design.md](./04_data_design.md)、やり直しの API は [05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)、
 インフラは [07_infrastructure_design.md](./07_infrastructure_design.md) を参照する。

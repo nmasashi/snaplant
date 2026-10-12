@@ -16,7 +16,7 @@ PR の粒度・レビュー・Issue の基準は CLAUDE.md（「PR と Issue の
 - **1作業単位 = 1 PR、差分は 2,000 行以内。** 溜めない。`main` へのマージは本番デプロイを起動する
 - **TDD（List → Red → Green → Refactor）。** List は [08 §3・§4](./08_test_plan.md#3-段階2のシナリオ一覧api) から作る。Red は `test-writer`、Green と Refactor はメインセッション
 - **レビューは作業単位ごとに 1 回**（テストリストが空になった時点）。`/code-review` は常に、`test-reviewer` はテストを書いた PR、`contract-auditor` は外から観測できる振る舞いを変えた PR、`/security-review` は入力・ストレージ・外部通信を触った PR
-- **仕様書への取り込み**: 実装した振る舞いは、同じ PR で `docs/06_api_openapi.yaml`・`docs/06_api_design.md`（API）、`docs/03_screen_design.md`（画面）、`docs/04_database_design.md`（データ）へ取り込む。設計書（この一式）側の該当節は「実装済み。`docs/0N` を参照」と書き換える
+- **設計書は都度直し、`docs/` 直下への取り込みは後でまとめて行う**（2026-10-12 に人間が決定）。開発中に設計と実装が食い違ったら、同じ PR でこの一式（`docs/travel-album/`）を直す。`docs/06_api_openapi.yaml`・`docs/06_api_design.md`・`docs/03_screen_design.md`・`docs/04_database_design.md`・`DEPLOYMENT.md` などへの取り込みは、機能が固まってから行う（開発中に何度も変わるため）。実装した節には「実装済み」の印を付ける
 - **デプロイの順序**: インフラ（apply）→ API（マージ）→ アプリ（実機）。[07 §5](./07_infrastructure_design.md#5-cicd-への影響)
 - **`mobile/` の PR はマージ前に `flutter analyze` / `flutter test`。** 新規の指摘が無いことを一覧で突き合わせる（件数ではなく）
 - **積まない（stacked PR を避ける）。** 前の PR がマージされてから次を切る。やむを得ず積むなら、マージ先が `main` に戻っているか確認する（`MEMORY.md` の教訓）
@@ -27,11 +27,11 @@ PR の粒度・レビュー・Issue の基準は CLAUDE.md（「PR と Issue の
 |---|---|---|---|---|---|
 | 1 | **infra**: Blob Storage の `photos` コンテナ（画像ファイル）、`temp-images` のライフサイクル、Cosmos DB の `album` コンテナ（旅行・写真の情報。PK `/id`）、`app_settings`、`outputs`（[07 §1](./07_infrastructure_design.md#1-段階2)） | ~150 | — | `terraform fmt`・`validate` が緑。**人間がポータルで無料枠を確認してから apply**。ポータルで `photos` が非公開 | `/code-review medium`、`/security-review`（公開設定・ライフサイクルの接頭辞） |
 | 2 | **api の土台**: `ErrorCode` の追加、`createNotFoundError(code?)`、`isConnectivityError()`、`utils/blobSas.ts` の切り出し（`generateTempSasUrl()` を包みに）、`types/album.ts`、`constants/validation.ts` の追加（`TRIP_` / `PHOTO_` / `MOVE_` / `TAG_` / `CATALOG_VALIDATION`）、`constants/album.ts`（`SORT_AT_UTC_OFFSET_MINUTES`）、テスト用の差し替え部品の拡張（ページ・`condition` 付き patch。[08 §2.1](./08_test_plan.md#21-testsfakescosmosts)） | ~800 | — | 既存テスト全緑（**SAS の切り出し後も `storageService.test.ts` と `upload.test.ts` が通る**）。`blobSas`・`isConnectivityError`・差し替え部品の新しい振る舞いのテスト | `/code-review high`（既存の `upload` に触る）、`test-reviewer` |
-| 3 | **api: 旅行**: `albumQueries.ts`（集計の SQL。`GROUP BY`・`TOP 1`）、`AlbumService`（旅行の CRUD と、集計の行から `TripSummary`・`unassignedPhotoCount` を組み立てる）、`PhotoStorageService`（削除だけ）、`trips.ts`・`tripDetail.ts`、`app.ts` の import、仕様書 | ~1,000 | 2 | TDD のリストが空。仕様書（OpenAPI・06）と一致。デプロイ後に `GET /api/trips` と `GROUP BY` の集計（`null` の鍵・`MIN` / `MAX`）を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
-| 4a | **api: 写真**: `POST /api/photos`（ハッシュ照合・`sortAt`・既存 200・Blob→create）、`GET /api/photos`（`tripId` / `none`。`none` は `IS_NULL(c.tripId)` だけ。`ORDER BY c.sortAt` と継続トークンのページ、SAS。`total` の有無と継続トークンの受け渡し方は着手時に決める [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27）、`GET` / `DELETE /api/photos/{photoId}`、仕様書 | ~1,500 | 3 | 同上。デプロイ後に SAS で表示できること、応答に `_rid` が無いこと、300 枚をページでめくって重複・欠落が無いこと | `/code-review high`、`test-reviewer`、`contract-auditor`、`/security-review`（multipart・ハッシュ・SAS・継続トークンの受け渡し） |
-| 4b | **api: 出し入れと更新**: `POST /api/photos/move`、旅行削除の連鎖（3 の `DELETE` に `deletePhotos=true\|false` を足す。写真を消す／未所属に patch してから旅行を消す。消した後の見直しは無し [04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）、`PATCH /api/photos/{photoId}`（`comment`・`tags` の構造だけ）、仕様書 | ~800 | 4a | 同上。デプロイ後に `/api/photos/move` のルートと 300 枚の move、両方の削除を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
+| 3 | **api: 旅行**: `albumQueries.ts`（集計の SQL。`GROUP BY`・`TOP 1`）、`AlbumService`（旅行の CRUD と、集計の行から `TripSummary`・`unassignedPhotoCount` を組み立てる）、`PhotoStorageService`（削除だけ）、`trips.ts`・`tripDetail.ts`、`app.ts` の import、設計書（05）の食い違いの修正 | ~1,000 | 2 | TDD のリストが空。設計書（05）と一致。デプロイ後に `GET /api/trips` と `GROUP BY` の集計（`null` の鍵・`MIN` / `MAX`）を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
+| 4a | **api: 写真**: `POST /api/photos`（ハッシュ照合・`sortAt`・既存 200・Blob→create）、`GET /api/photos`（`tripId` / `none`。`none` は `IS_NULL(c.tripId)` だけ。`ORDER BY c.sortAt` と継続トークンのページ、SAS。`total` の有無と継続トークンの受け渡し方は着手時に決める [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27）、`GET` / `DELETE /api/photos/{photoId}`、設計書（05）の食い違いの修正 | ~1,500 | 3 | 同上。デプロイ後に SAS で表示できること、応答に `_rid` が無いこと、300 枚をページでめくって重複・欠落が無いこと | `/code-review high`、`test-reviewer`、`contract-auditor`、`/security-review`（multipart・ハッシュ・SAS・継続トークンの受け渡し） |
+| 4b | **api: 出し入れと更新**: `POST /api/photos/move`、旅行削除の連鎖（3 の `DELETE` に `deletePhotos=true\|false` を足す。写真を消す／未所属に patch してから旅行を消す。消した後の見直しは無し [04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）、`PATCH /api/photos/{photoId}`（`comment`・`tags` の構造だけ）、設計書（05）の食い違いの修正 | ~800 | 4a | 同上。デプロイ後に `/api/photos/move` のルートと 300 枚の move、両方の削除を手で確認 | `/code-review high`、`test-reviewer`、`contract-auditor` |
 | 5 | **mobile: 土台**: `AppRoot`（設定の読み込み・`ApiService`・`UploadQueue` の置き場）、`HomeShell`（2 タブ）、`PlantListScreen` が `ApiService` を受け取る形に、旅行タブは仮の画面 | ~800 | 2 以降いつでも | **図鑑の既存の動きが変わらない**（既存の画面テストが通る。実機で起動・一覧・設定を確認）。`flutter analyze` に新規の指摘なし | `/code-review high`（既存の画面に触る）、`test-reviewer` |
-| 6 | **mobile: 旅行と写真の表示**: `Trip` / `Photo` モデル、`ApiService` の旅行・写真の取得メソッド（ページ）、旅行一覧・作成・編集・削除（写真をどうするかのダイアログ）、旅行詳細・未所属（`PhotoGrid` 表示と下端での続きの読み込み）、`cacheKey` と `CacheManager`、画面設計の取り込み | ~1,600 | 3・4a・4b（API がデプロイ済み） | 実機で旅行の作成・一覧・両方の削除、写真の表示とページ（API 側で手で入れた写真） | `/code-review high`、`test-reviewer`、`contract-auditor`（画面設計） |
+| 6 | **mobile: 旅行と写真の表示**: `Trip` / `Photo` モデル、`ApiService` の旅行・写真の取得メソッド（ページ）、旅行一覧・作成・編集・削除（写真をどうするかのダイアログ）、旅行詳細・未所属（`PhotoGrid` 表示と下端での続きの読み込み）、`cacheKey` と `CacheManager`、画面設計（03）の食い違いの修正 | ~1,600 | 3・4a・4b（API がデプロイ済み） | 実機で旅行の作成・一覧・両方の削除、写真の表示とページ（API 側で手で入れた写真） | `/code-review high`、`test-reviewer`、`contract-auditor`（画面設計） |
 | 7 | **mobile: 送信**: `pickMultiImage`、`photo_metadata`（EXIF・SHA-256・サムネイル）、Geocoder、`UploadQueue`、進み具合バナー、写真ビューア、`ApiService.uploadPhoto` / `deletePhoto` | ~1,800 | 4a・6 | **最初にハッシュの決定性を実機で確認。** 300 枚の送信が完走し、実測を `docs/09_backlog.md` に記録 | `/code-review high`、`test-reviewer`、`/security-review`（ファイル・位置情報の扱い） |
 | 8 | **mobile: 複数選択**: 選択モード、旅行に入れる（旅行を選ぶダイアログ）、旅行から外す、まとめて削除、`ApiService.movePhotos` | ~800 | 4b・7 | 実機で 100 枚の出し入れ | `/code-review high`、`test-reviewer` |
 
@@ -43,7 +43,7 @@ PR 7 が 1,800 行で上限に近い。超えそうなら「写真ビューア�
 ### 各 PR の共通の完了条件
 
 - `npm test`（api）/ `flutter test`（mobile）が緑、`npx tsc -p tsconfig.test.json --noEmit` が通る
-- テストが固定している外から観測できる振る舞いが仕様書に書かれている（`contract-auditor` で突き合わせ）
+- テストが固定している外から観測できる振る舞いが、この設計書一式に書かれている（食い違えば設計書を直す）
 - PR 本文に `Closes #N`（閉じる Issue が無いなら理由を考える）
 - 設計書（この一式）の該当節に「実装済み」の印
 
@@ -106,6 +106,5 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 
 - 要件定義書 §5.1・§5.1.1・§5.2・§5.3（段階2の印のもの）がすべて実機で動く
 - [08 §5.1・§5.2](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目) の手での確認が済み、実測が `docs/09_backlog.md` に残っている
-- 仕様書（`docs/03`・`04`・`06`・`06_api_openapi.yaml`・`07`・`README`）が実装の写しになっている
 - CLAUDE.md の「実際のルート」の表と「Cosmos のクエリを変更したら手で確認する」の表が更新されている
 - Issue #22 の段階2のチェックが埋まっている
