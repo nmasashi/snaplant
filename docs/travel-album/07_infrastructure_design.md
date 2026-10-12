@@ -106,26 +106,27 @@ resource "azurerm_storage_management_policy" "main" {
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
 | `azurerm_storage_queue.photo_processing` | `photo-processing` | 既存のストレージアカウント | poison キュー（`photo-processing-poison`）は Functions が自動で作る |
-| `azurerm_cognitive_deployment.classifier` | `var.openai_classify_deployment_name` | `model { name = var.openai_classify_model_name, version = var.openai_classify_model_version }`、`sku { name = "GlobalStandard", capacity = var.openai_classify_capacity }` | モデルは人間が価格表を見て決める。既存の `gpt5_luna` と同じ `cognitive_account`。**`capacity` が費用の天井**（下記） |
 | `azurerm_maps_account.main`（任意） | `maps-${var.project_name}-${suffix}` | `sku_name = "G2"` | 端末の Geocoder で足りれば作らない。iOS に対応するときに改めて検討（[06 §4](./06_processing_design.md#4-地名への変換)） |
 | `azurerm_consumption_budget_resource_group.main` | — | 月額の上限と通知先メール（`var.monthly_budget_amount`・`var.budget_alert_email`） | AI の費用の安全弁。アプリに回数のカウンタを置かない代わりに入れる（[06 §6](./06_processing_design.md#6-費用の抑え方)）。金額は人間が決める |
 
-`variables.tf` に `openai_classify_deployment_name`（既定 `"classifier"`）・`openai_classify_model_name`・`openai_classify_model_version`・`openai_classify_capacity`（既定 `10`）・
-`monthly_budget_amount`・`budget_alert_email` を足す。
+`variables.tf` に `monthly_budget_amount`・`budget_alert_email` を足す。
+
+**分類用のデプロイは当面足さない**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。
+分類にも識別にも、今の GPT-5 系のデプロイ `azurerm_cognitive_deployment.gpt5_luna`（`gpt-5.6-luna`。`infrastructure/main.tf` 226行）をそのまま使う。
+API 側はデプロイ名を環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` から読み、未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う（[06 §2.1](./06_processing_design.md#21-モデルとサービス)）。
+安いモデル（GPT-5 系の nano / mini）に変えるときに、`azurerm_cognitive_deployment` を1つ足して `app_settings` に `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を書くだけでよい。
 
 **デプロイの容量で費用を抑える**（2026-10-12 に人間が決定。アプリの中に1日の呼び出し回数のカウンタは置かない）。
 `capacity` は 1 単位 = 1,000 トークン/分（TPM）で、`capacity × 1,000 × 1,440 分 × 単価` が1日の費用の上限になる。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる。
 
-- 分類（`classifier`）: 既定 `10`（1 万 TPM）。1 枚 1,000 トークン（要実測）なら 1 分に 10 枚、1 旅行 300 枚で 30 分。段階3の最初の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）で見直す
-- 識別（既存の `gpt5_luna`。`infrastructure/main.tf` 226行の `capacity = 150`）: 段階4で識別に使い始めるとき、分類と同じ考え方で下げる（`var.openai_identify_capacity` に出して、既定を 150 より小さくする）。
-  植物図鑑の `upload` / `identify` も同じデプロイを使っているので、段階4より前に下げるなら既存の使い方に影響しないことを確かめる
-- 容量を下げても止まらず遅くなるだけなので、迷ったら小さくする
+- 容量の値は今のデプロイのまま（`capacity = 150`）でよい（#17）。段階3の最初の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）で費用が気になれば下げる
+- 植物図鑑の `upload` / `identify` も同じデプロイを使っているので、段階4より前に下げるなら既存の使い方に影響しないことを確かめる
+- 容量を下げても止まらず遅くなるだけ
 
 | `app_settings` | 値 |
 |---|---|
 | `PHOTO_QUEUE_NAME` | `azurerm_storage_queue.photo_processing.name` |
-| `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `azurerm_cognitive_deployment.classifier.name` |
-| `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `azurerm_cognitive_deployment.gpt5_luna.name`（段階4で使う。段階3で先に入れてよい） |
+| `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | 当面は書かない（未設定なら API が `AZURE_OPENAI_DEPLOYMENT_NAME` を使う）。分類用のデプロイを足したときに、その名前を書く |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | `"3"` |
 | `AZURE_MAPS_KEY` | Azure Maps を入れる場合だけ |
 
@@ -252,8 +253,8 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。超えたら `failed` | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)） | 3 |
 | `PHOTO_PROCESSING_STALE_MINUTES` | `10` | これより長く更新の無い処理中の写真を再投入する（分） | 再投入のタイマー | 3 |
 | `ORPHAN_BLOB_MIN_AGE_DAYS` | `1` | 文書の無い Blob を消す前に待つ日数 | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
-| `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | （必須） | 分類用のデプロイ名 | `PhotoClassifierService` | 3 |
-| `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | （必須） | 識別用のデプロイ名 | `PhotoIdentifierService` | 4 |
+| `AZURE_OPENAI_DEPLOYMENT_NAME`（既存） | （必須。Terraform が `gpt5_luna` の名前を入れる） | 今のデプロイ名。植物図鑑の識別に加え、旅行アルバムの分類（段階3）と識別（段階4）にも当面はこれを使う | `OpenAIVisionService`・`PhotoClassifierService`・`PhotoIdentifierService` | 3・4 |
+| `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 分類用のデプロイ名。安いモデルのデプロイを足したときに設定する（#17） | `PhotoClassifierService` | 3 |
 | `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |
 
 AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変換の上限（`GEOCODING_DAILY_LIMIT`）は**置かない**。費用はデプロイの容量と予算アラートで抑える（§2、[06 §6](./06_processing_design.md#6-費用の抑え方)）。
@@ -269,7 +270,6 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | SAS の `startsOn`（`utils/blobSas.ts`） | 発行の 5 分前 | 時計のずれの吸収 | SAS の生成 | 2 |
 | `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |
 | `OTHER_KIND`・`CATALOG_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表 | カテゴリと図鑑の種類 | 分類の選択肢・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
-| 掃き戻しの範囲（`AlbumService.deleteTrip()`） | 旅行の文書を消した直後に1回 | 旅行の削除と重なった写真を未所属へ | [04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し) | 2 |
 | `geocache` の丸め | 小数3桁（≒ 100 m） | 地名のキャッシュの鍵 | `GeocodingService` | 3・任意 |
 | `host.json` の `extensions.queues` | `batchSize: 1`・`newBatchThreshold: 0`・`maxDequeueCount: 3`・`visibilityTimeout: 00:01:00`・`maxPollingInterval: 00:00:10` | キューの直列化・再試行・待ち時間 | ワーカー（§4） | 3 |
 | タイマーの間隔（`app.timer` の cron） | 再投入 10 分ごと、掃除 1日1回（深夜） | | `requeueStalePhotos.ts`・`sweepAlbum.ts` | 3 |

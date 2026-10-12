@@ -258,9 +258,9 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `continuationToken` | × | 前の応答の `continuationToken` をそのまま返す。無ければ先頭から | 2 |
 | `category` | × | カテゴリ（`plant` / `food` / `landscape` / `other`）。`tripId` と両方あれば AND。`tripId` 無しなら旅行をまたぐ | 3 |
 
-`tripId=none` は「`tripId` が `null` の写真」と「存在しない旅行を指す写真」の両方を返す
-（後者は旅行の削除と送信・移動が重なったときに残る。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)・[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）。
-利用者からはどちらも「旅行に属さない写真」に見え、区別しない。図鑑の項目の写真は `GET /api/catalog/entry`（§5.14）で取る。
+`tripId=none` は「`tripId` が `null` の写真」を返す（`IS_NULL(c.tripId)`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
+旅行の削除と送信・移動が重なって残った「存在しない旅行を指す写真」は含めない（段階3の掃除のタイマーが `null` に戻してから出る。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）。
+図鑑の項目の写真は `GET /api/catalog/entry`（§5.14）で取る。
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
@@ -274,6 +274,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 並びは `sortAt` の昇順（撮影日時順。撮影日時が無い写真はアップロード日時を日本時間に直した位置。[04 §1.3](./04_data_design.md#13-写真type-photo)・[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 **`total` は返さない**（数えるには別のクエリが要り、ページごとに数えるのは無駄。旅行の枚数は `GET /api/trips` / `GET /api/trips/{tripId}` の `photoCount`、未所属の枚数は `GET /api/trips` の `unassignedPhotoCount` で取る）。
+`total` を外すことと、継続トークンをクエリパラメータで受け渡すことは**案**で、段階2の API の詳しい設計で決める（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27）。
 
 ```json
 { "success": true, "data": { "photos": [ { "...": "Photo" } ], "continuationToken": "<Cosmos の継続トークン。最後のページは null>", "urlExpiresAt": "2026-10-10T04:12:45.000Z" } }
@@ -412,8 +413,9 @@ AI の解析をやり直す（要件 5.5.1）。
 
 `{ trips: TripSummary[], total, unassignedPhotoCount }`。`createdAt` 降順。`total` は旅行の数。
 集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
-`unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のものと、存在しない旅行を指すものの合計。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
+`unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のもの。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
 同じ `GROUP BY` の結果から出す。旅行一覧の画面はこれで先頭の行の枚数を出し、別のリクエストを送らない。ページングは無い（旅行は数十件）。
+未所属の枚数をここで返すことは**案**（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #27。§5.2 の `total` と一緒に決める）。
 500 の `message`: `旅行一覧の取得に失敗しました`。
 
 ### 5.10 `GET /api/trips/{tripId}`
@@ -452,14 +454,15 @@ AI の解析をやり直す（要件 5.5.1）。
 1. 中の写真の射影をページで読み（[04 §5](./04_data_design.md#5-クエリ) の 5.10）、1枚ずつ、`true` ならドキュメント → Blob の順に消す（Blob の失敗はログだけ）、`false` なら `tripId` を `null` に patch する（move の「外す」と同じ）
 2. 写真のドキュメントの削除・patch に失敗したら中断して 500（済んだ分はそのまま。再送で続きができる）
 3. 旅行を消す
-4. まだその旅行を指す写真（削除の途中に届いた送信・move）が残っていれば `tripId: null` に戻す（失敗はログだけで 200。[04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）。
-   **`deletePhotos=true` でもここで消さない**（利用者が確認のときに見た枚数に入っていない写真は消さず、未所属にする）
+
+旅行を消した後の見直しはしない。削除の途中に届いた送信・move の写真が残っても消さず（`deletePhotos=true` でも、1 で読んだ射影に無かった写真は消さない）、
+段階3の掃除のタイマーが未所属に戻す（まれで、写真は消えないので許容。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）。
 
 ```json
 { "success": true, "data": { "message": "旅行が正常に削除されました", "deletedPhotoCount": 12, "detachedPhotoCount": 0 } }
 ```
 
-`deletedPhotoCount` は消した写真の数（`false` なら 0）、`detachedPhotoCount` は未所属に移した数（`false` の写真と、4 で掃き戻した写真の合計）。
+`deletedPhotoCount` は消した写真の数（`false` なら 0）、`detachedPhotoCount` は未所属に移した数（`true` なら 0）。
 500 の `message`: `旅行の削除に失敗しました`。
 
 ### 5.13 `GET /api/tags`（段階は未定）
@@ -469,8 +472,13 @@ AI の解析をやり直す（要件 5.5.1）。
 
 ### 5.14 図鑑（段階4）
 
+**この節は案で、決定ではない。** API の形（項目を `kind` と `name` で指定して名前をクエリ文字列に載せること、該当する写真が無いときに 200 で `entry: null` を返すこと、
+項目一覧を `offset` / `limit`・項目の写真を `continuationToken` でページに分けること、項目の削除 API を置かないこと）は、段階4の詳しい設計で決める
+（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #20）。§2 の表と §3.3.1・§7.1・§8 の図鑑の記述も同じ扱い。
+まとめ方そのもの（`GROUP BY` + 項目ごとの `TOP 1`。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）は決定済み（#28）。
+
 項目は文書ではなく、識別済みの写真を `identification.kind` と `identification.name` でまとめたもの（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
-一覧も詳細も、呼ばれるたびに写真からまとめるが、**写真を全部読まない**（枚数は `GROUP BY`、見出しは項目ごとに `TOP 1`、写真はページ。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）。
+一覧も詳細も、呼ばれるたびに写真からまとめるが、**写真を全部読まない**（枚数は `GROUP BY`、見出しは項目ごとに `TOP 1`、写真はページ）。
 
 | エンドポイント | 内容 | エラー |
 |---|---|---|

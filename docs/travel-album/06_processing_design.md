@@ -23,7 +23,7 @@
 | 投入 | API（Azure Functions）から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
 | ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName, connection: 'AzureWebJobsStorage', handler })` | API と同じ Function App（Azure 上の1つのアプリ）に同居 |
 | 直列化 | `host.json` の `extensions.queues` で `batchSize: 1`・`newBatchThreshold: 0` | AI のレート上限（TPM）と費用を抑える。1回の旅行で数百枚を一気に投入しても、順に流れる |
-| 可視性タイムアウト・再試行 | `visibilityTimeout: 00:01:00`、`maxDequeueCount: 3`。3回失敗すると `photo-processing-poison` に落ちる | 一時的な失敗（429・503）は自動で再試行され、恒久的な失敗は止まる |
+| 可視性タイムアウト・再試行 | `visibilityTimeout: 00:01:00`、`maxDequeueCount: 3`。3回失敗すると `photo-processing-poison` に落ちる。**poison キューに特別な対処はしない**（§5） | 一時的な失敗（429・503）は自動で再試行され、恒久的な失敗は止まる。処理の状態は写真の文書が正で、poison の中身は使わない |
 | 再投入のタイマー | `api/src/functions/requeueStalePhotos.ts`。`app.timer`、10 分ごと。`processing.state` が `pending` / `classifying` / `identifying` のまま 10 分以上更新されていない写真を再投入（`{ photoId }`。やる処理は写真の `processing.step` にある）。**`failed` と `none` は拾わない** | poison に落ちたもの、投入前にプロセスが落ちたもの、投入に失敗したものを拾う。`attempts` が上限（3 回）なら再投入せず `failed` にする。`failed` を拾わないので、同じ画像で永遠に失敗し続けることが無い（§1.3） |
 | 掃除のタイマー | `api/src/functions/sweepAlbum.ts`。`app.timer`、1日1回。文書の無い Blob（1日より古いもの）を消し、消えた旅行を指す写真を未所属に戻し、Blob の無い文書をログに出す | 途中で止まった操作の残骸を消す（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） |
 
@@ -50,7 +50,7 @@ sequenceDiagram
     Q->>W: メッセージ
     W->>DB: 写真を読む（step = classify）。state = classifying（state = pending の条件付き patch）
     W->>B: 原寸の読み取り SAS を発行
-    W->>AI: 分類（安価なモデル・detail low）
+    W->>AI: 分類（今のデプロイ・detail low）
     AI-->>W: { kind, confidence, reason }
     alt kind が CATALOG_KINDS にある（段階4）
         W->>DB: category = kind、classification、identification = null、state = pending, step = identify
@@ -95,7 +95,7 @@ sequenceDiagram
 
 | 経路 | 止め方 |
 |---|---|
-| キューの再試行 | `maxDequeueCount: 3` で poison キューに落ちる（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)）。poison からは自動で戻さない |
+| キューの再試行 | `maxDequeueCount: 3` で poison キューに落ちる（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)）。poison からは戻さず、中身も読まない（§5） |
 | 再投入のタイマー | `attempts` が上限なら再投入せず `failed` にする。**`failed` は再投入のクエリに含めない**（[04 §5](./04_data_design.md#5-クエリ) の 5.8） |
 | 利用者のやり直し（`process`） | `attempts` を 0 に戻してもう一度だけ 3 回まで試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（§6） |
 
@@ -110,7 +110,7 @@ sequenceDiagram
 
 | 項目 | 値 |
 |---|---|
-| デプロイ | `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`（Terraform の `azurerm_cognitive_deployment.classifier` の名前と一致させる）。モデルは安価なもの（**人間が価格表を見て決める**。要確認） |
+| デプロイ | 環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。**未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う。** 当面は分類にも今の GPT-5 系のデプロイ（`gpt-5.6-luna`。Terraform の `azurerm_cognitive_deployment.gpt5_luna`）をそのまま使い、分類用のデプロイは足さない（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。将来 GPT-5 系の nano / mini に変えるときは、Terraform でデプロイを1つ足して環境変数を書き換えるだけ（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | 画像 | 原寸の Blob の読み取り SAS（15 分。既存の `TEMP_SAS_EXPIRY_MINUTES` と同じ理由）を `image_url` に、`detail: "low"` |
 | サービス | `api/src/services/photoClassifierService.ts`。`OpenAIVisionService` を一般化した `analyze({ deployment, schema, prompt, imageUrl, detail })` を呼ぶ |
 | 失敗 | `UpstreamError('ai')`。応答の検証違反も同じ（既存の `identifyPlant()` と同じ扱い） |
@@ -249,6 +249,7 @@ AI の担当の欄だけを1回の patch で `set` する（条件は付けな�
 |---|---|---|
 | キューへの投入の失敗（API・ワーカー） | `POST /api/photos`・`process`・分類の後の識別の投入 | どれも写真に `pending`・`step` を書いた後なので、投入に失敗しても成功を返し（201 / 202）、タイマーが `step` を見て再投入する。失敗を返すと「失敗したのに後で勝手に走る」ことになる |
 | AI の 429 / 503 | ワーカー | 例外を投げてキューの再試行。3 回で poison → タイマーが `failed` に |
+| poison キュー（`photo-processing-poison`）に落ちたメッセージ | — | **特別な対処は要らない**（2026-10-12 に人間が決定）。処理の状態は写真の文書（`processing.state` が `failed` など）が正で、poison の中身は使わない。Storage Queue のメッセージは既定の TTL（7 日）で消える。失敗した写真はアプリに「失敗」と「やり直す」が出る（[03 §5.1](./03_screen_design.md#51-写真ビューアへの追加)）。必要になったら poison キューの件数を監視する程度 |
 | AI の応答の検証違反 | ワーカー | 同上（内容が変わる可能性があるので再試行する価値がある）。毎回失敗する画像でも 3 回で `failed` になり、以後は利用者が頼んだときだけ試す（§1.3） |
 | Blob の SAS 生成の失敗 | ワーカー | 同上 |
 | 担当の patch が 412（`state` が `pending` でない） | ワーカー | 別のインスタンスが担当済み。何もしない |
@@ -267,16 +268,17 @@ AI の担当の欄だけを1回の patch で `set` する（条件は付けな�
 
 | 手段 | 何を抑えるか | どこで |
 |---|---|---|
-| (a) Azure OpenAI のデプロイの容量（1分あたりのトークン数の上限）を低めに設定する | **1日の費用の天井**。容量 × 1,000 トークン/分 × 1,440 分 × 単価 を超えない。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる（止まらず、遅くなるだけ） | Terraform の `azurerm_cognitive_deployment` の `sku.capacity`（[07 §2](./07_infrastructure_design.md#2-段階3)） |
+| (a) Azure OpenAI のデプロイの容量（1分あたりのトークン数の上限） | **1日の費用の天井**。容量 × 1,000 トークン/分 × 1,440 分 × 単価 を超えない。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる（止まらず、遅くなるだけ）。当面は今のデプロイの値（150）のまま（#17）。下げたくなったら Terraform の値を変えるだけ | Terraform の `azurerm_cognitive_deployment.gpt5_luna` の `sku.capacity`（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | (b) Azure の予算アラート | 想定を超えたときに**気づく** | `azurerm_consumption_budget_resource_group`（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | (c) 失敗の自動再試行の上限（3 回。`PHOTO_PROCESSING_MAX_ATTEMPTS`） | 同じ画像で**永遠に呼び続けない**（§1.3） | ワーカーとタイマー |
 
-- **実測してから容量を決める。** 段階3の最初に 10 枚を分類し、応答の `usage`（プロンプト・補完のトークン数）をログに出して `docs/09_backlog.md` の「旅行アルバム（ロードマップ）」に記録する。段階4の識別も同じ
+- **実測を記録する。** 段階3の最初に 10 枚を分類し、応答の `usage`（プロンプト・補完のトークン数）をログに出して `docs/09_backlog.md` の「旅行アルバム（ロードマップ）」に記録する。段階4の識別も同じ。
+  容量は当面今のまま（150）でよく、実測で費用が気になったときに下げる（下げても止まらず遅くなるだけ）
 - 見積もりの式: 1 枚あたりのトークン × 単価 × 1 旅行の枚数（数百）× 旅行の回数。識別は分類で絞った枚数（`other` を除く）だけ。
-  容量の決め方: 1 旅行（数百枚）の分類が数十分で終わる程度（1 枚 1,000 トークンなら容量 10 ＝ 1 万 TPM で 1 分に 10 枚、300 枚で 30 分）に留め、それより上げない
+  安い GPT-5 系の nano / mini に変えるかは、この実測を見て決める（変えるときは Terraform でデプロイを1つ足し、`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を書き換える）
 - 利用者のやり直し（`process`）にも回数の上限は置かない。1枚ずつ手で頼む操作で、容量の天井の内側に収まる
 - 地名変換（Azure Maps）を足すときも同じ考え方で、アプリに上限を置かず、サービス側の設定と予算アラートで抑える（§4.3）
-- 費用に効く設計: 分類は安価なモデルで `detail: "low"`、識別は必要な写真だけ、直列で流す（TPM の上限超えによる再試行の無駄を減らす）
+- 費用に効く設計: 分類は `detail: "low"`（モデルは当面今のデプロイ。安いものに差し替えられる形にしておく）、識別は必要な写真だけ、直列で流す（TPM の上限超えによる再試行の無駄を減らす）
 
 ## 7. 今の植物図鑑の統合と廃止（段階4）
 

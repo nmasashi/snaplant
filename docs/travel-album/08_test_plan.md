@@ -36,7 +36,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 拡張 | 中身 | 理由 |
 |---|---|---|
-| `query` の絞り込み | `@type`・`@tripId`（旅行の写真）・`@tripIds`（未所属。`tripId` が `null` か、配列に無い id を指すものを返す。SQL の `IS_NULL` / `ARRAY_CONTAINS` 自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
+| `query` の絞り込み | `@type`・`@tripId`（旅行の写真。未所属は `tripId` が `null` のものだけで、パラメータは無い。SQL の `IS_NULL` 自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
 | `query` のページ | `fetchNext()` が `maxItemCount` 件ずつ返し、続きがあれば `continuationToken`（偽物では挿入順の位置を表す文字列）を返す。同じトークンを渡すと続きから返す。`fetchAll()` も残す | 写真一覧のページの切れ目とトークンの受け渡し（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。`ORDER BY` は解釈しないので、**並び順は挿入順になる**（並びそのものは手で確かめる。§5.2） |
 | 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts` に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、`AlbumService` はその結果（`{ tripId, photoCount }` の行など）を受け取って `TripSummary` / `CatalogEntry` を組み立てる。`AlbumService` のテストでは `albumQueries` を固定の結果を返す実装に差し替える。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
@@ -91,15 +91,14 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
 - 集計（`albumQueries` を固定の結果に差し替えて）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる。
   期間の行が無い旅行（撮影日時のある写真が無い）は `firstTakenAt` / `lastTakenAt` が `null`
-- 未所属の枚数: 枚数の行のうち `tripId` が `null` の行と、旅行の一覧に無い id の行の `photoCount` の合計が `unassignedPhotoCount` になる
+- 未所属の枚数: 枚数の行のうち `tripId` が `null` の行の `photoCount` が `unassignedPhotoCount` になる（旅行の一覧に無い id の行は数えない）
 - 表紙はサムネイルが無ければ原寸
 - 更新は `name`・`description`・`updatedAt` だけ変わり、`tags`・`createdAt` は変わらない
 - 削除（写真も消す）: 中の写真のドキュメントと Blob（原寸・サムネイル）を消してから旅行を消し、`deletedPhotoCount` に枚数、`detachedPhotoCount` に 0 を返す
 - 削除（写真は残す）: 中の写真の `tripId` が `null` になり `updatedAt` が更新され、Blob の `store` は変わらない。旅行は消え、`detachedPhotoCount` に枚数、`deletedPhotoCount` に 0 を返す
 - 削除（写真も消す）で Blob の削除に失敗しても旅行と写真のドキュメントは消え、枚数を返す
 - 削除で写真のドキュメントの削除（または patch）に失敗すると例外になり、旅行は残る（済んだ分はそのまま）
-- 旅行を消した後の見直し（[04 §7.3](./04_data_design.md#73-旅行の削除の最後の掃き戻し)）: 消した旅行をまだ指している写真があれば、**どちらの削除でも消えずに** `tripId: null` に戻り、`detachedPhotoCount` に数えられる。
-  見直しは `AlbumService` の別メソッド（例: `detachPhotosOfTrip(tripId)`）にして単体で確かめ、削除の流れがそれを最後に呼ぶことは「旅行の文書が無く、その旅行を指す写真も無い」結果で確かめる
+- 削除が読んだ射影に無かった写真（削除と重なって届いたもの）は消さない: 射影を読んだ後に同じ旅行を指す写真を偽物に足しても、`deletePhotos=true` でその写真は消えず残る（`tripId` もそのまま。未所属に戻すのは段階3の掃除のタイマー。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）
 
 写真:
 - 作成すると `type: "photo"`・`tripId: null`（指定なし）・`category: null`・`tags: []`・`processing.state: "none"`・全項目が揃って保存される（**`tripId` キーが存在して `null`**）
@@ -110,8 +109,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - Blob（原寸→サムネイル）が `store` に入ってからドキュメントが作られる（サムネイルで失敗すると原寸は残りドキュメントは無い）
 - `create` が 409 を返したら既存を読んで返す
 - 一覧: `@tripId` に旅行の id を渡すとその旅行の写真だけ
-- 未所属: 存在する旅行の id を `@tripIds` に渡すと、`tripId` が `null` の写真と、渡した id に無い旅行を指す写真の両方が返り、存在する旅行の写真は返らない
-  （偽物はパラメータの規則で絞るだけなので、SQL の `IS_NULL` / `NOT ARRAY_CONTAINS` 自体は手で確かめる。§5.2）
+- 未所属: `tripId` が `null` の写真だけが返り、旅行の写真も、存在しない旅行を指す写真も返らない
+  （偽物はパラメータの規則で絞るだけなので、SQL の `IS_NULL` 自体は手で確かめる。§5.2）
 - ページ: 3 枚の旅行で `limit: 2` なら 2 枚と `continuationToken`、そのトークンで残り 1 枚と `continuationToken: null`。`limit` を渡さなければ既定の 100。`ORDER BY c.sortAt` の並びそのものは手で確かめる（§5.2）
 - 応答の Photo に `imageUrl` / `thumbnailUrl`・`sortAt`・`category` があり、`blobName` / `thumbnailBlobName` / `type` / `_rid` などが無い
 - サムネイルが無い写真は `thumbnailUrl: null`
@@ -147,7 +146,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 `GET`:
 - `tripId` 無しで 400 `絞り込み条件を指定してください`。`tripId=abc` で 400。`limit=0` / `limit=201` / `limit=abc` で 400。`continuationToken=`（空）で 400。無い旅行で 404
-- `tripId=<uuid>` でその旅行の写真だけ、`tripId=none` で未所属だけ（`tripId: null` と、存在しない旅行を指すものの両方）
+- `tripId=<uuid>` でその旅行の写真だけ、`tripId=none` で未所属（`tripId: null`）だけ
 - `limit=2` で 2 枚と `continuationToken`、同じトークンを渡すと続き、最後は `continuationToken: null`。`total` は無い
 - `urlExpiresAt` が返る
 
@@ -184,9 +183,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - ワーカーは `state` が `pending` でない写真（担当の条件付き patch が 412。古い重複メッセージ）には何もしない。`done` / `failed` / `none` でも何もしない
 - タイマー（再投入）: 10 分以上更新されていない `pending` / `classifying` / `identifying` の写真が `{ photoId }` で積まれ、`attempts` が上限なら `failed` になる。**`failed` と `none` は拾わない**（`failed` の写真は何度タイマーが走っても `messages` に積まれない）
 - 掃除のタイマー: 文書の無い Blob のうち1日より古いものだけが `store` から消え、新しいものと文書のある Blob は残る。存在しない旅行を指す写真が `tripId: null` になる（消えない）。Blob の無い文書は消えない
-- 図鑑のまとめ（`albumQueries` を固定の結果に差し替えて）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並び、`offset` / `limit` で切られ、`total` が項目の総数になる
-- `GET /api/catalog/entries`: `kind` 無効で 400、`offset=-1` / `limit=101` で 400。0 件で `[]`・`0`
-- `GET /api/catalog/entry`: `kind` 無効で 400、`name` 無しで 400、該当する写真が無ければ 200 で `entry: null`・`photos: []`・`continuationToken: null`。`name` は前後の空白を除いて比べる。`photos` のページは `GET /api/photos` と同じ
+- 図鑑のまとめ（`albumQueries` を固定の結果に差し替えて）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並ぶ
+- 図鑑の API（形は案。段階4の詳しい設計で決める。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400。該当する写真が無いときの応答、`name` の渡し方、ページの方式は決まってから書く
 - 移行スクリプト: 2 回流して `documents` の件数が変わらない。`imagePath` の Blob が無い植物は飛ばして一覧に出る。写真の `category` が `"plant"`、`tags` が `[]`、`identification.kind` が `"plant"` で `model: "migration"`、`sortAt` が `uploadedAt` を日本時間に直したもの
 
 ## 4. 段階2のシナリオ一覧（mobile）
@@ -252,7 +250,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 確かめること | 手順 | 崩れたときの症状 |
 |---|---|---|
-| `IS_NULL(c.tripId)` と `NOT ARRAY_CONTAINS(@tripIds, c.tripId)` の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない。`tripId` を手で存在しない UUID に書き換えた写真が未所属に出る | 一覧が空か混ざる。迷子の写真が出ない |
+| `IS_NULL(c.tripId)` の絞り込み | `GET /api/photos?tripId=none` が未所属だけを返し、旅行の写真が混ざらない | 一覧が空か混ざる |
 | `GROUP BY` の集計（旅行一覧） | `GET /api/trips` の `photoCount`・期間・表紙・`unassignedPhotoCount` が実際の写真と合う。`tripId` が `null` の写真が `unassignedPhotoCount` に数えられる（`null` の鍵がグループになるか）。撮影日時の無い写真があっても期間が `null` にならない | 枚数ずれ・未所属が 0・期間が `null` |
 | `ORDER BY c.sortAt` とページ | `GET /api/photos?tripId=…&limit=50` を `continuationToken` でめくり、撮影日時順で重複・欠落が無い。撮影日時の無い写真がアップロード日時（日本時間）の位置にある。別の `tripId` のトークンを渡すと 400 | 順が崩れる・二重に出る・抜ける |
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
@@ -266,11 +264,11 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - `c.category = @category` の絞り込み、タイマーの再投入クエリ（**`failed` の写真が拾われない**こと）、図鑑の `GROUP BY c.identification.name` と `c.identification.kind` の絞り込み、複合インデックスでの `TOP 1 … ORDER BY confidence DESC, at DESC`（[04 §5](./04_data_design.md#5-クエリ)）
 - Patch の `condition`: 写真にコメントを書いてからやり直しを頼み、結果でコメントが置き換わる（受付で消しているため）。写真を送った直後（自動の解析中）にコメントを書き、解析が終わっても利用者のコメントが残る。解析中にタグ・旅行を変えても結果と両方残る
 - 永遠に回り続けないこと: AI が必ず失敗する入力（例: 分類のスキーマ検証に通らない応答を返すモック、または壊れた画像）で 3 回失敗した写真が `failed` になり、タイマーが 10 分×数回走っても再投入されない。「やり直す」でもう一度 3 回だけ試す
-- キューの直列化（`batchSize: 1`）と poison の挙動
-- 10 枚のトークン使用量の実測と、デプロイの容量（TPM）の値の見直し（[06 §6](./06_processing_design.md#6-費用の抑え方)）
+- キューの直列化（`batchSize: 1`）と poison の挙動（3 回失敗したメッセージが `photo-processing-poison` に落ち、写真は `failed` になってアプリに「やり直す」が出る。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
+- 10 枚のトークン使用量の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）。容量は今のまま（150）でよく、下げるかの判断材料にする
 - 図鑑の1種類の1ページを開く RU と時間の実測（識別済みの枚数・項目の数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）
 - 掃除のタイマー: `photos` に文書の無い Blob を手で置き、翌日消えている。文書のある Blob と、置いたばかりの Blob は残る
-- 旅行の削除中に送信: 数百枚の旅行の削除を押した直後に同じ旅行へ送信し、残った写真が未所属に出る（または掃き戻しで `null` になっている）
+- 旅行の削除中に送信: 数百枚の旅行の削除を押した直後に同じ旅行へ送信し、残った写真が消えておらず（ポータルで文書と Blob を確認）、掃除のタイマーの翌日に未所属に出る（[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）
 - 移行スクリプトの冪等性（2 回流して件数が変わらない）。実環境でしか分からない「`imagePath` の Blob が無い植物」の一覧
 
 CLAUDE.md の「Cosmos のクエリを変更したら手で確認する」の表に、5.2 の該当行を足す。

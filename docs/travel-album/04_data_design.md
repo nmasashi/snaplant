@@ -308,7 +308,7 @@ export const CATALOG_KINDS = {
 | 識別 AI のスキーマ | 共通項目（`matchesKind`・`name`・`description`・`characteristics`・`comment`・`confidence`）+ `attributes` を `fields` から組み立てる。strict の制約により全部 `required`、任意は `["string","null"]`（`string[]` は `["array","null"]`）。`prompt` は `description` に、`namingRule` はプロンプト本文に | 4 |
 | 識別結果の検証 | `confidence` の 0〜100 と、`attributes` のキーが `fields` にあるものだけか | 4 |
 | `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`prompt`・`namingRule` は返さない | 4 |
-| `GET /api/catalog/entries` / `entry` | `kind` が表に無ければ 400（[05 §5.14](./05_api_design.md#514-図鑑段階4)） | 4 |
+| 図鑑の API | `kind` が表に無ければ 400。API の形は案で、段階4の詳しい設計で決める（[05 §5.14](./05_api_design.md#514-図鑑段階4)） | 4 |
 | Flutter | 起動時に取得して保持。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」）。種類タブも `kinds` から作る | 4 |
 | `PATCH` の検証 | 段階4では `attributes` を利用者が直す機能は入れない。入れるときは `fields` の `type` で検証 | — |
 
@@ -358,7 +358,7 @@ export const CATALOG_KINDS = {
 - 写真の削除: ドキュメントを消してから原寸とサムネイルを消す。Blob の削除の失敗はログだけで、ドキュメント操作は成功扱い（`plants` と同じ方針）。404 は成功とみなす。
   残った Blob（孤児）は掃除のタイマーが消す（§7.2）
 - 旅行の削除: 利用者が「写真も消す」を選んだときだけ、中の写真を1枚ずつ上の手順で消す。「写真は残す」なら写真の `tripId` を `null` にして未所属に移す（Blob は触らない）。
-  どちらも最後に旅行を消し、消した後に、まだその旅行を指す写真が残っていないか見直して未所属に戻す（§7.3）。**食い違いで残った写真は消さず、未所属にする**
+  どちらも最後に旅行を消す。削除と重なって届いた送信・move の写真は消さず、掃除のタイマー（段階3。§7.2）が未所属に戻す（§7.3）
 - URL の検証による二層防御は要らない。削除する Blob 名はドキュメントの `blobName` / `thumbnailBlobName` から取り、クライアントから URL を受け取らない
 
 ## 5. クエリ
@@ -374,7 +374,7 @@ export const CATALOG_KINDS = {
 |---|---|---|---|---|
 | 5.1 | 旅行一覧（集計） | 枚数: `SELECT c.tripId, COUNT(1) AS photoCount FROM c WHERE c.type = @type GROUP BY c.tripId`／期間: `SELECT c.tripId, MIN(c.takenAt) AS firstTakenAt, MAX(c.takenAt) AS lastTakenAt FROM c WHERE c.type = @type AND IS_STRING(c.takenAt) GROUP BY c.tripId`／表紙: 旅行ごとに `SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC` | 集計の行から `TripSummary` と未所属の枚数を組み立てる所は○ | `GROUP BY`（`null` の鍵）・`MIN` / `MAX`・`TOP 1` |
 | 5.2 | 旅行一覧（旅行） | `SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt DESC` | `@type` の絞り込みのみ | 並び順 |
-| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`／未所属: `WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId)) ORDER BY c.sortAt ASC`。`maxItemCount` と継続トークンでページ | `@tripId` / `@tripIds` で絞る。ページの切れ目と継続トークンの受け渡し | `IS_NULL`・`ARRAY_CONTAINS`・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
+| 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`／未所属: `WHERE c.type = @type AND IS_NULL(c.tripId) ORDER BY c.sortAt ASC`。`maxItemCount` と継続トークンでページ | `@tripId` で絞る（未所属は `tripId` が `null` のもの）。ページの切れ目と継続トークンの受け渡し | `IS_NULL`・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
 | 5.4 | カテゴリ横断（段階3） | `WHERE c.type = @type AND c.category = @category ORDER BY c.sortAt ASC`。ページは 5.3 と同じ | `@category` で絞る | — |
 | 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
 | 5.6 | 図鑑の項目一覧（段階4） | 枚数: `SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE … AND c.identification.name = @name ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前順に並べてページに切る所は○ | `GROUP BY`・複合インデックスの `ORDER BY` |
@@ -400,11 +400,12 @@ SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.t
 `@type = 'photo'`。`GROUP BY` の結果は旅行の数（数十行）だけで、写真の枚数に依らず小さい。表紙は旅行の一覧（§5.2）の各旅行について `TOP 1` を並列に投げる
 （数十クエリ。1本 数 RU。推測）。表紙の `thumbnailBlobName` が `null` なら `blobName` を使う。
 
-**未所属の枚数も同じ集計から出す。** 枚数の `GROUP BY` の行のうち、`tripId` が `null` の行と、§5.2 の旅行の一覧に無い id の行（消えた旅行を指す写真。§5.3）の `photoCount` を足す。
+**未所属の枚数も同じ集計から出す。** 枚数の `GROUP BY` の行のうち、`tripId` が `null` の行の `photoCount` がそれになる。
 `GET /api/trips` はこれを `unassignedPhotoCount` として返す（[05 §5.9](./05_api_design.md#59-get-apitrips)）ので、一覧の画面は `GET /api/photos` を別に呼ばない。
+旅行の一覧に無い id の行（消えた旅行を指す写真。§7.3）があっても未所属には数えない（段階3の掃除のタイマーが `null` に戻してから数えられるようになる）。
 
 `GROUP BY` は Cosmos SQL の制約で `ORDER BY` と同じクエリに書けず、`null` の鍵がグループになるかも推測（[08 §5.2](./08_test_plan.md#52-デプロイ後api段階2) で手で確かめる）。
-`null` がグループにならなければ、未所属の枚数だけ `SELECT VALUE COUNT(1) FROM c WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId))` を1本足す。
+`null` がグループにならなければ、未所属の枚数だけ `SELECT VALUE COUNT(1) FROM c WHERE c.type = @type AND IS_NULL(c.tripId)` を1本足す。
 
 ### 5.2 旅行の詳細
 
@@ -416,17 +417,15 @@ SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.t
 ```sql
 -- 旅行の写真
 SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC
--- 旅行に属さない写真（@tripIds は存在する旅行の id の配列）
-SELECT * FROM c WHERE c.type = @type AND (IS_NULL(c.tripId) OR NOT ARRAY_CONTAINS(@tripIds, c.tripId)) ORDER BY c.sortAt ASC
+-- 旅行に属さない写真
+SELECT * FROM c WHERE c.type = @type AND IS_NULL(c.tripId) ORDER BY c.sortAt ASC
 ```
 
-**未所属は「`tripId` が `null` か、存在しない旅行を指す」写真。** 先に旅行の一覧（§5.2 のクエリ。数十件）を読み、id の配列を `@tripIds` に渡す。
-存在しない旅行を指す写真は、旅行の削除と同時に送信・移動された写真が残る経路でできる（§7.1）。
-この定義にしておけば、どの経路で残っても一覧から消えず、利用者が自分で旅行に入れ直すか消せる。旅行の一覧を1回余分に読む分（数 RU）は無視できる。
+**未所属は「`tripId` が `null`」の写真だけ**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #19）。
+以前の案では「存在しない旅行を指す写真」（旅行の削除と送信・move が重なって残るもの。§7.3）も未所属に含め、旅行の id の配列を `NOT ARRAY_CONTAINS(@tripIds, c.tripId)` で引いていたが、
+めったに起きないケースのためにクエリと旅行の一覧の先読みを足さない。残った写真は段階3の掃除のタイマー（§7.2）が `null` に戻し、それまでは一覧に出ない。
 
-`c.tripId = null` は Cosmos SQL では偽になるので、`null` は `IS_NULL` で書く。`tripId` が `null` のとき `ARRAY_CONTAINS(@tripIds, c.tripId)` が偽を返すか
-未定義になるかは推測なので、`IS_NULL` を OR で残して `null` の扱いをそちらに任せる。パラメータに配列を渡して `ARRAY_CONTAINS` で引けることも
-推測（要確認。引けなければ、「`tripId` が `null`」だけを未所属にし、消えた旅行を指す写真は掃除のタイマー §7.2 が `null` に戻すのを待つ形に倒す）。`tripId` は写真の作成時に必ず `null` を明示して書く
+`c.tripId = null` は Cosmos SQL では偽になるので、`null` は `IS_NULL` で書く。`tripId` は写真の作成時に必ず `null` を明示して書く
 （項目が欠けていると `IS_NULL` も偽になり、一覧から静かに外れる）。
 
 **並び順は Cosmos の `ORDER BY c.sortAt ASC` で付け、継続トークンでページに分けて読む。** `sortAt`（§1.3）は全写真が必ず持つ文字列なので、
@@ -493,14 +492,14 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 |---|---|
 | 旅行の作成 | `items.create(trip)` |
 | 旅行の更新 | `item(id, id).replace({ ...existing, name, description, updatedAt })` |
-| 旅行の削除（写真も消す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).delete()` + Blob 削除 → `item(tripId, tripId).delete()` → 掃き戻し（§7.3） |
-| 旅行の削除（写真は残す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, { op: 'set', path: '/updatedAt', value: now }])`（move の「外す」と同じ）→ `item(tripId, tripId).delete()` → 掃き戻し（§7.3） |
+| 旅行の削除（写真も消す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).delete()` + Blob 削除 → `item(tripId, tripId).delete()` |
+| 旅行の削除（写真は残す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, { op: 'set', path: '/updatedAt', value: now }])`（move の「外す」と同じ）→ `item(tripId, tripId).delete()` |
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
 | コメント・タグの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])` |
 | 処理状態の更新（段階3） | `item(id, id).patch([{ op: 'set', path: '/processing', ... }])` |
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
 | ワーカーの結果の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。`_etag` の条件は付けない（§7.4）。コメントだけは `item(id, id).patch({ operations: [comment・commentSource の set], condition: 'FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"' })` の**条件付き patch** で、412（利用者のコメントがある）なら書かずに進む |
-| 消えた旅行を指す写真を未所属へ戻す（§7.3） | `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, ...])` |
+| 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, ...])` |
 
 ## 6. 無料枠と RU の見積もり
 
@@ -539,7 +538,8 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 1. **書く順を「残っても害が小さい方が先」にする。** Blob → 文書（文書が無ければ一覧に出ない）、写真 → 旅行（旅行が残れば再実行で続きができる）
 2. **再送で直る形（冪等）にする。** 写真の id が中身から決まり、Blob 名が id から決まる。move と処理状態は patch。旅行の削除は再実行で続きができる
-3. **それでも残るものは「見える」ようにし、掃除で消す。** 未所属の定義に「存在しない旅行を指す写真」を含める（§5.3）。孤児 Blob は掃除のタイマーで消す（§7.2）
+3. **それでも残るものは掃除で直す。** 孤児 Blob は掃除のタイマー（段階3）で消し、消えた旅行を指す写真は同じタイマーで未所属に戻す（§7.2）。
+   めったに起きないケースのために、未所属の定義を広げたり、旅行の削除の最後に見直しを足したりはしない（§7.3。2026-10-12 に人間が決定）
 
 直り方の分類: **再送**（利用者が同じ操作をやり直せば直る）/ **自動**（タイマーや次の処理で直る）/ **掃除**（§7.2 のタイマー）/ **手**（人間が直す）。
 
@@ -553,7 +553,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | サムネイルの Blob | 原寸の Blob だけ。文書は無い | 送信の失敗。一覧に出ない | 再送（同じ Blob 名に上書き）。送り直さなければ孤児 Blob → 掃除 |
 | `create`（409 以外） | 原寸・サムネイルの Blob。文書は無い | 同上 | 同上 |
 | `create` の後、応答が届かない | 正しい状態 | 送信の失敗に見える | 再送で 200（既存） |
-| `tripId` の旅行が、存在の検査の後に消された（旅行の削除との競合） | 消えた旅行を指す写真 | 未所属の一覧に出る（§5.3 の定義） | 自動（旅行の削除の最後の掃き戻し §7.3、残れば掃除）。アプリは削除の前に送信を止める（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）のでまれ |
+| `tripId` の旅行が、存在の検査の後に消された（旅行の削除との競合） | 消えた旅行を指す写真 | どの一覧にも出ない（写真は消えていない） | 掃除（段階3のタイマーが未所属に戻す。段階2の間は見えないまま）。アプリは削除の前に送信を止める（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）のでまれ（§7.3） |
 | 同じ写真の削除と重なる（削除が文書を消した後に送信が文書を作り、削除が Blob を消す） | Blob の無い文書 | 「画像を読み込めません」 | **手**（写真を削除して送り直す。再送は既存を返すので直らない）。削除の文書の削除と Blob の削除の間に送信の読み取り・Blob・`create` が全部挟まる必要があり、1人で使う限り実質起きない。掃除のタイマーが検出してログに出す |
 
 **写真の削除**（`DELETE /api/photos/{photoId}`。順: 文書 → 原寸 → サムネイル）
@@ -571,7 +571,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `replace` | 何も変わらない | 失敗 | 再送（同じ値なので冪等） |
 
 **旅行の削除**（`DELETE /api/trips/{tripId}?deletePhotos=true|false`。[05 §5.12](./05_api_design.md#512-delete-apitripstripiddeletephotostruefalse)。
-順: 写真を1枚ずつ（`deletePhotos=true` は文書 → Blob、`false` は `tripId` を `null` に patch）→ 旅行の文書 → 掃き戻し §7.3）
+順: 写真を1枚ずつ（`deletePhotos=true` は文書 → Blob、`false` は `tripId` を `null` に patch）→ 旅行の文書）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
@@ -579,19 +579,17 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 写真の Blob の削除（`true`） | 孤児 Blob | 無し（続行する） | 掃除 |
 | 写真の patch（`false`） | 一部だけ未所属になった旅行 | 500。枚数が減った旅行が残る | 再送（続きから。`detachedPhotoCount` は残りの分。patch は同じ値なら結果が同じ） |
 | 旅行の文書の削除 | 0枚の旅行 | 500。0枚の旅行 | 再送 |
-| 削除の途中・直後に送信や move がその旅行に届く | 消えた旅行を指す写真 | 未所属に出る。**`deletePhotos=true` でも消さない**（利用者が消すと決めたのは、確認のときに枚数を見た写真だけ） | 自動（§7.3。それでも漏れたら掃除） |
-| 掃き戻し §7.3 | 消えた旅行を指す写真 | 同上。応答は 200 | 自動（掃除） |
+| 削除の途中・直後に送信や move がその旅行に届く | 消えた旅行を指す写真 | どの一覧にも出ない。写真は消えていない（`deletePhotos=true` でも、削除が読んだ射影に無かった写真は消さない） | 掃除（段階3のタイマーが未所属に戻す。段階2の間は見えないまま。§7.3） |
 
 逆順（旅行を先に消す）にしない理由: 途中で止まると、存在しない旅行を指す写真が数百枚残り、利用者が再実行する手段（旅行は 404）が無い。
 写真を先に処理すれば、残るのは「写真が減った旅行」で、同じ削除をもう一度押せば続きができる。
-**旅行の削除と重なって残った写真は、どの経路でも消さずに未所属にする**（未所属の定義 §5.3、掃き戻し §7.3、掃除のタイマー §7.2 のすべてで同じ扱い）。
 
 **move**（`POST /api/photos/move`。写真1枚ずつ patch）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
 | 途中の patch | 一部だけ移った | 500。一部が移っている | 再送（patch は無条件で、同じ値なら結果は同じ） |
-| 宛先の旅行が、存在の検査の後に消された | 消えた旅行を指す写真 | 未所属に出る | 自動（§7.3・掃除） |
+| 宛先の旅行が、存在の検査の後に消された | 消えた旅行を指す写真 | どの一覧にも出ない（写真は消えていない） | 掃除（段階3。§7.3） |
 | 写真が同時に消された | 404 → `notFound` | 文言に「見つかりませんでした」 | — |
 
 **PATCH**（`PATCH /api/photos/{photoId}`。文書1つ）
@@ -647,7 +645,8 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 1. **孤児 Blob**: `photos` コンテナの Blob を列挙し、名前の先頭 64 文字を `photoId` として、全写真の薄い射影（§5 の 5.9。ページで読む）の id の集合と突き合わせる。
    文書が無く、**最終更新から1日より古い** Blob を消す（新しいものは送信の途中かもしれない。1日は [07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減) と同じ根拠）
-2. **消えた旅行を指す写真**: 同じ射影の `tripId` を旅行の id の集合と突き合わせ、無いものを `null` に patch する（**消さない。** 旅行の削除で「写真も消す」を選んでいても、削除と重なって残った写真は未所属にする。§7.1）
+2. **消えた旅行を指す写真**: 同じ射影の `tripId` を旅行の id の集合と突き合わせ、無いものを `null` に patch する（**消さない。** 旅行の削除で「写真も消す」を選んでいても、削除と重なって残った写真は未所属にする。§7.3）。
+   これが、旅行の削除と重なって残った写真を拾う唯一の仕組み（未所属の定義にも旅行の削除にも、そのための処理は無い）
 3. **Blob の無い文書**: 突き合わせで原寸の Blob が無い写真をログに出す（消さない。手で直す）
 
 全写真の射影を読むのはこのタイマーだけ（1日1回の一括処理で、1万枚でも 1 MB 程度の射影）。画面から呼ばれる API には全件読みを置かない（§5）。
@@ -656,13 +655,20 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 段階2の間は孤児 Blob を放置する（容量の費用だけで、利用者からは見えない）。気になれば同じ突き合わせを手でする。
 列挙は 1 万 Blob でも数秒（推測）。
 
-### 7.3 旅行の削除の最後の掃き戻し
+### 7.3 旅行の削除と重なった送信・move
 
-旅行の文書を消した後、もう一度 `WHERE c.type = @type AND c.tripId = @tripId`（§5 の 5.10 の射影）を読み、残っていれば `tripId` を `null` に patch する。
-削除の途中に届いた送信・move（旅行の存在の検査は通ったが、書き込みは削除の後）を拾う。**`deletePhotos=true` でもここで消さない**
-（利用者が確認のときに見た枚数に入っていない写真で、消してよいと決めたものではない）。
-この読み取りの後に届いたものは拾えないが、未所属の定義（§5.3）で見え、掃除のタイマー（§7.2）で `null` に戻る。
-掃き戻しの失敗はログだけで、応答は 200（旅行は消えている）。
+旅行の削除の途中・直後に、同じ旅行への送信や move が届く（旅行の存在の検査は通ったが、書き込みは削除が射影を読んだ後）と、
+消えた旅行を指す写真が残る。**このケースのためのリッチな対応はしない**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #19・#25）。
+利用者が旅行を消しながら同じ旅行に写真を入れることは、ユースケースとしてほぼ無い。
+
+| 扱い | 内容 |
+|---|---|
+| 段階2の間 | 残った写真はどの一覧にも出ないが、**消えてはいない**（`deletePhotos=true` でも、削除が読んだ射影に無かった写真は消さない）。許容する |
+| 段階3から | 掃除のタイマー（§7.2）が1日1回、消えた旅行を指す写真を `tripId: null` に戻す。以後は未所属の一覧に出る |
+| アプリ側 | 削除の前に、その旅行宛ての送信を止める（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）ので、重なること自体がまれ |
+
+以前の案（未所属の定義に「存在しない旅行を指す写真」を含める `NOT ARRAY_CONTAINS(@tripIds, c.tripId)` のクエリと、旅行の削除の最後に残った写真を見直して `null` に戻す「掃き戻し」）は、
+めったに起きないケースのために入口のクエリと削除の手順を増やすので採らない。
 
 ### 7.4 ワーカーの書き込みの決まり
 
@@ -694,3 +700,4 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 孤児 Blob（掃除のタイマーが入る段階3まで） | 容量の費用だけで、利用者からは見えない。名前から機械的に見つけられる |
 | 旅行の二重作成（応答が届かず押し直したとき） | 見えるし、空の旅行を消せば直る。クライアントが id を振る形は段階2の契約を広げるので、起きて困ってから |
 | 写真の削除と送信の競合で Blob の無い文書が残る | 1人で使う限り実質起きない。掃除のタイマーが検出してログに出す |
+| 旅行の削除と送信・move の競合で、消えた旅行を指す写真が残る（段階3の掃除が入るまで見えない） | まれで、写真は消えない。掃除のタイマー（§7.2）が入れば未所属に戻る。めったに起きないケースのために未所属の定義や削除の手順を増やさない（§7.3） |
