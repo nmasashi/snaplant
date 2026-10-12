@@ -3,13 +3,14 @@ import { ErrorCode } from '../../src/types/api';
 
 describe('Response Utils', () => {
   describe('createNotFoundError', () => {
-    it('見つからないものを指定して作ると、404とそのエラーコード・メッセージを返す', () => {
+    it('旅行が見つからないときの応答は、404・旅行のエラーコード・渡したメッセージになる', () => {
       const response = createNotFoundError('旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
 
       expect(response.status).toBe(404);
-      expect((response.jsonBody as any).success).toBe(false);
-      expect((response.jsonBody as any).error.code).toBe('TRIP_NOT_FOUND');
-      expect((response.jsonBody as any).error.message).toBe('旅行が見つかりません');
+      expect(response.jsonBody).toEqual({
+        success: false,
+        error: { code: 'TRIP_NOT_FOUND', message: '旅行が見つかりません' },
+      });
     });
   });
 

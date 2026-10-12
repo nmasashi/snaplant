@@ -142,7 +142,7 @@ describe('StorageService', () => {
     it('読み取り専用のSAS権限で署名する', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
-      await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
+      const result = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
 
       // SASトークンは署名済みの不透明な文字列で、テストから権限を
       // 復号できない。一方権限はAzure Storageが検証する外部との契約であり、
@@ -151,6 +151,7 @@ describe('StorageService', () => {
       // 有効期限は下の「発行から15分で切れる」が見る
       const [options] = mockedGenerateSas.mock.calls[0];
       expect(options.containerName).toBe('test-temp');
+      expect(options.blobName).toBe(keyFromUrl(result).split('/').pop());
       expect(options.permissions).toEqual({ read: true });
     });
 
