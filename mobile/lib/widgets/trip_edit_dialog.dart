@@ -73,42 +73,47 @@ class _TripEditDialogState extends State<TripEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.isEditing ? '旅行を編集' : '旅行を作る'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameController,
-              maxLength: 100,
-              decoration: InputDecoration(
-                labelText: '旅行名',
-                hintText: '例：北海道 2026秋',
-                errorText: _nameError,
+    // 送信中は閉じさせない（キャンセル・外のタップ・戻る）。要求は送られたままなので、閉じると
+    // 旅行は作られる（更新される）のに一覧は読み直されず、作り直して同じ旅行が2つできる
+    return PopScope(
+      canPop: !_isSaving,
+      child: AlertDialog(
+        title: Text(widget.isEditing ? '旅行を編集' : '旅行を作る'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _nameController,
+                maxLength: 100,
+                decoration: InputDecoration(
+                  labelText: '旅行名',
+                  hintText: '例：北海道 2026秋',
+                  errorText: _nameError,
+                ),
               ),
-            ),
-            TextField(
-              controller: _descriptionController,
-              maxLength: 1000,
-              maxLines: 3,
-              decoration: const InputDecoration(labelText: 'メモ（任意）'),
-            ),
-          ],
+              TextField(
+                controller: _descriptionController,
+                maxLength: 1000,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'メモ（任意）'),
+              ),
+            ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: _isSaving ? null : () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: _isSaving ? null : _submit,
+            child: Text(widget.isEditing
+                ? (_isSaving ? '保存中...' : '保存')
+                : (_isSaving ? '作成中...' : '作成')),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isSaving ? null : _submit,
-          child: Text(widget.isEditing
-              ? (_isSaving ? '保存中...' : '保存')
-              : (_isSaving ? '作成中...' : '作成')),
-        ),
-      ],
     );
   }
 }
