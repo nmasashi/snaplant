@@ -115,6 +115,7 @@ class FakeTripBackend {
     this.unassignedPhotoCount = 0,
     this.functionKey = 'saved-key',
     this.pageSize = 100,
+    this.leadingEmptyPages = 0,
     Map<String, List<Map<String, Object?>>> photosByTripId = const {},
   })  : trips = [...trips],
         photosByTripId = {
@@ -126,6 +127,11 @@ class FakeTripBackend {
 
   /// `GET /api/photos` の1ページの枚数（`limit` が無いときの既定。実際のサーバは 100。画面を超える枚数を少なく用意するために減らせる）
   final int pageSize;
+
+  /// `GET /api/photos` が、先頭から読むとき最初に返す「写真が0枚で、続きのトークンが付いた」ページの数。
+  /// 実際のサーバは、空のページを何度か読み直してもまだ空のとき、空のページをトークン付きで返すことがある（写真があっても起きる）。
+  /// トークンを渡して読み進めると、この数だけ空のページを返したあと、写真の先頭から返す
+  final int leadingEmptyPages;
 
   /// 旅行に属さない写真の枚数。写真を残す削除で、その旅行の枚数だけ増える
   int unassignedPhotoCount;
@@ -292,7 +298,21 @@ class FakeTripBackend {
     if (tripId != 'none' && _find(tripId) == null) return _notFound();
     final photos = photosByTripId[tripId] ?? const <Map<String, Object?>>[];
     final limit = int.parse(query['limit'] ?? '$pageSize');
-    final start = int.parse(query['continuationToken'] ?? '0');
+    final token = query['continuationToken'];
+    const emptyTokenPrefix = 'empty-';
+    final emptyPagesRead = token == null
+        ? 0
+        : token.startsWith(emptyTokenPrefix)
+            ? int.parse(token.substring(emptyTokenPrefix.length))
+            : leadingEmptyPages;
+    if (emptyPagesRead < leadingEmptyPages) {
+      return _ok(200, {
+        'photos': <Map<String, Object?>>[],
+        'continuationToken': '$emptyTokenPrefix${emptyPagesRead + 1}',
+        'urlExpiresAt': '2026-10-10T04:12:45.000Z',
+      });
+    }
+    final start = token == null || token.startsWith(emptyTokenPrefix) ? 0 : int.parse(token);
     final end = start + limit < photos.length ? start + limit : photos.length;
     return _ok(200, {
       'photos': photos.sublist(start, end),

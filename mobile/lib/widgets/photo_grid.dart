@@ -161,7 +161,14 @@ class _PhotoGridState extends State<PhotoGrid> {
         ),
       );
     }
-    if (photos.isEmpty) {
+    if (photos.isEmpty && _continuationToken != null) {
+      // 空のページでもトークンがあれば続きがある（サーバは空のページを読み直しても空なら、トークン付きで返すことがある）。
+      // サムネイルが無いので下端に近づくきっかけが来ない。ここで続きを読む
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadMore();
+      });
+    }
+    if (photos.isEmpty && _continuationToken == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

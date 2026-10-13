@@ -284,6 +284,30 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('1ページ目が空でも続きのトークンが付いていれば、「まだ写真がありません」を出さず、続きを読んで写真を並べる', (tester) async {
+    // サーバは空のページを何度か読み直しても空のとき、空のページを続きのトークン付きで返すことがある（写真がある旅行でも起きる）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      leadingEmptyPages: 1,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+
+    await openDetailFromHome(tester, backend);
+
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsOneWidget);
+    expect(find.text('まだ写真がありません'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('下に引っ張った読み直しに失敗すると、写真のグリッドは残したまま、エラーの文言をスナックバーで知らせる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
