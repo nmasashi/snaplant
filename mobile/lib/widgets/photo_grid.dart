@@ -35,6 +35,9 @@ class PhotoGrid extends StatefulWidget {
 /// 末尾から何枚以内を組み立てたら続きを読むか（3列なので2行分）
 const _loadMoreThreshold = 6;
 
+/// サムネイルを読むときの横幅（画素）。3列のマスは端末で 400 画素前後
+const _tileDecodeWidth = 400;
+
 class _PhotoGridState extends State<PhotoGrid> {
   List<Photo>? _photos;
   // 1ページ目の取得に失敗したときの文言。null なら失敗していない
@@ -228,7 +231,10 @@ class _PhotoGridState extends State<PhotoGrid> {
               itemCount: photos.length,
               itemBuilder: (context, index) {
                 // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
-                if (index >= photos.length - _loadMoreThreshold) {
+                if (index >= photos.length - _loadMoreThreshold &&
+                    _continuationToken != null &&
+                    !_isLoadingMore &&
+                    !_loadMoreFailed) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) _loadMore();
                   });
@@ -295,7 +301,11 @@ class _PhotoTile extends StatelessWidget {
         cacheKey: photo.thumbnailUrl != null
             ? thumbnailCacheKey(photo.id)
             : imageCacheKey(photo.id),
-        cacheManager: PhotoCacheManager.instance,
+        cacheManager: photo.thumbnailUrl != null
+            ? PhotoCacheManager.thumbnails
+            : PhotoCacheManager.images,
+        // 原寸を出すときも、マスの大きさに縮めて読む（数千万画素のまま読むとメモリが足りなくなる）
+        memCacheWidth: _tileDecodeWidth,
         fit: BoxFit.cover,
         placeholder: (context, url) =>
             const ColoredBox(color: AppColors.surfaceVariant),

@@ -61,7 +61,6 @@ class _TripListScreenState extends State<TripListScreen> {
     }
   }
 
-  /// 旅行詳細画面を開く
   /// 旅行に属さない写真の画面を開く
   Future<void> _openUnassignedPhotos(int photoCount) async {
     await Navigator.push(
@@ -76,6 +75,7 @@ class _TripListScreenState extends State<TripListScreen> {
     await _loadTrips();
   }
 
+  /// 旅行詳細画面を開く
   Future<void> _openTrip(TripSummary trip) async {
     await Navigator.push(
       context,
@@ -252,7 +252,7 @@ class _TripRow extends StatelessWidget {
         child: CachedNetworkImage(
           imageUrl: url,
           cacheKey: coverCacheKey(url),
-          cacheManager: PhotoCacheManager.instance,
+          cacheManager: PhotoCacheManager.thumbnails,
           fit: BoxFit.cover,
           errorWidget: (context, url, error) => fallback,
         ),
