@@ -1251,6 +1251,9 @@ components:
         `POST /plants/identify` と `POST /images/upload` では、AI識別の呼び出しと
         Blob Storage の操作で起きた失敗は 500 ではなく 502 / 503 になる（各エンドポイントの
         502 / 503 を参照）。500 になるのは、それ以外の箇所で起きた失敗。
+        `AZURE_OPENAI_ENDPOINT` があるのに `AZURE_OPENAI_DEPLOYMENT_NAME`（Azure OpenAI Service の
+        デプロイ名）が未設定の場合も、設定の誤りとして AI識別サービスへ要求を送らずに 500 になる
+        （`POST /images/upload` では一時保存の前に失敗するので、何も保存しない）。
 
         `details` には元の例外のメッセージが入る（`Error.details` を参照）。
       content:

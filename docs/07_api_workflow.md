@@ -161,6 +161,10 @@ images コンテナへの複製も残ります。一時コンテナの Blob は�
 **植物でない画像の一時ファイルの削除が失敗した場合（502）:**
 400 `NOT_A_PLANT` ではなく 502 / 503 `STORAGE_ERROR` になり、一時ファイルは temp-images に残ります。
 
+**Azure OpenAI Service のデプロイ名が未設定の場合（500）:**
+`AZURE_OPENAI_ENDPOINT` があるのに `AZURE_OPENAI_DEPLOYMENT_NAME` が無いと、一時保存の前に
+500 `INTERNAL_ERROR` になります（`06_api_design.md` §5.9）。何も保存しないので、temp-images にも何も残りません。
+
 #### ステップ4a後: Cosmos DB新規保存の状態
 ```json
 // 新規ドキュメントが追加される
