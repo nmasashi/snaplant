@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/taken_at.dart';
+import 'message_view.dart';
 
 /// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
 ///
@@ -32,6 +33,8 @@ class PhotoGrid extends StatefulWidget {
 
 class _PhotoGridState extends State<PhotoGrid> {
   List<Photo>? _photos;
+  // 1ページ目の取得に失敗したときの文言。null なら失敗していない
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -41,17 +44,40 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 先頭のページを読む
   Future<void> _loadFirstPage() async {
+    setState(() {
+      _photos = null;
+      _errorMessage = null;
+    });
     try {
       final page = await widget.apiService.getPhotos(widget.tripId);
       if (!mounted) return;
       setState(() => _photos = page.photos);
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
+      if (!mounted) return;
+      setState(() =>
+          _errorMessage = e is ApiException ? e.userMessage : '写真の読み込みに失敗しました');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final errorMessage = _errorMessage;
+    if (errorMessage != null) {
+      // 旅行の見出しは画面側に残し、写真の部分だけをエラーにする
+      return SingleChildScrollView(
+        child: MessageView(
+          isLargeScreen: MediaQuery.of(context).size.width >= 1400,
+          icon: Icons.error_outline,
+          title: 'エラーが発生しました',
+          message: errorMessage,
+          buttonIcon: Icons.refresh,
+          buttonLabel: '再試行',
+          onPressed: _loadFirstPage,
+          isError: true,
+        ),
+      );
+    }
     final photos = _photos;
     if (photos == null) {
       return Center(

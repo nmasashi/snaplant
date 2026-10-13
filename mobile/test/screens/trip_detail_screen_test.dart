@@ -96,6 +96,38 @@ void main() {
     expect(find.text('写真を読み込み中...'), findsNothing);
   });
 
+  testWidgets('写真の一覧の取得に失敗すると、旅行の枚数・期間は出したまま写真の部分にエラーと「再試行」を出し、「再試行」で取り直すと写真が並ぶ', (tester) async {
+    // 旅行の取得は成功し、写真の一覧の1回目だけが 503 で失敗する。2回目の成功で、取り直したかどうかを見分ける
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    backend.failNext(TripRoute.photos);
+
+    await openDetailFromHome(tester, backend);
+
+    // 旅行の見出しはそのままで、写真の部分だけがエラーになる。写真と、読み込み中・0件の表示は出ていない
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 12:30'), findsNothing);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+    expect(find.text('まだ写真がありません'), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+
+    expect(_thumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final backend = _backendWith([hokkaidoTrip(description: 'ひとり旅')]);
     await openDetailFromHome(tester, backend);
