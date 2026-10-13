@@ -657,7 +657,7 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 
 | 要素 | 内容 |
 |---|---|
-| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき `AZURE_OPENAI_DEPLOYMENT_NAME` は必須で、未設定（空文字列を含む）なら要求を送らずに 500 `INTERNAL_ERROR` になる（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき `AZURE_OPENAI_DEPLOYMENT_NAME` は必須で、未設定（空文字列・空白だけを含む）なら要求を送らずに 500 `INTERNAL_ERROR` になる（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
 | モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`。Azure OpenAI Service では必須なので、`baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、未設定なら `gpt-5.6-luna` を使う |
 | メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
 | 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL。5.8 の SAS は、一時コンテナのその Blob 1つだけを対象にした読み取り専用で、発行から15分で切れ、開始時刻を付けない（発行した時点から有効。値の根拠は `07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
@@ -670,7 +670,7 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 応答の検証（`confidence` の範囲（0 と 100 は可）、候補の必須項目、空・JSON として読めない応答）で弾かれた場合の扱いは
 6.2 の「502 / 503 の振り分けと `message`」に、応答の null 項目の省略と植物でない場合の `candidates` は 4.2 にあります。
 
-`AZURE_OPENAI_ENDPOINT` があるのに `AZURE_OPENAI_DEPLOYMENT_NAME` が未設定（空文字列を含む）の場合は、
+`AZURE_OPENAI_ENDPOINT` があるのに `AZURE_OPENAI_DEPLOYMENT_NAME` が未設定（空文字列・空白だけを含む）の場合は、
 設定の誤りとして AI 識別サービスへ要求を送らずに 500 `INTERNAL_ERROR` を返します
 （AI 識別サービスの障害ではないので 502 / 503 `AI_SERVICE_ERROR` にはしません）。
 `message` は 6.2 の「500 `INTERNAL_ERROR` の `message`」のとおりエンドポイントごとの文言で、

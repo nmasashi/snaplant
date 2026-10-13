@@ -242,7 +242,7 @@ Application Insights の2つは `site_config` の `application_insights_key` / `
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
 このときモデル名は `AZURE_OPENAI_DEPLOYMENT_NAME`、未設定なら `gpt-5.6-luna` です。
 
-`AZURE_OPENAI_ENDPOINT` を設定して `AZURE_OPENAI_DEPLOYMENT_NAME` を設定しない（空文字列を含む）と、
+`AZURE_OPENAI_ENDPOINT` を設定して `AZURE_OPENAI_DEPLOYMENT_NAME` を設定しない（空文字列・空白だけを含む）と、
 `POST /api/plants/identify` と `POST /api/images/upload` は、入力検証を通ったリクエストが
 AI 識別サービスを呼ばずに 500 `INTERNAL_ERROR` になります（`message` は `docs/06_api_design.md` §6.2 の
 エンドポイントごとの文言。`POST /api/images/upload` は一時保存の前に失敗するので、何も保存しません）。Terraform は必ず設定するので、手で設定するローカル開発で踏みやすい設定です。
