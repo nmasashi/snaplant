@@ -199,6 +199,11 @@ resource "azurerm_linux_function_app" "main" {
   storage_account_access_key = azurerm_storage_account.main.primary_access_key
   service_plan_id            = azurerm_service_plan.main.id
 
+  # HTTP の要求は HTTPS へ転送し、HTTP のまま処理しない。関数は Function Key（?code=）を URL で受け取るので、
+  # HTTP で処理するとキーが平文で流れる。アプリはエンドポイントを利用者が入力し、ローカル開発（func start）の
+  # http://localhost のために http も受け付けるので、本番を守るのはサーバ側のこの設定
+  https_only = true
+
   # azurerm v4 では、ランタイム関係のアプリ設定（FUNCTIONS_WORKER_RUNTIME・WEBSITE_NODE_DEFAULT_VERSION）は
   # application_stack から、Application Insights のアプリ設定は site_config の専用項目から
   # プロバイダが設定する。app_settings に直接書くとプロバイダが読み戻すときに取り除くため、
