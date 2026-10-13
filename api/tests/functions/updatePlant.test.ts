@@ -215,6 +215,8 @@ describe('植物更新API', () => {
   });
 
   describe('バリデーションエラー', () => {
+    // 植物 ID の形の規則は GET / PUT / DELETE で同じ（06_api_design.md §5.2）。
+    // 受理・拒否の全ケースは plantDetail.test.ts の GET で通しているので、ここは1行だけ
     it('植物IDが無効な場合は400エラー', async () => {
       // リクエストの作成（無効なID）
       const request = {
@@ -428,6 +430,8 @@ describe('植物更新API', () => {
       });
     });
 
+    // imagePath の形の条件は save と同じ（06_api_design.md §5.5）。
+    // 拒否の全ケースは save.test.ts で通しているので、ここは別ホストの1行だけ
     it('画像パスが自ストレージアカウント以外のホストを指す場合は400エラー', async () => {
       // 既存植物のモック（バリデーションが機能していない場合に更新まで
       // 進んでしまうことを明確に判別するため、更新処理が成功しうる状態
@@ -634,6 +638,49 @@ describe('植物更新API', () => {
 
       // 旧画像がBlobストアから消えたことの状態検証
       expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`)).toBe(false);
+    });
+
+    it('旧画像の削除に失敗しても、200で植物は更新される（旧画像は残る）', async () => {
+      // 06_api_design.md §5.5。旧画像の削除の失敗はログだけで、更新は成功扱いにする
+      const existingPlant: Plant = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        name: '桜',
+        characteristics: '春に美しいピンクの花を咲かせる',
+        imagePath: `${TEST_IMAGE_BASE_URL}/old-image.jpg`,
+        confidence: 85.0,
+        createdAt: '2024-01-10T14:20:00Z',
+        updatedAt: '2024-01-10T14:20:00Z'
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+      blobStore.set(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`, {
+        content: Buffer.from('old'),
+        failWith: new Error('Delete failed')
+      });
+      const request = {
+        method: 'PUT',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/123e4567-e89b-12d3-a456-426614174000?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { id: '123e4567-e89b-12d3-a456-426614174000' },
+        json: jest.fn().mockResolvedValue({
+          imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
+          confidence: 97.0
+        })
+      } as any as HttpRequest;
+
+      const response = await updatePlantHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      const updatedPlant = {
+        ...existingPlant,
+        imagePath: `${TEST_IMAGE_BASE_URL}/new-image.jpg`,
+        confidence: 97.0,
+        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      };
+      expect(response.jsonBody).toEqual({ success: true, data: { plant: updatedPlant } });
+      expect(cosmosBackend.documents.get(existingPlant.id)).toEqual(updatedPlant);
+      // 削除に失敗しているため、旧画像は残ったままになる
+      expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old-image.jpg`)).toBe(true);
     });
   });
 

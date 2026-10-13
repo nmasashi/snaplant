@@ -4,7 +4,7 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import { deleteTripHandler, getTripHandler, updateTripHandler } from '../../src/functions/tripDetail';
 import { FakeCosmosBackend, FakeCosmosDocument, cosmosNotFoundError, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
-import { photoDocument, tripDocument } from '../helpers/albumDocuments';
+import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
@@ -139,6 +139,26 @@ describe('旅行詳細API', () => {
           }
         }
       });
+    });
+
+    it('旅行を1件取り出すと、データベースが付けた内部の項目と種別は返らない', async () => {
+      // 偽物の Cosmos はシステム項目を付けないので、実際の Cosmos が保存したドキュメントの形を自分で置く
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, { ...tripDocument(KYOTO_TRIP_ID, '京都旅行'), ...COSMOS_SYSTEM_FIELDS });
+      const request = {
+        method: 'GET',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map(),
+        params: { tripId: KYOTO_TRIP_ID }
+      } as any as HttpRequest;
+
+      const response = await getTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(Object.keys((response.jsonBody as any).data.trip).sort()).toEqual([
+        'coverThumbnailUrl', 'createdAt', 'description', 'firstTakenAt', 'id',
+        'lastTakenAt', 'name', 'photoCount', 'tags', 'updatedAt'
+      ]);
     });
 
     // 写真の無い旅行の詳細は、写真の保存先(Blob Storage)の設定に頼らない。設定が無い環境でも旅行の詳細は返る。
@@ -331,8 +351,28 @@ describe('旅行詳細API', () => {
       });
     });
 
+    it('旅行を更新すると、データベースが付けた内部の項目と種別は返らない', async () => {
+      // 偽物の Cosmos はシステム項目を付けないので、実際の Cosmos が保存したドキュメントの形を自分で置く
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, { ...tripDocument(KYOTO_TRIP_ID, '京都旅行'), ...COSMOS_SYSTEM_FIELDS });
+      const request = {
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${KYOTO_TRIP_ID}?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { tripId: KYOTO_TRIP_ID },
+        json: jest.fn().mockResolvedValue({ name: '新しい名前', description: null })
+      } as any as HttpRequest;
+
+      const response = await updateTripHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(Object.keys((response.jsonBody as any).data.trip).sort()).toEqual([
+        'createdAt', 'description', 'id', 'name', 'tags', 'updatedAt'
+      ]);
+    });
+
     const existingTripId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const photoDocId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const photoDocId ='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     const missingTripId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     const validBody = () => jest.fn().mockResolvedValue({ name: '新しい名前' });
     // 更新される前の旅行。説明・タグ・更新日時を既定値でない値にして、何も変わらないことを見分けられるようにする

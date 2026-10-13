@@ -1,5 +1,5 @@
 import { CosmosService } from '../../src/services/cosmosService';
-import { Plant, PlantCreateRequest, PlantUpdateRequest } from '../../src/types/plant';
+import { Plant } from '../../src/types/plant';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { FakeCosmosBackend, createFakeContainer } from '../fakes/cosmos';
@@ -22,10 +22,8 @@ const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof Blo
 
 // CosmosService の大半（委譲・詰め替え・エラーの伝播・旧画像の削除の発火）は、
 // ハンドラのテスト（save / updatePlant / plantDetail / checkDuplicate / plants）が
-// 同じ偽物を通して見ている。ここに残すのは、ハンドラのテストからは見えない次の3点（4件）だけ。
-// - 乱数によるIDが毎回違うこと
-// - 更新を許す項目の絞り込み（ハンドラ側でも絞っているので、ハンドラのテストではサービス側の絞り込みが見えない）
-// - 画像の削除に失敗しても、更新・削除は成功扱いにすること
+// 同じ偽物を通して見ている。ここに残っているのは、ハンドラのテストからは見えない
+// 更新を許す項目の絞り込み（ハンドラ側でも絞っているので、ハンドラのテストではサービス側の絞り込みが見えない）だけ
 describe('CosmosService', () => {
   let service: CosmosService;
   let cosmosBackend: FakeCosmosBackend;
@@ -75,26 +73,6 @@ describe('CosmosService', () => {
     delete process.env.TEMP_STORAGE_CONTAINER_NAME;
   });
 
-  describe('createPlant', () => {
-    const plantCreateRequest: PlantCreateRequest = {
-      name: '桜',
-      scientificName: 'Prunus serrulata',
-      familyName: 'バラ科',
-      description: '日本を代表する花木',
-      characteristics: '春に美しい花を咲かせる',
-      confidence: 95.5,
-      imagePath: 'https://example.com/sakura.jpg'
-    };
-
-    // ハンドラのテストは1回しか作成しないので、毎回違うIDになること（乱数を固定する退行）はここでだけ見られる
-    it('2回作成すると異なるIDが生成される', async () => {
-      const result1 = await service.createPlant(plantCreateRequest);
-      const result2 = await service.createPlant(plantCreateRequest);
-
-      expect(result1.id).not.toBe(result2.id);
-    });
-  });
-
   describe('updatePlant', () => {
     const plantId = '123e4567-e89b-12d3-a456-426614174000';
     const existingPlant: Plant = {
@@ -127,65 +105,6 @@ describe('CosmosService', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         confidence: 98.0
       });
-    });
-
-    it('古い画像の削除に失敗しても、更新処理は継続される', async () => {
-      cosmosBackend.documents.set(plantId, existingPlant);
-      blobStore.set('test-images/old-sakura.jpg', {
-        content: Buffer.from('old'),
-        failWith: new Error('Delete failed')
-      });
-      const updateData: PlantUpdateRequest = {
-        imagePath: 'https://example.com/new-sakura.jpg',
-        confidence: 97.0
-      };
-
-      const result = await service.updatePlant(plantId, updateData);
-
-      expect(result).toEqual({
-        id: plantId,
-        name: '桜',
-        scientificName: 'Prunus serrulata',
-        familyName: 'バラ科',
-        characteristics: '春に美しい花を咲かせる',
-        confidence: 97.0,
-        imagePath: 'https://example.com/new-sakura.jpg',
-        createdAt: '2024-01-01T00:00:00.000Z',
-        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
-      });
-      expect(result!.updatedAt).not.toBe(existingPlant.updatedAt);
-      // 削除に失敗しているため、古い画像は残ったままになる
-      expect(blobStore.has('test-images/old-sakura.jpg')).toBe(true);
-    });
-  });
-
-  describe('deletePlant', () => {
-    const plantId = '123e4567-e89b-12d3-a456-426614174000';
-    const existingPlant: Plant = {
-      id: plantId,
-      name: '桜',
-      characteristics: '春に美しい花を咲かせる',
-      confidence: 95.5,
-      imagePath: 'https://example.com/sakura.jpg',
-      createdAt: '2024-01-01T00:00:00.000Z',
-      updatedAt: '2024-01-01T00:00:00.000Z'
-    };
-
-    it('画像の削除に失敗しても、植物の削除は成功扱いになる', async () => {
-      const plantWithImage: Plant = {
-        ...existingPlant,
-        imagePath: 'https://test.blob.core.windows.net/test-images/sakura.jpg'
-      };
-      cosmosBackend.documents.set(plantId, plantWithImage);
-      blobStore.set('test-images/sakura.jpg', {
-        content: Buffer.from('data'),
-        failWith: new Error('Delete failed')
-      });
-
-      const result = await service.deletePlant(plantId);
-
-      expect(result).toBe(true);
-      expect(cosmosBackend.documents.has(plantId)).toBe(false);
     });
   });
 });

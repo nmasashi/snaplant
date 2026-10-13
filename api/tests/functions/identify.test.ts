@@ -702,6 +702,224 @@ describe('植物識別API', () => {
     });
   });
 
+  describe('AIの応答の検証', () => {
+    // 06_api_design.md §4.2・§6.2「502 / 503 の振り分けと message」。
+    // AI の応答が想定の形を満たさなければ、結果を返さず 502 にする
+    const identifyRequest = () => ({
+      method: 'POST',
+      url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+      query: new Map([['code', 'test-key']]),
+      headers: new Map([['content-type', 'application/json']]),
+      json: jest.fn().mockResolvedValue({ imagePath: 'https://example.com/sakura.jpg' })
+    } as any as HttpRequest);
+    const llmReturns = (body: unknown) => {
+      mockChatCompletions.create.mockResolvedValue({
+        choices: [{ message: { content: JSON.stringify(body) } }]
+      });
+    };
+    const candidate = {
+      name: '桜',
+      scientificName: 'Prunus serrulata',
+      familyName: 'バラ科',
+      description: '日本を代表する花木',
+      characteristics: '春に美しいピンクの花を咲かせる',
+      confidence: 95.5
+    };
+    const plantWith = (candidates: unknown[]) => ({
+      isPlant: true,
+      confidence: 95.5,
+      reason: 'テスト',
+      plantAnalysis: { candidates }
+    });
+
+    it.each([
+      ['植物判定の信頼度が無い', { isPlant: true, reason: 'テスト', plantAnalysis: null }],
+      ['判定理由が無い', { isPlant: true, confidence: 95.5, plantAnalysis: null }],
+      ['候補の名前が無い', plantWith([{ ...candidate, name: undefined }])],
+      ['候補の特徴が無い', plantWith([{ ...candidate, characteristics: undefined }])],
+      ['候補の信頼度が数値でない', plantWith([{ ...candidate, confidence: 'invalid' }])],
+      ['候補の信頼度が負（-1）', plantWith([{ ...candidate, confidence: -1 }])],
+      ['候補の信頼度が100を超える（100.5）', plantWith([{ ...candidate, confidence: 100.5 }])],
+    ])('AIの応答で%s場合は、不正な応答として502エラー', async (_name, body) => {
+      llmReturns(body);
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      // detailsは契約外なので固定しない
+      expect(response.status).toBe(502);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'AI_SERVICE_ERROR',
+          message: '植物識別サービスでエラーが発生しました'
+        }
+      });
+    });
+
+    it.each([0, 100])('AIの応答の候補の信頼度が境界値（%s）なら受け入れて、そのまま返す', async (confidence) => {
+      llmReturns(plantWith([{ ...candidate, confidence }]));
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody.data.result.candidates).toEqual([{ ...candidate, confidence }]);
+    });
+  });
+
+  describe('AI識別サービスへ渡すもの', () => {
+    // 06_api_design.md §5.9。管理外の依存へ送るものは外部との契約なので、表の要素を検証する。
+    // プロンプトの文言は契約外なので見ない。
+    // 以下の要素は、実際に本番で 400 エラーを引き起こしたもの（max_tokens・temperature）を含む
+    const ENV_KEYS = [
+      'AZURE_OPENAI_ENDPOINT',
+      'AZURE_OPENAI_API_KEY',
+      'AZURE_OPENAI_DEPLOYMENT_NAME',
+      'AZURE_OPENAI_API_VERSION',
+      'OPENAI_API_KEY'
+    ] as const;
+    let savedEnv: Record<string, string | undefined>;
+    const identifyRequest = () => ({
+      method: 'POST',
+      url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
+      query: new Map([['code', 'test-key']]),
+      headers: new Map([['content-type', 'application/json']]),
+      json: jest.fn().mockResolvedValue({ imagePath: 'https://example.com/sakura.jpg' })
+    } as any as HttpRequest);
+    const llmReturns = (body: unknown) => {
+      mockChatCompletions.create.mockResolvedValue({
+        choices: [{ message: { content: JSON.stringify(body) } }]
+      });
+    };
+
+    beforeEach(() => {
+      savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+      llmReturns({
+        isPlant: true,
+        confidence: 90,
+        reason: 'テスト',
+        plantAnalysis: { candidates: [{ name: 'テスト植物', characteristics: 'テスト特徴', confidence: 90 }] }
+      });
+    });
+
+    afterEach(() => {
+      for (const key of ENV_KEYS) {
+        if (savedEnv[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = savedEnv[key];
+        }
+      }
+    });
+
+    it('AI識別サービスへ渡すものは§5.9の要素のとおり（モデル・メッセージ・画像・応答の形・トークン上限・送らないパラメータ）', async () => {
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'test-deployment';
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(mockChatCompletions.create).toHaveBeenCalledTimes(1);
+      const body = mockChatCompletions.create.mock.calls[0][0];
+
+      // モデル
+      expect(body.model).toBe('test-deployment');
+
+      // メッセージ: user ロールの1件。テキストと画像の2パート。画像は detail: low
+      expect(body.messages).toHaveLength(1);
+      expect(body.messages[0].role).toBe('user');
+      expect(body.messages[0].content).toHaveLength(2);
+      expect(body.messages[0].content).toEqual(expect.arrayContaining([
+        { type: 'text', text: expect.any(String) },
+        { type: 'image_url', image_url: { url: 'https://example.com/sakura.jpg', detail: 'low' } }
+      ]));
+
+      // 応答の形: Structured Outputs（json_schema・strict）。json_object では中身の構造が保証されない
+      const responseFormat = body.response_format;
+      expect(responseFormat.type).toBe('json_schema');
+      expect(responseFormat.json_schema.name).toBe('plant_identification');
+      expect(responseFormat.json_schema.strict).toBe(true);
+      const schema = responseFormat.json_schema.schema;
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.required).toEqual(
+        expect.arrayContaining(['isPlant', 'confidence', 'reason', 'plantAnalysis'])
+      );
+      // strict モードでは全プロパティが required に含まれている必要がある
+      const candidateSchema = schema.properties.plantAnalysis.properties.candidates.items;
+      expect([...candidateSchema.required].sort()).toEqual(
+        ['characteristics', 'confidence', 'description', 'familyName', 'name', 'scientificName']
+      );
+      expect(Object.keys(candidateSchema.properties).sort()).toEqual([...candidateSchema.required].sort());
+      expect(candidateSchema.additionalProperties).toBe(false);
+      // 任意項目は null 許容で表現する
+      expect(candidateSchema.properties.scientificName.type).toEqual(['string', 'null']);
+      expect(schema.properties.plantAnalysis.type).toEqual(['object', 'null']);
+
+      // トークン上限: max_completion_tokens。max_tokens は新しいモデルでは 400 (Unsupported parameter) になる
+      expect(body.max_completion_tokens).toBe(4000);
+      expect(body).not.toHaveProperty('max_tokens');
+
+      // 送らないパラメータ: temperature（0.1 などを渡すと 400 (Unsupported value) になる）
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('AIが特定できなかった候補の学名・科名・説明は、nullではなくキーごと省略して返す', async () => {
+      // 06_api_design.md §4.2。AI は strict モードの制約で「不明」を null で返す
+      llmReturns({
+        isPlant: true,
+        confidence: 70,
+        reason: '葉の特徴から植物と判定しました',
+        plantAnalysis: {
+          candidates: [{
+            name: 'サクラ属',
+            scientificName: null,
+            familyName: null,
+            description: null,
+            characteristics: '鋸歯のある葉',
+            confidence: 70
+          }]
+        }
+      });
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      // JSON にしたときにキーが現れないことを、直列化した結果で見る
+      const candidates = JSON.parse(JSON.stringify(response.jsonBody)).data.result.candidates;
+      expect(candidates).toEqual([{ name: 'サクラ属', characteristics: '鋸歯のある葉', confidence: 70 }]);
+    });
+
+    it('AZURE_OPENAI_ENDPOINTがあれば、接続先はAzure OpenAI Serviceのデプロイメント（api-versionのクエリとapi-keyヘッダ付き）', async () => {
+      process.env.AZURE_OPENAI_ENDPOINT = 'https://test.openai.azure.com';
+      process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'test-deployment';
+      process.env.AZURE_OPENAI_API_VERSION = '2025-04-01-preview';
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      const clientOptions = MockedOpenAI.mock.calls[0][0];
+      expect(clientOptions.baseURL).toBe('https://test.openai.azure.com/openai/deployments/test-deployment');
+      expect(clientOptions.defaultQuery['api-version']).toBe('2025-04-01-preview');
+      expect(clientOptions.defaultHeaders['api-key']).toBe('azure-api-key');
+    });
+
+    it('AZURE_OPENAI_ENDPOINTが無ければ、接続先はOpenAI API（OPENAI_API_KEY）', async () => {
+      // tests/setup.ts が Azure の値を設定しているため、デプロイ名も含めて未設定の状態にする
+      delete process.env.AZURE_OPENAI_ENDPOINT;
+      delete process.env.AZURE_OPENAI_API_KEY;
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      process.env.OPENAI_API_KEY = 'openai-api-key';
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      const clientOptions = MockedOpenAI.mock.calls[0][0];
+      expect(clientOptions.apiKey).toBe('openai-api-key');
+      expect(clientOptions.baseURL).toBeUndefined();
+      expect(clientOptions.defaultQuery).toBeUndefined();
+      expect(clientOptions.defaultHeaders).toBeUndefined();
+    });
+  });
+
   describe('AI以外の予期しない失敗', () => {
     it('AIとは関係のない箇所で予期しない失敗が起きた場合は500エラー', async () => {
       // ボディの読み取りがSyntaxError以外で失敗する（AIは呼ばれない）
