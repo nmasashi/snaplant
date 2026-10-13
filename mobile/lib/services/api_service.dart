@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
+import '../models/trip.dart';
 import '../utils/image_mime_type.dart';
 
 /// Azure Functions API との通信を担当するサービスクラス
@@ -416,6 +417,101 @@ class ApiService {
     }
   }
 
+  /// 旅行一覧取得（旅行に属さない写真の枚数も同じ応答で返る）
+  /// GET /api/trips
+  Future<TripList> getTrips() async {
+    try {
+      final url = _buildUrl('/api/trips');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return TripList(
+          trips: (data['trips'] as List<dynamic>)
+              .map((e) => TripSummary.fromJson(e as Map<String, dynamic>))
+              .toList(),
+          unassignedPhotoCount: data['unassignedPhotoCount'] as int,
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 旅行詳細取得（枚数・撮影期間つき）
+  /// GET /api/trips/{tripId}
+  Future<TripSummary> getTrip(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return TripSummary.fromJson(data['trip'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 旅行作成
+  /// POST /api/trips
+  Future<Trip> createTrip(String name, String? description) async {
+    try {
+      final url = _buildUrl('/api/trips');
+      final response = await _client.post(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'name': name, 'description': description}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Trip.fromJson(data['trip'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 旅行更新（旅行名とメモの全体置き換え。メモを省くと消える）
+  /// PUT /api/trips/{tripId}
+  Future<Trip> updateTrip(
+      String tripId, String name, String? description) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId');
+      final response = await _client.put(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'name': name, 'description': description}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Trip.fromJson(data['trip'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 旅行削除。中の写真を消すか、旅行に属さない写真に移すかを [deletePhotos] で選ぶ
+  /// DELETE /api/trips/{tripId}?deletePhotos=true|false
+  ///
+  /// サーバは deletePhotos を必須にしている（省略時の既定で写真が消える・残る事故を防ぐため）
+  Future<TripDeleteResult> deleteTrip(String tripId,
+      {required bool deletePhotos}) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId?deletePhotos=$deletePhotos');
+      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return TripDeleteResult(
+          deletedPhotoCount: data['deletedPhotoCount'] as int,
+          detachedPhotoCount: data['detachedPhotoCount'] as int,
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 接続テスト
   Future<bool> testConnection() async {
     try {
@@ -491,6 +587,9 @@ class ApiException implements Exception {
   /// PUT は自分自身を重複から除外するので 409 にはならない。
   /// 同じ 409 でも `DATABASE_ERROR` は本当の失敗なので、ステータスではなくコードで判定する
   bool get isImageAlreadySaved => code == 'IMAGE_ALREADY_SAVED';
+
+  /// 旅行が無い（404 `TRIP_NOT_FOUND`）。別の端末で消された、送信中に消されたなど
+  bool get isTripNotFound => code == 'TRIP_NOT_FOUND';
 
   @override
   String toString() {
