@@ -18,9 +18,11 @@ import 'helpers/app_test_helpers.dart';
 
 /// 端末に API キーもエンドポイントも保存されていない状態にする。
 /// 呼び出し側は、テスト間で状態を持ち越さないよう各テストの冒頭で呼ぶ
-void _givenNoSettingsSaved() {
+Future<void> _givenNoSettingsSaved(WidgetTester tester) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({}));
   SharedPreferences.setMockInitialValues({});
+  // SettingsService はシングルトンで前のテストのエンドポイントを持ち越すので、setMockInitialValues では消えない
+  await clearSavedEndpoint(tester);
 }
 
 /// テストが [failReads] を立てた時点から、読み出しが失敗するセキュアストレージ。
@@ -50,8 +52,7 @@ String _endpointFieldText(WidgetTester tester) {
 
 void main() {
   testWidgets('何も保存されていない初回の起動で自動で開く設定画面は、エンドポイントの欄が空である（本番の宛先を入れておかない）', (tester) async {
-    _givenNoSettingsSaved();
-    await clearSavedEndpoint(tester);
+    await _givenNoSettingsSaved(tester);
 
     await openApp(tester);
 
@@ -75,7 +76,7 @@ void main() {
   });
 
   testWidgets('APIキーを入れずに設定画面から戻ると、読み込み中のまま止まらず「API設定が完了していません」と表示する', (tester) async {
-    _givenNoSettingsSaved();
+    await _givenNoSettingsSaved(tester);
     await openApp(tester);
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
@@ -88,17 +89,16 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
-  testWidgets('APIキーは保存済みでも、エンドポイントが未保存なら、一覧を読み込まず「API設定が完了していません」と表示する', (tester) async {
+  testWidgets('APIキーは保存済みでも、エンドポイントが未保存なら、設定画面へは自動で移らず、一覧を読み込まずに「API設定が完了していません」と表示する', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
     await clearSavedEndpoint(tester);
-    // 偽のサーバは [testApiHost] の一覧だけ返す。そこへ通信すれば植物の名前が出て、一覧を読み込んだと分かる
-    final server = plantServer({(host: testApiHost, code: 'saved-key'): '桜'});
+    // 偽のサーバはどの宛先にも一覧を返さない。一覧を取りにいけば失敗して「エラーが発生しました」が出る
+    final server = plantServer({});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
     expect(find.text('設定を開く'), findsOneWidget);
-    expect(find.text('桜'), findsNothing);
     expect(find.text('エラーが発生しました'), findsNothing);
     expect(find.text('画像選択'), findsNothing);
   });
@@ -107,6 +107,7 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({})..failReads = true;
     useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
+    await clearSavedEndpoint(tester);
     await openApp(tester);
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
 
@@ -157,6 +158,7 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({});
     useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
+    await clearSavedEndpoint(tester);
     await openApp(tester);
     // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
     await tester.tap(find.byIcon(Icons.arrow_back));
@@ -176,7 +178,7 @@ void main() {
   });
 
   testWidgets('APIキーを入れずに起動し、設定画面でキーを保存して戻ると、設定を促す表示が消えて一覧を読み込む', (tester) async {
-    _givenNoSettingsSaved();
+    await _givenNoSettingsSaved(tester);
     final server = plantServer({(host: testApiHost, code: 'new-function-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     // 起動時に設定画面へ自動で移っている
