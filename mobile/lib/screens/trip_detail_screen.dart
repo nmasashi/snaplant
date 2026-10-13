@@ -5,6 +5,7 @@ import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
+import '../widgets/photo_selection.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
 
@@ -28,6 +29,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   bool _tripDeleted = false;
   // 読み込みに失敗したときの文言（旅行が無い場合を除く）。null なら失敗していない
   String? _errorMessage;
+  // 写真の複数選択（見出し・下の操作バー・グリッドが見る）
+  final _selection = PhotoSelection();
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -107,23 +116,71 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(trip?.name ?? '', style: AppTextStyles.appBarTitle),
-        actions: [
-          if (trip != null && _errorMessage == null)
-            PopupMenuButton<void>(
-              icon: const Icon(Icons.more_vert),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                    onTap: () => _editTrip(trip), child: const Text('編集')),
-                PopupMenuItem(
-                    onTap: () => _deleteTrip(trip), child: const Text('削除')),
-              ],
-            ),
+    return ListenableBuilder(
+      listenable: _selection,
+      builder: (context, _) => Scaffold(
+        appBar:
+            _selection.isActive ? _buildSelectionAppBar() : _buildAppBar(trip),
+        body: _buildBody(trip),
+        bottomNavigationBar:
+            _selection.isActive ? _buildSelectionActions() : null,
+      ),
+    );
+  }
+
+  /// 選択モードの見出し（閉じる・枚数・すべて選択）
+  PreferredSizeWidget _buildSelectionAppBar() {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: '選択をやめる',
+        onPressed: _selection.clear,
+      ),
+      title: Text('${_selection.count}枚を選択中', style: AppTextStyles.appBarTitle),
+      actions: [
+        TextButton(onPressed: () {}, child: const Text('すべて選択')),
+      ],
+    );
+  }
+
+  /// 選択モードの下の操作バー
+  Widget _buildSelectionActions() {
+    return SafeArea(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          TextButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.drive_file_move_outline),
+              label: const Text('旅行に入れる')),
+          TextButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.remove_circle_outline),
+              label: const Text('旅行から外す')),
+          TextButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('削除')),
         ],
       ),
-      body: _buildBody(trip),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(TripSummary? trip) {
+    return AppBar(
+      title: Text(trip?.name ?? '', style: AppTextStyles.appBarTitle),
+      actions: [
+        if (trip != null && _errorMessage == null)
+          PopupMenuButton<void>(
+            icon: const Icon(Icons.more_vert),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                  onTap: () => _editTrip(trip), child: const Text('編集')),
+              PopupMenuItem(
+                  onTap: () => _deleteTrip(trip), child: const Text('削除')),
+            ],
+          ),
+      ],
     );
   }
 
@@ -161,6 +218,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           child: PhotoGrid(
             apiService: widget.apiService,
             tripId: trip.id,
+            selection: _selection,
             emptyTitle: 'まだ写真がありません',
             emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
           ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -675,5 +676,38 @@ void main() {
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
     expect(find.text('再試行'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
+
+  testWidgets('写真を長押しすると選択モードに入り、見出しが「1枚を選択中」と「×」「すべて選択」に替わり、押した写真だけが選択中になって、下に「旅行に入れる」「旅行から外す」「削除」が出る', (tester) async {
+    // 選択中かどうかは、サムネイルの読み上げ用ラベルを持つ Semantics の「選択中」の状態で見る（チェックの絵は画像のため見分けにくい）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    // 長押しの前は、通常の見出しで、選択の操作は出ていない
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('旅行に入れる'), findsNothing);
+
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('1枚を選択中')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byIcon(Icons.close)), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('すべて選択')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsNothing);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:02')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    expect(find.text('旅行に入れる'), findsOneWidget);
+    expect(find.text('旅行から外す'), findsOneWidget);
+    expect(find.text('削除'), findsOneWidget);
+    semantics.dispose();
   });
 }
