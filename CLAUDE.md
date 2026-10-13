@@ -595,6 +595,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | api（植物図鑑） | エンドポイント（`api/tests/functions/`） | `docs/06_api_design.md`・`06_api_openapi.yaml` |
 | api（旅行アルバム） | エンドポイント（`api/tests/functions/`） | `docs/travel-album/05_api_design.md`（目指す姿） |
 | mobile | 画面（`mobile/test/screens/`） | `docs/03_screen_design.md` |
+| mobile | アプリ全体（`mobile/test/app_root_test.dart`。起動直後の設定の扱い） | `docs/03_screen_design.md` §1・`docs/travel-album/03_screen_design.md` §4.1 |
 | mobile | `ApiService`（封筒の契約。`mobile/test/services/`） | `docs/05_technology_selection.md` §4.2・`docs/07_api_workflow.md` |
 
 **入口以外に残してよいテストの名簿。** 原則4の2つの例外に当たるもの。ここに無いテストが入口以外に残っていたら、
