@@ -865,9 +865,32 @@ describe('植物識別API', () => {
       expect(clientOptions.defaultHeaders['api-key']).toBe('azure-api-key');
     });
 
-    it('デプロイ名が未設定なら、既定のモデル（gpt-5.6-luna）を指定する', async () => {
+    it('Azure OpenAI Serviceの接続先があるのにデプロイ名が未設定なら、AIを呼ばずに500エラー', async () => {
+      // 接続先のURLに埋め込むデプロイ名が無いまま既定のモデル名で呼ぶと、接続先とモデルが食い違う。
       // tests/setup.ts が全体に値を入れているので、delete で未設定にする（元に戻すのは afterEach）
+      process.env.AZURE_OPENAI_ENDPOINT = 'https://test.openai.azure.com';
+      process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
       delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      // detailsは契約外なので固定しない
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '植物識別処理に失敗しました'
+        }
+      });
+      expect(mockChatCompletions.create).not.toHaveBeenCalled();
+    });
+
+    it('Azure OpenAI Serviceの接続先が無く、デプロイ名も未設定なら、既定のモデル（gpt-5.6-luna）を指定する', async () => {
+      // tests/setup.ts が全体に値を入れているので、delete で未設定にする（元に戻すのは afterEach）
+      delete process.env.AZURE_OPENAI_ENDPOINT;
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      process.env.OPENAI_API_KEY = 'openai-api-key';
 
       const response = await identifyPlantHandler(identifyRequest(), mockContext);
 
