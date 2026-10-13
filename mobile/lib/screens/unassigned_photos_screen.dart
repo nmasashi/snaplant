@@ -35,12 +35,17 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
   }
 
   /// 選んだ写真を移した・消した後に、写真の一覧と枚数を読み直す。
-  /// 枚数を返す API は旅行一覧だけなので、それを取り直す
+  /// 枚数を返す API は旅行一覧だけなので、それを取り直す。
+  /// 取り直せなければ枚数は前の値のまま（操作の知らせは出ているので、失敗の知らせは足さない）
   Future<void> _reloadPhotos() async {
     setState(() => _gridVersion++);
-    final list = await widget.apiService.getTrips();
-    if (!mounted) return;
-    setState(() => _photoCount = list.unassignedPhotoCount);
+    try {
+      final list = await widget.apiService.getTrips();
+      if (!mounted) return;
+      setState(() => _photoCount = list.unassignedPhotoCount);
+    } catch (e) {
+      debugPrint('UnassignedPhotosScreen: 枚数の取り直しエラー: $e');
+    }
   }
 
   @override

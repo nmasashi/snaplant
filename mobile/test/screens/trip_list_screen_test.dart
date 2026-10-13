@@ -407,4 +407,39 @@ void main() {
     expect(backend.photosByTripId['3f2504e0-4f89-41d3-9a0c-0305e82c3302']!.map((photo) => photo['takenAt']), ['2026-09-01T10:15:00', '2026-09-02T12:30:00']);
     semantics.dispose();
   });
+
+  testWidgets('「旅行に属さない写真」の画面で写真を削除したあとの枚数の取り直しに失敗しても、「1枚を削除しました」と知らせて写真の一覧は読み直し、見出しの枚数は前の値のまま、失敗の知らせは足さない', (tester) async {
+    // 削除では「旅行を選ぶ」が開かないので、旅行の一覧（GET /api/trips）は削除のあとの枚数の取り直しで初めて呼ばれる。
+    // 確認ダイアログの「削除」を押す直前に、その1回目を 503 で失敗させる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip()],
+      unassignedPhotoCount: 3,
+      photosByTripId: {
+        'none': [
+          photoJson(number: 1, takenAt: '2026-09-01T10:15:00'),
+          photoJson(number: 2, takenAt: '2026-09-02T12:30:00'),
+          photoJson(number: 3, takenAt: '2026-09-03T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    await tester.longPress(photoThumbnail('2026年9月1日 10:15'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.list);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('1枚を削除しました'), findsOneWidget);
+    expect(photoThumbnail('2026年9月1日 10:15'), findsNothing);
+    expect(photoThumbnail('2026年9月2日 12:30'), findsOneWidget);
+    expect(photoThumbnail('2026年9月3日 18:45'), findsOneWidget);
+    expect(find.text('3枚'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+    semantics.dispose();
+  });
 }
