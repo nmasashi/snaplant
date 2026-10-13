@@ -421,41 +421,6 @@ Flutter クライアントは失敗後に同じ画像を送り直せる（`07_ap
    SAS 生成の失敗時に行っている後片付けと同じ扱い。挙動変更なので、再現テスト（AI の呼び出しを失敗させ、
    一時コンテナが空であることを偽物の `store` で確かめる）を先に書く
 
-### `UpstreamError` での包み直しのうち2箇所が無検証
-
-`identify` と `upload` は失敗した場所でエラーを分類する。`StorageService` と `OpenAIVisionService` が
-失敗を `UpstreamError`（`api/src/utils/errors.ts`。`service` と元のエラーを `cause` に持つ）で包み直し、
-ハンドラの catch が `createUpstreamErrorResponse()`（`utils/response.ts`）でそれを 502 / 503 に変換する
-（以前の `wrapError()` は削除され、これに置き換わった）。
-包み直しをやめて `new Error` で投げると、その経路は 502 / 503 ではなく 500 になる。
-
-包み直しは5箇所にあり、**ハンドラ経由で分類まで確かめているテストがあるのは2箇所だけ**
-（コードとテストを読んでの判断。変異は実行していない）。
-
-| 箇所 | 守っているテスト |
-|---|---|
-| `openAIVisionService.ts` の `identifyPlant` | `identify.test.ts` / `upload.test.ts` の 502・503 |
-| `storageService.ts` の `uploadImageToTemp` | `upload.test.ts` の 502（`RestError` の形）と 503（`it.each` の3 code） |
-| `storageService.ts` の SAS URL 生成 | 呼び出し元の `uploadImageToTemp` が外側でもう一度包むので、ここの型は分類に効かない |
-| `storageService.ts` の `moveFromTempToPermanent` | **無し**。`storageService.test.ts` は例外になることだけを見る（分類は見ない） |
-| `storageService.ts` の `deleteImage` | **無し**（同上）。`upload` で効くのは植物でない画像の一時ファイルの削除だけで、`CosmosService` 経由の呼び出しは失敗をログだけにして握りつぶす |
-
-つまり `upload` の**移動失敗・（植物でない画像の）削除失敗**の 502 / 503 分類は
-現在ノーガードで、包み直しをやめても気づけない。
-
-**なぜ今テストを足さなかったか**: 偽物の `forcedUploadError` は
-バックエンド全体に効くため、「一時保存は成功させて永続保存への移動だけ
-失敗させる」という条件が作れない。Blob 単位の `failWith` は、ハンドラの中で
-UUID から決まる一時 Blob の名前を事前に知れないので使えない。`tests/fakes/blob.ts` に
-コンテナ単位（あるいは呼び出し回数単位）の失敗注入を足す必要がある。
-
-**判断が必要な点**: 偽物に失敗注入の仕組みを足すか。
-
-**推奨**: **足す。** `forcedUploadErrorByContainer` のような
-コンテナ名をキーにした失敗注入が素直で、既存の `failWith`（Blob 単位）と
-同じ発想。移動処理は「一時から読んで永続へ書き、一時を消す」の3手で
-宛先を取り違える余地があり、守る価値が高い。
-
 ### `updatePlant` で存在しない id への PUT が 404 ではなく 409 を返す
 
 `api/src/functions/updatePlant.ts` は `imagePath` の重複チェックを
@@ -556,8 +521,7 @@ test-reviewer が指摘した、原則違反ではないが締められる点。
 - **`FakeCosmosBackend<TDoc>` は止めたい方向を型で止められていない。**
   `FakeCosmosBackend<PlantSummary>` に完全な `Plant` を入れても通る（構造的部分型）。
   現状はテスト側が `const x: PlantSummary[] = [...]` とリテラルで宣言している
-  規律に依存している。射影と完全な `Plant` の両方を扱う `cosmosService.test.ts` が
-  既定の union を使っているため、**区別が最も必要なファイルで区別が消えている**
+  規律に依存している
 - **`upload.test.ts` が設定する `OPENAI_API_KEY` は死蔵。**
   `openAIVisionService.ts` は `AZURE_OPENAI_ENDPOINT` の有無で分岐し、
   それは `tests/setup.ts` のグローバル値が立ったまま。
@@ -647,10 +611,6 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 
 仕様との食い違いではなく、テストそのものの不備。
 
-- **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
-  テスト名と検証対象がずれている。同ファイルのエラー系は部分一致 `toThrow('植物識別に失敗しました')` のため、
-  どの原因で失敗したかを区別できない（原則7。`identifyPlant()` の失敗はハンドラでどれも 502 / 503 に分類されるので、
-  以前のような 500 と 502 の取り違えは起きなくなった）
 - **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
   PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
 - **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、
@@ -658,7 +618,7 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 - **Flutter のテストの偽レスポンスが OpenAPI と細部で違う**: アップロードの `identificationResult` に `reason` を入れている、
   `isPlant: true` なのに `candidates: []`、植物IDに UUID でない `plant-1` を使っている。検証には影響しない
 - **仕様にあるのにテストが無い振る舞い**: contextInfo の検証が一時保存と AI 呼び出しの前に行われること（upload の 501 文字のテストは Blob も OpenAI も見ていない）、
-  503 になる `ECONNREFUSED`（Cosmos DB を使うハンドラと upload の AI 由来のテストは `ENOTFOUND` だけ）、DELETE で画像の削除に失敗しても 200、
+  503 になる `ECONNREFUSED`（植物図鑑の Cosmos DB を使うハンドラのテストは `ENOTFOUND` だけ）、
   identify の `contextInfo: null` と数値・オブジェクトの拒否、`CONTEXT_INFO_MAX_LENGTH` に有効な値を設定した場合
 - **`api/host.json` の `http` がトップレベルにある**（正しくは `extensions.http`）。`routePrefix: "api"` は既定値と同じなので実害は無いが、
   `maxOutstandingRequests` などを設定するつもりでここに書いても効かない
