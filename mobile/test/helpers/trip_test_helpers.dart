@@ -97,7 +97,7 @@ enum TripRoute {
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
 /// - 写真は旅行ごとに [photosByTripId] に持つ（キーは旅行の id。旅行に属さない写真は `none`）。
-///   `GET /api/photos` は `tripId` で絞り込み、入れた順（サーバが返す順）に `limit`（既定 100）枚ずつ返す。
+///   `GET /api/photos` は `tripId` で絞り込み、入れた順（サーバが返す順）に `limit`（クライアントが送らなければ [pageSize]）枚ずつ返す。
 ///   続きがあるときの `continuationToken` は次の開始位置を表す文字列で、受け取ったものをそのまま次の要求に載せると続きが返る
 ///   （旅行が無い `tripId` は 404 `TRIP_NOT_FOUND`。`none` は旅行の確認をしない）
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -111,6 +111,7 @@ class FakeTripBackend {
     List<Map<String, Object?>> trips = const [],
     this.unassignedPhotoCount = 0,
     this.functionKey = 'saved-key',
+    this.pageSize = 100,
     Map<String, List<Map<String, Object?>>> photosByTripId = const {},
   })  : trips = [...trips],
         photosByTripId = {
@@ -119,6 +120,9 @@ class FakeTripBackend {
 
   /// 旅行（新しい順。`GET /api/trips` はこの順に返す）。作成は先頭に足し、更新と削除はここを書き換える
   final List<Map<String, Object?>> trips;
+
+  /// `GET /api/photos` の1ページの枚数（`limit` が無いときの既定。実際のサーバは 100。画面を超える枚数を少なく用意するために減らせる）
+  final int pageSize;
 
   /// 旅行に属さない写真の枚数。写真を残す削除で、その旅行の枚数だけ増える
   int unassignedPhotoCount;
@@ -265,7 +269,7 @@ class FakeTripBackend {
     if (tripId == null) return _error(400, 'INVALID_REQUEST', '旅行を指定してください');
     if (tripId != 'none' && _find(tripId) == null) return _notFound();
     final photos = photosByTripId[tripId] ?? const <Map<String, Object?>>[];
-    final limit = int.parse(query['limit'] ?? '100');
+    final limit = int.parse(query['limit'] ?? '$pageSize');
     final start = int.parse(query['continuationToken'] ?? '0');
     final end = start + limit < photos.length ? start + limit : photos.length;
     return _ok(200, {

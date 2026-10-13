@@ -128,6 +128,45 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真が1ページに収まらない旅行は、グリッドを下端まで送ると末尾に「読み込み中...」を出して次のページを取り、続きの写真を並べる', (tester) async {
+    // サーバの1ページは30枚（偽のサーバの pageSize）。旅行の写真は33枚なので、続きは2ページ目の3枚（撮影日時の分 31〜33）。
+    // 30枚（10行）は画面（約5行分）を超えるので、下端まで送らないと2ページ目は要らない
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: _apiKey,
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    // 2ページ目の応答を止めておく（1ページ目は読み込み済み）
+    backend.holds[TripRoute.photos] = release.future;
+
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    // 次のページを読んでいる間。1ページ目の最後の写真が見え、続きはまだ無い
+    expect(find.text('読み込み中...'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:31'), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    expect(find.text('読み込み中...'), findsNothing);
+    expect(_thumbnail('2026年10月5日 10:31'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:33'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final backend = _backendWith([hokkaidoTrip(description: 'ひとり旅')]);
     await openDetailFromHome(tester, backend);

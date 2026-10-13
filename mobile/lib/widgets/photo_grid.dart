@@ -31,10 +31,17 @@ class PhotoGrid extends StatefulWidget {
   State<PhotoGrid> createState() => _PhotoGridState();
 }
 
+/// 末尾から何枚以内を組み立てたら続きを読むか（3列なので2行分）
+const _loadMoreThreshold = 6;
+
 class _PhotoGridState extends State<PhotoGrid> {
   List<Photo>? _photos;
   // 1ページ目の取得に失敗したときの文言。null なら失敗していない
   String? _errorMessage;
+  // 続きを読むためのトークン。null なら最後まで読んだ
+  String? _continuationToken;
+  // 続きのページを読んでいる（重ねて読まない）
+  bool _isLoadingMore = false;
 
   @override
   void initState() {
@@ -51,12 +58,36 @@ class _PhotoGridState extends State<PhotoGrid> {
     try {
       final page = await widget.apiService.getPhotos(widget.tripId);
       if (!mounted) return;
-      setState(() => _photos = page.photos);
+      setState(() {
+        _photos = page.photos;
+        _continuationToken = page.continuationToken;
+      });
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
       if (!mounted) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '写真の読み込みに失敗しました');
+    }
+  }
+
+  /// 続きのページを読んで末尾に足す。読んでいる最中や、最後まで読んだ後は何もしない
+  Future<void> _loadMore() async {
+    final token = _continuationToken;
+    if (_isLoadingMore || token == null) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final page = await widget.apiService
+          .getPhotos(widget.tripId, continuationToken: token);
+      if (!mounted) return;
+      setState(() {
+        _photos = [...?_photos, ...page.photos];
+        _continuationToken = page.continuationToken;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
     }
   }
 
@@ -117,15 +148,46 @@ class _PhotoGridState extends State<PhotoGrid> {
         ),
       );
     }
-    return GridView.builder(
-      padding: const EdgeInsets.all(2),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 2,
-        crossAxisSpacing: 2,
-      ),
-      itemCount: photos.length,
-      itemBuilder: (context, index) => _PhotoTile(photo: photos[index]),
+    return Column(
+      children: [
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.all(2),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 2,
+              crossAxisSpacing: 2,
+            ),
+            itemCount: photos.length,
+            itemBuilder: (context, index) {
+              // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
+              if (index >= photos.length - _loadMoreThreshold) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _loadMore();
+                });
+              }
+              return _PhotoTile(photo: photos[index]);
+            },
+          ),
+        ),
+        if (_isLoadingMore)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 12),
+                Text('読み込み中...',
+                    style: AppTextStyles.body1
+                        .copyWith(color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
