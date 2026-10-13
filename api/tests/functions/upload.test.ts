@@ -876,7 +876,7 @@ describe('画像アップロード・植物判定統合API', () => {
 
   describe('植物でない画像の判定', () => {
     // この describe 内の全テストで共通：AIが「植物ではない」と判定する応答に差し替える。
-    // validateImage()はURL形式のみを見てOpenAIを呼ばないため、このモックの影響を受けない
+    // （OpenAI の呼び出しの前に URL の形を見る処理は無い。一時 URL はこのハンドラ自身が作る）
     beforeEach(() => {
       mockOpenAI.chat.completions.create.mockResolvedValue({
         choices: [{

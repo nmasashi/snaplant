@@ -99,14 +99,6 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
 
     // 2. AI識別サービス初期化・植物判定実行
     const visionService = new OpenAIVisionService();
-    
-    // 画像の有効性チェック
-    const isValidImage = await visionService.validateImage(tempImageUrl);
-    if (!isValidImage) {
-      // 無効な画像の場合、一時ファイルを削除
-      await storageService.deleteImage(tempImageUrl);
-      return createValidationError('画像の解析に失敗しました', '有効な画像URLを指定してください');
-    }
 
     // LLMで植物識別実行（コンテキスト情報があれば渡す）
     const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo);
