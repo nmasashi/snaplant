@@ -99,9 +99,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     // ログにはパスまでを出す
     context.log(`一時保存完了: URL=${tempImageUrl.split('?')[0]}`);
 
-    // 2. 植物判定実行
-
-    // LLMで植物識別実行（コンテキスト情報があれば渡す）
+    // 2. AI で植物判定を実行（コンテキスト情報があれば渡す）
     const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo);
     context.log(`植物識別完了: 植物=${identificationResult.isPlant}, 候補数=${identificationResult.candidates.length}`);
 
