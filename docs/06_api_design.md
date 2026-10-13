@@ -151,6 +151,9 @@ GET /api/plants?code={FUNCTION_KEY}
 
 ### 5.2 植物詳細取得
 指定されたIDの植物詳細情報を取得します。
+植物 ID の形式は `06_api_openapi.yaml` の `id` パラメータの説明のとおりです（UUID 形式。3つ目のグループ先頭の
+バージョン桁は `1`〜`5`、4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b`、大文字小文字は区別しない）。
+合わなければ 400 `INVALID_REQUEST`（`植物IDの形式が無効です`）で、GET / PUT / DELETE で同じ検査・同じ文言です。
 
 **リクエスト例:**
 ```http
@@ -629,6 +632,7 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 
 | 要素 | 内容 |
 |---|---|
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`） |
 | モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（未設定なら `gpt-5.6-luna`） |
 | メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
 | 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL（`07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
