@@ -836,12 +836,13 @@ describe('画像アップロード・植物判定統合API', () => {
     it('植物でない画像の一時ファイルの削除に失敗した場合は、NOT_A_PLANTではなく502エラー', async () => {
       // 06_api_design.md §5.8。一時ファイルの Blob 名はリクエストの中で決まるので、
       // 一時コンテナへ書かれた時点で削除が失敗する状態にする
-      const storeSet = blobStore.set.bind(blobStore);
-      blobStore.set = (key: string, entry: BlobEntry) =>
-        storeSet(key, key.startsWith('temp/') ? { ...entry, failWith: Object.assign(
-          new Error('This request is not authorized to perform this operation.'),
-          { name: 'RestError', statusCode: 403, code: 'AuthorizationFailure' }
-        ) } : entry);
+      backend.failWithByPrefix = {
+        'temp/': Object.assign(new Error('This request is not authorized to perform this operation.'), {
+          name: 'RestError',
+          statusCode: 403,
+          code: 'AuthorizationFailure'
+        })
+      };
 
       const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
 
@@ -914,7 +915,8 @@ describe('画像アップロード・植物判定統合API', () => {
     // ストレージが接続できないとみなす errno は utils/response.ts の UPSTREAM_ERROR_RESPONSES.storage にあり、
     // utils/errors.ts の UNREACHABLE_ERRNOS（ENOTFOUND / ECONNREFUSED。AI と Cosmos DB も共有）に ETIMEDOUT を足したもの。
     // ストレージだけが ETIMEDOUT を含むので、3つ全部を通すのはここだけ。
-    // AI と Cosmos DB の入口は1行にしている（全 errno は trips.test.ts の「旅行の作成」が通す）
+    // 全 errno を通す入口は、ストレージがここ、Cosmos DB が trips.test.ts の「旅行の作成」、
+    // AI がこのファイルの「AI サービスのエラー」
     it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])(
       '一時保存が%sで失敗した場合は503エラー', async (errorCode) => {
       // 一時保存のアップロードが接続障害で落ちた場合。
@@ -995,9 +997,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 一時ファイルの Blob 名はリクエストの中で決まるので、一時コンテナへ書かれた時点で
       // 読み出しが失敗する状態にする。ストリームの失敗を拾えないと、例外ではなく
       // 応答が返らなくなる（このテストはタイムアウトで失敗する）
-      const storeSet = blobStore.set.bind(blobStore);
-      blobStore.set = (key: string, entry: BlobEntry) =>
-        storeSet(key, key.startsWith('temp/') ? { ...entry, streamErrorWith: new Error('stream read error') } : entry);
+      backend.streamErrorWithByPrefix = { 'temp/': new Error('stream read error') };
 
       const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
 

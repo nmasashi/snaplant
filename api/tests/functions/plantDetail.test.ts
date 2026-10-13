@@ -338,12 +338,20 @@ describe('植物詳細取得API', () => {
         updatedAt: '2024-01-01T00:00:00.000Z'
       });
 
+      // tests/setup.ts が全体に入れた値なので、元の値を退避して戻す（delete すると以降のテストから値が消える）
+      let savedTempContainerName: string | undefined;
+
       beforeEach(() => {
+        savedTempContainerName = process.env.TEMP_STORAGE_CONTAINER_NAME;
         process.env.TEMP_STORAGE_CONTAINER_NAME = 'test-temp';
       });
 
       afterEach(() => {
-        delete process.env.TEMP_STORAGE_CONTAINER_NAME;
+        if (savedTempContainerName === undefined) {
+          delete process.env.TEMP_STORAGE_CONTAINER_NAME;
+        } else {
+          process.env.TEMP_STORAGE_CONTAINER_NAME = savedTempContainerName;
+        }
       });
 
       it('ストレージアカウント名に一時コンテナ名が含まれていても、永続コンテナの画像が消える', async () => {

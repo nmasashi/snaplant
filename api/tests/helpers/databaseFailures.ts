@@ -14,7 +14,8 @@ type DatabaseFailureCase = [string, Error, number, string, string];
  * データベースの失敗の分類の表（全5行）。接続できない障害は 503、それ以外は 500 で、
  * 500 の message だけがハンドラごとに違う。
  *
- * 分類は全エンドポイントで同じ規則（仕様の「同じ」。utils/errors.ts の isConnectivityError）なので、
+ * 分類は旅行アルバムの全エンドポイント（createDatabaseErrorResponse を通るもの）で同じ規則
+ * （utils/errors.ts の isConnectivityError）なので、
  * 5行すべてを回すのは `trips.test.ts` の「旅行の作成」の1箇所だけにしている。
  * 他のエンドポイントは `databaseFailureCases()`（2行）で、ハンドラがこの分類につながっていることだけを見る
  */

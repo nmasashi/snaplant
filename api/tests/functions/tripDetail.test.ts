@@ -372,7 +372,7 @@ describe('旅行詳細API', () => {
     });
 
     const existingTripId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const photoDocId ='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const photoDocId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     const missingTripId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     const validBody = () => jest.fn().mockResolvedValue({ name: '新しい名前' });
     // 更新される前の旅行。説明・タグ・更新日時を既定値でない値にして、何も変わらないことを見分けられるようにする
