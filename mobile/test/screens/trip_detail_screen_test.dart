@@ -208,6 +208,44 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('2ページ目まで読んだあとにグリッドを下に引っ張ると、続きは捨てて先頭のページから読み直し、別の端末で増えた写真が出る', (tester) async {
+    // 準備はリスト4と同じ（33枚、1ページ30枚）。2ページ目まで読んでから、別の端末で撮影日時が一番早い写真が1枚増えた状態にする。
+    // 先頭から読み直せば、増えた1枚 + 元の先頭29枚の30枚になり、2ページ目の写真（10:31〜10:33）は一度消える。
+    // 続きのトークンを捨てずに読めば、2ページ目の続き（元の写真の10:31 の次）から始まって、先頭の増えた写真は出ない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: _apiKey,
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+    expect(_thumbnail('2026年10月5日 10:33'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:00'), findsNothing);
+    backend.photosByTripId[hokkaidoTripId]!
+        .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
+    // 先頭まで戻ってから、下に引っ張る（引っ張って読み直せるのは先頭にいるときだけ）
+    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await letFramesRun(tester);
+
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(_thumbnail('2026年10月5日 10:00'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:33'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真が1ページに収まる旅行は、グリッドを下端まで送っても続きを取りに行かず、写真は1枚ずつしか並ばない', (tester) async {
     // 1ページ目の継続トークンが null（最後のページ）。確認が抜けると、null のトークンで先頭のページを取り直し、同じ写真が二重に並ぶ
     final semantics = tester.ensureSemantics();

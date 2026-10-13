@@ -72,6 +72,26 @@ class _PhotoGridState extends State<PhotoGrid> {
     }
   }
 
+  /// 下に引っ張ったとき、先頭のページから読み直す（続きのトークンと2ページ目以降は捨てる）。
+  /// 読み直しの間は今のグリッドを出したままにする
+  Future<void> _refresh() async {
+    try {
+      final page = await widget.apiService.getPhotos(widget.tripId);
+      if (!mounted) return;
+      setState(() {
+        _photos = page.photos;
+        _continuationToken = page.continuationToken;
+        _isLoadingMore = false;
+        _loadMoreFailed = false;
+      });
+    } catch (e) {
+      debugPrint('PhotoGrid: 写真の一覧の読み直しエラー: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
+    }
+  }
+
   /// 続きのページを読んで末尾に足す。読んでいる最中や、最後まで読んだ後は何もしない
   Future<void> _loadMore() async {
     final token = _continuationToken;
@@ -162,23 +182,29 @@ class _PhotoGridState extends State<PhotoGrid> {
     return Column(
       children: [
         Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.all(2),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 2,
-              crossAxisSpacing: 2,
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            color: AppColors.primary,
+            child: GridView.builder(
+              // 写真が少なく画面に収まっていても、下に引っ張って読み直せるように
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(2),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 2,
+                crossAxisSpacing: 2,
+              ),
+              itemCount: photos.length,
+              itemBuilder: (context, index) {
+                // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
+                if (index >= photos.length - _loadMoreThreshold) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _loadMore();
+                  });
+                }
+                return _PhotoTile(photo: photos[index]);
+              },
             ),
-            itemCount: photos.length,
-            itemBuilder: (context, index) {
-              // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
-              if (index >= photos.length - _loadMoreThreshold) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _loadMore();
-                });
-              }
-              return _PhotoTile(photo: photos[index]);
-            },
           ),
         ),
         if (_loadMoreFailed)
