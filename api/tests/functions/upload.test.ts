@@ -1,7 +1,12 @@
 import { format } from 'node:util';
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { uploadImageHandler } from '../../src/functions/upload';
-import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters
+} from '@azure/storage-blob';
 import {
   BlobEntry,
   FakeBlobBackend,
@@ -15,6 +20,9 @@ import {
 // 飲み込まれてしまう（console.logも抑制されるため気づけない）。一時保存・永続保存・削除が
 // 実際に成功する経路をすべて通せるよう、このファイル内で偽物のBlobバックエンドに差し替える
 // （偽物の実体は tests/fakes/blob.ts）
+// SAS の署名に使う関数は、既定では固定のトークンを返す形に差し替える。
+// 一時URLの署名の中身（対象のコンテナとBlob・権限・期限・開始時刻）を見るテストは、中で signWithRealSdk() を呼び、
+// 実 SDK で署名して AI 識別サービスへ渡った URL を読む。署名はローカルの計算だけで Blob Storage へは通信しない
 jest.mock('@azure/storage-blob', () => ({
   BlobServiceClient: { fromConnectionString: jest.fn() },
   BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
@@ -25,9 +33,13 @@ jest.mock('openai');
 
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<typeof generateBlobSASQueryParameters>;
+const MockedBlobSASPermissions = BlobSASPermissions as jest.MockedClass<typeof BlobSASPermissions>;
+const MockedStorageSharedKeyCredential = StorageSharedKeyCredential as jest.MockedClass<
+  typeof StorageSharedKeyCredential
+>;
 
 // SASトークンの固定値（一時保存がSAS付きURLを返すことの土台）。
-// 権限は photos.test.ts（実SDKで署名）、一時URLの有効期限は storageService.test.ts が見ている。
+// 一時URLの署名の中身（対象・権限・期限・開始時刻）は、このファイルの実SDKで署名するテストが見ている。
 // 署名（sig）だけは「SASの署名をログに出さない」テストが漏れの有無を見る秘密として使うため、
 // 定数に切り出してトークンをそこから組み立てる（片方だけ書き換えても検証が空振りしない）
 const TEST_SAS_SIGNATURE = 'testsignature';
@@ -51,6 +63,40 @@ const jpegUploadRequest = (): HttpRequest => {
   } as any as HttpRequest;
 };
 
+/**
+ * 現在時刻だけを固定する（解除は afterEach の useRealTimers）。
+ * 他のタイマーまで偽物にすると偽のBlobクライアントの await が止まりうるので、時刻以外は実物のままにする
+ */
+const freezeNow = (iso: string): void => {
+  jest.useFakeTimers({
+    now: new Date(iso),
+    doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+  });
+};
+
+const realSdk = () => jest.requireActual<typeof import('@azure/storage-blob')>('@azure/storage-blob');
+
+/**
+ * このテストの署名を、固定トークンではなく実 SDK に委譲する（beforeEach が次のテストのために固定トークンへ戻す）。
+ * 署名はローカルの計算だけで Blob Storage へは通信しない。st・se・sp などは平文のクエリで読める
+ */
+const signWithRealSdk = (): void => {
+  const sdk = realSdk();
+  MockedBlobSASPermissions.mockImplementation(() => new sdk.BlobSASPermissions());
+  MockedStorageSharedKeyCredential.mockImplementation(
+    (accountName, accountKey) => new sdk.StorageSharedKeyCredential(accountName, accountKey as string)
+  );
+  mockedGenerateSas.mockImplementation(sdk.generateBlobSASQueryParameters);
+};
+
+/** AI 識別サービスへ渡した画像の URL（OpenAI のモックが受け取った引数から取り出す） */
+const imageUrlSentToAI = (mockOpenAI: any): string => {
+  const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
+  return openAICall.messages[0].content.find((part: any) => part.type === 'image_url').image_url.url;
+};
+
+/** `<blobUrl>?<SAS>` の URL から、SAS トークンのクエリを取り出す（実 SDK で署名したトークンを読むテスト用） */
+const tokenOf = (url: string): URLSearchParams => new URLSearchParams(url.slice(url.indexOf('?') + 1));
 
 describe('画像アップロード・植物判定統合API', () => {
   let mockContext: InvocationContext;
@@ -73,6 +119,9 @@ describe('画像アップロード・植物判定統合API', () => {
     mockedGenerateSas.mockReturnValue({
       toString: () => TEST_SAS_TOKEN
     } as any);
+    // 署名を実 SDK に委譲するテストが、後のテストに実物の権限や資格情報を持ち越さないよう、毎回ここで戻す
+    MockedBlobSASPermissions.mockImplementation(() => ({}) as BlobSASPermissions);
+    MockedStorageSharedKeyCredential.mockImplementation(() => ({}) as StorageSharedKeyCredential);
 
     // OpenAI SDKのモック（管理外の依存。識別結果はスタブとして与える）
     mockOpenAI = {
@@ -116,6 +165,7 @@ describe('画像アップロード・植物判定統合API', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
     delete process.env.STORAGE_CONNECTION_STRING;
     delete process.env.STORAGE_CONTAINER_NAME;
@@ -437,6 +487,57 @@ describe('画像アップロード・植物判定統合API', () => {
       // 一時コンテナの Blob 名は永続コンテナへ移した後の Blob 名と同じ
       const blobName = keyFromUrl(response.jsonBody.data.imagePath).replace(/^images\//, '');
       expect(imagePart.image_url.url).toBe(`https://test.blob.core.windows.net/temp/${blobName}?${TEST_SAS_TOKEN}`);
+    });
+
+    // 一時コンテナの Blob を読めるのは、その Blob 1つだけ。署名（sig）は HMAC で読めないので、
+    // 期待するトークンを実 SDK で作り、AI 識別サービスへ渡した URL 全体を比べる。実 SDK は HMAC の計算にだけ使う:
+    // 署名する条件（コンテナ・Blob名・権限・期限・開始時刻なし・アカウント名と鍵）は、すべてこのテストにリテラルで書く。
+    // 対象のコンテナや Blob を取り違えると sig が変わるので、ここで落ちる
+    it('SASの署名対象は、一時コンテナと、アップロードしたBlobになる', async () => {
+      freezeNow('2026-10-11T00:00:00.000Z');
+      signWithRealSdk();
+      const expectedToken = (blobName: string): string => {
+        const sdk = realSdk();
+        const permissions = new sdk.BlobSASPermissions();
+        permissions.read = true;
+        return sdk
+          .generateBlobSASQueryParameters(
+            {
+              containerName: 'temp',
+              blobName,
+              permissions,
+              expiresOn: new Date('2026-10-11T00:15:00.000Z')
+            },
+            new sdk.StorageSharedKeyCredential('test', 'key')
+          )
+          .toString();
+      };
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(201);
+      // 一時コンテナの Blob 名は永続コンテナへ移した後の Blob 名と同じ
+      const blobName = keyFromUrl(response.jsonBody.data.imagePath).replace(/^images\//, '');
+      expect(imageUrlSentToAI(mockOpenAI)).toBe(
+        `https://test.blob.core.windows.net/temp/${blobName}?${expectedToken(blobName)}`
+      );
+    });
+
+    // 一時URLは AI 識別サービスがアップロードの1リクエストの間に読むためだけのもので、長く開けるとログなどに出た
+    // URL から画像を取得できてしまう（期限の根拠は StorageService の TEMP_SAS_EXPIRY_MINUTES のコメント）。
+    // 期限（se）と開始時刻（st）はトークンに平文で載るので、AI 識別サービスへ渡した URL から実 SDK のトークンを読む
+    it('一時URLの読み取り許可は発行から15分で切れる', async () => {
+      freezeNow('2026-10-11T00:00:00.000Z');
+      signWithRealSdk();
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(201);
+      const token = tokenOf(imageUrlSentToAI(mockOpenAI));
+      expect(token.get('se')).toBe('2026-10-11T00:15:00Z');
+      // 開始時刻は付けない（発行した時点から有効になる）。開始時刻を現在時刻で埋めると、
+      // サーバ間の時計のずれで発行直後の読み取りが403になりうる
+      expect(token.has('st')).toBe(false);
     });
 
     it('2回アップロードすると、それぞれ別の永続URLに保存される', async () => {
