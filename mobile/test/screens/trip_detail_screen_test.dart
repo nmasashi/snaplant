@@ -167,6 +167,32 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真が1ページに収まる旅行は、グリッドを下端まで送っても続きを取りに行かず、写真は1枚ずつしか並ばない', (tester) async {
+    // 1ページ目の継続トークンが null（最後のページ）。確認が抜けると、null のトークンで先頭のページを取り直し、同じ写真が二重に並ぶ
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    expect(_thumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:03'), findsOneWidget);
+    expect(find.text('読み込み中...'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final backend = _backendWith([hokkaidoTrip(description: 'ひとり旅')]);
     await openDetailFromHome(tester, backend);
