@@ -52,7 +52,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   bool _isLoadingMore = false;
   // 続きの取得に失敗した。「再試行」が押されるまで自動では取り直さない（既存と同じく自動の再試行はしない）
   bool _loadMoreFailed = false;
-  // 一覧を先頭から読み直すたびに進める。読み直しをまたいで届いた続きの結果は、前の一覧のものなので捨てる
+  // 先頭のページで一覧を置き換えるたびに進める。読み込みは始めたときの世代を控え、その間に進んでいたら結果（成功も失敗も）を捨てる。
+  // 「再試行」と引っ張る読み直しが重なっても、先に終わった方を採り、後から届いた古い結果で上書きしない
   int _generation = 0;
   // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
   int _consecutiveEmptyPages = 0;
@@ -65,44 +66,47 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 先頭のページを読む
   Future<void> _loadFirstPage() async {
+    final generation = _generation;
     setState(() {
       _photos = null;
       _errorMessage = null;
     });
     try {
       final page = await widget.apiService.getPhotos(widget.tripId);
-      if (!mounted) return;
-      setState(() {
-        _photos = page.photos;
-        _continuationToken = page.continuationToken;
-        _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
-      });
+      if (!mounted || generation != _generation) return;
+      _applyFirstPage(page);
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '写真の読み込みに失敗しました');
     }
   }
 
+  /// 先頭のページで一覧を置き換え、世代を進める（それより前に始めた読み込みの結果は捨てられる）
+  void _applyFirstPage(PhotoPage page) {
+    setState(() {
+      _generation++;
+      _errorMessage = null;
+      _photos = page.photos;
+      _continuationToken = page.continuationToken;
+      _isLoadingMore = false;
+      _loadMoreFailed = false;
+      _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
+    });
+  }
+
   /// 下に引っ張ったとき、先頭のページから読み直す（続きのトークンと2ページ目以降は捨てる）。
   /// 読み直しの間は今のグリッドを出したままにする
   Future<void> _refresh() async {
+    final generation = _generation;
     try {
       final page = await widget.apiService.getPhotos(widget.tripId);
-      if (!mounted) return;
-      setState(() {
-        _generation++;
-        _errorMessage = null;
-        _photos = page.photos;
-        _continuationToken = page.continuationToken;
-        _isLoadingMore = false;
-        _loadMoreFailed = false;
-        _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
-      });
+      if (!mounted || generation != _generation) return;
+      _applyFirstPage(page);
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み直しエラー: $e');
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
     }

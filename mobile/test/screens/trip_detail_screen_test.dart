@@ -343,6 +343,43 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('1ページ目のエラーの表示で、引っ張る読み直しと「再試行」が重なったとき、先に終わった読み直しで出た写真を、遅れて届いた「再試行」の失敗の応答で消さない', (tester) async {
+    // 1ページ目の取得に失敗してエラーの表示になる。引っ張った読み直し（応答を止める）の間に「再試行」を押し、
+    // 先に読み直しの応答が成功して写真が並んだあとで、遅れて「再試行」の失敗の応答が届く。
+    // 古くなった読み込み（「再試行」）の結果は捨てるので、写真はそのまま残り、エラーの表示には戻らない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    backend.failNext(TripRoute.photos);
+    await openDetailFromHome(tester, backend);
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    // 引っ張った読み直しの応答を止めておく
+    final pullReply = backend.holdNextReply(TripRoute.photos);
+    await tester.drag(find.text('エラーが発生しました'), const Offset(0, 600));
+    await letFramesRun(tester);
+    // 引っ張っている間に「再試行」を押す。その応答は失敗で、止めておく
+    backend.failNext(TripRoute.photos);
+    final retryReply = backend.holdNextReply(TripRoute.photos);
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+    // 先に、引っ張った読み直しの応答が届いて、写真が並ぶ
+    pullReply.complete();
+    await letFramesRun(tester);
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+
+    retryReply.complete();
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真が0枚の案内を出しているときも、下に引っ張ると読み直し、別の端末で増えた写真が並んで案内は消える', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);

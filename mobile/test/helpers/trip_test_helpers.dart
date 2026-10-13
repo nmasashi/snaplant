@@ -103,7 +103,7 @@ enum TripRoute {
 ///   （旅行が無い `tripId` は 404 `TRIP_NOT_FOUND`。`none` は旅行の確認をしない）
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
-/// - 次の1回の呼び出しだけ、応答の中身は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
+/// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
 ///   遅れて届く古い応答（止めている間に別の端末で状態が変わる）を表す
 /// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`plantServer` と同じ考え方）
 /// - 削除の要求の `deletePhotos` を [deletePhotosSent] に記録する。写真が0枚の旅行は `true` でも `false` でも応答が同じで、
@@ -184,18 +184,15 @@ class FakeTripBackend {
     }
     final hold = holds[route];
     if (hold != null) await hold;
+    // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
     final failures = _failures[route];
-    if (failures != null && failures.isNotEmpty) {
-      final failure = failures.removeAt(0);
-      return _error(failure.status, failure.code, failure.message);
-    }
+    final failure = failures != null && failures.isNotEmpty ? failures.removeAt(0) : null;
     final replyHolds = _replyHolds[route];
-    if (replyHolds != null && replyHolds.isNotEmpty) {
-      final response = _respondTo(route, request);
-      await replyHolds.removeAt(0);
-      return response;
-    }
-    return _respondTo(route, request);
+    final replyHold = replyHolds != null && replyHolds.isNotEmpty ? replyHolds.removeAt(0) : null;
+    final response =
+        failure != null ? _error(failure.status, failure.code, failure.message) : _respondTo(route, request);
+    if (replyHold != null) await replyHold;
+    return response;
   }
 
   http.Response _respondTo(TripRoute route, http.Request request) {
