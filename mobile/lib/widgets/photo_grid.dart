@@ -329,6 +329,8 @@ class _PhotoTile extends StatelessWidget {
         final selected = selection.isSelected(photo.id);
         return GestureDetector(
           onLongPress: () => selection.start(photo.id),
+          // 選択モードでなければ何もしない（写真ビューアは PR 7）
+          onTap: selection.isActive ? () => selection.toggle(photo.id) : null,
           child: _buildImage(selected: selected),
         );
       },

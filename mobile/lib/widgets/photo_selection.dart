@@ -24,6 +24,14 @@ class PhotoSelection extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 選択モード中のタップで、選択を切り替える（0枚になっても選択モードのまま）
+  void toggle(String photoId) {
+    if (!_selectedIds.remove(photoId)) {
+      _selectedIds.add(photoId);
+    }
+    notifyListeners();
+  }
+
   /// 選択モードを抜ける（選んだ写真も外す）
   void clear() {
     _isActive = false;
