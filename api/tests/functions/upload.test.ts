@@ -160,7 +160,7 @@ describe('画像アップロード・植物判定統合API', () => {
     // 環境変数設定
     process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=key;EndpointSuffix=core.windows.net';
     process.env.STORAGE_CONTAINER_NAME = 'images';
-    process.env.TEMP_STORAGE_CONTAINER_NAME = 'temp';
+    process.env.TEMP_STORAGE_CONTAINER_NAME = 'temp-images';
     process.env.OPENAI_API_KEY = 'test-api-key';
   });
 
@@ -240,7 +240,7 @@ describe('画像アップロード・植物判定統合API', () => {
 
       // 検証（状態。一時ファイルは永続コンテナへ移動され、一時コンテナには残っていない）
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
-      const tempKey = permanentKey.replace(/^images\//, 'temp/');
+      const tempKey = permanentKey.replace(/^images\//, 'temp-images/');
       expect(blobStore.has(tempKey)).toBe(false);
       expect(blobStore.get(permanentKey)).toEqual({
         content: Buffer.from(new ArrayBuffer(1024)),
@@ -287,7 +287,7 @@ describe('画像アップロード・植物判定統合API', () => {
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
       expect(permanentKey).toMatch(/\.png$/);
       expect(blobStore.get(permanentKey)?.contentType).toBe('image/png');
-      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
+      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp-images/'))).toBe(false);
     });
 
     it('Content-Typeが大文字（IMAGE/PNG）でもアップロードでき、Blob名に.pngが付く', async () => {
@@ -381,7 +381,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 検証（状態。永続コンテナへ移動済みで一時コンテナには残っていない）
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
       expect(blobStore.has(permanentKey)).toBe(true);
-      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
+      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp-images/'))).toBe(false);
 
       // OpenAI呼び出しでコンテキスト情報が渡されているか確認
       // （管理外の依存への送信内容は出力が不透明ではないが、プロンプトへの
@@ -486,14 +486,14 @@ describe('画像アップロード・植物判定統合API', () => {
       const imagePart = openAICall.messages[0].content.find((part: any) => part.type === 'image_url');
       // 一時コンテナの Blob 名は永続コンテナへ移した後の Blob 名と同じ
       const blobName = keyFromUrl(response.jsonBody.data.imagePath).replace(/^images\//, '');
-      expect(imagePart.image_url.url).toBe(`https://test.blob.core.windows.net/temp/${blobName}?${TEST_SAS_TOKEN}`);
+      expect(imagePart.image_url.url).toBe(`https://test.blob.core.windows.net/temp-images/${blobName}?${TEST_SAS_TOKEN}`);
     });
 
     // 一時コンテナの Blob を読めるのは、その Blob 1つだけ。署名（sig）は HMAC で読めないので、
     // 期待するトークンを実 SDK で作り、AI 識別サービスへ渡した URL 全体を比べる。実 SDK は HMAC の計算にだけ使う:
     // 署名する条件（コンテナ・Blob名・権限・期限・開始時刻なし・アカウント名と鍵）は、すべてこのテストにリテラルで書く。
-    // 対象のコンテナや Blob を取り違えると sig が変わるので、ここで落ちる
-    it('SASの署名対象は、一時コンテナと、アップロードしたBlobになる', async () => {
+    // 対象のコンテナや Blob・権限・期限・開始時刻のどれがずれても sig やクエリが変わるので、ここで落ちる
+    it('一時URLのSASは、一時コンテナのアップロードしたBlob1つだけを、読み取りで開ける署名になる', async () => {
       freezeNow('2026-10-11T00:00:00.000Z');
       signWithRealSdk();
       const expectedToken = (blobName: string): string => {
@@ -503,11 +503,12 @@ describe('画像アップロード・植物判定統合API', () => {
         return sdk
           .generateBlobSASQueryParameters(
             {
-              containerName: 'temp',
+              containerName: 'temp-images',
               blobName,
               permissions,
               expiresOn: new Date('2026-10-11T00:15:00.000Z')
             },
+            // beforeEach の接続文字列の AccountName（test）と AccountKey（key）と同じ値
             new sdk.StorageSharedKeyCredential('test', 'key')
           )
           .toString();
@@ -519,7 +520,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 一時コンテナの Blob 名は永続コンテナへ移した後の Blob 名と同じ
       const blobName = keyFromUrl(response.jsonBody.data.imagePath).replace(/^images\//, '');
       expect(imageUrlSentToAI(mockOpenAI)).toBe(
-        `https://test.blob.core.windows.net/temp/${blobName}?${expectedToken(blobName)}`
+        `https://test.blob.core.windows.net/temp-images/${blobName}?${expectedToken(blobName)}`
       );
     });
 
@@ -938,7 +939,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 06_api_design.md §5.5・§5.8。Blob が既に無い場合も削除は成功扱い。
       // 実 SDK が存在しない Blob の削除で投げる形（RestError・404・BlobNotFound）を、一時コンテナへ書かれた時点で仕込む
       backend.failWithByPrefix = {
-        'temp/': Object.assign(new Error('The specified blob does not exist.'), {
+        'temp-images/': Object.assign(new Error('The specified blob does not exist.'), {
           name: 'RestError',
           statusCode: 404,
           code: 'BlobNotFound'
@@ -962,7 +963,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 06_api_design.md §5.8。一時ファイルの Blob 名はリクエストの中で決まるので、
       // 一時コンテナへ書かれた時点で削除が失敗する状態にする
       backend.failWithByPrefix = {
-        'temp/': Object.assign(new Error('This request is not authorized to perform this operation.'), {
+        'temp-images/': Object.assign(new Error('This request is not authorized to perform this operation.'), {
           name: 'RestError',
           statusCode: 403,
           code: 'AuthorizationFailure'
@@ -1123,7 +1124,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 一時ファイルの Blob 名はリクエストの中で決まるので、一時コンテナへ書かれた時点で
       // 読み出しが失敗する状態にする。ストリームの失敗を拾えないと、例外ではなく
       // 応答が返らなくなる（このテストはタイムアウトで失敗する）
-      backend.streamErrorWithByPrefix = { 'temp/': new Error('stream read error') };
+      backend.streamErrorWithByPrefix = { 'temp-images/': new Error('stream read error') };
 
       const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
 
