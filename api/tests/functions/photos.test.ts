@@ -19,7 +19,7 @@ jest.mock('@azure/cosmos');
 // 多くのテストは「写真ごとの URL にトークンが付いて返る」ことだけを見るので、それで足りる。
 // 署名の中身（対象の Blob・読み取りだけの権限・開始時刻と期限）を見るテストは、中で signWithRealSdk() を呼び、
 // 実 SDK で署名して返ってきた URL を読む。署名はローカルの計算だけで Blob Storage へは通信しない。
-// 権限の組み立て単体は tests/utils/blobSas.test.ts が見ている
+// 署名の組み立て（utils/blobSas.ts）は単体のテストを持たず、このファイルが実SDKのトークンで見ている
 jest.mock('@azure/storage-blob', () => ({
   BlobServiceClient: { fromConnectionString: jest.fn() },
   BlobSASPermissions: jest.fn().mockImplementation(() => ({})),

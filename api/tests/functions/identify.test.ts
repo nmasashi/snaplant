@@ -182,7 +182,7 @@ describe('植物識別API', () => {
       
       // 呼び出し内容の詳細チェック
       // 固定ラベル「撮影時の環境やコンテキスト情報: 」はプロンプトの文言そのもので、
-      // それはopenAIVisionService.test.tsの責務。ここで見るのは利用者が入力した
+      // それはテストで固定しない（プロンプトの文言は実装の詳細）。ここで見るのは利用者が入力した
       // 値がプロンプトに届いていることだけなので、値の部分だけを検証する
       const callArgs = mockChatCompletions.create.mock.calls[0][0];
       expect(callArgs.messages[0].content[0].text).toContain('白馬岳の標高2500m、高山帯の岩場');

@@ -13,13 +13,15 @@ const TEST_STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountNa
 const TEST_STORAGE_CONTAINER_NAME = 'test-images';
 
 /**
- * このAPIが返すのは一覧表示用の射影（SELECTの列指定）なので、Plant 全体ではなく
- * この5項目しか返らない。偽物にも同じ形だけを入れて、「常に完全なPlantが返る」
- * という誤った前提をテスト側に作らない
+ * このAPIが返すのは一覧表示用の射影（SELECTの列指定）なので、保存済みのドキュメントがPlant全体でも、
+ * 応答に出るのはこの5項目だけ。偽物はSELECTの射影を解釈しないため、保存済みのドキュメントに
+ * 余分な項目（scientificName・updatedAt）を持たせたテストで、サービスが5項目に詰め替えていることを見る
  */
 interface DuplicateCheckDocument extends FakeCosmosDocument {
   confidence: number;
   createdAt: string;
+  scientificName?: string;
+  updatedAt?: string;
 }
 
 
@@ -66,13 +68,16 @@ describe('植物重複チェックAPI', () => {
   describe('正常系', () => {
     it('重複する植物が存在する場合', async () => {
       // 既存植物のモック。別名の植物も登録しておき、
-      // 検索対象（桜）だけが絞り込まれて返ることをレスポンスで確認する
+      // 検索対象（桜）だけが絞り込まれて返ることをレスポンスで確認する。
+      // 保存済みのドキュメントは応答にない項目（scientificName・updatedAt）も持つ
       const existingPlant = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: '桜',
+        scientificName: 'Prunus serrulata',
         imagePath: 'https://example.com/sakura.jpg',
         confidence: 85.0,
-        createdAt: '2024-01-15T10:30:00Z'
+        createdAt: '2024-01-15T10:30:00Z',
+        updatedAt: '2024-01-16T08:00:00Z'
       };
       const otherPlant = {
         id: '987fcdeb-51d2-43a8-b456-426614174001',

@@ -1,4 +1,5 @@
 import { StorageService } from '../../src/services/storageService';
+import { UpstreamError } from '../../src/utils/errors';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import {
   BlobEntry,
@@ -26,6 +27,14 @@ const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
 // SASトークンの固定値（SAS生成が実際に実行されたことを検証するため）
 const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=testsignature';
 
+// Blob名のUUID部分（正規表現の断片）
+const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+
+// StorageService の大半は、アップロード・移動・削除の正常系を upload / updatePlant / plantDetail の
+// ハンドラのテストが同じ偽物の Blob Storage を通して見ている。
+// ここに残すのは、ハンドラのテストからは見えないものだけ:
+// 一時 URL の期限、後片付け、既定値、URL の検証（入口と出口の二層で守る境界）、
+// ストリームの配線、Blob 名の一意性
 describe('StorageService', () => {
   let service: StorageService;
   let blobStore: Map<string, BlobEntry>;
@@ -75,50 +84,32 @@ describe('StorageService', () => {
   });
 
   describe('uploadImageToTemp', () => {
-    it('一時コンテナに画像をアップロードできる', async () => {
-      const imageBuffer = Buffer.from('temp image data');
+    // 3行とも同じ手順で、Content-Type と Blob 名の拡張子の対応だけが違う。
+    // 大文字の Content-Type は upload.test が見ている。
+    // 3列目は Blob 名に当てる正規表現の断片で、テスト名には2列目を使う
+    it.each([
+      ['image/jpeg', '.jpg', '\\.jpg'],
+      ['image/png', '.png', '\\.png'],
+      ['application/octet-stream', 'なし', '']
+    ])(
+      'Content-Typeが%sの画像は、一時コンテナにBlob名の拡張子が「%s」でアップロードされ、SASトークン付きURLが返る',
+      async (contentType, _extensionLabel, extensionPattern) => {
+        const imageBuffer = Buffer.from('temp image data');
 
-      const result = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
+        const result = await service.uploadImageToTemp(imageBuffer, contentType);
 
-      // 一時保存はSASトークン付きURLを返す（非公開コンテナのため、
-      // 生のURLではAzure OpenAIが画像を取得できない）
-      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg)\?(.+)$/);
-      expect(match).not.toBeNull();
-      expect(match![2]).toBe(TEST_SAS_TOKEN);
-    });
+        // 一時保存はSASトークンを付けたURLを返す（非公開コンテナのため、
+        // 生のURLではAzure OpenAIが画像を取得できない）
+        const [blobUrl, sasToken] = result.split('?');
+        expect(blobUrl).toMatch(
+          new RegExp(`^https://test\\.blob\\.core\\.windows\\.net/test-temp/${UUID_PATTERN}${extensionPattern}$`)
+        );
+        expect(sasToken).toBe(TEST_SAS_TOKEN);
+      }
+    );
 
-    it('Blob名の拡張子はContent-Typeから決まる', async () => {
-      const imageBuffer = Buffer.from('temp image data');
-
-      const result = await service.uploadImageToTemp(imageBuffer, 'image/png');
-
-      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png)\?(.+)$/);
-      expect(match).not.toBeNull();
-      expect(match![2]).toBe(TEST_SAS_TOKEN);
-    });
-
-    it('Content-Typeが大文字でも拡張子が付く', async () => {
-      const imageBuffer = Buffer.from('temp image data');
-
-      // isValidImageContentType は大文字を受け付けるため、
-      // 拡張子の引き当ても同じ正規化をしないと拡張子なしのBlob名になる
-      const result = await service.uploadImageToTemp(imageBuffer, 'IMAGE/PNG');
-
-      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png)\?(.+)$/);
-      expect(match).not.toBeNull();
-      expect(match![2]).toBe(TEST_SAS_TOKEN);
-    });
-
-    it('サポート外のContent-Typeの場合は拡張子なしのBlob名になる', async () => {
-      const imageBuffer = Buffer.from('temp image data');
-
-      const result = await service.uploadImageToTemp(imageBuffer, 'application/octet-stream');
-
-      const match = result.match(/^(https:\/\/test\.blob\.core\.windows\.net\/test-temp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\?(.+)$/);
-      expect(match).not.toBeNull();
-      expect(match![2]).toBe(TEST_SAS_TOKEN);
-    });
-
+    // ハンドラのテストは1回しかアップロードしないので、毎回違うBlob名になること
+    // （固定だと別の利用者のアップロードを上書きする）はここでだけ見られる
     it('2回アップロードすると異なるURLが返る', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
@@ -128,31 +119,20 @@ describe('StorageService', () => {
       expect(result1).not.toBe(result2);
     });
 
-    it('アップロードした内容とcontent-typeが一時コンテナに保存される', async () => {
+    it('SASの署名対象は、一時コンテナと、アップロードしたBlobになる', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
       const result = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
 
-      expect(blobStore.get(keyFromUrl(result))).toEqual({
-        content: imageBuffer,
-        contentType: 'image/jpeg'
-      });
-    });
-
-    it('読み取り専用のSAS権限で署名する', async () => {
-      const imageBuffer = Buffer.from('temp image data');
-
-      const result = await service.uploadImageToTemp(imageBuffer, 'image/jpeg');
-
-      // SASトークンは署名済みの不透明な文字列で、テストから権限を
-      // 復号できない。一方権限はAzure Storageが検証する外部との契約であり、
-      // read のはずが write になる退行は検出しなければならない。
+      // SASトークンは署名済みの不透明な文字列で、テストから署名の対象を復号できない。
+      // 一方、どのコンテナのどのBlobを読めるかはAzure Storageが検証する外部との契約であり、
+      // 対象を取り違える退行は検出しなければならない。
       // 引数の検証は原則3の例外として許容する（他に検証手段がないため）。
+      // 権限は blobSas.ts が決めていて、photos.test.ts が実SDKのトークンで見ている。
       // 有効期限は下の「発行から15分で切れる」が見る
       const [options] = mockedGenerateSas.mock.calls[0];
       expect(options.containerName).toBe('test-temp');
       expect(options.blobName).toBe(keyFromUrl(result).split('/').pop());
-      expect(options.permissions).toEqual({ read: true });
     });
 
     it('一時URLの読み取り許可は発行から15分で切れる', async () => {
@@ -167,32 +147,25 @@ describe('StorageService', () => {
 
       // 有効期限もSASトークンの中に署名されていて復号できないため、
       // 署名に渡した引数で確かめる（原則3の例外。上のテストと同じ理由）。
-      // 時刻を固定してあるので、期待値は発行時刻の15分後をリテラルで書ける
+      // 時刻を固定してあるので、期待値は発行時刻の15分後をリテラルで書ける。
+      // この期限は StorageService の判断で、upload の応答には一時URLが出ないため上位から見えない
       const [options] = mockedGenerateSas.mock.calls[0];
       expect(options.expiresOn).toEqual(new Date('2026-10-11T00:15:00.000Z'));
+      // 開始時刻は渡さない（トークンに st が付かず、発行した時点から有効になる）。
+      // 開始時刻を現在時刻で埋めると、サーバ間の時計のずれで発行直後の読み取りが403になりうる。
+      // これもトークンに署名されていて復号できないので、引数で確かめる
+      expect(options.startsOn).toBeUndefined();
     });
 
-    it('SAS生成に失敗した場合はエラーをスローする', async () => {
+    it('SAS生成に失敗した場合は、エラーをスローし、一時ファイルを残さない', async () => {
       const imageBuffer = Buffer.from('temp image data');
 
       mockedGenerateSas.mockImplementation(() => {
         throw new Error('credential unavailable');
       });
 
-      // 生のURLを返すと静かに403になるため、失敗は伝播させる
-      await expect(service.uploadImageToTemp(imageBuffer, 'image/jpeg'))
-        .rejects.toThrow(
-          /^一時画像のアップロードに失敗しました: SAS URLの生成に失敗しました: credential unavailable$/
-        );
-    });
-
-    it('SAS生成に失敗した場合は一時ファイルを残さない', async () => {
-      const imageBuffer = Buffer.from('temp image data');
-
-      mockedGenerateSas.mockImplementation(() => {
-        throw new Error('credential unavailable');
-      });
-
+      // 生のURLを返すと静かに403になるため、失敗は伝播させる。
+      // エラーの文言は契約外なので固定しない
       await expect(service.uploadImageToTemp(imageBuffer, 'image/jpeg'))
         .rejects.toThrow();
 
@@ -204,26 +177,6 @@ describe('StorageService', () => {
   });
 
   describe('moveFromTempToPermanent', () => {
-    it('一時ファイルを永続保存に移動できる', async () => {
-      const fileName = '12345678-1234-1234-1234-123456789012.jpg';
-      const originalContent = Buffer.from('image data');
-      blobStore.set(`test-temp/${fileName}`, {
-        content: originalContent,
-        contentType: 'image/jpeg'
-      });
-      const tempUrl = `https://test.blob.core.windows.net/test-temp/${fileName}`;
-
-      const result = await service.moveFromTempToPermanent(tempUrl);
-
-      // 移動後は永続コンテナに中身がコピーされ、一時コンテナからは消えている
-      expect(result).toBe(`https://test.blob.core.windows.net/test-images/${fileName}`);
-      expect(blobStore.get(`test-images/${fileName}`)).toEqual({
-        content: originalContent,
-        contentType: 'image/jpeg'
-      });
-      expect(blobStore.has(`test-temp/${fileName}`)).toBe(false);
-    });
-
     it('一時ファイルにcontent-typeが設定されていない場合、image/jpegとして永続保存される', async () => {
       const fileName = '22222222-2222-2222-2222-222222222222.jpg';
       blobStore.set(`test-temp/${fileName}`, {
@@ -237,19 +190,10 @@ describe('StorageService', () => {
       expect(blobStore.get(`test-images/${fileName}`)?.contentType).toBe('image/jpeg');
     });
 
-    it('無効な一時URL形式の場合、エラーをスローする', async () => {
-      await expect(service.moveFromTempToPermanent('invalid-url'))
-        .rejects.toThrow(/^画像の永続保存への移動に失敗しました: 一時画像URLからファイル名を抽出できません$/);
-    });
-
-    it('一時ファイルが存在しない場合、エラーをスローする', async () => {
-      const tempUrl = 'https://test.blob.core.windows.net/test-temp/99999999-9999-9999-9999-999999999999.jpg';
-
-      await expect(service.moveFromTempToPermanent(tempUrl))
-        .rejects.toThrow(/^画像の永続保存への移動に失敗しました: BlobNotFound$/);
-    });
-
     it('一時ファイルのダウンロード中にストリームがエラーを発火した場合、エラーをスローする', async () => {
+      // 'error' を reject につなぐ配線が無いと、例外ではなく応答が返らなくなる
+      // （このテストはタイムアウトで失敗する）。エラーの文言は契約外なので、
+      // ストリームの原因が引き継がれていることだけを見る
       const fileName = '55555555-5555-5555-5555-555555555555.jpg';
       blobStore.set(`test-temp/${fileName}`, {
         content: Buffer.from('image data'),
@@ -259,37 +203,11 @@ describe('StorageService', () => {
       const tempUrl = `https://test.blob.core.windows.net/test-temp/${fileName}`;
 
       await expect(service.moveFromTempToPermanent(tempUrl))
-        .rejects.toThrow(/^画像の永続保存への移動に失敗しました: stream read error$/);
+        .rejects.toMatchObject({ cause: { message: 'stream read error' } });
     });
   });
 
   describe('deleteImage', () => {
-    it('画像を正常に削除できる', async () => {
-      const fileName = '12345678-1234-1234-1234-123456789012.jpg';
-      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
-      const imageUrl = `https://test.blob.core.windows.net/test-images/${fileName}`;
-
-      const result = await service.deleteImage(imageUrl);
-
-      expect(result).toBe(true);
-      expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
-    });
-
-    it('一時コンテナの画像も削除できる', async () => {
-      const fileName = '12345678-1234-1234-1234-123456789012.jpg';
-      blobStore.set(`test-temp/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
-      // 同名ファイルが永続コンテナ側にもある状態を作り、宛先を取り違えて
-      // 永続側を削除していないことも合わせて確認する
-      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('other data'), contentType: 'image/jpeg' });
-      const tempImageUrl = `https://test.blob.core.windows.net/test-temp/${fileName}`;
-
-      const result = await service.deleteImage(tempImageUrl);
-
-      expect(result).toBe(true);
-      expect(blobStore.has(`test-temp/${fileName}`)).toBe(false);
-      expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
-    });
-
     it('ストレージアカウント名に一時コンテナ名が含まれる場合でも永続コンテナの画像を削除できる', async () => {
       // 自ストレージアカウント名自体が一時コンテナ名 "test-temp" を含む
       // ("test-temp-account") ケース。ホスト検証はアカウント名が自アカウントと
@@ -329,14 +247,14 @@ describe('StorageService', () => {
       expect(blobStore.has(`test-images/${fileName}`)).toBe(false);
     });
 
-    it('一時コンテナ名で始まるだけの別コンテナを指すURLは、どちらのコンテナからも削除しない', async () => {
+    it('一時コンテナ名で始まるだけの別コンテナなど、未知のコンテナを指すURLは、どちらのコンテナからも削除しない', async () => {
       const fileName = '44444444-4444-4444-4444-444444444444.jpg';
       // コンテナ名が一時コンテナ名 "test-temp" で始まるだけの別コンテナ
       // "test-temp-archive"（偶然の命名一致）。プレフィックス一致で判定すると
-      // 一時コンテナと誤認する
+      // 一時コンテナと誤認する。永続・一時のどちらでもない未知のコンテナ名でもあり、
+      // 未知のコンテナを永続側へフォールバックさせる実装でも、下の永続コンテナの
+      // 同名Blobが巻き込まれて消える
       blobStore.set(`test-temp-archive/${fileName}`, { content: Buffer.from('archive data'), contentType: 'image/jpeg' });
-      // 永続コンテナ側の同名ファイル。未知のコンテナを永続側へフォールバック
-      // させる実装だと、これが巻き込まれて消える
       blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
       const imageUrl = `https://test.blob.core.windows.net/test-temp-archive/${fileName}`;
 
@@ -367,28 +285,17 @@ describe('StorageService', () => {
     it('自ストレージアカウント以外のホストを指すURLを渡した場合、falseを返し永続コンテナの画像は削除されない', async () => {
       const fileName = '66666666-6666-6666-6666-666666666666.jpg';
       blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
-      // ホストが自ストレージアカウント（test.blob.core.windows.net）ではないURL。
+      // 攻撃経路: deleteImage()がホストを見ずコンテナ名とファイル名だけで削除先を決めると、
+      // 外部ホストのURLを imagePath に保存してから更新（updatePlant）で旧画像の削除を
+      // 発火させるだけで、ファイル名さえ一致すれば自アカウントの永続コンテナにある
+      // 「別レコードの」Blobを消せてしまう。入口（isValidImagePath）と出口（ここ）の二層で守っている。
+      // ホストが自ストレージアカウント（test.blob.core.windows.net）ではないURLで、
       // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
       // 未知のコンテナ名（例: foo）のままだとコンテナ名の不一致だけで
       // falseになり、ホスト検証を削除してもこのテストは落ちない
       // （何を検証しているか誤認させる）。コンテナ名を一致させることで
       // ホスト不一致が唯一の棄却理由になる
       const imageUrl = `https://example.com/test-images/${fileName}`;
-
-      const result = await service.deleteImage(imageUrl);
-
-      expect(result).toBe(false);
-      expect(blobStore.has(`test-images/${fileName}`)).toBe(true);
-    });
-
-    it('永続コンテナでも一時コンテナでもない未知のコンテナ名を指すURLを渡した場合、falseを返し永続コンテナの同名画像は削除されない', async () => {
-      const fileName = '88888888-8888-8888-8888-888888888888.jpg';
-      blobStore.set(`test-images/${fileName}`, { content: Buffer.from('data'), contentType: 'image/jpeg' });
-      // ホストは自ストレージアカウント（test.blob.core.windows.net）だが、
-      // コンテナ名"foo"は永続(test-images)・一時(test-temp)のどちらでもない。
-      // 現状の実装はコンテナ名が一時コンテナ名と一致しない場合すべて永続コンテナに
-      // フォールバックするため、このURLでも永続コンテナの同名Blobが削除されてしまう
-      const imageUrl = `https://test.blob.core.windows.net/foo/${fileName}`;
 
       const result = await service.deleteImage(imageUrl);
 
@@ -405,6 +312,8 @@ describe('StorageService', () => {
     });
 
     it('削除エラーの場合、エラーをスローする', async () => {
+      // 呼び出し側（旧画像の削除は握りつぶし、upload の一時ファイルの後片付けは 502 にする）が
+      // 失敗を例外として受け取れることを守る。エラーの文言は契約外なので固定しない
       const fileName = 'broken.jpg';
       blobStore.set(`test-images/${fileName}`, {
         content: Buffer.from('data'),
@@ -413,99 +322,19 @@ describe('StorageService', () => {
       const imageUrl = `https://test.blob.core.windows.net/test-images/${fileName}`;
 
       await expect(service.deleteImage(imageUrl))
-        .rejects.toThrow(/^画像の削除に失敗しました: Delete failed$/);
-    });
-
-    it('無効なURL形式の場合、falseを返す', async () => {
-      const result = await service.deleteImage('invalid-url');
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('isValidImageContentType - 静的メソッド', () => {
-    it('有効な画像タイプの場合、trueを返す', () => {
-      expect(StorageService.isValidImageContentType('image/jpeg')).toBe(true);
-      expect(StorageService.isValidImageContentType('image/jpg')).toBe(true);
-      expect(StorageService.isValidImageContentType('image/png')).toBe(true);
-      expect(StorageService.isValidImageContentType('image/webp')).toBe(true);
-      expect(StorageService.isValidImageContentType('image/gif')).toBe(true);
-    });
-
-    it('大文字で指定した場合も有効と判定される', () => {
-      expect(StorageService.isValidImageContentType('IMAGE/JPEG')).toBe(true);
-    });
-
-    it('無効な画像タイプの場合、falseを返す', () => {
-      expect(StorageService.isValidImageContentType('text/plain')).toBe(false);
-      expect(StorageService.isValidImageContentType('application/json')).toBe(false);
-      expect(StorageService.isValidImageContentType('video/mp4')).toBe(false);
-      expect(StorageService.isValidImageContentType('')).toBe(false);
-    });
-  });
-
-  describe('isValidFileSize - 静的メソッド', () => {
-    it('有効なファイルサイズの場合、trueを返す', () => {
-      expect(StorageService.isValidFileSize(1024)).toBe(true);        // 1KB
-      expect(StorageService.isValidFileSize(1024 * 1024)).toBe(true); // 1MB
-      expect(StorageService.isValidFileSize(5 * 1024 * 1024)).toBe(true); // 5MB
-      expect(StorageService.isValidFileSize(10485760)).toBe(true);    // 上限ちょうど
-    });
-
-    it('無効なファイルサイズの場合、falseを返す', () => {
-      expect(StorageService.isValidFileSize(0)).toBe(false);
-      expect(StorageService.isValidFileSize(-1)).toBe(false);
-      expect(StorageService.isValidFileSize(10485761)).toBe(false); // 上限を1バイト超過
+        .rejects.toBeInstanceOf(UpstreamError);
     });
   });
 
   describe('isValidImagePath - 静的メソッド', () => {
     // beforeEach で設定した環境変数（ホスト test.blob.core.windows.net、
     // 永続コンテナ test-images）を基準に、自アカウントの永続コンテナを指す
-    // URLだけを受理することを検証する
-
-    it('自アカウント以外のホストを指すURLの場合、falseを返す', () => {
-      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
-      // 一致しない値だとコンテナ名の不一致だけでfalseになり、
-      // ホスト検証を削除してもこのテストは落ちなくなる
-      expect(StorageService.isValidImagePath(
-        'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
-    });
-
-    it('永続コンテナ以外のコンテナ名を指すURLの場合、falseを返す', () => {
-      // ここで使う "some-other-container" という値そのものに意味はない。
-      // isValidImagePath() は一時コンテナ名を一切参照しておらず、
-      // 永続コンテナ名と一致するかしか見ていない。このテストが守っているのは
-      // 「永続コンテナ以外のコンテナ名はすべて拒否する」という性質であり、
-      // 一時コンテナ固有のルールがあるわけではない
-      expect(StorageService.isValidImagePath(
-        'https://test.blob.core.windows.net/some-other-container/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
-    });
-
-    it('永続コンテナ名の後に余分なセグメントを挟むURLの場合、falseを返す', () => {
-      // アップロードAPIが返す形は常に「/コンテナ名/Blob名」の2セグメント。
-      // 余分なセグメント（x）を挟むと存在しないBlobを指す壊れた参照になる
-      expect(StorageService.isValidImagePath(
-        'https://test.blob.core.windows.net/test-images/x/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
-    });
-
-    it('コンテナまでしか指していないURLの場合、falseを返す', () => {
-      // 末尾がスラッシュでBlob名のセグメントが空。
-      // 空文字列のBlob名を許すと、Blobを指さないURLが保存されてしまう
-      expect(StorageService.isValidImagePath(
-        'https://test.blob.core.windows.net/test-images/'
-      )).toBe(false);
-    });
-
-    it('スキームがhttpsでないURLの場合、falseを返す', () => {
-      // ホストと永続コンテナの形は正当だが、スキームがhttpsでない。
-      // ホストとパスの一致だけを見る実装ではスキームを素通りさせてしまう
-      expect(StorageService.isValidImagePath(
-        'http://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
-    });
+    // URLだけを受理することを検証する。
+    //
+    // 拒否の各行は入力の種類が違い、常に一緒に落ちる組はない。
+    // 4つの条件（スキーム・ホスト・2セグメント・生の文字列の完全一致）は
+    // 独立に効くようにしてあり、どれか1つが緩んでも他が残るのが設計
+    // （CLAUDE.md「バリデーション定数」）。行の並びは条件の順
 
     it('自アカウントの永続コンテナを指すURLの場合、trueを返す', () => {
       expect(StorageService.isValidImagePath(
@@ -513,57 +342,33 @@ describe('StorageService', () => {
       )).toBe(true);
     });
 
-    it('クエリ文字列が付いたURLの場合、falseを返す', () => {
-      // ホスト・コンテナ・Blob名は正当な形だが、クエリ文字列が付いている。
-      // URLを正規化せずにセグメントだけを見る実装は、クエリ文字列の有無を
-      // 区別できずこのURLも受理してしまう。保存されるimagePathが
-      // 文字列として素のURLと食い違うため、重複チェック（文字列完全一致）を
-      // 素通りできたり、更新時の旧画像削除判定（文字列比較）を誤作動させたりする
-      expect(StorageService.isValidImagePath(
-        'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg?x=1'
-      )).toBe(false);
-    });
-
-    it('フラグメントが付いたURLの場合、falseを返す', () => {
-      // ホスト・コンテナ・Blob名は正当な形だが、フラグメントが付いている。
-      // new URL().pathname にはフラグメントが出ないため、ここまでの検証は
-      // すべて通過してしまう。クエリ文字列のケースと同じく、生の文字列が
-      // フラグメント付きのまま保存されると、文字列完全一致に頼るsaveの
-      // 重複チェックやupdatePlantの旧画像削除判定を誤作動させる
-      expect(StorageService.isValidImagePath(
-        'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg#f'
-      )).toBe(false);
-    });
-
-    it('認証情報が付いたURLの場合、falseを返す', () => {
-      // ホスト・コンテナ・Blob名は正当な形だが、ユーザー名とパスワードが
-      // 埋め込まれている。new URL().host はuserinfoを含まないため、
-      // ホスト検証はここでも通過してしまう。この文字列がそのままCosmosに
-      // 保存されると資格情報が平文でデータベースに残ってしまうため、
-      // 他のケース（文字列比較の誤作動）とは異なる害を持つ
-      expect(StorageService.isValidImagePath(
-        'https://u:p@test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
-    });
-
-    it('ホストが大文字のURLの場合、falseを返す', () => {
-      // ホスト名の大文字小文字はDNS上は区別されないため、new URL().host は
-      // 自動的に小文字化される。パース結果だけを見るホスト検証はここで
-      // 一致してしまい、後続のセグメント検証も通過する。生の文字列同士の
-      // 完全一致だけがこの違いを検出する
-      expect(StorageService.isValidImagePath(
-        'https://TEST.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
-    });
-
-    it('先頭に空白があるURLの場合、falseを返す', () => {
-      // new URL() はWHATWGの仕様で先頭の空白を解析前に取り除くため、
-      // 空白付きの文字列でもパース結果のホスト・パスには影響が出ず、
-      // ここまでの検証をすべて通過してしまう。生の文字列同士の完全一致だけが
-      // 先頭の空白を検出する
-      expect(StorageService.isValidImagePath(
-        ' https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'
-      )).toBe(false);
+    it.each([
+      // コンテナ名はあえて永続コンテナ（test-images）と一致させている。
+      // 一致しない値だとコンテナ名の不一致だけでfalseになり、
+      // ホスト検証を削除してもこのテストは落ちなくなる
+      ['自アカウント以外のホストを指す', 'https://example.com/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // isValidImagePath() は一時コンテナ名を一切参照せず、永続コンテナ名と一致するかしか見ない。
+      // 値そのものに意味はなく、永続コンテナ以外はすべて拒否するという性質を守る
+      ['永続コンテナ以外のコンテナ名を指す', 'https://test.blob.core.windows.net/some-other-container/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // アップロードAPIが返す形は常に「/コンテナ名/Blob名」の2セグメント。
+      // 余分なセグメント（x）を挟むと存在しないBlobを指す壊れた参照になる
+      ['永続コンテナ名の後に余分なセグメントを挟む', 'https://test.blob.core.windows.net/test-images/x/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // 末尾がスラッシュでBlob名のセグメントが空。空文字列のBlob名を許すと、Blobを指さないURLが保存されてしまう
+      ['コンテナまでしか指していない', 'https://test.blob.core.windows.net/test-images/'],
+      // ホストと永続コンテナの形は正当だが、スキームがhttpsでない
+      ['スキームがhttpsでない', 'http://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // 以下の4つは new URL() のパース結果では正当なURLと区別できず（クエリ・フラグメント・認証情報は
+      // pathname に出ず、ホストの大文字小文字と先頭の空白は正規化される）、生の文字列同士の
+      // 完全一致だけが検出する。保存されるのは生の文字列なので、通すと save の重複チェック
+      // （文字列の完全一致）を素通りでき、updatePlant の旧画像削除の判定（文字列比較）も誤作動する
+      ['クエリ文字列が付いている', 'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg?x=1'],
+      ['フラグメントが付いている', 'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg#f'],
+      // 認証情報は、そのまま保存されると資格情報が平文でデータベースに残る点でも害がある
+      ['認証情報が付いている', 'https://u:p@test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      ['ホストが大文字', 'https://TEST.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      ['先頭に空白がある', ' https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg']
+    ])('%sURLの場合、falseを返す', (_name, imagePath) => {
+      expect(StorageService.isValidImagePath(imagePath)).toBe(false);
     });
   });
 });

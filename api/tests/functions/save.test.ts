@@ -10,7 +10,6 @@ const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>
 
 // id は CosmosService.generateId()（Math.random() ベースの自前実装）が生成するため
 // uuidパッケージはモックしても効かない。形式（UUID v4）だけを検証する
-// （cosmosService.test.ts の generateId 検証と同じ正規表現に揃える）
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // StorageService.isValidImagePath() が有効と判定するために必要な自ストレージ設定。
