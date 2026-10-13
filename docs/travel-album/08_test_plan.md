@@ -82,7 +82,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 - `PHOTO_SAS_EXPIRY_MINUTES` に正の整数を設定すると期限が変わる。読めない値なら 60
 - URL の形が `https://<host>/<container>/<blob>?<sas>` になる
 - `urlExpiresAt` が `expiresOn` と同じ ISO 文字列になる
-- 切り出し後も `storageService.test.ts` が全部通る（既存の `upload` の振る舞いを変えない）
+- 切り出し後も `upload.test.ts` が全部通る（既存の `upload` の振る舞いを変えない。一時 URL の SAS の署名もここで見る）
 
 ### 3.3 `services/albumService.ts`
 
