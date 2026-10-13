@@ -791,4 +791,28 @@ void main() {
     expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:03')).hasFlag(SemanticsFlag.isSelected), isTrue);
     semantics.dispose();
   });
+
+  testWidgets('選択モード中に端末の戻る操作をすると、画面は閉じずに選択モードを抜け、見出しが旅行名に戻り、下の操作が消えて、写真の選択も外れる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.textContaining('選択中')), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    semantics.dispose();
+  });
 }

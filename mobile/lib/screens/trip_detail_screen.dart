@@ -118,12 +118,20 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     final trip = _trip;
     return ListenableBuilder(
       listenable: _selection,
-      builder: (context, _) => Scaffold(
-        appBar:
-            _selection.isActive ? _buildSelectionAppBar() : _buildAppBar(trip),
-        body: _buildBody(trip),
-        bottomNavigationBar:
-            _selection.isActive ? _buildSelectionActions() : null,
+      // 選択モード中の戻る操作は、画面を閉じずに選択モードを抜ける（§4.8）
+      builder: (context, _) => PopScope(
+        canPop: !_selection.isActive,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) _selection.clear();
+        },
+        child: Scaffold(
+          appBar: _selection.isActive
+              ? _buildSelectionAppBar()
+              : _buildAppBar(trip),
+          body: _buildBody(trip),
+          bottomNavigationBar:
+              _selection.isActive ? _buildSelectionActions() : null,
+        ),
       ),
     );
   }
