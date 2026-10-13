@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
+import '../models/photo.dart';
 import '../models/trip.dart';
 import '../utils/image_mime_type.dart';
 
@@ -502,6 +503,33 @@ class ApiService {
         return TripDeleteResult(
           deletedPhotoCount: data['deletedPhotoCount'] as int,
           detachedPhotoCount: data['detachedPhotoCount'] as int,
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 写真の一覧の1ページ取得（撮影日時順）
+  /// GET /api/photos?tripId=<旅行 id か none>&continuationToken=<前のページのトークン>
+  ///
+  /// 続きがあるかは枚数ではなく、返る継続トークンが null かどうかで判断する（最後のページが空のこともある）
+  Future<PhotoPage> getPhotos(String tripId,
+      {String? continuationToken}) async {
+    try {
+      final query = {
+        'tripId': tripId,
+        if (continuationToken != null) 'continuationToken': continuationToken,
+      };
+      final url = _buildUrl('/api/photos?${Uri(queryParameters: query).query}');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return PhotoPage(
+          photos: (data['photos'] as List<dynamic>)
+              .map((e) => Photo.fromJson(e as Map<String, dynamic>))
+              .toList(),
+          continuationToken: data['continuationToken'] as String?,
         );
       });
     } catch (error) {
