@@ -33,6 +33,41 @@ Map<String, Object?> tripJson({
   };
 }
 
+/// 写真（Photo。docs/travel-album/05_api_design.md §3.3）の JSON を作る。
+/// [number] から 64 桁の小文字16進の id を作る（実際の id は画像の SHA-256）。サムネイルの URL は SAS 付きの形にする。
+/// [takenAt] はタイムゾーン無しの撮影日時（`2026-10-05T12:30:15`）。[hasThumbnail] が false ならサムネイルが無い写真（thumbnailUrl が null）
+Map<String, Object?> photoJson({
+  required int number,
+  String? tripId,
+  String? takenAt,
+  bool hasThumbnail = true,
+}) {
+  final id = number.toRadixString(16).padLeft(64, '0');
+  const blobHost = 'https://stsnaplant.blob.core.windows.net/photos';
+  return {
+    'id': id,
+    'tripId': tripId,
+    'imageUrl': '$blobHost/$id.jpg?sv=2024-01-01&sig=test',
+    'thumbnailUrl': hasThumbnail ? '$blobHost/$id.thumb.jpg?sv=2024-01-01&sig=test' : null,
+    'contentType': 'image/jpeg',
+    'fileSize': 1234567,
+    'takenAt': takenAt,
+    'takenAtSource': takenAt == null ? null : 'exif',
+    'sortAt': takenAt ?? '2026-10-10T12:12:45',
+    'location': null,
+    'category': null,
+    'tags': <String>[],
+    'comment': null,
+    'commentSource': null,
+    'hint': null,
+    'classification': null,
+    'identification': null,
+    'processing': {'state': 'none', 'step': null, 'attempts': 0, 'lastError': null, 'updatedAt': null},
+    'uploadedAt': '2026-10-10T03:12:45.000Z',
+    'updatedAt': '2026-10-10T03:12:45.000Z',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 状態を1つだけ持つ偽のサーバ
 
@@ -52,11 +87,19 @@ enum TripRoute {
 
   /// DELETE /api/trips/{tripId}?deletePhotos=true|false
   delete,
+
+  /// GET /api/photos?tripId=...&limit=...&continuationToken=...
+  photos,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つ）の偽のサーバ。状態は [trips] と [unassignedPhotoCount] の2つだけで、
+/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`）の偽のサーバ。
+/// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
+/// - 写真は旅行ごとに [photosByTripId] に持つ（キーは旅行の id。旅行に属さない写真は `none`）。
+///   `GET /api/photos` は `tripId` で絞り込み、入れた順（サーバが返す順）に `limit`（既定 100）枚ずつ返す。
+///   続きがあるときの `continuationToken` は次の開始位置を表す文字列で、受け取ったものをそのまま次の要求に載せると続きが返る
+///   （旅行が無い `tripId` は 404 `TRIP_NOT_FOUND`。`none` は旅行の確認をしない）
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`plantServer` と同じ考え方）
@@ -68,13 +111,20 @@ class FakeTripBackend {
     List<Map<String, Object?>> trips = const [],
     this.unassignedPhotoCount = 0,
     this.functionKey = 'saved-key',
-  }) : trips = [...trips];
+    Map<String, List<Map<String, Object?>>> photosByTripId = const {},
+  })  : trips = [...trips],
+        photosByTripId = {
+          for (final entry in photosByTripId.entries) entry.key: [...entry.value],
+        };
 
   /// 旅行（新しい順。`GET /api/trips` はこの順に返す）。作成は先頭に足し、更新と削除はここを書き換える
   final List<Map<String, Object?>> trips;
 
   /// 旅行に属さない写真の枚数。写真を残す削除で、その旅行の枚数だけ増える
   int unassignedPhotoCount;
+
+  /// 旅行ごとの写真（キーは旅行の id、旅行に属さない写真は `none`）。`GET /api/photos` はこの並びのまま返す
+  final Map<String, List<Map<String, Object?>>> photosByTripId;
 
   /// 受け付ける API キー
   final String functionKey;
@@ -133,6 +183,8 @@ class FakeTripBackend {
         return _update(request);
       case TripRoute.delete:
         return _delete(request);
+      case TripRoute.photos:
+        return _listPhotos(request);
     }
   }
 
@@ -153,6 +205,7 @@ class FakeTripBackend {
         _ => null,
       };
     }
+    if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
     return null;
   }
 
@@ -203,6 +256,22 @@ class FakeTripBackend {
       'message': '旅行が正常に削除されました',
       'deletedPhotoCount': deletePhotos == 'true' ? photoCount : 0,
       'detachedPhotoCount': deletePhotos == 'false' ? photoCount : 0,
+    });
+  }
+
+  http.Response _listPhotos(http.Request request) {
+    final query = request.url.queryParameters;
+    final tripId = query['tripId'];
+    if (tripId == null) return _error(400, 'INVALID_REQUEST', '旅行を指定してください');
+    if (tripId != 'none' && _find(tripId) == null) return _notFound();
+    final photos = photosByTripId[tripId] ?? const <Map<String, Object?>>[];
+    final limit = int.parse(query['limit'] ?? '100');
+    final start = int.parse(query['continuationToken'] ?? '0');
+    final end = start + limit < photos.length ? start + limit : photos.length;
+    return _ok(200, {
+      'photos': photos.sublist(start, end),
+      'continuationToken': end < photos.length ? '$end' : null,
+      'urlExpiresAt': '2026-10-10T04:12:45.000Z',
     });
   }
 

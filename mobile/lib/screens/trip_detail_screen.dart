@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
 import '../widgets/message_view.dart';
+import '../widgets/photo_grid.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
 
@@ -146,12 +147,20 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     if (trip == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Text(
-        '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
-        style: AppTextStyles.body1,
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
+            style: AppTextStyles.body1,
+          ),
+        ),
+        Expanded(
+          child: PhotoGrid(apiService: widget.apiService, tripId: trip.id),
+        ),
+      ],
     );
   }
 }

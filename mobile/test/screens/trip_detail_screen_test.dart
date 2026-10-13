@@ -16,6 +16,11 @@ const _apiKey = 'test-key';
 
 FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBackend(trips: trips, functionKey: _apiKey);
 
+/// 撮影日時 [label]（例 `2026年10月5日 12:30`）を読み上げ用ラベルに持つサムネイル。
+/// 画像そのものはテスト環境で読み込めないので、どの写真かはこのラベルで見分ける。
+/// ラベルに他の文言（画像の読み込み失敗の表示など）が続いていても一致するよう、部分一致で探す
+Finder _thumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escape(label)));
+
 /// 「詳細を開く」ボタンだけのホーム画面から、[hokkaidoTripId] の旅行詳細を開く。
 /// 詳細画面の前に画面がある状態にする（削除したら戻る先）
 Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) async {
@@ -43,6 +48,43 @@ Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) as
 }
 
 void main() {
+  testWidgets('旅行詳細を開くと、写真の一覧の1ページ目の読み込み中は「写真を読み込み中...」を出し、読み込めたらサーバが返す順にサムネイルを並べる', (tester) async {
+    // サムネイルの画像は、テスト環境の HTTP が返さないので見えない。並びは、各サムネイルの読み上げ用ラベル（撮影日時）の位置で見る。
+    // 並びがサーバの返す順そのものであることを見るため、撮影日時の順ではない並びで渡す（クライアントは並べ替えない）
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-07T18:45:00'),
+        ],
+      },
+    );
+    backend.holds[TripRoute.photos] = release.future;
+    await openDetailFromHome(tester, backend);
+    // 写真の応答を待っている間
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+    expect(_thumbnail('2026年10月6日 10:15'), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('写真を読み込み中...'), findsNothing);
+    final first = tester.getTopLeft(_thumbnail('2026年10月6日 10:15'));
+    final second = tester.getTopLeft(_thumbnail('2026年10月5日 12:30'));
+    final third = tester.getTopLeft(_thumbnail('2026年10月7日 18:45'));
+    // 3列のグリッドの1行目に、返された順に左から並ぶ
+    expect(second.dy, first.dy);
+    expect(third.dy, first.dy);
+    expect(first.dx, lessThan(second.dx));
+    expect(second.dx, lessThan(third.dx));
+    semantics.dispose();
+  });
+
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final backend = _backendWith([hokkaidoTrip(description: 'ひとり旅')]);
     await openDetailFromHome(tester, backend);
