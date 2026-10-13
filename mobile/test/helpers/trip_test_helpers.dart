@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -102,6 +103,8 @@ enum TripRoute {
 ///   （旅行が無い `tripId` は 404 `TRIP_NOT_FOUND`。`none` は旅行の確認をしない）
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
+/// - 次の1回の呼び出しだけ、応答の中身は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
+///   遅れて届く古い応答（止めている間に別の端末で状態が変わる）を表す
 /// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`plantServer` と同じ考え方）
 /// - 削除の要求の `deletePhotos` を [deletePhotosSent] に記録する。写真が0枚の旅行は `true` でも `false` でも応答が同じで、
 ///   結果からは何を送ったか見分けられない。二重に送られたかどうか（2回目は 404 になって成功扱いと区別しにくい）も、これで見る。
@@ -140,6 +143,7 @@ class FakeTripBackend {
   final List<String?> deletePhotosSent = [];
 
   final Map<TripRoute, List<({int status, String code, String message})>> _failures = {};
+  final Map<TripRoute, List<Future<void>>> _replyHolds = {};
   var _createdCount = 0;
 
   /// [route] の次の1回の呼び出しを、[status] の封筒つきのエラーで失敗させる。呼ぶたびに1回分積まれ、順に使われる
@@ -150,6 +154,14 @@ class FakeTripBackend {
     String message = 'データベースに接続できません',
   }) {
     _failures.putIfAbsent(route, () => []).add((status: status, code: code, message: message));
+  }
+
+  /// [route] の次の1回の呼び出しだけ、返すのを返り値の Completer が終わるまで止める。
+  /// 応答の中身は呼び出しが届いた時点の状態で決まり、止めている間に状態を書き換えても変わらない（[holds] は解放されたときの状態で決まる）
+  Completer<void> holdNextReply(TripRoute route) {
+    final completer = Completer<void>();
+    _replyHolds.putIfAbsent(route, () => []).add(completer.future);
+    return completer;
   }
 
   /// この偽のサーバにつなぐ HTTP クライアント
@@ -171,6 +183,16 @@ class FakeTripBackend {
       final failure = failures.removeAt(0);
       return _error(failure.status, failure.code, failure.message);
     }
+    final replyHolds = _replyHolds[route];
+    if (replyHolds != null && replyHolds.isNotEmpty) {
+      final response = _respondTo(route, request);
+      await replyHolds.removeAt(0);
+      return response;
+    }
+    return _respondTo(route, request);
+  }
+
+  http.Response _respondTo(TripRoute route, http.Request request) {
     switch (route) {
       case TripRoute.list:
         return _ok(200, {
@@ -347,3 +369,8 @@ Future<void> openDeleteDialog(WidgetTester tester) async {
   await tester.tap(find.text('削除'));
   await letFramesRun(tester);
 }
+
+/// 撮影日時 [label]（例 `2026年10月5日 12:30`）を読み上げ用ラベルに持つサムネイル。
+/// 画像そのものはテスト環境で読み込めないので、どの写真かはこのラベルで見分ける（`tester.ensureSemantics()` が要る）。
+/// ラベルに他の文言（画像の読み込み失敗の表示など）が続いていても一致するよう、部分一致で探す
+Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escape(label)));

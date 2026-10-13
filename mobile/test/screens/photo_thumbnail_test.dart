@@ -14,7 +14,7 @@ import '../helpers/trip_test_helpers.dart';
 // テスト環境では端末の機能（path_provider）が無いので、プラットフォーム層を一時ディレクトリに差し替える。
 // 画像の HTTP は flutter_test が必ず 400 を返すため、サムネイルは「読み込めない」状態になる。
 // ファイルの読み書きと HTTP は実時間で進むので、tester.runAsync の中で待つ。
-// キャッシュの管理（flutter_cache_manager）はプロセスで1つの共有物で、最初に開いた先を覚えるため、
+// キャッシュの管理（flutter_cache_manager）はこのファイル（テストを動かす isolate）の中で1つの共有物で、最初に開いた先を覚えるため、
 // 画像を実際に取りに行くテストはこのファイルに置き、この1ファイルの中でも最初のテストにする
 
 const _apiKey = 'test-key';
@@ -35,7 +35,7 @@ Future<void> _waitUntilFound(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('サムネイルの画像を読み込めないときは、サムネイルの中に「画像を読み込めません」を出す', (tester) async {
+  testWidgets('サムネイルは、画像を取得している間は「画像を読み込めません」を出さず、取得に失敗したときだけサムネイルの中に出す', (tester) async {
     final directory = Directory.systemTemp.createTempSync('snaplant_image_cache');
     addTearDown(() => directory.deleteSync(recursive: true));
     _useDirectoryForPathProvider(tester, directory);
@@ -49,10 +49,15 @@ void main() {
     final apiService = ApiService(baseUrl: testApiEndpoint, client: backend.client, functionKey: _apiKey);
 
     await openApp(tester, app: MaterialApp(home: TripDetailScreen(apiService: apiService, tripId: hokkaidoTripId)));
+    // 開いた直後は、画像を取得している途中（実時間を進めていない）。読み込めないときの表示はまだ出ない
+    expect(find.text('画像を読み込めません'), findsNothing);
+
     await _waitUntilFound(tester, find.text('画像を読み込めません'));
 
     expect(find.text('画像を読み込めません'), findsOneWidget);
-    // 画像の取得に付随する後始末のタイマー（キャッシュの掃除）を進めて、テストの終わりに残さない
-    await tester.pump(const Duration(seconds: 10));
+    // 画像の取得に付随する後始末のタイマー（キャッシュの掃除）を進めて、テストの終わりに残さない。
+    // 掃除の間隔は flutter_cache_manager の CacheStore.cleanupRunMinInterval（3.4.1 で 10 秒）。
+    // 間隔が多少変わっても残らないよう、その倍の 20 秒進める
+    await tester.pump(const Duration(seconds: 20));
   });
 }

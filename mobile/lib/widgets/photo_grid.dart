@@ -45,6 +45,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   bool _isLoadingMore = false;
   // 続きの取得に失敗した。「再試行」が押されるまで自動では取り直さない（既存と同じく自動の再試行はしない）
   bool _loadMoreFailed = false;
+  // 一覧を先頭から読み直すたびに進める。読み直しをまたいで届いた続きの結果は、前の一覧のものなので捨てる
+  int _generation = 0;
 
   @override
   void initState() {
@@ -80,6 +82,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       final page = await widget.apiService.getPhotos(widget.tripId);
       if (!mounted) return;
       setState(() {
+        _generation++;
         _photos = page.photos;
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
@@ -97,11 +100,12 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _loadMore() async {
     final token = _continuationToken;
     if (_isLoadingMore || _loadMoreFailed || token == null) return;
+    final generation = _generation;
     setState(() => _isLoadingMore = true);
     try {
       final page = await widget.apiService
           .getPhotos(widget.tripId, continuationToken: token);
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _photos = [...?_photos, ...page.photos];
         _continuationToken = page.continuationToken;
@@ -109,7 +113,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       });
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _isLoadingMore = false;
         _loadMoreFailed = true;

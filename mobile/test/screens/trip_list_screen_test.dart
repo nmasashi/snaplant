@@ -206,12 +206,12 @@ void main() {
     expect(find.text('3枚'), findsOneWidget);
     expect(find.textContaining('撮影日時なし'), findsNothing);
     expect(find.textContaining('·'), findsNothing);
-    final first = tester.getTopLeft(find.bySemanticsLabel(RegExp('2026年9月1日 10:15')));
-    final second = tester.getTopLeft(find.bySemanticsLabel(RegExp('2026年9月2日 12:30')));
-    final third = tester.getTopLeft(find.bySemanticsLabel(RegExp('2026年9月3日 18:45')));
+    final first = tester.getTopLeft(photoThumbnail('2026年9月1日 10:15'));
+    final second = tester.getTopLeft(photoThumbnail('2026年9月2日 12:30'));
+    final third = tester.getTopLeft(photoThumbnail('2026年9月3日 18:45'));
     expect(first.dx, lessThan(second.dx));
     expect(second.dx, lessThan(third.dx));
-    expect(find.bySemanticsLabel(RegExp('2026年10月5日 11:11')), findsNothing);
+    expect(photoThumbnail('2026年10月5日 11:11'), findsNothing);
     expect(find.byIcon(Icons.more_vert), findsNothing);
     semantics.dispose();
   });
