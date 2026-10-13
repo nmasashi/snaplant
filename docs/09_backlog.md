@@ -265,6 +265,21 @@ iOS からは当面使う予定が無いので、iOS の HEIC の問題は考え
 4形式以外を受け付けないのはサーバの仕様なので、クライアントが偽の Content-Type で
 すり抜けさせる理由が無い。
 
+### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない（DEPLOYMENT.md の記述も事実と違う）
+
+`StorageService` の `resolveBlobEndpointHost()` は、接続文字列に `EndpointSuffix` が無ければ `core.windows.net` として
+ホストを組み立てる。ところが実 SDK の `BlobServiceClient.fromConnectionString` は、`EndpointSuffix` の無い接続文字列を
+`Invalid EndpointSuffix in the provided Connection String` で拒否する（2026-10-13、#46 の整理で test-consolidator が手元で確認）。
+`StorageService` も `PhotoStorageService` もコンストラクタで `fromConnectionString` を呼ぶので、既定値の分岐には届かず、
+エンドポイントは 500 になる。DEPLOYMENT.md「`STORAGE_CONNECTION_STRING` の制約」の
+「`EndpointSuffix` を省いた場合は `core.windows.net` としてホストを組み立てます」は、エンドポイントの振る舞いとしては事実ではない。
+
+この分岐を守っていた単体テストは、入口から観測できないので #46 の整理で消した。Terraform が流し込む接続文字列には
+`EndpointSuffix` が入っているので、実害は無い。
+
+**やること**: 分岐を消して DEPLOYMENT.md の記述を「`EndpointSuffix` は必須（無いと 500）」に直すか、
+SDK に渡す前に `EndpointSuffix=core.windows.net` を補うかを決める。前者が単純。
+
 ### Azurite などパス形式のエンドポイントに対応していない
 
 `StorageService` のコンストラクタは、接続文字列に `BlobEndpoint=` があれば
