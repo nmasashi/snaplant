@@ -44,7 +44,17 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
   }
 
   Future<void> _move(TripSummary trip) async {
-    final result = await widget.onMove(trip.id);
+    PhotoMoveResult result;
+    try {
+      result = await widget.onMove(trip.id);
+    } catch (e) {
+      debugPrint('TripPickerDialog: 写真の移動エラー: $e');
+      if (!mounted) return;
+      // ダイアログに留まる（選択も残るので、そのまま押し直せる。送れた分は移っているが、送り直しても同じ結果になる）
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '写真の移動に失敗しました')));
+      return;
+    }
     if (!mounted) return;
     Navigator.pop(context, (tripName: trip.name, result: result));
   }

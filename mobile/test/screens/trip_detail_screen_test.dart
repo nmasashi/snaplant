@@ -923,4 +923,46 @@ void main() {
     expect(backend.photosByTripId[kyotoTripId]!.length, 201);
     semantics.dispose();
   });
+
+  testWidgets('写真の移動にサーバが失敗を返すと、エラーの文言を出して「旅行を選ぶ」のダイアログと2枚の選択は残り、「入れる」を押し直すと移って「2枚を「京都」に入れました」と知らせる', (tester) async {
+    // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+        kyotoTripId: [],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.move);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('2枚を選択中')), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId], isEmpty);
+    expect(find.textContaining('に入れました'), findsNothing);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('2枚を「京都」に入れました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(backend.photosByTripId[kyotoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
 }
