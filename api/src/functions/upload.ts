@@ -88,8 +88,10 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     const arrayBuffer = await file.arrayBuffer();
     const imageBuffer = Buffer.from(arrayBuffer);
 
-    // ストレージサービス初期化
+    // ストレージと AI 識別サービスを、何かを保存する前に作る。設定の誤り（BlobEndpoint のある接続文字列、
+    // Azure のデプロイ名の書き忘れ）はコンストラクタで例外になるので、一時コンテナに画像を残さずに失敗できる
     const storageService = new StorageService();
+    const visionService = new OpenAIVisionService();
     
     // 1. 画像を一時保存
     const tempImageUrl = await storageService.uploadImageToTemp(imageBuffer, file.type);
@@ -97,10 +99,7 @@ export async function uploadImageHandler(request: HttpRequest, context: Invocati
     // ログにはパスまでを出す
     context.log(`一時保存完了: URL=${tempImageUrl.split('?')[0]}`);
 
-    // 2. AI識別サービス初期化・植物判定実行
-    const visionService = new OpenAIVisionService();
-
-    // LLMで植物識別実行（コンテキスト情報があれば渡す）
+    // 2. AI で植物判定を実行（コンテキスト情報があれば渡す）
     const identificationResult = await visionService.identifyPlant(tempImageUrl, contextInfo);
     context.log(`植物識別完了: 植物=${identificationResult.isPlant}, 候補数=${identificationResult.candidates.length}`);
 

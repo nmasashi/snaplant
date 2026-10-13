@@ -227,7 +227,7 @@ Function App に設定される主要な環境変数：
 | `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（モデル名として使用） |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（要求先の URL とモデル名の両方に使用）。`AZURE_OPENAI_ENDPOINT` を設定するなら必須 |
 | `AZURE_OPENAI_API_VERSION` | Azure OpenAI APIバージョン（未設定時は `2024-12-01-preview`） |
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | Application Insights キー |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
@@ -240,6 +240,12 @@ Application Insights の2つは `site_config` の `application_insights_key` / `
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
+このときモデル名は `AZURE_OPENAI_DEPLOYMENT_NAME`、未設定なら `gpt-5.6-luna` です。
+
+`AZURE_OPENAI_ENDPOINT` を設定して `AZURE_OPENAI_DEPLOYMENT_NAME` を設定しない（空文字列・空白だけを含む）と、
+`POST /api/plants/identify` と `POST /api/images/upload` は、入力検証を通ったリクエストが
+AI 識別サービスを呼ばずに 500 `INTERNAL_ERROR` になります（`message` は `docs/06_api_design.md` §6.2 の
+エンドポイントごとの文言。`POST /api/images/upload` は一時保存の前に失敗するので、何も保存しません）。Terraform は必ず設定するので、手で設定するローカル開発で踏みやすい設定です。
 
 `AZURE_OPENAI_ENDPOINT` が設定されている場合（Azure）の要求先は
 `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT_NAME}` で、

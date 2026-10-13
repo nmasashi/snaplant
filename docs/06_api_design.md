@@ -210,6 +210,8 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 入力検証を通った後の失敗は、AI識別の呼び出しで起きたものが 502 / 503 `AI_SERVICE_ERROR`、
 それ以外が 500 `INTERNAL_ERROR` です（6.2 の「502 / 503 の振り分けと `message`」参照）。
+Azure OpenAI Service のデプロイ名（`AZURE_OPENAI_DEPLOYMENT_NAME`）が未設定の場合も、AI識別サービスへ要求を送らずに
+500 `INTERNAL_ERROR`（`植物識別処理に失敗しました`）になります（5.9）。
 
 **リクエスト例:**
 ```http
@@ -572,7 +574,9 @@ AI 識別サービスへ渡すものは 5.9 にまとめています。
   400 `NOT_A_PLANT` ではなく `STORAGE_ERROR` になります
 - それ以外 → 500 `INTERNAL_ERROR`（`画像アップロード・植物判定に失敗しました`）。
   ストレージの接続文字列が未対応の形（`BlobEndpoint=` を含む、`EndpointSuffix` が無い。`DEPLOYMENT.md` の
-  「`STORAGE_CONNECTION_STRING` の制約」）の場合もこれで、何も保存せず AI識別サービスも呼びません
+  「`STORAGE_CONNECTION_STRING` の制約」）の場合もこれで、何も保存せず AI識別サービスも呼びません。
+  Azure OpenAI Service のデプロイ名（`AZURE_OPENAI_DEPLOYMENT_NAME`）が未設定の場合（5.9）もこれで、
+  同じく何も保存せず AI識別サービスも呼びません
 
 AI識別の呼び出しが失敗した場合、一時保存した画像は削除されずに一時コンテナに残ります
 （[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
@@ -653,8 +657,8 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 
 | 要素 | 内容 |
 |---|---|
-| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
-| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（未設定なら `gpt-5.6-luna`）。ただし Azure OpenAI Service でデプロイ名が未設定のときは、`baseURL` のデプロイ名の部分が `undefined` になり、モデルの既定値と食い違う（[バックログ](./09_backlog.md)の「AI 識別サービスの要求で、デプロイ名が未設定のときに接続先とモデルが食い違う」。Terraform は必ず設定する） |
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき `AZURE_OPENAI_DEPLOYMENT_NAME` は必須で、未設定（空文字列・空白だけを含む）なら要求を送らずに 500 `INTERNAL_ERROR` になる（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
+| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`。Azure OpenAI Service では必須なので、`baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、未設定なら `gpt-5.6-luna` を使う |
 | メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
 | 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL。5.8 の SAS は、一時コンテナのその Blob 1つだけを対象にした読み取り専用で、発行から15分で切れ、開始時刻を付けない（発行した時点から有効。値の根拠は `07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
 | コンテキスト情報 | `contextInfo` があるときだけ、プロンプトのテキストに含める。未指定・`null` のときは含めない |
@@ -665,6 +669,14 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 
 応答の検証（`confidence` の範囲（0 と 100 は可）、候補の必須項目、空・JSON として読めない応答）で弾かれた場合の扱いは
 6.2 の「502 / 503 の振り分けと `message`」に、応答の null 項目の省略と植物でない場合の `candidates` は 4.2 にあります。
+
+`AZURE_OPENAI_ENDPOINT` があるのに `AZURE_OPENAI_DEPLOYMENT_NAME` が未設定（空文字列・空白だけを含む）の場合は、
+設定の誤りとして AI 識別サービスへ要求を送らずに 500 `INTERNAL_ERROR` を返します
+（AI 識別サービスの障害ではないので 502 / 503 `AI_SERVICE_ERROR` にはしません）。
+`message` は 6.2 の「500 `INTERNAL_ERROR` の `message`」のとおりエンドポイントごとの文言で、
+5.3 は `植物識別処理に失敗しました`、5.8 は `画像アップロード・植物判定に失敗しました` です。
+5.8 ではこの検査が一時保存の前に行われるため、何も保存しません。
+Terraform はこの環境変数を必ず設定します（`DEPLOYMENT.md` の「環境変数」）。
 
 ## 6. エラーレスポンス
 

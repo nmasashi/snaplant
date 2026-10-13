@@ -1206,6 +1206,48 @@ describe('画像アップロード・植物判定統合API', () => {
     });
   });
 
+  describe('AIの設定が未対応の形', () => {
+    // tests/setup.ts が全体に Azure OpenAI Service の値を入れているので、このテストで使う変数を退避して、終わったら戻す
+    const ENV_KEYS = ['AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_DEPLOYMENT_NAME'] as const;
+    let savedEnv: Record<string, string | undefined>;
+
+    beforeEach(() => {
+      savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+    });
+
+    afterEach(() => {
+      for (const key of ENV_KEYS) {
+        if (savedEnv[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = savedEnv[key];
+        }
+      }
+    });
+
+    it('Azure OpenAI Serviceの接続先があるのにデプロイ名が未設定なら、何も保存せず500エラー', async () => {
+      // 一時保存の後で AI の設定の誤りに気づくと、一時コンテナに画像が残る
+      // （一時コンテナの掃除は、最終更新から1日後のライフサイクル管理まで待つことになる）。
+      // 設定の誤りは、何かを保存する前に分かるはずなので、Blob が空であることまで見る。details は契約外なので固定しない
+      process.env.AZURE_OPENAI_ENDPOINT = 'https://test.openai.azure.com';
+      process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '画像アップロード・植物判定に失敗しました'
+        }
+      });
+      expect([...blobStore.keys()]).toEqual([]);
+      expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('ストレージにもAIにも届かない失敗', () => {
     it('受け取ったファイルの読み出しに失敗した場合は500エラーで、Blobには何も書かれない', async () => {
       const mockFile = {
