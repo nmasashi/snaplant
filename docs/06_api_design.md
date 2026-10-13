@@ -656,7 +656,7 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 | 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
 | モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（未設定なら `gpt-5.6-luna`）。ただし Azure OpenAI Service でデプロイ名が未設定のときは、`baseURL` のデプロイ名の部分が `undefined` になり、モデルの既定値と食い違う（[バックログ](./09_backlog.md)の「AI 識別サービスの要求で、デプロイ名が未設定のときに接続先とモデルが食い違う」。Terraform は必ず設定する） |
 | メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
-| 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL（`07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
+| 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL。5.8 の SAS は、一時コンテナのその Blob 1つだけを対象にした読み取り専用で、発行から15分で切れ、開始時刻を付けない（発行した時点から有効。値の根拠は `07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
 | コンテキスト情報 | `contextInfo` があるときだけ、プロンプトのテキストに含める。未指定・`null` のときは含めない |
 | プロンプトが指示すること | 植物かどうかの判定基準、`name` の命名の優先順位（品種名 → 種名 → 属名）、候補は最大3件を信頼度の高い順に並べること、学名と科名を含めること |
 | 応答の形 | Structured Outputs（`response_format: json_schema`、名前 `plant_identification`、`strict: true`）。`isPlant`（boolean）・`confidence`（number）・`reason`（string）・`plantAnalysis`（object または null。`candidates[]` の各要素は `name`・`scientificName`・`familyName`・`description`・`characteristics`・`confidence`）。全プロパティが必須で `additionalProperties: false`、任意項目は null 許容 |
