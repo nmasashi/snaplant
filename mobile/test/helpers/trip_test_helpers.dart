@@ -91,9 +91,12 @@ enum TripRoute {
 
   /// GET /api/photos?tripId=...&limit=...&continuationToken=...
   photos,
+
+  /// POST /api/photos/move
+  move,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`）の偽のサーバ。
+/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`）の偽のサーバ。
 /// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
@@ -101,6 +104,10 @@ enum TripRoute {
 ///   `GET /api/photos` は `tripId` で絞り込み、入れた順（サーバが返す順）に `limit`（クライアントが送らなければ [pageSize]）枚ずつ返す。
 ///   続きがあるときの `continuationToken` は次の開始位置を表す文字列で、受け取ったものをそのまま次の要求に載せると続きが返る
 ///   （旅行が無い `tripId` は 404 `TRIP_NOT_FOUND`。`none` は旅行の確認をしない）
+/// - `POST /api/photos/move` は、[photosByTripId] の写真を移し先の旅行（`tripId: null` なら `none`）の末尾へ動かし、写真の `tripId` を書き換える。
+///   移した写真の元の旅行と移し先の旅行の `photoCount`（と [unassignedPhotoCount]）も合わせて更新する。
+///   応答は `{ moved, notFound }`（どの旅行にも無い id が `notFound`）。移し先の旅行が無ければ 404 `TRIP_NOT_FOUND`。
+///   既にその旅行にある写真は、動かさずに `moved` に入れる
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
@@ -214,6 +221,8 @@ class FakeTripBackend {
         return _delete(request);
       case TripRoute.photos:
         return _listPhotos(request);
+      case TripRoute.move:
+        return _movePhotos(request);
     }
   }
 
@@ -235,6 +244,7 @@ class FakeTripBackend {
       };
     }
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
+    if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
     return null;
   }
 
@@ -316,6 +326,44 @@ class FakeTripBackend {
       'continuationToken': end < photos.length ? '$end' : null,
       'urlExpiresAt': '2026-10-10T04:12:45.000Z',
     });
+  }
+
+  http.Response _movePhotos(http.Request request) {
+    final body = json.decode(request.body) as Map<String, dynamic>;
+    final photoIds = (body['photoIds'] as List<dynamic>).cast<String>();
+    final tripId = body['tripId'] as String?;
+    final targetKey = tripId ?? 'none';
+    if (tripId != null && _find(tripId) == null) return _notFound();
+    final moved = <String>[];
+    final notFound = <String>[];
+    for (final photoId in photoIds) {
+      final sourceKey = photosByTripId.keys
+          .where((key) => photosByTripId[key]!.any((photo) => photo['id'] == photoId))
+          .firstOrNull;
+      if (sourceKey == null) {
+        notFound.add(photoId);
+        continue;
+      }
+      moved.add(photoId);
+      if (sourceKey == targetKey) continue;
+      final photo = photosByTripId[sourceKey]!.firstWhere((photo) => photo['id'] == photoId);
+      photosByTripId[sourceKey]!.remove(photo);
+      photo['tripId'] = tripId;
+      photosByTripId.putIfAbsent(targetKey, () => []).add(photo);
+      _addToPhotoCount(sourceKey, -1);
+      _addToPhotoCount(targetKey, 1);
+    }
+    return _ok(200, {'moved': moved, 'notFound': notFound});
+  }
+
+  /// 旅行（`none` なら旅行に属さない写真）の枚数を [delta] だけ増やす
+  void _addToPhotoCount(String key, int delta) {
+    if (key == 'none') {
+      unassignedPhotoCount += delta;
+      return;
+    }
+    final trip = _find(key);
+    if (trip != null) trip['photoCount'] = (trip['photoCount'] as int) + delta;
   }
 
   http.Response _notFound() => _error(404, 'TRIP_NOT_FOUND', '指定された旅行が見つかりません');

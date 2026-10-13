@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/photo.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
@@ -8,6 +9,7 @@ import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
+import '../widgets/trip_picker_dialog.dart';
 
 /// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
 ///
@@ -31,6 +33,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   String? _errorMessage;
   // 写真の複数選択（見出し・下の操作バー・グリッドが見る）
   final _selection = PhotoSelection();
+  // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
+  int _gridVersion = 0;
 
   @override
   void dispose() {
@@ -102,6 +106,26 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
   }
 
+  /// 選んだ写真を別の旅行に入れる。入れたら選択を解除し、写真の一覧と見出しの枚数を読み直す
+  Future<void> _moveToTrip() async {
+    final photoIds = _selection.selectedIds;
+    final moved = await showDialog<({String tripName, PhotoMoveResult result})>(
+      context: context,
+      builder: (context) => TripPickerDialog(
+        apiService: widget.apiService,
+        excludeTripId: widget.tripId,
+        onMove: (tripId) => widget.apiService.movePhotos(photoIds, tripId),
+      ),
+    );
+    if (moved == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content:
+            Text('${moved.result.moved.length}枚を「${moved.tripName}」に入れました')));
+    _selection.clear();
+    setState(() => _gridVersion++);
+    await _loadTrip();
+  }
+
   /// 削除の知らせ。写真を消したか移したかは応答の枚数で分かる（0枚の旅行ならどちらも 0）
   String _deletedMessage(TripDeleteResult result) {
     if (result.deletedPhotoCount > 0) {
@@ -160,7 +184,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           TextButton.icon(
-              onPressed: enabled ? () {} : null,
+              onPressed: enabled ? _moveToTrip : null,
               icon: const Icon(Icons.drive_file_move_outline),
               label: const Text('旅行に入れる')),
           TextButton.icon(
@@ -226,6 +250,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         ),
         Expanded(
           child: PhotoGrid(
+            key: ValueKey(_gridVersion),
             apiService: widget.apiService,
             tripId: trip.id,
             selection: _selection,

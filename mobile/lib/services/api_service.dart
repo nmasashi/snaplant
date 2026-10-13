@@ -537,6 +537,31 @@ class ApiService {
     }
   }
 
+  /// 写真をまとめて旅行に入れる（[tripId] が null なら旅行から外す）
+  /// POST /api/photos/move
+  ///
+  /// 外すときも tripId のキーは省かずに null を送る（サーバは省略を取り違えとして 400 にする）
+  Future<PhotoMoveResult> movePhotos(
+      List<String> photoIds, String? tripId) async {
+    try {
+      final url = _buildUrl('/api/photos/move');
+      final response = await _client.post(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'photoIds': photoIds, 'tripId': tripId}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return PhotoMoveResult(
+          moved: List<String>.from(data['moved'] as List<dynamic>),
+          notFound: List<String>.from(data['notFound'] as List<dynamic>),
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 接続テスト
   Future<bool> testConnection() async {
     try {

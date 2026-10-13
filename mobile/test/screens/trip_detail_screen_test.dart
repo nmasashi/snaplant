@@ -815,4 +815,47 @@ void main() {
     expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isFalse);
     semantics.dispose();
   });
+
+  testWidgets('選んだ写真2枚を「旅行に入れる」で別の旅行「京都」に入れると、「2枚を「京都」に入れました」と知らせ、選択モードを抜けて、写真の一覧と見出しの枚数から移した写真が消える', (tester) async {
+    // 「旅行を選ぶ」ダイアログは、今いる旅行（北海道）を出さず、他の旅行を名前と枚数で並べる。
+    // 移したかどうかは、呼び出しではなく、一覧から消えたことと、偽のサーバの京都の写真に入っていることで見る
+    const kyotoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
+    expect(inDialog(find.textContaining('0枚')), findsOneWidget);
+    expect(inDialog(find.textContaining('北海道')), findsNothing);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('2枚を「京都」に入れました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
 }
