@@ -238,4 +238,22 @@ void main() {
     expect(find.byType(TripDetailScreen), findsNothing);
     expect(find.text('詳細を開く'), findsOneWidget);
   });
+
+  testWidgets('編集を保存した後の取り直しで旅行が既に無い（404）と分かったときも、「この旅行は削除されています」と出し、編集・削除のメニューは出さない', (tester) async {
+    final release = Completer<void>();
+    final backend = _backendWith([hokkaidoTrip()]);
+    await openDetailFromHome(tester, backend);
+    await openEditDialog(tester);
+    await enterTripName(tester, '北海道 2026冬');
+    // 保存の応答の後の取り直しを止め、その間に別の端末で旅行が消された状態にする
+    backend.holds[TripRoute.detail] = release.future;
+    await tapInDialog(tester, '保存');
+    backend.trips.clear();
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
 }

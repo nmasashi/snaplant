@@ -45,7 +45,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       debugPrint('TripDetailScreen: 旅行の読み込みエラー: $e');
       if (!mounted) return;
       if (e is ApiException && e.isTripNotFound) {
-        setState(() => _tripDeleted = true);
+        // 取り直しで分かった場合も、古い旅行名と編集・削除のメニューを残さない
+        setState(() {
+          _tripDeleted = true;
+          _trip = null;
+        });
         return;
       }
       setState(() =>
