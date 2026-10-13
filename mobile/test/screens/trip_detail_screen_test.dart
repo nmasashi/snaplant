@@ -1079,4 +1079,43 @@ void main() {
     expect(backend.photosByTripId['none']!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
     semantics.dispose();
   });
+
+  testWidgets('選んだ写真2枚を「削除」で確認して「削除」すると、「2枚を削除しました」と知らせ、選択モードを抜けて、写真の一覧と見出しの枚数から消え、サーバからも消える', (tester) async {
+    // 下の操作バーの「削除」と、確認ダイアログのタイトル・ボタンの「削除」は同じ文言。確認の中のものはダイアログに絞って探す。
+    // 消したことは、偽のサーバから消えたことで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('写真を削除')), findsOneWidget);
+    expect(inDialog(find.text('2枚の写真を削除しますか？\nこの操作は元に戻せません。')), findsOneWidget);
+    expect(inDialog(find.text('キャンセル')), findsOneWidget);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('2枚を削除しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:02:00']);
+    semantics.dispose();
+  });
 }

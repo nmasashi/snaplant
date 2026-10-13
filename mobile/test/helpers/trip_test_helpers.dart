@@ -94,6 +94,9 @@ enum TripRoute {
 
   /// POST /api/photos/move
   move,
+
+  /// DELETE /api/photos/{photoId}
+  deletePhoto,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`）の偽のサーバ。
@@ -109,6 +112,8 @@ enum TripRoute {
 ///   応答は `{ moved, notFound }`（どの旅行にも無い id が `notFound`）。移し先の旅行が無ければ 404 `TRIP_NOT_FOUND`。
 ///   `photoIds` が200件を超えたら 400 `INVALID_REQUEST`（実際のサーバと同じ上限。分けずに送るクライアントを落とすため）。
 ///   `tripId` のキーが無いときも 400（旅行から外すには `tripId: null` を明示する）。
+/// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
+///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 ///   既にその旅行にある写真は、動かさずに `moved` に入れる
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
@@ -225,6 +230,8 @@ class FakeTripBackend {
         return _listPhotos(request);
       case TripRoute.move:
         return _movePhotos(request);
+      case TripRoute.deletePhoto:
+        return _deletePhoto(request);
     }
   }
 
@@ -247,6 +254,9 @@ class FakeTripBackend {
     }
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
     if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
+    if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'DELETE') {
+      return TripRoute.deletePhoto;
+    }
     return null;
   }
 
@@ -328,6 +338,17 @@ class FakeTripBackend {
       'continuationToken': end < photos.length ? '$end' : null,
       'urlExpiresAt': '2026-10-10T04:12:45.000Z',
     });
+  }
+
+  http.Response _deletePhoto(http.Request request) {
+    final photoId = request.url.pathSegments.last;
+    final sourceKey = photosByTripId.keys
+        .where((key) => photosByTripId[key]!.any((photo) => photo['id'] == photoId))
+        .firstOrNull;
+    if (sourceKey == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+    photosByTripId[sourceKey]!.removeWhere((photo) => photo['id'] == photoId);
+    _addToPhotoCount(sourceKey, -1);
+    return _ok(200, {'message': '写真が正常に削除されました'});
   }
 
   http.Response _movePhotos(http.Request request) {

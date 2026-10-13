@@ -557,6 +557,20 @@ class ApiService {
     return PhotoMoveResult(moved: moved, notFound: notFound);
   }
 
+  /// 写真削除（原寸・サムネイルも消える）
+  /// DELETE /api/photos/{photoId}
+  Future<void> deletePhoto(String photoId) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException.fromResponse(response);
+      }
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// `POST /api/photos/move` の上限（サーバの `MOVE_MAX_IDS` の既定値）
   static const _maxMovePhotoIds = 200;
 

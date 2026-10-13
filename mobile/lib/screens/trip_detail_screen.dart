@@ -140,15 +140,41 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     await _finishMove(result, '${result.moved.length}枚を旅行から外しました');
   }
 
-  /// 写真を移した後の知らせと読み直し。選択を解除し、写真の一覧と見出しの枚数を読み直す
+  /// 写真を移した後の知らせと読み直し。見つからなかった写真があれば知らせに足す
   Future<void> _finishMove(PhotoMoveResult result, String message) async {
     final notFound = result.notFound.length;
+    await _finishSelectionAction(
+        '$message${notFound > 0 ? '（$notFound枚は見つかりませんでした）' : ''}');
+  }
+
+  /// 選んだ写真を消す。確認してから1枚ずつ送る
+  Future<void> _deletePhotos() async {
+    final photoIds = _selection.selectedIds;
+    final deleted = await showDialog<int>(
+      context: context,
+      builder: (context) => ConfirmActionDialog<int>(
+        title: '写真を削除',
+        message: '${photoIds.length}枚の写真を削除しますか？\nこの操作は元に戻せません。',
+        confirmLabel: '削除',
+        failureMessage: '写真の削除に失敗しました',
+        onConfirm: () async {
+          for (final photoId in photoIds) {
+            await widget.apiService.deletePhoto(photoId);
+          }
+          return photoIds.length;
+        },
+      ),
+    );
+    if (deleted == null || !mounted) return;
+    await _finishSelectionAction('$deleted枚を削除しました');
+  }
+
+  /// 選んだ写真への操作の後の知らせと読み直し。選択を解除し、写真の一覧と見出しの枚数を読み直す
+  Future<void> _finishSelectionAction(String message) async {
     // 押し直す前の失敗の知らせが出ていれば閉じる（並んで待たせると、成功の後も古い失敗がしばらく残る）
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-          content: Text(
-              '$message${notFound > 0 ? '（$notFound枚は見つかりませんでした）' : ''}')));
+      ..showSnackBar(SnackBar(content: Text(message)));
     _selection.clear();
     setState(() => _gridVersion++);
     await _loadTrip();
@@ -220,7 +246,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               icon: const Icon(Icons.remove_circle_outline),
               label: const Text('旅行から外す')),
           TextButton.icon(
-              onPressed: enabled ? () {} : null,
+              onPressed: enabled ? _deletePhotos : null,
               icon: const Icon(Icons.delete_outline),
               label: const Text('削除')),
         ],
