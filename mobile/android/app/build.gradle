@@ -49,6 +49,8 @@ android {
         targetSdkVersion 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        // ホーム画面のアプリ名（AndroidManifest.xml の android:label）
+        manifestPlaceholders += [appLabel: "SnapPlant"]
         
         // 1440×2960 画面サイズ対応
         resConfigs "en", "ja"
@@ -60,6 +62,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 開発版（flutter run）は別のアプリとして入れ、普段使いのアプリを上書きしない。
+            // 同じパッケージ名だと更新として扱われ、署名の鍵が違えば flutter run が古い版を消して入れ直す
+            // （端末に保存した API キーなどの設定も消える）
+            applicationIdSuffix ".debug"
+            manifestPlaceholders += [appLabel: "SnapPlant 開発版"]
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.

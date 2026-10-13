@@ -97,6 +97,11 @@ flutter build apk --release
 Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上にある。
 Dart を変更したら、その場で `flutter analyze` / `flutter test` を回して検証する。
 
+**デバッグ版（`flutter run`）は別のアプリとして入る**（パッケージ名 `com.snaplant.mobile.debug`、ホーム画面の名前は「SnapPlant 開発版」。
+`android/app/build.gradle` の `applicationIdSuffix`）。普段使いのリリース版（`com.snaplant.mobile`）を上書きしない。
+以前は同じパッケージ名で、署名の鍵が違うと `flutter run` が古い版を黙ってアンインストールし、端末に保存した API キーなどの設定が消えた（2026-10-13）。
+デバッグ版とリリース版は設定を別々に持つので、デバッグ版にも API キーの入力が要る。
+
 `flutter analyze` の指摘は0件にしてある（2026-10-12、#24）。info も含めて1件でも出れば CI（`flutter.yml`）が失敗するので、
 指摘を残したまま PR を出さない。
 
