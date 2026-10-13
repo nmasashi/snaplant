@@ -193,6 +193,8 @@ class _PhotoGridState extends State<PhotoGrid> {
       );
     }
     final photos = _photos;
+    widget.selection
+        ?.updateLoaded([for (final p in photos ?? const <Photo>[]) p.id]);
     if (photos == null) {
       return Center(
         child: Column(

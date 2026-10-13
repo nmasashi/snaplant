@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 class PhotoSelection extends ChangeNotifier {
   final Set<String> _selectedIds = {};
   bool _isActive = false;
+  // グリッドが読み込んだ写真の id（「すべて選択」で選ぶ範囲。ページで読むので、まだ読んでいない続きは入らない）
+  List<String> _loadedIds = const [];
 
   /// 選択モードに入っているか（0枚を選んだ状態でも、抜けるまでは選択モード）
   bool get isActive => _isActive;
@@ -29,6 +31,17 @@ class PhotoSelection extends ChangeNotifier {
     if (!_selectedIds.remove(photoId)) {
       _selectedIds.add(photoId);
     }
+    notifyListeners();
+  }
+
+  /// グリッドが読み込んだ写真を知らせる（描くたびに呼ばれる。見た目は変わらないので通知しない）
+  void updateLoaded(List<String> photoIds) {
+    _loadedIds = photoIds;
+  }
+
+  /// 読み込んだ写真をすべて選ぶ
+  void selectAll() {
+    _selectedIds.addAll(_loadedIds);
     notifyListeners();
   }
 

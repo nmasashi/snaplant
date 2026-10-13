@@ -138,7 +138,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       ),
       title: Text('${_selection.count}枚を選択中', style: AppTextStyles.appBarTitle),
       actions: [
-        TextButton(onPressed: () {}, child: const Text('すべて選択')),
+        TextButton(onPressed: _selection.selectAll, child: const Text('すべて選択')),
       ],
     );
   }
