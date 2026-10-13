@@ -10,12 +10,21 @@ import '../utils/taken_at.dart';
 ///
 /// 写真の一覧を自分で読む。旅行詳細と旅行に属さない写真の画面で使う
 class PhotoGrid extends StatefulWidget {
-  const PhotoGrid({super.key, required this.apiService, required this.tripId});
+  const PhotoGrid(
+      {super.key,
+      required this.apiService,
+      required this.tripId,
+      required this.emptyTitle,
+      required this.emptyMessage});
 
   final ApiService apiService;
 
   /// 旅行の id。旅行に属さない写真なら `none`
   final String tripId;
+
+  /// 写真が0枚のときの案内（画面ごとに文言が違う）
+  final String emptyTitle;
+  final String emptyMessage;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -56,6 +65,29 @@ class _PhotoGridState extends State<PhotoGrid> {
                 style: AppTextStyles.body1
                     .copyWith(color: AppColors.textSecondary)),
           ],
+        ),
+      );
+    }
+    if (photos.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.photo_library_outlined,
+                  size: 96, color: AppColors.textHint),
+              const SizedBox(height: 24),
+              Text(widget.emptyTitle,
+                  style: AppTextStyles.headline2
+                      .copyWith(color: AppColors.textSecondary)),
+              const SizedBox(height: 12),
+              Text(widget.emptyMessage,
+                  style: AppTextStyles.body1
+                      .copyWith(color: AppColors.textSecondary),
+                  textAlign: TextAlign.center),
+            ],
+          ),
         ),
       );
     }

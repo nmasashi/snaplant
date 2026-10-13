@@ -85,6 +85,17 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真が0枚の旅行を開くと、「まだ写真がありません」と「写真を追加」から送る案内を出し、読み込み中の表示は消える', (tester) async {
+    // 旅行は存在し、写真が1枚も無い（404 ではなく photos: [] の応答。docs/travel-album/05_api_design.md §5.2）
+    final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);
+
+    await openDetailFromHome(tester, backend);
+
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+    expect(find.text('「写真を追加」からギャラリーの写真を送りましょう'), findsOneWidget);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+  });
+
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final backend = _backendWith([hokkaidoTrip(description: 'ひとり旅')]);
     await openDetailFromHome(tester, backend);

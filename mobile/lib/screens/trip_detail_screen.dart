@@ -158,7 +158,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           ),
         ),
         Expanded(
-          child: PhotoGrid(apiService: widget.apiService, tripId: trip.id),
+          child: PhotoGrid(
+            apiService: widget.apiService,
+            tripId: trip.id,
+            emptyTitle: 'まだ写真がありません',
+            emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
+          ),
         ),
       ],
     );
