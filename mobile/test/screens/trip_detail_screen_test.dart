@@ -308,6 +308,41 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('空のページが続けて3回返ったら、自動で読むのをやめて「続きを読み込めませんでした」と「再試行」を出し、「再試行」で続きから読むと写真が並ぶ', (tester) async {
+    // サーバが空のページを続きのトークン付きで返し続けたとき、要求を止めずに送り続けない。
+    // 偽のサーバは空のページを5回返してから写真を返す。3回で止めていれば、写真はまだ出ていない。
+    // 止めずに読み続けていれば、写真が並んでしまうので、止めたことは写真が出ていないことで見る。
+    // 「再試行」の後は、また最大3回まで読む(空のページの数を数え直す)ので、残りの2回の空のページを越えて写真が並ぶ
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: _apiKey,
+      leadingEmptyPages: 5,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        ],
+      },
+    );
+
+    await openDetailFromHome(tester, backend);
+
+    expect(find.text('続きを読み込めませんでした'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    // 写真が無いと確定したわけではないので、0枚の案内は出さない
+    expect(find.text('まだ写真がありません'), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真が0枚の案内を出しているときも、下に引っ張ると読み直し、別の端末で増えた写真が並んで案内は消える', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);

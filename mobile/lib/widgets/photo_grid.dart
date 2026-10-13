@@ -35,6 +35,10 @@ class PhotoGrid extends StatefulWidget {
 /// 末尾から何枚以内を組み立てたら続きを読むか（3列なので2行分）
 const _loadMoreThreshold = 6;
 
+/// 空のページがこの回数続いたら、自動で続きを読むのをやめて「再試行」を出す。
+/// サーバは空のページを読み直しても空ならトークン付きで返すことがあり、それが続くと要求を送り続けてしまう
+const _maxConsecutiveEmptyPages = 3;
+
 /// サムネイルを読むときの横幅（画素）。3列のマスは端末で 400 画素前後
 const _tileDecodeWidth = 400;
 
@@ -50,6 +54,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   bool _loadMoreFailed = false;
   // 一覧を先頭から読み直すたびに進める。読み直しをまたいで届いた続きの結果は、前の一覧のものなので捨てる
   int _generation = 0;
+  // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
+  int _consecutiveEmptyPages = 0;
 
   @override
   void initState() {
@@ -69,6 +75,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       setState(() {
         _photos = page.photos;
         _continuationToken = page.continuationToken;
+        _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
       });
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
@@ -91,6 +98,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
         _loadMoreFailed = false;
+        _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
       });
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み直しエラー: $e');
@@ -114,6 +122,11 @@ class _PhotoGridState extends State<PhotoGrid> {
         _photos = [...?_photos, ...page.photos];
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
+        _consecutiveEmptyPages =
+            page.photos.isEmpty ? _consecutiveEmptyPages + 1 : 0;
+        // 空のページが続くなら止める（続きがあるかは分からないので、0枚の案内ではなく「再試行」を出す）
+        _loadMoreFailed = page.continuationToken != null &&
+            _consecutiveEmptyPages >= _maxConsecutiveEmptyPages;
       });
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
@@ -127,7 +140,10 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 失敗した続きを「再試行」で取り直す
   void _retryLoadMore() {
-    setState(() => _loadMoreFailed = false);
+    setState(() {
+      _loadMoreFailed = false;
+      _consecutiveEmptyPages = 0;
+    });
     _loadMore();
   }
 
