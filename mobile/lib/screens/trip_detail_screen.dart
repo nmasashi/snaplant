@@ -118,9 +118,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       ),
     );
     if (moved == null || !mounted) return;
+    final notFound = moved.result.notFound.length;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text('${moved.result.moved.length}枚を「${moved.tripName}」に入れました')));
+        content: Text('${moved.result.moved.length}枚を「${moved.tripName}」に入れました'
+            '${notFound > 0 ? '（$notFound枚は見つかりませんでした）' : ''}')));
     _selection.clear();
     setState(() => _gridVersion++);
     await _loadTrip();
