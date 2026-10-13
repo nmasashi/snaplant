@@ -285,4 +285,28 @@ void main() {
     expect(find.text('旅行を作成しました'), findsOneWidget);
     expect(find.text('北海道 2026秋'), findsOneWidget);
   });
+
+  testWidgets('一覧が出ているときの読み直しに失敗しても、一覧は残したままエラーの文言を出し、もう一度引っ張れば読み直せる', (tester) async {
+    final backend = FakeTripBackend(trips: [
+      tripJson(id: '3f2504e0-4f89-41d3-9a0c-0305e82c3302', name: '大阪', photoCount: 3),
+    ]);
+    await openTripsTab(tester, backend);
+    // 次の読み直しだけ失敗させる（最初の読み込みは済んでいる）
+    backend.failNext(TripRoute.list);
+
+    await tester.fling(find.text('旅行に属さない写真'), const Offset(0, 400), 1000);
+    await letFramesRun(tester);
+
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(find.text('大阪'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+
+    // 一覧が残っているので、もう一度引っ張って読み直せる。その間に別の端末で旅行が作られた
+    backend.trips.insert(0, tripJson(id: '3f2504e0-4f89-41d3-9a0c-0305e82c3303', name: '京都', photoCount: 0));
+    await tester.fling(find.text('旅行に属さない写真'), const Offset(0, 400), 1000);
+    await letFramesRun(tester);
+
+    expect(find.text('京都'), findsOneWidget);
+    expect(find.text('大阪'), findsOneWidget);
+  });
 }

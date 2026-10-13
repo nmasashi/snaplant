@@ -47,8 +47,14 @@ class _TripListScreenState extends State<TripListScreen> {
     } catch (e) {
       debugPrint('TripListScreen: 旅行一覧読み込みエラー: $e');
       if (!mounted) return;
-      setState(() => _errorMessage =
-          e is ApiException ? e.userMessage : '旅行一覧の読み込みに失敗しました');
+      final message = e is ApiException ? e.userMessage : '旅行一覧の読み込みに失敗しました';
+      if (_tripList != null) {
+        // 一覧が出ているときの読み直しの失敗は、一覧を残して知らせるだけにする（引っ張れば読み直せる）
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+        return;
+      }
+      setState(() => _errorMessage = message);
     }
   }
 
