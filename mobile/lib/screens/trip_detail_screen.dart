@@ -4,6 +4,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
+import '../widgets/confirm_action_dialog.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
@@ -118,14 +119,36 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       ),
     );
     if (moved == null || !mounted) return;
-    final notFound = moved.result.notFound.length;
+    await _finishMove(moved.result,
+        '${moved.result.moved.length}枚を「${moved.tripName}」に入れました');
+  }
+
+  /// 選んだ写真を旅行から外す（旅行に属さない写真に移す）。確認してから送る
+  Future<void> _removeFromTrip() async {
+    final photoIds = _selection.selectedIds;
+    final result = await showDialog<PhotoMoveResult>(
+      context: context,
+      builder: (context) => ConfirmActionDialog<PhotoMoveResult>(
+        title: '旅行から外す',
+        message: '${photoIds.length}枚を旅行から外しますか？\n写真は「旅行に属さない写真」に移ります。',
+        confirmLabel: '外す',
+        failureMessage: '写真の移動に失敗しました',
+        onConfirm: () => widget.apiService.movePhotos(photoIds, null),
+      ),
+    );
+    if (result == null || !mounted) return;
+    await _finishMove(result, '${result.moved.length}枚を旅行から外しました');
+  }
+
+  /// 写真を移した後の知らせと読み直し。選択を解除し、写真の一覧と見出しの枚数を読み直す
+  Future<void> _finishMove(PhotoMoveResult result, String message) async {
+    final notFound = result.notFound.length;
     // 押し直す前の失敗の知らせが出ていれば閉じる（並んで待たせると、成功の後も古い失敗がしばらく残る）
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-          content:
-              Text('${moved.result.moved.length}枚を「${moved.tripName}」に入れました'
-                  '${notFound > 0 ? '（$notFound枚は見つかりませんでした）' : ''}')));
+          content: Text(
+              '$message${notFound > 0 ? '（$notFound枚は見つかりませんでした）' : ''}')));
     _selection.clear();
     setState(() => _gridVersion++);
     await _loadTrip();
@@ -193,7 +216,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               icon: const Icon(Icons.drive_file_move_outline),
               label: const Text('旅行に入れる')),
           TextButton.icon(
-              onPressed: enabled ? () {} : null,
+              onPressed: enabled ? _removeFromTrip : null,
               icon: const Icon(Icons.remove_circle_outline),
               label: const Text('旅行から外す')),
           TextButton.icon(

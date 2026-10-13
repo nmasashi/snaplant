@@ -1000,4 +1000,43 @@ void main() {
     expect(backend.photosByTripId[backend.trips.first['id']]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
     semantics.dispose();
   });
+
+  testWidgets('選んだ写真2枚を「旅行から外す」で確認して「外す」と、「2枚を旅行から外しました」と知らせ、選択モードを抜けて、写真の一覧と見出しの枚数から外した写真が消え、旅行に属さない写真になる', (tester) async {
+    // 外したことは、偽のサーバの「旅行に属さない写真」（none）に入ったことで見る。
+    // 偽のサーバは、外すときに tripId のキーを省いた要求を 400 で断る（null を明示して送ったことも、成功で分かる）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行から外す'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('旅行から外す')), findsOneWidget);
+    expect(inDialog(find.text('2枚を旅行から外しますか？\n写真は「旅行に属さない写真」に移ります。')), findsOneWidget);
+    expect(inDialog(find.text('キャンセル')), findsOneWidget);
+
+    await tapInDialog(tester, '外す');
+
+    expect(find.text('2枚を旅行から外しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行から外す'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(backend.photosByTripId['none']!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
 }
