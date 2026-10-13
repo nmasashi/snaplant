@@ -42,6 +42,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   String? _continuationToken;
   // 続きのページを読んでいる（重ねて読まない）
   bool _isLoadingMore = false;
+  // 続きの取得に失敗した。「再試行」が押されるまで自動では取り直さない（既存と同じく自動の再試行はしない）
+  bool _loadMoreFailed = false;
 
   @override
   void initState() {
@@ -73,7 +75,7 @@ class _PhotoGridState extends State<PhotoGrid> {
   /// 続きのページを読んで末尾に足す。読んでいる最中や、最後まで読んだ後は何もしない
   Future<void> _loadMore() async {
     final token = _continuationToken;
-    if (_isLoadingMore || token == null) return;
+    if (_isLoadingMore || _loadMoreFailed || token == null) return;
     setState(() => _isLoadingMore = true);
     try {
       final page = await widget.apiService
@@ -87,8 +89,17 @@ class _PhotoGridState extends State<PhotoGrid> {
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
       if (!mounted) return;
-      setState(() => _isLoadingMore = false);
+      setState(() {
+        _isLoadingMore = false;
+        _loadMoreFailed = true;
+      });
     }
+  }
+
+  /// 失敗した続きを「再試行」で取り直す
+  void _retryLoadMore() {
+    setState(() => _loadMoreFailed = false);
+    _loadMore();
   }
 
   @override
@@ -170,6 +181,24 @@ class _PhotoGridState extends State<PhotoGrid> {
             },
           ),
         ),
+        if (_loadMoreFailed)
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('続きを読み込めませんでした',
+                    style: AppTextStyles.body1
+                        .copyWith(color: AppColors.textSecondary)),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: _retryLoadMore,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('再試行'),
+                ),
+              ],
+            ),
+          ),
         if (_isLoadingMore)
           Padding(
             padding: const EdgeInsets.all(12),

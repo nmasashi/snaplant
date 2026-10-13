@@ -167,6 +167,47 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('次のページの取得に失敗すると、1ページ目の写真は残したまま末尾に「続きを読み込めませんでした」と「再試行」を出し、「再試行」で取り直すと続きの写真が並ぶ', (tester) async {
+    // 準備はリスト4と同じ（33枚、1ページ30枚）。2ページ目の要求だけを 503 で1回失敗させる。
+    // 自動で取り直されれば2回目で成功してエラーが消えるので、自動の再試行をしないことも、失敗の表示が残ることで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: _apiKey,
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    backend.failNext(TripRoute.photos);
+
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    // 失敗した後。1ページ目の写真は残り、続きは無い。読み込み中ではない
+    expect(find.text('続きを読み込めませんでした'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(find.text('読み込み中...'), findsNothing);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(_thumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:31'), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    expect(find.text('続きを読み込めませんでした'), findsNothing);
+    expect(find.text('再試行'), findsNothing);
+    expect(_thumbnail('2026年10月5日 10:31'), findsOneWidget);
+    expect(_thumbnail('2026年10月5日 10:33'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('写真が1ページに収まる旅行は、グリッドを下端まで送っても続きを取りに行かず、写真は1枚ずつしか並ばない', (tester) async {
     // 1ページ目の継続トークンが null（最後のページ）。確認が抜けると、null のトークンで先頭のページを取り直し、同じ写真が二重に並ぶ
     final semantics = tester.ensureSemantics();
