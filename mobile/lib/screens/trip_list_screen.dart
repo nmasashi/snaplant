@@ -5,6 +5,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
 import 'trip_detail_screen.dart';
+import 'unassigned_photos_screen.dart';
 import '../widgets/message_view.dart';
 import '../widgets/trip_edit_dialog.dart';
 
@@ -59,6 +60,20 @@ class _TripListScreenState extends State<TripListScreen> {
   }
 
   /// 旅行詳細画面を開く
+  /// 旅行に属さない写真の画面を開く
+  Future<void> _openUnassignedPhotos(int photoCount) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UnassignedPhotosScreen(
+            apiService: widget.apiService, photoCount: photoCount),
+      ),
+    );
+    // 写真を旅行に入れる・消すと枚数が変わるので、戻ったら読み直す（旅行詳細と同じ）
+    if (!mounted) return;
+    await _loadTrips();
+  }
+
   Future<void> _openTrip(TripSummary trip) async {
     await Navigator.push(
       context,
@@ -156,6 +171,7 @@ class _TripListScreenState extends State<TripListScreen> {
             icon: Icons.photo_library_outlined,
             title: '旅行に属さない写真',
             subtitle: '${tripList.unassignedPhotoCount}枚',
+            onTap: () => _openUnassignedPhotos(tripList.unassignedPhotoCount),
           ),
           if (tripList.trips.isEmpty) const _NoTripsMessage(),
           for (final trip in tripList.trips)
@@ -208,12 +224,12 @@ class _TripRow extends StatelessWidget {
       {required this.icon,
       required this.title,
       required this.subtitle,
-      this.onTap});
+      required this.onTap});
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -223,8 +239,7 @@ class _TripRow extends StatelessWidget {
         leading: Icon(icon, size: 40, color: AppColors.primary),
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(subtitle),
-        // 押して開く先が無い行（旅行に属さない写真の画面は PR 6b）に矢印を出さない
-        trailing: onTap == null ? null : const Icon(Icons.chevron_right),
+        trailing: const Icon(Icons.chevron_right),
         onTap: onTap,
       ),
     );

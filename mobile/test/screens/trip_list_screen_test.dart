@@ -179,6 +179,43 @@ void main() {
     expect(find.text('12枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
   });
 
+  testWidgets('「旅行に属さない写真」の行をタップすると、その画面が開き、上部に見出しと枚数（期間は出さない）、その下に旅行に属さない写真が並び、編集・削除のメニューは出ない', (tester) async {
+    // 旅行に属さない写真は GET /api/photos?tripId=none で取る（旅行の写真は混ざらない）。
+    // 一覧が持っている枚数（3枚）を使う。写真の並びは、サムネイルの読み上げ用ラベル（撮影日時）で見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip()],
+      unassignedPhotoCount: 3,
+      photosByTripId: {
+        'none': [
+          photoJson(number: 1, takenAt: '2026-09-01T10:15:00'),
+          photoJson(number: 2, takenAt: '2026-09-02T12:30:00'),
+          photoJson(number: 3, takenAt: '2026-09-03T18:45:00'),
+        ],
+        hokkaidoTripId: [
+          photoJson(number: 4, tripId: hokkaidoTripId, takenAt: '2026-10-05T11:11:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('旅行に属さない写真')), findsOneWidget);
+    expect(find.text('3枚'), findsOneWidget);
+    expect(find.textContaining('撮影日時なし'), findsNothing);
+    expect(find.textContaining('·'), findsNothing);
+    final first = tester.getTopLeft(find.bySemanticsLabel(RegExp('2026年9月1日 10:15')));
+    final second = tester.getTopLeft(find.bySemanticsLabel(RegExp('2026年9月2日 12:30')));
+    final third = tester.getTopLeft(find.bySemanticsLabel(RegExp('2026年9月3日 18:45')));
+    expect(first.dx, lessThan(second.dx));
+    expect(second.dx, lessThan(third.dx));
+    expect(find.bySemanticsLabel(RegExp('2026年10月5日 11:11')), findsNothing);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('旅行詳細から一覧に戻ると一覧を読み直し、削除した旅行が消え、旅行に属さない写真の枚数が新しくなっている', (tester) async {
     final backend = FakeTripBackend(trips: [
       hokkaidoTrip(),
