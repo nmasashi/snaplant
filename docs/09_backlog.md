@@ -265,6 +265,19 @@ iOS からは当面使う予定が無いので、iOS の HEIC の問題は考え
 4形式以外を受け付けないのはサーバの仕様なので、クライアントが偽の Content-Type で
 すり抜けさせる理由が無い。
 
+### AI 識別サービスの要求で、デプロイ名が未設定のときに接続先とモデルが食い違う（要確認）
+
+`openAIVisionService.ts` は、`AZURE_OPENAI_ENDPOINT` があり `AZURE_OPENAI_DEPLOYMENT_NAME` が未設定のとき、
+`baseURL` に `/deployments/undefined` を入れる一方で、`model` だけを既定値 `gpt-5.6-luna` にする
+（2026-10-13、#46 の整理の test-reviewer の指摘。コードを読んでの判断で、実際の要求では確かめていない）。
+`docs/06_api_design.md` §5.9 の「モデル（未設定なら `gpt-5.6-luna`）」と合わない。Terraform はデプロイ名を必ず流し込むので実害は無い。
+
+あわせて、同じファイルの `validateAnalysisResult()` の `!Array.isArray(result.plantAnalysis.candidates)` は、
+先に動く `normalizeNulls()` が配列でない値に `.map` を呼んで TypeError（502）になるため、届かない可能性が高い。
+
+**やること**: デプロイ名の既定値を `baseURL` にも使うか、Azure のときはデプロイ名を必須にして起動時に失敗させるかを決める。
+届かない検査は消すか、`normalizeNulls()` の前に移す。
+
 ### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない（DEPLOYMENT.md の記述も事実と違う）
 
 `StorageService` の `resolveBlobEndpointHost()` は、接続文字列に `EndpointSuffix` が無ければ `core.windows.net` として

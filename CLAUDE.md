@@ -604,7 +604,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | テスト | 例外 | 理由 |
 |---|---|---|
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
-| `api/tests/services/storageService.test.ts` の SAS の引数検証（一時 URL の権限と有効期限） | 外部との契約を担う | SAS トークンは署名済みで復号できず、権限と有効期限は Azure Storage が検証する契約（原則3の例外） |
+| `api/tests/services/storageService.test.ts` の SAS の引数検証（一時 URL の署名の対象（コンテナ・Blob）と有効期限、開始時刻を付けないこと） | 外部との契約を担う | SAS トークンは署名済みで復号できず、対象と有効期限は Azure Storage が検証する契約（原則3の例外）。権限は `photos.test.ts` が実 SDK のトークンで見ている |
 
 **複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
 仕様の「同じ」「全エンドポイント」を根拠に全ケースを通す入口を1つ決め、他の入口は1〜2行にして、
