@@ -83,6 +83,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       if (!mounted) return;
       setState(() {
         _generation++;
+        _errorMessage = null;
         _photos = page.photos;
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
@@ -127,13 +128,31 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadMore();
   }
 
+  /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
+  /// 画面より短くても引っ張れるよう、高さいっぱいの領域の中央に置く
+  Widget _pullToRefresh(Widget child) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.primary,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(child: child),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       // 旅行の見出しは画面側に残し、写真の部分だけをエラーにする
-      return SingleChildScrollView(
-        child: MessageView(
+      return _pullToRefresh(
+        MessageView(
           isLargeScreen: MediaQuery.of(context).size.width >= 1400,
           icon: Icons.error_outline,
           title: 'エラーが発生しました',
@@ -169,8 +188,8 @@ class _PhotoGridState extends State<PhotoGrid> {
       });
     }
     if (photos.isEmpty && _continuationToken == null) {
-      return Center(
-        child: Padding(
+      return _pullToRefresh(
+        Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

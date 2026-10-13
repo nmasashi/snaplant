@@ -308,6 +308,24 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真が0枚の案内を出しているときも、下に引っ張ると読み直し、別の端末で増えた写真が並んで案内は消える', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);
+    await openDetailFromHome(tester, backend);
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+    // 別の端末で、この旅行に写真が1枚入った
+    backend.photosByTripId[hokkaidoTripId] = [
+      photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15'),
+    ];
+
+    await tester.drag(find.text('まだ写真がありません'), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('まだ写真がありません'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('下に引っ張った読み直しに失敗すると、写真のグリッドは残したまま、エラーの文言をスナックバーで知らせる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
