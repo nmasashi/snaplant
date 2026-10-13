@@ -122,6 +122,65 @@ describe('植物保存API', () => {
       });
     });
 
+    it('2回保存すると、それぞれ別のIDで保存される', async () => {
+      // 画像は別々にする（同じ画像なら 409 になる）
+      const saveRequest = (imageName: string) => ({
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: '桜',
+          characteristics: '春に美しいピンクの花を咲かせる',
+          confidence: 95.5,
+          imagePath: `${TEST_IMAGE_BASE_URL}/${imageName}`
+        })
+      } as any as HttpRequest);
+
+      const first = await savePlantHandler(saveRequest('first.jpg'), mockContext);
+      const second = await savePlantHandler(saveRequest('second.jpg'), mockContext);
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(first.jsonBody.data.plant.id).not.toBe(second.jsonBody.data.plant.id);
+      expect(cosmosBackend.documents.size).toBe(2);
+    });
+
+    it('ボディにidや日時などの7項目以外のキーを入れても無視され、サーバが採番したIDと日時で保存される', async () => {
+      // 06_api_design.md §5.4。保存に使うのは name / scientificName / familyName / description /
+      // characteristics / confidence / imagePath の7項目だけ。クライアントが id や日時を決められると、
+      // 他のレコードを上書きする ID を指定できてしまう
+      const clientId = '11111111-1111-4111-8111-111111111111';
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          id: clientId,
+          createdAt: '2000-01-01T00:00:00.000Z',
+          updatedAt: '2000-01-01T00:00:00.000Z',
+          unknownKey: '無視されるはずの値',
+          name: '桜',
+          characteristics: '春に美しいピンクの花を咲かせる',
+          confidence: 95.5,
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`
+        })
+      } as any as HttpRequest;
+
+      const response = await savePlantHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(savedId).toMatch(UUID_V4_PATTERN);
+      expect(savedId).not.toBe(clientId);
+      const saved = cosmosBackend.documents.get(savedId);
+      expect(Array.from(cosmosBackend.documents.keys())).toEqual([savedId]);
+      expect(saved?.createdAt).not.toBe('2000-01-01T00:00:00.000Z');
+      expect(saved?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+      expect(saved).not.toHaveProperty('unknownKey');
+    });
+
     it('最小限のフィールドで植物を保存できる', async () => {
       // リクエストの作成（必須フィールドのみ）
       const request = {
@@ -534,11 +593,56 @@ describe('植物保存API', () => {
       expect(cosmosBackend.documents.size).toBe(0);
     });
 
-    // isValidImagePath() 自体の受理・拒否の境界（他ホスト・永続コンテナ以外の
-    // コンテナ名・余分なセグメント・コンテナまでしか指していない・非httpsの5通り）は
-    // storageService.test.ts の isValidImagePath 単体テストで検証する。
-    // ここでは「ハンドラが実際にこの検証を呼んでいること」を守る代表1本だけ残す
-    // （updatePlant.test.ts も同じ代表ケースを残している）。
+    // imagePath の形の条件（06_api_design.md §5.4）は save と PUT（§5.5）で同じ。
+    // 全ケースはここ（save）で通し、updatePlant.test.ts は別ホストの1行だけにしている。
+    // 別ホストは上の1行が見ているので、表には残りを並べる。行の並びは §5.4 の条件の順。
+    // 4つの条件（スキーム・ホスト・2セグメント・生の文字列の完全一致）は独立に効くようにしてあり、
+    // どれか1つが緩んでも他が残るのが設計（CLAUDE.md「バリデーション定数」）。そのため、
+    // スキームやホストの検査だけを外す変異は、最後の完全一致が受け止めて生き残る
+    it.each([
+      // 値そのものに意味はなく、永続コンテナ以外はすべて拒否するという性質を守る
+      ['永続コンテナ以外のコンテナを指す', 'https://test.blob.core.windows.net/some-other-container/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // アップロードAPIが返す形は常に「/コンテナ名/Blob名」の2セグメント。余分なセグメントは存在しないBlobを指す
+      ['永続コンテナ名の後に余分なセグメントを挟んだ', 'https://test.blob.core.windows.net/test-images/x/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // Blob名のセグメントが空。Blobを指さないURLが保存されてしまう
+      ['コンテナまでしか指していない', 'https://test.blob.core.windows.net/test-images/'],
+      ['スキームがhttpsでない', 'http://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      // 以下は new URL() のパース結果では正当なURLと区別できず（クエリ・フラグメント・認証情報は
+      // pathname に出ず、ホストの大文字小文字と先頭の空白は正規化される）、生の文字列同士の
+      // 完全一致だけが検出する。保存されるのは生の文字列なので、通すと重複チェック
+      // （文字列の完全一致）を素通りでき、更新時の旧画像削除の判定（文字列比較）も誤作動する
+      ['クエリ文字列が付いた', 'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg?x=1'],
+      ['フラグメントが付いた', 'https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg#f'],
+      // 認証情報は、そのまま保存されると資格情報が平文でデータベースに残る点でも害がある
+      ['認証情報が付いた', 'https://u:p@test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      ['ホスト名が大文字の', 'https://TEST.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg'],
+      ['先頭に空白がある', ' https://test.blob.core.windows.net/test-images/123e4567-e89b-12d3-a456-426614174000.jpg']
+    ])('画像パスが%sURLの場合は400エラーで、保存されない', async (_name, imagePath) => {
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          name: 'テスト植物',
+          characteristics: '特徴',
+          confidence: 80.0,
+          imagePath
+        })
+      } as any as HttpRequest;
+
+      const response = await savePlantHandler(request, mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: '画像アップロードAPIが返したURLを指定してください'
+        }
+      });
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
 
     it('JSONパースエラーの場合は400エラー', async () => {
       // リクエストの作成（JSONパースエラー）
@@ -553,14 +657,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'リクエストボディの形式が無効です',
-          details: 'JSON形式で送信してください'
+          message: 'リクエストボディの形式が無効です'
         }
       });
     });
@@ -590,14 +693,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(503);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: 'データベースに接続できません',
-          details: 'ENOTFOUND'
+          message: 'データベースに接続できません'
         }
       });
     });
@@ -625,14 +727,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(409);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: '植物の保存に失敗しました',
-          details: 'Conflict'
+          message: '植物の保存に失敗しました'
         }
       });
     });
@@ -660,14 +761,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: '植物の保存に失敗しました',
-          details: 'Unexpected failure'
+          message: '植物の保存に失敗しました'
         }
       });
     });

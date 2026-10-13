@@ -84,6 +84,8 @@ https://func-snaplant-mk0w7s38.azurewebsites.net/api
 }
 ```
 `isPlant: false` の場合、`candidates` は空配列になります。
+植物と判定した場合でも、AI の応答の `plantAnalysis` が `null`、または `plantAnalysis.candidates` が
+`null`・未指定なら、`candidates` は空配列で返ります（エラーにはなりません）。
 
 `confidence`（植物判定の信頼度）と `reason`（判定理由）は常に含まれます。
 `confidence` は植物判定・各候補とも 0〜100（両端を含む）で、AI の応答がこの範囲外か数値でない場合は
@@ -154,6 +156,8 @@ GET /api/plants?code={FUNCTION_KEY}
 植物 ID の形式は `06_api_openapi.yaml` の `id` パラメータの説明のとおりです（UUID 形式。3つ目のグループ先頭の
 バージョン桁は `1`〜`5`、4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b`、大文字小文字は区別しない）。
 合わなければ 400 `INVALID_REQUEST`（`植物IDの形式が無効です`）で、GET / PUT / DELETE で同じ検査・同じ文言です。
+形式に合う ID で該当する植物が無ければ 404 `PLANT_NOT_FOUND`（`指定された植物が見つかりません`）で、
+これも GET / PUT / DELETE で同じ文言です。
 
 **リクエスト例:**
 ```http
@@ -320,6 +324,11 @@ Content-Type: application/json
 `name` は前後の空白を取り除いてから保存します。`GET /api/plants/check-duplicate`（5.6）が
 前後の空白を取り除いて比較するので、それと揃えています。応答の `plant.name` も取り除いた後の値です。
 `name` 以外の項目は送られた値をそのまま保存します（任意項目に `null` を送った場合は `null` のまま保存されます）。
+保存するのは上の表の7項目だけで、ボディにそれ以外のキー（`id` や `createdAt` など）があっても無視します。
+
+`id`・`createdAt`・`updatedAt` はサーバが付けます。`id` は保存のたびに新しく採番する UUID（小文字の v4 形式）で、
+2回保存すればそれぞれ別の `id` になります（ただし同じ `imagePath` の2回目は保存されず 409。下記）。
+`createdAt` と `updatedAt` は同じ値です。
 
 #### 同じ画像の二重保存（409）
 
@@ -437,6 +446,10 @@ Content-Type: application/json
 削除するのは、旧 `imagePath` が自ストレージアカウントの Blob エンドポイントを指し、パスの最初のセグメントが
 永続コンテナ名か一時コンテナ名と完全一致する場合だけです。それ以外（別のホスト、未知のコンテナ、Blob 名を
 取り出せない形）は何も削除せず、エラーにもしません。Blob が既に無い場合も成功扱いです。
+消す Blob の名前は、URL のパスのうちコンテナ名より後ろの全体です（`/<永続コンテナ名>/x/a.jpg` なら `x/a.jpg`。
+最後のセグメントの `a.jpg` ではないので、同じコンテナの `a.jpg` は消えません）。
+コンテナ名の判定はパスの最初のセグメントで行い、ストレージアカウント名（ホスト）にコンテナ名と同じ文字列が
+含まれていても影響しません。
 保存時の検証で弾かれるので通常はここに来ませんが、他のレコードの画像を消さないための最後の関門として、
 入口の検証とは独立に検査しています。
 
@@ -557,10 +570,16 @@ AI 識別サービスへ渡すものは 5.9 にまとめています。
 - Blob Storage の操作（一時保存・SAS URL の生成・永続コンテナへの移動・植物でない画像の一時ファイルの削除）
   → 502 / 503 `STORAGE_ERROR`。植物でない画像の一時ファイルの削除に失敗した場合は、
   400 `NOT_A_PLANT` ではなく `STORAGE_ERROR` になります
-- それ以外 → 500 `INTERNAL_ERROR`（`画像アップロード・植物判定に失敗しました`）
+- それ以外 → 500 `INTERNAL_ERROR`（`画像アップロード・植物判定に失敗しました`）。
+  ストレージの接続文字列が未対応の形（`BlobEndpoint=` を含む、`EndpointSuffix` が無い。`DEPLOYMENT.md` の
+  「`STORAGE_CONNECTION_STRING` の制約」）の場合もこれで、何も保存せず AI識別サービスも呼びません
 
 AI識別の呼び出しが失敗した場合、一時保存した画像は削除されずに一時コンテナに残ります
 （[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
+一時保存の SAS URL の生成に失敗した場合は、一時保存した画像を削除してから 502 `STORAGE_ERROR` を返します
+（この削除にも失敗した場合は一時コンテナに残ります）。
+永続コンテナへの移動が、一時ファイルの読み出し（途中で読めなくなった場合を含む）か永続コンテナへの書き込みで
+失敗した場合、永続コンテナには何も残りません（一時ファイルは残ります。`07_api_workflow.md` §2.3）。
 
 **リクエスト例:**
 ```http
@@ -603,6 +622,8 @@ Content-Type: multipart/form-data
 
 `fileName` はクライアントが送信したファイル名をそのまま返します。
 Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので、`imagePath` 末尾のファイル名とは一致しません。
+UUID はアップロードのたびに新しく作るので、同じ画像を2回アップロードしても別々の `imagePath` に保存されます
+（既存の画像を上書きしません）。
 
 `identificationResult` は `isPlant` / `confidence` / `candidates` の3項目だけで、
 `POST /api/plants/identify` の結果（4.2）にある `reason` は含まれません。
@@ -632,17 +653,17 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 
 | 要素 | 内容 |
 |---|---|
-| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`） |
-| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（未設定なら `gpt-5.6-luna`） |
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
+| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（未設定なら `gpt-5.6-luna`）。ただし Azure OpenAI Service でデプロイ名が未設定のときは、`baseURL` のデプロイ名の部分が `undefined` になり、モデルの既定値と食い違う（[バックログ](./09_backlog.md)の「AI 識別サービスの要求で、デプロイ名が未設定のときに接続先とモデルが食い違う」。Terraform は必ず設定する） |
 | メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
-| 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL（`07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
+| 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL。5.8 の SAS は、一時コンテナのその Blob 1つだけを対象にした読み取り専用で、発行から15分で切れ、開始時刻を付けない（発行した時点から有効。値の根拠は `07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
 | コンテキスト情報 | `contextInfo` があるときだけ、プロンプトのテキストに含める。未指定・`null` のときは含めない |
 | プロンプトが指示すること | 植物かどうかの判定基準、`name` の命名の優先順位（品種名 → 種名 → 属名）、候補は最大3件を信頼度の高い順に並べること、学名と科名を含めること |
 | 応答の形 | Structured Outputs（`response_format: json_schema`、名前 `plant_identification`、`strict: true`）。`isPlant`（boolean）・`confidence`（number）・`reason`（string）・`plantAnalysis`（object または null。`candidates[]` の各要素は `name`・`scientificName`・`familyName`・`description`・`characteristics`・`confidence`）。全プロパティが必須で `additionalProperties: false`、任意項目は null 許容 |
 | トークン上限 | `max_completion_tokens: 4000`（`max_tokens` は送らない） |
 | 送らないパラメータ | `temperature` |
 
-応答の検証（`confidence` の範囲、候補の必須項目、空・JSON として読めない応答）で弾かれた場合の扱いは
+応答の検証（`confidence` の範囲（0 と 100 は可）、候補の必須項目、空・JSON として読めない応答）で弾かれた場合の扱いは
 6.2 の「502 / 503 の振り分けと `message`」に、応答の null 項目の省略と植物でない場合の `candidates` は 4.2 にあります。
 
 ## 6. エラーレスポンス
@@ -722,11 +743,13 @@ Azure Functions のランタイムが 401 を返し、アプリケーション�
 - **AI識別の呼び出し**は、リクエストの送信から応答の検証までを指します。502 になるのは、
   AI識別サービスのエラー応答（認証エラー・利用上限・サーバエラーなど）、応答の `choices` や本文が空、
   JSON として読めない、応答が想定の形を満たさない（`isPlant` が真偽値でない、`reason` が文字列でない、
-  `confidence` が数値でないか 0〜100 の範囲外、植物と判定した場合の `candidates` が配列でない、
-  候補の `name` / `characteristics` が無い、候補の `confidence` が数値でないか 0〜100 の範囲外）、
+  `confidence` が数値でないか 0〜100 の範囲外、`plantAnalysis.candidates` が `null`・未指定以外の配列でない値
+  （`isPlant` にかかわらず。`null`・未指定は候補なしとして扱う。4.2）、
+  候補の `name` / `characteristics` が無い（空文字列を含む）、候補の `confidence` が数値でないか 0〜100 の範囲外）、
   および原因が `ENOTFOUND` / `ECONNREFUSED` でない接続の失敗です
 - **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行います
-  （OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）
+  （OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）。
+  たどるのは10段までで、原因が循環していても止まります（見つからなければ接続できない以外の失敗として扱う）
 - `ETIMEDOUT` を 503 にするのは Blob Storage の操作だけです。AI識別の呼び出しでは 502
   `AI_SERVICE_ERROR` になります（Cosmos DB を使うエンドポイントでは 500 `INTERNAL_ERROR`）
 - `upload` の **Blob Storage の操作**は、一時保存（SAS URL の生成を含む）・永続コンテナへの移動・

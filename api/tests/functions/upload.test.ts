@@ -1,7 +1,12 @@
 import { format } from 'node:util';
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { uploadImageHandler } from '../../src/functions/upload';
-import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters
+} from '@azure/storage-blob';
 import {
   BlobEntry,
   FakeBlobBackend,
@@ -15,6 +20,9 @@ import {
 // 飲み込まれてしまう（console.logも抑制されるため気づけない）。一時保存・永続保存・削除が
 // 実際に成功する経路をすべて通せるよう、このファイル内で偽物のBlobバックエンドに差し替える
 // （偽物の実体は tests/fakes/blob.ts）
+// SAS の署名に使う関数は、既定では固定のトークンを返す形に差し替える。
+// 一時URLの署名の中身（対象のコンテナとBlob・権限・期限・開始時刻）を見るテストは、中で signWithRealSdk() を呼び、
+// 実 SDK で署名して AI 識別サービスへ渡った URL を読む。署名はローカルの計算だけで Blob Storage へは通信しない
 jest.mock('@azure/storage-blob', () => ({
   BlobServiceClient: { fromConnectionString: jest.fn() },
   BlobSASPermissions: jest.fn().mockImplementation(() => ({})),
@@ -25,14 +33,70 @@ jest.mock('openai');
 
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<typeof generateBlobSASQueryParameters>;
+const MockedBlobSASPermissions = BlobSASPermissions as jest.MockedClass<typeof BlobSASPermissions>;
+const MockedStorageSharedKeyCredential = StorageSharedKeyCredential as jest.MockedClass<
+  typeof StorageSharedKeyCredential
+>;
 
 // SASトークンの固定値（一時保存がSAS付きURLを返すことの土台）。
-// 権限は photos.test.ts（実SDKで署名）、一時URLの有効期限は storageService.test.ts が見ている。
+// 一時URLの署名の中身（対象・権限・期限・開始時刻）は、このファイルの実SDKで署名するテストが見ている。
 // 署名（sig）だけは「SASの署名をログに出さない」テストが漏れの有無を見る秘密として使うため、
 // 定数に切り出してトークンをそこから組み立てる（片方だけ書き換えても検証が空振りしない）
 const TEST_SAS_SIGNATURE = 'testsignature';
 const TEST_SAS_TOKEN = `sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=${TEST_SAS_SIGNATURE}`;
 
+/** 1KB の JPEG 画像だけを送る、入力として正当なアップロードのリクエスト */
+const jpegUploadRequest = (): HttpRequest => {
+  const mockFile = {
+    name: 'test.jpg',
+    type: 'image/jpeg',
+    size: 1024,
+    arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(1024))
+  } as any;
+  const mockFormData = { get: jest.fn().mockImplementation((key: string) => (key === 'image' ? mockFile : null)) };
+  return {
+    method: 'POST',
+    url: 'https://func-snaplant.azurewebsites.net/api/images/upload?code=test-key',
+    query: new Map([['code', 'test-key']]),
+    headers: new Map([['content-type', 'multipart/form-data; boundary=---test']]),
+    formData: jest.fn().mockResolvedValue(mockFormData)
+  } as any as HttpRequest;
+};
+
+/**
+ * 現在時刻だけを固定する（解除は afterEach の useRealTimers）。
+ * 他のタイマーまで偽物にすると偽のBlobクライアントの await が止まりうるので、時刻以外は実物のままにする
+ */
+const freezeNow = (iso: string): void => {
+  jest.useFakeTimers({
+    now: new Date(iso),
+    doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+  });
+};
+
+const realSdk = () => jest.requireActual<typeof import('@azure/storage-blob')>('@azure/storage-blob');
+
+/**
+ * このテストの署名を、固定トークンではなく実 SDK に委譲する（beforeEach が次のテストのために固定トークンへ戻す）。
+ * 署名はローカルの計算だけで Blob Storage へは通信しない。st・se・sp などは平文のクエリで読める
+ */
+const signWithRealSdk = (): void => {
+  const sdk = realSdk();
+  MockedBlobSASPermissions.mockImplementation(() => new sdk.BlobSASPermissions());
+  MockedStorageSharedKeyCredential.mockImplementation(
+    (accountName, accountKey) => new sdk.StorageSharedKeyCredential(accountName, accountKey as string)
+  );
+  mockedGenerateSas.mockImplementation(sdk.generateBlobSASQueryParameters);
+};
+
+/** AI 識別サービスへ渡した画像の URL（OpenAI のモックが受け取った引数から取り出す） */
+const imageUrlSentToAI = (mockOpenAI: any): string => {
+  const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
+  return openAICall.messages[0].content.find((part: any) => part.type === 'image_url').image_url.url;
+};
+
+/** `<blobUrl>?<SAS>` の URL から、SAS トークンのクエリを取り出す（実 SDK で署名したトークンを読むテスト用） */
+const tokenOf = (url: string): URLSearchParams => new URLSearchParams(url.slice(url.indexOf('?') + 1));
 
 describe('画像アップロード・植物判定統合API', () => {
   let mockContext: InvocationContext;
@@ -55,6 +119,9 @@ describe('画像アップロード・植物判定統合API', () => {
     mockedGenerateSas.mockReturnValue({
       toString: () => TEST_SAS_TOKEN
     } as any);
+    // 署名を実 SDK に委譲するテストが、後のテストに実物の権限や資格情報を持ち越さないよう、毎回ここで戻す
+    MockedBlobSASPermissions.mockImplementation(() => ({}) as BlobSASPermissions);
+    MockedStorageSharedKeyCredential.mockImplementation(() => ({}) as StorageSharedKeyCredential);
 
     // OpenAI SDKのモック（管理外の依存。識別結果はスタブとして与える）
     mockOpenAI = {
@@ -93,11 +160,12 @@ describe('画像アップロード・植物判定統合API', () => {
     // 環境変数設定
     process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=key;EndpointSuffix=core.windows.net';
     process.env.STORAGE_CONTAINER_NAME = 'images';
-    process.env.TEMP_STORAGE_CONTAINER_NAME = 'temp';
+    process.env.TEMP_STORAGE_CONTAINER_NAME = 'temp-images';
     process.env.OPENAI_API_KEY = 'test-api-key';
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
     delete process.env.STORAGE_CONNECTION_STRING;
     delete process.env.STORAGE_CONTAINER_NAME;
@@ -172,7 +240,7 @@ describe('画像アップロード・植物判定統合API', () => {
 
       // 検証（状態。一時ファイルは永続コンテナへ移動され、一時コンテナには残っていない）
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
-      const tempKey = permanentKey.replace(/^images\//, 'temp/');
+      const tempKey = permanentKey.replace(/^images\//, 'temp-images/');
       expect(blobStore.has(tempKey)).toBe(false);
       expect(blobStore.get(permanentKey)).toEqual({
         content: Buffer.from(new ArrayBuffer(1024)),
@@ -219,7 +287,7 @@ describe('画像アップロード・植物判定統合API', () => {
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
       expect(permanentKey).toMatch(/\.png$/);
       expect(blobStore.get(permanentKey)?.contentType).toBe('image/png');
-      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
+      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp-images/'))).toBe(false);
     });
 
     it('Content-Typeが大文字（IMAGE/PNG）でもアップロードでき、Blob名に.pngが付く', async () => {
@@ -313,7 +381,7 @@ describe('画像アップロード・植物判定統合API', () => {
       // 検証（状態。永続コンテナへ移動済みで一時コンテナには残っていない）
       const permanentKey = keyFromUrl(response.jsonBody.data.imagePath);
       expect(blobStore.has(permanentKey)).toBe(true);
-      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp/'))).toBe(false);
+      expect(blobStore.has(permanentKey.replace(/^images\//, 'temp-images/'))).toBe(false);
 
       // OpenAI呼び出しでコンテキスト情報が渡されているか確認
       // （管理外の依存への送信内容は出力が不透明ではないが、プロンプトへの
@@ -407,6 +475,82 @@ describe('画像アップロード・植物判定統合API', () => {
       // 範囲の狭い例外なので原則には書かず、ここに理由を残す（人間の判断）
       expect(logged.join('\n')).not.toContain(TEST_SAS_SIGNATURE);
     });
+
+    it('AI識別サービスへ渡す画像のURLは、一時コンテナに保存した画像のSAS付きURL', async () => {
+      // 06_api_design.md §5.9「画像」。一時コンテナは非公開なので、SAS が無いと AI 識別サービスは画像を読めない。
+      // 管理外の依存へ送るもの（外部との契約）なので、送った引数で確かめる
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(201);
+      const openAICall = mockOpenAI.chat.completions.create.mock.calls[0][0];
+      const imagePart = openAICall.messages[0].content.find((part: any) => part.type === 'image_url');
+      // 一時コンテナの Blob 名は永続コンテナへ移した後の Blob 名と同じ
+      const blobName = keyFromUrl(response.jsonBody.data.imagePath).replace(/^images\//, '');
+      expect(imagePart.image_url.url).toBe(`https://test.blob.core.windows.net/temp-images/${blobName}?${TEST_SAS_TOKEN}`);
+    });
+
+    // 一時コンテナの Blob を読めるのは、その Blob 1つだけ。署名（sig）は HMAC で読めないので、
+    // 期待するトークンを実 SDK で作り、AI 識別サービスへ渡した URL 全体を比べる。実 SDK は HMAC の計算にだけ使う:
+    // 署名する条件（コンテナ・Blob名・権限・期限・開始時刻なし・アカウント名と鍵）は、すべてこのテストにリテラルで書く。
+    // 対象のコンテナや Blob・権限・期限・開始時刻のどれがずれても sig やクエリが変わるので、ここで落ちる
+    it('一時URLのSASは、一時コンテナのアップロードしたBlob1つだけを、読み取りで開ける署名になる', async () => {
+      freezeNow('2026-10-11T00:00:00.000Z');
+      signWithRealSdk();
+      const expectedToken = (blobName: string): string => {
+        const sdk = realSdk();
+        const permissions = new sdk.BlobSASPermissions();
+        permissions.read = true;
+        return sdk
+          .generateBlobSASQueryParameters(
+            {
+              containerName: 'temp-images',
+              blobName,
+              permissions,
+              expiresOn: new Date('2026-10-11T00:15:00.000Z')
+            },
+            // beforeEach の接続文字列の AccountName（test）と AccountKey（key）と同じ値
+            new sdk.StorageSharedKeyCredential('test', 'key')
+          )
+          .toString();
+      };
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(201);
+      // 一時コンテナの Blob 名は永続コンテナへ移した後の Blob 名と同じ
+      const blobName = keyFromUrl(response.jsonBody.data.imagePath).replace(/^images\//, '');
+      expect(imageUrlSentToAI(mockOpenAI)).toBe(
+        `https://test.blob.core.windows.net/temp-images/${blobName}?${expectedToken(blobName)}`
+      );
+    });
+
+    // 一時URLは AI 識別サービスがアップロードの1リクエストの間に読むためだけのもので、長く開けるとログなどに出た
+    // URL から画像を取得できてしまう（期限の根拠は StorageService の TEMP_SAS_EXPIRY_MINUTES のコメント）。
+    // 期限（se）と開始時刻（st）はトークンに平文で載るので、AI 識別サービスへ渡した URL から実 SDK のトークンを読む
+    it('一時URLの読み取り許可は発行から15分で切れる', async () => {
+      freezeNow('2026-10-11T00:00:00.000Z');
+      signWithRealSdk();
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(201);
+      const token = tokenOf(imageUrlSentToAI(mockOpenAI));
+      expect(token.get('se')).toBe('2026-10-11T00:15:00Z');
+      // 開始時刻は付けない（発行した時点から有効になる）。開始時刻を現在時刻で埋めると、
+      // サーバ間の時計のずれで発行直後の読み取りが403になりうる
+      expect(token.has('st')).toBe(false);
+    });
+
+    it('2回アップロードすると、それぞれ別の永続URLに保存される', async () => {
+      // Blob 名が毎回同じだと、別の利用者のアップロードを上書きする
+      const first = await uploadImageHandler(jpegUploadRequest(), mockContext);
+      const second = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(first.jsonBody.data.imagePath).not.toBe(second.jsonBody.data.imagePath);
+      expect([...blobStore.keys()].filter((key) => key.startsWith('images/'))).toHaveLength(2);
+    });
   });
 
   describe('バリデーションエラー', () => {
@@ -423,14 +567,13 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'Content-Typeがmultipart/form-dataではありません',
-          details: 'multipart/form-dataでファイルを送信してください'
+          message: 'Content-Typeがmultipart/form-dataではありません'
         }
       });
       // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
@@ -455,14 +598,13 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: '画像ファイルが指定されていません',
-          details: 'imageフィールドでファイルを送信してください'
+          message: '画像ファイルが指定されていません'
         }
       });
       // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
@@ -720,14 +862,13 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'ファイルの読み取りに失敗しました',
-          details: '有効なmultipart/form-dataを送信してください'
+          message: 'ファイルの読み取りに失敗しました'
         }
       });
     });
@@ -776,29 +917,70 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any as HttpRequest;
     }
 
-    it('植物でない画像をアップロードするとNOT_A_PLANTエラーが返る', async () => {
+    it('植物でない画像をアップロードするとNOT_A_PLANTエラーが返り、一時ファイルは残らない', async () => {
       // 実行
       const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
 
-      // 検証（レスポンス全文）
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'NOT_A_PLANT',
-          message: 'アップロードされた画像は植物ではありません',
-          details: '植物の画像を選択して再度お試しください'
+          message: 'アップロードされた画像は植物ではありません'
+        }
+      });
+      // 検証（状態。このテストで一時コンテナに書き込まれるのはアップロードした1件のみなので、
+      // サイズ0は「一時ファイルが削除され、かつ永続コンテナにも何も移動していない」ことを示す）
+      expect(blobStore.size).toBe(0);
+    });
+
+    it('植物でない画像の一時ファイルが既に無くても、削除は成功として扱い、NOT_A_PLANTの400エラーを返す', async () => {
+      // 06_api_design.md §5.5・§5.8。Blob が既に無い場合も削除は成功扱い。
+      // 実 SDK が存在しない Blob の削除で投げる形（RestError・404・BlobNotFound）を、一時コンテナへ書かれた時点で仕込む
+      backend.failWithByPrefix = {
+        'temp-images/': Object.assign(new Error('The specified blob does not exist.'), {
+          name: 'RestError',
+          statusCode: 404,
+          code: 'BlobNotFound'
+        })
+      };
+
+      const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
+
+      // details は契約外なので固定しない
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'NOT_A_PLANT',
+          message: 'アップロードされた画像は植物ではありません'
         }
       });
     });
 
-    it('植物でない画像をアップロードすると一時ファイルが削除される', async () => {
-      // 実行
-      await uploadImageHandler(buildNotPlantRequest(), mockContext);
+    it('植物でない画像の一時ファイルの削除に失敗した場合は、NOT_A_PLANTではなく502エラー', async () => {
+      // 06_api_design.md §5.8。一時ファイルの Blob 名はリクエストの中で決まるので、
+      // 一時コンテナへ書かれた時点で削除が失敗する状態にする
+      backend.failWithByPrefix = {
+        'temp-images/': Object.assign(new Error('This request is not authorized to perform this operation.'), {
+          name: 'RestError',
+          statusCode: 403,
+          code: 'AuthorizationFailure'
+        })
+      };
 
-      // 検証（状態。このテストで一時コンテナに書き込まれるのはアップロードした1件のみなので、
-      // サイズ0は「一時ファイルが削除され、かつ永続コンテナにも何も移動していない」ことを示す）
-      expect(blobStore.size).toBe(0);
+      const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
+
+      // details は契約外なので固定しない
+      expect(response.status).toBe(502);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'STORAGE_ERROR',
+          message: 'ストレージサービスでエラーが発生しました'
+        }
+      });
     });
   });
 
@@ -856,8 +1038,12 @@ describe('画像アップロード・植物判定統合API', () => {
       });
     });
 
-    // 3つのcodeは upload.ts の同じ分岐に並んでいる。1つだけ通すと
-    // 残り2つを分岐から外しても気づけないため、全部を通す
+    // ストレージが接続できないとみなす errno は utils/response.ts の UPSTREAM_ERROR_RESPONSES.storage にあり、
+    // utils/errors.ts の UNREACHABLE_ERRNOS（ENOTFOUND / ECONNREFUSED）に ETIMEDOUT を足したもの。
+    // UNREACHABLE_ERRNOS は Cosmos DB の判定（isConnectivityError）と AI の指定（UPSTREAM_ERROR_RESPONSES.ai）も参照している。
+    // ストレージだけが ETIMEDOUT を含むので、3つ全部を通すのはここだけ。
+    // 全 errno を通す入口は、ストレージがここ、Cosmos DB が trips.test.ts の「旅行の作成」、
+    // AI がこのファイルの「AI サービスのエラー」
     it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])(
       '一時保存が%sで失敗した場合は503エラー', async (errorCode) => {
       // 一時保存のアップロードが接続障害で落ちた場合。
@@ -912,6 +1098,48 @@ describe('画像アップロード・植物判定統合API', () => {
       });
     });
 
+    it('一時URLの署名（SAS）の生成に失敗した場合は502エラーで、一時コンテナに何も残らない', async () => {
+      // 06_api_design.md §5.8・§6.2。SAS の生成は一時保存（Blob Storage の操作）に含まれる。
+      // アップロードは SAS の生成より先に終わっているので、後片付けしないと孤児 Blob が残る
+      mockedGenerateSas.mockImplementation(() => {
+        throw new Error('credential unavailable');
+      });
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      // details は契約外なので固定しない
+      expect(response.status).toBe(502);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'STORAGE_ERROR',
+          message: 'ストレージサービスでエラーが発生しました'
+        }
+      });
+      expect(blobStore.size).toBe(0);
+    });
+
+    it('永続保存への移動で、一時ファイルの読み出しが途中で失敗した場合は502エラー', async () => {
+      // ダウンロードの応答は返るが、ストリームの読み出し中に失敗する経路。
+      // 一時ファイルの Blob 名はリクエストの中で決まるので、一時コンテナへ書かれた時点で
+      // 読み出しが失敗する状態にする。ストリームの失敗を拾えないと、例外ではなく
+      // 応答が返らなくなる（このテストはタイムアウトで失敗する）
+      backend.streamErrorWithByPrefix = { 'temp-images/': new Error('stream read error') };
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      // details は契約外なので固定しない
+      expect(response.status).toBe(502);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'STORAGE_ERROR',
+          message: 'ストレージサービスでエラーが発生しました'
+        }
+      });
+      expect([...blobStore.keys()].filter((key) => key.startsWith('images/'))).toEqual([]);
+    });
+
     it('永続保存への移動がストレージ側のエラー応答で失敗した場合は502エラーで、永続コンテナには何も残らない', async () => {
       // 一時保存は成功し、永続コンテナ（images）への書き込みだけが RestError で失敗する。
       // 一時保存の失敗とは別の場所（moveFromTempToPermanent）だが、同じ
@@ -951,6 +1179,30 @@ describe('画像アップロード・植物判定統合API', () => {
         }
       });
       expect([...blobStore.keys()].filter(key => key.startsWith('images/'))).toEqual([]);
+    });
+  });
+
+  describe('ストレージの設定が未対応の形', () => {
+    it('接続文字列にBlobEndpointがある場合は、何も保存せず500エラー', async () => {
+      // DEPLOYMENT.md「STORAGE_CONNECTION_STRING の制約」。BlobEndpoint を明示した接続文字列は未対応で、
+      // identify 以外のエンドポイントは 500 INTERNAL_ERROR になる。SDK はそのエンドポイントを使う一方、
+      // URL の検証は AccountName と EndpointSuffix からホストを組み立てるので、黙って通すと
+      // 自分が生成した URL を自分で拒否する。details は契約外なので固定しない
+      process.env.STORAGE_CONNECTION_STRING =
+        'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=testkey==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;';
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '画像アップロード・植物判定に失敗しました'
+        }
+      });
+      expect(blobStore.size).toBe(0);
+      expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
     });
   });
 
@@ -1032,15 +1284,17 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.jsonBody.error.message).toBe('植物識別サービスでエラーが発生しました');
     });
 
-    it.each([
-      ['ENOTFOUND', 'getaddrinfo ENOTFOUND example.openai.azure.com'],
-      ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:443']
-    ])('AI識別サービスに接続できない場合（%s）はストレージではなくAIの障害として503エラーを返す', async (errno, sysMessage) => {
+    it.each(['ENOTFOUND', 'ECONNREFUSED'])('AI識別サービスに接続できない（%s）場合はストレージではなくAIの障害として503エラーを返す', async (errno) => {
+      // AI の分類は、共有の UNREACHABLE_ERRNOS を参照する UPSTREAM_ERROR_RESPONSES.ai.unreachableCodes の指定を通る。
+      // Cosmos DB 側の表（trips.test.ts）はこの指定を通らないので、指定の行の崩れ（参照の差し替えなど）は
+      // そちらでは捕まえられない。AI の全 errno を通すのはここ（アプリが使う入口）で、identify.test.ts は1つだけ
       // 実SDK（openai 7.x / Node標準のfetch）の接続エラーは3段のcauseチェーンになる。
       //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code=errno）
       // errnoを持つのは最深部だけで、トップレベルにcodeは付かない。
       // トップレベルにcodeを付けると実SDKが作らない形になるので付けない
-      const sysError = Object.assign(new Error(sysMessage), { code: errno });
+      const sysError = Object.assign(new Error(`connect ${errno} example.openai.azure.com`), {
+        code: errno
+      });
       const fetchError = Object.assign(new TypeError('fetch failed'), { cause: sysError });
       const connectionError = Object.assign(new Error('Connection error.'), {
         name: 'APIConnectionError',

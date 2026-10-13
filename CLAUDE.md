@@ -595,6 +595,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | api（植物図鑑） | エンドポイント（`api/tests/functions/`） | `docs/06_api_design.md`・`06_api_openapi.yaml` |
 | api（旅行アルバム） | エンドポイント（`api/tests/functions/`） | `docs/travel-album/05_api_design.md`（目指す姿） |
 | mobile | 画面（`mobile/test/screens/`） | `docs/03_screen_design.md` |
+| mobile | アプリ全体（`mobile/test/app_root_test.dart`。起動直後の設定の扱い） | `docs/03_screen_design.md` §1・`docs/travel-album/03_screen_design.md` §4.1 |
 | mobile | `ApiService`（封筒の契約。`mobile/test/services/`） | `docs/05_technology_selection.md` §4.2・`docs/07_api_workflow.md` |
 
 **入口以外に残してよいテストの名簿。** 原則4の2つの例外に当たるもの。ここに無いテストが入口以外に残っていたら、
@@ -603,7 +604,6 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | テスト | 例外 | 理由 |
 |---|---|---|
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
-| `api/tests/services/storageService.test.ts` の SAS の引数検証（一時 URL の権限と有効期限） | 外部との契約を担う | SAS トークンは署名済みで復号できず、権限と有効期限は Azure Storage が検証する契約（原則3の例外） |
 
 **複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
 仕様の「同じ」「全エンドポイント」を根拠に全ケースを通す入口を1つ決め、他の入口は1〜2行にして、
@@ -667,7 +667,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 - `tests/setup.ts` が `setupFilesAfterEnv` でグローバルに環境変数と `openai` のモックを設定し、`console.log` も抑制する。**Azure SDK のモックは置いていない**（完全に死んでいたため削除した）
 - 各テストファイルは**それに加えて**個別に `jest.mock()` と環境変数を設定する二重構造。追いにくいため新規テストはファイル内で完結させる
-- ディレクトリ構成は `src/` をミラーする（`tests/functions/`, `tests/services/`, `tests/utils/`）。`tests/fakes/`（偽物）と `tests/helpers/`（複数のテストファイルが使うケースの表など。例 `databaseFailures.ts` の 503 / 500 の表）だけが例外で、`src/` に対応するものが無い共有部品
+- ディレクトリ構成は `src/` をミラーする。守り続けるテストは入口の `tests/functions/` に置き、`tests/services/` には名簿のテストだけがある（`tests/utils/` は #46 で無くなった。開発中に足すのは構わないが、作業単位の終わりに入口へ寄せる）。`tests/fakes/`（偽物）と `tests/helpers/`（複数のテストファイルが使うケースの表など。例 `databaseFailures.ts` の 503 / 500 の表）だけが例外で、`src/` に対応するものが無い共有部品
 - テスト名は非開発者にも通じる日本語の文で書く（この慣習は踏襲する）
 - `testTimeout` は 10 秒
 - **スタブへの呼び出し検証は解消済み。** 残る `toHaveBeenCalled*` は OpenAI（管理外の依存）に対するものだけで、これは正当。Cosmos / Blob に対して書き足さないこと

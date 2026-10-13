@@ -265,6 +265,48 @@ iOS からは当面使う予定が無いので、iOS の HEIC の問題は考え
 4形式以外を受け付けないのはサーバの仕様なので、クライアントが偽の Content-Type で
 すり抜けさせる理由が無い。
 
+### AI 識別サービスの要求で、デプロイ名が未設定のときに接続先とモデルが食い違う（要確認）
+
+`openAIVisionService.ts` は、`AZURE_OPENAI_ENDPOINT` があり `AZURE_OPENAI_DEPLOYMENT_NAME` が未設定のとき、
+`baseURL` に `/deployments/undefined` を入れる一方で、`model` だけを既定値 `gpt-5.6-luna` にする
+（2026-10-13、#46 の整理の test-reviewer の指摘。コードを読んでの判断で、実際の要求では確かめていない）。
+`docs/06_api_design.md` §5.9 の「モデル（未設定なら `gpt-5.6-luna`）」と合わない（§5.9 にはこの食い違いを注記した。2026-10-13、contract-auditor）。
+Terraform はデプロイ名を必ず流し込むので実害は無い。
+
+あわせて、同じファイルの `validateAnalysisResult()` の `!Array.isArray(result.plantAnalysis.candidates)` は届かない。
+先に動く `normalizeNulls()` は、`plantAnalysis.candidates` が `null`・未指定なら `[]` に置き換え、配列でないそれ以外の値には
+`.map` を呼んで TypeError（502）になるので、検証に渡る `candidates` は常に配列になる（2026-10-13、contract-auditor がコードを読んで確認）。
+観測できる振る舞い（`null`・未指定は空の候補で 200、それ以外の配列でない値は `isPlant` にかかわらず 502）は
+`docs/06_api_design.md` §4.2・§6.2 に書いた。
+
+**やること**: デプロイ名の既定値を `baseURL` にも使うか、Azure のときはデプロイ名を必須にして起動時に失敗させるかを決める。
+届かない検査は消すか、`normalizeNulls()` の前に移す。
+
+### `validateImage()` が偽を返したときの 400 の分岐が届かない
+
+`api/src/functions/identify.ts` と `upload.ts` は、`OpenAIVisionService.validateImage()` が偽を返したら 400（`画像の解析に失敗しました`）を返す。
+`validateImage()` は `new URL()` しか見ず、identify は直前で `new URL()` の検査を済ませ、upload は自分で生成した一時 URL を渡すので、常に真になり届かない
+（2026-10-13、#46 の整理の contract-auditor の指摘。コードを読んでの判断）。実行時の症状は無く、仕様書にも載っていない。
+
+**やること**: 分岐と `validateImage()` を消す（届かない文言が契約のように見えるのを避ける）。
+
+### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない
+
+`StorageService` の `resolveBlobEndpointHost()` は、接続文字列に `EndpointSuffix` が無ければ `core.windows.net` として
+ホストを組み立てる。ところが実 SDK の `BlobServiceClient.fromConnectionString` は、`EndpointSuffix` の無い接続文字列を
+`Invalid EndpointSuffix in the provided Connection String` で拒否する（2026-10-13、#46 の整理で test-consolidator が手元で確認）。
+`StorageService` も `PhotoStorageService` もコンストラクタで `fromConnectionString` を呼ぶので、既定値の分岐には届かず、
+エンドポイントは 500 になる（SDK の `extractConnectionStringParts()` の該当箇所は contract-auditor もソースで確認した）。
+DEPLOYMENT.md「`STORAGE_CONNECTION_STRING` の制約」にあった「`EndpointSuffix` を省いた場合は `core.windows.net` として
+ホストを組み立てます」は事実ではなかったので、2026-10-13 に contract-auditor が現在の振る舞い（`EndpointSuffix` は必須で、
+無いと 500）に書き直した。
+
+この分岐を守っていた単体テストは、入口から観測できないので #46 の整理で消した。Terraform が流し込む接続文字列には
+`EndpointSuffix` が入っているので、実害は無い。
+
+**やること**: 分岐を消す（DEPLOYMENT.md は既に「必須」になっている）か、SDK に渡す前に `EndpointSuffix=core.windows.net` を
+補うか（その場合は DEPLOYMENT.md を「省くと `core.windows.net`」に戻す）を決める。前者が単純。
+
 ### Azurite などパス形式のエンドポイントに対応していない
 
 `StorageService` のコンストラクタは、接続文字列に `BlobEndpoint=` があれば
@@ -379,41 +421,6 @@ Flutter クライアントは失敗後に同じ画像を送り直せる（`07_ap
    SAS 生成の失敗時に行っている後片付けと同じ扱い。挙動変更なので、再現テスト（AI の呼び出しを失敗させ、
    一時コンテナが空であることを偽物の `store` で確かめる）を先に書く
 
-### `UpstreamError` での包み直しのうち2箇所が無検証
-
-`identify` と `upload` は失敗した場所でエラーを分類する。`StorageService` と `OpenAIVisionService` が
-失敗を `UpstreamError`（`api/src/utils/errors.ts`。`service` と元のエラーを `cause` に持つ）で包み直し、
-ハンドラの catch が `createUpstreamErrorResponse()`（`utils/response.ts`）でそれを 502 / 503 に変換する
-（以前の `wrapError()` は削除され、これに置き換わった）。
-包み直しをやめて `new Error` で投げると、その経路は 502 / 503 ではなく 500 になる。
-
-包み直しは5箇所にあり、**ハンドラ経由で分類まで確かめているテストがあるのは2箇所だけ**
-（コードとテストを読んでの判断。変異は実行していない）。
-
-| 箇所 | 守っているテスト |
-|---|---|
-| `openAIVisionService.ts` の `identifyPlant` | `identify.test.ts` / `upload.test.ts` の 502・503 |
-| `storageService.ts` の `uploadImageToTemp` | `upload.test.ts` の 502（`RestError` の形）と 503（`it.each` の3 code） |
-| `storageService.ts` の SAS URL 生成 | 呼び出し元の `uploadImageToTemp` が外側でもう一度包むので、ここの型は分類に効かない |
-| `storageService.ts` の `moveFromTempToPermanent` | **無し**。`storageService.test.ts` は例外になることだけを見る（分類は見ない） |
-| `storageService.ts` の `deleteImage` | **無し**（同上）。`upload` で効くのは植物でない画像の一時ファイルの削除だけで、`CosmosService` 経由の呼び出しは失敗をログだけにして握りつぶす |
-
-つまり `upload` の**移動失敗・（植物でない画像の）削除失敗**の 502 / 503 分類は
-現在ノーガードで、包み直しをやめても気づけない。
-
-**なぜ今テストを足さなかったか**: 偽物の `forcedUploadError` は
-バックエンド全体に効くため、「一時保存は成功させて永続保存への移動だけ
-失敗させる」という条件が作れない。Blob 単位の `failWith` は、ハンドラの中で
-UUID から決まる一時 Blob の名前を事前に知れないので使えない。`tests/fakes/blob.ts` に
-コンテナ単位（あるいは呼び出し回数単位）の失敗注入を足す必要がある。
-
-**判断が必要な点**: 偽物に失敗注入の仕組みを足すか。
-
-**推奨**: **足す。** `forcedUploadErrorByContainer` のような
-コンテナ名をキーにした失敗注入が素直で、既存の `failWith`（Blob 単位）と
-同じ発想。移動処理は「一時から読んで永続へ書き、一時を消す」の3手で
-宛先を取り違える余地があり、守る価値が高い。
-
 ### `updatePlant` で存在しない id への PUT が 404 ではなく 409 を返す
 
 `api/src/functions/updatePlant.ts` は `imagePath` の重複チェックを
@@ -514,8 +521,7 @@ test-reviewer が指摘した、原則違反ではないが締められる点。
 - **`FakeCosmosBackend<TDoc>` は止めたい方向を型で止められていない。**
   `FakeCosmosBackend<PlantSummary>` に完全な `Plant` を入れても通る（構造的部分型）。
   現状はテスト側が `const x: PlantSummary[] = [...]` とリテラルで宣言している
-  規律に依存している。射影と完全な `Plant` の両方を扱う `cosmosService.test.ts` が
-  既定の union を使っているため、**区別が最も必要なファイルで区別が消えている**
+  規律に依存している
 - **`upload.test.ts` が設定する `OPENAI_API_KEY` は死蔵。**
   `openAIVisionService.ts` は `AZURE_OPENAI_ENDPOINT` の有無で分岐し、
   それは `tests/setup.ts` のグローバル値が立ったまま。
@@ -605,10 +611,6 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 
 仕様との食い違いではなく、テストそのものの不備。
 
-- **`openAIVisionService.test.ts` の「必須フィールドが不足している場合」は、最初に発火する `confidence` の文言を検証している。**
-  テスト名と検証対象がずれている。同ファイルのエラー系は部分一致 `toThrow('植物識別に失敗しました')` のため、
-  どの原因で失敗したかを区別できない（原則7。`identifyPlant()` の失敗はハンドラでどれも 502 / 503 に分類されるので、
-  以前のような 500 と 502 の取り違えは起きなくなった）
 - **`updatePlant.test.ts` の 503 のテストが `code: 'ENOTFOUND'` に message `'Connection timeout'` を組み合わせている。**
   PUT では `ETIMEDOUT` は 503 にならないので読み手が誤解しやすい
 - **修正前の状態を「現在の実装」と書いたコメントが残っている**: `api/src/services/storageService.ts` の 191〜192 行・319〜320 行付近、
@@ -616,7 +618,7 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 - **Flutter のテストの偽レスポンスが OpenAPI と細部で違う**: アップロードの `identificationResult` に `reason` を入れている、
   `isPlant: true` なのに `candidates: []`、植物IDに UUID でない `plant-1` を使っている。検証には影響しない
 - **仕様にあるのにテストが無い振る舞い**: contextInfo の検証が一時保存と AI 呼び出しの前に行われること（upload の 501 文字のテストは Blob も OpenAI も見ていない）、
-  503 になる `ECONNREFUSED`（Cosmos DB を使うハンドラと upload の AI 由来のテストは `ENOTFOUND` だけ）、DELETE で画像の削除に失敗しても 200、
+  503 になる `ECONNREFUSED`（植物図鑑の Cosmos DB を使うハンドラのテストは `ENOTFOUND` だけ）、
   identify の `contextInfo: null` と数値・オブジェクトの拒否、`CONTEXT_INFO_MAX_LENGTH` に有効な値を設定した場合
 - **`api/host.json` の `http` がトップレベルにある**（正しくは `extensions.http`）。`routePrefix: "api"` は既定値と同じなので実害は無いが、
   `maxOutstandingRequests` などを設定するつもりでここに書いても効かない

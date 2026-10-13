@@ -48,6 +48,20 @@ export interface FakeBlobBackend {
    * 区別できない。「原寸は成功し、サムネイルだけ失敗する」経路を作る。既定は未設定
    */
   forcedUploadErrorByKey?: Record<string, Error>;
+  /**
+   * アップロードで書かれる Blob のキー（`コンテナ名/Blob名`）が接頭辞で始まるとき、その Blob に failWith を持たせる
+   * （接頭辞 → エラー。例 `temp/` で一時コンテナの Blob）。Blob 名がリクエストの中で決まり、テストから
+   * キーを先に知れないときに、書かれた時点で「その Blob の取得・削除が失敗する」状態を作る。
+   * `store.set()` で直接置いた Blob には効かない。既定は未設定
+   */
+  failWithByPrefix?: Record<string, Error>;
+  /** failWithByPrefix の、ストリームの読み出し中に失敗させる版（streamErrorWith を持たせる） */
+  streamErrorWithByPrefix?: Record<string, Error>;
+}
+
+/** キーが接頭辞のどれかで始まるとき、そのエラーを返す */
+function errorForPrefix(byPrefix: Record<string, Error> | undefined, key: string): Error | undefined {
+  return Object.entries(byPrefix ?? {}).find(([prefix]) => key.startsWith(prefix))?.[1];
 }
 
 /** 実 SDK が存在しない Blob への操作で投げる形に合わせたエラー */
@@ -79,9 +93,14 @@ export function createFakeBlockBlobClient(
       if (blobError) {
         throw blobError;
       }
+      const failWith = errorForPrefix(backend.failWithByPrefix, key);
+      const streamErrorWith = errorForPrefix(backend.streamErrorWithByPrefix, key);
       backend.store.set(key, {
         content,
-        contentType: options?.blobHTTPHeaders?.blobContentType
+        contentType: options?.blobHTTPHeaders?.blobContentType,
+        // 仕込みが無いときはキー自体を足さない（既存のテストの比較に影響させない）
+        ...(failWith && { failWith }),
+        ...(streamErrorWith && { streamErrorWith })
       });
       return {};
     },

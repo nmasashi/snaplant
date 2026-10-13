@@ -4,8 +4,8 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import { createTripHandler, listTripsHandler } from '../../src/functions/trips';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
-import { photoDocument, tripDocument } from '../helpers/albumDocuments';
-import { databaseFailureCases } from '../helpers/databaseFailures';
+import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
+import { allDatabaseFailureCases, databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -226,7 +226,7 @@ describe('旅行API', () => {
     });
 
     it.each(
-      databaseFailureCases('旅行の作成に失敗しました')
+      allDatabaseFailureCases('旅行の作成に失敗しました')
     )('旅行の作成で%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedCreateError = error;
       const request = requestWith(jest.fn().mockResolvedValue({ name: '北海道' }));
@@ -239,9 +239,47 @@ describe('旅行API', () => {
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
     });
+
+    it('旅行の作成で、原因（cause）が循環したエラーのときも、止まらずに内部エラー（500）を返す', async () => {
+      // 接続できない障害かは cause をたどって判定する。循環に歯止めが無いと、このテストは
+      // 同期の無限ループになる。同期ループは Jest の testTimeout（10秒）では中断できないため、
+      // 失敗はテストの赤ではなく CI のジョブのタイムアウトとして現れる
+      const a: any = new Error('a');
+      const b: any = new Error('b');
+      a.cause = b;
+      b.cause = a;
+      cosmosBackend.forcedCreateError = a;
+      const request = requestWith(jest.fn().mockResolvedValue({ name: '北海道' }));
+
+      const response = await createTripHandler(request, mockContext);
+
+      expect(response.status).toBe(500);
+      const body = response.jsonBody as any;
+      expect(body.error.code).toBe('INTERNAL_ERROR');
+      expect(body.error.message).toBe('旅行の作成に失敗しました');
+    });
   });
 
   describe('旅行一覧API', () => {
+    it('旅行の一覧には、データベースが付けた内部の項目と種別は返らない', async () => {
+      // 偽物の Cosmos はシステム項目を付けないので、実際の Cosmos が保存したドキュメントの形を自分で置く
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, { ...tripDocument(KYOTO_TRIP_ID, '京都旅行'), ...COSMOS_SYSTEM_FIELDS });
+      const request = {
+        method: 'GET',
+        url: 'https://func-snaplant.azurewebsites.net/api/trips?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map()
+      } as any as HttpRequest;
+
+      const response = await listTripsHandler(request, mockContext);
+
+      expect(response.status).toBe(200);
+      expect(Object.keys((response.jsonBody as any).data.trips[0]).sort()).toEqual([
+        'coverThumbnailUrl', 'createdAt', 'description', 'firstTakenAt', 'id',
+        'lastTakenAt', 'name', 'photoCount', 'tags', 'updatedAt'
+      ]);
+    });
+
     it('写真が無ければ、各旅行の枚数と旅行に属さない写真の枚数が0で返る', async () => {
       const kyoto = {
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

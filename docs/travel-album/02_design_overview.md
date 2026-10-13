@@ -333,7 +333,7 @@ Cosmos DB は別パーティションの文書をまとめて原子的に書け�
 | 端末の Geocoder の可用性と精度（**要実測**）。Google Play 開発者サービスが入っている Android で動く（SC-03K は可）。**オフラインでは変換できない** | 地名が出ない | オフラインや失敗のときは `placeName: null` で送り（送信は止めない）、画面は緯度・経度を表示する。足りなければ段階3で Azure Maps（iOS に対応するときに改めて検討） |
 | `c.tripId = @tripId`（null）は `tripId` を書き忘れると静かに外れる | 未所属の一覧から消える | `AlbumService.createPhoto()` で必ず `null` を入れ、テストで固定する |
 | `/api/photos/move` と `/api/photos/{photoId}` のルートの優先順（推測。デプロイ後に手で確認） | move が 400 になる | メソッドが違う（POST と GET/DELETE/PATCH）うえ、リテラルは変数より優先されるはず。ダメなら `/api/photo-moves` に変える |
-| SAS 生成の切り出しが既存の `upload` に触る | 既存の 502 / 503 の分類が崩れる | `/code-review high` と `test-reviewer`。`storageService.test.ts` が通ることを完了条件にする |
+| SAS 生成の切り出しが既存の `upload` に触る | 既存の 502 / 503 の分類が崩れる | `/code-review high` と `test-reviewer`。`upload.test.ts` が通ることを完了条件にする（一時 URL の SAS は #50 で upload の入口のテストへ寄せた） |
 | Cosmos の `ORDER BY c.sortAt` と継続トークンの振る舞い（ページの途中で写真が増減したときの重複・欠落。推測） | 一覧に写真が二重に出る・抜ける | `sortAt` は必ずある文字列なので null の問題は無い。デプロイ後に 300 枚でページをめくって手で確認する（[08 §5.2](./08_test_plan.md#52-デプロイ後api段階2)） |
 | `GROUP BY c.tripId` で `null` の鍵がグループになるか、`MIN` / `MAX` が `IS_STRING` で絞れば期待どおりか、`GROUP BY` と `ORDER BY` を同じクエリに書けないこと（推測） | 未所属の枚数が出ない・期間がずれる | デプロイ後に手で確認する。`null` がグループにならなければ未所属の枚数だけ `COUNT` を1本足す（[04 §5.1](./04_data_design.md#51-旅行一覧)） |
 | 図鑑の1ページで `TOP 1` を項目の数（最大 50）だけ投げる。2項目の `ORDER BY` は複合インデックスが要る（B の代償。推測の見積もりは [04 §3.1](./04_data_design.md#31-項目は写真からまとめる)） | ページを開くのが遅い、インデックスが無いと 400 | 段階4の最初に実測して記録する。インフラ（複合インデックス）を API より先に apply する。遅ければ「写真から作り直せる控え」を足す（データの移し替えは要らない） |
