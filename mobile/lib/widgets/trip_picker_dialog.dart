@@ -30,6 +30,8 @@ class TripPickerDialog extends StatefulWidget {
 class _TripPickerDialogState extends State<TripPickerDialog> {
   List<TripSummary>? _trips;
   TripSummary? _selected;
+  // 旅行の一覧の読み込みに失敗したときの文言。null なら失敗していない
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -38,10 +40,18 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
   }
 
   Future<void> _loadTrips() async {
-    final list = await widget.apiService.getTrips();
-    if (!mounted) return;
-    setState(() => _trips =
-        list.trips.where((trip) => trip.id != widget.excludeTripId).toList());
+    setState(() => _errorMessage = null);
+    try {
+      final list = await widget.apiService.getTrips();
+      if (!mounted) return;
+      setState(() => _trips =
+          list.trips.where((trip) => trip.id != widget.excludeTripId).toList());
+    } catch (e) {
+      debugPrint('TripPickerDialog: 旅行一覧の読み込みエラー: $e');
+      if (!mounted) return;
+      setState(() => _errorMessage =
+          e is ApiException ? e.userMessage : '旅行一覧の読み込みに失敗しました');
+    }
   }
 
   Future<void> _move(TripSummary trip) async {
@@ -89,32 +99,46 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
   Widget build(BuildContext context) {
     final trips = _trips;
     final selected = _selected;
+    final errorMessage = _errorMessage;
     return AlertDialog(
       title: const Text('旅行を選ぶ'),
-      content: trips == null
-          ? const SizedBox(
-              height: 80, child: Center(child: CircularProgressIndicator()))
-          : SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final trip in trips)
-                    RadioListTile<String>(
-                      value: trip.id,
-                      groupValue: selected?.id,
-                      onChanged: (_) => setState(() => _selected = trip),
-                      title: Text(trip.name),
-                      secondary: Text('${trip.photoCount}枚'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  TextButton.icon(
-                    onPressed: _createTrip,
-                    icon: const Icon(Icons.add),
-                    label: const Text('新しい旅行を作る'),
+      content: errorMessage != null
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(errorMessage),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _loadTrips,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('再試行'),
+                ),
+              ],
+            )
+          : trips == null
+              ? const SizedBox(
+                  height: 80, child: Center(child: CircularProgressIndicator()))
+              : SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final trip in trips)
+                        RadioListTile<String>(
+                          value: trip.id,
+                          groupValue: selected?.id,
+                          onChanged: (_) => setState(() => _selected = trip),
+                          title: Text(trip.name),
+                          secondary: Text('${trip.photoCount}枚'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      TextButton.icon(
+                        onPressed: _createTrip,
+                        icon: const Icon(Icons.add),
+                        label: const Text('新しい旅行を作る'),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),

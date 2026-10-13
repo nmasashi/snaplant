@@ -1156,4 +1156,41 @@ void main() {
     expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
     semantics.dispose();
   });
+
+  testWidgets('「旅行を選ぶ」で旅行の一覧の読み込みに失敗すると、ダイアログの中にエラーの文言と「再試行」を出して「入れる」は押せず、「再試行」で旅行が並んで選べる', (tester) async {
+    // 旅行の一覧（GET /api/trips）の1回目だけを 503 で失敗させる。詳細を開くまでに呼ばれた分は済んでいるので、ダイアログを開く直前に仕掛ける
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.list);
+
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(inDialog(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。')), findsOneWidget);
+    expect(inDialog(find.text('再試行')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsNothing);
+    final moveButton = tester.getSemantics(inDialog(find.text('入れる')));
+    expect(moveButton.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(moveButton.hasFlag(SemanticsFlag.isEnabled), isFalse);
+
+    await tapInDialog(tester, '再試行');
+
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
+    expect(inDialog(find.text('再試行')), findsNothing);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '入れる');
+    expect(find.text('1枚を「京都」に入れました'), findsOneWidget);
+    semantics.dispose();
+  });
 }
