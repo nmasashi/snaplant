@@ -54,56 +54,61 @@ class _TripDeleteDialogState extends State<TripDeleteDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('旅行を削除'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: widget.photoCount == 0
-              // 写真が無ければ選ばせることが無い（送る deletePhotos は false のまま）
-              ? [Text('「${widget.tripName}」を削除しますか？')]
-              : [
-                  Text('「${widget.tripName}」を削除します。\n'
-                      '中の写真${widget.photoCount}枚はどうしますか？'),
-                  const SizedBox(height: 8),
-                  RadioListTile<bool>(
-                    value: false,
-                    groupValue: _deletePhotos,
-                    onChanged: (value) =>
-                        setState(() => _deletePhotos = value!),
-                    title: const Text('写真は残す'),
-                    subtitle: const Text('「旅行に属さない写真」に移ります'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  RadioListTile<bool>(
-                    value: true,
-                    groupValue: _deletePhotos,
-                    onChanged: (value) =>
-                        setState(() => _deletePhotos = value!),
-                    title: const Text('写真も削除する'),
-                    subtitle: const Text('この操作は元に戻せません'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ],
+    // 削除中は閉じさせない（キャンセル・外のタップ・戻る）。要求は送られたままなので、閉じると
+    // 取り消したつもりでも旅行は消え、詳細画面だけが残る
+    return PopScope(
+      canPop: !_isDeleting,
+      child: AlertDialog(
+        title: const Text('旅行を削除'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: widget.photoCount == 0
+                // 写真が無ければ選ばせることが無い（送る deletePhotos は false のまま）
+                ? [Text('「${widget.tripName}」を削除しますか？')]
+                : [
+                    Text('「${widget.tripName}」を削除します。\n'
+                        '中の写真${widget.photoCount}枚はどうしますか？'),
+                    const SizedBox(height: 8),
+                    RadioListTile<bool>(
+                      value: false,
+                      groupValue: _deletePhotos,
+                      onChanged: (value) =>
+                          setState(() => _deletePhotos = value!),
+                      title: const Text('写真は残す'),
+                      subtitle: const Text('「旅行に属さない写真」に移ります'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    RadioListTile<bool>(
+                      value: true,
+                      groupValue: _deletePhotos,
+                      onChanged: (value) =>
+                          setState(() => _deletePhotos = value!),
+                      title: const Text('写真も削除する'),
+                      subtitle: const Text('この操作は元に戻せません'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: _isDeleting ? null : () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: _isDeleting ? null : _delete,
+            // 写真も消すと元に戻せないので、ボタンの色で知らせる
+            style: _deletePhotos
+                ? ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.error,
+                    foregroundColor: AppColors.textOnPrimary)
+                : null,
+            child: Text(_isDeleting ? '削除中...' : '削除'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isDeleting ? null : _delete,
-          // 写真も消すと元に戻せないので、ボタンの色で知らせる
-          style: _deletePhotos
-              ? ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.error,
-                  foregroundColor: AppColors.textOnPrimary)
-              : null,
-          child: Text(_isDeleting ? '削除中...' : '削除'),
-        ),
-      ],
     );
   }
 }

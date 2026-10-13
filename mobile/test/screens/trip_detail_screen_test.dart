@@ -209,4 +209,33 @@ void main() {
 
     expect(backend.deletePhotosSent, ['false']);
   });
+
+  testWidgets('旅行を削除している間は、「キャンセル」や外のタップ、戻る操作でもダイアログは閉じず、応答が返れば前の画面に戻って知らせる', (tester) async {
+    // 閉じられると、要求は送られたまま旅行がサーバで消えるのに、詳細画面が残って利用者は取り消したつもりになる
+    final release = Completer<void>();
+    final backend = _backendWith([hokkaidoTrip()]);
+    backend.holds[TripRoute.delete] = release.future;
+    await openDetailFromHome(tester, backend);
+    await openDeleteDialog(tester);
+    await tapInDialog(tester, '削除');
+
+    await tapInDialog(tester, 'キャンセル');
+    expect(find.byType(Dialog), findsOneWidget);
+    // ダイアログの外（画面の隅）のタップ
+    await tester.tapAt(const Offset(5, 5));
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+    // 端末の戻る操作
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('旅行を削除しました（写真12枚は「旅行に属さない写真」に移しました）'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('詳細を開く'), findsOneWidget);
+  });
 }
