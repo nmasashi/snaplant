@@ -273,22 +273,7 @@ iOS からは当面使う予定が無いので、iOS の HEIC の問題は考え
 `docs/06_api_design.md` §5.9 の「モデル（未設定なら `gpt-5.6-luna`）」と合わない（§5.9 にはこの食い違いを注記した。2026-10-13、contract-auditor）。
 Terraform はデプロイ名を必ず流し込むので実害は無い。
 
-あわせて、同じファイルの `validateAnalysisResult()` の `!Array.isArray(result.plantAnalysis.candidates)` は届かない。
-先に動く `normalizeNulls()` は、`plantAnalysis.candidates` が `null`・未指定なら `[]` に置き換え、配列でないそれ以外の値には
-`.map` を呼んで TypeError（502）になるので、検証に渡る `candidates` は常に配列になる（2026-10-13、contract-auditor がコードを読んで確認）。
-観測できる振る舞い（`null`・未指定は空の候補で 200、それ以外の配列でない値は `isPlant` にかかわらず 502）は
-`docs/06_api_design.md` §4.2・§6.2 に書いた。
-
 **やること**: デプロイ名の既定値を `baseURL` にも使うか、Azure のときはデプロイ名を必須にして起動時に失敗させるかを決める。
-届かない検査は消すか、`normalizeNulls()` の前に移す。
-
-### `validateImage()` が偽を返したときの 400 の分岐が届かない
-
-`api/src/functions/identify.ts` と `upload.ts` は、`OpenAIVisionService.validateImage()` が偽を返したら 400（`画像の解析に失敗しました`）を返す。
-`validateImage()` は `new URL()` しか見ず、identify は直前で `new URL()` の検査を済ませ、upload は自分で生成した一時 URL を渡すので、常に真になり届かない
-（2026-10-13、#46 の整理の contract-auditor の指摘。コードを読んでの判断）。実行時の症状は無く、仕様書にも載っていない。
-
-**やること**: 分岐と `validateImage()` を消す（届かない文言が契約のように見えるのを避ける）。
 
 ### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない
 
@@ -303,6 +288,11 @@ DEPLOYMENT.md「`STORAGE_CONNECTION_STRING` の制約」にあった「`Endpoint
 
 この分岐を守っていた単体テストは、入口から観測できないので #46 の整理で消した。Terraform が流し込む接続文字列には
 `EndpointSuffix` が入っているので、実害は無い。
+
+ただし「届かない」のはサービスのコンストラクタの経路だけで、静的な検証 `StorageService.isValidImagePath()` は、サービスを作る前に
+save・updatePlant の入口でこの分岐を通る（2026-10-14 に確認）。分岐を消して `null` を返す形にすると、`EndpointSuffix` の無い設定で
+save の応答が 500 から 400（`画像アップロードAPIが返したURLを指定してください`）に変わる。設定の誤りなのに利用者の入力の誤りに見えるので、
+消すなら静的な検証でも例外にして 500 を保つのがよい。
 
 **やること**: 分岐を消す（DEPLOYMENT.md は既に「必須」になっている）か、SDK に渡す前に `EndpointSuffix=core.windows.net` を
 補うか（その場合は DEPLOYMENT.md を「省くと `core.windows.net`」に戻す）を決める。前者が単純。

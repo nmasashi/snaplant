@@ -51,12 +51,6 @@ export async function identifyPlantHandler(request: HttpRequest, context: Invoca
 
     // OpenAI Visionサービス初期化
     const visionService = new OpenAIVisionService();
-    
-    // 画像の有効性チェック
-    const isValidImage = await visionService.validateImage(requestBody.imagePath);
-    if (!isValidImage) {
-      return createValidationError('画像の解析に失敗しました', '有効な画像URLを指定してください');
-    }
 
     // LLMで植物識別実行（コンテキスト情報があれば渡す）
     const identificationResult = await visionService.identifyPlant(requestBody.imagePath, requestBody.contextInfo);

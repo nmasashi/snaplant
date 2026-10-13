@@ -264,10 +264,6 @@ ${contextSection}
 		}
 
 		if (result.isPlant && result.plantAnalysis) {
-			if (!Array.isArray(result.plantAnalysis.candidates)) {
-				throw new Error("candidatesが配列ではありません");
-			}
-
 			for (const candidate of result.plantAnalysis.candidates) {
 				if (!candidate.name || !candidate.characteristics) {
 					throw new Error("候補に必須フィールドが不足しています");
@@ -282,22 +278,6 @@ ${contextSection}
 					throw new Error("候補の信頼度が0-100の範囲ではありません");
 				}
 			}
-		}
-	}
-
-	/**
-	 * 画像の有効性をチェック
-	 */
-	async validateImage(imageUrl: string): Promise<boolean> {
-		try {
-			// URLの形式チェック
-			new URL(imageUrl);
-
-			// OpenAI APIは画像の有効性を自動チェックするため、
-			// 別途チェックは不要（呼び出し時にエラーになる）
-			return true;
-		} catch (error) {
-			return false;
 		}
 	}
 }
