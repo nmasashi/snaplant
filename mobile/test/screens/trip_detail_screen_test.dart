@@ -737,4 +737,31 @@ void main() {
     expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:03')).hasFlag(SemanticsFlag.isSelected), isFalse);
     semantics.dispose();
   });
+
+  testWidgets('選んだ写真をもう一度タップして0枚になっても選択モードのままで、その写真の選択は外れ、下の「旅行に入れる」「旅行から外す」「削除」は押せなくなる', (tester) async {
+    // 押せないことは、ボタンの Semantics が「有効・無効の状態を持ち、無効」であることで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    await tester.tap(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('0枚を選択中')), findsOneWidget);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    for (final label in ['旅行に入れる', '旅行から外す', '削除']) {
+      final button = tester.getSemantics(find.text(label));
+      expect(button.hasFlag(SemanticsFlag.hasEnabledState), isTrue, reason: '$label は有効・無効の状態を持つ');
+      expect(button.hasFlag(SemanticsFlag.isEnabled), isFalse, reason: '$label は押せない');
+    }
+    semantics.dispose();
+  });
 }

@@ -145,20 +145,22 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 選択モードの下の操作バー
   Widget _buildSelectionActions() {
+    // 1枚も選んでいなければ押せない
+    final enabled = _selection.count > 0;
     return SafeArea(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           TextButton.icon(
-              onPressed: () {},
+              onPressed: enabled ? () {} : null,
               icon: const Icon(Icons.drive_file_move_outline),
               label: const Text('旅行に入れる')),
           TextButton.icon(
-              onPressed: () {},
+              onPressed: enabled ? () {} : null,
               icon: const Icon(Icons.remove_circle_outline),
               label: const Text('旅行から外す')),
           TextButton.icon(
-              onPressed: () {},
+              onPressed: enabled ? () {} : null,
               icon: const Icon(Icons.delete_outline),
               label: const Text('削除')),
         ],
