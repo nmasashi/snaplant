@@ -1,9 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-// 旅行一覧など、旅行アルバムの API を呼ぶ画面のテストが共有する偽のサーバ
+import 'app_test_helpers.dart';
+
+// 旅行一覧・旅行詳細など、旅行アルバムの API を呼ぶ画面のテストが共有する偽のサーバと前置き
 
 /// 旅行（TripSummary）の JSON を作る。表紙は付けない（coverThumbnailUrl は null）。
 /// [firstTakenAt]・[lastTakenAt] はタイムゾーン無しの撮影日時（`2026-10-05T09:00:00`）で、撮影日時のある写真が無ければ null
@@ -29,235 +33,244 @@ Map<String, Object?> tripJson({
   };
 }
 
-/// GET /api/trips に、[trips]（この順）と [unassignedPhotoCount] を返す偽のサーバ。
-/// POST /api/trips には、本文の `name` で旅行を作って 201 を返し、以降の一覧の先頭に加える（0枚・撮影日時なし）。
-/// それ以外のメソッドやパス（図鑑タブの GET /api/plants を含む）は 404 にする。
-/// 図鑑タブは旅行のテストの関心の外で、404 でもエラー表示になるだけで旅行タブには影響しない。
-/// [failFirst] を渡すと、一覧の取得は最初のその回数だけ 503（データベースに接続できない）を返し、以降は成功する
-/// （再試行で読み直したかどうかを、2回目の成功で見分けるため）。
-/// [rejectCreateWith] を渡すと、作成は 400 `INVALID_REQUEST`（message はその文言）で拒み、旅行は作らない。
-/// GET /api/trips/{tripId} には、[tripDetails]（旅行の id から詳細の旅行 JSON への表）の旅行を返す。
-/// 表に無い id は 404 `TRIP_NOT_FOUND`（別の端末などで消された旅行）の封筒を返す。
-/// PUT /api/trips/{tripId} には、本文の `name`（前後の空白を除く）と `description` で表の旅行を置き換え、200 `{ trip }` を返す。
-/// DELETE /api/trips/{tripId}?deletePhotos=true|false には、表の旅行を消して（以降の一覧からも外し、`false` なら
-/// 写真の枚数だけ未所属の枚数を増やして）200 を返す。`false` なら写真は未所属に移したものとして
-/// `detachedPhotoCount` に枚数を、`true` なら `deletedPhotoCount` に枚数を載せる。`deletePhotos` が無い・違う値なら 400。
-/// [deletePhotosSent] を渡すと、削除の要求ごとの `deletePhotos` の値（無ければ null）をここに記録する。
-/// 写真が0枚の旅行は `true` でも `false` でも応答が同じで、結果からは何を送ったか見分けられないときに使う
-/// （API が `deletePhotos` を必須にしている、という要求そのものが確かめたいとき）。
-/// [failDelete] が true なら、削除は 503 `DATABASE_ERROR`（旅行は消さない）で失敗する。
-/// [deleteTripNotFound] が true なら、削除は 404 `TRIP_NOT_FOUND`（別の端末などで既に消されていた）で返す。
-/// 詳細の取得（GET）は表の旅行を返したまま。
-/// [holdListUntil] を渡すと、`GET /api/trips` の応答はそれが終わる（Completer の complete）まで返さない。
-/// [tripsFromSecondList] を渡すと、`GET /api/trips` の2回目以降の一覧はこの旅行にする（別の端末で旅行が増えた想定。
-/// 読み直したかどうかを、増えた旅行が出るかで見分けるため）。
-/// [holdCreateUntil] を渡すと、`POST /api/trips` の応答はそれが終わるまで返さない（作成中の状態を見るため）。
-/// 同じ旅行が二重に作られたかどうかは、作った旅行が一覧に何件載るかで見分けられる。
-/// [holdDeleteUntil] を渡すと、`DELETE /api/trips/{tripId}` の応答はそれが終わるまで返さない（削除中の状態を見るため。
-/// 削除は 2 回目が 404 になって成功扱いと区別しにくいので、二重に送られたかどうかは [deletePhotosSent] の件数で見る）。
-/// [failFirstDetail] を渡すと、詳細の取得（GET /api/trips/{tripId}）は最初のその回数だけ 503 を返し、以降は成功する。
-/// 一覧と詳細で同じ旅行の値（枚数など）を変えておくと、詳細を開いたときに取り直したかどうかが見分けられる。
-/// 作成を「送らない」ことは、送られたら成功してしまうこの偽のサーバで、成功した結果（ダイアログが閉じる・
-/// 「旅行を作成しました」・一覧に増える）が現れないことで確かめる（呼び出しの有無は検証しない）
-MockClient tripServer(
-  List<Map<String, Object?>> trips, {
-  required int unassignedPhotoCount,
-  int failFirst = 0,
-  String? rejectCreateWith,
-  Map<String, Map<String, Object?>> tripDetails = const {},
-  List<String?>? deletePhotosSent,
-  bool failDelete = false,
-  bool deleteTripNotFound = false,
-  Future<void>? holdListUntil,
-  List<Map<String, Object?>>? tripsFromSecondList,
-  int failFirstDetail = 0,
-  Future<void>? holdCreateUntil,
-  Future<void>? holdDeleteUntil,
-}) {
-  var detailRequests = 0;
-  var listRequests = 0;
-  final created = <Map<String, Object?>>[];
-  // 削除で一覧と未所属の枚数にも反映するため、渡された一覧と枚数を写して持つ
-  final listed = [...trips];
-  var unassigned = unassignedPhotoCount;
-  // PUT で置き換えるため、渡された表を写して持つ
-  final details = {...tripDetails};
-  return MockClient((request) async {
-    if (request.method == 'DELETE' && request.url.path.startsWith('/api/trips/')) {
-      final id = request.url.pathSegments.last;
-      final current = details[id];
-      // 実際のサーバと同じく、deletePhotos は小文字の true / false だけを受け付け、無ければ 400
-      // （クライアントが何を載せたかを、返す枚数の違いで見分けるため）
-      final deletePhotos = request.url.queryParameters['deletePhotos'];
-      deletePhotosSent?.add(deletePhotos);
-      // 処理中の状態を見るため、削除の応答を [holdDeleteUntil] が終わるまで止める
-      if (holdDeleteUntil != null) await holdDeleteUntil;
-      if (deleteTripNotFound) {
-        return http.Response(
-          json.encode({
-            'success': false,
-            'error': {'code': 'TRIP_NOT_FOUND', 'message': '指定された旅行が見つかりません'},
-          }),
-          404,
-          headers: const {'content-type': 'application/json'},
-        );
-      }
-      if (failDelete) {
-        return http.Response(
-          json.encode({
-            'success': false,
-            'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
-          }),
-          503,
-          headers: const {'content-type': 'application/json'},
-        );
-      }
-      if (deletePhotos != 'true' && deletePhotos != 'false') {
-        return http.Response(
-          json.encode({
-            'success': false,
-            'error': {
-              'code': 'INVALID_REQUEST',
-              'message': deletePhotos == null ? '写真を削除するかどうかを指定してください' : '写真を削除するかどうかの指定が無効です',
-            },
-          }),
-          400,
-          headers: const {'content-type': 'application/json'},
-        );
-      }
-      if (current == null) return http.Response('', 404);
-      details.remove(id);
-      listed.removeWhere((trip) => trip['id'] == id);
-      created.removeWhere((trip) => trip['id'] == id);
-      final photoCount = current['photoCount'] as int;
-      if (deletePhotos == 'false') unassigned += photoCount;
-      return http.Response(
-        json.encode({
-          'success': true,
-          'data': {
-            'message': '旅行が正常に削除されました',
-            'deletedPhotoCount': deletePhotos == 'true' ? photoCount : 0,
-            'detachedPhotoCount': deletePhotos == 'false' ? photoCount : 0,
-          },
-        }),
-        200,
-        headers: const {'content-type': 'application/json'},
-      );
-    }
-    if (request.method == 'PUT' && request.url.path.startsWith('/api/trips/')) {
-      final id = request.url.pathSegments.last;
-      final current = details[id];
-      if (current == null) return http.Response('', 404);
-      // 実際のサーバと同じく全体置き換え（name は前後の空白を除く。description は省略か null で消える）
-      final body = json.decode(request.body) as Map<String, dynamic>;
-      final replaced = {
-        ...current,
-        'name': (body['name'] as String).trim(),
-        'description': body['description'],
-      };
-      details[id] = replaced;
-      return http.Response(
-        json.encode({
-          'success': true,
-          'data': {'trip': replaced},
-        }),
-        200,
-        headers: const {'content-type': 'application/json'},
-      );
-    }
-    if (request.method == 'POST' && request.url.path == '/api/trips') {
-      // 処理中の状態を見るため、作成の応答を [holdCreateUntil] が終わるまで止める
-      if (holdCreateUntil != null) await holdCreateUntil;
-      if (rejectCreateWith != null) {
-        return http.Response(
-          json.encode({
-            'success': false,
-            'error': {'code': 'INVALID_REQUEST', 'message': rejectCreateWith},
-          }),
-          400,
-          headers: const {'content-type': 'application/json'},
-        );
-      }
-      final body = json.decode(request.body) as Map<String, dynamic>;
-      final trip = tripJson(
-        id: '3f2504e0-4f89-41d3-9a0c-0305e82c33${created.length.toString().padLeft(2, '0')}',
-        name: (body['name'] as String).trim(),
-        photoCount: 0,
-      );
-      created.insert(0, trip);
-      return http.Response(
-        json.encode({
-          'success': true,
-          'data': {'trip': trip},
-        }),
-        201,
-        headers: const {'content-type': 'application/json'},
-      );
-    }
-    if (request.method == 'GET' && request.url.path.startsWith('/api/trips/')) {
-      detailRequests++;
-      if (detailRequests <= failFirstDetail) {
-        return http.Response(
-          json.encode({
-            'success': false,
-            'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
-          }),
-          503,
-          headers: const {'content-type': 'application/json'},
-        );
-      }
-      final trip = details[request.url.pathSegments.last];
-      if (trip == null) {
-        return http.Response(
-          json.encode({
-            'success': false,
-            'error': {'code': 'TRIP_NOT_FOUND', 'message': '指定された旅行が見つかりません'},
-          }),
-          404,
-          headers: const {'content-type': 'application/json'},
-        );
-      }
-      return http.Response(
-        json.encode({
-          'success': true,
-          'data': {'trip': trip},
-        }),
-        200,
-        headers: const {'content-type': 'application/json'},
-      );
-    }
-    if (request.method != 'GET' || request.url.path != '/api/trips') {
+// ---------------------------------------------------------------------------
+// 状態を1つだけ持つ偽のサーバ
+
+/// 偽のサーバが応答する宛先
+enum TripRoute {
+  /// GET /api/trips
+  list,
+
+  /// POST /api/trips
+  create,
+
+  /// GET /api/trips/{tripId}
+  detail,
+
+  /// PUT /api/trips/{tripId}
+  update,
+
+  /// DELETE /api/trips/{tripId}?deletePhotos=true|false
+  delete,
+}
+
+/// 旅行アルバムの API（`/api/trips` の5つ）の偽のサーバ。状態は [trips] と [unassignedPhotoCount] の2つだけで、
+/// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
+///
+/// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
+/// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
+/// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`plantServer` と同じ考え方）
+/// - 削除の要求の `deletePhotos` を [deletePhotosSent] に記録する。写真が0枚の旅行は `true` でも `false` でも応答が同じで、
+///   結果からは何を送ったか見分けられない。二重に送られたかどうか（2回目は 404 になって成功扱いと区別しにくい）も、これで見る。
+///   API が必須にしている `deletePhotos` を載せたかという、クライアントが送る要求そのものを確かめたいときだけ使う
+class FakeTripBackend {
+  FakeTripBackend({
+    List<Map<String, Object?>> trips = const [],
+    this.unassignedPhotoCount = 0,
+    this.functionKey = 'saved-key',
+  }) : trips = [...trips];
+
+  /// 旅行（新しい順。`GET /api/trips` はこの順に返す）。作成は先頭に足し、更新と削除はここを書き換える
+  final List<Map<String, Object?>> trips;
+
+  /// 旅行に属さない写真の枚数。写真を残す削除で、その旅行の枚数だけ増える
+  int unassignedPhotoCount;
+
+  /// 受け付ける API キー
+  final String functionKey;
+
+  /// 宛先ごとに、応答を返すのをこの Future が終わるまで止める（Completer の future を入れる）
+  final Map<TripRoute, Future<void>> holds = {};
+
+  /// 削除の要求ごとの `deletePhotos` の値（無ければ null）
+  final List<String?> deletePhotosSent = [];
+
+  final Map<TripRoute, List<({int status, String code, String message})>> _failures = {};
+  var _createdCount = 0;
+
+  /// [route] の次の1回の呼び出しを、[status] の封筒つきのエラーで失敗させる。呼ぶたびに1回分積まれ、順に使われる
+  void failNext(
+    TripRoute route, {
+    int status = 503,
+    String code = 'DATABASE_ERROR',
+    String message = 'データベースに接続できません',
+  }) {
+    _failures.putIfAbsent(route, () => []).add((status: status, code: code, message: message));
+  }
+
+  /// この偽のサーバにつなぐ HTTP クライアント
+  late final MockClient client = MockClient(_handle);
+
+  Future<http.Response> _handle(http.Request request) async {
+    if (request.url.host != defaultApiHost || request.url.queryParameters['code'] != functionKey) {
       return http.Response('', 404);
     }
-    listRequests++;
-    // 読み込み中の状態を見るため、一覧の応答を [holdListUntil] が終わるまで止める
-    if (holdListUntil != null) await holdListUntil;
-    if (listRequests <= failFirst) {
-      return http.Response(
-        json.encode({
-          'success': false,
-          'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
-        }),
-        503,
-        headers: const {'content-type': 'application/json'},
-      );
+    final route = _routeOf(request);
+    if (route == null) return http.Response('', 404);
+    if (route == TripRoute.delete) {
+      deletePhotosSent.add(request.url.queryParameters['deletePhotos']);
     }
-    // 2回目以降の一覧は、別の端末で旅行が増減した想定で [tripsFromSecondList] に差し替える
-    final shownTrips = listRequests >= 2 && tripsFromSecondList != null
-        ? tripsFromSecondList
-        : [...created, ...listed];
-    return http.Response(
-      json.encode({
-        'success': true,
-        'data': {
-          'trips': shownTrips,
-          'total': shownTrips.length,
-          'unassignedPhotoCount': unassigned,
-        },
-      }),
-      200,
-      // サーバの実際のヘッダに合わせる（charset なしの application/json。無いと日本語が化ける）
-      headers: const {'content-type': 'application/json'},
+    final hold = holds[route];
+    if (hold != null) await hold;
+    final failures = _failures[route];
+    if (failures != null && failures.isNotEmpty) {
+      final failure = failures.removeAt(0);
+      return _error(failure.status, failure.code, failure.message);
+    }
+    switch (route) {
+      case TripRoute.list:
+        return _ok(200, {
+          'trips': trips,
+          'total': trips.length,
+          'unassignedPhotoCount': unassignedPhotoCount,
+        });
+      case TripRoute.create:
+        return _create(request);
+      case TripRoute.detail:
+        final trip = _find(request.url.pathSegments.last);
+        return trip == null ? _notFound() : _ok(200, {'trip': trip});
+      case TripRoute.update:
+        return _update(request);
+      case TripRoute.delete:
+        return _delete(request);
+    }
+  }
+
+  TripRoute? _routeOf(http.Request request) {
+    final path = request.url.path;
+    if (path == '/api/trips') {
+      return switch (request.method) {
+        'GET' => TripRoute.list,
+        'POST' => TripRoute.create,
+        _ => null,
+      };
+    }
+    if (path.startsWith('/api/trips/') && request.url.pathSegments.length == 3) {
+      return switch (request.method) {
+        'GET' => TripRoute.detail,
+        'PUT' => TripRoute.update,
+        'DELETE' => TripRoute.delete,
+        _ => null,
+      };
+    }
+    return null;
+  }
+
+  Map<String, Object?>? _find(String id) {
+    for (final trip in trips) {
+      if (trip['id'] == id) return trip;
+    }
+    return null;
+  }
+
+  http.Response _create(http.Request request) {
+    final body = json.decode(request.body) as Map<String, dynamic>;
+    final trip = tripJson(
+      id: '3f2504e0-4f89-41d3-9a0c-0305e82c${9000 + _createdCount++}',
+      name: (body['name'] as String).trim(),
+      description: body['description'] as String?,
+      photoCount: 0,
     );
-  });
+    trips.insert(0, trip);
+    return _ok(201, {'trip': trip});
+  }
+
+  http.Response _update(http.Request request) {
+    final trip = _find(request.url.pathSegments.last);
+    if (trip == null) return _notFound();
+    // 実際のサーバと同じく全体置き換え（name は前後の空白を除く。description は省略か null で消える）
+    final body = json.decode(request.body) as Map<String, dynamic>;
+    trip['name'] = (body['name'] as String).trim();
+    trip['description'] = body['description'];
+    return _ok(200, {'trip': trip});
+  }
+
+  http.Response _delete(http.Request request) {
+    // 実際のサーバの順: deletePhotos の検証が先、旅行の有無が後
+    final deletePhotos = request.url.queryParameters['deletePhotos'];
+    if (deletePhotos == null) {
+      return _error(400, 'INVALID_REQUEST', '写真を削除するかどうかを指定してください');
+    }
+    if (deletePhotos != 'true' && deletePhotos != 'false') {
+      return _error(400, 'INVALID_REQUEST', '写真を削除するかどうかの指定が無効です');
+    }
+    final trip = _find(request.url.pathSegments.last);
+    if (trip == null) return _notFound();
+    trips.remove(trip);
+    final photoCount = trip['photoCount'] as int;
+    if (deletePhotos == 'false') unassignedPhotoCount += photoCount;
+    return _ok(200, {
+      'message': '旅行が正常に削除されました',
+      'deletedPhotoCount': deletePhotos == 'true' ? photoCount : 0,
+      'detachedPhotoCount': deletePhotos == 'false' ? photoCount : 0,
+    });
+  }
+
+  http.Response _notFound() => _error(404, 'TRIP_NOT_FOUND', '指定された旅行が見つかりません');
+
+  http.Response _ok(int status, Map<String, Object?> data) =>
+      _respond(status, {'success': true, 'data': data});
+
+  http.Response _error(int status, String code, String message) => _respond(status, {
+        'success': false,
+        'error': {'code': code, 'message': message},
+      });
+
+  // サーバの実際のヘッダに合わせる（charset なしの application/json。無いと日本語が化ける）
+  http.Response _respond(int status, Map<String, Object?> body) =>
+      http.Response(json.encode(body), status, headers: const {'content-type': 'application/json'});
+}
+
+// ---------------------------------------------------------------------------
+// 旅行のテストが共有する前置き
+
+/// 旅行「北海道 2026秋」の id
+const hokkaidoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+/// 旅行「北海道 2026秋」（[photoCount] 枚、2026/10/05 〜 2026/10/08）の JSON
+Map<String, Object?> hokkaidoTrip({int photoCount = 12, String? description}) {
+  return tripJson(
+    id: hokkaidoTripId,
+    name: '北海道 2026秋',
+    description: description,
+    photoCount: photoCount,
+    firstTakenAt: '2026-10-05T09:00:00',
+    lastTakenAt: '2026-10-08T17:30:00',
+  );
+}
+
+/// ダイアログ（`Dialog`。`AlertDialog` を含む）の中で [matching] を探す。
+/// 「旅行を作る」「削除」などの文言は、画面の他の場所にも出るので、ダイアログの中に絞って探す
+Finder inDialog(Finder matching) => find.descendant(of: find.byType(Dialog), matching: matching);
+
+/// ダイアログの [label] のボタンをタップして、画面を進める
+Future<void> tapInDialog(WidgetTester tester, String label) async {
+  await tester.tap(inDialog(find.text(label)));
+  await letFramesRun(tester);
+}
+
+/// ダイアログの旅行名の欄（最初の入力欄）に [name] を入れる
+Future<void> enterTripName(WidgetTester tester, String name) async {
+  await tester.enterText(inDialog(find.byType(TextField)).first, name);
+}
+
+/// ダイアログのメモの欄（2つ目の入力欄）に [memo] を入れる
+Future<void> enterTripMemo(WidgetTester tester, String memo) async {
+  await tester.enterText(inDialog(find.byType(TextField)).at(1), memo);
+}
+
+/// 旅行詳細画面のメニューから「編集」を選んで、編集ダイアログを開く
+Future<void> openEditDialog(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.more_vert));
+  await letFramesRun(tester);
+  await tester.tap(find.text('編集'));
+  await letFramesRun(tester);
+}
+
+/// 旅行詳細画面のメニューから「削除」を選んで、削除の確認ダイアログを開く
+Future<void> openDeleteDialog(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.more_vert));
+  await letFramesRun(tester);
+  await tester.tap(find.text('削除'));
+  await letFramesRun(tester);
 }
