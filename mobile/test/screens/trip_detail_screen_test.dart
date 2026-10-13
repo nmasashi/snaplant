@@ -892,4 +892,35 @@ void main() {
     expect(backend.photosByTripId[kyotoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
     semantics.dispose();
   });
+
+  testWidgets('201枚を選んで「旅行に入れる」と、200枚を超えても全部が移り、「201枚を「京都」に入れました」と知らせる', (tester) async {
+    // 偽のサーバは、一度に200枚を超える移動を 400 で断る（実際のサーバと同じ）。
+    // 分けずに送れば失敗するので、全部が移ったことと知らせの枚数で見る。1ページで全部を読み込ませる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 201), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      pageSize: 300,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 201; n++) photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
+    await letFramesRun(tester);
+    await tester.tap(find.text('すべて選択'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('201枚を「京都」に入れました'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.length, 201);
+    semantics.dispose();
+  });
 }

@@ -107,6 +107,7 @@ enum TripRoute {
 /// - `POST /api/photos/move` は、[photosByTripId] の写真を移し先の旅行（`tripId: null` なら `none`）の末尾へ動かし、写真の `tripId` を書き換える。
 ///   移した写真の元の旅行と移し先の旅行の `photoCount`（と [unassignedPhotoCount]）も合わせて更新する。
 ///   応答は `{ moved, notFound }`（どの旅行にも無い id が `notFound`）。移し先の旅行が無ければ 404 `TRIP_NOT_FOUND`。
+///   `photoIds` が200件を超えたら 400 `INVALID_REQUEST`（実際のサーバと同じ上限。分けずに送るクライアントを落とすため）。
 ///   既にその旅行にある写真は、動かさずに `moved` に入れる
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
@@ -333,6 +334,10 @@ class FakeTripBackend {
     final photoIds = (body['photoIds'] as List<dynamic>).cast<String>();
     final tripId = body['tripId'] as String?;
     final targetKey = tripId ?? 'none';
+    // 実際のサーバと同じ上限と順（検証が先、旅行の有無が後。docs/travel-album/05_api_design.md §5.5）
+    if (photoIds.length > 200) {
+      return _error(400, 'INVALID_REQUEST', '一度に移動できる写真は200枚までです');
+    }
     if (tripId != null && _find(tripId) == null) return _notFound();
     final moved = <String>[];
     final notFound = <String>[];

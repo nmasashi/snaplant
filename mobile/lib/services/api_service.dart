@@ -540,8 +540,28 @@ class ApiService {
   /// 写真をまとめて旅行に入れる（[tripId] が null なら旅行から外す）
   /// POST /api/photos/move
   ///
-  /// 外すときも tripId のキーは省かずに null を送る（サーバは省略を取り違えとして 400 にする）
+  /// 外すときも tripId のキーは省かずに null を送る（サーバは省略を取り違えとして 400 にする）。
+  /// サーバは1回に [_maxMovePhotoIds] 件までなので、超える分は分けて順に送り、結果を合わせて返す。
+  /// 途中で失敗したら例外を投げる（送れた分は移っている。同じ写真を送り直しても同じ結果になる）
   Future<PhotoMoveResult> movePhotos(
+      List<String> photoIds, String? tripId) async {
+    final moved = <String>[];
+    final notFound = <String>[];
+    for (var start = 0; start < photoIds.length; start += _maxMovePhotoIds) {
+      final end = (start + _maxMovePhotoIds).clamp(0, photoIds.length);
+      final result =
+          await _movePhotoChunk(photoIds.sublist(start, end), tripId);
+      moved.addAll(result.moved);
+      notFound.addAll(result.notFound);
+    }
+    return PhotoMoveResult(moved: moved, notFound: notFound);
+  }
+
+  /// `POST /api/photos/move` の上限（サーバの `MOVE_MAX_IDS` の既定値）
+  static const _maxMovePhotoIds = 200;
+
+  /// [movePhotos] の1回分の要求
+  Future<PhotoMoveResult> _movePhotoChunk(
       List<String> photoIds, String? tripId) async {
     try {
       final url = _buildUrl('/api/photos/move');
