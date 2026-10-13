@@ -303,6 +303,7 @@ describe('旅行詳細API', () => {
         params: { tripId },
         json: jest.fn().mockResolvedValue({ name: '  新しい名前  ', description: null })
       } as any as HttpRequest;
+      freezeNow();
 
       const response = await updateTripHandler(request, mockContext);
 
@@ -317,13 +318,17 @@ describe('旅行詳細API', () => {
             description: null,
             tags: ['国内'],
             createdAt: '2026-10-01T00:00:00.000Z',
-            updatedAt: expect.any(String)
+            updatedAt: '2026-10-12T05:30:00.000Z'
           }
         }
       });
-      const saved = cosmosBackend.documents.get(tripId);
-      expect(saved).toMatchObject({ name: '新しい名前', description: null, tags: ['国内'] });
-      expect(saved).not.toMatchObject({ updatedAt: '2026-10-02T00:00:00.000Z' });
+      expect(cosmosBackend.documents.get(tripId)).toMatchObject({
+        name: '新しい名前',
+        description: null,
+        tags: ['国内'],
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-12T05:30:00.000Z'
+      });
     });
 
     const existingTripId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

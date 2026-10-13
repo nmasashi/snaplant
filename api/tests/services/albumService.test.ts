@@ -33,7 +33,9 @@ describe('AlbumService', () => {
 
   // Cosmos DB が保存時に付けるシステム項目（_rid など）と種別（type）が応答に漏れないことは、
   // ハンドラのテストの偽物が付けない項目なので、ここでだけ見られる。
-  // 名前の trim・更新日時・一覧が旅行だけを返すことは、ハンドラのテスト（trips / tripDetail）が見ている
+  // 名前の trim は入力検証（tripInput.ts）が行い、trips.test の境界のテストが固定している。
+  // サービス側の trim は二重の防御で、上位からは観測できない。
+  // 作成日時・更新日時、一覧が旅行だけを返すことは、ハンドラのテスト（trips / tripDetail）が見ている
   const tripKeys = ['createdAt', 'description', 'id', 'name', 'tags', 'updatedAt'];
   const tripSummaryKeys = [
     'coverThumbnailUrl',

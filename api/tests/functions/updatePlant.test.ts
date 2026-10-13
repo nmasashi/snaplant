@@ -549,7 +549,7 @@ describe('植物更新API', () => {
 
     it('予期しないエラーの場合は500エラー', async () => {
       // 更新（置き換え）の書き込みで予期しないエラーを起こす。読み取りの失敗は上の503のテストが見ている
-      cosmosBackend.documents.set('123e4567-e89b-12d3-a456-426614174000', {
+      const existingPlant: Plant = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: '桜',
         characteristics: '春に美しいピンクの花を咲かせる',
@@ -557,7 +557,10 @@ describe('植物更新API', () => {
         confidence: 85.0,
         createdAt: '2024-01-15T10:30:00Z',
         updatedAt: '2024-01-15T10:30:00Z'
-      });
+      };
+      cosmosBackend.documents.set(existingPlant.id, existingPlant);
+      // 更新が失敗したときは、まだ旧画像を消してはいけない
+      blobStore.set(`${TEST_STORAGE_CONTAINER_NAME}/old.jpg`, { content: Buffer.from('old') });
       cosmosBackend.forcedReplaceError = new Error('Unexpected error');
 
       // リクエストの作成
@@ -577,15 +580,18 @@ describe('植物更新API', () => {
       const response = await updatePlantHandler(request, mockContext);
 
       // 検証
+      // details は契約外のため固定しない
       expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: '植物の更新に失敗しました',
-          details: 'Unexpected error'
+          message: '植物の更新に失敗しました'
         }
       });
+      // 失敗後の状態（植物は更新されず、旧画像も残る）
+      expect(cosmosBackend.documents.get(existingPlant.id)?.imagePath).toBe(`${TEST_IMAGE_BASE_URL}/old.jpg`);
+      expect(blobStore.has(`${TEST_STORAGE_CONTAINER_NAME}/old.jpg`)).toBe(true);
     });
   });
 
@@ -686,7 +692,7 @@ describe('植物更新API', () => {
       expect(cosmosBackend.documents.get(plantA.id)).toEqual(plantA);
     });
 
-    it('同じimagePathのまま他のフィールドだけ更新できる', async () => {
+    it('同じimagePathのまま他のフィールドだけ更新でき、その画像は消えない', async () => {
       // 更新対象のレコード（自分自身以外にimagePathが重複する相手はいない）
       const existingPlant: Plant = {
         id: '123e4567-e89b-12d3-a456-426614174000',

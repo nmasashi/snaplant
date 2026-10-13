@@ -84,17 +84,16 @@ describe('StorageService', () => {
   });
 
   describe('uploadImageToTemp', () => {
-    // 4行とも同じ手順で、Content-Type と Blob 名の拡張子の対応だけが違う。
-    // 大文字の行は、形式の判定（isValidImageContentType）が大文字を受け付けるのに、
-    // 拡張子の引き当てが同じ正規化をしないと拡張子なしの Blob 名になる退行を見る
+    // 3行とも同じ手順で、Content-Type と Blob 名の拡張子の対応だけが違う。
+    // 大文字の Content-Type は upload.test が見ている。
+    // 3列目は Blob 名に当てる正規表現の断片で、テスト名には2列目を使う
     it.each([
-      ['image/jpeg', '\\.jpg'],
-      ['image/png', '\\.png'],
-      ['IMAGE/PNG', '\\.png'],
-      ['application/octet-stream', '']
+      ['image/jpeg', '.jpg', '\\.jpg'],
+      ['image/png', '.png', '\\.png'],
+      ['application/octet-stream', 'なし', '']
     ])(
-      'Content-Typeが%sの画像は、一時コンテナに拡張子「%s」のBlob名でアップロードされ、SASトークン付きURLが返る',
-      async (contentType, extensionPattern) => {
+      'Content-Typeが%sの画像は、一時コンテナにBlob名の拡張子が「%s」でアップロードされ、SASトークン付きURLが返る',
+      async (contentType, _extensionLabel, extensionPattern) => {
         const imageBuffer = Buffer.from('temp image data');
 
         const result = await service.uploadImageToTemp(imageBuffer, contentType);
@@ -152,6 +151,10 @@ describe('StorageService', () => {
       // この期限は StorageService の判断で、upload の応答には一時URLが出ないため上位から見えない
       const [options] = mockedGenerateSas.mock.calls[0];
       expect(options.expiresOn).toEqual(new Date('2026-10-11T00:15:00.000Z'));
+      // 開始時刻は渡さない（トークンに st が付かず、発行した時点から有効になる）。
+      // 開始時刻を現在時刻で埋めると、サーバ間の時計のずれで発行直後の読み取りが403になりうる。
+      // これもトークンに署名されていて復号できないので、引数で確かめる
+      expect(options.startsOn).toBeUndefined();
     });
 
     it('SAS生成に失敗した場合は、エラーをスローし、一時ファイルを残さない', async () => {

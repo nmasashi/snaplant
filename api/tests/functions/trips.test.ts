@@ -79,6 +79,7 @@ describe('旅行API', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
     delete process.env.COSMOS_DB_ENDPOINT;
     delete process.env.COSMOS_DB_KEY;
@@ -89,14 +90,19 @@ describe('旅行API', () => {
   });
 
   describe('旅行作成API', () => {
-    it('旅行を作ると201で作った旅行が返り、保存される（名前の前後の空白は除かれる）', async () => {
+    it('旅行を作ると201で作った旅行が返り、保存される', async () => {
+      // 時刻だけを固定する。他のタイマーまで偽物にすると非同期処理が止まりうる
+      jest.useFakeTimers({
+        now: new Date('2026-10-12T03:04:05.000Z'),
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+      });
       const request = {
         method: 'POST',
         url: 'https://func-snaplant.azurewebsites.net/api/trips?code=test-key',
         query: new Map([['code', 'test-key']]),
         headers: new Map([['content-type', 'application/json']]),
         json: jest.fn().mockResolvedValue({
-          name: '  北海道 2026秋  ',
+          name: '北海道 2026秋',
           description: '紅葉を見に行く'
         })
       } as any as HttpRequest;
@@ -112,8 +118,8 @@ describe('旅行API', () => {
             name: '北海道 2026秋',
             description: '紅葉を見に行く',
             tags: [],
-            createdAt: expect.any(String),
-            updatedAt: expect.any(String)
+            createdAt: '2026-10-12T03:04:05.000Z',
+            updatedAt: '2026-10-12T03:04:05.000Z'
           }
         }
       });
@@ -121,7 +127,9 @@ describe('旅行API', () => {
       expect(cosmosBackend.documents.get(savedId)).toMatchObject({
         id: savedId,
         type: 'trip',
-        name: '北海道 2026秋'
+        name: '北海道 2026秋',
+        createdAt: '2026-10-12T03:04:05.000Z',
+        updatedAt: '2026-10-12T03:04:05.000Z'
       });
     });
 
