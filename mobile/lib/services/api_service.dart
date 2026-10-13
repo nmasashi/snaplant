@@ -11,21 +11,18 @@ import '../utils/image_mime_type.dart';
 /// Azure Functions API との通信を担当するサービスクラス
 /// Function Key認証を使用してAPIにアクセス
 class ApiService {
-  static const String _defaultBaseUrl =
-      'https://func-snaplant-mk0w7s38.azurewebsites.net';
-
   final String baseUrl;
   final String? functionKey;
   final http.Client _client;
   // 自分で作った client だけを閉じる。渡された client は渡した側のもので、閉じると渡した側が使い回せなくなる
   final bool _ownsClient;
 
+  /// [baseUrl] は設定画面で利用者が入れたエンドポイント。本番の URL をアプリに組み込まないので既定値は持たない
   ApiService({
-    String? baseUrl,
+    required this.baseUrl,
     this.functionKey,
     http.Client? client,
-  })  : baseUrl = baseUrl ?? _defaultBaseUrl,
-        _client = client ?? http.Client(),
+  })  : _client = client ?? http.Client(),
         _ownsClient = client == null;
 
   /// API リクエストのヘッダーを取得

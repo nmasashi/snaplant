@@ -150,7 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       setState(() {
         _apiKeyController.clear();
-        _endpointController.text = 'https://func-snaplant-mk0w7s38.azurewebsites.net';
+        _endpointController.clear();
         _connectionStatus = null;
       });
 

@@ -102,17 +102,22 @@ MockClient plantServer(
   });
 }
 
-/// 設定画面を開いて設定をリセットし、確認ダイアログで「リセット」を選んで、設定画面から戻る。
-/// 設定ボタン（歯車）が見えている画面から呼ぶ
-Future<void> resetSettingsAndGoBack(WidgetTester tester) async {
-  await tester.tap(find.byIcon(Icons.settings));
-  await letFramesRun(tester);
+/// 設定画面で設定をリセットし、確認ダイアログで「リセット」を選ぶ。設定画面に留まる
+Future<void> resetSettingsOnScreen(WidgetTester tester) async {
   await tester.ensureVisible(find.text('設定をリセット'));
   await tester.pump();
   await tester.tap(find.text('設定をリセット'));
   await letFramesRun(tester);
   await tester.tap(find.text('リセット'));
   await letFramesRun(tester);
+}
+
+/// 設定画面を開いて設定をリセットし、確認ダイアログで「リセット」を選んで、設定画面から戻る。
+/// 設定ボタン（歯車）が見えている画面から呼ぶ
+Future<void> resetSettingsAndGoBack(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.settings));
+  await letFramesRun(tester);
+  await resetSettingsOnScreen(tester);
   await tester.tap(find.byIcon(Icons.arrow_back));
   await letFramesRun(tester);
 }

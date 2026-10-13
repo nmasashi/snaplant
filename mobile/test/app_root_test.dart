@@ -42,7 +42,38 @@ class _SecureStorageWithFailureSwitch extends TestFlutterSecureStoragePlatform {
   }
 }
 
+/// 設定画面の「APIエンドポイント」欄に今入っている文字列
+String _endpointFieldText(WidgetTester tester) {
+  final field = find.widgetWithText(TextFormField, 'APIエンドポイント');
+  return tester.widget<EditableText>(find.descendant(of: field, matching: find.byType(EditableText))).controller.text;
+}
+
 void main() {
+  testWidgets('何も保存されていない初回の起動で自動で開く設定画面は、エンドポイントの欄が空である（本番の宛先を入れておかない）', (tester) async {
+    _givenNoSettingsSaved();
+    await clearSavedEndpoint(tester);
+
+    await openApp(tester);
+
+    // 起動時に設定画面へ自動で移っている
+    expect(find.text('設定'), findsOneWidget);
+    expect(_endpointFieldText(tester), '');
+  });
+
+  testWidgets('設定画面で設定をリセットすると、エンドポイントの欄が空になる（本番の宛先に戻らない）', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
+    await openApp(tester, app: SnapPlantApp(httpClient: plantServer({(host: testApiHost, code: 'saved-key'): '桜'})));
+    await tester.tap(find.byIcon(Icons.settings));
+    await letFramesRun(tester);
+    expect(_endpointFieldText(tester), 'https://func-test.example.net');
+
+    await resetSettingsOnScreen(tester);
+
+    expect(_endpointFieldText(tester), '');
+  });
+
   testWidgets('APIキーを入れずに設定画面から戻ると、読み込み中のまま止まらず「API設定が完了していません」と表示する', (tester) async {
     _givenNoSettingsSaved();
     await openApp(tester);
