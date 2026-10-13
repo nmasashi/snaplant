@@ -22,7 +22,8 @@
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
 - Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
   errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有し、植物図鑑の Cosmos 側が手で比べている集合とも同じ。`ETIMEDOUT` は含めないので 500 になる）。
-  応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）
+  応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）。
+  `cause` をたどるのは10段までで、循環していても止まる（見つからなければ接続できない以外の失敗として下の 500）
 - Blob Storage の失敗 → `UpstreamError('storage')` → 502 / 503 `STORAGE_ERROR`（既存の `message`）。AI の失敗は段階3以降で `'ai'`。
   **Storage Queue への投入の失敗は応答を変えない**（ログだけ出して成功を返す。写真は保存済みで、タイマーが拾う。[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）
 - 複数の文書や Blob にまたがる操作は、途中で止まったときに何が残り、どう直るかを [04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか) に表で書いてある。

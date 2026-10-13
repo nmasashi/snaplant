@@ -270,28 +270,42 @@ iOS からは当面使う予定が無いので、iOS の HEIC の問題は考え
 `openAIVisionService.ts` は、`AZURE_OPENAI_ENDPOINT` があり `AZURE_OPENAI_DEPLOYMENT_NAME` が未設定のとき、
 `baseURL` に `/deployments/undefined` を入れる一方で、`model` だけを既定値 `gpt-5.6-luna` にする
 （2026-10-13、#46 の整理の test-reviewer の指摘。コードを読んでの判断で、実際の要求では確かめていない）。
-`docs/06_api_design.md` §5.9 の「モデル（未設定なら `gpt-5.6-luna`）」と合わない。Terraform はデプロイ名を必ず流し込むので実害は無い。
+`docs/06_api_design.md` §5.9 の「モデル（未設定なら `gpt-5.6-luna`）」と合わない（§5.9 にはこの食い違いを注記した。2026-10-13、contract-auditor）。
+Terraform はデプロイ名を必ず流し込むので実害は無い。
 
-あわせて、同じファイルの `validateAnalysisResult()` の `!Array.isArray(result.plantAnalysis.candidates)` は、
-先に動く `normalizeNulls()` が配列でない値に `.map` を呼んで TypeError（502）になるため、届かない可能性が高い。
+あわせて、同じファイルの `validateAnalysisResult()` の `!Array.isArray(result.plantAnalysis.candidates)` は届かない。
+先に動く `normalizeNulls()` は、`plantAnalysis.candidates` が `null`・未指定なら `[]` に置き換え、配列でないそれ以外の値には
+`.map` を呼んで TypeError（502）になるので、検証に渡る `candidates` は常に配列になる（2026-10-13、contract-auditor がコードを読んで確認）。
+観測できる振る舞い（`null`・未指定は空の候補で 200、それ以外の配列でない値は `isPlant` にかかわらず 502）は
+`docs/06_api_design.md` §4.2・§6.2 に書いた。
 
 **やること**: デプロイ名の既定値を `baseURL` にも使うか、Azure のときはデプロイ名を必須にして起動時に失敗させるかを決める。
 届かない検査は消すか、`normalizeNulls()` の前に移す。
 
-### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない（DEPLOYMENT.md の記述も事実と違う）
+### `validateImage()` が偽を返したときの 400 の分岐が届かない
+
+`api/src/functions/identify.ts` と `upload.ts` は、`OpenAIVisionService.validateImage()` が偽を返したら 400（`画像の解析に失敗しました`）を返す。
+`validateImage()` は `new URL()` しか見ず、identify は直前で `new URL()` の検査を済ませ、upload は自分で生成した一時 URL を渡すので、常に真になり届かない
+（2026-10-13、#46 の整理の contract-auditor の指摘。コードを読んでの判断）。実行時の症状は無く、仕様書にも載っていない。
+
+**やること**: 分岐と `validateImage()` を消す（届かない文言が契約のように見えるのを避ける）。
+
+### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない
 
 `StorageService` の `resolveBlobEndpointHost()` は、接続文字列に `EndpointSuffix` が無ければ `core.windows.net` として
 ホストを組み立てる。ところが実 SDK の `BlobServiceClient.fromConnectionString` は、`EndpointSuffix` の無い接続文字列を
 `Invalid EndpointSuffix in the provided Connection String` で拒否する（2026-10-13、#46 の整理で test-consolidator が手元で確認）。
 `StorageService` も `PhotoStorageService` もコンストラクタで `fromConnectionString` を呼ぶので、既定値の分岐には届かず、
-エンドポイントは 500 になる。DEPLOYMENT.md「`STORAGE_CONNECTION_STRING` の制約」の
-「`EndpointSuffix` を省いた場合は `core.windows.net` としてホストを組み立てます」は、エンドポイントの振る舞いとしては事実ではない。
+エンドポイントは 500 になる（SDK の `extractConnectionStringParts()` の該当箇所は contract-auditor もソースで確認した）。
+DEPLOYMENT.md「`STORAGE_CONNECTION_STRING` の制約」にあった「`EndpointSuffix` を省いた場合は `core.windows.net` として
+ホストを組み立てます」は事実ではなかったので、2026-10-13 に contract-auditor が現在の振る舞い（`EndpointSuffix` は必須で、
+無いと 500）に書き直した。
 
 この分岐を守っていた単体テストは、入口から観測できないので #46 の整理で消した。Terraform が流し込む接続文字列には
 `EndpointSuffix` が入っているので、実害は無い。
 
-**やること**: 分岐を消して DEPLOYMENT.md の記述を「`EndpointSuffix` は必須（無いと 500）」に直すか、
-SDK に渡す前に `EndpointSuffix=core.windows.net` を補うかを決める。前者が単純。
+**やること**: 分岐を消す（DEPLOYMENT.md は既に「必須」になっている）か、SDK に渡す前に `EndpointSuffix=core.windows.net` を
+補うか（その場合は DEPLOYMENT.md を「省くと `core.windows.net`」に戻す）を決める。前者が単純。
 
 ### Azurite などパス形式のエンドポイントに対応していない
 

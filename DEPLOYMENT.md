@@ -222,7 +222,7 @@ Function App に設定される主要な環境変数：
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
 | `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
 | `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名 |
-| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`BlobEndpoint=` を含む形式は未対応） |
+| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`BlobEndpoint=` を含む形式は未対応。`EndpointSuffix` は必須） |
 | `STORAGE_CONTAINER_NAME` | 永続画像用 Blob コンテナ名 |
 | `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
@@ -251,8 +251,11 @@ Application Insights の2つは `site_config` の `application_insights_key` / `
 
 `BlobEndpoint=` を含む接続文字列を設定すると、`StorageService` のコンストラクタが
 `BlobEndpointを明示した接続文字列は未対応です` で例外を投げます。
-`CosmosService` は内部で `StorageService` を持つため、`POST /api/plants/identify`
-以外のすべてのエンドポイントが 500 `INTERNAL_ERROR` になります。
+`CosmosService` は内部で `StorageService` を持つため、植物図鑑のエンドポイントのうち
+`POST /api/plants/identify` 以外は、入力検証を通ったリクエストがすべて 500 `INTERNAL_ERROR` になります
+（`message` は `docs/06_api_design.md` §6.2 のエンドポイントごとの文言。`POST /api/images/upload` は
+何も保存せず、AI 識別サービスも呼びません）。
+旅行アルバムの写真の保存先（`PhotoStorageService`）はこの検査をしません。
 
 `AccountName` と `EndpointSuffix` から Blob エンドポイントのホストを組み立てて
 URL を検証しているため、`BlobEndpoint=` で別のホストを指定されると
@@ -260,8 +263,15 @@ URL を検証しているため、`BlobEndpoint=` で別のホストを指定さ
 静かに誤動作させるのではなく、サービスの初期化時点で失敗させる方針です
 （`api/src/services/storageService.ts`）。
 
-組み立てるホストは `<AccountName>.blob.<EndpointSuffix>` です。`EndpointSuffix` を省いた場合は
-`core.windows.net` としてホストを組み立てます（`<AccountName>.blob.core.windows.net`）。
+組み立てるホストは `<AccountName>.blob.<EndpointSuffix>` です。
+
+`EndpointSuffix` は必須です。省くと Azure SDK（`BlobServiceClient.fromConnectionString`）が
+`Invalid EndpointSuffix in the provided Connection String` で接続文字列を拒否し、`BlobEndpoint=` の場合と同じく
+植物図鑑の `POST /api/plants/identify` 以外のエンドポイントは 500 `INTERNAL_ERROR` になります
+（写真の保存先を使う旅行アルバムの処理も同じ SDK の呼び出しで失敗します）。
+`StorageService` には `EndpointSuffix` が無ければ `core.windows.net` とみなす分岐がありますが、
+SDK が先に拒否するため効きません（[バックログ](./docs/09_backlog.md)の
+「`EndpointSuffix` の無い接続文字列の既定値の分岐が使われない」）。
 
 Terraform が流し込む `azurerm_storage_account.main.primary_connection_string` は
 `BlobEndpoint=` を含まないため、本番でこの制約に触れることはありません。
