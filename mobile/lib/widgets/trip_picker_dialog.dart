@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/photo.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
+import 'trip_edit_dialog.dart';
 
 /// 選んだ写真を入れる旅行を選ぶダイアログ（docs/travel-album/03_screen_design.md §4.8「旅行に入れる」）
 ///
@@ -59,6 +60,31 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
     Navigator.pop(context, (tripName: trip.name, result: result));
   }
 
+  /// 旅行の作成ダイアログ（§4.3）を重ねて開き、作った旅行を一覧の先頭に足して選ぶ
+  /// （`GET /api/trips` は作成日時の新しい順なので、取り直しても先頭に来る）
+  Future<void> _createTrip() async {
+    Trip? created;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => TripEditDialog(
+        onSave: (name, description) async {
+          created = await widget.apiService.createTrip(name, description);
+        },
+      ),
+    );
+    final trip = created;
+    if (saved != true || trip == null || !mounted) return;
+    final summary = TripSummary(
+        id: trip.id,
+        name: trip.name,
+        description: trip.description,
+        photoCount: 0);
+    setState(() {
+      _trips = [summary, ...?_trips];
+      _selected = summary;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final trips = _trips;
@@ -81,6 +107,11 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
                       secondary: Text('${trip.photoCount}枚'),
                       contentPadding: EdgeInsets.zero,
                     ),
+                  TextButton.icon(
+                    onPressed: _createTrip,
+                    icon: const Icon(Icons.add),
+                    label: const Text('新しい旅行を作る'),
+                  ),
                 ],
               ),
             ),
