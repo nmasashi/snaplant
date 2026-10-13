@@ -675,6 +675,10 @@ class ApiException implements Exception {
   /// 旅行が無い（404 `TRIP_NOT_FOUND`）。別の端末で消された、送信中に消されたなど
   bool get isTripNotFound => code == 'TRIP_NOT_FOUND';
 
+  /// 写真が無い（404 `PHOTO_NOT_FOUND`）。別の端末で消されたなど。
+  /// ステータスだけで見ると、宛先の誤り（封筒の無い 404）まで「消せた」と数えてしまうので、コードで判定する
+  bool get isPhotoNotFound => code == 'PHOTO_NOT_FOUND';
+
   @override
   String toString() {
     return 'ApiException(statusCode: $statusCode, message: $message)';

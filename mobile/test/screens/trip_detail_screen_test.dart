@@ -1118,4 +1118,42 @@ void main() {
     expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:02:00']);
     semantics.dispose();
   });
+
+  testWidgets('選んだ写真3枚の削除で、1枚は既に別の端末で消されていて（404）、1枚は削除に失敗しても、404の1枚は消せたと数えて「2枚を削除しました（1枚は削除できませんでした）」と知らせ、失敗した1枚は一覧に残る', (tester) async {
+    // 削除は選んだ順に1枚ずつ送られる。10:01 を最初に選ぶので、削除の要求の1回目（503 で失敗させる）は 10:01 のもの。
+    // 10:02 は選んだ後に別の端末で消される（404）。10:03 は消せる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:02'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.deletePhoto);
+    backend.photosByTripId[hokkaidoTripId]!.removeWhere((photo) => photo['takenAt'] == '2026-10-05T10:02:00');
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('2枚を削除しました（1枚は削除できませんでした）'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
+    semantics.dispose();
+  });
 }

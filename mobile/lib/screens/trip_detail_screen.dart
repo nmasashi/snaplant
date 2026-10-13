@@ -150,23 +150,37 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   /// 選んだ写真を消す。確認してから1枚ずつ送る
   Future<void> _deletePhotos() async {
     final photoIds = _selection.selectedIds;
-    final deleted = await showDialog<int>(
+    final failed = await showDialog<int>(
       context: context,
       builder: (context) => ConfirmActionDialog<int>(
         title: '写真を削除',
         message: '${photoIds.length}枚の写真を削除しますか？\nこの操作は元に戻せません。',
         confirmLabel: '削除',
         failureMessage: '写真の削除に失敗しました',
-        onConfirm: () async {
-          for (final photoId in photoIds) {
-            await widget.apiService.deletePhoto(photoId);
-          }
-          return photoIds.length;
-        },
+        onConfirm: () => _deleteEach(photoIds),
       ),
     );
-    if (deleted == null || !mounted) return;
-    await _finishSelectionAction('$deleted枚を削除しました');
+    if (failed == null || !mounted) return;
+    final deleted = photoIds.length - failed;
+    await _finishSelectionAction(failed > 0
+        ? '$deleted枚を削除しました（$failed枚は削除できませんでした）'
+        : '$deleted枚を削除しました');
+  }
+
+  /// 写真を1枚ずつ消し、消せなかった枚数を返す。1枚が失敗しても残りは続ける。
+  /// 既に無い写真（別の端末で消されたなど）は、消したいという目的が果たせているので消せたと数える
+  Future<int> _deleteEach(List<String> photoIds) async {
+    var failed = 0;
+    for (final photoId in photoIds) {
+      try {
+        await widget.apiService.deletePhoto(photoId);
+      } catch (e) {
+        if (e is ApiException && e.isPhotoNotFound) continue;
+        debugPrint('TripDetailScreen: 写真の削除エラー: $e');
+        failed++;
+      }
+    }
+    return failed;
   }
 
   /// 選んだ写真への操作の後の知らせと読み直し。選択を解除し、写真の一覧と見出しの枚数を読み直す
