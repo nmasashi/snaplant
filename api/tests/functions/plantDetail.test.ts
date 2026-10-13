@@ -157,14 +157,13 @@ describe('植物詳細取得API', () => {
       // 実行
       const response = await getPlantByIdHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: '植物IDの形式が無効です',
-          details: 'UUID形式で指定してください'
+          message: '植物IDの形式が無効です'
         }
       });
     });
@@ -391,6 +390,18 @@ describe('植物詳細取得API', () => {
         for (const key of keysToKeep) {
           expect(blobStore.has(key)).toBe(true);
         }
+      });
+    });
+
+    // 植物 ID の形の規則は GET / PUT / DELETE で同じ（06_api_design.md §5.2）。全ケースは GET の表で通しているので、
+    // ここは DELETE が同じ検査につながっていることを1行で見る
+    it('植物IDの形式が無効な場合は400エラー', async () => {
+      const response = await deletePlantHandler(deletePlantRequest('invalid-uuid'), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: '植物IDの形式が無効です' }
       });
     });
 

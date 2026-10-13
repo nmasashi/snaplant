@@ -539,14 +539,13 @@ describe('植物更新API', () => {
       // 実行
       const response = await updatePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(503);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: 'データベースに接続できません',
-          details: 'Connection timeout'
+          message: 'データベースに接続できません'
         }
       });
     });

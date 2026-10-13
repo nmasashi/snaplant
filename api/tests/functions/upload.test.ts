@@ -465,14 +465,13 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'Content-Typeがmultipart/form-dataではありません',
-          details: 'multipart/form-dataでファイルを送信してください'
+          message: 'Content-Typeがmultipart/form-dataではありません'
         }
       });
       // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
@@ -497,14 +496,13 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: '画像ファイルが指定されていません',
-          details: 'imageフィールドでファイルを送信してください'
+          message: '画像ファイルが指定されていません'
         }
       });
       // 検証（状態。バリデーションで止まり、どのBlobにも書き込まれていない）
@@ -762,14 +760,13 @@ describe('画像アップロード・植物判定統合API', () => {
       // 実行
       const response = await uploadImageHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'ファイルの読み取りに失敗しました',
-          details: '有効なmultipart/form-dataを送信してください'
+          message: 'ファイルの読み取りに失敗しました'
         }
       });
     });
@@ -818,26 +815,19 @@ describe('画像アップロード・植物判定統合API', () => {
       } as any as HttpRequest;
     }
 
-    it('植物でない画像をアップロードするとNOT_A_PLANTエラーが返る', async () => {
+    it('植物でない画像をアップロードするとNOT_A_PLANTエラーが返り、一時ファイルは残らない', async () => {
       // 実行
       const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
 
-      // 検証（レスポンス全文）
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'NOT_A_PLANT',
-          message: 'アップロードされた画像は植物ではありません',
-          details: '植物の画像を選択して再度お試しください'
+          message: 'アップロードされた画像は植物ではありません'
         }
       });
-    });
-
-    it('植物でない画像をアップロードすると一時ファイルが削除される', async () => {
-      // 実行
-      await uploadImageHandler(buildNotPlantRequest(), mockContext);
-
       // 検証（状態。このテストで一時コンテナに書き込まれるのはアップロードした1件のみなので、
       // サイズ0は「一時ファイルが削除され、かつ永続コンテナにも何も移動していない」ことを示す）
       expect(blobStore.size).toBe(0);
@@ -921,8 +911,10 @@ describe('画像アップロード・植物判定統合API', () => {
       });
     });
 
-    // 3つのcodeは upload.ts の同じ分岐に並んでいる。1つだけ通すと
-    // 残り2つを分岐から外しても気づけないため、全部を通す
+    // ストレージが接続できないとみなす errno は utils/response.ts の UPSTREAM_ERROR_RESPONSES.storage にあり、
+    // utils/errors.ts の UNREACHABLE_ERRNOS（ENOTFOUND / ECONNREFUSED。AI と Cosmos DB も共有）に ETIMEDOUT を足したもの。
+    // ストレージだけが ETIMEDOUT を含むので、3つ全部を通すのはここだけ。
+    // AI と Cosmos DB の入口は1行にしている（全 errno は trips.test.ts の「旅行の作成」が通す）
     it.each(['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'])(
       '一時保存が%sで失敗した場合は503エラー', async (errorCode) => {
       // 一時保存のアップロードが接続障害で落ちた場合。
@@ -1165,15 +1157,17 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(response.jsonBody.error.message).toBe('植物識別サービスでエラーが発生しました');
     });
 
-    it.each([
-      ['ENOTFOUND', 'getaddrinfo ENOTFOUND example.openai.azure.com'],
-      ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:443']
-    ])('AI識別サービスに接続できない場合（%s）はストレージではなくAIの障害として503エラーを返す', async (errno, sysMessage) => {
+    it.each(['ENOTFOUND', 'ECONNREFUSED'])('AI識別サービスに接続できない（%s）場合はストレージではなくAIの障害として503エラーを返す', async (errno) => {
+      // AI の経路は接続できない errno の一覧を別に持つ（utils/response.ts の UPSTREAM_ERROR_RESPONSES.ai）ので、
+      // Cosmos DB 側の全件の表（trips.test.ts）では AI の一覧の崩れを捕まえられない。AI の全 errno を通すのはここ
+      // （アプリが使う入口）で、identify.test.ts は1つだけ
       // 実SDK（openai 7.x / Node標準のfetch）の接続エラーは3段のcauseチェーンになる。
       //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code=errno）
       // errnoを持つのは最深部だけで、トップレベルにcodeは付かない。
       // トップレベルにcodeを付けると実SDKが作らない形になるので付けない
-      const sysError = Object.assign(new Error(sysMessage), { code: errno });
+      const sysError = Object.assign(new Error(`connect ${errno} example.openai.azure.com`), {
+        code: errno
+      });
       const fetchError = Object.assign(new TypeError('fetch failed'), { cause: sysError });
       const connectionError = Object.assign(new Error('Connection error.'), {
         name: 'APIConnectionError',

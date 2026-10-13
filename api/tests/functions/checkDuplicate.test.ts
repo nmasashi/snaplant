@@ -194,51 +194,34 @@ describe('植物重複チェックAPI', () => {
   });
 
   describe('バリデーションエラー', () => {
-    it('nameパラメータが未指定の場合は400エラー', async () => {
-      // リクエストの作成（nameなし）
-      const request = {
-        method: 'GET',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants/check-duplicate?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map()
-      } as any as HttpRequest;
+    it.each([
+      ['未指定', 'check-duplicate?code=test-key', [['code', 'test-key']]],
+      ['空白のみ', 'check-duplicate?name=%20%20%20&code=test-key', [['name', '   '], ['code', 'test-key']]]
+    ] as [string, string, [string, string][]][])(
+      'nameパラメータが%sの場合は400エラー',
+      async (_case, path, queryEntries) => {
+        // リクエストの作成
+        const request = {
+          method: 'GET',
+          url: `https://func-snaplant.azurewebsites.net/api/plants/${path}`,
+          query: new Map(queryEntries),
+          headers: new Map()
+        } as any as HttpRequest;
 
-      // 実行
-      const response = await checkDuplicateHandler(request, mockContext);
+        // 実行
+        const response = await checkDuplicateHandler(request, mockContext);
 
-      // 検証
-      expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
-        success: false,
-        error: {
-          code: 'INVALID_REQUEST',
-          message: '植物名が指定されていません',
-          details: 'nameクエリパラメータは必須です'
-        }
-      });
-    });
-
-    it('nameパラメータが空白のみの場合は400エラー', async () => {
-      // リクエストの作成（空白のみ）
-      const request = {
-        method: 'GET',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants/check-duplicate?name=%20%20%20&code=test-key',
-        query: new Map([
-          ['name', '   '],
-          ['code', 'test-key']
-        ]),
-        headers: new Map()
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await checkDuplicateHandler(request, mockContext);
-
-      // 検証
-      expect(response.status).toBe(400);
-      expect(response.jsonBody.success).toBe(false);
-      expect(response.jsonBody.error.code).toBe('INVALID_REQUEST');
-      expect(response.jsonBody.error.message).toBe('植物名が指定されていません');
-    });
+        // 検証（detailsは契約外なので固定しない）
+        expect(response.status).toBe(400);
+        expect(response.jsonBody).toMatchObject({
+          success: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: '植物名が指定されていません'
+          }
+        });
+      }
+    );
   });
 
   describe('Cosmos DB エラー', () => {
@@ -262,14 +245,13 @@ describe('植物重複チェックAPI', () => {
       // 実行
       const response = await checkDuplicateHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(503);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: 'データベースに接続できません',
-          details: 'Connection timeout'
+          message: 'データベースに接続できません'
         }
       });
     });
@@ -293,14 +275,13 @@ describe('植物重複チェックAPI', () => {
       // 実行
       const response = await checkDuplicateHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: '重複チェックに失敗しました',
-          details: 'Query failed'
+          message: '重複チェックに失敗しました'
         }
       });
     });

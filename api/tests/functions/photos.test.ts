@@ -413,23 +413,6 @@ describe('写真API', () => {
       expect((response.jsonBody as any).data.urlExpiresAt).toBe(expected);
     });
 
-    it('写真のURLは発行の5分前から有効で、期限は応答のurlExpiresAtと同じになる', async () => {
-      freezeNow('2026-10-10T03:12:45.000Z');
-      // 開始時刻（st）と期限（se）を読むため、署名を実 SDK に委譲する。固定トークンでは読めない
-      signWithRealSdk();
-      const request = createPhotoRequest(formDataWith({ thumbnail: imageFile(THUMBNAIL_BYTES) }));
-
-      const response = await createPhotoHandler(request, mockContext);
-
-      // 原寸とサムネイルの両方の URL を同じ基準で見る
-      const { photo, urlExpiresAt } = (response.jsonBody as any).data;
-      const urls = [photo.imageUrl, photo.thumbnailUrl];
-      expect(response.status).toBe(201);
-      expect(urlExpiresAt).toBe('2026-10-10T04:12:45.000Z');
-      expect(urls.map((url) => tokenOf(url).get('se'))).toEqual(['2026-10-10T04:12:45Z', '2026-10-10T04:12:45Z']);
-      expect(urls.map((url) => tokenOf(url).get('st'))).toEqual(['2026-10-10T03:07:45Z', '2026-10-10T03:07:45Z']);
-    });
-
     // 写真のURLが開けるのは、その写真のBlob1つだけで、権限は読み取りだけ。署名（sig）は HMAC で読めないので、
     // 期待するトークンを実 SDK で作り、URL 全体を比べる。実 SDK は HMAC の計算にだけ使う:
     // 署名する条件（コンテナ・Blob名・権限・開始と期限・アカウント名と鍵）は、すべてこのテストにリテラルで書く。

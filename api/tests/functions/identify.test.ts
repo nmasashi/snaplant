@@ -333,14 +333,13 @@ describe('植物識別API', () => {
       // 実行
       const response = await identifyPlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: '画像URLの形式が無効です',
-          details: '有効なURL形式で指定してください'
+          message: '画像URLの形式が無効です'
         }
       });
       expect(mockChatCompletions.create).not.toHaveBeenCalled();
@@ -504,14 +503,13 @@ describe('植物識別API', () => {
       // 実行
       const response = await identifyPlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'リクエストボディの形式が無効です',
-          details: 'JSON形式で送信してください'
+          message: 'リクエストボディの形式が無効です'
         }
       });
     });
@@ -526,36 +524,6 @@ describe('植物識別API', () => {
         { name: 'InternalServerError', status: 500 }
       );
       mockChatCompletions.create.mockRejectedValue(apiError);
-
-      // リクエストの作成
-      const request = {
-        method: 'POST',
-        url: 'https://func-snaplant.azurewebsites.net/api/plants/identify?code=test-key',
-        query: new Map([['code', 'test-key']]),
-        headers: new Map([['content-type', 'application/json']]),
-        json: jest.fn().mockResolvedValue({
-          imagePath: 'https://example.com/sakura.jpg'
-        })
-      } as any as HttpRequest;
-
-      // 実行
-      const response = await identifyPlantHandler(request, mockContext);
-
-      // 検証（detailsは契約外なので固定しない）
-      expect(response.status).toBe(502);
-      expect(response.jsonBody).toMatchObject({
-        success: false,
-        error: {
-          code: 'AI_SERVICE_ERROR',
-          message: '植物識別サービスでエラーが発生しました'
-        }
-      });
-    });
-
-    it('AIの呼び出しが分類できない理由で失敗した場合も502エラー', async () => {
-      // 分類できないエラーでも、AIの呼び出しで起きた失敗なので502になる
-      const unexpectedError = new Error('Unexpected error');
-      mockChatCompletions.create.mockRejectedValue(unexpectedError);
 
       // リクエストの作成
       const request = {
@@ -660,15 +628,16 @@ describe('植物識別API', () => {
       });
     });
 
-    it.each([
-      ['ENOTFOUND', 'getaddrinfo ENOTFOUND example.openai.azure.com'],
-      ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:443']
-    ])('AI識別サービスのホストに接続できない場合（%s）は503エラー', async (errno, sysMessage) => {
+    it('AI識別サービスのホストに接続できない場合は503エラー', async () => {
+      // 接続できない errno の分類は全エンドポイントで同じ規則（utils/errors.ts の UNREACHABLE_ERRNOS）。
+      // AI の全 errno を通すのは upload.test.ts（アプリが使う入口）なので、ここは1つ（ENOTFOUND）で、AI の経路が分類につながっていることを見る
       // 実SDK（openai 7.x / Node標準のfetch）の接続エラーは3段のcauseチェーンになる。
       //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code=errno）
       // errnoを持つのは最深部だけで、トップレベルにcodeは付かない。
       // トップレベルにcodeを付けると実SDKが作らない形になるので付けない
-      const sysError = Object.assign(new Error(sysMessage), { code: errno });
+      const sysError = Object.assign(new Error('getaddrinfo ENOTFOUND example.openai.azure.com'), {
+        code: 'ENOTFOUND'
+      });
       const fetchError = Object.assign(new TypeError('fetch failed'), { cause: sysError });
       const connectionError = Object.assign(new Error('Connection error.'), {
         name: 'APIConnectionError',

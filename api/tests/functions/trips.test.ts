@@ -5,7 +5,7 @@ import { createTripHandler, listTripsHandler } from '../../src/functions/trips';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
-import { databaseFailureCases } from '../helpers/databaseFailures';
+import { allDatabaseFailureCases, databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -226,7 +226,7 @@ describe('旅行API', () => {
     });
 
     it.each(
-      databaseFailureCases('旅行の作成に失敗しました')
+      allDatabaseFailureCases('旅行の作成に失敗しました')
     )('旅行の作成で%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedCreateError = error;
       const request = requestWith(jest.fn().mockResolvedValue({ name: '北海道' }));

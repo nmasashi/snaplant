@@ -148,14 +148,13 @@ describe('植物一覧取得API', () => {
       // 実行
       const response = await getPlantsHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(503);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: 'データベースに接続できません',
-          details: 'getaddrinfo ENOTFOUND'
+          message: 'データベースに接続できません'
         }
       });
     });
@@ -176,14 +175,13 @@ describe('植物一覧取得API', () => {
       // 実行
       const response = await getPlantsHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: '植物一覧の取得に失敗しました',
-          details: 'Query failed'
+          message: '植物一覧の取得に失敗しました'
         }
       });
     });

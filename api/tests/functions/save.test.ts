@@ -622,14 +622,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(400);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INVALID_REQUEST',
-          message: 'リクエストボディの形式が無効です',
-          details: 'JSON形式で送信してください'
+          message: 'リクエストボディの形式が無効です'
         }
       });
     });
@@ -659,14 +658,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(503);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: 'データベースに接続できません',
-          details: 'ENOTFOUND'
+          message: 'データベースに接続できません'
         }
       });
     });
@@ -694,14 +692,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(409);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'DATABASE_ERROR',
-          message: '植物の保存に失敗しました',
-          details: 'Conflict'
+          message: '植物の保存に失敗しました'
         }
       });
     });
@@ -729,14 +726,13 @@ describe('植物保存API', () => {
       // 実行
       const response = await savePlantHandler(request, mockContext);
 
-      // 検証
+      // 検証（detailsは契約外なので固定しない）
       expect(response.status).toBe(500);
-      expect(response.jsonBody).toEqual({
+      expect(response.jsonBody).toMatchObject({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: '植物の保存に失敗しました',
-          details: 'Unexpected failure'
+          message: '植物の保存に失敗しました'
         }
       });
     });
