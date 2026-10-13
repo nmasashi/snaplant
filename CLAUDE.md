@@ -115,7 +115,8 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
 | `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
 | `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成（旅行アルバム） |
-| `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき（旅行アルバム） |
+| `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき、写真のグリッド（ページ・失敗・読み直し）（旅行アルバム） |
+| `screens/photo_thumbnail_test.dart` | 写真のサムネイルの画像を読み込めないときの表示（画像の取得まで実時間で待つので、他の画面のテストと分けている） |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
 | `helpers/trip_test_helpers.dart` | （テストではない）旅行の API の偽のサーバ `FakeTripBackend`（旅行を1つのリストで持ち、別の端末での変化はテストが書き換えて表す。1回だけの失敗は `failNext`、応答の保留は `holds`） |
@@ -140,6 +141,10 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
   最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる。
   アプリはエンドポイントの既定値を持たないので、一覧を開くテストは冒頭で `saveTestEndpoint` を呼び、テスト用の宛先（本番ではない URL）を保存する。未保存の状態は `clearSavedEndpoint`）
+- **画像（`CachedNetworkImage`）を出す画面で実時間を進めると、`path_provider` が無くて落ちる。** キャッシュがファイルの置き場を
+  `path_provider` で取るため。`runAsync` を使わなければ画像の取得が始まらないので普段は通るが、写真を出した後に `runAsync` を使うテストを
+  足すと無関係に見える `MissingPluginException` で落ちる。画像の取得まで待つテストは `test/screens/photo_thumbnail_test.dart` の形
+  （`path_provider` を偽物に差し替える）にする
 - **`pumpAndSettle` は使えないことが多い。** 読み込み中の `CircularProgressIndicator` や、
   `CachedNetworkImage` のプレースホルダー（テスト環境の HTTP は 400 を返す）が回り続けて終わらない。
   `pump` を必要な回数だけ呼ぶ。ファイルの読み書きは `tester.runAsync` の中でないと進まない
