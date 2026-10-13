@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
-import '../models/photo.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
-import '../widgets/confirm_action_dialog.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
+import '../widgets/photo_selection_scaffold.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
-import '../widgets/trip_picker_dialog.dart';
 
 /// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
 ///
@@ -107,89 +105,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
   }
 
-  /// 選んだ写真を別の旅行に入れる。入れたら選択を解除し、写真の一覧と見出しの枚数を読み直す
-  Future<void> _moveToTrip() async {
-    final photoIds = _selection.selectedIds;
-    final moved = await showDialog<({String tripName, PhotoMoveResult result})>(
-      context: context,
-      builder: (context) => TripPickerDialog(
-        apiService: widget.apiService,
-        excludeTripId: widget.tripId,
-        onMove: (tripId) => widget.apiService.movePhotos(photoIds, tripId),
-      ),
-    );
-    if (moved == null || !mounted) return;
-    await _finishMove(moved.result,
-        '${moved.result.moved.length}枚を「${moved.tripName}」に入れました');
-  }
-
-  /// 選んだ写真を旅行から外す（旅行に属さない写真に移す）。確認してから送る
-  Future<void> _removeFromTrip() async {
-    final photoIds = _selection.selectedIds;
-    final result = await showDialog<PhotoMoveResult>(
-      context: context,
-      builder: (context) => ConfirmActionDialog<PhotoMoveResult>(
-        title: '旅行から外す',
-        message: '${photoIds.length}枚を旅行から外しますか？\n写真は「旅行に属さない写真」に移ります。',
-        confirmLabel: '外す',
-        failureMessage: '写真の移動に失敗しました',
-        onConfirm: () => widget.apiService.movePhotos(photoIds, null),
-      ),
-    );
-    if (result == null || !mounted) return;
-    await _finishMove(result, '${result.moved.length}枚を旅行から外しました');
-  }
-
-  /// 写真を移した後の知らせと読み直し。見つからなかった写真があれば知らせに足す
-  Future<void> _finishMove(PhotoMoveResult result, String message) async {
-    final notFound = result.notFound.length;
-    await _finishSelectionAction(
-        '$message${notFound > 0 ? '（$notFound枚は見つかりませんでした）' : ''}');
-  }
-
-  /// 選んだ写真を消す。確認してから1枚ずつ送る
-  Future<void> _deletePhotos() async {
-    final photoIds = _selection.selectedIds;
-    final failed = await showDialog<int>(
-      context: context,
-      builder: (context) => ConfirmActionDialog<int>(
-        title: '写真を削除',
-        message: '${photoIds.length}枚の写真を削除しますか？\nこの操作は元に戻せません。',
-        confirmLabel: '削除',
-        failureMessage: '写真の削除に失敗しました',
-        onConfirm: () => _deleteEach(photoIds),
-      ),
-    );
-    if (failed == null || !mounted) return;
-    final deleted = photoIds.length - failed;
-    await _finishSelectionAction(failed > 0
-        ? '$deleted枚を削除しました（$failed枚は削除できませんでした）'
-        : '$deleted枚を削除しました');
-  }
-
-  /// 写真を1枚ずつ消し、消せなかった枚数を返す。1枚が失敗しても残りは続ける。
-  /// 既に無い写真（別の端末で消されたなど）は、消したいという目的が果たせているので消せたと数える
-  Future<int> _deleteEach(List<String> photoIds) async {
-    var failed = 0;
-    for (final photoId in photoIds) {
-      try {
-        await widget.apiService.deletePhoto(photoId);
-      } catch (e) {
-        if (e is ApiException && e.isPhotoNotFound) continue;
-        debugPrint('TripDetailScreen: 写真の削除エラー: $e');
-        failed++;
-      }
-    }
-    return failed;
-  }
-
-  /// 選んだ写真への操作の後の知らせと読み直し。選択を解除し、写真の一覧と見出しの枚数を読み直す
-  Future<void> _finishSelectionAction(String message) async {
-    // 押し直す前の失敗の知らせが出ていれば閉じる（並んで待たせると、成功の後も古い失敗がしばらく残る）
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-    _selection.clear();
+  /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す
+  Future<void> _reloadPhotos() async {
     setState(() => _gridVersion++);
     await _loadTrip();
   }
@@ -208,63 +125,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
-    return ListenableBuilder(
-      listenable: _selection,
-      // 選択モード中の戻る操作は、画面を閉じずに選択モードを抜ける（§4.8）
-      builder: (context, _) => PopScope(
-        canPop: !_selection.isActive,
-        onPopInvokedWithResult: (didPop, result) {
-          if (!didPop) _selection.clear();
-        },
-        child: Scaffold(
-          appBar: _selection.isActive
-              ? _buildSelectionAppBar()
-              : _buildAppBar(trip),
-          body: _buildBody(trip),
-          bottomNavigationBar:
-              _selection.isActive ? _buildSelectionActions() : null,
-        ),
-      ),
-    );
-  }
-
-  /// 選択モードの見出し（閉じる・枚数・すべて選択）
-  PreferredSizeWidget _buildSelectionAppBar() {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        tooltip: '選択をやめる',
-        onPressed: _selection.clear,
-      ),
-      title: Text('${_selection.count}枚を選択中', style: AppTextStyles.appBarTitle),
-      actions: [
-        TextButton(onPressed: _selection.selectAll, child: const Text('すべて選択')),
-      ],
-    );
-  }
-
-  /// 選択モードの下の操作バー
-  Widget _buildSelectionActions() {
-    // 1枚も選んでいなければ押せない
-    final enabled = _selection.count > 0;
-    return SafeArea(
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          TextButton.icon(
-              onPressed: enabled ? _moveToTrip : null,
-              icon: const Icon(Icons.drive_file_move_outline),
-              label: const Text('旅行に入れる')),
-          TextButton.icon(
-              onPressed: enabled ? _removeFromTrip : null,
-              icon: const Icon(Icons.remove_circle_outline),
-              label: const Text('旅行から外す')),
-          TextButton.icon(
-              onPressed: enabled ? _deletePhotos : null,
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('削除')),
-        ],
-      ),
+    return PhotoSelectionScaffold(
+      apiService: widget.apiService,
+      selection: _selection,
+      currentTripId: widget.tripId,
+      appBar: _buildAppBar(trip),
+      body: _buildBody(trip),
+      onPhotosChanged: _reloadPhotos,
     );
   }
 
