@@ -25,6 +25,8 @@ dependencies:
   # 画像処理
   image_picker: ^1.0.7
   cached_network_image: ^3.3.1
+  # 写真用に上限を上げたキャッシュ（lib/utils/photo_cache_manager.dart）。cached_network_image が使うものと同じ
+  flutter_cache_manager: ^3.4.1
 
   # データ保存
   shared_preferences: ^2.2.2

@@ -216,6 +216,20 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('旅行に属さない写真が0枚のときは、その画面に「旅行に属さない写真はありません」と、あとから旅行に入れられるという案内を出す', (tester) async {
+    final backend = FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 0);
+    await openTripsTab(tester, backend);
+
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+
+    expect(find.text('0枚'), findsOneWidget);
+    expect(find.text('旅行に属さない写真はありません'), findsOneWidget);
+    expect(find.text('「写真を追加」で送った写真は、あとから旅行に入れられます'), findsOneWidget);
+    // 旅行の写真の0件の案内とは文言が違う
+    expect(find.text('まだ写真がありません'), findsNothing);
+  });
+
   testWidgets('旅行詳細から一覧に戻ると一覧を読み直し、削除した旅行が消え、旅行に属さない写真の枚数が新しくなっている', (tester) async {
     final backend = FakeTripBackend(trips: [
       hokkaidoTrip(),

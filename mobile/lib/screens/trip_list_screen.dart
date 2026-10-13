@@ -1,8 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../utils/photo_cache_manager.dart';
 import '../utils/trip_period.dart';
 import 'trip_detail_screen.dart';
 import 'unassigned_photos_screen.dart';
@@ -177,6 +179,7 @@ class _TripListScreenState extends State<TripListScreen> {
           for (final trip in tripList.trips)
             _TripRow(
               icon: Icons.luggage_outlined,
+              coverUrl: trip.coverThumbnailUrl,
               title: trip.name,
               subtitle:
                   '${trip.photoCount}枚 · ${formatTripPeriod(trip.firstTakenAt, trip.lastTakenAt)}',
@@ -224,19 +227,45 @@ class _TripRow extends StatelessWidget {
       {required this.icon,
       required this.title,
       required this.subtitle,
-      required this.onTap});
+      required this.onTap,
+      this.coverUrl});
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
 
+  /// 表紙（先頭の写真のサムネイルの SAS 付き URL）。無ければ [icon] を出す
+  final String? coverUrl;
+
+  Widget _leading() {
+    final url = coverUrl;
+    final fallback = Icon(icon, size: 40, color: AppColors.primary);
+    if (url == null) {
+      return fallback;
+    }
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: CachedNetworkImage(
+          imageUrl: url,
+          cacheKey: coverCacheKey(url),
+          cacheManager: PhotoCacheManager.instance,
+          fit: BoxFit.cover,
+          errorWidget: (context, url, error) => fallback,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
-        leading: Icon(icon, size: 40, color: AppColors.primary),
+        leading: _leading(),
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),

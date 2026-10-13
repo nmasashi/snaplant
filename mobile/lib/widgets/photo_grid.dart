@@ -4,6 +4,7 @@ import '../models/photo.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../utils/photo_cache_manager.dart';
 import '../utils/taken_at.dart';
 import 'message_view.dart';
 
@@ -259,12 +260,28 @@ class _PhotoTile extends StatelessWidget {
       label: formatTakenAt(photo.takenAt),
       container: true,
       child: CachedNetworkImage(
+        // サムネイルが無い写真は原寸をサムネイルの大きさで出す
         imageUrl: photo.thumbnailUrl ?? photo.imageUrl,
+        cacheKey: photo.thumbnailUrl != null
+            ? thumbnailCacheKey(photo.id)
+            : imageCacheKey(photo.id),
+        cacheManager: PhotoCacheManager.instance,
         fit: BoxFit.cover,
         placeholder: (context, url) =>
             const ColoredBox(color: AppColors.surfaceVariant),
-        errorWidget: (context, url, error) =>
-            const ColoredBox(color: AppColors.surfaceVariant),
+        // SAS の期限切れ（403）でも読めなくなる。自動では取り直さず、下に引っ張れば取り直せる（§3）
+        errorWidget: (context, url, error) => const ColoredBox(
+          color: AppColors.surfaceVariant,
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(4),
+              child: Text('画像を読み込めません',
+                  textAlign: TextAlign.center,
+                  style:
+                      TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+            ),
+          ),
+        ),
       ),
     );
   }
