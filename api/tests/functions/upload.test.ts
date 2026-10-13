@@ -833,6 +833,30 @@ describe('画像アップロード・植物判定統合API', () => {
       expect(blobStore.size).toBe(0);
     });
 
+    it('植物でない画像の一時ファイルが既に無くても、削除は成功として扱い、NOT_A_PLANTの400エラーを返す', async () => {
+      // 06_api_design.md §5.5・§5.8。Blob が既に無い場合も削除は成功扱い。
+      // 実 SDK が存在しない Blob の削除で投げる形（RestError・404・BlobNotFound）を、一時コンテナへ書かれた時点で仕込む
+      backend.failWithByPrefix = {
+        'temp/': Object.assign(new Error('The specified blob does not exist.'), {
+          name: 'RestError',
+          statusCode: 404,
+          code: 'BlobNotFound'
+        })
+      };
+
+      const response = await uploadImageHandler(buildNotPlantRequest(), mockContext);
+
+      // details は契約外なので固定しない
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'NOT_A_PLANT',
+          message: 'アップロードされた画像は植物ではありません'
+        }
+      });
+    });
+
     it('植物でない画像の一時ファイルの削除に失敗した場合は、NOT_A_PLANTではなく502エラー', async () => {
       // 06_api_design.md §5.8。一時ファイルの Blob 名はリクエストの中で決まるので、
       // 一時コンテナへ書かれた時点で削除が失敗する状態にする
@@ -913,7 +937,8 @@ describe('画像アップロード・植物判定統合API', () => {
     });
 
     // ストレージが接続できないとみなす errno は utils/response.ts の UPSTREAM_ERROR_RESPONSES.storage にあり、
-    // utils/errors.ts の UNREACHABLE_ERRNOS（ENOTFOUND / ECONNREFUSED。AI と Cosmos DB も共有）に ETIMEDOUT を足したもの。
+    // utils/errors.ts の UNREACHABLE_ERRNOS（ENOTFOUND / ECONNREFUSED）に ETIMEDOUT を足したもの。
+    // UNREACHABLE_ERRNOS は Cosmos DB の判定（isConnectivityError）と AI の指定（UPSTREAM_ERROR_RESPONSES.ai）も参照している。
     // ストレージだけが ETIMEDOUT を含むので、3つ全部を通すのはここだけ。
     // 全 errno を通す入口は、ストレージがここ、Cosmos DB が trips.test.ts の「旅行の作成」、
     // AI がこのファイルの「AI サービスのエラー」
@@ -1158,9 +1183,9 @@ describe('画像アップロード・植物判定統合API', () => {
     });
 
     it.each(['ENOTFOUND', 'ECONNREFUSED'])('AI識別サービスに接続できない（%s）場合はストレージではなくAIの障害として503エラーを返す', async (errno) => {
-      // AI の経路は接続できない errno の一覧を別に持つ（utils/response.ts の UPSTREAM_ERROR_RESPONSES.ai）ので、
-      // Cosmos DB 側の全件の表（trips.test.ts）では AI の一覧の崩れを捕まえられない。AI の全 errno を通すのはここ
-      // （アプリが使う入口）で、identify.test.ts は1つだけ
+      // AI の分類は、共有の UNREACHABLE_ERRNOS を参照する UPSTREAM_ERROR_RESPONSES.ai.unreachableCodes の指定を通る。
+      // Cosmos DB 側の表（trips.test.ts）はこの指定を通らないので、指定の行の崩れ（参照の差し替えなど）は
+      // そちらでは捕まえられない。AI の全 errno を通すのはここ（アプリが使う入口）で、identify.test.ts は1つだけ
       // 実SDK（openai 7.x / Node標準のfetch）の接続エラーは3段のcauseチェーンになる。
       //   APIConnectionError（code無し）→ TypeError 'fetch failed'（code無し）→ Error（code=errno）
       // errnoを持つのは最深部だけで、トップレベルにcodeは付かない。

@@ -146,6 +146,41 @@ describe('植物保存API', () => {
       expect(cosmosBackend.documents.size).toBe(2);
     });
 
+    it('ボディにidや日時などの7項目以外のキーを入れても無視され、サーバが採番したIDと日時で保存される', async () => {
+      // 06_api_design.md §5.4。保存に使うのは name / scientificName / familyName / description /
+      // characteristics / confidence / imagePath の7項目だけ。クライアントが id や日時を決められると、
+      // 他のレコードを上書きする ID を指定できてしまう
+      const clientId = '11111111-1111-4111-8111-111111111111';
+      const request = {
+        method: 'POST',
+        url: 'https://func-snaplant.azurewebsites.net/api/plants/save?code=test-key',
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({
+          id: clientId,
+          createdAt: '2000-01-01T00:00:00.000Z',
+          updatedAt: '2000-01-01T00:00:00.000Z',
+          unknownKey: '無視されるはずの値',
+          name: '桜',
+          characteristics: '春に美しいピンクの花を咲かせる',
+          confidence: 95.5,
+          imagePath: `${TEST_IMAGE_BASE_URL}/sakura.jpg`
+        })
+      } as any as HttpRequest;
+
+      const response = await savePlantHandler(request, mockContext);
+
+      expect(response.status).toBe(201);
+      const savedId: string = response.jsonBody.data.plant.id;
+      expect(savedId).toMatch(UUID_V4_PATTERN);
+      expect(savedId).not.toBe(clientId);
+      const saved = cosmosBackend.documents.get(savedId);
+      expect(Array.from(cosmosBackend.documents.keys())).toEqual([savedId]);
+      expect(saved?.createdAt).not.toBe('2000-01-01T00:00:00.000Z');
+      expect(saved?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+      expect(saved).not.toHaveProperty('unknownKey');
+    });
+
     it('最小限のフィールドで植物を保存できる', async () => {
       // リクエストの作成（必須フィールドのみ）
       const request = {

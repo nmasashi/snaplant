@@ -10,6 +10,45 @@ const connectionFailureInDeepCause = () => {
 
 type DatabaseFailureCase = [string, Error, number, string, string];
 
+const UNREACHABLE_MESSAGE = 'データベースに接続できません';
+
+// 行の実体。5行の表も2行の表も、ここから名前で取る
+const nameResolutionFailure = (): DatabaseFailureCase => [
+  '名前解決に失敗したときは、接続できないエラー（503）を返す',
+  restError('ENOTFOUND', 'getaddrinfo ENOTFOUND example.documents.azure.com'),
+  503,
+  'DATABASE_ERROR',
+  UNREACHABLE_MESSAGE
+];
+const connectionRefusedFailure = (): DatabaseFailureCase => [
+  '接続を拒否されたときは、接続できないエラー（503）を返す',
+  restError('ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:8081'),
+  503,
+  'DATABASE_ERROR',
+  UNREACHABLE_MESSAGE
+];
+const wrappedConnectionFailure = (): DatabaseFailureCase => [
+  '接続できない原因が別のエラーに包まれていても、接続できないエラー（503）を返す',
+  connectionFailureInDeepCause(),
+  503,
+  'DATABASE_ERROR',
+  UNREACHABLE_MESSAGE
+];
+const unexpectedFailure = (internalErrorMessage: string): DatabaseFailureCase => [
+  'codeの無い想定外のエラーのときは、内部エラー（500）を返す',
+  new Error('something went wrong'),
+  500,
+  'INTERNAL_ERROR',
+  internalErrorMessage
+];
+const cosmosInternalFailure = (internalErrorMessage: string): DatabaseFailureCase => [
+  'Cosmos DBが500を返したときは、内部エラー（500）を返す',
+  restError(500, 'Internal Server Error'),
+  500,
+  'INTERNAL_ERROR',
+  internalErrorMessage
+];
+
 /**
  * データベースの失敗の分類の表（全5行）。接続できない障害は 503、それ以外は 500 で、
  * 500 の message だけがハンドラごとに違う。
@@ -20,11 +59,11 @@ type DatabaseFailureCase = [string, Error, number, string, string];
  * 他のエンドポイントは `databaseFailureCases()`（2行）で、ハンドラがこの分類につながっていることだけを見る
  */
 export const allDatabaseFailureCases = (internalErrorMessage: string): DatabaseFailureCase[] => [
-  ['名前解決に失敗したときは、接続できないエラー（503）を返す', restError('ENOTFOUND', 'getaddrinfo ENOTFOUND example.documents.azure.com'), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
-  ['接続を拒否されたときは、接続できないエラー（503）を返す', restError('ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:8081'), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
-  ['接続できない原因が別のエラーに包まれていても、接続できないエラー（503）を返す', connectionFailureInDeepCause(), 503, 'DATABASE_ERROR', 'データベースに接続できません'],
-  ['codeの無い想定外のエラーのときは、内部エラー（500）を返す', new Error('something went wrong'), 500, 'INTERNAL_ERROR', internalErrorMessage],
-  ['Cosmos DBが500を返したときは、内部エラー（500）を返す', restError(500, 'Internal Server Error'), 500, 'INTERNAL_ERROR', internalErrorMessage]
+  nameResolutionFailure(),
+  connectionRefusedFailure(),
+  wrappedConnectionFailure(),
+  unexpectedFailure(internalErrorMessage),
+  cosmosInternalFailure(internalErrorMessage)
 ];
 
 /**
@@ -32,7 +71,7 @@ export const allDatabaseFailureCases = (internalErrorMessage: string): DatabaseF
  * 全行を通す入口は `trips.test.ts` の「旅行の作成」で、ここは「接続できない障害は 503」と
  * 「想定外のエラーは 500（message はハンドラ固有）」の両方にハンドラが分岐することだけを見る
  */
-export const databaseFailureCases = (internalErrorMessage: string): DatabaseFailureCase[] => {
-  const [nameResolution, , , unexpected] = allDatabaseFailureCases(internalErrorMessage);
-  return [nameResolution, unexpected];
-};
+export const databaseFailureCases = (internalErrorMessage: string): DatabaseFailureCase[] => [
+  nameResolutionFailure(),
+  unexpectedFailure(internalErrorMessage)
+];

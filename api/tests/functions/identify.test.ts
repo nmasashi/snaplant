@@ -688,6 +688,7 @@ describe('植物識別API', () => {
   describe('AIの応答の検証', () => {
     // 06_api_design.md §4.2・§6.2「502 / 503 の振り分けと message」。
     // AI の応答が想定の形を満たさなければ、結果を返さず 502 にする
+    // 満たした応答は §4.2 の形（AI が null で返した任意項目はキーごと省略）にして返す
     const candidate = {
       name: '桜',
       scientificName: 'Prunus serrulata',
@@ -737,6 +738,32 @@ describe('植物識別API', () => {
 
       expect(response.status).toBe(200);
       expect(response.jsonBody.data.result.candidates).toEqual([{ ...candidate, confidence }]);
+    });
+
+    it('AIが特定できなかった候補の学名・科名・説明は、nullではなくキーごと省略して返す', async () => {
+      // 06_api_design.md §4.2。AI は strict モードの制約で「不明」を null で返す
+      llmReturns({
+        isPlant: true,
+        confidence: 70,
+        reason: '葉の特徴から植物と判定しました',
+        plantAnalysis: {
+          candidates: [{
+            name: 'サクラ属',
+            scientificName: null,
+            familyName: null,
+            description: null,
+            characteristics: '鋸歯のある葉',
+            confidence: 70
+          }]
+        }
+      });
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      // JSON にしたときにキーが現れないことを、直列化した結果で見る
+      const candidates = JSON.parse(JSON.stringify(response.jsonBody)).data.result.candidates;
+      expect(candidates).toEqual([{ name: 'サクラ属', characteristics: '鋸歯のある葉', confidence: 70 }]);
     });
   });
 
@@ -821,32 +848,6 @@ describe('植物識別API', () => {
 
       // 送らないパラメータ: temperature（0.1 などを渡すと 400 (Unsupported value) になる）
       expect(body).not.toHaveProperty('temperature');
-    });
-
-    it('AIが特定できなかった候補の学名・科名・説明は、nullではなくキーごと省略して返す', async () => {
-      // 06_api_design.md §4.2。AI は strict モードの制約で「不明」を null で返す
-      llmReturns({
-        isPlant: true,
-        confidence: 70,
-        reason: '葉の特徴から植物と判定しました',
-        plantAnalysis: {
-          candidates: [{
-            name: 'サクラ属',
-            scientificName: null,
-            familyName: null,
-            description: null,
-            characteristics: '鋸歯のある葉',
-            confidence: 70
-          }]
-        }
-      });
-
-      const response = await identifyPlantHandler(identifyRequest(), mockContext);
-
-      expect(response.status).toBe(200);
-      // JSON にしたときにキーが現れないことを、直列化した結果で見る
-      const candidates = JSON.parse(JSON.stringify(response.jsonBody)).data.result.candidates;
-      expect(candidates).toEqual([{ name: 'サクラ属', characteristics: '鋸歯のある葉', confidence: 70 }]);
     });
 
     it('AZURE_OPENAI_ENDPOINTがあれば、接続先はAzure OpenAI Serviceのデプロイメント（api-versionのクエリとapi-keyヘッダ付き）', async () => {
