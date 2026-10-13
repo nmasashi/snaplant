@@ -102,7 +102,7 @@ class FakeTripBackend {
   late final MockClient client = MockClient(_handle);
 
   Future<http.Response> _handle(http.Request request) async {
-    if (request.url.host != defaultApiHost || request.url.queryParameters['code'] != functionKey) {
+    if (request.url.host != testApiHost || request.url.queryParameters['code'] != functionKey) {
       return http.Response('', 404);
     }
     final route = _routeOf(request);

@@ -57,6 +57,21 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('APIキーは保存済みでも、エンドポイントが未保存なら、一覧を読み込まず「API設定が完了していません」と表示する', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await clearSavedEndpoint(tester);
+    // 偽のサーバは [testApiHost] の一覧だけ返す。そこへ通信すれば植物の名前が出て、一覧を読み込んだと分かる
+    final server = plantServer({(host: testApiHost, code: 'saved-key'): '桜'});
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+
+    expect(find.text('API設定が完了していません'), findsOneWidget);
+    expect(find.text('設定を開く'), findsOneWidget);
+    expect(find.text('桜'), findsNothing);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('画像選択'), findsNothing);
+  });
+
   testWidgets('保存済みの設定を読めなかったときに「再試行」を押すと、読み直した設定に応じた表示になる（キーが無ければ設定を促す）', (tester) async {
     final secureStorage = _SecureStorageWithFailureSwitch({})..failReads = true;
     useSecureStorage(secureStorage);
@@ -76,8 +91,8 @@ void main() {
   testWidgets('設定をリセットして戻ると、設定を促す表示になり、画像選択のボタンは出ない（API設定が無いまま画像選択へ進めない）', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'old-key'}));
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'old-key'): '桜'});
+    await saveTestEndpoint(tester);
+    final server = plantServer({(host: testApiHost, code: 'old-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     expect(find.text('桜'), findsOneWidget);
 
@@ -91,8 +106,8 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({'api_key': 'old-key'});
     useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'old-key'): '桜'});
+    await saveTestEndpoint(tester);
+    final server = plantServer({(host: testApiHost, code: 'old-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     // キーが保存済みなので設定画面には移らず、一覧を読み込んでいる
     expect(find.text('桜'), findsOneWidget);
@@ -131,11 +146,11 @@ void main() {
 
   testWidgets('APIキーを入れずに起動し、設定画面でキーを保存して戻ると、設定を促す表示が消えて一覧を読み込む', (tester) async {
     _givenNoSettingsSaved();
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'new-function-key'): '桜'});
+    final server = plantServer({(host: testApiHost, code: 'new-function-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'APIエンドポイント'), testApiEndpoint);
     await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'new-function-key');
     await tester.ensureVisible(find.text('保存'));
     await tester.pump();
@@ -150,11 +165,11 @@ void main() {
 
   testWidgets('APIキーは変えずにエンドポイントだけ変えて設定を保存して戻ると、以後は新しいエンドポイントの植物の一覧を表示する', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-function-key'}));
-    // エンドポイントは未保存なので、アプリ既定の宛先（func-snaplant-mk0w7s38.azurewebsites.net）から一覧を取る
+    // 保存済みのエンドポイント（func-test.example.net）から一覧を取る
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
+    await saveTestEndpoint(tester);
     final server = plantServer({
-      (host: defaultApiHost, code: 'saved-function-key'): '旧サーバの桜',
+      (host: testApiHost, code: 'saved-function-key'): '旧サーバの桜',
       (host: 'new-server.example.test', code: 'saved-function-key'): '新サーバの梅',
     });
     await openApp(tester, app: SnapPlantApp(httpClient: server));
@@ -176,10 +191,10 @@ void main() {
   testWidgets('エンドポイントは変えずにAPIキーだけ変えて設定を保存して戻ると、以後は新しいキーの植物の一覧を表示する', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'old-function-key'}));
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
+    await saveTestEndpoint(tester);
     final server = plantServer({
-      (host: defaultApiHost, code: 'old-function-key'): '旧キーの桜',
-      (host: defaultApiHost, code: 'new-function-key'): '新キーの梅',
+      (host: testApiHost, code: 'old-function-key'): '旧キーの桜',
+      (host: testApiHost, code: 'new-function-key'): '新キーの梅',
     });
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     expect(find.text('旧キーの桜'), findsOneWidget);

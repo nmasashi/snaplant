@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       setState(() {
         _apiKeyController.text = apiKey ?? '';
-        _endpointController.text = endpoint;
+        _endpointController.text = endpoint ?? '';
         _isLoading = false;
       });
     } catch (e) {

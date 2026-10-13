@@ -8,19 +8,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SettingsService {
   static const String _apiKeyKey = 'api_key';
   static const String _apiEndpointKey = 'api_endpoint';
-  static const String _defaultEndpoint = 'https://func-snaplant-mk0w7s38.azurewebsites.net';
-  
+
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(
       encryptedSharedPreferences: true,
     ),
   );
-  
+
   static SettingsService? _instance;
   SharedPreferences? _prefs;
-  
+
   SettingsService._();
-  
+
   static Future<SettingsService> getInstance() async {
     if (kDebugMode) {
       debugPrint('SettingsService: getInstance開始');
@@ -40,7 +39,7 @@ class SettingsService {
     }
     return _instance!;
   }
-  
+
   /// APIキーを保存（セキュアストレージ）
   Future<void> saveApiKey(String apiKey) async {
     try {
@@ -66,7 +65,7 @@ class SettingsService {
       }
     }
   }
-  
+
   /// APIキーを取得（セキュアストレージ）
   Future<String?> getApiKey() async {
     try {
@@ -75,7 +74,8 @@ class SettingsService {
       }
       final apiKey = await _secureStorage.read(key: _apiKeyKey);
       if (kDebugMode) {
-        debugPrint('SettingsService: APIキー取得完了: ${apiKey != null ? "あり" : "なし"}');
+        debugPrint(
+            'SettingsService: APIキー取得完了: ${apiKey != null ? "あり" : "なし"}');
       }
       return apiKey;
     } catch (e) {
@@ -92,34 +92,39 @@ class SettingsService {
       rethrow;
     }
   }
-  
+
   /// APIキーを削除（セキュアストレージ）
   Future<void> deleteApiKey() async {
     await _secureStorage.delete(key: _apiKeyKey);
   }
-  
+
   /// APIエンドポイントを保存
   Future<void> saveApiEndpoint(String endpoint) async {
     await _prefs!.setString(_apiEndpointKey, endpoint);
   }
-  
-  /// APIエンドポイントを取得
-  String getApiEndpoint() {
-    return _prefs!.getString(_apiEndpointKey) ?? _defaultEndpoint;
+
+  /// APIエンドポイントを取得。未保存なら null
+  ///
+  /// 既定値は持たない（本番の URL をアプリに組み込まない）。API キーと同じく利用者が設定画面で入力する
+  String? getApiEndpoint() {
+    return _prefs!.getString(_apiEndpointKey);
   }
-  
+
   /// APIエンドポイントをリセット
   Future<void> resetApiEndpoint() async {
     await _prefs!.remove(_apiEndpointKey);
   }
-  
+
   /// API設定が完了しているかチェック
   Future<bool> isApiConfigured() async {
     final apiKey = await getApiKey();
     final endpoint = getApiEndpoint();
-    return apiKey != null && apiKey.isNotEmpty && endpoint.isNotEmpty;
+    return apiKey != null &&
+        apiKey.isNotEmpty &&
+        endpoint != null &&
+        endpoint.isNotEmpty;
   }
-  
+
   /// 初回起動時の設定チェック
   Future<bool> isFirstLaunch() async {
     const key = 'first_launch';
@@ -129,13 +134,13 @@ class SettingsService {
     }
     return isFirst;
   }
-  
+
   /// アプリ設定をリセット
   Future<void> resetAllSettings() async {
     await _secureStorage.deleteAll();
     await _prefs!.clear();
   }
-  
+
   /// デバッグ用: 現在の設定を取得
   Future<Map<String, dynamic>> getDebugInfo() async {
     final hasApiKey = await getApiKey() != null;

@@ -15,6 +15,7 @@ void main() {
   testWidgets('アプリを開くと下に図鑑と旅行のタブがあり、旅行のタブを押すと旅行の画面に切り替わる', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
     await openApp(tester);
     expect(find.text('図鑑'), findsOneWidget);
     expect(find.text('旅行'), findsOneWidget);
@@ -30,6 +31,7 @@ void main() {
   testWidgets('旅行のタブの設定ボタンから設定をリセットして戻ると、設定を促す表示になる', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
     await openApp(tester);
     await tester.tap(find.text('旅行'));
     await letFramesRun(tester);
@@ -42,6 +44,7 @@ void main() {
   testWidgets('旅行のタブの設定ボタンから設定画面を開き、何も変えずに戻っても、旅行のタブのまま', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
     await openApp(tester);
     await tester.tap(find.text('旅行'));
     await letFramesRun(tester);
@@ -58,8 +61,8 @@ void main() {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
     // 一覧の取得は1回目だけ成功し、2回目以降は失敗する。図鑑が読み直していれば、戻ったときにエラー表示になる
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'saved-key'): '桜'}, succeedFirst: 1);
+    await saveTestEndpoint(tester);
+    final server = plantServer({(host: testApiHost, code: 'saved-key'): '桜'}, succeedFirst: 1);
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     expect(find.text('桜'), findsOneWidget);
     await tester.tap(find.text('旅行'));

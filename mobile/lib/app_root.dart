@@ -63,12 +63,15 @@ class _AppRootState extends State<AppRoot> {
       _apiService?.dispose();
       _apiService = null;
 
-      if (apiKey == null || apiKey.isEmpty) {
+      if (apiKey == null ||
+          apiKey.isEmpty ||
+          endpoint == null ||
+          endpoint.isEmpty) {
         setState(() {
           _settingsLoadFailed = false;
           _isLoading = false;
         });
-        if (openSettingsIfMissing) {
+        if (openSettingsIfMissing && (apiKey == null || apiKey.isEmpty)) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _openSettings());
         }
         return;

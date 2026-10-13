@@ -19,7 +19,7 @@ import '../helpers/trip_test_helpers.dart';
 Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
   SharedPreferences.setMockInitialValues({});
-  await useDefaultEndpoint(tester);
+  await saveTestEndpoint(tester);
   await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
   await tester.tap(find.text('旅行'));
   await letFramesRun(tester);
