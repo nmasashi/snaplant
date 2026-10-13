@@ -115,16 +115,6 @@ class SettingsService {
     await _prefs!.remove(_apiEndpointKey);
   }
 
-  /// API設定が完了しているかチェック
-  Future<bool> isApiConfigured() async {
-    final apiKey = await getApiKey();
-    final endpoint = getApiEndpoint();
-    return apiKey != null &&
-        apiKey.isNotEmpty &&
-        endpoint != null &&
-        endpoint.isNotEmpty;
-  }
-
   /// 初回起動時の設定チェック
   Future<bool> isFirstLaunch() async {
     const key = 'first_launch';

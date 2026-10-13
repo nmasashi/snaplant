@@ -37,7 +37,7 @@ class _AppRootState extends State<AppRoot> {
 
   /// 設定を読み、[ApiService] を作り直す
   ///
-  /// [openSettingsIfMissing] が true なら、API キーが未設定のとき設定画面へ自動で移る。
+  /// [openSettingsIfMissing] が true なら、API キーかエンドポイントが未設定のとき設定画面へ自動で移る。
   /// 起動時だけ true にする。再試行などで毎回移ると、設定画面から抜けられなくなるため
   Future<void> _loadSettings({required bool openSettingsIfMissing}) async {
     try {
@@ -67,11 +67,12 @@ class _AppRootState extends State<AppRoot> {
           apiKey.isEmpty ||
           endpoint == null ||
           endpoint.isEmpty) {
+        // どちらが欠けても通信できないので、扱いは同じ（エンドポイントには既定値が無い）
         setState(() {
           _settingsLoadFailed = false;
           _isLoading = false;
         });
-        if (openSettingsIfMissing && (apiKey == null || apiKey.isEmpty)) {
+        if (openSettingsIfMissing) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _openSettings());
         }
         return;
@@ -150,7 +151,7 @@ class _AppRootState extends State<AppRoot> {
                   isLargeScreen: isLargeScreen,
                   icon: Icons.settings,
                   title: 'API設定が完了していません',
-                  message: '設定画面で API キーを入力してください',
+                  message: '設定画面で API キーとエンドポイントを入力してください',
                   buttonIcon: Icons.settings,
                   buttonLabel: '設定を開く',
                   onPressed: _openSettings,

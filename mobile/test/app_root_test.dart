@@ -89,15 +89,21 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
-  testWidgets('APIキーは保存済みでも、エンドポイントが未保存なら、設定画面へは自動で移らず、一覧を読み込まずに「API設定が完了していません」と表示する', (tester) async {
+  testWidgets('APIキーは保存済みでも、エンドポイントが未保存なら、起動時に設定画面が自動で開き、何も入れずに戻ると、一覧を読み込まずにキーとエンドポイントの入力を促す', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
     await clearSavedEndpoint(tester);
     // 偽のサーバはどの宛先にも一覧を返さない。一覧を取りにいけば失敗して「エラーが発生しました」が出る
     final server = plantServer({});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
+    // 起動時に設定画面へ自動で移っている
+    expect(find.text('設定'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await letFramesRun(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
+    expect(find.text('設定画面で API キーとエンドポイントを入力してください'), findsOneWidget);
     expect(find.text('設定を開く'), findsOneWidget);
     expect(find.text('エラーが発生しました'), findsNothing);
     expect(find.text('画像選択'), findsNothing);
