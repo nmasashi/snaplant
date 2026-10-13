@@ -144,23 +144,20 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の
 `azurerm_cognitive_deployment.gpt5_luna`（`gpt-5.6-luna` / GlobalStandard SKU）と一致させる。
 
-#### リクエストと応答の形式（`api/src/services/openAIVisionService.ts`）
+#### 要求の形を縛っている制約（なぜそうなっているか）
 
-- **トークン上限**: 推論モデルのため `max_completion_tokens`（現在は `4000`。推論トークンも
-  ここから消費するため余裕を持たせている）を使い、`max_tokens` は送らない（送ると 400
-  `Unsupported parameter`）。`temperature` も送らない（既定値 1 のみサポートで、
-  それ以外を送ると 400 `Unsupported value`）
-- **応答の強制**: JSON Schema の strict モード（`response_format: json_schema`,
-  `strict: true`）で強制する。strict の制約により、
-  - 任意項目（候補の `scientificName` / `familyName` / `description`）は `["string", "null"]` の
-    null 許容で表す。植物でない場合の `plantAnalysis` も `["object", "null"]` で null を返させる
-  - 全プロパティを `required` に列挙し、`additionalProperties: false` とする
-  - `minimum` / `maximum` / `maxItems` は使えないため、スキーマでは範囲と件数を強制しない。
-    全体の `confidence` が 0〜100 かはサーバ側（`validateAnalysisResult()`）で検証し、
-    候補を最大3つにすることはプロンプトで指示する
-- **null の扱い**: null で返った任意項目はサーバ側で省略してクライアントに返す
-  （`normalizeNulls()` が `undefined` に置き換えるため、JSON 応答ではキーごと消える）。
-  植物でない場合（`isPlant` が false、または `plantAnalysis` が null）は `candidates: []` を返す
+要求の要素（モデル、メッセージ、画像の渡し方、応答の形、トークン上限、送らないパラメータ）は
+`06_api_design.md` §5.9「AI 識別サービスへ渡すもの」が正で、ここには形をそう選んだ理由だけを書く。
+
+- **推論モデルの制約**: トークン上限は `max_completion_tokens` で指定する（`max_tokens` を送ると 400
+  `Unsupported parameter`）。推論トークンもここから消費するため、値には余裕を持たせている。
+  `temperature` は既定値 1 のみサポートで、それ以外を送ると 400 `Unsupported value` になるため送らない
+- **strict モードの制約**: Structured Outputs の `strict: true` は、全プロパティを `required` に列挙し
+  `additionalProperties: false` にすることを求める。そのため任意項目（候補の `scientificName` /
+  `familyName` / `description`、植物でない場合の `plantAnalysis`）は null 許容で表し、null で返った項目は
+  サーバ側で省略してクライアントに返す（`06_api_design.md` §4.2）。`minimum` / `maximum` / `maxItems` は
+  使えないため、信頼度の範囲はサーバ側で検証し（範囲外は 502）、候補の件数はプロンプトで指示する
+- **トークン節約**: 画像は `detail: "low"` で渡す（§9.2）
 
 ### 3.6 API管理・セキュリティ
 
@@ -431,6 +428,6 @@ audit.yml はこの流れに含まれない（`api/package*.json` を変えた p
 - **Azure Functions**: Consumption Plan のコールドスタート
 
 ### 9.2 対策
-- **コスト最適化**: 画像は `detail: "low"` で渡しトークン消費を抑制
+- **コスト最適化**: 画像は `detail: "low"` で渡しトークン消費を抑制（渡すものの全体は `06_api_design.md` §5.9）
 - **ハイブリッド開発**: 必要に応じてネイティブコード併用
 - **Premium Plan**: パフォーマンス要件に応じた移行

@@ -208,6 +208,8 @@ Content-Type: multipart/form-data
 `image` も同じく一時保存の前に検査され、形式が合わなければ 415 `UNSUPPORTED_MEDIA_TYPE`、
 0 バイトなら 400 `INVALID_REQUEST`（`画像ファイルが空です`）、上限超過なら 413 `FILE_TOO_LARGE` です
 （検査の全体と順序は `06_api_design.md` §5.8）。
+検査を通った画像は一時コンテナに保存され、その SAS 付き URL と `contextInfo` が AI 識別サービスへ渡されます
+（渡すものの要素は `06_api_design.md` §5.9）。
 
 クライアント（Flutter）は `image` パートの Content-Type を、拡張子や OS の申告値ではなく
 ファイル先頭のシグネチャから決めます（`mobile/lib/utils/image_mime_type.dart`）。

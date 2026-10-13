@@ -151,6 +151,9 @@ GET /api/plants?code={FUNCTION_KEY}
 
 ### 5.2 植物詳細取得
 指定されたIDの植物詳細情報を取得します。
+植物 ID の形式は `06_api_openapi.yaml` の `id` パラメータの説明のとおりです（UUID 形式。3つ目のグループ先頭の
+バージョン桁は `1`〜`5`、4つ目のグループ先頭のバリアント桁は `8` / `9` / `a` / `b`、大文字小文字は区別しない）。
+合わなければ 400 `INVALID_REQUEST`（`植物IDの形式が無効です`）で、GET / PUT / DELETE で同じ検査・同じ文言です。
 
 **リクエスト例:**
 ```http
@@ -184,7 +187,7 @@ GET /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 `imagePath` は**URLとしてパースできれば受け付けます**。`POST /api/plants/save` や
 `PUT /api/plants/{id}` の `imagePath` に課しているスキーム・ホスト・パス形の制約
 （5.4 参照）は、このエンドポイントでは適用していません。
-指定されたURLはそのままAI識別サービスへ渡されます。
+指定されたURLはそのままAI識別サービスへ渡されます（渡すものの全体は 5.9）。
 
 - `imagePath` が未指定（`null`・空文字を含む）→ 400 `INVALID_REQUEST`（`画像URLが指定されていません`、`details` なし）
 - `imagePath` がURLとしてパースできない → 400 `INVALID_REQUEST`
@@ -431,6 +434,11 @@ Content-Type: application/json
 5. レスポンス返却
 
 旧画像の削除に失敗してもエラーにはならず、ログ出力のみで 200 を返します。
+削除するのは、旧 `imagePath` が自ストレージアカウントの Blob エンドポイントを指し、パスの最初のセグメントが
+永続コンテナ名か一時コンテナ名と完全一致する場合だけです。それ以外（別のホスト、未知のコンテナ、Blob 名を
+取り出せない形）は何も削除せず、エラーにもしません。Blob が既に無い場合も成功扱いです。
+保存時の検証で弾かれるので通常はここに来ませんが、他のレコードの画像を消さないための最後の関門として、
+入口の検証とは独立に検査しています。
 
 **レスポンス例（抜粋。実際は更新後の Plant の全フィールドが返ります）:**
 ```json
@@ -494,6 +502,8 @@ GET /api/plants/check-duplicate?name=桜&code={FUNCTION_KEY}
 指定されたIDの植物を削除します。
 Cosmos DB のドキュメントを削除した後、`imagePath` が指すBlob Storage上の画像も削除します。
 画像の削除に失敗した場合はログ出力のみで、ドキュメント削除は成功として 200 を返します。
+削除する条件は 5.5 の旧画像と同じです（自ストレージアカウントの永続コンテナか一時コンテナを指す
+`imagePath` だけを削除し、それ以外は何も削除せずエラーにもしません。Blob が既に無い場合も成功扱い）。
 
 **リクエスト例:**
 ```http
@@ -512,6 +522,7 @@ DELETE /api/plants/123e4567-e89b-12d3-a456-426614174000?code={FUNCTION_KEY}
 
 ### 5.8 画像アップロード・植物判定統合
 植物画像をBlob Storageにアップロードし、コンテキスト情報と合わせてAI識別を実行します。植物でない場合は画像を削除します。
+AI 識別サービスへ渡すものは 5.9 にまとめています。
 `contextInfo` はテキストフィールドで送る500文字以内の文字列です。
 
 #### 入力検証（400 / 413 / 415）
@@ -607,6 +618,32 @@ Blob 名は UUID + 検証済み Content-Type から決めた拡張子なので�
   }
 }
 ```
+
+### 5.9 AI 識別サービスへ渡すもの
+`POST /api/plants/identify`（5.3）と `POST /api/images/upload`（5.8）は、同じサービス
+（`api/src/services/openAIVisionService.ts`）を通して AI 識別サービス（Azure OpenAI Service の
+Chat Completions。選定と、要求の形を縛っている制約の理由は `05_technology_selection.md` §3.5）へ、
+1リクエストにつき1回の要求を送ります。管理外の依存へ送るものは外部との契約なので、要素をここに書きます。
+テストで固定するのも、この表の要素までです。
+
+**プロンプトの文言は契約外です。** ここには写さず、テストでも完全一致で固定しません
+（写すと、プロンプトを調整するたびに仕様書がプロンプトのコピーになります）。
+契約にするのは、表の「プロンプトが指示すること」の要素までです。
+
+| 要素 | 内容 |
+|---|---|
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`） |
+| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（未設定なら `gpt-5.6-luna`） |
+| メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
+| 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL（`07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
+| コンテキスト情報 | `contextInfo` があるときだけ、プロンプトのテキストに含める。未指定・`null` のときは含めない |
+| プロンプトが指示すること | 植物かどうかの判定基準、`name` の命名の優先順位（品種名 → 種名 → 属名）、候補は最大3件を信頼度の高い順に並べること、学名と科名を含めること |
+| 応答の形 | Structured Outputs（`response_format: json_schema`、名前 `plant_identification`、`strict: true`）。`isPlant`（boolean）・`confidence`（number）・`reason`（string）・`plantAnalysis`（object または null。`candidates[]` の各要素は `name`・`scientificName`・`familyName`・`description`・`characteristics`・`confidence`）。全プロパティが必須で `additionalProperties: false`、任意項目は null 許容 |
+| トークン上限 | `max_completion_tokens: 4000`（`max_tokens` は送らない） |
+| 送らないパラメータ | `temperature` |
+
+応答の検証（`confidence` の範囲、候補の必須項目、空・JSON として読めない応答）で弾かれた場合の扱いは
+6.2 の「502 / 503 の振り分けと `message`」に、応答の null 項目の省略と植物でない場合の `candidates` は 4.2 にあります。
 
 ## 6. エラーレスポンス
 
