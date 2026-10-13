@@ -12,7 +12,7 @@ import 'theme/app_text_styles.dart';
 ///
 /// 設定（API キー・エンドポイント）を読み、画面をまたいで共有する [ApiService] を1つ作って下の画面に渡す
 /// （docs/travel-album/03_screen_design.md §1「状態の持ち方」）。図鑑と旅行の2タブが同じ設定で通信するため、
-/// 各画面が自分で作らない。API キーが未設定なら、タブの中身の代わりに設定を促す表示を出す
+/// 各画面が自分で作らない。API キーかエンドポイントが未設定なら、タブの中身の代わりに設定を促す表示を出す
 class AppRoot extends StatefulWidget {
   const AppRoot({super.key, this.httpClient});
 
@@ -37,7 +37,7 @@ class _AppRootState extends State<AppRoot> {
 
   /// 設定を読み、[ApiService] を作り直す
   ///
-  /// [openSettingsIfMissing] が true なら、API キーが未設定のとき設定画面へ自動で移る。
+  /// [openSettingsIfMissing] が true なら、API キーかエンドポイントが未設定のとき設定画面へ自動で移る。
   /// 起動時だけ true にする。再試行などで毎回移ると、設定画面から抜けられなくなるため
   Future<void> _loadSettings({required bool openSettingsIfMissing}) async {
     try {
@@ -63,7 +63,11 @@ class _AppRootState extends State<AppRoot> {
       _apiService?.dispose();
       _apiService = null;
 
-      if (apiKey == null || apiKey.isEmpty) {
+      if (apiKey == null ||
+          apiKey.isEmpty ||
+          endpoint == null ||
+          endpoint.isEmpty) {
+        // どちらが欠けても通信できないので、扱いは同じ（エンドポイントには既定値が無い）
         setState(() {
           _settingsLoadFailed = false;
           _isLoading = false;
@@ -147,7 +151,7 @@ class _AppRootState extends State<AppRoot> {
                   isLargeScreen: isLargeScreen,
                   icon: Icons.settings,
                   title: 'API設定が完了していません',
-                  message: '設定画面で API キーを入力してください',
+                  message: '設定画面で API キーとエンドポイントを入力してください',
                   buttonIcon: Icons.settings,
                   buttonLabel: '設定を開く',
                   onPressed: _openSettings,

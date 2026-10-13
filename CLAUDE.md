@@ -139,7 +139,7 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   （`helpers/app_test_helpers.dart` の `useSecureStorage`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
   最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる。
-  偽のサーバを使うテストは冒頭で `useDefaultEndpoint` を呼び、既定の宛先に戻す）
+  アプリはエンドポイントの既定値を持たないので、一覧を開くテストは冒頭で `saveTestEndpoint` を呼び、テスト用の宛先（本番ではない URL）を保存する。未保存の状態は `clearSavedEndpoint`）
 - **`pumpAndSettle` は使えないことが多い。** 読み込み中の `CircularProgressIndicator` や、
   `CachedNetworkImage` のプレースホルダー（テスト環境の HTTP は 400 を返す）が回り続けて終わらない。
   `pump` を必要な回数だけ呼ぶ。ファイルの読み書きは `tester.runAsync` の中でないと進まない

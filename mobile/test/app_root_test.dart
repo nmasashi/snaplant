@@ -18,9 +18,11 @@ import 'helpers/app_test_helpers.dart';
 
 /// 端末に API キーもエンドポイントも保存されていない状態にする。
 /// 呼び出し側は、テスト間で状態を持ち越さないよう各テストの冒頭で呼ぶ
-void _givenNoSettingsSaved() {
+Future<void> _givenNoSettingsSaved(WidgetTester tester) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({}));
   SharedPreferences.setMockInitialValues({});
+  // SettingsService はシングルトンで前のテストのエンドポイントを持ち越すので、setMockInitialValues では消えない
+  await clearSavedEndpoint(tester);
 }
 
 /// テストが [failReads] を立てた時点から、読み出しが失敗するセキュアストレージ。
@@ -42,9 +44,39 @@ class _SecureStorageWithFailureSwitch extends TestFlutterSecureStoragePlatform {
   }
 }
 
+/// 設定画面の「APIエンドポイント」欄に今入っている文字列
+String _endpointFieldText(WidgetTester tester) {
+  final field = find.widgetWithText(TextFormField, 'APIエンドポイント');
+  return tester.widget<EditableText>(find.descendant(of: field, matching: find.byType(EditableText))).controller.text;
+}
+
 void main() {
+  testWidgets('何も保存されていない初回の起動で自動で開く設定画面は、エンドポイントの欄が空である（本番の宛先を入れておかない）', (tester) async {
+    await _givenNoSettingsSaved(tester);
+
+    await openApp(tester);
+
+    // 起動時に設定画面へ自動で移っている
+    expect(find.text('設定'), findsOneWidget);
+    expect(_endpointFieldText(tester), '');
+  });
+
+  testWidgets('設定画面で設定をリセットすると、エンドポイントの欄が空になる（本番の宛先に戻らない）', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
+    await openApp(tester, app: SnapPlantApp(httpClient: plantServer({(host: testApiHost, code: 'saved-key'): '桜'})));
+    await tester.tap(find.byIcon(Icons.settings));
+    await letFramesRun(tester);
+    expect(_endpointFieldText(tester), 'https://func-test.example.net');
+
+    await resetSettingsOnScreen(tester);
+
+    expect(_endpointFieldText(tester), '');
+  });
+
   testWidgets('APIキーを入れずに設定画面から戻ると、読み込み中のまま止まらず「API設定が完了していません」と表示する', (tester) async {
-    _givenNoSettingsSaved();
+    await _givenNoSettingsSaved(tester);
     await openApp(tester);
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
@@ -57,10 +89,31 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('APIキーは保存済みでも、エンドポイントが未保存なら、起動時に設定画面が自動で開き、何も入れずに戻ると、一覧を読み込まずにキーとエンドポイントの入力を促す', (tester) async {
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await clearSavedEndpoint(tester);
+    // 偽のサーバはどの宛先にも一覧を返さない。一覧を取りにいけば失敗して「エラーが発生しました」が出る
+    final server = plantServer({});
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    // 起動時に設定画面へ自動で移っている
+    expect(find.text('設定'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await letFramesRun(tester);
+
+    expect(find.text('API設定が完了していません'), findsOneWidget);
+    expect(find.text('設定画面で API キーとエンドポイントを入力してください'), findsOneWidget);
+    expect(find.text('設定を開く'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('画像選択'), findsNothing);
+  });
+
   testWidgets('保存済みの設定を読めなかったときに「再試行」を押すと、読み直した設定に応じた表示になる（キーが無ければ設定を促す）', (tester) async {
     final secureStorage = _SecureStorageWithFailureSwitch({})..failReads = true;
     useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
+    await clearSavedEndpoint(tester);
     await openApp(tester);
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
 
@@ -76,8 +129,8 @@ void main() {
   testWidgets('設定をリセットして戻ると、設定を促す表示になり、画像選択のボタンは出ない（API設定が無いまま画像選択へ進めない）', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'old-key'}));
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'old-key'): '桜'});
+    await saveTestEndpoint(tester);
+    final server = plantServer({(host: testApiHost, code: 'old-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     expect(find.text('桜'), findsOneWidget);
 
@@ -91,8 +144,8 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({'api_key': 'old-key'});
     useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'old-key'): '桜'});
+    await saveTestEndpoint(tester);
+    final server = plantServer({(host: testApiHost, code: 'old-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     // キーが保存済みなので設定画面には移らず、一覧を読み込んでいる
     expect(find.text('桜'), findsOneWidget);
@@ -111,6 +164,7 @@ void main() {
     final secureStorage = _SecureStorageWithFailureSwitch({});
     useSecureStorage(secureStorage);
     SharedPreferences.setMockInitialValues({});
+    await clearSavedEndpoint(tester);
     await openApp(tester);
     // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
     await tester.tap(find.byIcon(Icons.arrow_back));
@@ -130,12 +184,12 @@ void main() {
   });
 
   testWidgets('APIキーを入れずに起動し、設定画面でキーを保存して戻ると、設定を促す表示が消えて一覧を読み込む', (tester) async {
-    _givenNoSettingsSaved();
-    await useDefaultEndpoint(tester);
-    final server = plantServer({(host: defaultApiHost, code: 'new-function-key'): '桜'});
+    await _givenNoSettingsSaved(tester);
+    final server = plantServer({(host: testApiHost, code: 'new-function-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'APIエンドポイント'), testApiEndpoint);
     await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'new-function-key');
     await tester.ensureVisible(find.text('保存'));
     await tester.pump();
@@ -150,11 +204,11 @@ void main() {
 
   testWidgets('APIキーは変えずにエンドポイントだけ変えて設定を保存して戻ると、以後は新しいエンドポイントの植物の一覧を表示する', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-function-key'}));
-    // エンドポイントは未保存なので、アプリ既定の宛先（func-snaplant-mk0w7s38.azurewebsites.net）から一覧を取る
+    // 保存済みのエンドポイント（func-test.example.net）から一覧を取る
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
+    await saveTestEndpoint(tester);
     final server = plantServer({
-      (host: defaultApiHost, code: 'saved-function-key'): '旧サーバの桜',
+      (host: testApiHost, code: 'saved-function-key'): '旧サーバの桜',
       (host: 'new-server.example.test', code: 'saved-function-key'): '新サーバの梅',
     });
     await openApp(tester, app: SnapPlantApp(httpClient: server));
@@ -176,10 +230,10 @@ void main() {
   testWidgets('エンドポイントは変えずにAPIキーだけ変えて設定を保存して戻ると、以後は新しいキーの植物の一覧を表示する', (tester) async {
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'old-function-key'}));
     SharedPreferences.setMockInitialValues({});
-    await useDefaultEndpoint(tester);
+    await saveTestEndpoint(tester);
     final server = plantServer({
-      (host: defaultApiHost, code: 'old-function-key'): '旧キーの桜',
-      (host: defaultApiHost, code: 'new-function-key'): '新キーの梅',
+      (host: testApiHost, code: 'old-function-key'): '旧キーの桜',
+      (host: testApiHost, code: 'new-function-key'): '新キーの梅',
     });
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     expect(find.text('旧キーの桜'), findsOneWidget);

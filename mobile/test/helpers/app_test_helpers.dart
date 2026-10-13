@@ -42,8 +42,11 @@ Future<void> letFramesRun(WidgetTester tester) async {
   }
 }
 
-/// 端末にエンドポイントを保存していないときにアプリが使う宛先のホスト
-const defaultApiHost = 'func-snaplant-mk0w7s38.azurewebsites.net';
+/// テストが端末に保存する API のエンドポイント。本番の URL ではない値にする
+const testApiEndpoint = 'https://func-test.example.net';
+
+/// [testApiEndpoint] のホスト。偽のサーバが宛先の照合に使う
+const testApiHost = 'func-test.example.net';
 
 /// GET /api/plants に、宛先のホストと API キー（`?code=`）の組ごとに決めた植物 1 件の一覧を返す偽のサーバ。
 /// [plantNames] に無い組（宛先かキーの取り違え）と、それ以外のメソッドやパスは 404 にする。
@@ -99,25 +102,40 @@ MockClient plantServer(
   });
 }
 
-/// 設定画面を開いて設定をリセットし、確認ダイアログで「リセット」を選んで、設定画面から戻る。
-/// 設定ボタン（歯車）が見えている画面から呼ぶ
-Future<void> resetSettingsAndGoBack(WidgetTester tester) async {
-  await tester.tap(find.byIcon(Icons.settings));
-  await letFramesRun(tester);
+/// 設定画面で設定をリセットし、確認ダイアログで「リセット」を選ぶ。設定画面に留まる
+Future<void> resetSettingsOnScreen(WidgetTester tester) async {
   await tester.ensureVisible(find.text('設定をリセット'));
   await tester.pump();
   await tester.tap(find.text('設定をリセット'));
   await letFramesRun(tester);
   await tester.tap(find.text('リセット'));
   await letFramesRun(tester);
+}
+
+/// 設定画面を開いて設定をリセットし、確認ダイアログで「リセット」を選んで、設定画面から戻る。
+/// 設定ボタン（歯車）が見えている画面から呼ぶ
+Future<void> resetSettingsAndGoBack(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.settings));
+  await letFramesRun(tester);
+  await resetSettingsOnScreen(tester);
   await tester.tap(find.byIcon(Icons.arrow_back));
   await letFramesRun(tester);
 }
 
-/// 保存済みのエンドポイントを消し、アプリが既定の宛先（[defaultApiHost]）を使う状態にする。
+/// 端末に API のエンドポイント（[testApiEndpoint]）を保存した状態にする。
 /// SettingsService はシングルトンで最初に取った SharedPreferences を持ち越すため、
-/// SharedPreferences.setMockInitialValues では、前のテストが保存したエンドポイントが消えない
-Future<void> useDefaultEndpoint(WidgetTester tester) async {
+/// SharedPreferences.setMockInitialValues では、前のテストが保存したエンドポイントを上書きできない。
+/// SettingsService を通して保存し、前のテストの値に依らないようにする
+Future<void> saveTestEndpoint(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    final settings = await SettingsService.getInstance();
+    await settings.saveApiEndpoint(testApiEndpoint);
+  });
+}
+
+/// 端末に API のエンドポイントを保存していない状態にする。
+/// [saveTestEndpoint] と同じ理由で、SettingsService を通して消す
+Future<void> clearSavedEndpoint(WidgetTester tester) async {
   await tester.runAsync(() async {
     final settings = await SettingsService.getInstance();
     await settings.resetApiEndpoint();

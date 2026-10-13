@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       setState(() {
         _apiKeyController.text = apiKey ?? '';
-        _endpointController.text = endpoint;
+        _endpointController.text = endpoint ?? '';
         _isLoading = false;
       });
     } catch (e) {
@@ -150,7 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       setState(() {
         _apiKeyController.clear();
-        _endpointController.text = 'https://func-snaplant-mk0w7s38.azurewebsites.net';
+        _endpointController.clear();
         _connectionStatus = null;
       });
 

@@ -19,7 +19,7 @@ FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBacken
 /// 「詳細を開く」ボタンだけのホーム画面から、[hokkaidoTripId] の旅行詳細を開く。
 /// 詳細画面の前に画面がある状態にする（削除したら戻る先）
 Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) async {
-  final apiService = ApiService(client: backend.client, functionKey: _apiKey);
+  final apiService = ApiService(baseUrl: testApiEndpoint, client: backend.client, functionKey: _apiKey);
   await openApp(
     tester,
     app: MaterialApp(
