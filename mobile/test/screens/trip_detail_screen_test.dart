@@ -16,6 +16,28 @@ const _apiKey = 'test-key';
 
 FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBackend(trips: trips, functionKey: _apiKey);
 
+/// 旅行の写真が33枚（撮影日時は 2026-10-05 の 10:01〜10:33、この順）の偽のサーバ。サーバの1ページは30枚。
+/// 30枚（10行）は画面（約5行分）を超えるので、2ページ目は下端まで送ったときにだけ要る。2ページ目は3枚
+FakeTripBackend _backendWith33Photos() {
+  return FakeTripBackend(
+    trips: [hokkaidoTrip(photoCount: 33)],
+    functionKey: _apiKey,
+    pageSize: 30,
+    photosByTripId: {
+      hokkaidoTripId: [
+        for (var n = 1; n <= 33; n++)
+          photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+      ],
+    },
+  );
+}
+
+/// 写真のグリッドを下端まで送り、画面を進める
+Future<void> _scrollToEnd(WidgetTester tester) async {
+  await tester.drag(find.byType(GridView), const Offset(0, -5000));
+  await letFramesRun(tester);
+}
+
 /// 「詳細を開く」ボタンだけのホーム画面から、[hokkaidoTripId] の旅行詳細を開く。
 /// 詳細画面の前に画面がある状態にする（削除したら戻る先）
 Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) async {
@@ -43,6 +65,388 @@ Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) as
 }
 
 void main() {
+  testWidgets('旅行詳細を開くと、写真の一覧の1ページ目の読み込み中は「写真を読み込み中...」を出し、読み込めたらサーバが返す順にサムネイルを並べる', (tester) async {
+    // サムネイルの画像は、テスト環境の HTTP が返さないので見えない。並びは、各サムネイルの読み上げ用ラベル（撮影日時）の位置で見る。
+    // 並びがサーバの返す順そのものであることを見るため、撮影日時の順ではない並びで渡す（クライアントは並べ替えない）
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-07T18:45:00'),
+        ],
+      },
+    );
+    backend.holds[TripRoute.photos] = release.future;
+    await openDetailFromHome(tester, backend);
+    // 写真の応答を待っている間
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+    expect(photoThumbnail('2026年10月6日 10:15'), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('写真を読み込み中...'), findsNothing);
+    final first = tester.getTopLeft(photoThumbnail('2026年10月6日 10:15'));
+    final second = tester.getTopLeft(photoThumbnail('2026年10月5日 12:30'));
+    final third = tester.getTopLeft(photoThumbnail('2026年10月7日 18:45'));
+    // 3列のグリッドの1行目に、返された順に左から並ぶ
+    expect(second.dy, first.dy);
+    expect(third.dy, first.dy);
+    expect(first.dx, lessThan(second.dx));
+    expect(second.dx, lessThan(third.dx));
+    semantics.dispose();
+  });
+
+  testWidgets('写真が0枚の旅行を開くと、「まだ写真がありません」と「写真を追加」から送る案内を出し、読み込み中の表示は消える', (tester) async {
+    // 旅行は存在し、写真が1枚も無い（404 ではなく photos: [] の応答。docs/travel-album/05_api_design.md §5.2）
+    final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);
+
+    await openDetailFromHome(tester, backend);
+
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+    expect(find.text('「写真を追加」からギャラリーの写真を送りましょう'), findsOneWidget);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+  });
+
+  testWidgets('写真の一覧の取得に失敗すると、旅行の枚数・期間は出したまま写真の部分にエラーと「再試行」を出し、「再試行」で取り直すと写真が並ぶ', (tester) async {
+    // 旅行の取得は成功し、写真の一覧の1回目だけが 503 で失敗する。2回目の成功で、取り直したかどうかを見分ける
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    backend.failNext(TripRoute.photos);
+
+    await openDetailFromHome(tester, backend);
+
+    // 旅行の見出しはそのままで、写真の部分だけがエラーになる。写真と、読み込み中・0件の表示は出ていない
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 12:30'), findsNothing);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+    expect(find.text('まだ写真がありません'), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('写真が1ページに収まらない旅行は、グリッドを下端まで送ると末尾に「読み込み中...」を出して次のページを取り、続きの写真を並べる', (tester) async {
+    // 30枚（10行）は画面（約5行分）を超えるので、下端まで送らないと2ページ目は要らない
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = _backendWith33Photos();
+    await openDetailFromHome(tester, backend);
+    // 2ページ目の応答を止めておく（1ページ目は読み込み済み）
+    backend.holds[TripRoute.photos] = release.future;
+
+    await _scrollToEnd(tester);
+
+    // 次のページを読んでいる間。1ページ目の最後の写真が見え、続きはまだ無い
+    expect(find.text('読み込み中...'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:31'), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+    await _scrollToEnd(tester);
+
+    expect(find.text('読み込み中...'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:31'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('次のページの取得に失敗すると、1ページ目の写真は残したまま末尾に「続きを読み込めませんでした」と「再試行」を出し、「再試行」で取り直すと続きの写真が並ぶ', (tester) async {
+    // 2ページ目の要求だけを 503 で1回失敗させる。
+    // 自動で取り直されれば2回目で成功してエラーが消えるので、自動の再試行をしないことも、失敗の表示が残ることで見る
+    final semantics = tester.ensureSemantics();
+    final backend = _backendWith33Photos();
+    await openDetailFromHome(tester, backend);
+    backend.failNext(TripRoute.photos);
+
+    await _scrollToEnd(tester);
+
+    // 失敗した後。1ページ目の写真は残り、続きは無い。読み込み中ではない
+    expect(find.text('続きを読み込めませんでした'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(find.text('読み込み中...'), findsNothing);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:31'), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+    await _scrollToEnd(tester);
+
+    expect(find.text('続きを読み込めませんでした'), findsNothing);
+    expect(find.text('再試行'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:31'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('1ページ目だけ読んだところでグリッドを下に引っ張ると、続きからではなく先頭のページから読み直し、別の端末で増えた写真が出る', (tester) async {
+    // 1ページ目を読んだ時点で、続きのトークンは残っている。
+    // そのトークンで読み直すと、先頭ではなく2ページ目（元の写真の10:30 から）が返り、増えた写真は出ない
+    final semantics = tester.ensureSemantics();
+    final backend = _backendWith33Photos();
+    await openDetailFromHome(tester, backend);
+    expect(photoThumbnail('2026年10月5日 10:00'), findsNothing);
+    // 別の端末で、撮影日時が一番早い写真が1枚増えた
+    backend.photosByTripId[hokkaidoTripId]!
+        .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
+
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('2ページ目まで読んだあとに引っ張って読み直すと、読み直した1ページ目の続きを、もう一度「読み込み中...」を出して読み、古い続きは残らない', (tester) async {
+    // 2ページ目まで読んだ時点では、続きのトークンは無い（最後のページ）。
+    // 読み直した先頭のページには続きがあるので、読み直しでトークンを更新していなければ続きを読まず、写真が欠ける。
+    // 古い2ページ目を残したまま読み直せば、先頭に増えた写真が並ばない
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = _backendWith33Photos();
+    await openDetailFromHome(tester, backend);
+    await _scrollToEnd(tester);
+    await _scrollToEnd(tester);
+    expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+    // 別の端末で、撮影日時が一番早い写真が1枚増えた。読み直すと先頭のページは「増えた1枚 + 元の先頭29枚」になる
+    backend.photosByTripId[hokkaidoTripId]!
+        .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
+    // 先頭まで戻ってから、下に引っ張る（引っ張って読み直せるのは先頭にいるときだけ）
+    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await letFramesRun(tester);
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+    expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    backend.holds[TripRoute.photos] = release.future;
+
+    await _scrollToEnd(tester);
+
+    expect(find.text('読み込み中...'), findsOneWidget);
+    release.complete();
+    await letFramesRun(tester);
+    await _scrollToEnd(tester);
+    expect(find.text('読み込み中...'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('続きの取得が遅れている間に引っ張って読み直したあと、遅れていた古い続きが届いても、読み直した1ページ目には足されず、続きは読み直した先頭から正しく並ぶ', (tester) async {
+    // 続きの要求（2ページ目。元の写真の10:31〜10:33）を止めている間に、別の端末で写真が1枚増え、引っ張って読み直す。
+    // 読み直した先頭は「増えた1枚 + 元の先頭29枚」で、本当の続きは元の10:30 から。
+    // 遅れていた古い続きを足してしまうと、10:30 が抜け、続きのトークンも古い応答のもの（最後のページ）になって取りに行かない
+    final semantics = tester.ensureSemantics();
+    final backend = _backendWith33Photos();
+    await openDetailFromHome(tester, backend);
+    final release = backend.holdNextReply(TripRoute.photos);
+    await _scrollToEnd(tester);
+    expect(find.text('読み込み中...'), findsOneWidget);
+    backend.photosByTripId[hokkaidoTripId]!
+        .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
+    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await letFramesRun(tester);
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+    expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+    await _scrollToEnd(tester);
+    await _scrollToEnd(tester);
+
+    expect(photoThumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:31'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+    expect(find.text('読み込み中...'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('1ページ目が空でも続きのトークンが付いていれば、「まだ写真がありません」を出さず、続きを読んで写真を並べる', (tester) async {
+    // サーバは空のページを何度か読み直しても空のとき、空のページを続きのトークン付きで返すことがある（写真がある旅行でも起きる）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      leadingEmptyPages: 1,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+
+    await openDetailFromHome(tester, backend);
+
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsOneWidget);
+    expect(find.text('まだ写真がありません'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('空のページが続けて3回返ったら、自動で読むのをやめて「続きを読み込めませんでした」と「再試行」を出し、「再試行」で続きから読むと写真が並ぶ', (tester) async {
+    // サーバが空のページを続きのトークン付きで返し続けたとき、要求を止めずに送り続けない。
+    // 偽のサーバは空のページを5回返してから写真を返す。3回で止めていれば、写真はまだ出ていない。
+    // 止めずに読み続けていれば、写真が並んでしまうので、止めたことは写真が出ていないことで見る。
+    // 「再試行」の後は、また最大3回まで読む(空のページの数を数え直す)ので、残りの2回の空のページを越えて写真が並ぶ
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: _apiKey,
+      leadingEmptyPages: 5,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        ],
+      },
+    );
+
+    await openDetailFromHome(tester, backend);
+
+    expect(find.text('続きを読み込めませんでした'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    // 写真が無いと確定したわけではないので、0枚の案内は出さない
+    expect(find.text('まだ写真がありません'), findsNothing);
+
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('1ページ目のエラーの表示で、引っ張る読み直しと「再試行」が重なったとき、先に終わった読み直しで出た写真を、遅れて届いた「再試行」の失敗の応答で消さない', (tester) async {
+    // 1ページ目の取得に失敗してエラーの表示になる。引っ張った読み直し（応答を止める）の間に「再試行」を押し、
+    // 先に読み直しの応答が成功して写真が並んだあとで、遅れて「再試行」の失敗の応答が届く。
+    // 古くなった読み込み（「再試行」）の結果は捨てるので、写真はそのまま残り、エラーの表示には戻らない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    backend.failNext(TripRoute.photos);
+    await openDetailFromHome(tester, backend);
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    // 引っ張った読み直しの応答を止めておく
+    final pullReply = backend.holdNextReply(TripRoute.photos);
+    await tester.drag(find.text('エラーが発生しました'), const Offset(0, 600));
+    await letFramesRun(tester);
+    // 引っ張っている間に「再試行」を押す。その応答は失敗で、止めておく
+    backend.failNext(TripRoute.photos);
+    final retryReply = backend.holdNextReply(TripRoute.photos);
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+    // 先に、引っ張った読み直しの応答が届いて、写真が並ぶ
+    pullReply.complete();
+    await letFramesRun(tester);
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+
+    retryReply.complete();
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真が0枚の案内を出しているときも、下に引っ張ると読み直し、別の端末で増えた写真が並んで案内は消える', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);
+    await openDetailFromHome(tester, backend);
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+    // 別の端末で、この旅行に写真が1枚入った
+    backend.photosByTripId[hokkaidoTripId] = [
+      photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15'),
+    ];
+
+    await tester.drag(find.text('まだ写真がありません'), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('まだ写真がありません'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('下に引っ張った読み直しに失敗すると、写真のグリッドは残したまま、エラーの文言をスナックバーで知らせる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    // 1回目（開いたとき）は成功済み。読み直しの要求だけを 503 で失敗させる
+    backend.failNext(TripRoute.photos);
+
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    // 写真の部分全体のエラー表示（1ページ目の取得の失敗）にはならない
+    expect(find.text('エラーが発生しました'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真が1ページに収まる旅行は、グリッドを下端まで送っても続きを取りに行かず、写真は1枚ずつしか並ばない', (tester) async {
+    // 1ページ目の継続トークンが null（最後のページ）。確認が抜けると、null のトークンで先頭のページを取り直し、同じ写真が二重に並ぶ
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsOneWidget);
+    expect(find.text('読み込み中...'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('メニューの「編集」で旅行名とメモを今の値のまま編集ダイアログに出し、旅行名を変えて「保存」すると詳細のタイトルが新しい旅行名になる', (tester) async {
     final backend = _backendWith([hokkaidoTrip(description: 'ひとり旅')]);
     await openDetailFromHome(tester, backend);
