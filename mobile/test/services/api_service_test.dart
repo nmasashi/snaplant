@@ -51,6 +51,9 @@ const _identificationJson = {
   ],
 };
 
+/// シグネチャの後ろに本文らしき 0 を足して、実際のファイルに近い長さにする
+List<int> _withBody(List<int> header) => [...header, ...List.filled(32, 0)];
+
 const _createRequest = PlantCreateRequest(
   name: '桜',
   characteristics: '春に咲く',
@@ -70,14 +73,15 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    /// 拡張子が .jpg のファイルに [bytes] を書いてアップロードし、送信したリクエストボディを返す。
+    /// 拡張子が .jpg のファイルに [bytes] をそのまま書いてアップロードし、送信したリクエストボディを返す。
+    /// 末尾に何も足さないので、シグネチャに満たない短いファイルも作れる。
     ///
     /// アップロードはサーバ（管理外の依存）に Blob を作らせるコマンドで、送信した
     /// Content-Type はサーバが Blob の Content-Type と拡張子を決める根拠になる。
     /// その契約はリクエストにしか現れないため、送信内容を検証する
     Future<String> uploadAsJpgFile(List<int> bytes) async {
       final file = File('${tempDir.path}/photo.jpg');
-      await file.writeAsBytes([...bytes, ...List.filled(32, 0)]);
+      await file.writeAsBytes(bytes);
       late String sentBody;
       final service = ApiService(
         baseUrl: 'https://api.example.test',
@@ -107,22 +111,41 @@ void main() {
     Matcher sendsContentType(String mimeType) =>
         matches(RegExp('content-type:\\s*${RegExp.escape(mimeType)}', caseSensitive: false));
 
-    test('拡張子がjpgでも中身がPNGならimage/pngとして送る', () async {
-      final sentBody = await uploadAsJpgFile([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-
-      expect(sentBody, sendsContentType('image/png'));
-    });
-
-    test('拡張子がjpgでも中身がWebPならimage/webpとして送る', () async {
+    // 送る Content-Type は、拡張子ではなくファイルの先頭バイトのシグネチャで決まる。
+    // 判定は PNG・JPEG・GIF・WebP の4形式だけで、それ以外は既定値 image/jpeg にする。
+    // 各行は (テスト名, ファイルの中身, 送る Content-Type)
+    final signatureCases = <(String, List<int>, String)>[
+      ('拡張子がjpgでも中身がPNGならimage/pngとして送る', _withBody([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), 'image/png'),
+      ('中身がJPEGならimage/jpegとして送る', _withBody([0xFF, 0xD8, 0xFF, 0xE0]), 'image/jpeg'),
+      ('拡張子がjpgでも中身がGIFならimage/gifとして送る', _withBody('GIF89a'.codeUnits), 'image/gif'),
+      ('拡張子がjpgでも中身が古い形式のGIF87aならimage/gifとして送る', _withBody('GIF87a'.codeUnits), 'image/gif'),
       // WebP は判定に先頭12バイトが要り、4形式で最も長い。ファイルの読み込み量が足りないと誤判定する
-      final sentBody = await uploadAsJpgFile([...'RIFF'.codeUnits, 0x24, 0x00, 0x00, 0x00, ...'WEBP'.codeUnits]);
+      (
+        '拡張子がjpgでも中身がWebPならimage/webpとして送る',
+        _withBody([...'RIFF'.codeUnits, 0x24, 0x00, 0x00, 0x00, ...'WEBP'.codeUnits]),
+        'image/webp',
+      ),
+      (
+        'WebP以外のRIFF形式（WAVなど）はWebPと判定せず、既定のimage/jpegとして送る',
+        _withBody([...'RIFF'.codeUnits, 0x24, 0x00, 0x00, 0x00, ...'WAVE'.codeUnits]),
+        'image/jpeg',
+      ),
+      ('判定できない形式は既定のimage/jpegとして送る', _withBody([0x00, 0x01, 0x02, 0x03]), 'image/jpeg'),
+      // PNG の先頭2バイトだけで終わるファイル。途中で切れたデータを PNG と誤判定しない
+      ('シグネチャに満たない短いファイルは既定のimage/jpegとして送る', [0x89, 0x50], 'image/jpeg'),
+    ];
 
-      expect(sentBody, sendsContentType('image/webp'));
-    });
+    for (final (title, bytes, mimeType) in signatureCases) {
+      test(title, () async {
+        final sentBody = await uploadAsJpgFile(bytes);
+
+        expect(sentBody, sendsContentType(mimeType));
+      });
+    }
 
     test('アップロードはdataから保存先のURLと識別結果を取り出す', () async {
       final file = File('${tempDir.path}/photo.jpg');
-      await file.writeAsBytes([0xFF, 0xD8, 0xFF, 0xE0, ...List.filled(32, 0)]);
+      await file.writeAsBytes(_withBody([0xFF, 0xD8, 0xFF, 0xE0]));
       final service = _serviceResponding('POST', '/api/images/upload', 201, {
         'success': true,
         'data': {
@@ -226,7 +249,7 @@ void main() {
   });
 
   group('エラーレスポンス', () {
-    test('サーバが返したエラーコードとメッセージを例外が保持する', () async {
+    test('409はサーバが返したエラーコードとメッセージを例外が保持し、メッセージはそのまま利用者に表示する', () async {
       final service = _serviceResponding('POST', '/api/plants/save', 409, {
         'success': false,
         'error': {
@@ -240,6 +263,7 @@ void main() {
       expect(error.statusCode, 409);
       expect(error.code, 'IMAGE_ALREADY_SAVED');
       expect(error.message, 'この画像は既に保存されています');
+      expect(error.userMessage, 'この画像は既に保存されています');
     });
 
     test('削除の失敗でもサーバが返した理由をユーザーに伝える', () async {
@@ -257,87 +281,82 @@ void main() {
       expect(error.code, 'INVALID_REQUEST');
       expect(error.userMessage, '植物IDの形式が無効です');
     });
-
-    test('封筒の形でないエラーボディでもステータスを添えた日本語のメッセージを返す', () async {
-      // Azure のフロントが返す HTML など、アプリの封筒を経由しないエラー
-      final service = _serviceResponding('POST', '/api/plants/save', 413, '<html><body>Request Entity Too Large</body></html>');
-
-      final error = await _captureApiException(() => service.savePlant(_createRequest));
-
-      expect(error.code, isNull);
-      expect(error.userMessage, 'サーバーでエラーが発生しました（ステータス: 413）');
-    });
   });
 
+  // userMessage は利用者に見える文言で、ステータスごとに決まる（docs/05 §4.2）。
+  // 画面のテストは見ていないので、ここで固定する。
+  // 例外の作り方（ApiException.fromResponse）と userMessage はエンドポイントによらず同じなので、表は保存で再現する。
+  // ただしエラーを例外にする経路は保存・アップロード・削除で別々なので、
+  // その配線は各エンドポイントのテストが見る（削除は「エラーレスポンス」、アップロードは下の502）。
+  // 各行は (テスト名, ステータス, レスポンスのボディ, 例外が持つエラーコード, 利用者に表示する文言)。
+  // 封筒でないボディからはコードが読めないので null（クライアントはコードで分岐する）
   group('ユーザー向けメッセージ', () {
-    test('409はサーバが返した日本語のメッセージをそのまま表示する', () async {
-      final service = _serviceResponding('POST', '/api/plants/save', 409, {
-        'success': false,
-        'error': {
-          'code': 'IMAGE_ALREADY_SAVED',
-          'message': 'この画像は既に保存されています',
+    final userMessageCases = <(String, int, Object, String?, String)>[
+      (
+        // Azure のフロントが返す HTML など、アプリの封筒を経由しないエラー
+        '封筒の形でないエラーボディでもステータスを添えた日本語のメッセージを返す',
+        413,
+        '<html><body>Request Entity Too Large</body></html>',
+        null,
+        'サーバーでエラーが発生しました（ステータス: 413）',
+      ),
+      (
+        // 従量課金プランの Functions ランタイムが過負荷時に返す。アプリを通らないので封筒にならない
+        '429は混雑による拒否なので時間を置いた再試行を促す',
+        429,
+        'Too Busy',
+        null,
+        'サーバーが混雑しています。しばらく待ってから再試行してください。',
+      ),
+      (
+        '500はサーバ内部の文言を出さず定型のメッセージにする',
+        500,
+        {
+          'success': false,
+          'error': {'code': 'INTERNAL_ERROR', 'message': 'サーバー内部エラーが発生しました'},
         },
-      });
-
-      final error = await _captureApiException(() => service.savePlant(_createRequest));
-
-      expect(error.userMessage, 'この画像は既に保存されています');
-    });
-
-    test('429は混雑による拒否なので時間を置いた再試行を促す', () async {
-      // 従量課金プランの Functions ランタイムが過負荷時に返す。アプリを通らないので封筒にならない
-      final service = _serviceResponding('POST', '/api/plants/save', 429, 'Too Busy');
-
-      final error = await _captureApiException(() => service.savePlant(_createRequest));
-
-      expect(error.userMessage, 'サーバーが混雑しています。しばらく待ってから再試行してください。');
-    });
-
-    test('500はサーバ内部の文言を出さず定型のメッセージにする', () async {
-      final service = _serviceResponding('POST', '/api/plants/save', 500, {
-        'success': false,
-        'error': {
-          'code': 'INTERNAL_ERROR',
-          'message': 'サーバー内部エラーが発生しました',
+        'INTERNAL_ERROR',
+        'サーバーで問題が発生しています。しばらく待ってから再試行してください。',
+      ),
+      (
+        '503は接続できない状態なので時間を置いた再試行を促す',
+        503,
+        {
+          'success': false,
+          'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
         },
+        'DATABASE_ERROR',
+        'サービスに一時的に接続できません。しばらく待ってから再試行してください。',
+      ),
+    ];
+
+    for (final (title, statusCode, body, expectedCode, expectedMessage) in userMessageCases) {
+      test(title, () async {
+        final service = _serviceResponding('POST', '/api/plants/save', statusCode, body);
+
+        final error = await _captureApiException(() => service.savePlant(_createRequest));
+
+        expect(error.code, expectedCode);
+        expect(error.userMessage, expectedMessage);
       });
+    }
 
-      final error = await _captureApiException(() => service.savePlant(_createRequest));
-
-      expect(error.userMessage, 'サーバーで問題が発生しています。しばらく待ってから再試行してください。');
-    });
-
-    test('503は接続できない状態なので時間を置いた再試行を促す', () async {
-      final service = _serviceResponding('POST', '/api/plants/save', 503, {
-        'success': false,
-        'error': {
-          'code': 'DATABASE_ERROR',
-          'message': 'データベースに接続できません',
-        },
-      });
-
-      final error = await _captureApiException(() => service.savePlant(_createRequest));
-
-      expect(error.userMessage, 'サービスに一時的に接続できません。しばらく待ってから再試行してください。');
-    });
-
+    // 502（上流の AI・ストレージがエラーを返した）を返すのはアップロードだけで、クライアントが呼ぶのもそこだけ。
+    // アップロードは MultipartRequest を送って http.Response.fromStream で応答を作るので、
+    // 保存・削除とはエラーを例外にする経路が別。表には入れず、実際に 502 が返る経路で再現する
     test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {
-      // 502（上流の AI・ストレージがエラーを返した）を返すエンドポイントのうち、
-      // クライアントが呼ぶのはアップロードだけなので、アップロードで再現する
       final tempDir = await Directory.systemTemp.createTemp('snaplant_test_');
       addTearDown(() => tempDir.delete(recursive: true));
       final file = File('${tempDir.path}/photo.jpg');
-      await file.writeAsBytes([0xFF, 0xD8, 0xFF, 0xE0, ...List.filled(32, 0)]);
+      await file.writeAsBytes(_withBody([0xFF, 0xD8, 0xFF, 0xE0]));
       final service = _serviceResponding('POST', '/api/images/upload', 502, {
         'success': false,
-        'error': {
-          'code': 'AI_SERVICE_ERROR',
-          'message': '植物識別サービスでエラーが発生しました',
-        },
+        'error': {'code': 'AI_SERVICE_ERROR', 'message': '植物識別サービスでエラーが発生しました'},
       });
 
       final error = await _captureApiException(() => service.uploadAndIdentifyImage(file));
 
+      expect(error.code, 'AI_SERVICE_ERROR');
       expect(error.userMessage, '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。');
     });
   });
