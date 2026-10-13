@@ -256,4 +256,20 @@ void main() {
     expect(find.text('この旅行は削除されています'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsNothing);
   });
+
+  testWidgets('編集を保存した後の取り直しが 404 以外で失敗したときは、エラーと「再試行」を出し、編集・削除のメニューは出さない', (tester) async {
+    final backend = _backendWith([hokkaidoTrip()]);
+    await openDetailFromHome(tester, backend);
+    await openEditDialog(tester);
+    await enterTripName(tester, '北海道 2026冬');
+    // 保存（PUT）は成功し、その後の取り直し（詳細の取得）だけが失敗する
+    backend.failNext(TripRoute.detail);
+
+    await tapInDialog(tester, '保存');
+
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
 }

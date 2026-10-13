@@ -110,9 +110,12 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
 | `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
 | `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
+| `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成（旅行アルバム） |
+| `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき（旅行アルバム） |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `utils/image_mime_type_test.dart` | マジックバイトによる画像形式の判定 |
 | `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
+| `helpers/trip_test_helpers.dart` | （テストではない）旅行の API の偽のサーバ `FakeTripBackend`（旅行を1つのリストで持ち、別の端末での変化はテストが書き換えて表す。1回だけの失敗は `failNext`、応答の保留は `holds`） |
 
 テストで踏みやすい点。
 
@@ -718,8 +721,10 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに渡すため、
 各メソッドが自分で `json['data']` を剥がす必要がある。これを忘れると実行時に
 `fromJson` がキーを見つけられず失敗する（過去に `ApiService` の `identifyPlant()` と `uploadImage()` で発生。どちらも未使用だったため削除済み）。
-`mobile/test/services/api_service_test.dart` が、クライアントが `data` を読む下表のエンドポイントすべてでこれを固定している
+`mobile/test/services/api_service_test.dart` が、クライアントが `data` を読む下表の植物の API のエンドポイントすべてでこれを固定している
 （`DELETE` は `data` を読まず、`identify` はクライアントから呼んでいないので対象外）。
+旅行アルバムの API は、画面のテストが偽のサーバ（`FakeTripBackend`）越しに封筒の剥がし方まで通しているので、`api_service_test.dart` にメソッドごとのテストを足していない
+（上位に従属するテストを作らない。Issue #41）。メソッドを足したら、それを使う画面のテストで `data` の読み違いが落ちることを確かめる。
 メソッドを足したら同じ形でテストを足すこと。
 
 さらに封筒の内側のキーが関数ごとに違う点にも注意：
@@ -733,3 +738,6 @@ Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに
 | `POST /api/plants/identify` | `{ result }`（クライアントからは呼んでいない） |
 | `GET /api/plants/check-duplicate` | `DuplicateCheckResult` を直接 |
 | `POST /api/images/upload` | `{ imagePath, fileName, contentType, fileSize, identificationResult }` |
+| `GET /api/trips` | `{ trips, total, unassignedPhotoCount }` |
+| `POST /api/trips`・`GET` / `PUT /api/trips/{tripId}` | `{ trip }` |
+| `DELETE /api/trips/{tripId}` | `{ message, deletedPhotoCount, detachedPhotoCount }` |
