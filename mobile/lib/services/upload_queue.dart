@@ -45,6 +45,17 @@ Future<_PreparedPhoto> _preparePhoto(String path) async {
       sha256.convert(bytes).toString(), await readPhotoMetadata(bytes));
 }
 
+/// 送信の一区切り（送信中の項目が無くなったとき）の結果
+class UploadBatchResult {
+  const UploadBatchResult({required this.count, required this.tripIds});
+
+  /// 送れた枚数
+  final int count;
+
+  /// 送れた写真の送り先（旅行に属さない写真は null）。画面は自分宛てが含まれていれば一覧を読み直す
+  final Set<String?> tripIds;
+}
+
 /// 送る写真1枚の状態
 enum UploadState { waiting, sending, done, failed }
 
@@ -63,14 +74,12 @@ class UploadQueue extends ChangeNotifier {
   final List<UploadItem> _items = [];
   final Map<UploadItem, UploadState> _states = {};
 
-  final _uploaded = StreamController<UploadItem>.broadcast();
-  final _finished = StreamController<int>.broadcast();
+  final _finished = StreamController<UploadBatchResult>.broadcast();
 
-  /// 1枚送れるたびに流れる（画面は自分宛ての写真なら一覧を読み直す）
-  Stream<UploadItem> get uploaded => _uploaded.stream;
-
-  /// 送信中の項目が無くなったときに、送れた枚数が流れる（AppRoot が「N枚を送信しました」と知らせる）
-  Stream<int> get finished => _finished.stream;
+  /// 送信中の項目が無くなったときに、その区切りで送れた写真が流れる。
+  /// AppRoot は「N枚を送信しました」と知らせ、画面は自分宛てが含まれていれば一覧を読み直す。
+  /// 1枚ごとに読み直すと、数百枚の送信で一覧の取得とグリッドの作り直し（スクロール位置が先頭に戻る）が同じ数だけ起きる
+  Stream<UploadBatchResult> get finished => _finished.stream;
 
   /// 列にある項目（進み具合バナーが数える）
   List<UploadItem> get items => List.unmodifiable(_items);
@@ -117,13 +126,14 @@ class UploadQueue extends ChangeNotifier {
           latitude: item.metadata.latitude,
           longitude: item.metadata.longitude);
       _states[item] = UploadState.done;
-      _uploaded.add(item);
     } catch (e) {
       debugPrint('UploadQueue: 写真の送信エラー: $e');
       _states[item] = UploadState.failed;
     }
     if (_count(UploadState.waiting) == 0 && _count(UploadState.sending) == 0) {
-      _finished.add(_count(UploadState.done));
+      final done = _items.where((i) => _states[i] == UploadState.done).toList();
+      _finished.add(UploadBatchResult(
+          count: done.length, tripIds: done.map((i) => i.tripId).toSet()));
       _items.removeWhere((i) => _states[i] == UploadState.done);
       _states.removeWhere((_, state) => state == UploadState.done);
     }
@@ -156,7 +166,6 @@ class UploadQueue extends ChangeNotifier {
 
   @override
   void dispose() {
-    _uploaded.close();
     _finished.close();
     super.dispose();
   }

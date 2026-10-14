@@ -45,11 +45,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _selection = PhotoSelection();
   // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
-  StreamSubscription<UploadItem>? _uploaded;
+  StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
   void dispose() {
-    _uploaded?.cancel();
+    _uploadFinished?.cancel();
     _selection.dispose();
     super.dispose();
   }
@@ -58,9 +58,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   void initState() {
     super.initState();
     _loadTrip();
-    // この旅行宛ての写真が送れたら、一覧と見出しの枚数を読み直す
-    _uploaded = widget.uploadQueue.uploaded
-        .where((item) => item.tripId == widget.tripId)
+    // 送信が一区切りついて、この旅行宛ての写真が送れていたら、一覧と見出しの枚数を読み直す
+    _uploadFinished = widget.uploadQueue.finished
+        .where((result) => result.tripIds.contains(widget.tripId))
         .listen((_) => _reloadPhotos());
   }
 

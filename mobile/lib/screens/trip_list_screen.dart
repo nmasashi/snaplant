@@ -42,7 +42,7 @@ class _TripListScreenState extends State<TripListScreen> {
   TripList? _tripList;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
-  StreamSubscription<int>? _uploadFinished;
+  StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
   void initState() {

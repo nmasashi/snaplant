@@ -30,7 +30,7 @@ class _AppRootState extends State<AppRoot> {
   ApiService? _apiService;
   // 写真の送信の列。ApiService と一緒に作り直す（古い設定で送り続けないように）
   UploadQueue? _uploadQueue;
-  StreamSubscription<int>? _uploadFinished;
+  StreamSubscription<UploadBatchResult>? _uploadFinished;
   bool _isLoading = true;
   // 保存済みの設定を読めなかった
   bool _settingsLoadFailed = false;
@@ -116,10 +116,10 @@ class _AppRootState extends State<AppRoot> {
   }
 
   /// 送信の列が空になったら、送れた枚数を知らせる（どの画面にいても出す）
-  void _showUploadFinished(int count) {
-    if (!mounted || count == 0) return;
+  void _showUploadFinished(UploadBatchResult result) {
+    if (!mounted || result.count == 0) return;
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('$count枚を送信しました')));
+        .showSnackBar(SnackBar(content: Text('${result.count}枚を送信しました')));
   }
 
   /// 設定画面を開き、戻ったら設定を読み直す
