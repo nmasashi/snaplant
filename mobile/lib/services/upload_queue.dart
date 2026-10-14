@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,20 +11,38 @@ import 'api_service.dart';
 /// 送る写真1枚
 class UploadItem {
   UploadItem(
-      {required this.photoId,
-      required this.bytes,
+      {required this.path,
+      required this.photoId,
       this.tripId,
       this.metadata = PhotoMetadata.none});
 
+  /// ギャラリーで選んだ画像のファイル（縮小済み）。バイト列は送るときに読む
+  /// （数百枚を選んだときに、全部のバイト列をメモリに持ち続けないように）
+  final String path;
+
   /// 画像のバイト列の SHA-256（16進・小文字）。同じ写真を何度送っても1枚になる
   final String photoId;
-  final Uint8List bytes;
 
   /// 送り先の旅行。null なら旅行に属さない写真
   final String? tripId;
 
   /// EXIF から読んだ撮影日時と位置
   final PhotoMetadata metadata;
+}
+
+/// 準備の結果（別の isolate から返す）
+class _PreparedPhoto {
+  const _PreparedPhoto(this.photoId, this.metadata);
+  final String photoId;
+  final PhotoMetadata metadata;
+}
+
+/// 画像のファイルを読み、SHA-256 と EXIF の撮影日時・位置を求める。
+/// 数百枚を選ぶと画面が固まるので、別の isolate（compute）で行う（docs/travel-album/03_screen_design.md §4.7「準備」）
+Future<_PreparedPhoto> _preparePhoto(String path) async {
+  final bytes = await File(path).readAsBytes();
+  return _PreparedPhoto(
+      sha256.convert(bytes).toString(), await readPhotoMetadata(bytes));
 }
 
 /// 送る写真1枚の状態
@@ -60,12 +80,12 @@ class UploadQueue extends ChangeNotifier {
   /// 選んだ写真を準備して列に入れる
   Future<void> addFiles(List<XFile> files, {String? tripId}) async {
     for (final file in files) {
-      final bytes = await file.readAsBytes();
+      final prepared = await compute(_preparePhoto, file.path);
       final item = UploadItem(
-        photoId: sha256.convert(bytes).toString(),
-        bytes: bytes,
+        path: file.path,
+        photoId: prepared.photoId,
         tripId: tripId,
-        metadata: await readPhotoMetadata(bytes),
+        metadata: prepared.metadata,
       );
       _items.add(item);
       _states[item] = UploadState.waiting;
@@ -91,7 +111,7 @@ class UploadQueue extends ChangeNotifier {
     try {
       await _apiService.uploadPhoto(
           photoId: item.photoId,
-          bytes: item.bytes,
+          bytes: await File(item.path).readAsBytes(),
           tripId: item.tripId,
           takenAt: item.metadata.takenAt,
           latitude: item.metadata.latitude,
