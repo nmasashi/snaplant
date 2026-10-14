@@ -1628,6 +1628,25 @@ void main() {
     expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
   });
 
+  testWidgets('EXIF の緯度が範囲外（95度）の写真は、位置を省いて送られて届き、撮影日時はそのまま入る', (tester) async {
+    // 範囲外の位置を送ると、サーバに 400 で断られ、何度送っても届かない。偽のサーバも、範囲外は 400 で断る
+    final image = writeTestImage('bad_gps.jpg', bytes: exifJpegBytes(latitude: [95, 0, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(photo['location'], isNull);
+    expect(photo['takenAt'], '2026-10-05T10:20:30');
+  });
+
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
