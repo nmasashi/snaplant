@@ -93,6 +93,8 @@ class UploadQueue extends ChangeNotifier {
     // 読めない写真があっても残りの準備は続け、最後に失敗を呼び出し側へ伝える（呼び出し側が知らせる）
     Object? failure;
     for (final file in files) {
+      // 準備の途中で設定が変わってこの列が捨てられたら、残りは準備しない（送らないので読むだけ無駄になる）
+      if (_disposed) return;
       try {
         final prepared = await compute(_preparePhoto, file.path);
         final item = UploadItem(
