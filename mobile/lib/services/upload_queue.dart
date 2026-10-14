@@ -159,19 +159,43 @@ class UploadQueue extends ChangeNotifier {
     }
   }
 
+  /// 一時的な失敗のときに送り直すまでの間隔（docs/travel-album/03_screen_design.md §4.7 の表）。回数の上限もこの長さ
+  static const _retryDelays = [
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+  ];
+
+  /// 送り直せば通りうる失敗か（通信できない・混んでいる・一時的に使えない）
+  static bool _isTransient(Object error) =>
+      error is ApiException &&
+      (error.statusCode == 0 ||
+          error.statusCode == 429 ||
+          error.statusCode == 503);
+
   Future<void> _send(UploadItem item) async {
-    try {
-      await _apiService.uploadPhoto(
-          photoId: item.photoId,
-          bytes: await File(item.path).readAsBytes(),
-          tripId: item.tripId,
-          takenAt: item.metadata.takenAt,
-          latitude: item.metadata.latitude,
-          longitude: item.metadata.longitude);
-      _states[item] = UploadState.done;
-    } catch (e) {
-      debugPrint('UploadQueue: 写真の送信エラー: $e');
-      _states[item] = UploadState.failed;
+    for (var attempt = 0;; attempt++) {
+      try {
+        await _apiService.uploadPhoto(
+            photoId: item.photoId,
+            bytes: await File(item.path).readAsBytes(),
+            tripId: item.tripId,
+            takenAt: item.metadata.takenAt,
+            latitude: item.metadata.latitude,
+            longitude: item.metadata.longitude);
+        _states[item] = UploadState.done;
+        break;
+      } catch (e) {
+        debugPrint('UploadQueue: 写真の送信エラー: $e');
+        if (_isTransient(e) && attempt < _retryDelays.length && !_disposed) {
+          // 待つ間も送信中のまま（バナーは失敗の行にしない。同時に送る枠もふさいだまま）
+          await Future.delayed(_retryDelays[attempt]);
+          if (_disposed) return;
+          continue;
+        }
+        _states[item] = UploadState.failed;
+        break;
+      }
     }
     // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
     if (_disposed) return;
