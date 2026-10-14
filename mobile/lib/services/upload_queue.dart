@@ -137,6 +137,8 @@ class UploadQueue extends ChangeNotifier {
       _pump();
     }
     _preparations.remove(progress);
+    // 最後の写真の送信が準備より先に終わっていたら、ここで区切りになる
+    _finishBatchIfIdle();
     notifyListeners();
     if (failure != null) throw failure;
   }
@@ -173,15 +175,24 @@ class UploadQueue extends ChangeNotifier {
     }
     // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
     if (_disposed) return;
-    if (_count(UploadState.waiting) == 0 && _count(UploadState.sending) == 0) {
-      final done = _items.where((i) => _states[i] == UploadState.done).toList();
-      _finished.add(UploadBatchResult(
-          count: done.length, tripIds: done.map((i) => i.tripId).toSet()));
-      _items.removeWhere((i) => _states[i] == UploadState.done);
-      _states.removeWhere((_, state) => state == UploadState.done);
-    }
+    _finishBatchIfIdle();
     notifyListeners();
     _pump();
+  }
+
+  /// 準備中の写真も、待ち・送信中の項目も無くなったら、送信の一区切りとして送れた写真を流し、列から除く。
+  /// 準備中の写真が残っている間に区切ると、選んだ写真の途中で「N枚を送信しました」が出て、残りの分でもう一度出る
+  void _finishBatchIfIdle() {
+    if (_preparations.isNotEmpty ||
+        _count(UploadState.waiting) > 0 ||
+        _count(UploadState.sending) > 0) {
+      return;
+    }
+    final done = _items.where((i) => _states[i] == UploadState.done).toList();
+    _finished.add(UploadBatchResult(
+        count: done.length, tripIds: done.map((i) => i.tripId).toSet()));
+    _items.removeWhere((i) => _states[i] == UploadState.done);
+    _states.removeWhere((_, state) => state == UploadState.done);
   }
 
   /// 失敗した項目のうち、送り先が [where] に当たるものを送り直す。準備はやり直さない
