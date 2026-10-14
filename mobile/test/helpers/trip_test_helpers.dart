@@ -590,12 +590,12 @@ Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   await letFramesRun(tester);
 }
 
-/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が届くまで、実時間で少しずつ待つ（最長 5 秒）。
+/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が [count] 枚届くまで、実時間で少しずつ待つ（最長 5 秒）。
 /// 写真の準備（ファイルの読み込み・ハッシュ・EXIF）は別の isolate で実時間で進むので、`tester.runAsync` の中で待つ。
 /// 届かなくても例外にせず戻る（検証は呼び出し側）。待っている間は画面を進めない（写真のサムネイルを出す前に待ち終える。
 /// 出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
-Future<void> waitUntilUploaded(WidgetTester tester, FakeTripBackend backend, String tripKey) async {
-  for (var i = 0; i < 100 && (backend.photosByTripId[tripKey] ?? []).isEmpty; i++) {
+Future<void> waitUntilUploaded(WidgetTester tester, FakeTripBackend backend, String tripKey, {int count = 1}) async {
+  for (var i = 0; i < 100 && (backend.photosByTripId[tripKey] ?? []).length < count; i++) {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
   }
 }

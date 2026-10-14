@@ -25,6 +25,9 @@ class UploadItem {
   final PhotoMetadata metadata;
 }
 
+/// 送る写真1枚の状態
+enum UploadState { waiting, sending, done }
+
 /// 写真の送信の列（docs/travel-album/03_screen_design.md §4.7）
 ///
 /// 送信は画面を移っても続くので、画面ではなく AppRoot が1つ持ち、各画面に渡す（§1「状態の持ち方」）
@@ -36,10 +39,9 @@ class UploadQueue extends ChangeNotifier {
   /// 同時に送る数（docs/travel-album/02_design_overview.md §4.7）
   static const _maxConcurrent = 2;
 
-  final List<UploadItem> _waiting = [];
-  int _sending = 0;
-  // 列が空になるまでに送れた枚数
-  int _completed = 0;
+  // 列が空になるまでの項目（進み具合の全体）。全部済んだら空にする
+  final List<UploadItem> _items = [];
+  final Map<UploadItem, UploadState> _states = {};
 
   final _uploaded = StreamController<UploadItem>.broadcast();
   final _finished = StreamController<int>.broadcast();
@@ -50,25 +52,38 @@ class UploadQueue extends ChangeNotifier {
   /// 列が空になったときに、送れた枚数が流れる（AppRoot が「N枚を送信しました」と知らせる）
   Stream<int> get finished => _finished.stream;
 
+  /// 列にある項目（進み具合バナーが数える）
+  List<UploadItem> get items => List.unmodifiable(_items);
+
+  UploadState stateOf(UploadItem item) => _states[item]!;
+
   /// 選んだ写真を準備して列に入れる
   Future<void> addFiles(List<XFile> files, {String? tripId}) async {
     for (final file in files) {
       final bytes = await file.readAsBytes();
-      _waiting.add(UploadItem(
+      final item = UploadItem(
         photoId: sha256.convert(bytes).toString(),
         bytes: bytes,
         tripId: tripId,
         metadata: await readPhotoMetadata(bytes),
-      ));
+      );
+      _items.add(item);
+      _states[item] = UploadState.waiting;
     }
     notifyListeners();
     _pump();
   }
 
+  int _count(UploadState state) =>
+      _states.values.where((s) => s == state).length;
+
   void _pump() {
-    while (_sending < _maxConcurrent && _waiting.isNotEmpty) {
-      _sending++;
-      _send(_waiting.removeAt(0));
+    for (final item in _items) {
+      if (_count(UploadState.sending) >= _maxConcurrent) break;
+      if (_states[item] == UploadState.waiting) {
+        _states[item] = UploadState.sending;
+        _send(item);
+      }
     }
   }
 
@@ -81,15 +96,16 @@ class UploadQueue extends ChangeNotifier {
           takenAt: item.metadata.takenAt,
           latitude: item.metadata.latitude,
           longitude: item.metadata.longitude);
-      _completed++;
       _uploaded.add(item);
     } catch (e) {
       debugPrint('UploadQueue: 写真の送信エラー: $e');
     } finally {
-      _sending--;
-      if (_sending == 0 && _waiting.isEmpty) {
-        _finished.add(_completed);
-        _completed = 0;
+      _states[item] = UploadState.done;
+      if (_count(UploadState.waiting) == 0 &&
+          _count(UploadState.sending) == 0) {
+        _finished.add(_count(UploadState.done));
+        _items.clear();
+        _states.clear();
       }
       notifyListeners();
       _pump();

@@ -13,6 +13,7 @@ import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
+import '../widgets/upload_banner.dart';
 
 /// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
 ///
@@ -206,6 +207,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             style: AppTextStyles.body1,
           ),
         ),
+        // その旅行宛ての写真だけを数える
+        UploadBanner(
+            uploadQueue: widget.uploadQueue,
+            includes: (item) => item.tripId == widget.tripId),
         Expanded(
           child: PhotoGrid(
             key: ValueKey(_gridVersion),
