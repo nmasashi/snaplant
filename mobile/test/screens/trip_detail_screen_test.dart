@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
@@ -1721,6 +1722,32 @@ void main() {
 
     expect(find.textContaining('送信中'), findsNothing);
     expect(find.text('2枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('2枚を選ぶと、準備が済んだ1枚目から送り始め、2枚目の準備が終わるまでの間は、旅行詳細の上部に「写真を準備中... 1/2」を出す', (tester) async {
+    // 準備は1枚ずつ進む。2枚目を大きなファイル（128MB。ハッシュだけで1秒を超える）にして、1枚目の送信の要求が偽のサーバに届いた時点で、
+    // 2枚目の準備がまだ終わっていない状態を作る（準備は別の isolate で実時間で進むので、順序を止める手段が無く、時間のかかる準備で余裕を取る）。
+    // 準備の進み具合は「準備が済んだ数/選んだ数」。1枚目の応答は保留して、1枚目の送信が終わったことによる表示の変化を混ぜない
+    final first = writeTestImage('first.png');
+    final big = writeTestImage('big.png', bytes: Uint8List(128 * 1024 * 1024));
+    useGalleryReturning([first, big]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+
+    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
+
+    // 後片付け: 1枚目の応答を返し、2枚目の準備と送信が終わるまで待つ（準備が画面の後ろで続いたまま、テストを終えない）
+    firstReply.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
   });
 
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
