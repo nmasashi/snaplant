@@ -47,8 +47,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     _loadTrip();
   }
 
-  /// 旅行（枚数・撮影期間つき）を読み込む
-  Future<void> _loadTrip() async {
+  /// 旅行（枚数・撮影期間つき）を読み込む。
+  /// [keepOnFailure] なら、取り直しの失敗（旅行が無い場合を除く）で画面をエラーにせず、前の見出しを残す
+  Future<void> _loadTrip({bool keepOnFailure = false}) async {
     setState(() => _errorMessage = null);
     try {
       final trip = await widget.apiService.getTrip(widget.tripId);
@@ -65,6 +66,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         });
         return;
       }
+      if (keepOnFailure && _trip != null) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '旅行の読み込みに失敗しました');
     }
@@ -105,10 +107,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
   }
 
-  /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す
+  /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す。
+  /// 見出しを取り直せなくても前の値のまま出す（操作は済んで知らせも出ているので、画面をエラーで置き換えない）
   Future<void> _reloadPhotos() async {
     setState(() => _gridVersion++);
-    await _loadTrip();
+    await _loadTrip(keepOnFailure: true);
   }
 
   /// 削除の知らせ。写真を消したか移したかは応答の枚数で分かる（0枚の旅行ならどちらも 0）

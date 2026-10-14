@@ -1053,6 +1053,40 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真を削除したあとの旅行の取り直しに失敗しても、「1枚を削除しました」と知らせて写真の一覧は読み直し、見出しは前の値のまま、エラーの表示も失敗の知らせも出さない', (tester) async {
+    // 旅行の取得（GET /api/trips/{tripId}）は、開いたときに済んでいる。削除のあとの取り直しが次の1回目なので、確認の「削除」を押す直前に失敗させる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.detail);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('1枚を削除しました'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真の移動にサーバが失敗を返すと、エラーの文言を出して「旅行を選ぶ」のダイアログと2枚の選択は残り、「入れる」を押し直すと移って「2枚を「京都」に入れました」と知らせる', (tester) async {
     // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
     final semantics = tester.ensureSemantics();
