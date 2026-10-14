@@ -652,3 +652,12 @@ Future<void> waitUntilFound(WidgetTester tester, Finder finder) async {
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
+
+/// [finder] に当たるものが出るまで、フェイクの時間を 100 ミリ秒ずつ進める（最長 10 秒分）。実時間は進めない。
+/// スナックバーは順に出る（先の知らせが消えるまで、あとの知らせは待つ）ので、表示時間の具体値に頼らずに待つために使う。
+/// 出なくても例外にせず戻る（検証は呼び出し側）
+Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}

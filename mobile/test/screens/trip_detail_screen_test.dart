@@ -1555,6 +1555,8 @@ void main() {
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
     expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['id']), [tinyPngSha256]);
+    // 2つの知らせは順に出る。先の「読み込みに失敗しました」が消えてから、あとの知らせが出る
+    await pumpUntilFound(tester, find.text('1枚を送信しました'));
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
