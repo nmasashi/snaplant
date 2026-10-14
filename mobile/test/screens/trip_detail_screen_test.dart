@@ -1560,6 +1560,31 @@ void main() {
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
+  testWidgets('3枚のうち2枚目の準備に失敗しても、3枚目の準備は続け、「画像の読み込みに失敗しました」と知らせ、読めた1枚目と3枚目が送られて「2枚を送信しました」と知らせる', (tester) async {
+    // 失敗した写真より後に選んだ写真を、捨てない。2枚目は存在しないパス
+    final first = writeTestImage('first.png');
+    final missing = File('${first.parent.path}/no_such_image.png');
+    final third = writeTestImage('third.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, missing, third]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilFound(tester, find.text('画像の読み込みに失敗しました'));
+
+    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+    expect(backend.photosByTripId[hokkaidoTripId]!.length, 2);
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['id']), contains(tinyPngSha256));
+    // 2つの知らせは順に出る。先の「読み込みに失敗しました」が消えてから、あとの知らせが出る
+    await pumpUntilFound(tester, find.text('2枚を送信しました'));
+    expect(find.text('2枚を送信しました'), findsOneWidget);
+  });
+
   testWidgets('送信している間に設定をリセットしてアプリが送信の列を作り直しても、送信の応答が返ったときに例外は出ず、作り直した後の画面に送信の知らせは出ない', (tester) async {
     // 設定が変わると、前の設定の列は破棄される。破棄された列の送信が終わっても、閉じたストリームへ流したり、破棄済みの通知を呼んだりしない
     final image = writeTestImage('hokkaido.png');
