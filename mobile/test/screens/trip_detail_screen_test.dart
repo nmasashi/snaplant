@@ -924,6 +924,36 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('ちょうど200枚を選んで「旅行に入れる」と、200枚が移り、「200枚を「京都」に入れました」と知らせる', (tester) async {
+    // 200枚は一度に送れる上限ちょうど。分け方の境界で、空のまとまりを余分に送ると偽のサーバが 400 で断る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 200), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      pageSize: 300,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 200; n++) photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
+    await letFramesRun(tester);
+    await tester.tap(find.text('すべて選択'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('200枚を「京都」に入れました'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.length, 200);
+    semantics.dispose();
+  });
+
   testWidgets('写真の移動にサーバが失敗を返すと、エラーの文言を出して「旅行を選ぶ」のダイアログと2枚の選択は残り、「入れる」を押し直すと移って「2枚を「京都」に入れました」と知らせる', (tester) async {
     // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
     final semantics = tester.ensureSemantics();
@@ -966,12 +996,13 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('「旅行を選ぶ」の「新しい旅行を作る」で旅行「沖縄」を作ると、「旅行を選ぶ」に戻って「沖縄」が選ばれ、そのまま「入れる」で選んだ写真が「沖縄」に入る', (tester) async {
-    // 行き先の旅行が北海道しか無い状態から始める（北海道は一覧に出ない）。作った旅行が選ばれていることは、行のラジオボタンの状態ではなく、
-    // 何も選ばれていなければ押せない「入れる」で、その旅行に移せることで見る（ラジオボタンの選択は Semantics からは読めなかった）
+  testWidgets('「旅行を選ぶ」で「京都」を選んだあとに「新しい旅行を作る」で「沖縄」を作ると、一覧に「沖縄」が加わって選びが「沖縄」に替わり、そのまま「入れる」で選んだ写真が「沖縄」に入る（「京都」には入らない）', (tester) async {
+    // 先に「京都」を選んでおき、作った旅行で選びが上書きされることも見る（作った旅行を選ばなければ、「入れる」は京都に入ってしまう）。
+    // 作った旅行が選ばれていることは、行のラジオボタンの状態ではなく、「入れる」でその旅行に移せることで見る
+    // （ラジオボタンの選択は Semantics からは読めなかった）
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 2)],
+      trips: [hokkaidoTrip(photoCount: 2), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
       functionKey: _apiKey,
       photosByTripId: {
         hokkaidoTripId: [
@@ -985,6 +1016,8 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(find.text('旅行に入れる'));
     await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
     expect(inDialog(find.textContaining('新しい旅行を作る')), findsOneWidget);
     await tester.tap(inDialog(find.textContaining('新しい旅行を作る')));
     await letFramesRun(tester);
@@ -993,11 +1026,15 @@ void main() {
     await tapInDialog(tester, '作成');
 
     expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(inDialog(find.text('沖縄')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
 
     await tapInDialog(tester, '入れる');
 
     expect(find.text('1枚を「沖縄」に入れました'), findsOneWidget);
-    expect(backend.photosByTripId[backend.trips.first['id']]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
+    final okinawaId = backend.trips.firstWhere((trip) => trip['name'] == '沖縄')['id'];
+    expect(backend.photosByTripId[okinawaId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
+    expect(backend.photosByTripId[kyotoTripId] ?? [], isEmpty);
     semantics.dispose();
   });
 
