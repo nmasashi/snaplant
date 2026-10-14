@@ -48,6 +48,24 @@ Future<void> _scrollToEnd(WidgetTester tester) async {
   await letFramesRun(tester);
 }
 
+/// 実時間を進めながら、画面を何度も進める（フェイクの時間は進まない）。
+/// 送り直しの待ちが過ぎていないとき、実時間が進んでもファイルの読み込みも要求も起きない（届いた回数が増えない）ことを確かめるために使う。
+/// 待ちが過ぎていれば、ファイルの読み込みから要求が届くまでに、実時間の経過と画面を進める操作の繰り返しが要る
+/// （実時間を一度に待つだけでは、続きが進まず、早すぎる送り直しを見逃す）。繰り返しの回数と間隔は、見逃さないための余裕
+Future<void> _waitRealTime(WidgetTester tester) async {
+  for (var i = 0; i < 20; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+  }
+}
+
+/// 送信の要求が [count] 回届くまで待ち、その失敗の応答を処理させる（次の送り直しの待ちは、ここから数え始まる）
+Future<void> _letUploadFail(WidgetTester tester, FakeTripBackend backend, int count) async {
+  await waitUntilUploadsReceived(tester, backend, count);
+  await tester.pump();
+  await tester.pump();
+}
+
 /// 「詳細を開く」ボタンだけのホーム画面から、[hokkaidoTripId] の旅行詳細を開く。
 /// 詳細画面の前に画面がある状態にする（削除したら戻る先）。[theme] を渡すと、アプリのテーマが効いた状態になる（色を確かめるテストだけが渡す）
 Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {ThemeData? theme}) async {
@@ -1799,6 +1817,72 @@ void main() {
     await pumpUntilFound(tester, find.text('1枚を送信しました'));
     expect(find.text('1枚を送信しました'), findsOneWidget);
     expect(find.textContaining('送信できませんでした'), findsNothing);
+  });
+
+  testWidgets('503 で失敗した送信は、2秒・4秒・8秒の間隔を空けて送り直し、それより早くは送り直さない', (tester) async {
+    // 送り直しの待ちはフェイクの時間。待ちの1ミリ秒手前では実時間を進めても要求は届かず、1ミリ秒進めると届く。
+    // 要求が届いた回数は、偽のサーバが受け取った要求の数（送り直しの間隔を、サーバから見た要求の届き方で確かめる）
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    for (var i = 0; i < 4; i++) {
+      backend.failNext(TripRoute.upload);
+    }
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await _letUploadFail(tester, backend, 1);
+    await tester.pump(const Duration(milliseconds: 1999));
+    await _waitRealTime(tester);
+    expect(backend.uploadsReceived, 1);
+    await tester.pump(const Duration(milliseconds: 1));
+    await _letUploadFail(tester, backend, 2);
+
+    await tester.pump(const Duration(milliseconds: 3999));
+    await _waitRealTime(tester);
+    expect(backend.uploadsReceived, 2);
+    await tester.pump(const Duration(milliseconds: 1));
+    await _letUploadFail(tester, backend, 3);
+
+    await tester.pump(const Duration(milliseconds: 7999));
+    await _waitRealTime(tester);
+    expect(backend.uploadsReceived, 3);
+    await tester.pump(const Duration(milliseconds: 1));
+    await _letUploadFail(tester, backend, 4);
+  });
+
+  testWidgets('送り直しは3回までで、4回とも 503 で失敗したら、それ以上は送らず、バナーに「1枚を送信できませんでした」を出す', (tester) async {
+    // 間隔は前のテストが見る。ここでは各回の待ちを十分に（実際の間隔より長く）進め、最後の失敗のあとにどれだけ待っても送られないことを見る
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    for (var i = 0; i < 4; i++) {
+      backend.failNext(TripRoute.upload);
+    }
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await _letUploadFail(tester, backend, 1);
+    await tester.pump(const Duration(seconds: 3));
+    await _letUploadFail(tester, backend, 2);
+    await tester.pump(const Duration(seconds: 5));
+    await _letUploadFail(tester, backend, 3);
+    await tester.pump(const Duration(seconds: 9));
+    await _letUploadFail(tester, backend, 4);
+    await tester.pump(const Duration(seconds: 16));
+    await _waitRealTime(tester);
+    await letFramesRun(tester);
+
+    expect(backend.uploadsReceived, 4);
+    expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
+    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('送り直す'), findsOneWidget);
   });
 
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
