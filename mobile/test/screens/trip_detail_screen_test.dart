@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
@@ -1534,6 +1535,27 @@ void main() {
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['location'], {'latitude': -43.5, 'longitude': -141.25, 'placeName': null, 'placeSource': null});
+  });
+
+  testWidgets('2枚のうち2枚目の準備（ファイルの読み込み）に失敗しても、「画像の読み込みに失敗しました」と知らせ、読めた1枚目は送られて「1枚を送信しました」と知らせる', (tester) async {
+    // 準備は1枚ずつ進む。途中の1枚で失敗しても、それまでに準備できた分が列に残ったまま送られなくならない。2枚目は存在しないパス
+    final first = writeTestImage('first.png');
+    final missing = File('${first.parent.path}/no_such_image.png');
+    useGalleryReturning([first, missing]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilFound(tester, find.text('画像の読み込みに失敗しました'));
+
+    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['id']), [tinyPngSha256]);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {

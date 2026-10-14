@@ -641,3 +641,14 @@ Future<void> waitUntilUploadsReceived(WidgetTester tester, FakeTripBackend backe
     fail('写真の送信の要求が $count 回届くはずが、${backend.uploadsReceived} 回しか届かなかった');
   }
 }
+
+/// [finder] に当たるものが出るまで、実時間で少しずつ待ち、画面を進める（最長 10 秒）。
+/// 別の isolate での準備（ファイルの読み込み）の結果が、画面に知らせとして出るのを待つために使う。
+/// 出なくても例外にせず戻る（検証は呼び出し側）。写真のサムネイルが出る前に待ち終える使い方に限る
+/// （出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
+Future<void> waitUntilFound(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
