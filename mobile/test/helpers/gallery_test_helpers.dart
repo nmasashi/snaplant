@@ -62,12 +62,16 @@ File writeTestImage(String name, {List<int> bytes = tinyPngBytes}) {
 
 /// EXIF 付きの JPEG のバイト列（SOI、EXIF を入れた APP1、EOI だけの、画像の本体を持たない最小の JPEG）。
 /// EXIF は次の値だけを持つ。小さな固定のバイト列を手で組み立てているので、EXIF を読む側のテストに使う（画像として表示はできない）。
-/// - `DateTimeOriginal`: `2026:10:05 10:20:30`
+/// - `DateTimeOriginal`: [dateTimeOriginal]（既定は `2026:10:05 10:20:30`。`YYYY:MM:DD HH:mm:ss` の19文字。実在しない日時も渡せる）
 /// - GPS: 緯度 43度30分0秒（10進で 43.5）、経度 141度15分0秒（10進で 141.25）。向きは [latitudeRef]（既定は北 `N`、南なら `S`）と [longitudeRef]（既定は東 `E`、西なら `W`）
 ///
 /// 作り方: TIFF（リトルエンディアン）の IFD0 が Exif IFD（オフセット 38）と GPS IFD（オフセット 56）を指し、
 /// 値の本体は 110（撮影日時の20バイト）・130（緯度の分数3つ）・154（経度の分数3つ）に置く。全長は 178 バイト
-List<int> exifJpegBytes({String latitudeRef = 'N', String longitudeRef = 'E'}) {
+List<int> exifJpegBytes({
+  String dateTimeOriginal = '2026:10:05 10:20:30',
+  String latitudeRef = 'N',
+  String longitudeRef = 'E',
+}) {
   final tiff = ByteData(178);
   var at = 0;
   void u16(int v) {
@@ -113,7 +117,7 @@ List<int> exifJpegBytes({String latitudeRef = 'N', String longitudeRef = 'E'}) {
   entry(0x0004, 5, 3, 154);
   u32(0);
   // 値の本体
-  final dateTime = ascii.encode('2026:10:05 10:20:30');
+  final dateTime = ascii.encode(dateTimeOriginal);
   for (var i = 0; i < dateTime.length; i++) {
     tiff.setUint8(110 + i, dateTime[i]);
   }

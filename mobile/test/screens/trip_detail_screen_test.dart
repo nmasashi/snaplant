@@ -1609,6 +1609,25 @@ void main() {
     expect(find.textContaining('送信'), findsNothing);
   });
 
+  testWidgets('EXIF の撮影日時が実在しない日時（時計が未設定のカメラの 0000:00:00 00:00:00）の写真は、撮影日時を省いて送られて届き、位置はそのまま入る', (tester) async {
+    // 実在しない日時を送ると、サーバに 400 で断られ、何度送っても届かない。偽のサーバも、実在しない日時は 400 で断る
+    final image = writeTestImage('unset_clock.jpg', bytes: exifJpegBytes(dateTimeOriginal: '0000:00:00 00:00:00'));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(photo['takenAt'], isNull);
+    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
+  });
+
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
