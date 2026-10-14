@@ -1655,4 +1655,32 @@ void main() {
     expect(find.text('2枚を送信しました'), findsOneWidget);
     expect(find.text('2枚 · 撮影日時なし'), findsOneWidget);
   });
+
+  testWidgets('京都宛ての写真を送っている間に北海道の詳細を開いても、バナーは出ない（旅行詳細は、その旅行宛ての分だけを数える）', (tester) async {
+    // 旅行一覧は全体を数えるので、京都宛ての送信中は一覧に「送信中 0/1」が出る。北海道の詳細には、北海道宛ての項目が無いので出ない
+    final image = writeTestImage('kyoto.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [
+      tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
+      tripJson(id: kyotoTripId, name: '京都', photoCount: 0),
+    ]);
+    final reply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('京都'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, kyotoTripId);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    expect(find.text('送信中 0/1'), findsOneWidget);
+
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    expect(find.textContaining('送信中'), findsNothing);
+    reply.complete();
+    await letFramesRun(tester);
+  });
 }

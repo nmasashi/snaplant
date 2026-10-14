@@ -469,4 +469,32 @@ void main() {
     expect(find.text('1枚'), findsOneWidget);
     expect(find.text('旅行に属さない写真はありません'), findsNothing);
   });
+
+  testWidgets('「旅行に属さない写真」の画面で2枚を送っている間は、画面の上部に「送信中 0/2」を出し、応答が返るとバナーを消して「2枚を送信しました」と知らせる', (tester) async {
+    // 偽のサーバは、届いた2回の送信の応答をそれぞれ保留する。この画面は、旅行宛てでない項目だけを数える
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 0);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    final secondReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(find.textContaining('送信中'), findsNothing);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, 'none', count: 2);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId['none']!.length, 2);
+    expect(find.text('送信中 0/2'), findsOneWidget);
+
+    firstReply.complete();
+    secondReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.textContaining('送信中'), findsNothing);
+    expect(find.text('2枚を送信しました'), findsOneWidget);
+  });
 }

@@ -8,6 +8,7 @@ import '../widgets/add_photos_button.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
+import '../widgets/upload_banner.dart';
 
 /// 旅行に属さない写真の画面（docs/travel-album/03_screen_design.md §4.5）
 ///
@@ -85,6 +86,10 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
             padding: const EdgeInsets.all(16),
             child: Text('$_photoCount枚', style: AppTextStyles.body1),
           ),
+          // 旅行を指定せずに送った写真だけを数える
+          UploadBanner(
+              uploadQueue: widget.uploadQueue,
+              includes: (item) => item.tripId == null),
           Expanded(
             child: PhotoGrid(
               key: ValueKey(_gridVersion),
