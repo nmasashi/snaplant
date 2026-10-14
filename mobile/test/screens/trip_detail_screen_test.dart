@@ -954,6 +954,53 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真を移している間は「入れる」が「入れています...」になり、「キャンセル」も押せず、外のタップや戻る操作でも「旅行を選ぶ」は閉じず、応答が返れば「1枚を「京都」に入れました」と知らせる', (tester) async {
+    // 閉じられると、要求は送られたまま写真がサーバで移るのに、利用者は取り消したつもりになる。押せないことは、ボタンの Semantics で見る
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.move] = release.future;
+
+    await tapInDialog(tester, '入れる');
+
+    expect(inDialog(find.text('入れています...')), findsOneWidget);
+    expect(inDialog(find.text('入れる')), findsNothing);
+    final moving = tester.getSemantics(inDialog(find.text('入れています...')));
+    expect(moving.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(moving.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    final cancel = tester.getSemantics(inDialog(find.text('キャンセル')));
+    expect(cancel.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(cancel.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    // ダイアログの外（画面の隅）のタップ
+    await tester.tapAt(const Offset(5, 5));
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+    // 端末の戻る操作
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を「京都」に入れました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真の移動にサーバが失敗を返すと、エラーの文言を出して「旅行を選ぶ」のダイアログと2枚の選択は残り、「入れる」を押し直すと移って「2枚を「京都」に入れました」と知らせる', (tester) async {
     // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
     final semantics = tester.ensureSemantics();

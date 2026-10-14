@@ -32,6 +32,8 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
   TripSummary? _selected;
   // 旅行の一覧の読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
+  // 移している間は押せなくし、閉じさせない（二重に送らないように。閉じても要求は送られたままになる）
+  bool _isMoving = false;
 
   @override
   void initState() {
@@ -56,11 +58,13 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
 
   Future<void> _move(TripSummary trip) async {
     PhotoMoveResult result;
+    setState(() => _isMoving = true);
     try {
       result = await widget.onMove(trip.id);
     } catch (e) {
       debugPrint('TripPickerDialog: 写真の移動エラー: $e');
       if (!mounted) return;
+      setState(() => _isMoving = false);
       // ダイアログに留まる（選択も残るので、そのまま押し直せる。送れた分は移っているが、送り直しても同じ結果になる）
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.userMessage : '写真の移動に失敗しました')));
@@ -100,55 +104,60 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
     final trips = _trips;
     final selected = _selected;
     final errorMessage = _errorMessage;
-    return AlertDialog(
-      title: const Text('旅行を選ぶ'),
-      content: errorMessage != null
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(errorMessage),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: _loadTrips,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('再試行'),
-                ),
-              ],
-            )
-          : trips == null
-              ? const SizedBox(
-                  height: 80, child: Center(child: CircularProgressIndicator()))
-              : SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final trip in trips)
-                        RadioListTile<String>(
-                          value: trip.id,
-                          groupValue: selected?.id,
-                          onChanged: (_) => setState(() => _selected = trip),
-                          title: Text(trip.name),
-                          secondary: Text('${trip.photoCount}枚'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      TextButton.icon(
-                        onPressed: _createTrip,
-                        icon: const Icon(Icons.add),
-                        label: const Text('新しい旅行を作る'),
-                      ),
-                    ],
+    return PopScope(
+      canPop: !_isMoving,
+      child: AlertDialog(
+        title: const Text('旅行を選ぶ'),
+        content: errorMessage != null
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(errorMessage),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _loadTrips,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('再試行'),
                   ),
-                ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: selected == null ? null : () => _move(selected),
-          child: const Text('入れる'),
-        ),
-      ],
+                ],
+              )
+            : trips == null
+                ? const SizedBox(
+                    height: 80,
+                    child: Center(child: CircularProgressIndicator()))
+                : SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final trip in trips)
+                          RadioListTile<String>(
+                            value: trip.id,
+                            groupValue: selected?.id,
+                            onChanged: (_) => setState(() => _selected = trip),
+                            title: Text(trip.name),
+                            secondary: Text('${trip.photoCount}枚'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        TextButton.icon(
+                          onPressed: _createTrip,
+                          icon: const Icon(Icons.add),
+                          label: const Text('新しい旅行を作る'),
+                        ),
+                      ],
+                    ),
+                  ),
+        actions: [
+          TextButton(
+            onPressed: _isMoving ? null : () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed:
+                selected == null || _isMoving ? null : () => _move(selected),
+            child: Text(_isMoving ? '入れています...' : '入れる'),
+          ),
+        ],
+      ),
     );
   }
 }
