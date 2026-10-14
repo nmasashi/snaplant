@@ -123,7 +123,7 @@ enum TripRoute {
 /// - `POST /api/photos`（multipart）は、`photoId` が `image` の SHA-256 と一致しなければ 400「写真IDが画像の内容と一致しません」（実際のサーバと同じ）。
 ///   既にある id は 200 で既存を返し（冪等）、無ければ宛先（`tripId` が無ければ `none`）の末尾に足して 201 を返す。宛先の旅行の `photoCount`（と [unassignedPhotoCount]）も増やす。
 ///   `takenAt`・`latitude`・`longitude` は写真に反映する（`location` は緯度と経度を持つときだけ。地名は null）。
-///   実際のサーバと同じく、`tripId` の形式・`takenAt` の形式・緯度と経度の片方だけ・位置情報の形式は 400（空文字のパートも「指定あり」として検証する）
+///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -173,6 +173,10 @@ class FakeTripBackend {
   /// 削除の要求ごとの `deletePhotos` の値（無ければ null）
   final List<String?> deletePhotosSent = [];
 
+  /// 写真の送信（`POST /api/photos`）の要求が届いた回数（応答を保留する前に数える）。
+  /// 要求が届くまで待つための印で、検証には使わない（送ったかどうかは、写真が偽のサーバに入ったことで見る）
+  int uploadsReceived = 0;
+
   final Map<TripRoute, List<({int status, String code, String message})>> _failures = {};
   final Map<TripRoute, List<Future<void>>> _replyHolds = {};
   var _createdCount = 0;
@@ -207,6 +211,7 @@ class FakeTripBackend {
     if (route == TripRoute.delete) {
       deletePhotosSent.add(request.url.queryParameters['deletePhotos']);
     }
+    if (route == TripRoute.upload) uploadsReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -358,19 +363,29 @@ class FakeTripBackend {
   /// 写真の id（`photoId`）は画像のバイト列の SHA-256 でなければ 400 にする（実際のサーバと同じ。クライアントが正しいハッシュを送ったかを結果で見るため）。
   /// 既にある id は、動かさずに 200 で既存を返す（冪等）。無ければ、宛先（`tripId` が無ければ `none`）の末尾に足し、枚数を増やして 201 を返す
   http.Response _uploadPhoto(http.Request request) {
+    if (!(request.headers['content-type'] ?? '').startsWith('multipart/form-data')) {
+      return _error(400, 'INVALID_REQUEST', 'Content-Typeがmultipart/form-dataではありません');
+    }
     final parts = _parseMultipart(request);
     final photoId = parts['photoId']?.text;
     final image = parts['image'];
     // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.1）のうち、クライアントが取り違えうるもの。
     // 値が無いときはパートごと省く。空文字のパートは「指定あり」として検証され、400 になる
     if (photoId == null || photoId.isEmpty) return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
     if (image == null || image.filename == null) return _error(400, 'INVALID_REQUEST', '画像ファイルが指定されていません');
+    // 画像の形式は、パートの Content-Type で判定する（クライアントが付け忘れると、既定の application/octet-stream になる）
+    const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!supportedTypes.contains(image.contentType)) {
+      return _error(415, 'UNSUPPORTED_MEDIA_TYPE', 'サポートされていない画像形式です');
+    }
+    if (image.bytes.isEmpty) return _error(400, 'INVALID_REQUEST', '画像ファイルが空です');
     final tripId = parts['tripId']?.text;
     if (tripId != null && !RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(tripId)) {
       return _error(400, 'INVALID_REQUEST', '旅行IDの形式が無効です');
     }
     final takenAt = parts['takenAt']?.text;
-    if (takenAt != null && !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$').hasMatch(takenAt)) {
+    if (takenAt != null && !_isRealDateTime(takenAt)) {
       return _error(400, 'INVALID_REQUEST', '撮影日時の形式が無効です');
     }
     final latitudeText = parts['latitude']?.text;
@@ -412,6 +427,15 @@ class FakeTripBackend {
     return _ok(201, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
   }
 
+  /// `YYYY-MM-DDTHH:mm:ss` の形で、実在する日時か
+  bool _isRealDateTime(String text) {
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$').firstMatch(text);
+    if (match == null) return false;
+    final n = [for (var i = 1; i <= 6; i++) int.parse(match.group(i)!)];
+    final date = DateTime.utc(n[0], n[1], n[2], n[3], n[4], n[5]);
+    return [date.year, date.month, date.day, date.hour, date.minute, date.second].toString() == n.toString();
+  }
+
   /// multipart/form-data の本文を、パートの名前ごとに分ける
   Map<String, _MultipartPart> _parseMultipart(http.Request request) {
     final contentType = request.headers['content-type'] ?? '';
@@ -428,7 +452,8 @@ class FakeTripBackend {
       final content = raw.substring(headerEnd + 4, raw.length - 2);
       final name = RegExp(r'name="([^"]*)"').firstMatch(headers)!.group(1)!;
       final filename = RegExp(r'filename="([^"]*)"').firstMatch(headers)?.group(1);
-      parts[name] = _MultipartPart(filename, latin1.encode(content));
+      final contentType = RegExp(r'content-type: *([^\r\n]+)', caseSensitive: false).firstMatch(headers)?.group(1);
+      parts[name] = _MultipartPart(filename, contentType, latin1.encode(content));
     }
     return parts;
   }
@@ -569,9 +594,12 @@ Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escap
 
 /// multipart/form-data の1パート。ファイルのパートは [filename] を持つ
 class _MultipartPart {
-  _MultipartPart(this.filename, this.bytes);
+  _MultipartPart(this.filename, this.contentType, this.bytes);
 
   final String? filename;
+
+  /// ファイルのパートの Content-Type（無ければ null）
+  final String? contentType;
   final List<int> bytes;
 
   /// テキストのパートの値
@@ -590,12 +618,26 @@ Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   await letFramesRun(tester);
 }
 
-/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が [count] 枚届くまで、実時間で少しずつ待つ（最長 5 秒）。
+/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が [count] 枚届くまで、実時間で少しずつ待つ（最長 10 秒）。
 /// 写真の準備（ファイルの読み込み・ハッシュ・EXIF）は別の isolate で実時間で進むので、`tester.runAsync` の中で待つ。
-/// 届かなくても例外にせず戻る（検証は呼び出し側）。待っている間は画面を進めない（写真のサムネイルを出す前に待ち終える。
+/// 届かなければ、届いた枚数を添えて失敗にする。待っている間は画面を進めない（写真のサムネイルを出す前に待ち終える。
 /// 出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
 Future<void> waitUntilUploaded(WidgetTester tester, FakeTripBackend backend, String tripKey, {int count = 1}) async {
-  for (var i = 0; i < 100 && (backend.photosByTripId[tripKey] ?? []).length < count; i++) {
+  for (var i = 0; i < 200 && (backend.photosByTripId[tripKey] ?? []).length < count; i++) {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  }
+  final arrived = (backend.photosByTripId[tripKey] ?? []).length;
+  if (arrived < count) fail('写真が $count 枚届くはずが、$arrived 枚しか届かなかった（待った時間は 10 秒）');
+}
+
+/// 偽のサーバに写真の送信の要求が [count] 回届くまで、実時間で少しずつ待つ（最長 10 秒）。
+/// 応答を保留している（写真がまだ入っていない）間に、要求が届いたことを待つために使う。
+/// 届かなければ、届いた回数を添えて失敗にする
+Future<void> waitUntilUploadsReceived(WidgetTester tester, FakeTripBackend backend, int count) async {
+  for (var i = 0; i < 200 && backend.uploadsReceived < count; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  }
+  if (backend.uploadsReceived < count) {
+    fail('写真の送信の要求が $count 回届くはずが、${backend.uploadsReceived} 回しか届かなかった');
   }
 }
