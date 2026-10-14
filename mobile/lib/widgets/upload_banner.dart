@@ -21,14 +21,34 @@ class UploadBanner extends StatelessWidget {
       builder: (context, _) {
         final items = uploadQueue.items.where(includes).toList();
         if (items.isEmpty) return const SizedBox.shrink();
-        final done = items
-            .where((item) => uploadQueue.stateOf(item) == UploadState.done)
-            .length;
+        int count(UploadState state) =>
+            items.where((item) => uploadQueue.stateOf(item) == state).length;
+        final inProgress =
+            count(UploadState.waiting) + count(UploadState.sending) > 0;
         return Container(
           width: double.infinity,
           color: AppColors.primary.withValues(alpha: 0.1),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('送信中 $done/${items.length}', style: AppTextStyles.body1),
+          child: inProgress
+              ? Text('送信中 ${count(UploadState.done)}/${items.length}',
+                  style: AppTextStyles.body1)
+              // 送信中の項目が無く、失敗だけが残っている
+              : Row(
+                  children: [
+                    Expanded(
+                      child: Text('${count(UploadState.failed)}枚を送信できませんでした',
+                          style: AppTextStyles.body1),
+                    ),
+                    TextButton(
+                      onPressed: () => uploadQueue.retryFailed(includes),
+                      child: const Text('送り直す'),
+                    ),
+                    TextButton(
+                      onPressed: () => uploadQueue.dismissFailed(includes),
+                      child: const Text('閉じる'),
+                    ),
+                  ],
+                ),
         );
       },
     );

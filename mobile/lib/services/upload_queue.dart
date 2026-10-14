@@ -26,7 +26,7 @@ class UploadItem {
 }
 
 /// 送る写真1枚の状態
-enum UploadState { waiting, sending, done }
+enum UploadState { waiting, sending, done, failed }
 
 /// 写真の送信の列（docs/travel-album/03_screen_design.md §4.7）
 ///
@@ -39,7 +39,7 @@ class UploadQueue extends ChangeNotifier {
   /// 同時に送る数（docs/travel-album/02_design_overview.md §4.7）
   static const _maxConcurrent = 2;
 
-  // 列が空になるまでの項目（進み具合の全体）。全部済んだら空にする
+  // 進み具合の全体として数える項目。送信中の項目が無くなったら、送れた項目を除く（失敗した項目は送り直すか閉じるまで残る）
   final List<UploadItem> _items = [];
   final Map<UploadItem, UploadState> _states = {};
 
@@ -49,7 +49,7 @@ class UploadQueue extends ChangeNotifier {
   /// 1枚送れるたびに流れる（画面は自分宛ての写真なら一覧を読み直す）
   Stream<UploadItem> get uploaded => _uploaded.stream;
 
-  /// 列が空になったときに、送れた枚数が流れる（AppRoot が「N枚を送信しました」と知らせる）
+  /// 送信中の項目が無くなったときに、送れた枚数が流れる（AppRoot が「N枚を送信しました」と知らせる）
   Stream<int> get finished => _finished.stream;
 
   /// 列にある項目（進み具合バナーが数える）
@@ -96,20 +96,42 @@ class UploadQueue extends ChangeNotifier {
           takenAt: item.metadata.takenAt,
           latitude: item.metadata.latitude,
           longitude: item.metadata.longitude);
+      _states[item] = UploadState.done;
       _uploaded.add(item);
     } catch (e) {
       debugPrint('UploadQueue: 写真の送信エラー: $e');
-    } finally {
-      _states[item] = UploadState.done;
-      if (_count(UploadState.waiting) == 0 &&
-          _count(UploadState.sending) == 0) {
-        _finished.add(_count(UploadState.done));
-        _items.clear();
-        _states.clear();
-      }
-      notifyListeners();
-      _pump();
+      _states[item] = UploadState.failed;
     }
+    if (_count(UploadState.waiting) == 0 && _count(UploadState.sending) == 0) {
+      _finished.add(_count(UploadState.done));
+      _items.removeWhere((i) => _states[i] == UploadState.done);
+      _states.removeWhere((_, state) => state == UploadState.done);
+    }
+    notifyListeners();
+    _pump();
+  }
+
+  /// 失敗した項目（[where] に当たるもの）を送り直す。準備はやり直さない
+  void retryFailed(bool Function(UploadItem item) where) {
+    for (final item in _items.where(where)) {
+      if (_states[item] == UploadState.failed) {
+        _states[item] = UploadState.waiting;
+      }
+    }
+    notifyListeners();
+    _pump();
+  }
+
+  /// 失敗した項目（[where] に当たるもの）を列から消す（端末の写真は消えない。選び直せば送れる）
+  void dismissFailed(bool Function(UploadItem item) where) {
+    final dismissed = _items
+        .where((item) => where(item) && _states[item] == UploadState.failed)
+        .toList();
+    for (final item in dismissed) {
+      _items.remove(item);
+      _states.remove(item);
+    }
+    notifyListeners();
   }
 
   @override

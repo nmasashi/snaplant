@@ -1566,4 +1566,39 @@ void main() {
     expect(find.textContaining('送信中'), findsNothing);
     expect(find.text('2枚を送信しました'), findsOneWidget);
   });
+
+  testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出し、「送り直す」で送り直すとその1枚も届いてバナーが消え、「1枚を送信しました」と知らせる', (tester) async {
+    // 500 は自動の送り直しの対象ではない（通信の失敗・429・503 だけが対象）。どちらの1枚が失敗するかは問わず、届いた枚数で見る
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
+    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('送り直す'), findsOneWidget);
+    expect(find.text('閉じる'), findsOneWidget);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+    // 最初の知らせが消えてから送り直す（同じ文言の知らせが続くので、消えていないと送り直しの知らせを見分けられない）
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('1枚を送信しました'), findsNothing);
+
+    await tester.tap(find.text('送り直す'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId[hokkaidoTripId]!.length, 2);
+    expect(find.text('送り直す'), findsNothing);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
 }
