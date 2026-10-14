@@ -232,13 +232,12 @@ class UploadQueue extends ChangeNotifier {
         }
         if (e is ApiException && e.isTripNotFound) {
           // 送り先の旅行が消えている。同じ宛先のまだ送っていない写真も、送っても同じ結果なので失敗にする
-          const reason = _tripNotFoundReason;
           _missingTrips.add(item.tripId);
-          _fail(item, reason);
+          _fail(item, _tripNotFoundReason);
           for (final other in _items) {
             if (other.tripId == item.tripId &&
                 _states[other] == UploadState.waiting) {
-              _fail(other, reason);
+              _fail(other, _tripNotFoundReason);
             }
           }
         } else {
