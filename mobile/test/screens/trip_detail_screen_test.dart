@@ -954,7 +954,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('写真を移している間は「入れる」が「入れています...」になり、「キャンセル」も押せず、外のタップや戻る操作でも「旅行を選ぶ」は閉じず、応答が返れば「1枚を「京都」に入れました」と知らせる', (tester) async {
+  testWidgets('写真を移している間は「入れる」が「入れています...」になり、「キャンセル」や「新しい旅行を作る」、旅行の行も押せず、外のタップや戻る操作でも「旅行を選ぶ」は閉じず、応答が返れば「1枚を「京都」に入れました」と知らせる', (tester) async {
     // 閉じられると、要求は送られたまま写真がサーバで移るのに、利用者は取り消したつもりになる。押せないことは、ボタンの Semantics で見る
     final semantics = tester.ensureSemantics();
     final release = Completer<void>();
@@ -984,6 +984,14 @@ void main() {
     final cancel = tester.getSemantics(inDialog(find.text('キャンセル')));
     expect(cancel.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
     expect(cancel.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    // 「新しい旅行を作る」と旅行の行も押せない。作成ダイアログが重なったまま移動が終わると、結果で閉じるダイアログを取り違える。
+    // 行を選び直せると、表示と送った先が食い違う
+    final createTrip = tester.getSemantics(inDialog(find.textContaining('新しい旅行を作る')));
+    expect(createTrip.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(createTrip.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    final kyotoRow = tester.getSemantics(inDialog(find.textContaining('京都')));
+    expect(kyotoRow.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(kyotoRow.hasFlag(SemanticsFlag.isEnabled), isFalse);
     // ダイアログの外（画面の隅）のタップ
     await tester.tapAt(const Offset(5, 5));
     await letFramesRun(tester);

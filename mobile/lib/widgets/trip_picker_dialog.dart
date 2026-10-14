@@ -133,13 +133,16 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
                           RadioListTile<String>(
                             value: trip.id,
                             groupValue: selected?.id,
-                            onChanged: (_) => setState(() => _selected = trip),
+                            onChanged: _isMoving
+                                ? null
+                                : (_) => setState(() => _selected = trip),
                             title: Text(trip.name),
                             secondary: Text('${trip.photoCount}枚'),
                             contentPadding: EdgeInsets.zero,
                           ),
                         TextButton.icon(
-                          onPressed: _createTrip,
+                          // 移している間に作成ダイアログを重ねると、移し終えて閉じるときに上の作成ダイアログを閉じてしまう
+                          onPressed: _isMoving ? null : _createTrip,
                           icon: const Icon(Icons.add),
                           label: const Text('新しい旅行を作る'),
                         ),
