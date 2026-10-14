@@ -1560,6 +1560,30 @@ void main() {
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
+  testWidgets('送信している間に設定をリセットしてアプリが送信の列を作り直しても、送信の応答が返ったときに例外は出ず、作り直した後の画面に送信の知らせは出ない', (tester) async {
+    // 設定が変わると、前の設定の列は破棄される。破棄された列の送信が終わっても、閉じたストリームへ流したり、破棄済みの通知を呼んだりしない
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final release = Completer<void>();
+    backend.holds[TripRoute.upload] = release.future;
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await resetSettingsAndGoBack(tester);
+    expect(find.text('API設定が完了していません'), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.textContaining('送信'), findsNothing);
+  });
+
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
