@@ -3,11 +3,16 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../utils/photo_metadata.dart';
 import 'api_service.dart';
 
 /// 送る写真1枚
 class UploadItem {
-  UploadItem({required this.photoId, required this.bytes, this.tripId});
+  UploadItem(
+      {required this.photoId,
+      required this.bytes,
+      this.tripId,
+      this.metadata = PhotoMetadata.none});
 
   /// 画像のバイト列の SHA-256（16進・小文字）。同じ写真を何度送っても1枚になる
   final String photoId;
@@ -15,6 +20,9 @@ class UploadItem {
 
   /// 送り先の旅行。null なら旅行に属さない写真
   final String? tripId;
+
+  /// EXIF から読んだ撮影日時と位置
+  final PhotoMetadata metadata;
 }
 
 /// 写真の送信の列（docs/travel-album/03_screen_design.md §4.7）
@@ -50,6 +58,7 @@ class UploadQueue extends ChangeNotifier {
         photoId: sha256.convert(bytes).toString(),
         bytes: bytes,
         tripId: tripId,
+        metadata: await readPhotoMetadata(bytes),
       ));
     }
     notifyListeners();
@@ -66,7 +75,12 @@ class UploadQueue extends ChangeNotifier {
   Future<void> _send(UploadItem item) async {
     try {
       await _apiService.uploadPhoto(
-          photoId: item.photoId, bytes: item.bytes, tripId: item.tripId);
+          photoId: item.photoId,
+          bytes: item.bytes,
+          tripId: item.tripId,
+          takenAt: item.metadata.takenAt,
+          latitude: item.metadata.latitude,
+          longitude: item.metadata.longitude);
       _completed++;
       _uploaded.add(item);
     } catch (e) {

@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
@@ -56,4 +58,77 @@ File writeTestImage(String name, {List<int> bytes = tinyPngBytes}) {
     }
   });
   return File('${dir.path}/$name')..writeAsBytesSync(bytes);
+}
+
+/// EXIF 付きの JPEG のバイト列（SOI、EXIF を入れた APP1、EOI だけの、画像の本体を持たない最小の JPEG）。
+/// EXIF は次の値だけを持つ。小さな固定のバイト列を手で組み立てているので、EXIF を読む側のテストに使う（画像として表示はできない）。
+/// - `DateTimeOriginal`: `2026:10:05 10:20:30`
+/// - GPS: 北緯 43度30分0秒（10進で 43.5）、東経 141度15分0秒（10進で 141.25）
+///
+/// 作り方: TIFF（リトルエンディアン）の IFD0 が Exif IFD（オフセット 38）と GPS IFD（オフセット 56）を指し、
+/// 値の本体は 110（撮影日時の20バイト）・130（緯度の分数3つ）・154（経度の分数3つ）に置く。全長は 178 バイト
+List<int> exifJpegBytes() {
+  final tiff = ByteData(178);
+  var at = 0;
+  void u16(int v) {
+    tiff.setUint16(at, v, Endian.little);
+    at += 2;
+  }
+
+  void u32(int v) {
+    tiff.setUint32(at, v, Endian.little);
+    at += 4;
+  }
+
+  void entry(int tag, int type, int count, int value) {
+    u16(tag);
+    u16(type);
+    u32(count);
+    u32(value);
+  }
+
+  // 値が4バイトに収まる ASCII（'N\0' など）は、オフセットの場所に値そのものを置く
+  int ascii2(String letter) => letter.codeUnitAt(0);
+
+  // ヘッダ（II、42、IFD0 のオフセット 8）
+  tiff.setUint8(0, 0x49);
+  tiff.setUint8(1, 0x49);
+  at = 2;
+  u16(42);
+  u32(8);
+  // IFD0（オフセット 8）: Exif IFD へのポインタ、GPS IFD へのポインタ
+  u16(2);
+  entry(0x8769, 4, 1, 38);
+  entry(0x8825, 4, 1, 56);
+  u32(0);
+  // Exif IFD（オフセット 38）: DateTimeOriginal（ASCII 20バイト。値は 110）
+  u16(1);
+  entry(0x9003, 2, 20, 110);
+  u32(0);
+  // GPS IFD（オフセット 56）: 緯度の向き・緯度・経度の向き・経度
+  u16(4);
+  entry(0x0001, 2, 2, ascii2('N'));
+  entry(0x0002, 5, 3, 130);
+  entry(0x0003, 2, 2, ascii2('E'));
+  entry(0x0004, 5, 3, 154);
+  u32(0);
+  // 値の本体
+  final dateTime = ascii.encode('2026:10:05 10:20:30');
+  for (var i = 0; i < dateTime.length; i++) {
+    tiff.setUint8(110 + i, dateTime[i]);
+  }
+  at = 130;
+  for (final (numerator, denominator) in [(43, 1), (30, 1), (0, 1), (141, 1), (15, 1), (0, 1)]) {
+    u32(numerator);
+    u32(denominator);
+  }
+
+  final app1Length = 2 + 6 + tiff.lengthInBytes;
+  return [
+    0xFF, 0xD8, // SOI
+    0xFF, 0xE1, app1Length >> 8, app1Length & 0xFF, // APP1
+    ...ascii.encode('Exif'), 0, 0,
+    ...tiff.buffer.asUint8List(),
+    0xFF, 0xD9, // EOI
+  ];
 }

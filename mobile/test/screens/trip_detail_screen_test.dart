@@ -1504,4 +1504,27 @@ void main() {
     expect(find.text('1枚 · 撮影日時なし'), findsOneWidget);
     expect(find.text('まだ写真がありません'), findsNothing);
   });
+
+  testWidgets('EXIF に撮影日時と GPS がある写真を送ると、撮影日時（YYYY-MM-DDTHH:mm:ss）と緯度・経度（10進）がその写真に入り、写真の一覧に撮影日時が出る', (tester) async {
+    // EXIF は、日時が `2026:10:05 10:20:30`、位置が北緯 43度30分・東経 141度15分（10進で 43.5 と 141.25）。画像の作り方は gallery_test_helpers.dart。
+    // 偽のサーバは、空文字のパートや緯度・経度の片方だけの送信を 400 で断るので、値が無いときにパートを省くことも、写真が届くことで守られる
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido.jpg', bytes: exifJpegBytes());
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await _waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(photo['takenAt'], '2026-10-05T10:20:30');
+    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
+    expect(photoThumbnail('2026年10月5日 10:20'), findsOneWidget);
+    semantics.dispose();
+  });
 }

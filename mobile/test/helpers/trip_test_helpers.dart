@@ -122,7 +122,8 @@ enum TripRoute {
 ///   既にその旅行にある写真は、動かさずに `moved` に入れる。
 /// - `POST /api/photos`（multipart）は、`photoId` が `image` の SHA-256 と一致しなければ 400「写真IDが画像の内容と一致しません」（実際のサーバと同じ）。
 ///   既にある id は 200 で既存を返し（冪等）、無ければ宛先（`tripId` が無ければ `none`）の末尾に足して 201 を返す。宛先の旅行の `photoCount`（と [unassignedPhotoCount]）も増やす。
-///   `takenAt` は写真に反映する（位置情報の反映は、位置情報を送るテストを書くときに足す）
+///   `takenAt`・`latitude`・`longitude` は写真に反映する（`location` は緯度と経度を持つときだけ。地名は null）。
+///   実際のサーバと同じく、`tripId` の形式・`takenAt` の形式・緯度と経度の片方だけ・位置情報の形式は 400（空文字のパートも「指定あり」として検証する）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -360,8 +361,33 @@ class FakeTripBackend {
     final parts = _parseMultipart(request);
     final photoId = parts['photoId']?.text;
     final image = parts['image'];
+    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.1）のうち、クライアントが取り違えうるもの。
+    // 値が無いときはパートごと省く。空文字のパートは「指定あり」として検証され、400 になる
     if (photoId == null || photoId.isEmpty) return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
     if (image == null || image.filename == null) return _error(400, 'INVALID_REQUEST', '画像ファイルが指定されていません');
+    final tripId = parts['tripId']?.text;
+    if (tripId != null && !RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(tripId)) {
+      return _error(400, 'INVALID_REQUEST', '旅行IDの形式が無効です');
+    }
+    final takenAt = parts['takenAt']?.text;
+    if (takenAt != null && !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$').hasMatch(takenAt)) {
+      return _error(400, 'INVALID_REQUEST', '撮影日時の形式が無効です');
+    }
+    final latitudeText = parts['latitude']?.text;
+    final longitudeText = parts['longitude']?.text;
+    if ((latitudeText == null) != (longitudeText == null)) {
+      return _error(400, 'INVALID_REQUEST', '緯度と経度は両方指定してください');
+    }
+    final decimal = RegExp(r'^-?\d+(\.\d+)?$');
+    final latitude = latitudeText == null ? null : double.tryParse(latitudeText);
+    final longitude = longitudeText == null ? null : double.tryParse(longitudeText);
+    if (latitudeText != null &&
+        (!decimal.hasMatch(latitudeText) ||
+            !decimal.hasMatch(longitudeText!) ||
+            latitude!.abs() > 90 ||
+            longitude!.abs() > 180)) {
+      return _error(400, 'INVALID_REQUEST', '位置情報の形式が無効です');
+    }
     if (sha256.convert(image.bytes).toString() != photoId) {
       return _error(400, 'INVALID_REQUEST', '写真IDが画像の内容と一致しません');
     }
@@ -370,15 +396,16 @@ class FakeTripBackend {
         if (photo['id'] == photoId) return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       }
     }
-    final tripId = parts['tripId']?.text;
     if (tripId != null && _find(tripId) == null) return _notFound();
-    final takenAt = parts['takenAt']?.text;
     const blobHost = 'https://stsnaplant.blob.core.windows.net/photos';
     final photo = photoJson(number: 0, tripId: tripId, takenAt: takenAt)
       ..['id'] = photoId
       ..['imageUrl'] = '$blobHost/$photoId.jpg?sv=2024-01-01&sig=test'
       ..['thumbnailUrl'] = parts['thumbnail'] == null ? null : '$blobHost/$photoId.thumb.jpg?sv=2024-01-01&sig=test'
-      ..['fileSize'] = image.bytes.length;
+      ..['fileSize'] = image.bytes.length
+      ..['location'] = latitude == null
+          ? null
+          : {'latitude': latitude, 'longitude': longitude, 'placeName': null, 'placeSource': null};
     final targetKey = tripId ?? 'none';
     photosByTripId.putIfAbsent(targetKey, () => []).add(photo);
     _addToPhotoCount(targetKey, 1);

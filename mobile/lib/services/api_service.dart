@@ -566,6 +566,8 @@ class ApiService {
     required Uint8List bytes,
     String? tripId,
     String? takenAt,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       final url = _buildUrl('/api/photos');
@@ -573,6 +575,11 @@ class ApiService {
       request.fields['photoId'] = photoId;
       if (tripId != null) request.fields['tripId'] = tripId;
       if (takenAt != null) request.fields['takenAt'] = takenAt;
+      // 10進で送る（サーバは指数表記を受け付けない）。緯度・経度は両方そろえる（片方だけは 400）
+      if (latitude != null && longitude != null) {
+        request.fields['latitude'] = latitude.toStringAsFixed(6);
+        request.fields['longitude'] = longitude.toStringAsFixed(6);
+      }
       request.files.add(http.MultipartFile.fromBytes(
         'image',
         bytes,
