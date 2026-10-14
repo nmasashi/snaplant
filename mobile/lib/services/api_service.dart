@@ -557,6 +557,46 @@ class ApiService {
     return PhotoMoveResult(moved: moved, notFound: notFound);
   }
 
+  /// 写真を1枚送る（同じ [photoId] を何度送っても1枚になる）
+  /// POST /api/photos（multipart/form-data）
+  ///
+  /// 任意の値は、無ければパートごと省く（空文字のパートは「指定あり」として検証され 400 になる）
+  Future<Photo> uploadPhoto({
+    required String photoId,
+    required Uint8List bytes,
+    String? tripId,
+    String? takenAt,
+    double? latitude,
+    double? longitude,
+  }) async {
+    try {
+      final url = _buildUrl('/api/photos');
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      request.fields['photoId'] = photoId;
+      if (tripId != null) request.fields['tripId'] = tripId;
+      if (takenAt != null) request.fields['takenAt'] = takenAt;
+      // 10進で送る（サーバは指数表記を受け付けない）。緯度・経度は両方そろえる（片方だけは 400）
+      if (latitude != null && longitude != null) {
+        request.fields['latitude'] = latitude.toStringAsFixed(6);
+        request.fields['longitude'] = longitude.toStringAsFixed(6);
+      }
+      request.files.add(http.MultipartFile.fromBytes(
+        'image',
+        bytes,
+        filename: 'photo',
+        contentType: MediaType.parse(detectImageMimeType(bytes)),
+      ));
+      final response =
+          await http.Response.fromStream(await _client.send(request));
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 写真削除（原寸・サムネイルも消える）
   /// DELETE /api/photos/{photoId}
   Future<void> deletePhoto(String photoId) async {

@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:snaplant_mobile/main.dart';
 
 import 'app_test_helpers.dart';
 
@@ -97,9 +101,12 @@ enum TripRoute {
 
   /// DELETE /api/photos/{photoId}
   deletePhoto,
+
+  /// POST /api/photos（multipart）
+  upload,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`）の偽のサーバ。
+/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`）の偽のサーバ。
 /// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
@@ -113,6 +120,10 @@ enum TripRoute {
 ///   `photoIds` が空なら 400 `INVALID_REQUEST`、200件を超えても 400（実際のサーバと同じ検証。分けずに送る・空のまとまりを送るクライアントを落とすため）。
 ///   `tripId` のキーが無いときも 400（旅行から外すには `tripId: null` を明示する）。
 ///   既にその旅行にある写真は、動かさずに `moved` に入れる。
+/// - `POST /api/photos`（multipart）は、`photoId` が `image` の SHA-256 と一致しなければ 400「写真IDが画像の内容と一致しません」（実際のサーバと同じ）。
+///   既にある id は 200 で既存を返し（冪等）、無ければ宛先（`tripId` が無ければ `none`）の末尾に足して 201 を返す。宛先の旅行の `photoCount`（と [unassignedPhotoCount]）も増やす。
+///   `takenAt`・`latitude`・`longitude` は写真に反映する（`location` は緯度と経度を持つときだけ。地名は null）。
+///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -162,6 +173,10 @@ class FakeTripBackend {
   /// 削除の要求ごとの `deletePhotos` の値（無ければ null）
   final List<String?> deletePhotosSent = [];
 
+  /// 写真の送信（`POST /api/photos`）の要求が届いた回数（応答を保留する前に数える）。
+  /// 要求が届くまで待つための印で、検証には使わない（送ったかどうかは、写真が偽のサーバに入ったことで見る）
+  int uploadsReceived = 0;
+
   final Map<TripRoute, List<({int status, String code, String message})>> _failures = {};
   final Map<TripRoute, List<Future<void>>> _replyHolds = {};
   var _createdCount = 0;
@@ -196,6 +211,7 @@ class FakeTripBackend {
     if (route == TripRoute.delete) {
       deletePhotosSent.add(request.url.queryParameters['deletePhotos']);
     }
+    if (route == TripRoute.upload) uploadsReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -230,6 +246,8 @@ class FakeTripBackend {
         return _listPhotos(request);
       case TripRoute.move:
         return _movePhotos(request);
+      case TripRoute.upload:
+        return _uploadPhoto(request);
       case TripRoute.deletePhoto:
         return _deletePhoto(request);
     }
@@ -253,6 +271,7 @@ class FakeTripBackend {
       };
     }
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
+    if (path == '/api/photos' && request.method == 'POST') return TripRoute.upload;
     if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
     if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'DELETE') {
       return TripRoute.deletePhoto;
@@ -338,6 +357,105 @@ class FakeTripBackend {
       'continuationToken': end < photos.length ? '$end' : null,
       'urlExpiresAt': '2026-10-10T04:12:45.000Z',
     });
+  }
+
+  /// `POST /api/photos`（multipart。docs/travel-album/05_api_design.md §5.1）。
+  /// 写真の id（`photoId`）は画像のバイト列の SHA-256 でなければ 400 にする（実際のサーバと同じ。クライアントが正しいハッシュを送ったかを結果で見るため）。
+  /// 既にある id は、動かさずに 200 で既存を返す（冪等）。無ければ、宛先（`tripId` が無ければ `none`）の末尾に足し、枚数を増やして 201 を返す
+  http.Response _uploadPhoto(http.Request request) {
+    if (!(request.headers['content-type'] ?? '').startsWith('multipart/form-data')) {
+      return _error(400, 'INVALID_REQUEST', 'Content-Typeがmultipart/form-dataではありません');
+    }
+    final parts = _parseMultipart(request);
+    final photoId = parts['photoId']?.text;
+    final image = parts['image'];
+    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.1）のうち、クライアントが取り違えうるもの。
+    // 値が無いときはパートごと省く。空文字のパートは「指定あり」として検証され、400 になる
+    if (photoId == null || photoId.isEmpty) return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
+    if (image == null || image.filename == null) return _error(400, 'INVALID_REQUEST', '画像ファイルが指定されていません');
+    // 画像の形式は、パートの Content-Type で判定する（クライアントが付け忘れると、既定の application/octet-stream になる）
+    const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!supportedTypes.contains(image.contentType)) {
+      return _error(415, 'UNSUPPORTED_MEDIA_TYPE', 'サポートされていない画像形式です');
+    }
+    if (image.bytes.isEmpty) return _error(400, 'INVALID_REQUEST', '画像ファイルが空です');
+    final tripId = parts['tripId']?.text;
+    if (tripId != null && !RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(tripId)) {
+      return _error(400, 'INVALID_REQUEST', '旅行IDの形式が無効です');
+    }
+    final takenAt = parts['takenAt']?.text;
+    if (takenAt != null && !_isRealDateTime(takenAt)) {
+      return _error(400, 'INVALID_REQUEST', '撮影日時の形式が無効です');
+    }
+    final latitudeText = parts['latitude']?.text;
+    final longitudeText = parts['longitude']?.text;
+    if ((latitudeText == null) != (longitudeText == null)) {
+      return _error(400, 'INVALID_REQUEST', '緯度と経度は両方指定してください');
+    }
+    final decimal = RegExp(r'^-?\d+(\.\d+)?$');
+    final latitude = latitudeText == null ? null : double.tryParse(latitudeText);
+    final longitude = longitudeText == null ? null : double.tryParse(longitudeText);
+    if (latitudeText != null &&
+        (!decimal.hasMatch(latitudeText) ||
+            !decimal.hasMatch(longitudeText!) ||
+            latitude!.abs() > 90 ||
+            longitude!.abs() > 180)) {
+      return _error(400, 'INVALID_REQUEST', '位置情報の形式が無効です');
+    }
+    if (sha256.convert(image.bytes).toString() != photoId) {
+      return _error(400, 'INVALID_REQUEST', '写真IDが画像の内容と一致しません');
+    }
+    for (final photos in photosByTripId.values) {
+      for (final photo in photos) {
+        if (photo['id'] == photoId) return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      }
+    }
+    if (tripId != null && _find(tripId) == null) return _notFound();
+    const blobHost = 'https://stsnaplant.blob.core.windows.net/photos';
+    final photo = photoJson(number: 0, tripId: tripId, takenAt: takenAt)
+      ..['id'] = photoId
+      ..['imageUrl'] = '$blobHost/$photoId.jpg?sv=2024-01-01&sig=test'
+      ..['thumbnailUrl'] = parts['thumbnail'] == null ? null : '$blobHost/$photoId.thumb.jpg?sv=2024-01-01&sig=test'
+      ..['fileSize'] = image.bytes.length
+      ..['location'] = latitude == null
+          ? null
+          : {'latitude': latitude, 'longitude': longitude, 'placeName': null, 'placeSource': null};
+    final targetKey = tripId ?? 'none';
+    photosByTripId.putIfAbsent(targetKey, () => []).add(photo);
+    _addToPhotoCount(targetKey, 1);
+    return _ok(201, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+  }
+
+  /// `YYYY-MM-DDTHH:mm:ss` の形で、実在する日時か
+  bool _isRealDateTime(String text) {
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$').firstMatch(text);
+    if (match == null) return false;
+    final n = [for (var i = 1; i <= 6; i++) int.parse(match.group(i)!)];
+    final date = DateTime.utc(n[0], n[1], n[2], n[3], n[4], n[5]);
+    return [date.year, date.month, date.day, date.hour, date.minute, date.second].toString() == n.toString();
+  }
+
+  /// multipart/form-data の本文を、パートの名前ごとに分ける
+  Map<String, _MultipartPart> _parseMultipart(http.Request request) {
+    final contentType = request.headers['content-type'] ?? '';
+    final boundary = RegExp(r'boundary=(?:"([^"]+)"|([^;]+))').firstMatch(contentType);
+    final delimiter = '--${boundary?.group(1) ?? boundary?.group(2)}';
+    // バイト列を1文字1バイトの文字列として扱うと、区切りで分けても中身のバイト列を壊さない
+    final body = latin1.decode(request.bodyBytes);
+    final parts = <String, _MultipartPart>{};
+    // 先頭は区切りの前（空）、末尾は閉じの `--`
+    for (final raw in body.split(delimiter).skip(1)) {
+      if (raw.startsWith('--')) break;
+      final headerEnd = raw.indexOf('\r\n\r\n');
+      final headers = raw.substring(0, headerEnd);
+      final content = raw.substring(headerEnd + 4, raw.length - 2);
+      final name = RegExp(r'name="([^"]*)"').firstMatch(headers)!.group(1)!;
+      final filename = RegExp(r'filename="([^"]*)"').firstMatch(headers)?.group(1);
+      final contentType = RegExp(r'content-type: *([^\r\n]+)', caseSensitive: false).firstMatch(headers)?.group(1);
+      parts[name] = _MultipartPart(filename, contentType, latin1.encode(content));
+    }
+    return parts;
   }
 
   http.Response _deletePhoto(http.Request request) {
@@ -473,3 +591,73 @@ Future<void> openDeleteDialog(WidgetTester tester) async {
 /// 画像そのものはテスト環境で読み込めないので、どの写真かはこのラベルで見分ける（`tester.ensureSemantics()` が要る）。
 /// ラベルに他の文言（画像の読み込み失敗の表示など）が続いていても一致するよう、部分一致で探す
 Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escape(label)));
+
+/// multipart/form-data の1パート。ファイルのパートは [filename] を持つ
+class _MultipartPart {
+  _MultipartPart(this.filename, this.contentType, this.bytes);
+
+  final String? filename;
+
+  /// ファイルのパートの Content-Type（無ければ null）
+  final String? contentType;
+  final List<int> bytes;
+
+  /// テキストのパートの値
+  String get text => utf8.decode(bytes);
+}
+
+/// 端末に API キーを保存した状態でアプリ全体を開き、旅行タブに切り替える。
+/// 偽のサーバは API キーを照合するので、保存するキーは [backend] の `functionKey`（既定の 'saved-key'）。
+/// 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
+Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
+  useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
+  SharedPreferences.setMockInitialValues({});
+  await saveTestEndpoint(tester);
+  await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
+  await tester.tap(find.text('旅行'));
+  await letFramesRun(tester);
+}
+
+/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が [count] 枚届くまで、実時間で少しずつ待つ（最長 10 秒）。
+/// 写真の準備（ファイルの読み込み・ハッシュ・EXIF）は別の isolate で実時間で進むので、`tester.runAsync` の中で待つ。
+/// 届かなければ、届いた枚数を添えて失敗にする。待っている間は画面を進めない（写真のサムネイルを出す前に待ち終える。
+/// 出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
+Future<void> waitUntilUploaded(WidgetTester tester, FakeTripBackend backend, String tripKey, {int count = 1}) async {
+  for (var i = 0; i < 200 && (backend.photosByTripId[tripKey] ?? []).length < count; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  }
+  final arrived = (backend.photosByTripId[tripKey] ?? []).length;
+  if (arrived < count) fail('写真が $count 枚届くはずが、$arrived 枚しか届かなかった（待った時間は 10 秒）');
+}
+
+/// 偽のサーバに写真の送信の要求が [count] 回届くまで、実時間で少しずつ待つ（最長 10 秒）。
+/// 応答を保留している（写真がまだ入っていない）間に、要求が届いたことを待つために使う。
+/// 届かなければ、届いた回数を添えて失敗にする
+Future<void> waitUntilUploadsReceived(WidgetTester tester, FakeTripBackend backend, int count) async {
+  for (var i = 0; i < 200 && backend.uploadsReceived < count; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  }
+  if (backend.uploadsReceived < count) {
+    fail('写真の送信の要求が $count 回届くはずが、${backend.uploadsReceived} 回しか届かなかった');
+  }
+}
+
+/// [finder] に当たるものが出るまで、実時間で少しずつ待ち、画面を進める（最長 10 秒）。
+/// 別の isolate での準備（ファイルの読み込み）の結果が、画面に知らせとして出るのを待つために使う。
+/// 出なくても例外にせず戻る（検証は呼び出し側）。写真のサムネイルが出る前に待ち終える使い方に限る
+/// （出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
+Future<void> waitUntilFound(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
+/// [finder] に当たるものが出るまで、フェイクの時間を 100 ミリ秒ずつ進める（最長 10 秒分）。実時間は進めない。
+/// スナックバーは順に出る（先の知らせが消えるまで、あとの知らせは待つ）ので、表示時間の具体値に頼らずに待つために使う。
+/// 出なくても例外にせず戻る（検証は呼び出し側）
+Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}

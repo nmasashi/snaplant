@@ -1,12 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:snaplant_mobile/main.dart';
 
 import '../helpers/app_test_helpers.dart';
+import '../helpers/gallery_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // アプリ全体を開き、旅行タブの旅行一覧の利用者から見た振る舞いを確かめる
@@ -14,16 +12,6 @@ import '../helpers/trip_test_helpers.dart';
 // 旅行の API は偽のサーバ（helpers の FakeTripBackend）で差し替える。偽のサーバは API キーを照合するので、
 // 端末に保存したキー（ここでは FakeTripBackend の既定の 'saved-key'）で通信しているかも確かめられる。
 // 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
-
-/// 端末に API キーを保存した状態でアプリを開き、旅行タブに切り替える
-Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
-  useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
-  SharedPreferences.setMockInitialValues({});
-  await saveTestEndpoint(tester);
-  await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
-  await tester.tap(find.text('旅行'));
-  await letFramesRun(tester);
-}
 
 /// 右下の「旅行を作る」ボタンから、旅行の作成ダイアログを開く
 Future<void> openCreateDialog(WidgetTester tester) async {
@@ -457,5 +445,81 @@ void main() {
     expect(find.text('3枚'), findsOneWidget);
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
     semantics.dispose();
+  });
+
+  testWidgets('「旅行に属さない写真」の画面の「写真を追加」で1枚選ぶと、旅行を指定せずに送られ、「1枚を送信しました」と知らせて、写真の一覧と見出しの枚数に出る', (tester) async {
+    // 偽のサーバは、旅行を指定せずに送られた写真を「旅行に属さない写真」（none）に入れ、その枚数を増やす。
+    // 見出しの枚数は、送ったあとに旅行の一覧を取り直して分かる
+    final image = writeTestImage('unassigned.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 0);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(find.text('旅行に属さない写真はありません'), findsOneWidget);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, 'none');
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId['none']!.map((photo) => photo['id']), [tinyPngSha256]);
+    expect(backend.photosByTripId['none']!.single['tripId'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+    expect(find.text('1枚'), findsOneWidget);
+    expect(find.text('旅行に属さない写真はありません'), findsNothing);
+  });
+
+  testWidgets('「旅行に属さない写真」の画面で2枚を送っている間は、画面の上部に「送信中 0/2」を出し、応答が返るとバナーを消して「2枚を送信しました」と知らせる', (tester) async {
+    // 偽のサーバは、届いた2回の送信の応答をそれぞれ保留する。この画面は、旅行宛てでない項目だけを数える
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 0);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    final secondReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(find.textContaining('送信中'), findsNothing);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, 'none', count: 2);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId['none']!.length, 2);
+    expect(find.text('送信中 0/2'), findsOneWidget);
+
+    firstReply.complete();
+    secondReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.textContaining('送信中'), findsNothing);
+    expect(find.text('2枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('北海道宛ての写真を送っている間に「旅行に属さない写真」の画面を開いても、バナーは出ない（この画面は、旅行宛てでない分だけを数える）', (tester) async {
+    // 旅行一覧は全体を数えるので、北海道宛ての送信中は一覧に「送信中 0/1」が出る。旅行に属さない写真の画面には、該当する項目が無いので出ない
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final reply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    expect(find.text('送信中 0/1'), findsOneWidget);
+
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+
+    expect(find.text('旅行に属さない写真はありません'), findsOneWidget);
+    expect(find.textContaining('送信中'), findsNothing);
+    reply.complete();
+    await letFramesRun(tester);
   });
 }

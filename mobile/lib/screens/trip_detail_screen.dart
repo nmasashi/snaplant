@@ -1,23 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
+import '../widgets/add_photos_button.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
+import '../widgets/upload_banner.dart';
 
 /// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
 ///
 /// 開くたびに旅行を取り直す（一覧から渡された値は使わない。一覧を読んだ後に写真が増減しうるため）
 class TripDetailScreen extends StatefulWidget {
   const TripDetailScreen(
-      {super.key, required this.apiService, required this.tripId});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.tripId});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（AppRoot が持つ）
+  final UploadQueue uploadQueue;
   final String tripId;
 
   @override
@@ -34,9 +45,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _selection = PhotoSelection();
   // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
+  StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
   void dispose() {
+    _uploadFinished?.cancel();
     _selection.dispose();
     super.dispose();
   }
@@ -45,6 +58,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   void initState() {
     super.initState();
     _loadTrip();
+    // 送信が一区切りついて、この旅行宛ての写真が送れていたら、一覧と見出しの枚数を読み直す
+    _uploadFinished = widget.uploadQueue.finished
+        .where((result) => result.tripIds.contains(widget.tripId))
+        .listen((_) => _reloadPhotos());
   }
 
   /// 旅行（枚数・撮影期間つき）を読み込む。
@@ -135,6 +152,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       appBar: _buildAppBar(trip),
       body: _buildBody(trip),
       onPhotosChanged: _reloadPhotos,
+      floatingActionButton: trip == null
+          ? null
+          : AddPhotosButton(
+              uploadQueue: widget.uploadQueue, tripId: widget.tripId),
     );
   }
 
@@ -186,6 +207,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             style: AppTextStyles.body1,
           ),
         ),
+        // その旅行宛ての写真だけを数える
+        UploadBanner(
+            uploadQueue: widget.uploadQueue,
+            includes: (item) => item.tripId == widget.tripId),
         Expanded(
           child: PhotoGrid(
             key: ValueKey(_gridVersion),

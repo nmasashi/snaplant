@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
@@ -10,16 +13,23 @@ import 'trip_detail_screen.dart';
 import 'unassigned_photos_screen.dart';
 import '../widgets/message_view.dart';
 import '../widgets/trip_edit_dialog.dart';
+import '../widgets/upload_banner.dart';
 
 /// 旅行一覧画面（旅行タブ。docs/travel-album/03_screen_design.md §4.2）
 ///
 /// 先頭に「旅行に属さない写真」の行を固定で置き、その下に旅行をサーバが返す順（作成日時の降順）で並べる
 class TripListScreen extends StatefulWidget {
   const TripListScreen(
-      {super.key, required this.apiService, required this.onOpenSettings});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.onOpenSettings});
 
   /// 設定済みの API クライアント（AppRoot が持つ）
   final ApiService apiService;
+
+  /// 写真の送信の列（AppRoot が持つ）
+  final UploadQueue uploadQueue;
 
   /// 設定画面を開く
   final Future<void> Function() onOpenSettings;
@@ -32,11 +42,24 @@ class _TripListScreenState extends State<TripListScreen> {
   TripList? _tripList;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
+  StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
   void initState() {
     super.initState();
     _loadTrips();
+    // 送信が一区切りついたら、旅行ごとの枚数と旅行に属さない写真の枚数を読み直す
+    // （1枚ごとに読み直すと、数百枚の送信で一覧の取得が同じ数だけ走る）。
+    // 1枚も送れなかった区切り（全部失敗）では枚数が変わらないので読み直さない
+    _uploadFinished = widget.uploadQueue.finished
+        .where((result) => result.count > 0)
+        .listen((_) => _loadTrips());
+  }
+
+  @override
+  void dispose() {
+    _uploadFinished?.cancel();
+    super.dispose();
   }
 
   /// 旅行一覧（と旅行に属さない写真の枚数）を読み込む
@@ -67,7 +90,9 @@ class _TripListScreenState extends State<TripListScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => UnassignedPhotosScreen(
-            apiService: widget.apiService, photoCount: photoCount),
+            apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
+            photoCount: photoCount),
       ),
     );
     // 写真を旅行に入れる・消すと枚数が変わるので、戻ったら読み直す（旅行詳細と同じ）
@@ -80,8 +105,10 @@ class _TripListScreenState extends State<TripListScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            TripDetailScreen(apiService: widget.apiService, tripId: trip.id),
+        builder: (context) => TripDetailScreen(
+            apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
+            tripId: trip.id),
       ),
     );
     // 詳細で編集・削除しうるので、戻ったら読み直す
@@ -116,7 +143,13 @@ class _TripListScreenState extends State<TripListScreen> {
               tooltip: '設定'),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          // 旅行一覧では、どこ宛ての写真も数える
+          UploadBanner(uploadQueue: widget.uploadQueue, includes: (_) => true),
+          Expanded(child: _buildBody()),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         // 図鑑タブの FAB と同時に存在する（IndexedStack）。既定のタグのままだと画面遷移の Hero が重複する
         heroTag: 'createTrip',

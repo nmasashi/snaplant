@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
+import 'package:snaplant_mobile/services/upload_queue.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
@@ -48,7 +49,7 @@ void main() {
     );
     final apiService = ApiService(baseUrl: testApiEndpoint, client: backend.client, functionKey: _apiKey);
 
-    await openApp(tester, app: MaterialApp(home: TripDetailScreen(apiService: apiService, tripId: hokkaidoTripId)));
+    await openApp(tester, app: MaterialApp(home: TripDetailScreen(apiService: apiService, uploadQueue: UploadQueue(apiService), tripId: hokkaidoTripId)));
     // 開いた直後は、画像を取得している途中（実時間を進めていない）。読み込めないときの表示はまだ出ない
     expect(find.text('画像を読み込めません'), findsNothing);
 
