@@ -1601,4 +1601,58 @@ void main() {
     expect(find.textContaining('送信できませんでした'), findsNothing);
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
+
+  testWidgets('送信に失敗した1枚のバナーの「閉じる」を押すと、バナー（「送り直す」も）が消え、失敗した写真は送られないまま', (tester) async {
+    // 失敗した項目を列から消すだけで、端末の写真は消えない（選び直せば送れる）
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+    expect(find.text('送り直す'), findsNothing);
+    expect(find.text('閉じる'), findsNothing);
+    expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
+  });
+
+  testWidgets('送信している間に旅行一覧へ戻っても送信は続き、旅行一覧の上部に全体の「送信中 0/2」を出し、応答が返ると「2枚を送信しました」と知らせて、一覧の北海道の枚数が「2枚」になる', (tester) async {
+    // 送信は画面ではなくアプリの根が持つので、詳細を閉じても止まらない。偽のサーバは届いた2回の送信の応答を保留する
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    final secondReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('送信中 0/2'), findsOneWidget);
+
+    firstReply.complete();
+    secondReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.textContaining('送信中'), findsNothing);
+    expect(find.text('2枚を送信しました'), findsOneWidget);
+    expect(find.text('2枚 · 撮影日時なし'), findsOneWidget);
+  });
 }

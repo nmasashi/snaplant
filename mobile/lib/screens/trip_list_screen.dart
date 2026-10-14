@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
@@ -11,6 +13,7 @@ import 'trip_detail_screen.dart';
 import 'unassigned_photos_screen.dart';
 import '../widgets/message_view.dart';
 import '../widgets/trip_edit_dialog.dart';
+import '../widgets/upload_banner.dart';
 
 /// 旅行一覧画面（旅行タブ。docs/travel-album/03_screen_design.md §4.2）
 ///
@@ -39,11 +42,21 @@ class _TripListScreenState extends State<TripListScreen> {
   TripList? _tripList;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
+  StreamSubscription<int>? _uploadFinished;
 
   @override
   void initState() {
     super.initState();
     _loadTrips();
+    // 送信が一区切りついたら、旅行ごとの枚数と旅行に属さない写真の枚数を読み直す
+    // （1枚ごとに読み直すと、数百枚の送信で一覧の取得が同じ数だけ走る）
+    _uploadFinished = widget.uploadQueue.finished.listen((_) => _loadTrips());
+  }
+
+  @override
+  void dispose() {
+    _uploadFinished?.cancel();
+    super.dispose();
   }
 
   /// 旅行一覧（と旅行に属さない写真の枚数）を読み込む
@@ -127,7 +140,13 @@ class _TripListScreenState extends State<TripListScreen> {
               tooltip: '設定'),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          // 旅行一覧では、どこ宛ての写真も数える
+          UploadBanner(uploadQueue: widget.uploadQueue, includes: (_) => true),
+          Expanded(child: _buildBody()),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         // 図鑑タブの FAB と同時に存在する（IndexedStack）。既定のタグのままだと画面遷移の Hero が重複する
         heroTag: 'createTrip',
