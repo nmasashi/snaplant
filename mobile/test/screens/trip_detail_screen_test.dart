@@ -1776,6 +1776,31 @@ void main() {
     expect(find.text('1枚を送信しました'), findsNothing);
   });
 
+  testWidgets('1枚の送信が1回目に 503 で失敗しても、2秒後の送り直しで成功すれば、写真は届いて「1枚を送信しました」と知らせ、送信できなかった行は出ない', (tester) async {
+    // 通信の失敗・429・503 は自動で送り直す（2秒 → 4秒 → 8秒）。送り直しの待ちはフェイクの時間（pump）で進める。
+    // 準備とファイルの読み込みは実時間でしか進まないので、待ちを過ぎたあとは実時間で要求が届くのを待つ
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 2));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['id']), [tinyPngSha256]);
+    await pumpUntilFound(tester, find.text('1枚を送信しました'));
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+  });
+
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
     // 500 は自動の送り直しの対象ではない（通信の失敗・429・503 だけが対象）。どちらの1枚が失敗するかは問わず、届いた枚数で見る
     final first = writeTestImage('first.png');
