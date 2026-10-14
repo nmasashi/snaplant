@@ -323,12 +323,14 @@ class _PhotoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final selection = this.selection;
     if (selection == null) {
-      return _buildImage(selected: false);
+      return _buildImage(selected: null);
     }
     return ListenableBuilder(
       listenable: selection,
       builder: (context, _) {
-        final selected = selection.isSelected(photo.id);
+        // 選択モードの外では選択の状態そのものを出さない（読み上げが全部のサムネイルを「未選択」と読まないように）
+        final selected =
+            selection.isActive ? selection.isSelected(photo.id) : null;
         return GestureDetector(
           onLongPress: () => selection.start(photo.id),
           // 選択モードでなければ何もしない（写真ビューアは PR 7）
@@ -339,7 +341,8 @@ class _PhotoTile extends StatelessWidget {
     );
   }
 
-  Widget _buildImage({required bool selected}) {
+  /// [selected] は選択モードでなければ null
+  Widget _buildImage({required bool? selected}) {
     return Semantics(
       label: formatTakenAt(photo.takenAt),
       container: true,
@@ -373,7 +376,7 @@ class _PhotoTile extends StatelessWidget {
             ),
           ),
         ),
-        if (selected) ...[
+        if (selected == true) ...[
           const ColoredBox(color: Color(0x553E7D32)),
           const Positioned(
             top: 4,
