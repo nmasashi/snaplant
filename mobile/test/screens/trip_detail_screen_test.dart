@@ -1647,6 +1647,33 @@ void main() {
     expect(photo['takenAt'], '2026-10-05T10:20:30');
   });
 
+  testWidgets('旅行一覧に戻っている間に送信が全部失敗しても、送れた写真が無いので旅行一覧は読み直さず、読み直しの失敗のエラーも出さない（バナーは「1枚を送信できませんでした」）', (tester) async {
+    // 戻った時点の読み直しは済ませてから、旅行一覧の取得の失敗（503）を仕掛ける。読み直していれば、その失敗がスナックバーに出る。
+    // 送信の応答は、解放したときに 500 の失敗で返す（失敗の指定は、解放したあとの応答で使われる）
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final release = Completer<void>();
+    backend.holds[TripRoute.upload] = release.future;
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    expect(find.text('送信中 0/1'), findsOneWidget);
+    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    backend.failNext(TripRoute.list);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+  });
+
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
