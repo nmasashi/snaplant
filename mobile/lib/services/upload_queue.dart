@@ -47,10 +47,14 @@ Future<_PreparedPhoto> _preparePhoto(String path) async {
 
 /// 送信の一区切り（送信中の項目が無くなったとき）の結果
 class UploadBatchResult {
-  const UploadBatchResult({required this.count, required this.tripIds});
+  const UploadBatchResult(
+      {required this.count, required this.tripIds, this.alreadyElsewhere = 0});
 
-  /// 送れた枚数
+  /// 送れた枚数（送信済みだった写真も含む）
   final int count;
+
+  /// 送れた写真のうち、既に別の旅行か旅行に属さない写真にあったもの（サーバは 200 で既存を返し、宛先は変えない）
+  final int alreadyElsewhere;
 
   /// 送れた写真の送り先（旅行に属さない写真は null）。画面は自分宛てが含まれていれば一覧を読み直す
   final Set<String?> tripIds;
@@ -91,6 +95,8 @@ class UploadQueue extends ChangeNotifier {
   // 失敗した項目の理由と、失敗した順番（バナーは最後に失敗したものの理由を出す）
   final Map<UploadItem, ({int order, String reason})> _failures = {};
   int _failureOrder = 0;
+  // 送れた項目のうち、既に別の場所にあったもの
+  final Set<UploadItem> _alreadyElsewhere = {};
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
 
@@ -197,7 +203,7 @@ class UploadQueue extends ChangeNotifier {
   Future<void> _send(UploadItem item) async {
     for (var attempt = 0;; attempt++) {
       try {
-        await _apiService.uploadPhoto(
+        final photo = await _apiService.uploadPhoto(
             photoId: item.photoId,
             bytes: await File(item.path).readAsBytes(),
             tripId: item.tripId,
@@ -205,6 +211,8 @@ class UploadQueue extends ChangeNotifier {
             latitude: item.metadata.latitude,
             longitude: item.metadata.longitude);
         _states[item] = UploadState.done;
+        // 送信は「入れる」ではないので、既にある写真の宛先は変わらない（docs/travel-album/05_api_design.md §5.1）
+        if (photo.tripId != item.tripId) _alreadyElsewhere.add(item);
         break;
       } catch (e) {
         debugPrint('UploadQueue: 写真の送信エラー: $e');
@@ -247,9 +255,17 @@ class UploadQueue extends ChangeNotifier {
     }
     final done = _items.where((i) => _states[i] == UploadState.done).toList();
     _finished.add(UploadBatchResult(
-        count: done.length, tripIds: done.map((i) => i.tripId).toSet()));
+      count: done.length,
+      // 既に別の場所にあった写真は、宛先の一覧を変えないので読み直しに数えない
+      tripIds: done
+          .where((i) => !_alreadyElsewhere.contains(i))
+          .map((i) => i.tripId)
+          .toSet(),
+      alreadyElsewhere: done.where(_alreadyElsewhere.contains).length,
+    ));
     _items.removeWhere((i) => _states[i] == UploadState.done);
     _states.removeWhere((_, state) => state == UploadState.done);
+    _alreadyElsewhere.clear();
   }
 
   /// 失敗した項目のうち、送り先が [where] に当たるものを送り直す。準備はやり直さない
