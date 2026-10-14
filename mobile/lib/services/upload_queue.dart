@@ -73,6 +73,8 @@ class UploadQueue extends ChangeNotifier {
   // 進み具合の全体として数える項目。送信中の項目が無くなったら、送れた項目を除く（失敗した項目は送り直すか閉じるまで残る）
   final List<UploadItem> _items = [];
   final Map<UploadItem, UploadState> _states = {};
+  // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
+  bool _disposed = false;
 
   final _finished = StreamController<UploadBatchResult>.broadcast();
 
@@ -171,9 +173,6 @@ class UploadQueue extends ChangeNotifier {
     }
     notifyListeners();
   }
-
-  // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
-  bool _disposed = false;
 
   @override
   void dispose() {
