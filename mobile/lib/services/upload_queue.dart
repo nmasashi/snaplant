@@ -101,9 +101,11 @@ class UploadQueue extends ChangeNotifier {
         _states[item] = UploadState.waiting;
       }
     } finally {
-      // 途中の1枚が読めなくても、それまでに準備できた写真は送り始める（失敗は呼び出し側が知らせる）
-      notifyListeners();
-      _pump();
+      if (!_disposed) {
+        // 途中の1枚が読めなくても、それまでに準備できた写真は送り始める（失敗は呼び出し側が知らせる）
+        notifyListeners();
+        _pump();
+      }
     }
   }
 
@@ -134,6 +136,8 @@ class UploadQueue extends ChangeNotifier {
       debugPrint('UploadQueue: 写真の送信エラー: $e');
       _states[item] = UploadState.failed;
     }
+    // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
+    if (_disposed) return;
     if (_count(UploadState.waiting) == 0 && _count(UploadState.sending) == 0) {
       final done = _items.where((i) => _states[i] == UploadState.done).toList();
       _finished.add(UploadBatchResult(
@@ -168,8 +172,12 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
   }
 
+  // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
+  bool _disposed = false;
+
   @override
   void dispose() {
+    _disposed = true;
     _finished.close();
     super.dispose();
   }
