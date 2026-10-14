@@ -1882,6 +1882,36 @@ void main() {
     expect(find.text('2枚 · 撮影日時なし'), findsOneWidget);
   });
 
+  testWidgets('京都宛ての写真2枚を準備している間に北海道の詳細を開いても、「写真を準備中」は出ない（旅行一覧は全体を数えるので、戻ると「写真を準備中... 1/2」が出る）', (tester) async {
+    // 2枚目を大きなファイルにして準備を遅らせ（前のテストと同じ）、1枚目の送信の要求が届いた時点で一覧へ戻る。準備はまだ続いている
+    final first = writeTestImage('kyoto1.png');
+    final big = writeTestImage('kyoto_big.png', bytes: Uint8List(128 * 1024 * 1024));
+    useGalleryReturning([first, big]);
+    final backend = FakeTripBackend(trips: [
+      tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
+      tripJson(id: kyotoTripId, name: '京都', photoCount: 0),
+    ]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('京都'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
+
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    expect(find.textContaining('写真を準備中'), findsNothing);
+
+    // 後片付け: 2枚目の準備と送信が終わるまで待つ
+    await waitUntilUploaded(tester, backend, kyotoTripId, count: 2);
+    await letFramesRun(tester);
+  });
+
   testWidgets('京都宛ての写真を送っている間に北海道の詳細を開いても、バナーは出ない（旅行詳細は、その旅行宛ての分だけを数える）', (tester) async {
     // 旅行一覧は全体を数えるので、京都宛ての送信中は一覧に「送信中 0/1」が出る。北海道の詳細には、北海道宛ての項目が無いので出ない
     final image = writeTestImage('kyoto.png');
