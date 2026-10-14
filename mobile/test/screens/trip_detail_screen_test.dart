@@ -6,9 +6,11 @@ import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
+import 'package:snaplant_mobile/services/upload_queue.dart';
 import 'package:snaplant_mobile/theme/app_theme.dart';
 
 import '../helpers/app_test_helpers.dart';
+import '../helpers/gallery_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/travel-album/03_screen_design.md §4.3・§4.4）。
@@ -58,7 +60,7 @@ Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {T
             child: ElevatedButton(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => TripDetailScreen(apiService: apiService, tripId: hokkaidoTripId)),
+                MaterialPageRoute(builder: (_) => TripDetailScreen(apiService: apiService, uploadQueue: UploadQueue(apiService), tripId: hokkaidoTripId)),
               ),
               child: const Text('詳細を開く'),
             ),
@@ -69,6 +71,16 @@ Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {T
   );
   await tester.tap(find.text('詳細を開く'));
   await letFramesRun(tester);
+}
+
+/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が届くまで、実時間で少しずつ待つ（最長 5 秒）。
+/// 写真の準備（ファイルの読み込み・ハッシュ・EXIF）は別の isolate で実時間で進むので、`tester.runAsync` の中で待つ。
+/// 届かなくても例外にせず戻る（検証は呼び出し側）。待っている間は画面を進めない（写真のサムネイルを出す前に待ち終える。
+/// 出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
+Future<void> _waitUntilUploaded(WidgetTester tester, FakeTripBackend backend, String tripKey) async {
+  for (var i = 0; i < 100 && (backend.photosByTripId[tripKey] ?? []).isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  }
 }
 
 void main() {
@@ -1469,5 +1481,27 @@ void main() {
     await tapInDialog(tester, '入れる');
     expect(find.text('1枚を「京都」に入れました'), findsOneWidget);
     semantics.dispose();
+  });
+
+  testWidgets('旅行詳細の「写真を追加」でギャラリーから1枚選ぶと、その旅行宛てに送られ（写真の id は画像のバイト列の SHA-256）、「1枚を送信しました」と知らせて、写真の一覧と見出しの枚数に出る', (tester) async {
+    // アプリ全体を開いて、旅行一覧から旅行詳細へ進む（送信の状態はアプリの根が持つので、画面だけを単独で開かない）。
+    // 偽のサーバは、photoId が画像の SHA-256 と一致しない送信を 400 で断る。クライアントが正しいハッシュを送ったかは、写真が届いたことで分かる
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+
+    expect(find.text('写真を追加'), findsOneWidget);
+    await tester.tap(find.text('写真を追加'));
+    await _waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['id']), [tinyPngSha256]);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+    expect(find.text('1枚 · 撮影日時なし'), findsOneWidget);
+    expect(find.text('まだ写真がありません'), findsNothing);
   });
 }

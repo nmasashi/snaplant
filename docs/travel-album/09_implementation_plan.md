@@ -43,6 +43,14 @@ API と mobile の列は並行できるが、**同時に進めるなら別のブ
 
 PR 7 が 1,800 行で上限に近い。超えそうなら「写真ビューア」を 7b に分ける。
 
+**PR 7 は3つに分ける**（2026-10-14。PR 8 が試験込みで 1,800 行になったため、7 を1つにすると上限を超える見込み）。
+
+| PR | 中身 |
+|---|---|
+| 7a | 「写真を追加」→ `pickMultiImage` → 準備（SHA-256・EXIF の撮影日時と GPS）→ `UploadQueue`（同時2本）→ `POST /api/photos`、進み具合バナー（準備中・送信中・完了・失敗と「送り直す」「閉じる」） |
+| 7b | 自動の送り直し（0 / 429 / 503 を 2・4・8 秒）、404 `TRIP_NOT_FOUND`、200（送信済み・別の場所）、サムネイル（`flutter_image_compress`）、地名（`geocoding`。minSdk 24・compileSdk 36 に上げる） |
+| 7c | 写真ビューア |
+
 ### 各 PR の共通の完了条件
 
 - `npm test`（api）/ `flutter test`（mobile）が緑、`npx tsc -p tsconfig.test.json --noEmit` が通る

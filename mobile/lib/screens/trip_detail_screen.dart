@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
 import '../widgets/message_view.dart';
@@ -15,9 +19,15 @@ import '../widgets/trip_edit_dialog.dart';
 /// 開くたびに旅行を取り直す（一覧から渡された値は使わない。一覧を読んだ後に写真が増減しうるため）
 class TripDetailScreen extends StatefulWidget {
   const TripDetailScreen(
-      {super.key, required this.apiService, required this.tripId});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.tripId});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（AppRoot が持つ）
+  final UploadQueue uploadQueue;
   final String tripId;
 
   @override
@@ -34,9 +44,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _selection = PhotoSelection();
   // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
+  StreamSubscription<UploadItem>? _uploaded;
 
   @override
   void dispose() {
+    _uploaded?.cancel();
     _selection.dispose();
     super.dispose();
   }
@@ -45,6 +57,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   void initState() {
     super.initState();
     _loadTrip();
+    // この旅行宛ての写真が送れたら、一覧と見出しの枚数を読み直す
+    _uploaded = widget.uploadQueue.uploaded
+        .where((item) => item.tripId == widget.tripId)
+        .listen((_) => _reloadPhotos());
   }
 
   /// 旅行（枚数・撮影期間つき）を読み込む。
@@ -107,6 +123,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
   }
 
+  /// 「写真を追加」: ギャラリーで選んだ写真を、この旅行宛てに送る
+  Future<void> _addPhotos() async {
+    final files = await ImagePicker()
+        .pickMultiImage(imageQuality: 85, maxWidth: 1920, maxHeight: 1920);
+    if (files.isEmpty) return;
+    await widget.uploadQueue.addFiles(files, tripId: widget.tripId);
+  }
+
   /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す。
   /// 見出しを取り直せなくても前の値のまま出す（操作は済んで知らせも出ているので、画面をエラーで置き換えない）
   Future<void> _reloadPhotos() async {
@@ -135,6 +159,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       appBar: _buildAppBar(trip),
       body: _buildBody(trip),
       onPhotosChanged: _reloadPhotos,
+      floatingActionButton: trip == null
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _addPhotos,
+              icon: const Icon(Icons.add_photo_alternate_outlined),
+              label: const Text('写真を追加'),
+            ),
     );
   }
 

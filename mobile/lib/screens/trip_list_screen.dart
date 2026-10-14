@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
@@ -16,10 +17,16 @@ import '../widgets/trip_edit_dialog.dart';
 /// 先頭に「旅行に属さない写真」の行を固定で置き、その下に旅行をサーバが返す順（作成日時の降順）で並べる
 class TripListScreen extends StatefulWidget {
   const TripListScreen(
-      {super.key, required this.apiService, required this.onOpenSettings});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.onOpenSettings});
 
   /// 設定済みの API クライアント（AppRoot が持つ）
   final ApiService apiService;
+
+  /// 写真の送信の列（AppRoot が持つ）
+  final UploadQueue uploadQueue;
 
   /// 設定画面を開く
   final Future<void> Function() onOpenSettings;
@@ -80,8 +87,10 @@ class _TripListScreenState extends State<TripListScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            TripDetailScreen(apiService: widget.apiService, tripId: trip.id),
+        builder: (context) => TripDetailScreen(
+            apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
+            tripId: trip.id),
       ),
     );
     // 詳細で編集・削除しうるので、戻ったら読み直す

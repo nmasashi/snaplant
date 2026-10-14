@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import 'plant_list_screen.dart';
 import 'trip_list_screen.dart';
 
@@ -9,10 +10,16 @@ import 'trip_list_screen.dart';
 /// （スクロール位置、読み込んだ一覧）を保つ（docs/travel-album/03_screen_design.md §4.1）
 class HomeShell extends StatefulWidget {
   const HomeShell(
-      {super.key, required this.apiService, required this.onOpenSettings});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.onOpenSettings});
 
   /// 設定済みの API クライアント（AppRoot が持つ）
   final ApiService apiService;
+
+  /// 写真の送信の列（AppRoot が持つ）
+  final UploadQueue uploadQueue;
 
   /// 設定画面を開く（両方のタブの設定ボタンから）
   final Future<void> Function() onOpenSettings;
@@ -35,6 +42,7 @@ class _HomeShellState extends State<HomeShell> {
               onOpenSettings: widget.onOpenSettings),
           TripListScreen(
               apiService: widget.apiService,
+              uploadQueue: widget.uploadQueue,
               onOpenSettings: widget.onOpenSettings),
         ],
       ),

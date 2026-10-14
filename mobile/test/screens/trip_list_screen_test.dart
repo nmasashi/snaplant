@@ -1,10 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:snaplant_mobile/main.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
@@ -14,16 +11,6 @@ import '../helpers/trip_test_helpers.dart';
 // 旅行の API は偽のサーバ（helpers の FakeTripBackend）で差し替える。偽のサーバは API キーを照合するので、
 // 端末に保存したキー（ここでは FakeTripBackend の既定の 'saved-key'）で通信しているかも確かめられる。
 // 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
-
-/// 端末に API キーを保存した状態でアプリを開き、旅行タブに切り替える
-Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
-  useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
-  SharedPreferences.setMockInitialValues({});
-  await saveTestEndpoint(tester);
-  await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
-  await tester.tap(find.text('旅行'));
-  await letFramesRun(tester);
-}
 
 /// 右下の「旅行を作る」ボタンから、旅行の作成ダイアログを開く
 Future<void> openCreateDialog(WidgetTester tester) async {

@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:snaplant_mobile/main.dart';
 
 import 'app_test_helpers.dart';
 
@@ -97,9 +101,12 @@ enum TripRoute {
 
   /// DELETE /api/photos/{photoId}
   deletePhoto,
+
+  /// POST /api/photos（multipart）
+  upload,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`）の偽のサーバ。
+/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`）の偽のサーバ。
 /// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
@@ -113,6 +120,9 @@ enum TripRoute {
 ///   `photoIds` が空なら 400 `INVALID_REQUEST`、200件を超えても 400（実際のサーバと同じ検証。分けずに送る・空のまとまりを送るクライアントを落とすため）。
 ///   `tripId` のキーが無いときも 400（旅行から外すには `tripId: null` を明示する）。
 ///   既にその旅行にある写真は、動かさずに `moved` に入れる。
+/// - `POST /api/photos`（multipart）は、`photoId` が `image` の SHA-256 と一致しなければ 400「写真IDが画像の内容と一致しません」（実際のサーバと同じ）。
+///   既にある id は 200 で既存を返し（冪等）、無ければ宛先（`tripId` が無ければ `none`）の末尾に足して 201 を返す。宛先の旅行の `photoCount`（と [unassignedPhotoCount]）も増やす。
+///   `takenAt` は写真に反映する（位置情報の反映は、位置情報を送るテストを書くときに足す）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -230,6 +240,8 @@ class FakeTripBackend {
         return _listPhotos(request);
       case TripRoute.move:
         return _movePhotos(request);
+      case TripRoute.upload:
+        return _uploadPhoto(request);
       case TripRoute.deletePhoto:
         return _deletePhoto(request);
     }
@@ -253,6 +265,7 @@ class FakeTripBackend {
       };
     }
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
+    if (path == '/api/photos' && request.method == 'POST') return TripRoute.upload;
     if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
     if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'DELETE') {
       return TripRoute.deletePhoto;
@@ -338,6 +351,59 @@ class FakeTripBackend {
       'continuationToken': end < photos.length ? '$end' : null,
       'urlExpiresAt': '2026-10-10T04:12:45.000Z',
     });
+  }
+
+  /// `POST /api/photos`（multipart。docs/travel-album/05_api_design.md §5.1）。
+  /// 写真の id（`photoId`）は画像のバイト列の SHA-256 でなければ 400 にする（実際のサーバと同じ。クライアントが正しいハッシュを送ったかを結果で見るため）。
+  /// 既にある id は、動かさずに 200 で既存を返す（冪等）。無ければ、宛先（`tripId` が無ければ `none`）の末尾に足し、枚数を増やして 201 を返す
+  http.Response _uploadPhoto(http.Request request) {
+    final parts = _parseMultipart(request);
+    final photoId = parts['photoId']?.text;
+    final image = parts['image'];
+    if (photoId == null || photoId.isEmpty) return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
+    if (image == null || image.filename == null) return _error(400, 'INVALID_REQUEST', '画像ファイルが指定されていません');
+    if (sha256.convert(image.bytes).toString() != photoId) {
+      return _error(400, 'INVALID_REQUEST', '写真IDが画像の内容と一致しません');
+    }
+    for (final photos in photosByTripId.values) {
+      for (final photo in photos) {
+        if (photo['id'] == photoId) return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      }
+    }
+    final tripId = parts['tripId']?.text;
+    if (tripId != null && _find(tripId) == null) return _notFound();
+    final takenAt = parts['takenAt']?.text;
+    const blobHost = 'https://stsnaplant.blob.core.windows.net/photos';
+    final photo = photoJson(number: 0, tripId: tripId, takenAt: takenAt)
+      ..['id'] = photoId
+      ..['imageUrl'] = '$blobHost/$photoId.jpg?sv=2024-01-01&sig=test'
+      ..['thumbnailUrl'] = parts['thumbnail'] == null ? null : '$blobHost/$photoId.thumb.jpg?sv=2024-01-01&sig=test'
+      ..['fileSize'] = image.bytes.length;
+    final targetKey = tripId ?? 'none';
+    photosByTripId.putIfAbsent(targetKey, () => []).add(photo);
+    _addToPhotoCount(targetKey, 1);
+    return _ok(201, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+  }
+
+  /// multipart/form-data の本文を、パートの名前ごとに分ける
+  Map<String, _MultipartPart> _parseMultipart(http.Request request) {
+    final contentType = request.headers['content-type'] ?? '';
+    final boundary = RegExp(r'boundary=(?:"([^"]+)"|([^;]+))').firstMatch(contentType);
+    final delimiter = '--${boundary?.group(1) ?? boundary?.group(2)}';
+    // バイト列を1文字1バイトの文字列として扱うと、区切りで分けても中身のバイト列を壊さない
+    final body = latin1.decode(request.bodyBytes);
+    final parts = <String, _MultipartPart>{};
+    // 先頭は区切りの前（空）、末尾は閉じの `--`
+    for (final raw in body.split(delimiter).skip(1)) {
+      if (raw.startsWith('--')) break;
+      final headerEnd = raw.indexOf('\r\n\r\n');
+      final headers = raw.substring(0, headerEnd);
+      final content = raw.substring(headerEnd + 4, raw.length - 2);
+      final name = RegExp(r'name="([^"]*)"').firstMatch(headers)!.group(1)!;
+      final filename = RegExp(r'filename="([^"]*)"').firstMatch(headers)?.group(1);
+      parts[name] = _MultipartPart(filename, latin1.encode(content));
+    }
+    return parts;
   }
 
   http.Response _deletePhoto(http.Request request) {
@@ -473,3 +539,26 @@ Future<void> openDeleteDialog(WidgetTester tester) async {
 /// 画像そのものはテスト環境で読み込めないので、どの写真かはこのラベルで見分ける（`tester.ensureSemantics()` が要る）。
 /// ラベルに他の文言（画像の読み込み失敗の表示など）が続いていても一致するよう、部分一致で探す
 Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escape(label)));
+
+/// multipart/form-data の1パート。ファイルのパートは [filename] を持つ
+class _MultipartPart {
+  _MultipartPart(this.filename, this.bytes);
+
+  final String? filename;
+  final List<int> bytes;
+
+  /// テキストのパートの値
+  String get text => utf8.decode(bytes);
+}
+
+/// 端末に API キーを保存した状態でアプリ全体を開き、旅行タブに切り替える。
+/// 偽のサーバは API キーを照合するので、保存するキーは [backend] の `functionKey`（既定の 'saved-key'）。
+/// 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
+Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
+  useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
+  SharedPreferences.setMockInitialValues({});
+  await saveTestEndpoint(tester);
+  await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
+  await tester.tap(find.text('旅行'));
+  await letFramesRun(tester);
+}

@@ -19,7 +19,8 @@ class PhotoSelectionScaffold extends StatelessWidget {
       required this.currentTripId,
       required this.appBar,
       required this.body,
-      required this.onPhotosChanged});
+      required this.onPhotosChanged,
+      this.floatingActionButton});
 
   final ApiService apiService;
   final PhotoSelection selection;
@@ -31,6 +32,9 @@ class PhotoSelectionScaffold extends StatelessWidget {
   final PreferredSizeWidget appBar;
 
   final Widget body;
+
+  /// 選択モードでないときに右下に浮かぶボタン（「写真を追加」）
+  final Widget? floatingActionButton;
 
   /// 選んだ写真を移した・消した後に呼ぶ。画面は写真の一覧と見出しの枚数を読み直す
   final Future<void> Function() onPhotosChanged;
@@ -48,6 +52,8 @@ class PhotoSelectionScaffold extends StatelessWidget {
         child: Scaffold(
           appBar: selection.isActive ? _buildSelectionAppBar() : appBar,
           body: body,
+          floatingActionButton:
+              selection.isActive ? null : floatingActionButton,
           bottomNavigationBar:
               selection.isActive ? _buildSelectionActions(context) : null,
         ),

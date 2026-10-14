@@ -44,6 +44,10 @@ const _loadMoreThreshold = 6;
 /// サーバは空のページを読み直しても空ならトークン付きで返すことがあり、それが続くと要求を送り続けてしまう
 const _maxConsecutiveEmptyPages = 3;
 
+/// 画面の右下に浮かぶ「写真を追加」の分だけ、一覧と末尾の表示を上に空ける高さ。
+/// 空けないと、最後の行と末尾の「再試行」がボタンの下に隠れて押せない
+const _floatingButtonClearance = 72.0;
+
 /// サムネイルを読むときの横幅（画素）。3列のマスは端末で 400 画素前後
 const _tileDecodeWidth = 400;
 
@@ -240,6 +244,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         ),
       );
     }
+    final hasFooter = _loadMoreFailed || _isLoadingMore;
     return Column(
       children: [
         Expanded(
@@ -249,7 +254,8 @@ class _PhotoGridState extends State<PhotoGrid> {
             child: GridView.builder(
               // 写真が少なく画面に収まっていても、下に引っ張って読み直せるように
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(2),
+              padding: EdgeInsets.fromLTRB(
+                  2, 2, 2, hasFooter ? 2 : _floatingButtonClearance),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 mainAxisSpacing: 2,
@@ -307,6 +313,7 @@ class _PhotoGridState extends State<PhotoGrid> {
               ],
             ),
           ),
+        if (hasFooter) const SizedBox(height: _floatingButtonClearance),
       ],
     );
   }
