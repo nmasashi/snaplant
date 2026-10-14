@@ -47,8 +47,8 @@ PR 7 が 1,800 行で上限に近い。超えそうなら「写真ビューア�
 
 | PR | 中身 |
 |---|---|
-| 7a | 「写真を追加」→ `pickMultiImage` → 準備（SHA-256・EXIF の撮影日時と GPS）→ `UploadQueue`（同時2本）→ `POST /api/photos`、進み具合バナー（準備中・送信中・完了・失敗と「送り直す」「閉じる」） |
-| 7b | 自動の送り直し（0 / 429 / 503 を 2・4・8 秒）、404 `TRIP_NOT_FOUND`、200（送信済み・別の場所）、サムネイル（`flutter_image_compress`）、地名（`geocoding`。minSdk 24・compileSdk 36 に上げる） |
+| 7a | （実装済み）「写真を追加」→ `pickMultiImage` → 準備（SHA-256・EXIF の撮影日時と GPS）→ `UploadQueue`（同時2本）→ `POST /api/photos`、進み具合バナー（送信中・完了・失敗と「送り直す」「閉じる」）、送信が一区切りついたときの読み直し |
+| 7b | 進み具合バナーの準備中の表示、失敗の理由の文言（`ApiException.userMessage`）、自動の送り直し（0 / 429 / 503 を 2・4・8 秒）、404 `TRIP_NOT_FOUND`、200（送信済み・別の場所）、サムネイル（`flutter_image_compress`）、地名（`geocoding`。minSdk 24・compileSdk 36 に上げる）、準備が済んだ順に送る（7a は全部を準備してから送り始める）、送信中・失敗の写真をグリッドの後ろに端末の画像として並べる（§4.4。ビューアで開けない・選べない、の前提）、送信中の写真がある旅行の削除の確認（§4.4） |
 | 7c | 写真ビューア |
 
 ### 各 PR の共通の完了条件
