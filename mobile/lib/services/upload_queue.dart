@@ -97,6 +97,10 @@ class UploadQueue extends ChangeNotifier {
   int _failureOrder = 0;
   // 送れた項目のうち、既に別の場所にあったもの
   final Set<UploadItem> _alreadyElsewhere = {};
+  // 404 TRIP_NOT_FOUND を受けた送り先。後から準備が済んだ同じ宛先の写真は、送っても同じ結果なので送らずに失敗にする
+  // （旅行の id は作り直されないので、消えた宛先を覚え続けても困らない。「送り直す」では利用者が試すので忘れる）
+  final Set<String?> _missingTrips = {};
+  static const _tripNotFoundReason = '旅行が見つかりません';
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
 
@@ -153,7 +157,11 @@ class UploadQueue extends ChangeNotifier {
           metadata: prepared.metadata,
         );
         _items.add(item);
-        _states[item] = UploadState.waiting;
+        if (_missingTrips.contains(tripId)) {
+          _fail(item, _tripNotFoundReason);
+        } else {
+          _states[item] = UploadState.waiting;
+        }
       } catch (e) {
         failure ??= e;
       }
@@ -224,7 +232,8 @@ class UploadQueue extends ChangeNotifier {
         }
         if (e is ApiException && e.isTripNotFound) {
           // 送り先の旅行が消えている。同じ宛先のまだ送っていない写真も、送っても同じ結果なので失敗にする
-          const reason = '旅行が見つかりません';
+          const reason = _tripNotFoundReason;
+          _missingTrips.add(item.tripId);
           _fail(item, reason);
           for (final other in _items) {
             if (other.tripId == item.tripId &&
@@ -270,6 +279,7 @@ class UploadQueue extends ChangeNotifier {
 
   /// 失敗した項目のうち、送り先が [where] に当たるものを送り直す。準備はやり直さない
   void retryFailed(bool Function(String? tripId) where) {
+    _missingTrips.removeWhere(where);
     for (final item in _items.where((item) => where(item.tripId))) {
       if (_states[item] == UploadState.failed) {
         _states[item] = UploadState.waiting;
