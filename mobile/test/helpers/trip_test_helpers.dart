@@ -174,10 +174,12 @@ class FakeTripBackend {
   final List<String?> deletePhotosSent = [];
 
   /// 写真の送信（`POST /api/photos`）の要求が届いた回数（応答を保留する前に数える）。
-  /// 要求が届くまで待つための印で、検証には使わない（送ったかどうかは、写真が偽のサーバに入ったことで見る）
+  /// 要求が届くまで待つ印として使う。届いた要求の数そのものが仕様（docs/travel-album/03_screen_design.md §4.7）の振る舞いであるときは、検証にも使う
+  /// （送り直しの回数と間隔、404 の後に残りを送らないこと）。送れたかどうかは、写真が偽のサーバに入ったことで見る
   int uploadsReceived = 0;
 
-  final Map<TripRoute, List<({int status, String code, String message})>> _failures = {};
+  // 次の呼び出しの失敗を、届いた時点で作る（応答を返すものと、通信が切れて例外になるもの）
+  final Map<TripRoute, List<http.Response Function()>> _failures = {};
   final Map<TripRoute, List<Future<void>>> _replyHolds = {};
   var _createdCount = 0;
 
@@ -188,7 +190,18 @@ class FakeTripBackend {
     String code = 'DATABASE_ERROR',
     String message = 'データベースに接続できません',
   }) {
-    _failures.putIfAbsent(route, () => []).add((status: status, code: code, message: message));
+    _failures.putIfAbsent(route, () => []).add(() => _error(status, code, message));
+  }
+
+  /// [route] の次の1回の呼び出しを、封筒の無い [status] の応答で失敗させる。
+  /// 従量課金プランの Functions ランタイムが過負荷のときに返す 429 "Too Busy" のように、アプリを通らずに返る応答を表す
+  void failNextWithoutEnvelope(TripRoute route, {int status = 429, String body = 'Too Busy'}) {
+    _failures.putIfAbsent(route, () => []).add(() => http.Response(body, status, headers: const {'content-type': 'text/plain'}));
+  }
+
+  /// [route] の次の1回の呼び出しを、通信が切れて応答が返らない失敗（HTTP クライアントの例外）にする
+  void failNextWithConnectionError(TripRoute route) {
+    _failures.putIfAbsent(route, () => []).add(() => throw http.ClientException('Connection reset by peer'));
   }
 
   /// [route] の次の1回の呼び出しだけ、返すのを返り値の Completer が終わるまで止める。
@@ -219,8 +232,7 @@ class FakeTripBackend {
     final failure = failures != null && failures.isNotEmpty ? failures.removeAt(0) : null;
     final replyHolds = _replyHolds[route];
     final replyHold = replyHolds != null && replyHolds.isNotEmpty ? replyHolds.removeAt(0) : null;
-    final response =
-        failure != null ? _error(failure.status, failure.code, failure.message) : _respondTo(route, request);
+    final response = failure != null ? failure() : _respondTo(route, request);
     if (replyHold != null) await replyHold;
     return response;
   }
