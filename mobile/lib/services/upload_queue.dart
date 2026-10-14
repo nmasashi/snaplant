@@ -118,10 +118,13 @@ class UploadQueue extends ChangeNotifier {
       _states.values.where((s) => s == state).length;
 
   void _pump() {
+    // 送信中の数はループの前に1回だけ数える（項目ごとに全体を数え直すと、数百枚で送るたびに重くなる）
+    var sending = _count(UploadState.sending);
     for (final item in _items) {
-      if (_count(UploadState.sending) >= _maxConcurrent) break;
+      if (sending >= _maxConcurrent) break;
       if (_states[item] == UploadState.waiting) {
         _states[item] = UploadState.sending;
+        sending++;
         _send(item);
       }
     }
