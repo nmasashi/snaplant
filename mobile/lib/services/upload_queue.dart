@@ -88,19 +88,23 @@ class UploadQueue extends ChangeNotifier {
 
   /// 選んだ写真を準備して列に入れる
   Future<void> addFiles(List<XFile> files, {String? tripId}) async {
-    for (final file in files) {
-      final prepared = await compute(_preparePhoto, file.path);
-      final item = UploadItem(
-        path: file.path,
-        photoId: prepared.photoId,
-        tripId: tripId,
-        metadata: prepared.metadata,
-      );
-      _items.add(item);
-      _states[item] = UploadState.waiting;
+    try {
+      for (final file in files) {
+        final prepared = await compute(_preparePhoto, file.path);
+        final item = UploadItem(
+          path: file.path,
+          photoId: prepared.photoId,
+          tripId: tripId,
+          metadata: prepared.metadata,
+        );
+        _items.add(item);
+        _states[item] = UploadState.waiting;
+      }
+    } finally {
+      // 途中の1枚が読めなくても、それまでに準備できた写真は送り始める（失敗は呼び出し側が知らせる）
+      notifyListeners();
+      _pump();
     }
-    notifyListeners();
-    _pump();
   }
 
   int _count(UploadState state) =>
