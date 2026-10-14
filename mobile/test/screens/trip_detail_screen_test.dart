@@ -1927,6 +1927,36 @@ void main() {
     expect(find.text('1枚を送信できませんでした（ファイルサイズが大きすぎます）'), findsOneWidget);
   });
 
+  testWidgets('送った2枚のうち1枚が、別の旅行に送信済みの写真（200）なら、「2枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）」と知らせ、北海道には新しい1枚だけが入る', (tester) async {
+    // 写真の id は画像の SHA-256 なので、同じ写真は何度送っても1枚になる。偽のサーバは、既にある id には 200 で既存の写真（京都にある）を返す。
+    // 送信済みの1枚も、送れた枚数（2枚）に数える
+    final alreadySent = writeTestImage('already_sent.png');
+    final fresh = writeTestImage('fresh.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([alreadySent, fresh]);
+    final backend = FakeTripBackend(
+      trips: [
+        tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
+        tripJson(id: kyotoTripId, name: '京都', photoCount: 1),
+      ],
+      photosByTripId: {
+        kyotoTripId: [photoJson(number: 0, tripId: kyotoTripId)..['id'] = tinyPngSha256],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
+    expect(backend.photosByTripId[kyotoTripId]!.length, 1);
+    await pumpUntilFound(tester, find.textContaining('を送信しました'));
+    expect(find.text('2枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
+  });
+
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
     // 500 は自動の送り直しの対象ではない（通信の失敗・429・503 だけが対象）。どちらの1枚が失敗するかは問わず、届いた枚数で見る
     final first = writeTestImage('first.png');
