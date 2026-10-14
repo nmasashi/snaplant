@@ -1885,6 +1885,30 @@ void main() {
     expect(find.text('送り直す'), findsOneWidget);
   });
 
+  testWidgets('送り先の旅行が別の端末で消されていて 404 になったら、同じ旅行宛ての残りの写真は送らずに失敗にし、バナーに「3枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
+    // 詳細を開いたあとで、偽のサーバから旅行を消す（画面は取り直さないので、詳細は開いたまま）。同時に送るのは2本なので、
+    // 2枚目も 404 になるまで送られうるが、3枚目は送らない（届いた要求の数が3未満）
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    final third = writeTestImage('third.png', bytes: [...tinyPngBytes, 0, 0]);
+    useGalleryReturning([first, second, third]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+    backend.trips.clear();
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await _waitRealTime(tester);
+    await letFramesRun(tester);
+
+    expect(backend.uploadsReceived, lessThan(3));
+    expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
+    expect(find.text('3枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+  });
+
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
     // 500 は自動の送り直しの対象ではない（通信の失敗・429・503 だけが対象）。どちらの1枚が失敗するかは問わず、届いた枚数で見る
     final first = writeTestImage('first.png');
