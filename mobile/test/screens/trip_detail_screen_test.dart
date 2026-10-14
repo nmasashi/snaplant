@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
+import 'package:snaplant_mobile/theme/app_theme.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
@@ -43,12 +45,13 @@ Future<void> _scrollToEnd(WidgetTester tester) async {
 }
 
 /// 「詳細を開く」ボタンだけのホーム画面から、[hokkaidoTripId] の旅行詳細を開く。
-/// 詳細画面の前に画面がある状態にする（削除したら戻る先）
-Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) async {
+/// 詳細画面の前に画面がある状態にする（削除したら戻る先）。[theme] を渡すと、アプリのテーマが効いた状態になる（色を確かめるテストだけが渡す）
+Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {ThemeData? theme}) async {
   final apiService = ApiService(baseUrl: testApiEndpoint, client: backend.client, functionKey: _apiKey);
   await openApp(
     tester,
     app: MaterialApp(
+      theme: theme,
       home: Builder(
         builder: (context) => Scaffold(
           body: Center(
@@ -1140,6 +1143,28 @@ void main() {
     await letFramesRun(tester);
     expect(find.text('1枚を旅行から外しました'), findsOneWidget);
     semantics.dispose();
+  });
+
+  testWidgets('選択モードの見出しの「すべて選択」は、見出しの背景と違う色の文字で出る（背景と同じ色だと読めない）', (tester) async {
+    // アプリのテーマが効いた状態で見る。テーマのテキストボタンの文字色が、見出しの背景と同じ色だと、押せるのに文字が見えなくなる
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend, theme: AppTheme.lightTheme);
+
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    final appBar = find.byType(AppBar);
+    final background = tester.widget<Material>(find.descendant(of: appBar, matching: find.byType(Material)).first).color;
+    final selectAll = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('すべて選択')));
+    expect(background, isNotNull);
+    expect(selectAll.text.style?.color, isNotNull);
+    expect(selectAll.text.style?.color, isNot(background));
   });
 
   testWidgets('選択モードでないときは写真のサムネイルに選択の状態を付けず、選択モードに入ると、選んでいない写真にも「選択の状態を持つが選択中でない」を付ける', (tester) async {

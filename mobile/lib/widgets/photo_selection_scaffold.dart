@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
 import '../services/api_service.dart';
+import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'confirm_action_dialog.dart';
 import 'photo_selection.dart';
@@ -64,7 +65,12 @@ class PhotoSelectionScaffold extends StatelessWidget {
       ),
       title: Text('${selection.count}枚を選択中', style: AppTextStyles.appBarTitle),
       actions: [
-        TextButton(onPressed: selection.selectAll, child: const Text('すべて選択')),
+        // テーマの文字ボタンは主色の文字で、見出しの背景（主色）と同じになり読めないので、見出しの前景色にする
+        TextButton(
+            onPressed: selection.selectAll,
+            style:
+                TextButton.styleFrom(foregroundColor: AppColors.textOnPrimary),
+            child: const Text('すべて選択')),
       ],
     );
   }
