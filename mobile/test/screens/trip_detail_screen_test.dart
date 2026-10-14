@@ -1087,6 +1087,61 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真を削除したあとの旅行の取り直しで旅行が既に無い（404）と分かったときは、前の見出しを残さず、「この旅行は削除されています」と出し、編集・削除のメニューは出さない', (tester) async {
+    // 取り直しの失敗では前の見出しを残すが、旅行が無いのは失敗ではなく事実。古い旅行名とメニューを残さない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    // 確認を出している間に、別の端末で旅行が消された
+    backend.trips.clear();
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真を旅行から外している間は、「外す」が「外しています...」になる', (tester) async {
+    // 押せない・閉じないことは、同じ部品（確認のダイアログ）を通る削除の送信中のテストが見ている。ここでは文言だけを見る
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行から外す'));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.move] = release.future;
+
+    await tapInDialog(tester, '外す');
+
+    expect(inDialog(find.text('外しています...')), findsOneWidget);
+    expect(inDialog(find.text('外す')), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+    expect(find.text('1枚を旅行から外しました'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('選択モードでないときは写真のサムネイルに選択の状態を付けず、選択モードに入ると、選んでいない写真にも「選択の状態を持つが選択中でない」を付ける', (tester) async {
     // 選択の状態を常に付けると、読み上げが選択モードの外でも全部の写真を「未選択」と読む
     final semantics = tester.ensureSemantics();
