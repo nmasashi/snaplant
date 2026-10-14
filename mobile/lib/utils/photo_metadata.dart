@@ -32,8 +32,12 @@ Future<PhotoMetadata> readPhotoMetadata(Uint8List bytes) async {
       tags['GPS GPSLatitude'], tags['GPS GPSLatitudeRef']?.printable);
   final longitude = _toDegrees(
       tags['GPS GPSLongitude'], tags['GPS GPSLongitudeRef']?.printable);
-  // 片方だけでは位置にならない（サーバも片方だけを 400 にする）
-  final hasLocation = latitude != null && longitude != null;
+  // 片方だけでは位置にならない（サーバも片方だけを 400 にする）。範囲外の値（壊れた GPS の EXIF）もサーバが 400 にし、
+  // 送り直しても通らないので、位置が無いものとして送る
+  final hasLocation = latitude != null &&
+      longitude != null &&
+      latitude.abs() <= 90 &&
+      longitude.abs() <= 180;
   return PhotoMetadata(
     takenAt: _toTakenAt(tags['EXIF DateTimeOriginal']?.printable),
     latitude: hasLocation ? latitude : null,
