@@ -360,4 +360,102 @@ void main() {
     expect(find.text('京都'), findsOneWidget);
     expect(find.text('大阪'), findsOneWidget);
   });
+
+  testWidgets('「旅行に属さない写真」の画面で写真を長押しすると、複数選択の操作は「旅行に入れる」と「削除」だけで、「旅行から外す」は出ない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip()],
+      unassignedPhotoCount: 1,
+      photosByTripId: {
+        'none': [photoJson(number: 1, takenAt: '2026-09-01T10:15:00')],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+
+    await tester.longPress(photoThumbnail('2026年9月1日 10:15'));
+    await letFramesRun(tester);
+
+    expect(find.text('旅行に入れる'), findsOneWidget);
+    expect(find.text('削除'), findsOneWidget);
+    expect(find.text('旅行から外す'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('「旅行に属さない写真」の画面で2枚を選んで、すべての旅行から「京都」を選んで入れると、写真の一覧と見出しの枚数から消え、京都に入る', (tester) async {
+    // 「旅行に入れる」の行き先は、すべての旅行（今いる旅行という除外が無い）。
+    // 見出しの枚数は旅行一覧から受け取った値のままではなく、移したあとにサーバから取り直した値（偽のサーバが移した分を引く）になる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(), tripJson(id: '3f2504e0-4f89-41d3-9a0c-0305e82c3302', name: '京都', photoCount: 0)],
+      unassignedPhotoCount: 3,
+      photosByTripId: {
+        'none': [
+          photoJson(number: 1, takenAt: '2026-09-01T10:15:00'),
+          photoJson(number: 2, takenAt: '2026-09-02T12:30:00'),
+          photoJson(number: 3, takenAt: '2026-09-03T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(find.text('3枚'), findsOneWidget);
+    await tester.longPress(photoThumbnail('2026年9月1日 10:15'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年9月2日 12:30'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    expect(inDialog(find.textContaining('北海道')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('2枚を「京都」に入れました'), findsOneWidget);
+    expect(photoThumbnail('2026年9月1日 10:15'), findsNothing);
+    expect(photoThumbnail('2026年9月2日 12:30'), findsNothing);
+    expect(photoThumbnail('2026年9月3日 18:45'), findsOneWidget);
+    expect(find.text('1枚'), findsOneWidget);
+    expect(backend.photosByTripId['3f2504e0-4f89-41d3-9a0c-0305e82c3302']!.map((photo) => photo['takenAt']), ['2026-09-01T10:15:00', '2026-09-02T12:30:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('「旅行に属さない写真」の画面で写真を削除したあとの枚数の取り直しに失敗しても、「1枚を削除しました」と知らせて写真の一覧は読み直し、見出しの枚数は前の値のまま、失敗の知らせは足さない', (tester) async {
+    // 削除では「旅行を選ぶ」が開かないので、旅行の一覧（GET /api/trips）は削除のあとの枚数の取り直しで初めて呼ばれる。
+    // 確認ダイアログの「削除」を押す直前に、その1回目を 503 で失敗させる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip()],
+      unassignedPhotoCount: 3,
+      photosByTripId: {
+        'none': [
+          photoJson(number: 1, takenAt: '2026-09-01T10:15:00'),
+          photoJson(number: 2, takenAt: '2026-09-02T12:30:00'),
+          photoJson(number: 3, takenAt: '2026-09-03T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    await tester.longPress(photoThumbnail('2026年9月1日 10:15'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.list);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('1枚を削除しました'), findsOneWidget);
+    expect(photoThumbnail('2026年9月1日 10:15'), findsNothing);
+    expect(photoThumbnail('2026年9月2日 12:30'), findsOneWidget);
+    expect(photoThumbnail('2026年9月3日 18:45'), findsOneWidget);
+    expect(find.text('3枚'), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+    semantics.dispose();
+  });
 }

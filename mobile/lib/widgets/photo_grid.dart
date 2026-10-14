@@ -7,6 +7,7 @@ import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/taken_at.dart';
 import 'message_view.dart';
+import 'photo_selection.dart';
 
 /// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
 ///
@@ -17,7 +18,8 @@ class PhotoGrid extends StatefulWidget {
       required this.apiService,
       required this.tripId,
       required this.emptyTitle,
-      required this.emptyMessage});
+      required this.emptyMessage,
+      this.selection});
 
   final ApiService apiService;
 
@@ -27,6 +29,9 @@ class PhotoGrid extends StatefulWidget {
   /// 写真が0枚のときの案内（画面ごとに文言が違う）
   final String emptyTitle;
   final String emptyMessage;
+
+  /// 複数選択。渡さなければ写真を選べない
+  final PhotoSelection? selection;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -188,6 +193,8 @@ class _PhotoGridState extends State<PhotoGrid> {
       );
     }
     final photos = _photos;
+    widget.selection
+        ?.updateLoaded([for (final p in photos ?? const <Photo>[]) p.id]);
     if (photos == null) {
       return Center(
         child: Column(
@@ -259,7 +266,8 @@ class _PhotoGridState extends State<PhotoGrid> {
                     if (mounted) _loadMore();
                   });
                 }
-                return _PhotoTile(photo: photos[index]);
+                return _PhotoTile(
+                    photo: photos[index], selection: widget.selection);
               },
             ),
           ),
@@ -306,43 +314,77 @@ class _PhotoGridState extends State<PhotoGrid> {
 
 /// サムネイル1枚。撮影日時を読み上げのラベルにする（画像だけでは写真を区別できないため）
 class _PhotoTile extends StatelessWidget {
-  const _PhotoTile({required this.photo});
+  const _PhotoTile({required this.photo, this.selection});
 
   final Photo photo;
+  final PhotoSelection? selection;
 
   @override
   Widget build(BuildContext context) {
+    final selection = this.selection;
+    if (selection == null) {
+      return _buildImage(selected: null);
+    }
+    return ListenableBuilder(
+      listenable: selection,
+      builder: (context, _) {
+        // 選択モードの外では選択の状態そのものを出さない（読み上げが全部のサムネイルを「未選択」と読まないように）
+        final selected =
+            selection.isActive ? selection.isSelected(photo.id) : null;
+        return GestureDetector(
+          onLongPress: () => selection.start(photo.id),
+          // 選択モードでなければ何もしない（写真ビューアは PR 7）
+          onTap: selection.isActive ? () => selection.toggle(photo.id) : null,
+          child: _buildImage(selected: selected),
+        );
+      },
+    );
+  }
+
+  /// [selected] は選択モードでなければ null
+  Widget _buildImage({required bool? selected}) {
     return Semantics(
       label: formatTakenAt(photo.takenAt),
       container: true,
-      child: CachedNetworkImage(
-        // サムネイルが無い写真は原寸をサムネイルの大きさで出す
-        imageUrl: photo.thumbnailUrl ?? photo.imageUrl,
-        cacheKey: photo.thumbnailUrl != null
-            ? thumbnailCacheKey(photo.id)
-            : imageCacheKey(photo.id),
-        cacheManager: photo.thumbnailUrl != null
-            ? PhotoCacheManager.thumbnails
-            : PhotoCacheManager.images,
-        // 原寸を出すときも、マスの大きさに縮めて読む（数千万画素のまま読むとメモリが足りなくなる）
-        memCacheWidth: _tileDecodeWidth,
-        fit: BoxFit.cover,
-        placeholder: (context, url) =>
-            const ColoredBox(color: AppColors.surfaceVariant),
-        // SAS の期限切れ（403）でも読めなくなる。自動では取り直さず、下に引っ張れば取り直せる（§3）
-        errorWidget: (context, url, error) => const ColoredBox(
-          color: AppColors.surfaceVariant,
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(4),
-              child: Text('画像を読み込めません',
-                  textAlign: TextAlign.center,
-                  style:
-                      TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+      selected: selected,
+      child: Stack(fit: StackFit.expand, children: [
+        CachedNetworkImage(
+          // サムネイルが無い写真は原寸をサムネイルの大きさで出す
+          imageUrl: photo.thumbnailUrl ?? photo.imageUrl,
+          cacheKey: photo.thumbnailUrl != null
+              ? thumbnailCacheKey(photo.id)
+              : imageCacheKey(photo.id),
+          cacheManager: photo.thumbnailUrl != null
+              ? PhotoCacheManager.thumbnails
+              : PhotoCacheManager.images,
+          // 原寸を出すときも、マスの大きさに縮めて読む（数千万画素のまま読むとメモリが足りなくなる）
+          memCacheWidth: _tileDecodeWidth,
+          fit: BoxFit.cover,
+          placeholder: (context, url) =>
+              const ColoredBox(color: AppColors.surfaceVariant),
+          // SAS の期限切れ（403）でも読めなくなる。自動では取り直さず、下に引っ張れば取り直せる（§3）
+          errorWidget: (context, url, error) => const ColoredBox(
+            color: AppColors.surfaceVariant,
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(4),
+                child: Text('画像を読み込めません',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 11, color: AppColors.textSecondary)),
+              ),
             ),
           ),
         ),
-      ),
+        if (selected == true) ...[
+          const ColoredBox(color: Color(0x553E7D32)),
+          const Positioned(
+            top: 4,
+            right: 4,
+            child: Icon(Icons.check_circle, color: Colors.white),
+          ),
+        ],
+      ]),
     );
   }
 }

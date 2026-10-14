@@ -41,3 +41,14 @@ class PhotoPage {
 
   const PhotoPage({required this.photos, this.continuationToken});
 }
+
+/// 写真の移動の結果（`POST /api/photos/move`）
+class PhotoMoveResult {
+  /// 移した写真の id（既にその旅行にあった写真も入る）
+  final List<String> moved;
+
+  /// 見つからなかった写真の id（別の端末で消されたなど）
+  final List<String> notFound;
+
+  const PhotoMoveResult({required this.moved, required this.notFound});
+}

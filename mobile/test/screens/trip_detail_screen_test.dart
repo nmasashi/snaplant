@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
+import 'package:snaplant_mobile/theme/app_theme.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
@@ -13,6 +16,9 @@ import '../helpers/trip_test_helpers.dart';
 // 偽のサーバは API キーを照合するので、画面に渡す ApiService には同じキーを持たせる
 
 const _apiKey = 'test-key';
+
+/// 旅行「京都」の id（写真の移し先に使う）
+const kyotoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
 
 FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBackend(trips: trips, functionKey: _apiKey);
 
@@ -39,12 +45,13 @@ Future<void> _scrollToEnd(WidgetTester tester) async {
 }
 
 /// 「詳細を開く」ボタンだけのホーム画面から、[hokkaidoTripId] の旅行詳細を開く。
-/// 詳細画面の前に画面がある状態にする（削除したら戻る先）
-Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend) async {
+/// 詳細画面の前に画面がある状態にする（削除したら戻る先）。[theme] を渡すと、アプリのテーマが効いた状態になる（色を確かめるテストだけが渡す）
+Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {ThemeData? theme}) async {
   final apiService = ApiService(baseUrl: testApiEndpoint, client: backend.client, functionKey: _apiKey);
   await openApp(
     tester,
     app: MaterialApp(
+      theme: theme,
       home: Builder(
         builder: (context) => Scaffold(
           body: Center(
@@ -675,5 +682,792 @@ void main() {
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
     expect(find.text('再試行'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
+
+  testWidgets('写真を長押しすると選択モードに入り、見出しが「1枚を選択中」と「×」「すべて選択」に替わり、押した写真だけが選択中になって、下に「旅行に入れる」「旅行から外す」「削除」が出る', (tester) async {
+    // 選択中かどうかは、サムネイルの読み上げ用ラベルを持つ Semantics の「選択中」の状態で見る（チェックの絵は画像のため見分けにくい）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    // 長押しの前は、通常の見出しで、選択の操作は出ていない
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('旅行に入れる'), findsNothing);
+
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('1枚を選択中')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byIcon(Icons.close)), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('すべて選択')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsNothing);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:02')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    expect(find.text('旅行に入れる'), findsOneWidget);
+    expect(find.text('旅行から外す'), findsOneWidget);
+    expect(find.text('削除'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('選択モードで別の写真をタップすると、その写真も選択中になり、見出しが「2枚を選択中」に変わる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    await tester.tap(photoThumbnail('2026年10月5日 10:02'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('2枚を選択中')), findsOneWidget);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:02')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:03')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    semantics.dispose();
+  });
+
+  testWidgets('選んだ写真をもう一度タップして0枚になっても選択モードのままで、その写真の選択は外れ、下の「旅行に入れる」「旅行から外す」「削除」は押せなくなる', (tester) async {
+    // 押せないことは、ボタンの Semantics が「有効・無効の状態を持ち、無効」であることで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    await tester.tap(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('0枚を選択中')), findsOneWidget);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    for (final label in ['旅行に入れる', '旅行から外す', '削除']) {
+      final button = tester.getSemantics(find.text(label));
+      expect(button.hasFlag(SemanticsFlag.hasEnabledState), isTrue, reason: '$label は有効・無効の状態を持つ');
+      expect(button.hasFlag(SemanticsFlag.isEnabled), isFalse, reason: '$label は押せない');
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('選択モードで「すべて選択」を押すと、読み込んでいる写真がすべて選択中になり、見出しが「3枚を選択中」に変わる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.text('すべて選択'));
+    await letFramesRun(tester);
+
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('3枚を選択中')), findsOneWidget);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:02')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:03')).hasFlag(SemanticsFlag.isSelected), isTrue);
+    semantics.dispose();
+  });
+
+  testWidgets('選択モード中に端末の戻る操作をすると、画面は閉じずに選択モードを抜け、見出しが旅行名に戻り、下の操作が消えて、写真の選択も外れる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.textContaining('選択中')), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isFalse);
+    semantics.dispose();
+  });
+
+  testWidgets('選んだ写真2枚を「旅行に入れる」で別の旅行「京都」に入れると、「2枚を「京都」に入れました」と知らせ、選択モードを抜けて、写真の一覧と見出しの枚数から移した写真が消える', (tester) async {
+    // 「旅行を選ぶ」ダイアログは、今いる旅行（北海道）を出さず、他の旅行を名前と枚数で並べる。
+    // 移したかどうかは、呼び出しではなく、一覧から消えたことと、偽のサーバの京都の写真に入っていることで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
+    expect(inDialog(find.textContaining('0枚')), findsOneWidget);
+    expect(inDialog(find.textContaining('北海道')), findsNothing);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('2枚を「京都」に入れました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('選んだ写真の1枚が、選んだあとに別の端末で消されていたら、「旅行に入れる」の知らせに「（1枚は見つかりませんでした）」を足し、残りの1枚は移す', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    // 選んだあとに、別の端末で10:03の写真が消された
+    backend.photosByTripId[hokkaidoTripId]!.removeWhere((photo) => photo['takenAt'] == '2026-10-05T10:03:00');
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('1枚を「京都」に入れました（1枚は見つかりませんでした）'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('201枚を選んで「旅行に入れる」と、200枚を超えても全部が移り、「201枚を「京都」に入れました」と知らせる', (tester) async {
+    // 偽のサーバは、一度に200枚を超える移動を 400 で断る（実際のサーバと同じ）。
+    // 分けずに送れば失敗するので、全部が移ったことと知らせの枚数で見る。1ページで全部を読み込ませる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 201), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      pageSize: 300,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 201; n++) photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
+    await letFramesRun(tester);
+    await tester.tap(find.text('すべて選択'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('201枚を「京都」に入れました'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.length, 201);
+    semantics.dispose();
+  });
+
+  testWidgets('ちょうど200枚を選んで「旅行に入れる」と、200枚が移り、「200枚を「京都」に入れました」と知らせる', (tester) async {
+    // 200枚は一度に送れる上限ちょうど。分け方の境界で、空のまとまりを余分に送ると偽のサーバが 400 で断る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 200), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      pageSize: 300,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 200; n++) photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
+    await letFramesRun(tester);
+    await tester.tap(find.text('すべて選択'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('200枚を「京都」に入れました'), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId]!.length, 200);
+    semantics.dispose();
+  });
+
+  testWidgets('写真を移している間は「入れる」が「入れています...」になり、「キャンセル」や「新しい旅行を作る」、旅行の行も押せず、外のタップや戻る操作でも「旅行を選ぶ」は閉じず、応答が返れば「1枚を「京都」に入れました」と知らせる', (tester) async {
+    // 閉じられると、要求は送られたまま写真がサーバで移るのに、利用者は取り消したつもりになる。押せないことは、ボタンの Semantics で見る
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.move] = release.future;
+
+    await tapInDialog(tester, '入れる');
+
+    expect(inDialog(find.text('入れています...')), findsOneWidget);
+    expect(inDialog(find.text('入れる')), findsNothing);
+    final moving = tester.getSemantics(inDialog(find.text('入れています...')));
+    expect(moving.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(moving.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    final cancel = tester.getSemantics(inDialog(find.text('キャンセル')));
+    expect(cancel.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(cancel.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    // 「新しい旅行を作る」と旅行の行も押せない。作成ダイアログが重なったまま移動が終わると、結果で閉じるダイアログを取り違える。
+    // 行を選び直せると、表示と送った先が食い違う
+    final createTrip = tester.getSemantics(inDialog(find.textContaining('新しい旅行を作る')));
+    expect(createTrip.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(createTrip.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    final kyotoRow = tester.getSemantics(inDialog(find.textContaining('京都')));
+    expect(kyotoRow.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(kyotoRow.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    // ダイアログの外（画面の隅）のタップ
+    await tester.tapAt(const Offset(5, 5));
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+    // 端末の戻る操作
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を「京都」に入れました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真を削除している間は「削除」が「削除中...」になり、「キャンセル」も押せず、外のタップや戻る操作でも確認は閉じず、応答が返れば「1枚を削除しました」と知らせる', (tester) async {
+    // 閉じられると、要求は送られたまま写真がサーバで消えるのに、利用者は取り消したつもりになる。押せないことは、ボタンの Semantics で見る
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.deletePhoto] = release.future;
+
+    await tapInDialog(tester, '削除');
+
+    expect(inDialog(find.text('削除中...')), findsOneWidget);
+    final deleting = tester.getSemantics(inDialog(find.text('削除中...')));
+    expect(deleting.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(deleting.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    final cancel = tester.getSemantics(inDialog(find.text('キャンセル')));
+    expect(cancel.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(cancel.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    // ダイアログの外（画面の隅）のタップ
+    await tester.tapAt(const Offset(5, 5));
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+    // 端末の戻る操作
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を削除しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真を削除したあとの旅行の取り直しに失敗しても、「1枚を削除しました」と知らせて写真の一覧は読み直し、見出しは前の値のまま、エラーの表示も失敗の知らせも出さない', (tester) async {
+    // 旅行の取得（GET /api/trips/{tripId}）は、開いたときに済んでいる。削除のあとの取り直しが次の1回目なので、確認の「削除」を押す直前に失敗させる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.detail);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('1枚を削除しました'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsOneWidget);
+    expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真を削除したあとの旅行の取り直しで旅行が既に無い（404）と分かったときは、前の見出しを残さず、「この旅行は削除されています」と出し、編集・削除のメニューは出さない', (tester) async {
+    // 取り直しの失敗では前の見出しを残すが、旅行が無いのは失敗ではなく事実。古い旅行名とメニューを残さない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    // 確認を出している間に、別の端末で旅行が消された
+    backend.trips.clear();
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真を旅行から外している間は、「外す」が「外しています...」になる', (tester) async {
+    // 押せない・閉じないことは、同じ部品（確認のダイアログ）を通る削除の送信中のテストが見ている。ここでは文言だけを見る
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行から外す'));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.move] = release.future;
+
+    await tapInDialog(tester, '外す');
+
+    expect(inDialog(find.text('外しています...')), findsOneWidget);
+    expect(inDialog(find.text('外す')), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+    expect(find.text('1枚を旅行から外しました'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('選択モードの見出しの「すべて選択」は、見出しの背景と違う色の文字で出る（背景と同じ色だと読めない）', (tester) async {
+    // アプリのテーマが効いた状態で見る。テーマのテキストボタンの文字色が、見出しの背景と同じ色だと、押せるのに文字が見えなくなる
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend, theme: AppTheme.lightTheme);
+
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+
+    final appBar = find.byType(AppBar);
+    final background = tester.widget<Material>(find.descendant(of: appBar, matching: find.byType(Material)).first).color;
+    final selectAll = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('すべて選択')));
+    expect(background, isNotNull);
+    expect(selectAll.text.style?.color, isNotNull);
+    expect(selectAll.text.style?.color, isNot(background));
+  });
+
+  testWidgets('選択モードでないときは写真のサムネイルに選択の状態を付けず、選択モードに入ると、選んでいない写真にも「選択の状態を持つが選択中でない」を付ける', (tester) async {
+    // 選択の状態を常に付けると、読み上げが選択モードの外でも全部の写真を「未選択」と読む
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        ],
+      },
+    );
+
+    await openDetailFromHome(tester, backend);
+
+    expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.hasSelectedState), isFalse);
+
+    await tester.longPress(photoThumbnail('2026年10月5日 10:02'));
+    await letFramesRun(tester);
+
+    final unselected = tester.getSemantics(photoThumbnail('2026年10月5日 10:01'));
+    expect(unselected.hasFlag(SemanticsFlag.hasSelectedState), isTrue);
+    expect(unselected.hasFlag(SemanticsFlag.isSelected), isFalse);
+    semantics.dispose();
+  });
+
+  testWidgets('写真の移動にサーバが失敗を返すと、エラーの文言を出して「旅行を選ぶ」のダイアログと2枚の選択は残り、「入れる」を押し直すと移って「2枚を「京都」に入れました」と知らせる', (tester) async {
+    // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+        kyotoTripId: [],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.move);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('2枚を選択中')), findsOneWidget);
+    expect(backend.photosByTripId[kyotoTripId], isEmpty);
+    expect(find.textContaining('に入れました'), findsNothing);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('2枚を「京都」に入れました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(backend.photosByTripId[kyotoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('「旅行を選ぶ」で「京都」を選んだあとに「新しい旅行を作る」で「沖縄」を作ると、一覧に「沖縄」が加わって選びが「沖縄」に替わり、そのまま「入れる」で選んだ写真が「沖縄」に入る（「京都」には入らない）', (tester) async {
+    // 先に「京都」を選んでおき、作った旅行で選びが上書きされることも見る（作った旅行を選ばなければ、「入れる」は京都に入ってしまう）。
+    // 作った旅行が選ばれていることは、行のラジオボタンの状態ではなく、「入れる」でその旅行に移せることで見る
+    // （ラジオボタンの選択は Semantics からは読めなかった）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    expect(inDialog(find.textContaining('新しい旅行を作る')), findsOneWidget);
+    await tester.tap(inDialog(find.textContaining('新しい旅行を作る')));
+    await letFramesRun(tester);
+    await enterTripName(tester, '沖縄');
+
+    await tapInDialog(tester, '作成');
+
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(inDialog(find.text('沖縄')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
+
+    await tapInDialog(tester, '入れる');
+
+    expect(find.text('1枚を「沖縄」に入れました'), findsOneWidget);
+    final okinawaId = backend.trips.firstWhere((trip) => trip['name'] == '沖縄')['id'];
+    expect(backend.photosByTripId[okinawaId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
+    expect(backend.photosByTripId[kyotoTripId] ?? [], isEmpty);
+    semantics.dispose();
+  });
+
+  testWidgets('選んだ写真2枚を「旅行から外す」で確認して「外す」と、「2枚を旅行から外しました」と知らせ、選択モードを抜けて、写真の一覧と見出しの枚数から外した写真が消え、旅行に属さない写真になる', (tester) async {
+    // 外したことは、偽のサーバの「旅行に属さない写真」（none）に入ったことで見る。
+    // 偽のサーバは、外すときに tripId のキーを省いた要求を 400 で断る（null を明示して送ったことも、成功で分かる）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行から外す'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('旅行から外す')), findsOneWidget);
+    expect(inDialog(find.text('2枚を旅行から外しますか？\n写真は「旅行に属さない写真」に移ります。')), findsOneWidget);
+    expect(inDialog(find.text('キャンセル')), findsOneWidget);
+
+    await tapInDialog(tester, '外す');
+
+    expect(find.text('2枚を旅行から外しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行から外す'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(backend.photosByTripId['none']!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('「旅行から外す」の移動にサーバが失敗を返すと、エラーの文言を出して確認のダイアログと2枚の選択は残り、「外す」を押し直すと外れて「2枚を旅行から外しました」と知らせる', (tester) async {
+    // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+        'none': [],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行から外す'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.move);
+
+    await tapInDialog(tester, '外す');
+
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(inDialog(find.text('旅行から外す')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('2枚を選択中')), findsOneWidget);
+    expect(backend.photosByTripId['none'], isEmpty);
+    expect(find.textContaining('外しました'), findsNothing);
+
+    await tapInDialog(tester, '外す');
+
+    expect(find.text('2枚を旅行から外しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(backend.photosByTripId['none']!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00', '2026-10-05T10:03:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('選んだ写真2枚を「削除」で確認して「削除」すると、「2枚を削除しました」と知らせ、選択モードを抜けて、写真の一覧と見出しの枚数から消え、サーバからも消える', (tester) async {
+    // 下の操作バーの「削除」と、確認ダイアログのタイトル・ボタンの「削除」は同じ文言。確認の中のものはダイアログに絞って探す。
+    // 消したことは、偽のサーバから消えたことで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('写真を削除')), findsOneWidget);
+    expect(inDialog(find.text('2枚の写真を削除しますか？\nこの操作は元に戻せません。')), findsOneWidget);
+    expect(inDialog(find.text('キャンセル')), findsOneWidget);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('2枚を削除しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(find.text('1枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:02:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('選んだ写真3枚の削除で、1枚は既に別の端末で消されていて（404）、1枚は削除に失敗しても、404の1枚は消せたと数えて「2枚を削除しました（1枚は削除できませんでした）」と知らせ、失敗した1枚は一覧に残る', (tester) async {
+    // 削除は選んだ順に1枚ずつ送られる。10:01 を最初に選ぶので、削除の要求の1回目（503 で失敗させる）は 10:01 のもの。
+    // 10:02 は選んだ後に別の端末で消される（404）。10:03 は消せる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:02'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:03'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.deletePhoto);
+    backend.photosByTripId[hokkaidoTripId]!.removeWhere((photo) => photo['takenAt'] == '2026-10-05T10:02:00');
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('2枚を削除しました（1枚は削除できませんでした）'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+    expect(photoThumbnail('2026年10月5日 10:03'), findsNothing);
+    expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['takenAt']), ['2026-10-05T10:01:00']);
+    semantics.dispose();
+  });
+
+  testWidgets('「旅行を選ぶ」で旅行の一覧の読み込みに失敗すると、ダイアログの中にエラーの文言と「再試行」を出して「入れる」は押せず、「再試行」で旅行が並んで選べる', (tester) async {
+    // 旅行の一覧（GET /api/trips）の1回目だけを 503 で失敗させる。詳細を開くまでに呼ばれた分は済んでいるので、ダイアログを開く直前に仕掛ける
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1), tripJson(id: kyotoTripId, name: '京都', photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.list);
+
+    await tester.tap(find.text('旅行に入れる'));
+    await letFramesRun(tester);
+
+    expect(inDialog(find.text('旅行を選ぶ')), findsOneWidget);
+    expect(inDialog(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。')), findsOneWidget);
+    expect(inDialog(find.text('再試行')), findsOneWidget);
+    expect(inDialog(find.textContaining('京都')), findsNothing);
+    final moveButton = tester.getSemantics(inDialog(find.text('入れる')));
+    expect(moveButton.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(moveButton.hasFlag(SemanticsFlag.isEnabled), isFalse);
+
+    await tapInDialog(tester, '再試行');
+
+    expect(inDialog(find.textContaining('京都')), findsOneWidget);
+    expect(inDialog(find.text('再試行')), findsNothing);
+    await tester.tap(inDialog(find.textContaining('京都')));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '入れる');
+    expect(find.text('1枚を「京都」に入れました'), findsOneWidget);
+    semantics.dispose();
   });
 }

@@ -5,6 +5,8 @@ import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
+import '../widgets/photo_selection.dart';
+import '../widgets/photo_selection_scaffold.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
 
@@ -28,6 +30,16 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   bool _tripDeleted = false;
   // 読み込みに失敗したときの文言（旅行が無い場合を除く）。null なら失敗していない
   String? _errorMessage;
+  // 写真の複数選択（見出し・下の操作バー・グリッドが見る）
+  final _selection = PhotoSelection();
+  // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
+  int _gridVersion = 0;
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -35,8 +47,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     _loadTrip();
   }
 
-  /// 旅行（枚数・撮影期間つき）を読み込む
-  Future<void> _loadTrip() async {
+  /// 旅行（枚数・撮影期間つき）を読み込む。
+  /// [keepOnFailure] なら、取り直しの失敗（旅行が無い場合を除く）で画面をエラーにせず、前の見出しを残す
+  Future<void> _loadTrip({bool keepOnFailure = false}) async {
     setState(() => _errorMessage = null);
     try {
       final trip = await widget.apiService.getTrip(widget.tripId);
@@ -53,6 +66,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         });
         return;
       }
+      if (keepOnFailure && _trip != null) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '旅行の読み込みに失敗しました');
     }
@@ -93,6 +107,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
   }
 
+  /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す。
+  /// 見出しを取り直せなくても前の値のまま出す（操作は済んで知らせも出ているので、画面をエラーで置き換えない）
+  Future<void> _reloadPhotos() async {
+    setState(() => _gridVersion++);
+    await _loadTrip(keepOnFailure: true);
+  }
+
   /// 削除の知らせ。写真を消したか移したかは応答の枚数で分かる（0枚の旅行ならどちらも 0）
   String _deletedMessage(TripDeleteResult result) {
     if (result.deletedPhotoCount > 0) {
@@ -107,23 +128,31 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(trip?.name ?? '', style: AppTextStyles.appBarTitle),
-        actions: [
-          if (trip != null && _errorMessage == null)
-            PopupMenuButton<void>(
-              icon: const Icon(Icons.more_vert),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                    onTap: () => _editTrip(trip), child: const Text('編集')),
-                PopupMenuItem(
-                    onTap: () => _deleteTrip(trip), child: const Text('削除')),
-              ],
-            ),
-        ],
-      ),
+    return PhotoSelectionScaffold(
+      apiService: widget.apiService,
+      selection: _selection,
+      currentTripId: widget.tripId,
+      appBar: _buildAppBar(trip),
       body: _buildBody(trip),
+      onPhotosChanged: _reloadPhotos,
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(TripSummary? trip) {
+    return AppBar(
+      title: Text(trip?.name ?? '', style: AppTextStyles.appBarTitle),
+      actions: [
+        if (trip != null && _errorMessage == null)
+          PopupMenuButton<void>(
+            icon: const Icon(Icons.more_vert),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                  onTap: () => _editTrip(trip), child: const Text('編集')),
+              PopupMenuItem(
+                  onTap: () => _deleteTrip(trip), child: const Text('削除')),
+            ],
+          ),
+      ],
     );
   }
 
@@ -159,8 +188,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         ),
         Expanded(
           child: PhotoGrid(
+            key: ValueKey(_gridVersion),
             apiService: widget.apiService,
             tripId: trip.id,
+            selection: _selection,
             emptyTitle: 'まだ写真がありません',
             emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
           ),
