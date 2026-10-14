@@ -73,16 +73,6 @@ Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {T
   await letFramesRun(tester);
 }
 
-/// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が届くまで、実時間で少しずつ待つ（最長 5 秒）。
-/// 写真の準備（ファイルの読み込み・ハッシュ・EXIF）は別の isolate で実時間で進むので、`tester.runAsync` の中で待つ。
-/// 届かなくても例外にせず戻る（検証は呼び出し側）。待っている間は画面を進めない（写真のサムネイルを出す前に待ち終える。
-/// 出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
-Future<void> _waitUntilUploaded(WidgetTester tester, FakeTripBackend backend, String tripKey) async {
-  for (var i = 0; i < 100 && (backend.photosByTripId[tripKey] ?? []).isEmpty; i++) {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-  }
-}
-
 void main() {
   testWidgets('旅行詳細を開くと、写真の一覧の1ページ目の読み込み中は「写真を読み込み中...」を出し、読み込めたらサーバが返す順にサムネイルを並べる', (tester) async {
     // サムネイルの画像は、テスト環境の HTTP が返さないので見えない。並びは、各サムネイルの読み上げ用ラベル（撮影日時）の位置で見る。
@@ -1496,7 +1486,7 @@ void main() {
 
     expect(find.text('写真を追加'), findsOneWidget);
     await tester.tap(find.text('写真を追加'));
-    await _waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
 
     expect(backend.photosByTripId[hokkaidoTripId]!.map((photo) => photo['id']), [tinyPngSha256]);
@@ -1518,7 +1508,7 @@ void main() {
     expect(find.text('写真を追加'), findsOneWidget);
 
     await tester.tap(find.text('写真を追加'));
-    await _waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;

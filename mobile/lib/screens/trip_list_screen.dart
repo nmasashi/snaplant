@@ -74,7 +74,9 @@ class _TripListScreenState extends State<TripListScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => UnassignedPhotosScreen(
-            apiService: widget.apiService, photoCount: photoCount),
+            apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
+            photoCount: photoCount),
       ),
     );
     // 写真を旅行に入れる・消すと枚数が変わるので、戻ったら読み直す（旅行詳細と同じ）

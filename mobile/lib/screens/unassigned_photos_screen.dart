@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
+import '../widgets/add_photos_button.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
@@ -10,9 +14,15 @@ import '../widgets/photo_selection_scaffold.dart';
 /// 旅行詳細と同じ部品で、旅行ではないので編集・削除のメニューは無く、期間も出さない
 class UnassignedPhotosScreen extends StatefulWidget {
   const UnassignedPhotosScreen(
-      {super.key, required this.apiService, required this.photoCount});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.photoCount});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（AppRoot が持つ）
+  final UploadQueue uploadQueue;
 
   /// 旅行一覧（GET /api/trips）の unassignedPhotoCount。開いたときはこれを出す
   final int photoCount;
@@ -27,9 +37,20 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
   final _selection = PhotoSelection();
   // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
+  StreamSubscription<UploadItem>? _uploaded;
+
+  @override
+  void initState() {
+    super.initState();
+    // 旅行を指定せずに送った写真が送れたら、一覧と枚数を読み直す
+    _uploaded = widget.uploadQueue.uploaded
+        .where((item) => item.tripId == null)
+        .listen((_) => _reloadPhotos());
+  }
 
   @override
   void dispose() {
+    _uploaded?.cancel();
     _selection.dispose();
     super.dispose();
   }
@@ -77,6 +98,8 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
         ],
       ),
       onPhotosChanged: _reloadPhotos,
+      floatingActionButton:
+          AddPhotosButton(uploadQueue: widget.uploadQueue, tripId: null),
     );
   }
 }

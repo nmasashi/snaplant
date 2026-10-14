@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/app_test_helpers.dart';
+import '../helpers/gallery_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // アプリ全体を開き、旅行タブの旅行一覧の利用者から見た振る舞いを確かめる
@@ -444,5 +445,28 @@ void main() {
     expect(find.text('3枚'), findsOneWidget);
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
     semantics.dispose();
+  });
+
+  testWidgets('「旅行に属さない写真」の画面の「写真を追加」で1枚選ぶと、旅行を指定せずに送られ、「1枚を送信しました」と知らせて、写真の一覧と見出しの枚数に出る', (tester) async {
+    // 偽のサーバは、旅行を指定せずに送られた写真を「旅行に属さない写真」（none）に入れ、その枚数を増やす。
+    // 見出しの枚数は、送ったあとに旅行の一覧を取り直して分かる
+    final image = writeTestImage('unassigned.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 0);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(find.text('旅行に属さない写真はありません'), findsOneWidget);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, 'none');
+    await letFramesRun(tester);
+
+    expect(backend.photosByTripId['none']!.map((photo) => photo['id']), [tinyPngSha256]);
+    expect(backend.photosByTripId['none']!.single['tripId'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+    expect(find.text('1枚'), findsOneWidget);
+    expect(find.text('旅行に属さない写真はありません'), findsNothing);
   });
 }

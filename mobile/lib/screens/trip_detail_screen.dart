@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/trip_period.dart';
+import '../widgets/add_photos_button.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
@@ -123,21 +123,6 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(_deletedMessage(result))));
   }
 
-  /// 「写真を追加」: ギャラリーで選んだ写真を、この旅行宛てに送る
-  Future<void> _addPhotos() async {
-    try {
-      final files = await ImagePicker()
-          .pickMultiImage(imageQuality: 85, maxWidth: 1920, maxHeight: 1920);
-      if (files.isEmpty) return;
-      await widget.uploadQueue.addFiles(files, tripId: widget.tripId);
-    } catch (e) {
-      debugPrint('TripDetailScreen: 画像の読み込みエラー: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('画像の読み込みに失敗しました')));
-    }
-  }
-
   /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す。
   /// 見出しを取り直せなくても前の値のまま出す（操作は済んで知らせも出ているので、画面をエラーで置き換えない）
   Future<void> _reloadPhotos() async {
@@ -168,11 +153,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       onPhotosChanged: _reloadPhotos,
       floatingActionButton: trip == null
           ? null
-          : FloatingActionButton.extended(
-              onPressed: _addPhotos,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-              label: const Text('写真を追加'),
-            ),
+          : AddPhotosButton(
+              uploadQueue: widget.uploadQueue, tripId: widget.tripId),
     );
   }
 
