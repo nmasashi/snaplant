@@ -225,7 +225,7 @@ class UploadQueue extends ChangeNotifier {
             }
           }
         } else {
-          _fail(item, null);
+          _fail(item, e is ApiException ? e.userMessage : '写真の送信に失敗しました');
         }
         break;
       }
