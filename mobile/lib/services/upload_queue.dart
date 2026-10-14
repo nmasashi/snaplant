@@ -88,6 +88,9 @@ class UploadQueue extends ChangeNotifier {
   final List<UploadItem> _items = [];
   final Map<UploadItem, UploadState> _states = {};
   final List<PreparationProgress> _preparations = [];
+  // 失敗した項目の理由と、失敗した順番（バナーは最後に失敗したものの理由を出す）
+  final Map<UploadItem, ({int order, String? reason})> _failures = {};
+  int _failureOrder = 0;
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
 
@@ -102,6 +105,24 @@ class UploadQueue extends ChangeNotifier {
   List<UploadItem> get items => List.unmodifiable(_items);
 
   UploadState stateOf(UploadItem item) => _states[item]!;
+
+  /// 失敗した項目のうち、送り先が [where] に当たるもので最後に失敗したものの理由。理由が無ければ null
+  String? lastFailureReason(bool Function(String? tripId) where) {
+    ({int order, String? reason})? last;
+    for (final entry in _failures.entries) {
+      if (_states[entry.key] != UploadState.failed ||
+          !where(entry.key.tripId)) {
+        continue;
+      }
+      if (last == null || entry.value.order > last.order) last = entry.value;
+    }
+    return last?.reason;
+  }
+
+  void _fail(UploadItem item, String? reason) {
+    _states[item] = UploadState.failed;
+    _failures[item] = (order: _failureOrder++, reason: reason);
+  }
 
   /// 準備中の写真の束（進み具合バナーが「写真を準備中... k/n」に使う）
   List<PreparationProgress> get preparations =>
@@ -193,7 +214,19 @@ class UploadQueue extends ChangeNotifier {
           if (_disposed) return;
           continue;
         }
-        _states[item] = UploadState.failed;
+        if (e is ApiException && e.isTripNotFound) {
+          // 送り先の旅行が消えている。同じ宛先のまだ送っていない写真も、送っても同じ結果なので失敗にする
+          const reason = '旅行が見つかりません';
+          _fail(item, reason);
+          for (final other in _items) {
+            if (other.tripId == item.tripId &&
+                _states[other] == UploadState.waiting) {
+              _fail(other, reason);
+            }
+          }
+        } else {
+          _fail(item, null);
+        }
         break;
       }
     }
@@ -239,6 +272,7 @@ class UploadQueue extends ChangeNotifier {
     for (final item in dismissed) {
       _items.remove(item);
       _states.remove(item);
+      _failures.remove(item);
     }
     notifyListeners();
   }

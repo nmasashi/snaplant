@@ -35,6 +35,7 @@ class UploadBanner extends StatelessWidget {
         if (items.isEmpty) return const SizedBox.shrink();
         int count(UploadState state) =>
             items.where((item) => uploadQueue.stateOf(item) == state).length;
+        final reason = uploadQueue.lastFailureReason(includes);
         final inProgress =
             count(UploadState.waiting) + count(UploadState.sending) > 0;
         return _container(
@@ -45,7 +46,9 @@ class UploadBanner extends StatelessWidget {
               : Row(
                   children: [
                     Expanded(
-                      child: Text('${count(UploadState.failed)}枚を送信できませんでした',
+                      child: Text(
+                          '${count(UploadState.failed)}枚を送信できませんでした'
+                          '${reason == null ? '' : '（$reason）'}',
                           style: AppTextStyles.body1),
                     ),
                     TextButton(
