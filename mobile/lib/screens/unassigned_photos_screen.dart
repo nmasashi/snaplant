@@ -89,7 +89,7 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
           // 旅行を指定せずに送った写真だけを数える
           UploadBanner(
               uploadQueue: widget.uploadQueue,
-              includes: (item) => item.tripId == null),
+              includes: (tripId) => tripId == null),
           Expanded(
             child: PhotoGrid(
               key: ValueKey(_gridVersion),

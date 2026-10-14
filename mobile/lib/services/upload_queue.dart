@@ -56,6 +56,20 @@ class UploadBatchResult {
   final Set<String?> tripIds;
 }
 
+/// 「写真を追加」で選んだ写真の準備の進み具合（準備中は、まだ列の項目になっていない写真もあるので別に数える）
+class PreparationProgress {
+  PreparationProgress({required this.tripId, required this.total});
+
+  /// 送り先の旅行。null なら旅行に属さない写真
+  final String? tripId;
+
+  /// 選んだ枚数
+  final int total;
+
+  /// 準備を終えた枚数（読めなかった写真も含む）
+  int prepared = 0;
+}
+
 /// 送る写真1枚の状態
 enum UploadState { waiting, sending, done, failed }
 
@@ -73,6 +87,7 @@ class UploadQueue extends ChangeNotifier {
   // 進み具合の全体として数える項目。送信中の項目が無くなったら、送れた項目を除く（失敗した項目は送り直すか閉じるまで残る）
   final List<UploadItem> _items = [];
   final Map<UploadItem, UploadState> _states = {};
+  final List<PreparationProgress> _preparations = [];
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
 
@@ -88,10 +103,17 @@ class UploadQueue extends ChangeNotifier {
 
   UploadState stateOf(UploadItem item) => _states[item]!;
 
+  /// 準備中の写真の束（進み具合バナーが「写真を準備中... k/n」に使う）
+  List<PreparationProgress> get preparations =>
+      List.unmodifiable(_preparations);
+
   /// 選んだ写真を準備して列に入れる
   Future<void> addFiles(List<XFile> files, {String? tripId}) async {
     // 読めない写真があっても残りの準備は続け、最後に失敗を呼び出し側へ伝える（呼び出し側が知らせる）
     Object? failure;
+    final progress = PreparationProgress(tripId: tripId, total: files.length);
+    _preparations.add(progress);
+    notifyListeners();
     for (final file in files) {
       // 準備の途中で設定が変わってこの列が捨てられたら、残りは準備しない（送らないので読むだけ無駄になる）
       if (_disposed) return;
@@ -108,11 +130,14 @@ class UploadQueue extends ChangeNotifier {
       } catch (e) {
         failure ??= e;
       }
-    }
-    if (!_disposed) {
+      if (_disposed) return;
+      // 準備が済んだ写真から送り始める（数百枚を選んでも、全部の準備を待たずに送信が進む）
+      progress.prepared++;
       notifyListeners();
       _pump();
     }
+    _preparations.remove(progress);
+    notifyListeners();
     if (failure != null) throw failure;
   }
 
@@ -159,9 +184,9 @@ class UploadQueue extends ChangeNotifier {
     _pump();
   }
 
-  /// 失敗した項目（[where] に当たるもの）を送り直す。準備はやり直さない
-  void retryFailed(bool Function(UploadItem item) where) {
-    for (final item in _items.where(where)) {
+  /// 失敗した項目のうち、送り先が [where] に当たるものを送り直す。準備はやり直さない
+  void retryFailed(bool Function(String? tripId) where) {
+    for (final item in _items.where((item) => where(item.tripId))) {
       if (_states[item] == UploadState.failed) {
         _states[item] = UploadState.waiting;
       }
@@ -170,10 +195,11 @@ class UploadQueue extends ChangeNotifier {
     _pump();
   }
 
-  /// 失敗した項目（[where] に当たるもの）を列から消す（端末の写真は消えない。選び直せば送れる）
-  void dismissFailed(bool Function(UploadItem item) where) {
+  /// 失敗した項目のうち、送り先が [where] に当たるものを列から消す（端末の写真は消えない。選び直せば送れる）
+  void dismissFailed(bool Function(String? tripId) where) {
     final dismissed = _items
-        .where((item) => where(item) && _states[item] == UploadState.failed)
+        .where(
+            (item) => where(item.tripId) && _states[item] == UploadState.failed)
         .toList();
     for (final item in dismissed) {
       _items.remove(item);
