@@ -49,8 +49,11 @@ class _TripListScreenState extends State<TripListScreen> {
     super.initState();
     _loadTrips();
     // 送信が一区切りついたら、旅行ごとの枚数と旅行に属さない写真の枚数を読み直す
-    // （1枚ごとに読み直すと、数百枚の送信で一覧の取得が同じ数だけ走る）
-    _uploadFinished = widget.uploadQueue.finished.listen((_) => _loadTrips());
+    // （1枚ごとに読み直すと、数百枚の送信で一覧の取得が同じ数だけ走る）。
+    // 1枚も送れなかった区切り（全部失敗）では枚数が変わらないので読み直さない
+    _uploadFinished = widget.uploadQueue.finished
+        .where((result) => result.count > 0)
+        .listen((_) => _loadTrips());
   }
 
   @override
