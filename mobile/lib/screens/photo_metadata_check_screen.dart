@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:exif/exif.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -22,6 +24,8 @@ class PhotoMetadataCheckScreen extends StatefulWidget {
 class _PhotoMetadataCheckScreenState extends State<PhotoMetadataCheckScreen> {
   final List<_CheckResult> _results = [];
   bool _busy = false;
+  // D: 複数選択の回ごとの結果（段階2の PR 7 の前の確認。docs/travel-album/09_implementation_plan.md §6）
+  final List<List<_MultiPickEntry>> _rounds = [];
 
   /// 処理中の表示と例外の表示をまとめて扱う
   Future<void> _run(Future<void> Function() action) async {
@@ -60,6 +64,80 @@ class _PhotoMetadataCheckScreenState extends State<PhotoMetadataCheckScreen> {
       byteLength: bytes.length,
       exif: await readExifFromBytes(bytes),
     ));
+  }
+
+  /// D: pickMultiImage（PR 7 で使う設定。画質85%・最大1920px）で選び、1枚ずつ SHA-256・大きさ・EXIF・地名を出す
+  Future<void> _pickMultiForHash() async {
+    final picked = await ImagePicker().pickMultiImage(
+      imageQuality: 85,
+      maxWidth: 1920,
+      maxHeight: 1920,
+    );
+    if (picked.isEmpty) return;
+    final entries = <_MultiPickEntry>[];
+    for (final file in picked) {
+      final bytes = await file.readAsBytes();
+      final exif = await readExifFromBytes(bytes);
+      final lat = _CheckResult._toDegrees(exif['GPS GPSLatitude'], exif['GPS GPSLatitudeRef']?.printable);
+      final lng = _CheckResult._toDegrees(exif['GPS GPSLongitude'], exif['GPS GPSLongitudeRef']?.printable);
+      entries.add(_MultiPickEntry(
+        fileName: file.name,
+        byteLength: bytes.length,
+        sha256: sha256.convert(bytes).toString(),
+        takenAt: exif['EXIF DateTimeOriginal']?.printable,
+        latLng: lat == null || lng == null ? null : '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+        place: lat == null || lng == null ? null : await _placeName(lat, lng),
+      ));
+    }
+    if (!mounted) return;
+    setState(() => _rounds.add(entries));
+  }
+
+  /// 端末の Geocoder で地名を引く。機内モードなどで止まらないよう 10 秒で打ち切る
+  Future<String> _placeName(double lat, double lng) async {
+    final started = DateTime.now();
+    try {
+      final marks = await Geocoding(locale: const Locale('ja', 'JP')).placemarkFromCoordinates(lat, lng).timeout(const Duration(seconds: 10));
+      final ms = DateTime.now().difference(started).inMilliseconds;
+      if (marks.isEmpty) return '（結果なし、${ms}ms）';
+      final m = marks.first;
+      final parts = <String?>[m.administrativeArea, m.locality, m.subLocality, m.thoroughfare]
+          .whereType<String>()
+          .where((e) => e.isNotEmpty);
+      return '${parts.join(' ')}（${ms}ms）';
+    } catch (e) {
+      final ms = DateTime.now().difference(started).inMilliseconds;
+      return '失敗: $e（${ms}ms）';
+    }
+  }
+
+  /// D の回ごとの結果と、直前の回とのハッシュの一致
+  List<Widget> _buildRounds() {
+    final widgets = <Widget>[];
+    for (var i = _rounds.length - 1; i >= 0; i--) {
+      final round = _rounds[i];
+      final lines = <String>[];
+      if (i > 0) {
+        final previous = _rounds[i - 1].map((e) => e.sha256).toSet();
+        final same = round.where((e) => previous.contains(e.sha256)).length;
+        lines.add('$i回目と比べて: ${round.length}枚のうち $same枚が同じハッシュ');
+      }
+      for (final e in round) {
+        lines.add('');
+        lines.add('${e.fileName}（${e.byteLength} バイト）');
+        lines.add('SHA-256: ${e.sha256.substring(0, 16)}…');
+        lines.add('撮影日時: ${e.takenAt ?? 'なし'}');
+        lines.add('位置: ${e.latLng ?? 'なし'}');
+        if (e.latLng != null) lines.add('地名: ${e.place}');
+      }
+      widgets.add(Card(
+        child: ListTile(
+          title: Text('D: 複数選択 ${i + 1}回目（${round.length}枚）'),
+          subtitle: Text(lines.join('\n')),
+        ),
+      ));
+    }
+    return widgets;
   }
 
   /// photo_manager で端末の写真の一覧から新しい順に5枚を読む。位置情報の権限も求める
@@ -113,8 +191,13 @@ class _PhotoMetadataCheckScreenState extends State<PhotoMetadataCheckScreen> {
             onPressed: _busy ? null : () => _run(_readWithPhotoManager),
             child: const Text('C: 端末の写真一覧から新しい5枚を読む'),
           ),
+          ElevatedButton(
+            onPressed: _busy ? null : () => _run(_pickMultiForHash),
+            child: const Text('D: 複数選択（PR 7 の設定）でハッシュを確かめる'),
+          ),
           if (_busy) const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
           const Divider(height: 32),
+          ..._buildRounds(),
           for (final result in _results) result.build(),
         ],
       ),
@@ -187,4 +270,23 @@ class _CheckResult {
       ),
     );
   }
+}
+
+/// D の1枚分の結果
+class _MultiPickEntry {
+  _MultiPickEntry({
+    required this.fileName,
+    required this.byteLength,
+    required this.sha256,
+    required this.takenAt,
+    required this.latLng,
+    required this.place,
+  });
+
+  final String fileName;
+  final int byteLength;
+  final String sha256;
+  final String? takenAt;
+  final String? latLng;
+  final String? place;
 }
