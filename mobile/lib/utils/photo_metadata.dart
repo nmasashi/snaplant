@@ -46,6 +46,18 @@ String? _toTakenAt(String? exifDateTime) {
       ? null
       : _exifDateTime.firstMatch(exifDateTime.trim());
   if (match == null) return null;
+  // 時計が未設定のカメラは 0000:00:00 00:00:00 などを書く。実在しない日時はサーバが 400 にし、
+  // 送り直しても通らないので、撮影日時が無いものとして送る
+  final n = [for (var i = 1; i <= 6; i++) int.parse(match[i]!)];
+  final date = DateTime.utc(n[0], n[1], n[2], n[3], n[4], n[5]);
+  final exists = n[0] >= 1 &&
+      date.year == n[0] &&
+      date.month == n[1] &&
+      date.day == n[2] &&
+      date.hour == n[3] &&
+      date.minute == n[4] &&
+      date.second == n[5];
+  if (!exists) return null;
   return '${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}';
 }
 
