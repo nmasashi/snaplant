@@ -89,7 +89,7 @@ class UploadQueue extends ChangeNotifier {
   final Map<UploadItem, UploadState> _states = {};
   final List<PreparationProgress> _preparations = [];
   // 失敗した項目の理由と、失敗した順番（バナーは最後に失敗したものの理由を出す）
-  final Map<UploadItem, ({int order, String? reason})> _failures = {};
+  final Map<UploadItem, ({int order, String reason})> _failures = {};
   int _failureOrder = 0;
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
@@ -106,9 +106,9 @@ class UploadQueue extends ChangeNotifier {
 
   UploadState stateOf(UploadItem item) => _states[item]!;
 
-  /// 失敗した項目のうち、送り先が [where] に当たるもので最後に失敗したものの理由。理由が無ければ null
+  /// 失敗した項目のうち、送り先が [where] に当たるもので最後に失敗したものの理由。失敗した項目が無ければ null
   String? lastFailureReason(bool Function(String? tripId) where) {
-    ({int order, String? reason})? last;
+    ({int order, String reason})? last;
     for (final entry in _failures.entries) {
       if (_states[entry.key] != UploadState.failed ||
           !where(entry.key.tripId)) {
@@ -119,7 +119,7 @@ class UploadQueue extends ChangeNotifier {
     return last?.reason;
   }
 
-  void _fail(UploadItem item, String? reason) {
+  void _fail(UploadItem item, String reason) {
     _states[item] = UploadState.failed;
     _failures[item] = (order: _failureOrder++, reason: reason);
   }
