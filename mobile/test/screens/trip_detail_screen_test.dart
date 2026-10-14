@@ -1689,7 +1689,7 @@ void main() {
     release.complete();
     await letFramesRun(tester);
 
-    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（サーバーで問題が発生しています。しばらく待ってから再試行してください。）'), findsOneWidget);
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
   });
 
@@ -1881,7 +1881,7 @@ void main() {
 
     expect(backend.uploadsReceived, 4);
     expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
-    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（サービスに一時的に接続できません。しばらく待ってから再試行してください。）'), findsOneWidget);
     expect(find.text('送り直す'), findsOneWidget);
   });
 
@@ -1909,6 +1909,24 @@ void main() {
     expect(find.text('3枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
   });
 
+  testWidgets('送信がサーバの 413（ファイルが大きすぎる）で失敗すると、バナーはサーバが返した文言を理由に添えて「1枚を送信できませんでした（ファイルサイズが大きすぎます）」を出す', (tester) async {
+    // 500・503 などは固定の文言、それ以外のステータスはサーバの `message` が理由になる（`ApiException.userMessage`）。413 は送り直しの対象ではない
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload, status: 413, code: 'FILE_TOO_LARGE', message: 'ファイルサイズが大きすぎます');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await _waitRealTime(tester);
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を送信できませんでした（ファイルサイズが大きすぎます）'), findsOneWidget);
+  });
+
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
     // 500 は自動の送り直しの対象ではない（通信の失敗・429・503 だけが対象）。どちらの1枚が失敗するかは問わず、届いた枚数で見る
     final first = writeTestImage('first.png');
@@ -1925,7 +1943,7 @@ void main() {
     await letFramesRun(tester);
 
     expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
-    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（サーバーで問題が発生しています。しばらく待ってから再試行してください。）'), findsOneWidget);
     expect(find.text('送り直す'), findsOneWidget);
     expect(find.text('閉じる'), findsOneWidget);
     expect(find.text('1枚を送信しました'), findsOneWidget);
@@ -1945,7 +1963,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 2);
     await letFramesRun(tester);
-    expect(find.text('2枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('2枚を送信できませんでした（サーバーで問題が発生しています。しばらく待ってから再試行してください。）'), findsOneWidget);
     expect(find.textContaining('を送信しました'), findsNothing);
     expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
 
@@ -1971,7 +1989,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
-    expect(find.text('1枚を送信できませんでした'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（サーバーで問題が発生しています。しばらく待ってから再試行してください。）'), findsOneWidget);
 
     await tester.tap(find.text('閉じる'));
     await letFramesRun(tester);
