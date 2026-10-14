@@ -1750,6 +1750,32 @@ void main() {
     await letFramesRun(tester);
   });
 
+  testWidgets('1枚目の送信が2枚目の準備より先に終わっても、準備中の写真が残っている間は「1枚を送信しました」と知らせず、全部が終わってから「2枚を送信しました」を1回だけ知らせる', (tester) async {
+    // 2枚目を大きなファイルにして準備を遅らせる（前のテストと同じ）。今回は1枚目の応答を保留しないので、
+    // 1枚目の送信は2枚目の準備が終わる前に終わる。準備中の写真が残っているので、送信の区切りにはならない
+    final first = writeTestImage('first.png');
+    final big = writeTestImage('big.png', bytes: Uint8List(128 * 1024 * 1024));
+    useGalleryReturning([first, big]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
+    expect(find.text('1枚を送信しました'), findsNothing);
+
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await pumpUntilFound(tester, find.text('2枚を送信しました'));
+
+    expect(find.text('2枚を送信しました'), findsOneWidget);
+    expect(find.text('1枚を送信しました'), findsNothing);
+  });
+
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
     // 500 は自動の送り直しの対象ではない（通信の失敗・429・503 だけが対象）。どちらの1枚が失敗するかは問わず、届いた枚数で見る
     final first = writeTestImage('first.png');
