@@ -125,10 +125,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 「写真を追加」: ギャラリーで選んだ写真を、この旅行宛てに送る
   Future<void> _addPhotos() async {
-    final files = await ImagePicker()
-        .pickMultiImage(imageQuality: 85, maxWidth: 1920, maxHeight: 1920);
-    if (files.isEmpty) return;
-    await widget.uploadQueue.addFiles(files, tripId: widget.tripId);
+    try {
+      final files = await ImagePicker()
+          .pickMultiImage(imageQuality: 85, maxWidth: 1920, maxHeight: 1920);
+      if (files.isEmpty) return;
+      await widget.uploadQueue.addFiles(files, tripId: widget.tripId);
+    } catch (e) {
+      debugPrint('TripDetailScreen: 画像の読み込みエラー: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('画像の読み込みに失敗しました')));
+    }
   }
 
   /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す。

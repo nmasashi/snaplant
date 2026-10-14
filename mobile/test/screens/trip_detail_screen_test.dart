@@ -1527,4 +1527,20 @@ void main() {
     expect(photoThumbnail('2026年10月5日 10:20'), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
+    useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+
+    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
+    expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+  });
 }
