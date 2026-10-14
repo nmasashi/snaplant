@@ -120,6 +120,7 @@ class PhotoSelectionScaffold extends StatelessWidget {
         title: '旅行から外す',
         message: '${photoIds.length}枚を旅行から外しますか？\n写真は「旅行に属さない写真」に移ります。',
         confirmLabel: '外す',
+        busyLabel: '外しています...',
         failureMessage: '写真の移動に失敗しました',
         onConfirm: () => apiService.movePhotos(photoIds, null),
       ),
@@ -145,6 +146,7 @@ class PhotoSelectionScaffold extends StatelessWidget {
         title: '写真を削除',
         message: '${photoIds.length}枚の写真を削除しますか？\nこの操作は元に戻せません。',
         confirmLabel: '削除',
+        busyLabel: '削除中...',
         // _deleteEach は失敗を投げずに数えて返すので、この文言は出ない（全部が失敗しても「0枚を削除しました（N枚は…）」で閉じる）
         failureMessage: '写真の削除に失敗しました',
         onConfirm: () => _deleteEach(photoIds),

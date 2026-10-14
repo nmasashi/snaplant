@@ -1001,6 +1001,50 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真を削除している間は「削除」が「削除中...」になり、「キャンセル」も押せず、外のタップや戻る操作でも確認は閉じず、応答が返れば「1枚を削除しました」と知らせる', (tester) async {
+    // 閉じられると、要求は送られたまま写真がサーバで消えるのに、利用者は取り消したつもりになる。押せないことは、ボタンの Semantics で見る
+    final semantics = tester.ensureSemantics();
+    final release = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.deletePhoto] = release.future;
+
+    await tapInDialog(tester, '削除');
+
+    expect(inDialog(find.text('削除中...')), findsOneWidget);
+    final deleting = tester.getSemantics(inDialog(find.text('削除中...')));
+    expect(deleting.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(deleting.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    final cancel = tester.getSemantics(inDialog(find.text('キャンセル')));
+    expect(cancel.hasFlag(SemanticsFlag.hasEnabledState), isTrue);
+    expect(cancel.hasFlag(SemanticsFlag.isEnabled), isFalse);
+    // ダイアログの外（画面の隅）のタップ
+    await tester.tapAt(const Offset(5, 5));
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+    // 端末の戻る操作
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を削除しました'), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真の移動にサーバが失敗を返すと、エラーの文言を出して「旅行を選ぶ」のダイアログと2枚の選択は残り、「入れる」を押し直すと移って「2枚を「京都」に入れました」と知らせる', (tester) async {
     // 移動の要求の1回目だけを 503 で失敗させる。2回目の成功で、押し直しで取り直せることを見る
     final semantics = tester.ensureSemantics();

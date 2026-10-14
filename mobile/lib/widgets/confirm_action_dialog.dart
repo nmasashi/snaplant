@@ -11,12 +11,16 @@ class ConfirmActionDialog<T> extends StatefulWidget {
       required this.title,
       required this.message,
       required this.confirmLabel,
+      required this.busyLabel,
       required this.failureMessage,
       required this.onConfirm});
 
   final String title;
   final String message;
   final String confirmLabel;
+
+  /// 実行している間の、実行のボタンの文言（「削除中...」など）
+  final String busyLabel;
 
   /// [ApiException] 以外で失敗したときの文言
   final String failureMessage;
@@ -28,13 +32,18 @@ class ConfirmActionDialog<T> extends StatefulWidget {
 }
 
 class _ConfirmActionDialogState<T> extends State<ConfirmActionDialog<T>> {
+  // 実行している間は押せなくし、閉じさせない（二重に送らないように。閉じても要求は送られたままになる）
+  bool _isRunning = false;
+
   Future<void> _confirm() async {
     T result;
+    setState(() => _isRunning = true);
     try {
       result = await widget.onConfirm();
     } catch (e) {
       debugPrint('ConfirmActionDialog: ${widget.title}のエラー: $e');
       if (!mounted) return;
+      setState(() => _isRunning = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content:
               Text(e is ApiException ? e.userMessage : widget.failureMessage)));
@@ -46,19 +55,22 @@ class _ConfirmActionDialogState<T> extends State<ConfirmActionDialog<T>> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Text(widget.message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _confirm,
-          child: Text(widget.confirmLabel),
-        ),
-      ],
+    return PopScope(
+      canPop: !_isRunning,
+      child: AlertDialog(
+        title: Text(widget.title),
+        content: Text(widget.message),
+        actions: [
+          TextButton(
+            onPressed: _isRunning ? null : () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: _isRunning ? null : _confirm,
+            child: Text(_isRunning ? widget.busyLabel : widget.confirmLabel),
+          ),
+        ],
+      ),
     );
   }
 }
