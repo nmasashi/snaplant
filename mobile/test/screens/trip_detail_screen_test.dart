@@ -1300,6 +1300,41 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真を削除したあと、写真の一覧の 404 で「この旅行は削除されています」になってから、遅れて旅行の取得の成功が届いても、旅行名・編集・削除のメニュー・「写真を追加」は戻らない', (tester) async {
+    // 旅行の取得は旅行が消される前に届いて 200 を返しており、その応答が写真の一覧の 404 より後に着く。古い成功で見出しが戻ると、無い旅行を編集・削除できるように見える
+    final semantics = tester.ensureSemantics();
+    final photosRelease = Completer<void>();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    final tripReply = backend.holdNextReply(TripRoute.detail);
+    backend.holds[TripRoute.photos] = photosRelease.future;
+    await tapInDialog(tester, '削除');
+    // 旅行の取得は旅行があるうちに届いている。そのあとで旅行が消えた
+    backend.trips.clear();
+
+    photosRelease.complete();
+    await letFramesRun(tester);
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    tripReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.text('北海道 2026秋'), findsNothing);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.text('写真を追加'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真を旅行から外している間は、「外す」が「外しています...」になる', (tester) async {
     // 押せない・閉じないことは、同じ部品（確認のダイアログ）を通る削除の送信中のテストが見ている。ここでは文言だけを見る
     final semantics = tester.ensureSemantics();
