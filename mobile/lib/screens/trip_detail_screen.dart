@@ -219,10 +219,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             selection: _selection,
             emptyTitle: 'まだ写真がありません',
             emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
-            onTripNotFound: () => setState(() {
-              _tripDeleted = true;
-              _trip = null;
-            }),
+            onTripNotFound: () {
+              _selection.clear();
+              setState(() {
+                _tripDeleted = true;
+                _trip = null;
+              });
+            },
           ),
         ),
       ],
