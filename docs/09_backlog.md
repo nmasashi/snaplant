@@ -94,7 +94,7 @@ SHA-256・バイト数・EXIF・地名（`geocoding` 5.0.0、端末の Geocoder�
 
 - **機内モードで地名が返ったのは、直前に同じ座標を引いた結果が端末に残っていたため**と見ている（応答が 40ms 前後で、オンラインの初回より速い）。
   初めて引く座標がオフラインで引けるかは確かめていない（別の場所の写真が手元に無かった）。止まらないこと（10 秒で打ち切る作りで、打ち切りには至らなかった）は確かめた
-- **`geocoding` 5.0.0 は minSdk 24・compileSdk 36 を求める。** 本体は minSdk 21・compileSdk 35 なので、PR 7 で入れるときに上げる
+- **`geocoding` 5.0.0 は minSdk 24・compileSdk 36 を求める。** 本体は minSdk 21・compileSdk 35 だったので、PR 7c で入れるときに上げた（`mobile/android/app/build.gradle`。[07 §6.3](./travel-album/07_infrastructure_design.md#63-flutter-側の定数)）
   （SC-03K は Android 10 = API 29 なので影響しない。API 21〜23 の端末は対象から外れる）
 - 確かめていないこと: 1枚の縮小後のバイト数（10MB の上限と 300 枚の送信時間の見積もり。PR 7 の 300 枚の送信の確認で測る）
 
