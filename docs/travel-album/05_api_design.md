@@ -653,7 +653,7 @@ AI の解析をやり直す（要件 5.5.1）。
 | `getTrip(tripId)` | `GET /api/trips/{tripId}` | `data['trip']` |
 | `updateTrip(tripId, name, description)` | `PUT /api/trips/{tripId}` | `data['trip']` |
 | `deleteTrip(tripId, {required bool deletePhotos})` | `DELETE /api/trips/{tripId}?deletePhotos=` | `data['deletedPhotoCount']`・`data['detachedPhotoCount']` |
-| `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`・`data['urlExpiresAt']`。201 / 200 を呼び出し側に返す（PR 7a の時点では `data['photo']` だけを読み、`urlExpiresAt` と 201 / 200 の区別は返さない。200（別の場所）の扱いは 7b） |
+| `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`（`urlExpiresAt` と 201 / 200 の区別は読まない。200（別の場所）は、呼び出し側の `UploadQueue` が応答の `photo.tripId` と送った `tripId` を比べて判断する。区別が要らないので、201 / 200 を返す目標は 2026-10-15 に外した） |
 | `getPhotos({tripId, category, limit, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）・`data['urlExpiresAt']`。`continuationToken` は `Uri.encodeQueryComponent()` で載せる |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
@@ -668,7 +668,7 @@ AI の解析をやり直す（要件 5.5.1）。
 - `image`: 画像のバイト列。ファイル名は `photo`、Content-Type は拡張子ではなく先頭のバイト列（シグネチャ）で決める（PNG / JPEG / GIF / WebP。どれでもなければ `image/jpeg`）
 - `tripId`・`takenAt`: 値があるときだけ。無ければパートごと省く（空文字のパートは §5.1 の 12・13 で 400 になる）
 - `latitude`・`longitude`: 両方があるときだけ、両方を送る（片方だけは §5.1 の 14）。10進の小数 6 桁の文字列（`toStringAsFixed(6)`。指数表記にならない。§5.1 の 15）
-- `thumbnail`・`placeName` は PR 7a の時点では送らない（7b）
+- `thumbnail`・`placeName` は PR 7b の時点では送らない（7c）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
 段階4で足すもの: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`）、
