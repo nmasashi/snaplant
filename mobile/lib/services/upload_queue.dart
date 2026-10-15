@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
@@ -88,16 +89,20 @@ const _thumbnailQuality = 70;
 Future<Uint8List?> _makeThumbnail(String path) async {
   try {
     final bytes = await File(path).readAsBytes();
-    // プラグインは「短辺が指定の長さになるまで」縮めるので、長辺を 320 にするには長い方の辺だけを指定する
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     final descriptor = await ui.ImageDescriptor.encoded(buffer);
-    final landscape = descriptor.width >= descriptor.height;
+    final long = math.max(descriptor.width, descriptor.height);
+    final short = math.min(descriptor.width, descriptor.height);
     descriptor.dispose();
     buffer.dispose();
+    // プラグインは「縦・横とも指定の長さを下回らない最大の縮小」をする（短辺が指定に届くまで）。
+    // 縦横に同じ長さ（短辺を長辺 320 に合わせた長さ）を指定すると、向きの補正（EXIF の回転で縦横を入れ替える）の前後どちらで
+    // 縦横を読んでも、長辺が 320 になる。縦横で別の値を指定すると、向きを取り違えたときに長辺が 320 を超える
+    final side = (_thumbnailLongSide * short / long).round();
     return await FlutterImageCompress.compressWithList(
       bytes,
-      minWidth: landscape ? _thumbnailLongSide : 1,
-      minHeight: landscape ? 1 : _thumbnailLongSide,
+      minWidth: side,
+      minHeight: side,
       quality: _thumbnailQuality,
       format: CompressFormat.jpeg,
     );
