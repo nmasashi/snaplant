@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_image_compress/flutter_image_compress.dart' show CompressFormat;
 import 'package:flutter_test/flutter_test.dart';
@@ -30,6 +31,22 @@ const _apiKey = 'test-key';
 const _manyPhotos = 100;
 
 FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBackend(trips: trips, functionKey: _apiKey);
+
+/// 送った写真の位置のうち、緯度・経度だけ。地名は端末の Geocoder（テストごとに偽物に差し替える）次第で変わるので、
+/// EXIF の読み取りを確かめるテストは地名を見ない
+Map<String, Object?> _coordinatesOf(Map<String, Object?> photo) {
+  final location = photo['location'] as Map<String, Object?>;
+  return {'latitude': location['latitude'], 'longitude': location['longitude']};
+}
+
+/// サーバに届いたサムネイルを作った圧縮の結果。届いたバイト列と同じバイト列を返した圧縮を探す。
+/// 圧縮の呼び出しの件数や順には頼らない（作り直しなど、実装の都合で呼び出しが増えても、サーバに届いたものの寸法・画質・形式を見る）。
+/// 届いていなければ、見つからないものとして失敗にする
+CompressedImage _thumbnailReceived(FakeTripBackend backend, FakeImageCompress compress, Map<String, Object?> photo) {
+  final received = backend.thumbnailsByPhotoId[photo['id']];
+  if (received == null) fail('写真 ${photo['id']} のサムネイルがサーバに届いていない');
+  return compress.results.firstWhere((r) => listEquals(r.bytes, received), orElse: () => fail('届いたサムネイルを作った圧縮が無い'));
+}
 
 /// 旅行の写真が33枚（撮影日時は 2026-10-05 の 10:01〜10:33、この順）の偽のサーバ。サーバの1ページは30枚。
 /// 30枚（10行）は画面（約5行分）を超えるので、2ページ目は下端まで送ったときにだけ要る。2ページ目は3枚
@@ -1554,7 +1571,7 @@ void main() {
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['takenAt'], '2026-10-05T10:20:30');
-    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
+    expect(_coordinatesOf(photo), {'latitude': 43.5, 'longitude': 141.25});
     expect(photoThumbnail('2026年10月5日 10:20'), findsOneWidget);
     semantics.dispose();
   });
@@ -1600,7 +1617,7 @@ void main() {
   testWidgets('同じ場所（座標を小数3桁に丸めると同じ）で撮った2枚を送ると、Geocoder で引くのは1回だけで、2枚とも同じ地名が入る', (tester) async {
     // 1枚目は北緯 35度40分0秒・東経 139度45分0秒（10進で 35.66667 と 139.75）、2枚目は秒だけ1秒ずれる（35.66695 と 139.75028）。
     // どちらも小数3桁に丸めると 35.667 と 139.750。端末の Geocoder は管理外の依存で、引くたびに時間もかかるので、呼んだ回数は観察できる振る舞い。
-    // 端末内のキャッシュ（shared_preferences）はテストをまたいで持ち越されうるので、他のテストが使わない座標（東京）にする。
+    // 端末内のキャッシュ（shared_preferences）は、openTripsTab がテストごとに空にするので、他のテストの結果は持ち越されない。
     // 2枚の画像は座標が違うので、バイト列も写真の id も違う
     final geocoding = useFakeGeocoding(places: [
       (
@@ -1627,7 +1644,7 @@ void main() {
     expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['東京都千代田区', '東京都千代田区']);
   });
 
-  testWidgets('丸めて違う場所（座標が 0.001 度以上離れている）で撮った2枚を送ると、それぞれを Geocoder で引き、それぞれの地名が入る', (tester) async {
+  testWidgets('丸めて違う場所（緯度だけが 0.001 度以上離れている）で撮った2枚を送ると、それぞれを Geocoder で引き、それぞれの地名が入る', (tester) async {
     // 1枚目は北緯 34度40分0秒（34.66667）、2枚目は4秒北（34.66778）。東経は同じ 135度30分0秒（135.5）。
     // 小数3桁に丸めると 34.667 と 34.668 で違うが、小数2桁なら両方 34.67 になる（丸めが粗すぎると、隣の街の地名を使い回してしまう）
     final geocoding = useFakeGeocoding(places: [
@@ -1650,6 +1667,31 @@ void main() {
     expect(geocoding.lookups, hasLength(2));
     final photos = backend.photosByTripId[hokkaidoTripId]!;
     expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['大阪府大阪市', '大阪府堺市']);
+  });
+
+  testWidgets('丸めて違う場所（経度だけが 0.001 度以上離れている）で撮った2枚を送ると、それぞれを Geocoder で引き、それぞれの地名が入る', (tester) async {
+    // 1枚目は東経 135度45分0秒（135.75）、2枚目は4秒東（135.75111）。北緯は同じ 35度0分0秒（35.0）。
+    // 小数3桁に丸めると 135.750 と 135.751 で違う（経度を見ずに緯度だけで場所を決めると、東西に離れた街の地名を使い回してしまう）
+    final geocoding = useFakeGeocoding(places: [
+      (latitude: 35.0, longitude: 135.75, placemarks: [const Placemark(administrativeArea: '京都府', locality: '京都市')]),
+      (latitude: 35.0, longitude: 135.75111, placemarks: [const Placemark(administrativeArea: '京都府', locality: '宇治市')]),
+    ]);
+    final first = writeTestImage('kyoto_1.jpg', bytes: exifJpegBytes(latitude: [35, 0, 0], longitude: [135, 45, 0]));
+    final second = writeTestImage('kyoto_2.jpg', bytes: exifJpegBytes(latitude: [35, 0, 0], longitude: [135, 45, 4]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(2));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['京都府京都市', '京都府宇治市']);
   });
 
   testWidgets('Geocoder が失敗しても、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
@@ -1753,6 +1795,32 @@ void main() {
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
+  testWidgets('Geocoder の結果に市区町村が無く都道府県だけなら（locality が null）、地名はその都道府県になり、端末由来としてその写真に入る', (tester) async {
+    // 島や海沿いなど、市区町村まで引けない場所。片方でもあれば、その分だけを地名にする（docs/travel-album/06_processing_design.md §4.2 は「どちらも空なら null」）
+    useFakeGeocoding(places: [
+      (
+        latitude: 33.1,
+        longitude: 139.78333,
+        placemarks: [const Placemark(country: '日本', administrativeArea: '東京都', locality: null)],
+      ),
+    ]);
+    final image = writeTestImage('hachijo.jpg', bytes: exifJpegBytes(latitude: [33, 6, 0], longitude: [139, 47, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], '東京都');
+    expect((photo['location'] as Map)['placeSource'], 'device');
+  });
+
   testWidgets('都道府県も市区町村も無い結果は端末に残さないので、同じ場所の次の写真は、もう一度 Geocoder で引く', (tester) async {
     // 地名にならなかった結果を残すと、同じ場所の写真に地名がずっと付かなくなる。
     // 2枚は同じ場所（北緯 36度34分0秒と 36度34分1秒。丸めるとどちらも 36.567。東経は同じ 136度39分0秒）
@@ -1824,7 +1892,7 @@ void main() {
     await letFramesRun(tester);
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
-    expect(photo['location'], {'latitude': -43.5, 'longitude': -141.25, 'placeName': null, 'placeSource': null});
+    expect(_coordinatesOf(photo), {'latitude': -43.5, 'longitude': -141.25});
   });
 
   testWidgets('写真を送ると、長辺320px・画質70のJPEGのサムネイルを付けて送り、その写真にサムネイルが入る', (tester) async {
@@ -1845,12 +1913,9 @@ void main() {
     await letFramesRun(tester);
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
-    expect(
-      [for (final r in compress.results) (r.width, r.height, r.quality, r.format)],
-      [(320, 240, 70, CompressFormat.jpeg)],
-    );
     expect(photo['thumbnailUrl'], isNotNull);
-    expect(backend.thumbnailsByPhotoId[photo['id']], compress.results.single.bytes);
+    final thumbnail = _thumbnailReceived(backend, compress, photo);
+    expect((thumbnail.width, thumbnail.height, thumbnail.quality, thumbnail.format), (320, 240, 70, CompressFormat.jpeg));
   });
 
   testWidgets('縦長の写真（3000x4000）でも、長辺が320pxのサムネイル（240x320）になる', (tester) async {
@@ -1868,10 +1933,9 @@ void main() {
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
 
-    expect(
-      [for (final r in compress.results) (r.width, r.height, r.quality, r.format)],
-      [(240, 320, 70, CompressFormat.jpeg)],
-    );
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    final thumbnail = _thumbnailReceived(backend, compress, photo);
+    expect((thumbnail.width, thumbnail.height, thumbnail.quality, thumbnail.format), (240, 320, 70, CompressFormat.jpeg));
   });
 
   testWidgets('サムネイルを作れなかった写真も、サムネイル無しで送られ、「1枚を送信しました」と知らせる', (tester) async {
@@ -1984,7 +2048,7 @@ void main() {
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['takenAt'], isNull);
-    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
+    expect(_coordinatesOf(photo), {'latitude': 43.5, 'longitude': 141.25});
   });
 
   testWidgets('EXIF の緯度が範囲外（95度）の写真は、位置を省いて送られて届き、撮影日時はそのまま入る', (tester) async {

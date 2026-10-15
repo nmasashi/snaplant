@@ -56,6 +56,10 @@ class FakeImageCompress extends FlutterImageCompressPlatform with MockPlatformIn
   /// 作った画像（呼ばれた順）
   final List<CompressedImage> results = [];
 
+  /// 偽物の使い方の誤り（PNG 以外の画像を渡された、など）。本番のコードは圧縮の失敗を握りつぶして「サムネイル無し」で送るので、
+  /// 誤りがテストの結果に現れない。[useFakeImageCompress] が、テストの最後に空であることを確かめる
+  final List<String> misuses = [];
+
   @override
   FlutterImageCompressValidator get validator =>
       FlutterImageCompressValidator(const MethodChannel('fake_image_compress'))..ignoreCheckSupportPlatform = true;
@@ -132,10 +136,14 @@ class FakeImageCompress extends FlutterImageCompressPlatform with MockPlatformIn
   void ignoreCheckSupportPlatform(bool bool) {}
 
   CompressedImage _compress(Uint8List source, int minWidth, int minHeight, int quality, CompressFormat format) {
-    if (failWith != null) throw failWith!;
     final data = ByteData.sublistView(source);
     final isPng = source.length >= 24 && source[0] == 0x89 && source[1] == 0x50 && source[2] == 0x4E && source[3] == 0x47;
-    if (!isPng) throw UnsupportedError('偽の画像の圧縮が寸法を読めるのは PNG だけ。pngBytesOfSize で作った画像を使う');
+    if (!isPng) {
+      const message = '偽の画像の圧縮が寸法を読めるのは PNG だけ。pngBytesOfSize で作った画像を使う';
+      misuses.add(message);
+      throw UnsupportedError(message);
+    }
+    if (failWith != null) throw failWith!;
     final width = data.getUint32(16);
     final height = data.getUint32(20);
     final scale = max(1.0, min(width / minWidth, height / minHeight));
@@ -162,17 +170,34 @@ FakeImageCompress useFakeImageCompress({Object? failWith}) {
   final original = FlutterImageCompressPlatform.instance;
   final fake = FakeImageCompress(failWith: failWith);
   FlutterImageCompressPlatform.instance = fake;
-  addTearDown(() => FlutterImageCompressPlatform.instance = original);
+  addTearDown(() {
+    FlutterImageCompressPlatform.instance = original;
+    expect(fake.misuses, isEmpty, reason: '偽の画像の圧縮の使い方が誤っている（本番のコードが失敗を握りつぶすので、テストの結果には現れない）');
+  });
   return fake;
 }
 
-/// 寸法が [width] × [height] の PNG のバイト列。[tinyPngBytes] のヘッダの寸法だけを書き換えたもの。
-/// 画像として表示はできない（本体は 1x1 のまま）。寸法を読む偽の画像の圧縮に、大きな写真を渡すために使う。
+/// 寸法が [width] × [height] の PNG のバイト列。[tinyPngBytes] のヘッダ（IHDR）の寸法を書き換え、IHDR の CRC32 も計算し直したもの。
+/// 画像の本体は 1x1 のままなので、画像として表示はできない。寸法を読む偽の画像の圧縮に、大きな写真を渡すために使う。
 /// 寸法ごとに中身が違うので、写真の id（SHA-256）も寸法ごとに違う
 List<int> pngBytesOfSize(int width, int height) {
   final bytes = Uint8List.fromList(tinyPngBytes);
-  ByteData.sublistView(bytes)
+  final data = ByteData.sublistView(bytes)
     ..setUint32(16, width)
     ..setUint32(20, height);
+  // CRC32 は、チャンクの種類（12〜15）とデータ（16〜28）にかかり、29〜32 に入る
+  data.setUint32(29, _crc32(bytes.sublist(12, 29)));
   return bytes;
+}
+
+/// CRC-32（PNG のチャンクの検査値。多項式 0xEDB88320）
+int _crc32(List<int> bytes) {
+  var crc = 0xFFFFFFFF;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
 }
