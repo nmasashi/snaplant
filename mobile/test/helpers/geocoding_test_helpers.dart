@@ -14,7 +14,7 @@ typedef FakePlace = ({double latitude, double longitude, List<Placemark> placema
 
 /// 端末の Geocoder の偽物。知っている場所の近くを引くと対応する [Placemark] を返し、知らない場所には空のリストを返す
 /// （本物の Geocoder が、引けなかった座標に返すのと同じ）。[failWith] を渡すと、引くたびにその例外を投げ、[hangs] なら応答を返さない。
-/// 引いた座標は [lookups] に、引いた順に残す（同じ場所を何度も引かないことを確かめるときだけ使う）
+/// 引いた座標と、渡された言語（locale）は [lookups] に、引いた順に残す（同じ場所を何度も引かないこと、日本語で引くことを確かめるときに使う）
 class FakeGeocoding extends Geocoding with MockPlatformInterfaceMixin {
   FakeGeocoding({this.places = const [], this.failWith, this.hangs = false}) : super.implementation(const GeocodingCreationParams());
 
@@ -25,11 +25,11 @@ class FakeGeocoding extends Geocoding with MockPlatformInterfaceMixin {
   final bool hangs;
 
   /// 引いた座標（緯度・経度。引いた順）
-  final List<({double latitude, double longitude})> lookups = [];
+  final List<({double latitude, double longitude, Locale? locale})> lookups = [];
 
   @override
   Future<List<Placemark>> placemarkFromCoordinates(double latitude, double longitude, {Locale? locale}) async {
-    lookups.add((latitude: latitude, longitude: longitude));
+    lookups.add((latitude: latitude, longitude: longitude, locale: locale));
     if (failWith != null) throw failWith!;
     if (hangs) return Completer<List<Placemark>>().future;
     for (final place in places) {
