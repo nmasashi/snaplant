@@ -6,6 +6,14 @@ import '../helpers/trip_test_helpers.dart';
 
 // 写真ビューア（docs/travel-album/03_screen_design.md §4.6）。入口は旅行詳細の写真のグリッド
 
+/// ビューアで1枚分だけ左右にスワイプする（[toNext] なら次の写真へ）。
+/// 画面の幅（480）を超えて引くと2枚分進むので、幅より短く払う
+Future<void> _swipe(WidgetTester tester, {required bool toNext}) async {
+  await tester.fling(
+      find.byType(PageView), Offset(toNext ? -300 : 300, 0), 1000);
+  await letFramesRun(tester);
+}
+
 void main() {
   testWidgets('旅行詳細で写真をタップすると写真ビューアが開き、その写真の撮影日時と地名を出す', (tester) async {
     // サムネイルは撮影日時を読み上げ用ラベルとしてだけ持ち、Text は出さない。
@@ -77,19 +85,16 @@ void main() {
     await tester.tap(photoThumbnail('2026年10月5日 12:30'));
     await letFramesRun(tester);
 
-    await tester.dragFrom(
-        tester.getCenter(find.byType(Scaffold).last), const Offset(-800, 0));
-    await letFramesRun(tester);
+    await _swipe(tester, toNext: true);
 
     expect(find.text('2026年10月7日 18:45').hitTestable(), findsOneWidget);
     expect(find.text('2026年10月5日 12:30').hitTestable(), findsNothing);
 
-    await tester.dragFrom(
-        tester.getCenter(find.byType(Scaffold).last), const Offset(800, 0));
-    await letFramesRun(tester);
-    await tester.dragFrom(
-        tester.getCenter(find.byType(Scaffold).last), const Offset(800, 0));
-    await letFramesRun(tester);
+    await _swipe(tester, toNext: false);
+
+    expect(find.text('2026年10月5日 12:30').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: false);
 
     expect(find.text('2026年10月6日 10:15').hitTestable(), findsOneWidget);
     expect(find.text('2026年10月7日 18:45').hitTestable(), findsNothing);
@@ -136,15 +141,11 @@ void main() {
 
     expect(find.text('43.7700, 142.3600').hitTestable(), findsOneWidget);
 
-    await tester.dragFrom(
-        tester.getCenter(find.byType(Scaffold).last), const Offset(-800, 0));
-    await letFramesRun(tester);
+    await _swipe(tester, toNext: true);
 
     expect(find.text('43.7706, 142.3600').hitTestable(), findsOneWidget);
 
-    await tester.dragFrom(
-        tester.getCenter(find.byType(Scaffold).last), const Offset(-800, 0));
-    await letFramesRun(tester);
+    await _swipe(tester, toNext: true);
 
     expect(find.text('撮影日時なし').hitTestable(), findsOneWidget);
     expect(find.text('位置情報なし').hitTestable(), findsOneWidget);
