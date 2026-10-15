@@ -569,6 +569,7 @@ class ApiService {
     double? latitude,
     double? longitude,
     Uint8List? thumbnail,
+    String? placeName,
   }) async {
     try {
       final url = _buildUrl('/api/photos');
@@ -580,6 +581,8 @@ class ApiService {
       if (latitude != null && longitude != null) {
         request.fields['latitude'] = latitude.toStringAsFixed(6);
         request.fields['longitude'] = longitude.toStringAsFixed(6);
+        // 地名は緯度・経度と一緒にだけ送る（無ければ 400）。無ければパートごと省く
+        if (placeName != null) request.fields['placeName'] = placeName;
       }
       request.files.add(http.MultipartFile.fromBytes(
         'image',

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:geocoding/geocoding.dart' show Geocoding;
 import 'package:flutter_image_compress/flutter_image_compress.dart'
     show CompressFormat, FlutterImageCompress;
 import 'package:image_picker/image_picker.dart';
@@ -18,7 +19,8 @@ class UploadItem {
       required this.photoId,
       this.tripId,
       this.metadata = PhotoMetadata.none,
-      this.thumbnail});
+      this.thumbnail,
+      this.placeName});
 
   /// ギャラリーで選んだ画像のファイル（縮小済み）。バイト列は送るときに読む
   /// （数百枚を選んだときに、全部のバイト列をメモリに持ち続けないように）
@@ -35,6 +37,25 @@ class UploadItem {
 
   /// 一覧用のサムネイル（長辺 320px・画質 70 の JPEG）。作れなければ null で、サムネイル無しで送る
   final Uint8List? thumbnail;
+
+  /// 端末の Geocoder で引いた地名（「北海道旭川市」）。位置が無い・引けなければ null
+  final String? placeName;
+}
+
+/// 緯度・経度から地名（都道府県＋市区町村）を引く（docs/travel-album/06_processing_design.md §4.2）。
+/// 引けなければ null（送信は止めない）。端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
+Future<String?> _lookupPlaceName(double latitude, double longitude) async {
+  try {
+    final placemarks = await Geocoding(locale: const ui.Locale('ja', 'JP'))
+        .placemarkFromCoordinates(latitude, longitude);
+    if (placemarks.isEmpty) return null;
+    final place = placemarks.first;
+    final name = '${place.administrativeArea ?? ''}${place.locality ?? ''}';
+    return name.isEmpty ? null : name;
+  } catch (e) {
+    debugPrint('UploadQueue: 地名の取得エラー: $e');
+    return null;
+  }
 }
 
 /// サムネイルの長辺と画質（docs/travel-album/03_screen_design.md §4.7「準備」）
@@ -193,6 +214,11 @@ class UploadQueue extends ChangeNotifier {
           tripId: tripId,
           metadata: prepared.metadata,
           thumbnail: await _makeThumbnail(file.path),
+          placeName: prepared.metadata.latitude != null &&
+                  prepared.metadata.longitude != null
+              ? await _lookupPlaceName(
+                  prepared.metadata.latitude!, prepared.metadata.longitude!)
+              : null,
         );
         _items.add(item);
         if (_missingTrips.contains(tripId)) {
@@ -261,7 +287,8 @@ class UploadQueue extends ChangeNotifier {
                 takenAt: item.metadata.takenAt,
                 latitude: item.metadata.latitude,
                 longitude: item.metadata.longitude,
-                thumbnail: item.thumbnail)
+                thumbnail: item.thumbnail,
+                placeName: item.placeName)
             .timeout(_requestTimeout,
                 onTimeout: () => throw const ApiException(
                     statusCode: 0, message: '応答がありませんでした'));
