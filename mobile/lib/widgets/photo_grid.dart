@@ -92,6 +92,11 @@ class _PhotoGridState extends State<PhotoGrid> {
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
+      final onTripNotFound = widget.onTripNotFound;
+      if (onTripNotFound != null && e is ApiException && e.isTripNotFound) {
+        onTripNotFound();
+        return;
+      }
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '写真の読み込みに失敗しました');
     }
@@ -154,6 +159,11 @@ class _PhotoGridState extends State<PhotoGrid> {
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
+      final onTripNotFound = widget.onTripNotFound;
+      if (onTripNotFound != null && e is ApiException && e.isTripNotFound) {
+        onTripNotFound();
+        return;
+      }
       setState(() {
         _isLoadingMore = false;
         _loadMoreFailed = true;
