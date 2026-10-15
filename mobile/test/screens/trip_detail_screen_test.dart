@@ -29,12 +29,6 @@ const _apiKey = 'test-key';
 /// 最初の送信の要求が届いて確かめるまでの間（数百ミリ秒）に準備が終わらない枚数にする
 const _manyPhotos = 100;
 
-/// ステータス 500 の `ApiException.userMessage`（送信に失敗した行の理由に出る）
-const _serverErrorMessage = 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
-
-/// 旅行「京都」の id（写真の移し先に使う）
-const kyotoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
-
 FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBackend(trips: trips, functionKey: _apiKey);
 
 /// 旅行の写真が33枚（撮影日時は 2026-10-05 の 10:01〜10:33、この順）の偽のサーバ。サーバの1ページは30枚。
@@ -2012,33 +2006,6 @@ void main() {
     expect(photo['takenAt'], '2026-10-05T10:20:30');
   });
 
-  testWidgets('旅行一覧に戻っている間に送信が全部失敗しても、送れた写真が無いので旅行一覧は読み直さず、読み直しの失敗のエラーも出さない（バナーは「1枚を送信できませんでした」）', (tester) async {
-    // 戻った時点の読み直しは済ませてから、旅行一覧の取得の失敗（503）を仕掛ける。読み直していれば、その失敗がスナックバーに出る。
-    // 送信の応答は、解放したときに 500 の失敗で返す（失敗の指定は、解放したあとの応答で使われる）
-    final image = writeTestImage('hokkaido.png');
-    useGalleryReturning([image]);
-    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
-    final release = Completer<void>();
-    backend.holds[TripRoute.upload] = release.future;
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
-    await tester.pageBack();
-    await letFramesRun(tester);
-    expect(find.text('送信中 0/1'), findsOneWidget);
-    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
-    backend.failNext(TripRoute.list);
-
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.text('1枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
-    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
-  });
-
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
@@ -2353,41 +2320,6 @@ void main() {
     expect(find.text('2枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
   });
 
-  testWidgets('旅行一覧に戻っている間に、送った写真が全部別の旅行に送信済み（200）だったと分かっても、宛先の一覧は変わらないので旅行一覧は読み直さず、読み直しの失敗のエラーも出さない', (tester) async {
-    // 戻った時点の読み直しは済ませてから、旅行一覧の取得の失敗（503）を仕掛ける。読み直していれば、その失敗がスナックバーに出る。
-    // スナックバーは順に出る（送信の知らせが消えてから、あとの知らせが出る）ので、フェイクの時間を進めて、エラーの文言が出ないことを見る
-    final alreadySent = writeTestImage('already_sent.png');
-    useGalleryReturning([alreadySent]);
-    final backend = FakeTripBackend(
-      trips: [
-        tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
-        tripJson(id: kyotoTripId, name: '京都', photoCount: 1),
-      ],
-      photosByTripId: {
-        kyotoTripId: [photoJson(number: 0, tripId: kyotoTripId)..['id'] = tinyPngSha256],
-      },
-    );
-    final release = Completer<void>();
-    backend.holds[TripRoute.upload] = release.future;
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
-    await tester.pageBack();
-    await letFramesRun(tester);
-    expect(find.text('送信中 0/1'), findsOneWidget);
-    backend.failNext(TripRoute.list);
-
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.text('1枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
-    await pumpUntilFound(tester, find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'));
-    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
-  });
-
   testWidgets('送り先の旅行が消えていて 404 になったあとに準備が済んだ同じ旅行宛ての写真も、送らずに失敗にし、バナーに「100枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
     // 100枚を選び、同時に送る1枚目と2枚目の応答（どちらも 404）を保留する。2本が届いた時点で準備はまだ続いているので、
     // 応答を返したあとに準備が済む写真がある。それらも送られない（届いた要求は2回のまま）
@@ -2524,7 +2456,7 @@ void main() {
     serverErrorReply.complete();
     await letFramesRun(tester);
 
-    expect(find.text('2枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('2枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
   });
 
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
@@ -2543,7 +2475,7 @@ void main() {
     await letFramesRun(tester);
 
     expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
-    expect(find.text('1枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
     expect(find.text('送り直す'), findsOneWidget);
     expect(find.text('閉じる'), findsOneWidget);
     expect(find.text('1枚を送信しました'), findsOneWidget);
@@ -2563,7 +2495,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 2);
     await letFramesRun(tester);
-    expect(find.text('2枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('2枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
     expect(find.textContaining('を送信しました'), findsNothing);
     expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
 
@@ -2589,7 +2521,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
-    expect(find.text('1枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
 
     await tester.tap(find.text('閉じる'));
     await letFramesRun(tester);
@@ -2599,38 +2531,6 @@ void main() {
     expect(find.text('閉じる'), findsNothing);
     expect(find.textContaining('送信中'), findsNothing);
     expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
-  });
-
-  testWidgets('送信している間に旅行一覧へ戻っても送信は続き、旅行一覧の上部に全体の「送信中 0/2」を出し、応答が返ると「2枚を送信しました」と知らせて、一覧の北海道の枚数が「2枚」になる', (tester) async {
-    // 送信は画面ではなくアプリの根が持つので、詳細を閉じても止まらない。
-    // 偽のサーバは送信の応答を、解放されるまで返さない（写真は解放したときに入る）。一覧に戻った時点では、まだ0枚のまま。
-    // 一覧が「2枚」になるのは、送信が一区切りついたときに一覧を読み直すから
-    final first = writeTestImage('first.png');
-    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
-    useGalleryReturning([first, second]);
-    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
-    final release = Completer<void>();
-    backend.holds[TripRoute.upload] = release.future;
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 2);
-    await letFramesRun(tester);
-
-    await tester.pageBack();
-    await letFramesRun(tester);
-
-    expect(find.byType(TripDetailScreen), findsNothing);
-    expect(find.text('送信中 0/2'), findsOneWidget);
-    expect(find.text('0枚 · 撮影日時なし'), findsOneWidget);
-
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.textContaining('送信中'), findsNothing);
-    expect(find.text('2枚を送信しました'), findsOneWidget);
-    expect(find.text('2枚 · 撮影日時なし'), findsOneWidget);
   });
 
   testWidgets('京都宛ての写真100枚を準備している間に北海道の詳細を開いても、「写真を準備中」は出ない（旅行一覧は全体を数えるので、戻ると「写真を準備中... k/100」が出る）', (tester) async {

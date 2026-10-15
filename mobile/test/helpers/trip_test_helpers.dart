@@ -586,6 +586,12 @@ class FakeTripBackend {
 /// 旅行「北海道 2026秋」の id
 const hokkaidoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
+/// 旅行「京都」の id（写真の移し先や、別の旅行の宛先に使う）
+const kyotoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
+
+/// ステータス 500 の `ApiException.userMessage`（送信に失敗した行の理由に出る）
+const serverErrorMessage = 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
+
 /// 旅行「北海道 2026秋」（[photoCount] 枚、2026/10/05 〜 2026/10/08）の JSON
 Map<String, Object?> hokkaidoTrip({int photoCount = 12, String? description}) {
   return tripJson(

@@ -114,7 +114,7 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
 | `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
 | `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
-| `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成、旅行に属さない写真の画面（複数選択の操作と枚数の取り直しを含む）（旅行アルバム） |
+| `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成、旅行に属さない写真の画面（複数選択の操作と枚数の取り直しを含む）、旅行詳細から戻った後の送信の進み具合と一覧の読み直し（旅行アルバム） |
 | `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき、写真のグリッド（ページ・失敗・読み直し）、写真の複数選択と旅行への出し入れ・削除、写真の追加と送信（EXIF、進み具合バナー、失敗と送り直し、画面をまたぐ送信）（旅行アルバム） |
 | `screens/photo_thumbnail_test.dart` | 写真のサムネイルの画像を読み込めないときの表示（画像の取得まで実時間で待つので、他の画面のテストと分けている） |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
