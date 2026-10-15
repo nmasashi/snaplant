@@ -11,13 +11,19 @@ import '../utils/taken_at.dart';
 /// 開いた一覧の写真を、一覧と同じ順で左右にスワイプして見る
 class PhotoViewerScreen extends StatefulWidget {
   const PhotoViewerScreen(
-      {super.key, required this.photos, required this.initialIndex});
+      {super.key,
+      required this.photos,
+      required this.initialIndex,
+      required this.onReachEnd});
 
   /// 一覧の読み込み済みの写真（一覧と共有する。一覧が続きのページを読むと伸びる）
   final ValueListenable<List<Photo>> photos;
 
   /// 最初に出す写真の位置（[photos] の添え字）
   final int initialIndex;
+
+  /// 読み込み済みの末尾の写真まで来たときに呼ぶ（一覧が続きのページを読む）
+  final VoidCallback onReachEnd;
 
   @override
   State<PhotoViewerScreen> createState() => _PhotoViewerScreenState();
@@ -45,6 +51,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         builder: (context, photos, _) => PageView.builder(
           controller: _pageController,
           itemCount: photos.length,
+          onPageChanged: (index) {
+            if (index == photos.length - 1) widget.onReachEnd();
+          },
           itemBuilder: (context, index) => _PhotoPage(photo: photos[index]),
         ),
       ),

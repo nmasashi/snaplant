@@ -199,7 +199,8 @@ class _PhotoGridState extends State<PhotoGrid> {
         context,
         MaterialPageRoute(
             builder: (_) =>
-                PhotoViewerScreen(photos: _loaded, initialIndex: index)));
+                PhotoViewerScreen(
+                photos: _loaded, initialIndex: index, onReachEnd: _loadMore)));
   }
 
   /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
