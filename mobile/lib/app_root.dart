@@ -118,8 +118,11 @@ class _AppRootState extends State<AppRoot> {
   /// 送信の列が空になったら、送れた枚数を知らせる（どの画面にいても出す）
   void _showUploadFinished(UploadBatchResult result) {
     if (!mounted || result.count == 0) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('${result.count}枚を送信しました')));
+    final elsewhere = result.alreadyElsewhere > 0
+        ? '（${result.alreadyElsewhere}枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'
+        : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${result.count}枚を送信しました$elsewhere')));
   }
 
   /// 設定画面を開き、戻ったら設定を読み直す

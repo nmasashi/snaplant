@@ -210,7 +210,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         // その旅行宛ての写真だけを数える
         UploadBanner(
             uploadQueue: widget.uploadQueue,
-            includes: (item) => item.tripId == widget.tripId),
+            includes: (tripId) => tripId == widget.tripId),
         Expanded(
           child: PhotoGrid(
             key: ValueKey(_gridVersion),

@@ -47,13 +47,31 @@ Future<_PreparedPhoto> _preparePhoto(String path) async {
 
 /// 送信の一区切り（送信中の項目が無くなったとき）の結果
 class UploadBatchResult {
-  const UploadBatchResult({required this.count, required this.tripIds});
+  const UploadBatchResult(
+      {required this.count, required this.tripIds, this.alreadyElsewhere = 0});
 
-  /// 送れた枚数
+  /// 送れた枚数（送信済みだった写真も含む）
   final int count;
+
+  /// 送れた写真のうち、既に別の旅行か旅行に属さない写真にあったもの（サーバは 200 で既存を返し、宛先は変えない）
+  final int alreadyElsewhere;
 
   /// 送れた写真の送り先（旅行に属さない写真は null）。画面は自分宛てが含まれていれば一覧を読み直す
   final Set<String?> tripIds;
+}
+
+/// 「写真を追加」で選んだ写真の準備の進み具合（準備中は、まだ列の項目になっていない写真もあるので別に数える）
+class PreparationProgress {
+  PreparationProgress({required this.tripId, required this.total});
+
+  /// 送り先の旅行。null なら旅行に属さない写真
+  final String? tripId;
+
+  /// 選んだ枚数
+  final int total;
+
+  /// 準備を終えた枚数（読めなかった写真も含む）
+  int prepared = 0;
 }
 
 /// 送る写真1枚の状態
@@ -73,6 +91,16 @@ class UploadQueue extends ChangeNotifier {
   // 進み具合の全体として数える項目。送信中の項目が無くなったら、送れた項目を除く（失敗した項目は送り直すか閉じるまで残る）
   final List<UploadItem> _items = [];
   final Map<UploadItem, UploadState> _states = {};
+  final List<PreparationProgress> _preparations = [];
+  // 失敗した項目の理由と、失敗した順番（バナーは最後に失敗したものの理由を出す）
+  final Map<UploadItem, ({int order, String reason})> _failures = {};
+  int _failureOrder = 0;
+  // 送れた項目のうち、既に別の場所にあったもの
+  final Set<UploadItem> _alreadyElsewhere = {};
+  // 404 TRIP_NOT_FOUND を受けた送り先。後から準備が済んだ同じ宛先の写真は、送っても同じ結果なので送らずに失敗にする
+  // （旅行の id は作り直されないので、消えた宛先を覚え続けても困らない。「送り直す」では利用者が試すので忘れる）
+  final Set<String?> _missingTrips = {};
+  static const _tripNotFoundReason = '旅行が見つかりません';
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
 
@@ -88,10 +116,37 @@ class UploadQueue extends ChangeNotifier {
 
   UploadState stateOf(UploadItem item) => _states[item]!;
 
+  /// 失敗した項目のうち、送り先が [where] に当たるもので最後に失敗したものの理由。失敗した項目が無ければ null
+  String? lastFailureReason(bool Function(String? tripId) where) {
+    ({int order, String reason})? last;
+    for (final entry in _failures.entries) {
+      if (_states[entry.key] != UploadState.failed ||
+          !where(entry.key.tripId)) {
+        continue;
+      }
+      if (last == null || entry.value.order > last.order) last = entry.value;
+    }
+    return last?.reason;
+  }
+
+  void _fail(UploadItem item, String reason) {
+    _states[item] = UploadState.failed;
+    _failures[item] = (order: _failureOrder++, reason: reason);
+  }
+
+  /// 準備中の写真の束（進み具合バナーが「写真を準備中... k/n」に使う）
+  List<PreparationProgress> get preparations =>
+      List.unmodifiable(_preparations);
+
   /// 選んだ写真を準備して列に入れる
   Future<void> addFiles(List<XFile> files, {String? tripId}) async {
+    // ギャラリーを開いている間に設定が変わって、この列が捨てられていた（送らないし、破棄後に通知もしない）
+    if (_disposed) return;
     // 読めない写真があっても残りの準備は続け、最後に失敗を呼び出し側へ伝える（呼び出し側が知らせる）
     Object? failure;
+    final progress = PreparationProgress(tripId: tripId, total: files.length);
+    _preparations.add(progress);
+    notifyListeners();
     for (final file in files) {
       // 準備の途中で設定が変わってこの列が捨てられたら、残りは準備しない（送らないので読むだけ無駄になる）
       if (_disposed) return;
@@ -104,15 +159,24 @@ class UploadQueue extends ChangeNotifier {
           metadata: prepared.metadata,
         );
         _items.add(item);
-        _states[item] = UploadState.waiting;
+        if (_missingTrips.contains(tripId)) {
+          _fail(item, _tripNotFoundReason);
+        } else {
+          _states[item] = UploadState.waiting;
+        }
       } catch (e) {
         failure ??= e;
       }
-    }
-    if (!_disposed) {
+      if (_disposed) return;
+      // 準備が済んだ写真から送り始める（数百枚を選んでも、全部の準備を待たずに送信が進む）
+      progress.prepared++;
       notifyListeners();
       _pump();
     }
+    _preparations.remove(progress);
+    // 最後の写真の送信が準備より先に終わっていたら、ここで区切りになる
+    _finishBatchIfIdle();
+    notifyListeners();
     if (failure != null) throw failure;
   }
 
@@ -132,36 +196,109 @@ class UploadQueue extends ChangeNotifier {
     }
   }
 
+  /// 一時的な失敗のときに送り直すまでの間隔（docs/travel-album/03_screen_design.md §4.7 の表）。回数の上限もこの長さ
+  /// 1回の送信の応答を待つ長さ。過ぎたら通信の失敗として送り直す（§4.7 の表）。
+  /// 時間切れが無いと、通信が固まったときに送信中のまま枠がふさがり、送り直しも区切りも来ない
+  static const _requestTimeout = Duration(seconds: 60);
+
+  static const _retryDelays = [
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+  ];
+
+  /// 送り直せば通りうる失敗か（通信できない・混んでいる・一時的に使えない）
+  static bool _isTransient(Object error) =>
+      error is ApiException &&
+      (error.statusCode == 0 ||
+          error.statusCode == 429 ||
+          error.statusCode == 503);
+
   Future<void> _send(UploadItem item) async {
-    try {
-      await _apiService.uploadPhoto(
-          photoId: item.photoId,
-          bytes: await File(item.path).readAsBytes(),
-          tripId: item.tripId,
-          takenAt: item.metadata.takenAt,
-          latitude: item.metadata.latitude,
-          longitude: item.metadata.longitude);
-      _states[item] = UploadState.done;
-    } catch (e) {
-      debugPrint('UploadQueue: 写真の送信エラー: $e');
-      _states[item] = UploadState.failed;
+    for (var attempt = 0;; attempt++) {
+      try {
+        final photo = await _apiService
+            .uploadPhoto(
+                photoId: item.photoId,
+                bytes: await File(item.path).readAsBytes(),
+                tripId: item.tripId,
+                takenAt: item.metadata.takenAt,
+                latitude: item.metadata.latitude,
+                longitude: item.metadata.longitude)
+            .timeout(_requestTimeout,
+                onTimeout: () => throw const ApiException(
+                    statusCode: 0, message: '応答がありませんでした'));
+        _states[item] = UploadState.done;
+        // 送信は「入れる」ではないので、既にある写真の宛先は変わらない（docs/travel-album/05_api_design.md §5.1）
+        if (photo.tripId != item.tripId) _alreadyElsewhere.add(item);
+        break;
+      } catch (e) {
+        debugPrint('UploadQueue: 写真の送信エラー: $e');
+        if (_isTransient(e) && attempt < _retryDelays.length && !_disposed) {
+          // 待つ間も送信中のまま（バナーは失敗の行にしない。同時に送る枠もふさいだまま）
+          await Future.delayed(_retryDelays[attempt]);
+          if (_disposed) return;
+          // 待っている間に、同じ宛先の別の写真で送り先が消えたと分かった。送っても同じ結果なので送らない
+          if (_missingTrips.contains(item.tripId)) {
+            _fail(item, _tripNotFoundReason);
+            break;
+          }
+          continue;
+        }
+        if (e is ApiException && e.isTripNotFound) {
+          // 送り先の旅行が消えている。同じ宛先のまだ送っていない写真も、送っても同じ結果なので失敗にする
+          _missingTrips.add(item.tripId);
+          _fail(item, _tripNotFoundReason);
+          for (final other in _items) {
+            if (other.tripId == item.tripId &&
+                _states[other] == UploadState.waiting) {
+              _fail(other, _tripNotFoundReason);
+            }
+          }
+        } else {
+          _fail(item, e is ApiException ? e.userMessage : '写真の送信に失敗しました');
+        }
+        break;
+      }
     }
     // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
     if (_disposed) return;
-    if (_count(UploadState.waiting) == 0 && _count(UploadState.sending) == 0) {
-      final done = _items.where((i) => _states[i] == UploadState.done).toList();
-      _finished.add(UploadBatchResult(
-          count: done.length, tripIds: done.map((i) => i.tripId).toSet()));
-      _items.removeWhere((i) => _states[i] == UploadState.done);
-      _states.removeWhere((_, state) => state == UploadState.done);
-    }
+    _finishBatchIfIdle();
     notifyListeners();
     _pump();
   }
 
-  /// 失敗した項目（[where] に当たるもの）を送り直す。準備はやり直さない
-  void retryFailed(bool Function(UploadItem item) where) {
-    for (final item in _items.where(where)) {
+  /// 準備中の写真も、待ち・送信中の項目も無くなったら、送信の一区切りとして送れた写真を流し、列から除く。
+  /// 準備中の写真が残っている間に区切ると、選んだ写真の途中で「N枚を送信しました」が出て、残りの分でもう一度出る
+  void _finishBatchIfIdle() {
+    if (_preparations.isNotEmpty ||
+        _count(UploadState.waiting) > 0 ||
+        _count(UploadState.sending) > 0) {
+      return;
+    }
+    final done = _items.where((i) => _states[i] == UploadState.done).toList();
+    _finished.add(UploadBatchResult(
+      count: done.length,
+      // 既に別の場所にあった写真は、宛先の一覧を変えないので読み直しに数えない
+      tripIds: done
+          .where((i) => !_alreadyElsewhere.contains(i))
+          .map((i) => i.tripId)
+          .toSet(),
+      alreadyElsewhere: done.where(_alreadyElsewhere.contains).length,
+    ));
+    _items.removeWhere((i) => _states[i] == UploadState.done);
+    _states.removeWhere((_, state) => state == UploadState.done);
+    _alreadyElsewhere.clear();
+    // 送り直して送れた写真の、前の失敗の記録も捨てる（残すと列を使うほど溜まり続ける）
+    for (final item in done) {
+      _failures.remove(item);
+    }
+  }
+
+  /// 失敗した項目のうち、送り先が [where] に当たるものを送り直す。準備はやり直さない
+  void retryFailed(bool Function(String? tripId) where) {
+    _missingTrips.removeWhere(where);
+    for (final item in _items.where((item) => where(item.tripId))) {
       if (_states[item] == UploadState.failed) {
         _states[item] = UploadState.waiting;
       }
@@ -170,14 +307,16 @@ class UploadQueue extends ChangeNotifier {
     _pump();
   }
 
-  /// 失敗した項目（[where] に当たるもの）を列から消す（端末の写真は消えない。選び直せば送れる）
-  void dismissFailed(bool Function(UploadItem item) where) {
+  /// 失敗した項目のうち、送り先が [where] に当たるものを列から消す（端末の写真は消えない。選び直せば送れる）
+  void dismissFailed(bool Function(String? tripId) where) {
     final dismissed = _items
-        .where((item) => where(item) && _states[item] == UploadState.failed)
+        .where(
+            (item) => where(item.tripId) && _states[item] == UploadState.failed)
         .toList();
     for (final item in dismissed) {
       _items.remove(item);
       _states.remove(item);
+      _failures.remove(item);
     }
     notifyListeners();
   }

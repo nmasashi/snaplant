@@ -142,6 +142,10 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
   最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる。
   アプリはエンドポイントの既定値を持たないので、一覧を開くテストは冒頭で `saveTestEndpoint` を呼び、テスト用の宛先（本番ではない URL）を保存する。未保存の状態は `clearSavedEndpoint`）
+- **写真の送信のテストは、フェイクの時間と実時間を組み合わせる。** 送り直しの待ち（`Future.delayed`）はフェイクの時間（`tester.pump(Duration)`）で進み、
+  写真の準備（`compute`）とファイルの読み込みは実時間（`tester.runAsync`）でしか進まない。待ちのタイマーが過ぎた後も、実時間の読み込みと
+  `pump` を何度か往復しないと要求は偽のサーバに届かない。**実時間を一度に長く待つだけだと進まず、「まだ届いていない」を誤って確かめられてしまう**
+  （早すぎる送り直しを入れる変異が生き残った）。短い実時間の待ちと `pump()` を繰り返す。「届かないこと」の確認は、変異で確かめてから信用する
 - **画像（`CachedNetworkImage`）を出す画面で実時間を進めると、`path_provider` が無くて落ちる。** キャッシュがファイルの置き場を
   `path_provider` で取るため。`runAsync` を使わなければ画像の取得が始まらないので普段は通るが、写真を出した後に `runAsync` を使うテストを
   足すと無関係に見える `MissingPluginException` で落ちる。画像の取得まで待つテストは `test/screens/photo_thumbnail_test.dart` の形

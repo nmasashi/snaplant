@@ -303,6 +303,14 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **やること**: 3xx を受けたときの文言を「エンドポイントを https で始まる URL にしてください」のように設定の見直しを促すものにするか、
 設定の保存時に本番らしいホストで http なら注意を出すかを決める。
 
+### 分類できない失敗も「通信の失敗」として送り直す（Dart）
+
+`ApiService._handleError`（`mobile/lib/services/api_service.dart`）は、`ApiException` でも通信の例外でもない失敗（応答の JSON の形の誤りなど）を
+すべて `statusCode: 0` にする。写真の送信（`UploadQueue`）は 0 を通信の失敗として 2・4・8 秒で3回送り直すので、送り直しても直らない失敗も
+3回送ってから失敗になる（2026-10-15、PR 7b の test-reviewer の指摘。コードを読んでの判断）。写真の id で冪等なので、写真が重複することは無い。
+
+**判断が要ること**: 通信の失敗と、それ以外の分類できない失敗を、`ApiException` の別のステータス（または種類）で分けるか。
+
 ### 選択モード中に下に引っ張って読み直すと、消えた写真が選択に残る（Dart、旅行アルバム）
 
 `PhotoSelection`（`mobile/lib/widgets/photo_selection.dart`）は選んだ写真の id を持ち続け、読み直した一覧に合わせて絞らない。

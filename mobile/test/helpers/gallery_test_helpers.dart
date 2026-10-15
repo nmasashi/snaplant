@@ -60,6 +60,25 @@ File writeTestImage(String name, {List<int> bytes = tinyPngBytes}) {
   return File('${dir.path}/$name')..writeAsBytesSync(bytes);
 }
 
+/// 一時ディレクトリに、中身が全部違う画像ファイルを [count] 枚書く（テスト終了時に削除する）。
+/// 準備（読み込みとハッシュ）に時間をかける代わりに、枚数を増やして準備を長引かせるために使う。
+/// 準備は1枚ずつ別の isolate で行うので、大きなファイル1枚と違い、メモリを食わず、準備の終わりが枚数に比例して遅れる。
+/// 中身は [tinyPngBytes] に、通し番号の2バイトを足したもの（写真の id は画像のバイト列の SHA-256 なので、全部違う写真になる）
+List<File> writeTestImages(int count) {
+  final dir = Directory.systemTemp.createTempSync('snaplant_gallery_test_');
+  addTearDown(() {
+    try {
+      dir.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Windows では画像が掴んだままのファイルを消せない。一時ディレクトリなので OS に任せる
+    }
+  });
+  return [
+    for (var i = 0; i < count; i++)
+      File('${dir.path}/photo_$i.png')..writeAsBytesSync([...tinyPngBytes, i >> 8, i & 0xFF]),
+  ];
+}
+
 /// EXIF 付きの JPEG のバイト列（SOI、EXIF を入れた APP1、EOI だけの、画像の本体を持たない最小の JPEG）。
 /// EXIF は次の値だけを持つ。小さな固定のバイト列を手で組み立てているので、EXIF を読む側のテストに使う（画像として表示はできない）。
 /// - `DateTimeOriginal`: [dateTimeOriginal]（既定は `2026:10:05 10:20:30`。`YYYY:MM:DD HH:mm:ss` の19文字。実在しない日時も渡せる）
