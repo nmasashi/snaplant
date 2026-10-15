@@ -252,12 +252,14 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('1ページ目を読んだあとに別の端末で旅行が消され、続きのページが 404 になると、「この旅行は削除されています」と出し、「続きを読み込めませんでした」も編集・削除のメニューも出さない', (tester) async {
+  testWidgets(
+      '1ページ目を読んだあとに別の端末で旅行が消され、続きのページが 404 になると、「この旅行は削除されています」と出し、「続きを読み込めませんでした」も編集・削除のメニューも出さない',
+      (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backendWith33Photos();
     await openDetailFromHome(tester, backend);
-    // 別の端末で旅行が消された（2ページ目の要求だけが 404 TRIP_NOT_FOUND になる）
-    backend.failNext(TripRoute.photos, status: 404, code: 'TRIP_NOT_FOUND', message: '指定された旅行が見つかりません');
+    // 別の端末で旅行が消された（偽のサーバは、無い旅行の写真の一覧を 404 TRIP_NOT_FOUND で返す）
+    backend.trips.clear();
 
     await _scrollToEnd(tester);
 
@@ -267,24 +269,60 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('旅行の取得のあとに別の端末で旅行が消され、開いた直後の写真の一覧（1ページ目）が 404 になると、「この旅行は削除されています」と出し、エラーの表示も編集・削除のメニューも出さない', (tester) async {
+  testWidgets(
+      '旅行の取得のあとに別の端末で旅行が消され、開いた直後の写真の一覧（1ページ目）が 404 になると、「この旅行は削除されています」と出し、エラーの表示も編集・削除のメニューも出さない',
+      (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 1)],
       functionKey: _apiKey,
       photosByTripId: {
-        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
       },
     );
-    // 旅行の取得は成功し、写真の一覧だけが 404 TRIP_NOT_FOUND になる
-    backend.failNext(TripRoute.photos, status: 404, code: 'TRIP_NOT_FOUND', message: '指定された旅行が見つかりません');
-
+    // 写真の一覧の応答を止め、旅行の取得が成功した後に別の端末で旅行が消された状態にしてから放す
+    // （偽のサーバは、無い旅行の写真の一覧を 404 TRIP_NOT_FOUND で返す）
+    final release = Completer<void>();
+    backend.holds[TripRoute.photos] = release.future;
     await openDetailFromHome(tester, backend);
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+    backend.trips.clear();
+
+    release.complete();
+    await letFramesRun(tester);
 
     expect(find.text('この旅行は削除されています'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsNothing);
     expect(find.text('エラーが発生しました'), findsNothing);
     expect(find.text('再試行'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets(
+      '写真の一覧が封筒の無い 404 を返しても、写真の部分に「エラーが発生しました」を出し、「この旅行は削除されています」とは出さない',
+      (tester) async {
+    // 封筒の無い 404 は宛先の誤りやランタイムが返すもので、旅行が消えたことを表す TRIP_NOT_FOUND ではない（判定は code で行う。画面設計 §4.4）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
+      },
+    );
+    backend.failNextWithoutEnvelope(TripRoute.photos,
+        status: 404, body: 'Not Found');
+
+    await openDetailFromHome(tester, backend);
+
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    expect(find.text('この旅行は削除されています'), findsNothing);
     semantics.dispose();
   });
 
@@ -509,13 +547,18 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('旅行詳細を開いたあとに別の端末で旅行が消され、下に引っ張った読み直しで写真の一覧が 404 になると、「この旅行は削除されています」と出し、編集・削除のメニューは出さない', (tester) async {
+  testWidgets(
+      '旅行詳細を開いたあとに別の端末で旅行が消され、下に引っ張った読み直しで写真の一覧が 404 になると、「この旅行は削除されています」と出し、編集・削除のメニューもエラーのスナックバーも出さない',
+      (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 1)],
       functionKey: _apiKey,
       photosByTripId: {
-        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
       },
     );
     await openDetailFromHome(tester, backend);
@@ -527,7 +570,7 @@ void main() {
 
     expect(find.text('この旅行は削除されています'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsNothing);
-    expect(find.text('要求されたデータが見つかりません。'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
     semantics.dispose();
   });
 
