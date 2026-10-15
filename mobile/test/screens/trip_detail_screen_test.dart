@@ -473,6 +473,28 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('旅行詳細を開いたあとに別の端末で旅行が消され、下に引っ張った読み直しで写真の一覧が 404 になると、「この旅行は削除されています」と出し、編集・削除のメニューは出さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    // 別の端末で旅行が消された（偽のサーバは、無い旅行の写真の一覧を 404 TRIP_NOT_FOUND で返す）
+    backend.trips.clear();
+
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.text('要求されたデータが見つかりません。'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真が1ページに収まる旅行は、グリッドを下端まで送っても続きを取りに行かず、写真は1枚ずつしか並ばない', (tester) async {
     // 1ページ目の継続トークンが null（最後のページ）。確認が抜けると、null のトークンで先頭のページを取り直し、同じ写真が二重に並ぶ
     final semantics = tester.ensureSemantics();
