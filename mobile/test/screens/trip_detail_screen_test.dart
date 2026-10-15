@@ -1316,10 +1316,12 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(find.text('削除'));
     await letFramesRun(tester);
+    final tripFetchesBefore = backend.tripFetchesReceived;
     final tripReply = backend.holdNextReply(TripRoute.detail);
     backend.holds[TripRoute.photos] = photosRelease.future;
     await tapInDialog(tester, '削除');
-    // 旅行の取得は旅行があるうちに届いている。そのあとで旅行が消えた
+    // 旅行の取得は旅行があるうちに届いている（ここが崩れると、遅れた成功を作れない）。そのあとで旅行が消えた
+    expect(backend.tripFetchesReceived, tripFetchesBefore + 1);
     backend.trips.clear();
 
     photosRelease.complete();
