@@ -88,8 +88,9 @@ const _thumbnailQuality = 70;
 /// 端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
 Future<Uint8List?> _makeThumbnail(String path) async {
   try {
-    final bytes = await File(path).readAsBytes();
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    // 画像は Dart に読み込まずに、ファイルのままエンジン（縦横を読む）とプラグイン（縮める）に渡す
+    // （数百枚の準備で、写真ごとに原寸のバイト列を Dart に読んでチャネル越しに渡し直さないように）
+    final buffer = await ui.ImmutableBuffer.fromFilePath(path);
     final descriptor = await ui.ImageDescriptor.encoded(buffer);
     final long = math.max(descriptor.width, descriptor.height);
     final short = math.min(descriptor.width, descriptor.height);
@@ -99,8 +100,8 @@ Future<Uint8List?> _makeThumbnail(String path) async {
     // 縦横に同じ長さ（短辺を長辺 320 に合わせた長さ）を指定すると、向きの補正（EXIF の回転で縦横を入れ替える）の前後どちらで
     // 縦横を読んでも、長辺が 320 になる。縦横で別の値を指定すると、向きを取り違えたときに長辺が 320 を超える
     final side = (_thumbnailLongSide * short / long).round();
-    return await FlutterImageCompress.compressWithList(
-      bytes,
+    return await FlutterImageCompress.compressWithFile(
+      path,
       minWidth: side,
       minHeight: side,
       quality: _thumbnailQuality,
