@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -149,6 +151,51 @@ void main() {
 
     expect(find.text('撮影日時なし').hitTestable(), findsOneWidget);
     expect(find.text('位置情報なし').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('写真ビューアで読み込んだ末尾の写真まで来ると、一覧が次のページを読み、続けてスワイプできる', (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
+    // 1ページ目の末尾（10:30）のサムネイルを出すにはグリッドを下端近くまで送る必要があり、
+    // その時点でグリッド自身が2ページ目を要求する（末尾の6枚以内が描かれると読む）。
+    // これは避けられないので、2ページ目の応答を止めておき、ビューアを開いて10:30に着いてから放す。
+    // ビューアが開いた時点では2ページ目は一覧に無く、放した後に一覧の配列が伸びる。
+    // ビューアが開いた時点の写真しか持たなければ、10:30で止まって次に進めない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final release = Completer<void>();
+    backend.holds[TripRoute.photos] = release.future;
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    release.complete();
+    await letFramesRun(tester);
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:32').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
 }
