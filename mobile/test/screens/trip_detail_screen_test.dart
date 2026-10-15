@@ -1722,6 +1722,71 @@ void main() {
     expect([for (final photo in photos) (photo['location'] as Map)['placeName']], [null, null]);
   });
 
+  testWidgets('Geocoder の結果に都道府県も市区町村も無ければ（null と空文字）、他の欄が埋まっていても、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
+    // 町名（subLocality）や国は埋まっているが、地名にするのは都道府県と市区町村だけ（docs/travel-album/06_processing_design.md §4.2）。どちらも空なら地名なし。
+    // 空の地名を送ると、サーバは 400（地名は1〜100文字）で断るので、写真が届くことでも、空の地名を送っていないことが分かる
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 36.5667,
+        longitude: 136.65,
+        placemarks: [
+          const Placemark(
+            name: '香林坊',
+            country: '日本',
+            isoCountryCode: 'JP',
+            administrativeArea: null,
+            locality: '',
+            subLocality: '香林坊',
+          ),
+        ],
+      ),
+    ]);
+    final image = writeTestImage('kanazawa.jpg', bytes: exifJpegBytes(latitude: [36, 34, 0], longitude: [136, 39, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(1));
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('都道府県も市区町村も無い結果は端末に残さないので、同じ場所の次の写真は、もう一度 Geocoder で引く', (tester) async {
+    // 地名にならなかった結果を残すと、同じ場所の写真に地名がずっと付かなくなる。
+    // 2枚は同じ場所（北緯 36度34分0秒と 36度34分1秒。丸めるとどちらも 36.567。東経は同じ 136度39分0秒）
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 36.5667,
+        longitude: 136.65,
+        placemarks: [const Placemark(country: '日本', administrativeArea: null, locality: '', subLocality: '香林坊')],
+      ),
+    ]);
+    final first = writeTestImage('kanazawa_1.jpg', bytes: exifJpegBytes(latitude: [36, 34, 0], longitude: [136, 39, 0]));
+    final second = writeTestImage('kanazawa_2.jpg', bytes: exifJpegBytes(latitude: [36, 34, 1], longitude: [136, 39, 0]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(2));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], [null, null]);
+  });
+
   testWidgets('Geocoder が5秒たっても応答しなければ、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
     // 端末の Geocoder が固まる。引き始めてから 4.999 秒の間はまだ待ち（写真は送られない）、5 秒で諦めて送る。
     // 時間はフェイクの時間で進める（実時間の 5 秒は待たない）。画面を進める letFramesRun は 1.5 秒ずつ進めてしまうので、引かれるのを待つ間は使わない。
