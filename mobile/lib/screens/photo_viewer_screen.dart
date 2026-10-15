@@ -48,6 +48,16 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   }
 }
 
+/// 下の情報の場所の文言。地名が無ければ緯度・経度を小数4桁で、位置情報が無ければ「位置情報なし」
+String _placeText(Photo photo) {
+  final placeName = photo.placeName;
+  if (placeName != null) return placeName;
+  final latitude = photo.latitude;
+  final longitude = photo.longitude;
+  if (latitude == null || longitude == null) return '位置情報なし';
+  return '${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)}';
+}
+
 /// 写真1枚の画面（原寸の画像と、下の情報）
 class _PhotoPage extends StatelessWidget {
   const _PhotoPage({required this.photo});
@@ -56,7 +66,6 @@ class _PhotoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final placeName = photo.placeName;
     return Column(
       children: [
         Expanded(
@@ -76,9 +85,8 @@ class _PhotoPage extends StatelessWidget {
             children: [
               Text(formatTakenAt(photo.takenAt),
                   style: AppTextStyles.body1.copyWith(color: Colors.white)),
-              if (placeName != null)
-                Text(placeName,
-                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
+              Text(_placeText(photo),
+                  style: AppTextStyles.body1.copyWith(color: Colors.white)),
             ],
           ),
         ),
