@@ -183,6 +183,15 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadMore();
   }
 
+  /// 写真ビューアを開く（一覧の写真を [index] の位置から）
+  void _openViewer(List<Photo> photos, int index) {
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) =>
+                PhotoViewerScreen(photos: photos, initialIndex: index)));
+  }
+
   /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
   /// 画面より短くても引っ張れるよう、高さいっぱいの領域の中央に置く
   Widget _pullToRefresh(Widget child) {
@@ -296,7 +305,9 @@ class _PhotoGridState extends State<PhotoGrid> {
                   });
                 }
                 return _PhotoTile(
-                    photo: photos[index], selection: widget.selection);
+                    photo: photos[index],
+                    selection: widget.selection,
+                    onOpen: () => _openViewer(photos, index));
               },
             ),
           ),
@@ -344,17 +355,20 @@ class _PhotoGridState extends State<PhotoGrid> {
 
 /// サムネイル1枚。撮影日時を読み上げのラベルにする（画像だけでは写真を区別できないため）
 class _PhotoTile extends StatelessWidget {
-  const _PhotoTile({required this.photo, this.selection});
+  const _PhotoTile({required this.photo, this.selection, required this.onOpen});
 
   final Photo photo;
   final PhotoSelection? selection;
+
+  /// タップで写真ビューアを開く（選択モードの間は選択を切り替える）
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     final selection = this.selection;
     if (selection == null) {
       return GestureDetector(
-          onTap: () => _openViewer(context),
+          onTap: onOpen,
           child: _buildImage(selected: null));
     }
     return ListenableBuilder(
@@ -367,17 +381,11 @@ class _PhotoTile extends StatelessWidget {
           onLongPress: () => selection.start(photo.id),
           onTap: selection.isActive
               ? () => selection.toggle(photo.id)
-              : () => _openViewer(context),
+              : onOpen,
           child: _buildImage(selected: selected),
         );
       },
     );
-  }
-
-  /// 写真ビューアを開く
-  void _openViewer(BuildContext context) {
-    Navigator.push(context,
-        MaterialPageRoute(builder: (_) => PhotoViewerScreen(photo: photo)));
   }
 
   /// [selected] は選択モードでなければ null
