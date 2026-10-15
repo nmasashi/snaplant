@@ -568,6 +568,7 @@ class ApiService {
     String? takenAt,
     double? latitude,
     double? longitude,
+    Uint8List? thumbnail,
   }) async {
     try {
       final url = _buildUrl('/api/photos');
@@ -586,6 +587,14 @@ class ApiService {
         filename: 'photo',
         contentType: MediaType.parse(detectImageMimeType(bytes)),
       ));
+      if (thumbnail != null) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'thumbnail',
+          thumbnail,
+          filename: 'thumbnail.jpg',
+          contentType: MediaType('image', 'jpeg'),
+        ));
+      }
       final response =
           await http.Response.fromStream(await _client.send(request));
       return _parseResponse(response, (json) {

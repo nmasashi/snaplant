@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart'
+    show CompressFormat, FlutterImageCompress;
 import 'package:image_picker/image_picker.dart';
 
 import '../utils/photo_metadata.dart';
@@ -14,7 +17,8 @@ class UploadItem {
       {required this.path,
       required this.photoId,
       this.tripId,
-      this.metadata = PhotoMetadata.none});
+      this.metadata = PhotoMetadata.none,
+      this.thumbnail});
 
   /// ギャラリーで選んだ画像のファイル（縮小済み）。バイト列は送るときに読む
   /// （数百枚を選んだときに、全部のバイト列をメモリに持ち続けないように）
@@ -28,6 +32,37 @@ class UploadItem {
 
   /// EXIF から読んだ撮影日時と位置
   final PhotoMetadata metadata;
+
+  /// 一覧用のサムネイル（長辺 320px・画質 70 の JPEG）。作れなければ null で、サムネイル無しで送る
+  final Uint8List? thumbnail;
+}
+
+/// サムネイルの長辺と画質（docs/travel-album/03_screen_design.md §4.7「準備」）
+const _thumbnailLongSide = 320;
+const _thumbnailQuality = 70;
+
+/// 一覧用のサムネイルを作る。作れなければ null（送信は止めない）。
+/// 端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
+Future<Uint8List?> _makeThumbnail(String path) async {
+  try {
+    final bytes = await File(path).readAsBytes();
+    // プラグインは「短辺が指定の長さになるまで」縮めるので、長辺を 320 にするには長い方の辺だけを指定する
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final landscape = descriptor.width >= descriptor.height;
+    descriptor.dispose();
+    buffer.dispose();
+    return await FlutterImageCompress.compressWithList(
+      bytes,
+      minWidth: landscape ? _thumbnailLongSide : 1,
+      minHeight: landscape ? 1 : _thumbnailLongSide,
+      quality: _thumbnailQuality,
+      format: CompressFormat.jpeg,
+    );
+  } catch (e) {
+    debugPrint('UploadQueue: サムネイルの作成エラー: $e');
+    return null;
+  }
 }
 
 /// 準備の結果（別の isolate から返す）
@@ -157,6 +192,7 @@ class UploadQueue extends ChangeNotifier {
           photoId: prepared.photoId,
           tripId: tripId,
           metadata: prepared.metadata,
+          thumbnail: await _makeThumbnail(file.path),
         );
         _items.add(item);
         if (_missingTrips.contains(tripId)) {
@@ -224,7 +260,8 @@ class UploadQueue extends ChangeNotifier {
                 tripId: item.tripId,
                 takenAt: item.metadata.takenAt,
                 latitude: item.metadata.latitude,
-                longitude: item.metadata.longitude)
+                longitude: item.metadata.longitude,
+                thumbnail: item.thumbnail)
             .timeout(_requestTimeout,
                 onTimeout: () => throw const ApiException(
                     statusCode: 0, message: '応答がありませんでした'));
