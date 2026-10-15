@@ -70,7 +70,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     setState(() => _errorMessage = null);
     try {
       final trip = await widget.apiService.getTrip(widget.tripId);
-      if (!mounted) return;
+      // 待っている間に、写真の一覧の側で旅行が無いと分かっていたら、遅れて届いた成功で旅行名を戻さない
+      if (!mounted || _tripDeleted) return;
       setState(() => _trip = trip);
     } catch (e) {
       debugPrint('TripDetailScreen: 旅行の読み込みエラー: $e');
