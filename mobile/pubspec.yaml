@@ -33,6 +33,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   crypto: ^3.0.7
   exif: ^3.3.0
+  flutter_image_compress: ^2.5.1
 
 dev_dependencies:
   flutter_test:

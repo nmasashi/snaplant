@@ -5,6 +5,7 @@ import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter_image_compress/flutter_image_compress.dart' show CompressFormat;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
@@ -13,6 +14,7 @@ import 'package:snaplant_mobile/theme/app_theme.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/gallery_test_helpers.dart';
+import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/travel-album/03_screen_design.md §4.3・§4.4）。
@@ -1577,6 +1579,32 @@ void main() {
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['location'], {'latitude': -43.5, 'longitude': -141.25, 'placeName': null, 'placeSource': null});
+  });
+
+  testWidgets('写真を送ると、長辺320px・画質70のJPEGのサムネイルを付けて送り、その写真にサムネイルが入る', (tester) async {
+    // 4000x3000 の写真。画像の圧縮（端末のネイティブの機能。管理外の依存）は偽物に差し替え、渡した引数から決まる寸法・画質・形式を結果として読む。
+    // 偽物は本物と同じく、短辺が渡した最小の値になるまで縮める。幅と高さの最小を両方 320 にすると 426x320 になるので、長辺 320 には 320x240 になる渡し方が要る。
+    // 圧縮は端末のネイティブの機能で、別の isolate（準備の compute）からは呼べない。この偽物が呼ばれる（結果が残る）ことで、メインの isolate で呼んでいることも分かる
+    final compress = useFakeImageCompress();
+    final image = writeTestImage('wide.png', bytes: pngBytesOfSize(4000, 3000));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(
+      [for (final r in compress.results) (r.width, r.height, r.quality, r.format)],
+      [(320, 240, 70, CompressFormat.jpeg)],
+    );
+    expect(photo['thumbnailUrl'], isNotNull);
+    expect(backend.thumbnailsByPhotoId[photo['id']], compress.results.single.bytes);
   });
 
   testWidgets('2枚のうち2枚目の準備（ファイルの読み込み）に失敗しても、「画像の読み込みに失敗しました」と知らせ、読めた1枚目は送られて「1枚を送信しました」と知らせる', (tester) async {
