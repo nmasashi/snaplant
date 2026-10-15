@@ -198,4 +198,52 @@ void main() {
     expect(find.text('2026年10月5日 10:32').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('グリッドを下端まで送っていなくても、写真ビューアで読み込んだ末尾の写真まで来ると、一覧が次のページを読み、続けてスワイプできる',
+      (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
+    // グリッドは送らず、先頭の方の10:15を開く。グリッドが続きを読むのは末尾の6枚以内（10:25〜）を組み立てたときだけなので、
+    // この時点で2ページ目は要求されていない
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    // 2ページ目の応答を止めておく。グリッドが既に要求していれば、止まっている間は
+    // 末尾に「読み込み中...」が出るので、出ていないことで「まだ要求していない」を確かめる
+    // （偽のサーバに届いた一覧の要求の数は数えていないための間接的な確認）
+    final release = Completer<void>();
+    backend.holds[TripRoute.photos] = release.future;
+    await tester.pump();
+    expect(find.text('読み込み中...'), findsNothing);
+    await tester.tap(photoThumbnail('2026年10月5日 10:15'));
+    await letFramesRun(tester);
+    expect(find.text('2026年10月5日 10:15').hitTestable(), findsOneWidget);
+    release.complete();
+    await letFramesRun(tester);
+
+    for (var i = 0; i < 15; i++) {
+      await _swipe(tester, toNext: true);
+    }
+
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
 }
