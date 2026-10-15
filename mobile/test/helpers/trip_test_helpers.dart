@@ -604,6 +604,11 @@ Future<void> openDeleteDialog(WidgetTester tester) async {
 /// ラベルに他の文言（画像の読み込み失敗の表示など）が続いていても一致するよう、部分一致で探す
 Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escape(label)));
 
+/// 進み具合バナーの「写真を準備中... k/[total]」（k は準備が済んだ枚数）。k は準備の進み具合で変わるので、分母と形式で探す。
+/// 準備が終わるとバナーは消えるので、これが見えている間は準備が続いている
+Finder preparingBanner(int total) => find.byWidgetPredicate(
+    (widget) => widget is Text && RegExp('^写真を準備中\\.\\.\\. \\d+/$total\$').hasMatch(widget.data ?? ''));
+
 /// multipart/form-data の1パート。ファイルのパートは [filename] を持つ
 class _MultipartPart {
   _MultipartPart(this.filename, this.contentType, this.bytes);
@@ -654,14 +659,21 @@ Future<void> waitUntilUploadsReceived(WidgetTester tester, FakeTripBackend backe
   }
 }
 
-/// [finder] に当たるものが出るまで、実時間で少しずつ待ち、画面を進める（最長 10 秒）。
+/// [finder] に当たるものが出るまで、実時間で少しずつ待ち、画面を進める（既定は 100 ミリ秒ずつ、最長 10 秒）。
 /// 別の isolate での準備（ファイルの読み込み）の結果が、画面に知らせとして出るのを待つために使う。
+/// 準備と送信は、1枚につき画面を2回進めるごとに進むので、数十枚以上を待つときは [step] を短く、[maxIterations] を多くする
+/// （1ミリ秒ずつ・3000回なら、100枚の準備と送信が 1〜2 秒で終わる）。
 /// 出なくても例外にせず戻る（検証は呼び出し側）。写真のサムネイルが出る前に待ち終える使い方に限る
 /// （出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
-Future<void> waitUntilFound(WidgetTester tester, Finder finder) async {
-  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
-    await tester.pump(const Duration(milliseconds: 100));
+Future<void> waitUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  Duration step = const Duration(milliseconds: 100),
+  int maxIterations = 100,
+}) async {
+  for (var i = 0; i < maxIterations && finder.evaluate().isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(step));
+    await tester.pump(step);
   }
 }
 

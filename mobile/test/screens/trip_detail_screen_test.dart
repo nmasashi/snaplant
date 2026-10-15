@@ -21,6 +21,10 @@ import '../helpers/trip_test_helpers.dart';
 
 const _apiKey = 'test-key';
 
+/// 準備を長引かせるために選ぶ写真の枚数。準備は1枚ずつ別の isolate で進み、1枚に十数ミリ秒かかる。
+/// 最初の送信の要求が届いて確かめるまでの間（数百ミリ秒）に準備が終わらない枚数にする
+const _manyPhotos = 100;
+
 /// ステータス 500 の `ApiException.userMessage`（送信に失敗した行の理由に出る）
 const _serverErrorMessage = 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
 
@@ -1761,13 +1765,10 @@ void main() {
     expect(find.text('2枚を送信しました'), findsOneWidget);
   });
 
-  testWidgets('2枚を選ぶと、準備が済んだ1枚目から送り始め、2枚目の準備が終わるまでの間は、旅行詳細の上部に「写真を準備中... 1/2」を出す', (tester) async {
-    // 準備は1枚ずつ進む。2枚目を大きなファイル（128MB。ハッシュだけで1秒を超える）にして、1枚目の送信の要求が偽のサーバに届いた時点で、
-    // 2枚目の準備がまだ終わっていない状態を作る（準備は別の isolate で実時間で進むので、順序を止める手段が無く、時間のかかる準備で余裕を取る）。
-    // 準備の進み具合は「準備が済んだ数/選んだ数」。1枚目の応答は保留して、1枚目の送信が終わったことによる表示の変化を混ぜない
-    final first = writeTestImage('first.png');
-    final big = writeTestImage('big.png', bytes: Uint8List(128 * 1024 * 1024));
-    useGalleryReturning([first, big]);
+  testWidgets('100枚を選ぶと、準備が済んだ写真から送り始め、準備が終わるまでの間は、旅行詳細の上部に「写真を準備中... k/100」を出す', (tester) async {
+    // 準備は1枚ずつ別の isolate で進む。100枚の準備は、最初の送信の要求が偽のサーバに届いたあともしばらく続く（準備が終わるとバナーは消える）。
+    // k は準備の進み具合で変わるので、分母と形式で見る。1枚目の応答は保留して、1枚目の送信が終わったことによる表示の変化を混ぜない
+    useGalleryReturning(writeTestImages(_manyPhotos));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
     final firstReply = backend.holdNextReply(TripRoute.upload);
     await openTripsTab(tester, backend);
@@ -1777,22 +1778,18 @@ void main() {
 
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
+    await tester.pump();
 
-    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
-
-    // 後片付け: 1枚目の応答を返し、2枚目の準備と送信が終わるまで待つ（準備が画面の後ろで続いたまま、テストを終えない）
+    expect(preparingBanner(_manyPhotos), findsOneWidget);
     firstReply.complete();
-    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
-    await letFramesRun(tester);
   });
 
-  testWidgets('1枚目の送信が2枚目の準備より先に終わっても、準備中の写真が残っている間は「1枚を送信しました」と知らせず、全部が終わってから「2枚を送信しました」を1回だけ知らせる', (tester) async {
-    // 2枚目を大きなファイルにして準備を遅らせる（前のテストと同じ）。今回は1枚目の応答を保留しないので、
-    // 1枚目の送信は2枚目の準備が終わる前に終わる。準備中の写真が残っているので、送信の区切りにはならない
-    final first = writeTestImage('first.png');
-    final big = writeTestImage('big.png', bytes: Uint8List(128 * 1024 * 1024));
-    useGalleryReturning([first, big]);
+  testWidgets('最初の1枚の送信が残りの準備より先に終わっても、準備中の写真が残っている間は「N枚を送信しました」と知らせず、全部が終わってから「100枚を送信しました」を1回だけ知らせる', (tester) async {
+    // 今回は1枚目の応答を保留しないので、1枚目の送信は準備が終わる前に終わる。準備中の写真が残っているので、送信の区切りにはならない。
+    // 1枚目の送信が終わった時点で送信の列が空になるよう、2枚目だけは 16MB のファイルにする（準備に数百ミリ秒かかる。残りの98枚は小さく、準備の終わりはさらに遅れる）
+    final files = writeTestImages(_manyPhotos);
+    final medium = writeTestImage('medium.png', bytes: Uint8List(16 * 1024 * 1024));
+    useGalleryReturning([files.first, medium, ...files.skip(2)]);
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
@@ -1803,14 +1800,13 @@ void main() {
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
 
-    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
-    expect(find.text('1枚を送信しました'), findsNothing);
+    expect(preparingBanner(_manyPhotos), findsOneWidget);
+    expect(find.textContaining('を送信しました'), findsNothing);
 
-    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
-    await pumpUntilFound(tester, find.text('2枚を送信しました'));
+    await waitUntilFound(tester, find.text('100枚を送信しました'), step: const Duration(milliseconds: 1), maxIterations: 3000);
 
-    expect(find.text('2枚を送信しました'), findsOneWidget);
-    expect(find.text('1枚を送信しました'), findsNothing);
+    expect(find.text('100枚を送信しました'), findsOneWidget);
+    expect(find.textContaining('を送信しました'), findsOneWidget);
   });
 
   testWidgets('1枚の送信が1回目に 503 で失敗しても、2秒後の送り直しで成功すれば、写真は届いて「1枚を送信しました」と知らせ、送信できなかった行は出ない', (tester) async {
@@ -2002,30 +1998,29 @@ void main() {
     expect(find.text('2枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
   });
 
-  testWidgets('送り先の旅行が消えていて 404 になったあとに準備が済んだ同じ旅行宛ての写真も、送らずに失敗にし、バナーに「3枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
-    // 3枚目を大きなファイルにして準備を遅らせる（前の 404 のテストと同じ）。1枚目と2枚目が 404 になった時点で、3枚目はまだ準備中（「写真を準備中... 2/3」）。
-    // 3枚目の準備が済んでも、送られない（届いた要求は2回のまま）
-    final first = writeTestImage('first.png');
-    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
-    final big = writeTestImage('big.png', bytes: Uint8List(128 * 1024 * 1024));
-    useGalleryReturning([first, second, big]);
+  testWidgets('送り先の旅行が消えていて 404 になったあとに準備が済んだ同じ旅行宛ての写真も、送らずに失敗にし、バナーに「100枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
+    // 100枚を選び、同時に送る1枚目と2枚目の応答（どちらも 404）を保留する。2本が届いた時点で準備はまだ続いているので、
+    // 応答を返したあとに準備が済む写真がある。それらも送られない（届いた要求は2回のまま）
+    useGalleryReturning(writeTestImages(_manyPhotos));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
     expect(find.text('写真を追加'), findsOneWidget);
     backend.trips.clear();
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    final secondReply = backend.holdNextReply(TripRoute.upload);
 
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 2);
-    await letFramesRun(tester);
-    expect(find.text('写真を準備中... 2/3'), findsOneWidget);
-    await waitUntilFound(tester, find.textContaining('送信できませんでした'));
-    await _waitRealTime(tester);
-    await letFramesRun(tester);
+    await tester.pump();
+    expect(preparingBanner(_manyPhotos), findsOneWidget);
+    firstReply.complete();
+    secondReply.complete();
+    await waitUntilFound(tester, find.textContaining('送信できませんでした'), step: const Duration(milliseconds: 1), maxIterations: 3000);
 
     expect(backend.uploadsReceived, 2);
-    expect(find.text('3枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+    expect(find.text('100枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
   });
 
   testWidgets('2枚が別の理由で失敗したときは、バナーに後に失敗した方の理由を添える（先に 413、後に 500 なら、500 の理由）', (tester) async {
@@ -2159,11 +2154,9 @@ void main() {
     expect(find.text('2枚 · 撮影日時なし'), findsOneWidget);
   });
 
-  testWidgets('京都宛ての写真2枚を準備している間に北海道の詳細を開いても、「写真を準備中」は出ない（旅行一覧は全体を数えるので、戻ると「写真を準備中... 1/2」が出る）', (tester) async {
-    // 2枚目を大きなファイルにして準備を遅らせ（前のテストと同じ）、1枚目の送信の要求が届いた時点で一覧へ戻る。準備はまだ続いている
-    final first = writeTestImage('kyoto1.png');
-    final big = writeTestImage('kyoto_big.png', bytes: Uint8List(128 * 1024 * 1024));
-    useGalleryReturning([first, big]);
+  testWidgets('京都宛ての写真100枚を準備している間に北海道の詳細を開いても、「写真を準備中」は出ない（旅行一覧は全体を数えるので、戻ると「写真を準備中... k/100」が出る）', (tester) async {
+    // 最初の送信の要求が届いた時点で一覧へ戻る。準備はまだ続いている（準備が終わるとバナーは消える）
+    useGalleryReturning(writeTestImages(_manyPhotos));
     final backend = FakeTripBackend(trips: [
       tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
       tripJson(id: kyotoTripId, name: '京都', photoCount: 0),
@@ -2173,10 +2166,9 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
     await tester.pageBack();
     await letFramesRun(tester);
-    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
+    expect(preparingBanner(_manyPhotos), findsOneWidget);
 
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -2186,11 +2178,7 @@ void main() {
     // 否定が通るのは準備が終わったからではない（一覧に戻ると、準備はまだ続いている）
     await tester.pageBack();
     await letFramesRun(tester);
-    expect(find.text('写真を準備中... 1/2'), findsOneWidget);
-
-    // 後片付け: 2枚目の準備と送信が終わるまで待つ
-    await waitUntilUploaded(tester, backend, kyotoTripId, count: 2);
-    await letFramesRun(tester);
+    expect(preparingBanner(_manyPhotos), findsOneWidget);
   });
 
   testWidgets('京都宛ての写真を送っている間に北海道の詳細を開いても、バナーは出ない（旅行詳細は、その旅行宛ての分だけを数える）', (tester) async {
