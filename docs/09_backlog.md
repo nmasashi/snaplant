@@ -303,6 +303,16 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **やること**: 3xx を受けたときの文言を「エンドポイントを https で始まる URL にしてください」のように設定の見直しを促すものにするか、
 設定の保存時に本番らしいホストで http なら注意を出すかを決める。
 
+### Android 13 以上では、地名を引けないときに写真1枚ごとに5秒待つ（Dart、旅行アルバム）
+
+写真の準備は、位置情報のある写真ごとに端末の Geocoder（`geocoding` 5）で地名を引き、5秒で打ち切る（`docs/travel-album/06_processing_design.md` §4.2）。
+`geocoding_android` 5.0.2 は API 33 以上の経路（`getFromLocation` のリスナー版）で、エラーのときに結果を返さない
+（`lib/src/geocoding_android.dart` の `onError: (listener, error) {}`。2026-10-16、PR 7c の test-reviewer がソースを読んでの判断で、実機では未確認）。
+そのため API 33 以上の端末がオフラインだと、位置情報のある写真1枚ごとに5秒の時間切れまで待つ。引けなかった結果は端末に残さないので、
+300枚なら準備だけで約25分になる。旅行で使う SC-03K は Android 10（API 29）で、例外がすぐ返る経路なので影響しない。
+
+**判断が要ること**: 対処するか（例: 1回の「写真を追加」の中で時間切れが続いたら、残りの写真は地名を引かない）。対処するなら、仕様（06 §4.2）に書いてから直す。
+
 ### 分類できない失敗も「通信の失敗」として送り直す（Dart）
 
 `ApiService._handleError`（`mobile/lib/services/api_service.dart`）は、`ApiException` でも通信の例外でもない失敗（応答の JSON の形の誤りなど）を
