@@ -195,6 +195,10 @@ class UploadQueue extends ChangeNotifier {
   }
 
   /// 一時的な失敗のときに送り直すまでの間隔（docs/travel-album/03_screen_design.md §4.7 の表）。回数の上限もこの長さ
+  /// 1回の送信の応答を待つ長さ。過ぎたら通信の失敗として送り直す（§4.7 の表）。
+  /// 時間切れが無いと、通信が固まったときに送信中のまま枠がふさがり、送り直しも区切りも来ない
+  static const _requestTimeout = Duration(seconds: 60);
+
   static const _retryDelays = [
     Duration(seconds: 2),
     Duration(seconds: 4),
@@ -211,13 +215,17 @@ class UploadQueue extends ChangeNotifier {
   Future<void> _send(UploadItem item) async {
     for (var attempt = 0;; attempt++) {
       try {
-        final photo = await _apiService.uploadPhoto(
-            photoId: item.photoId,
-            bytes: await File(item.path).readAsBytes(),
-            tripId: item.tripId,
-            takenAt: item.metadata.takenAt,
-            latitude: item.metadata.latitude,
-            longitude: item.metadata.longitude);
+        final photo = await _apiService
+            .uploadPhoto(
+                photoId: item.photoId,
+                bytes: await File(item.path).readAsBytes(),
+                tripId: item.tripId,
+                takenAt: item.metadata.takenAt,
+                latitude: item.metadata.latitude,
+                longitude: item.metadata.longitude)
+            .timeout(_requestTimeout,
+                onTimeout: () => throw const ApiException(
+                    statusCode: 0, message: '応答がありませんでした'));
         _states[item] = UploadState.done;
         // 送信は「入れる」ではないので、既にある写真の宛先は変わらない（docs/travel-album/05_api_design.md §5.1）
         if (photo.tripId != item.tripId) _alreadyElsewhere.add(item);
