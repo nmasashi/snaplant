@@ -2024,6 +2024,41 @@ void main() {
     expect(find.text('2枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
   });
 
+  testWidgets('旅行一覧に戻っている間に、送った写真が全部別の旅行に送信済み（200）だったと分かっても、宛先の一覧は変わらないので旅行一覧は読み直さず、読み直しの失敗のエラーも出さない', (tester) async {
+    // 戻った時点の読み直しは済ませてから、旅行一覧の取得の失敗（503）を仕掛ける。読み直していれば、その失敗がスナックバーに出る。
+    // スナックバーは順に出る（送信の知らせが消えてから、あとの知らせが出る）ので、フェイクの時間を進めて、エラーの文言が出ないことを見る
+    final alreadySent = writeTestImage('already_sent.png');
+    useGalleryReturning([alreadySent]);
+    final backend = FakeTripBackend(
+      trips: [
+        tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
+        tripJson(id: kyotoTripId, name: '京都', photoCount: 1),
+      ],
+      photosByTripId: {
+        kyotoTripId: [photoJson(number: 0, tripId: kyotoTripId)..['id'] = tinyPngSha256],
+      },
+    );
+    final release = Completer<void>();
+    backend.holds[TripRoute.upload] = release.future;
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    expect(find.text('送信中 0/1'), findsOneWidget);
+    backend.failNext(TripRoute.list);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
+    await pumpUntilFound(tester, find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'));
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+  });
+
   testWidgets('送り先の旅行が消えていて 404 になったあとに準備が済んだ同じ旅行宛ての写真も、送らずに失敗にし、バナーに「100枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
     // 100枚を選び、同時に送る1枚目と2枚目の応答（どちらも 404）を保留する。2本が届いた時点で準備はまだ続いているので、
     // 応答を返したあとに準備が済む写真がある。それらも送られない（届いた要求は2回のまま）
