@@ -574,6 +574,41 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets(
+      '写真を選択中に別の端末で旅行が消され、下に引っ張った読み直しで写真の一覧が 404 になると、「この旅行は削除されています」と出し、選択中の見出しも下の操作も出さず、戻る操作で一度に前の画面に戻る',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    expect(find.text('1枚を選択中'), findsOneWidget);
+    // 別の端末で旅行が消された
+    backend.trips.clear();
+
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.textContaining('選択中'), findsNothing);
+    expect(find.text('旅行に入れる'), findsNothing);
+    expect(find.text('旅行から外す'), findsNothing);
+    expect(find.text('削除'), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.text('詳細を開く'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('写真が1ページに収まる旅行は、グリッドを下端まで送っても続きを取りに行かず、写真は1枚ずつしか並ばない', (tester) async {
     // 1ページ目の継続トークンが null（最後のページ）。確認が抜けると、null のトークンで先頭のページを取り直し、同じ写真が二重に並ぶ
     final semantics = tester.ensureSemantics();
