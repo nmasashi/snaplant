@@ -76,17 +76,23 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       debugPrint('TripDetailScreen: 旅行の読み込みエラー: $e');
       if (!mounted) return;
       if (e is ApiException && e.isTripNotFound) {
-        // 取り直しで分かった場合も、古い旅行名と編集・削除のメニューを残さない
-        setState(() {
-          _tripDeleted = true;
-          _trip = null;
-        });
+        _markTripDeleted();
         return;
       }
       if (keepOnFailure && _trip != null) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '旅行の読み込みに失敗しました');
     }
+  }
+
+  /// 旅行が既に無いと分かった（旅行の取得でも写真の一覧でも）。
+  /// 取り直しで分かった場合も、古い旅行名と編集・削除のメニュー、写真の選択を残さない（選択中は戻るが1回目で止まるため）
+  void _markTripDeleted() {
+    _selection.clear();
+    setState(() {
+      _tripDeleted = true;
+      _trip = null;
+    });
   }
 
   /// 旅行名とメモを編集する。保存できたら旅行を取り直してタイトルに反映する
@@ -219,13 +225,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             selection: _selection,
             emptyTitle: 'まだ写真がありません',
             emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
-            onTripNotFound: () {
-              _selection.clear();
-              setState(() {
-                _tripDeleted = true;
-                _trip = null;
-              });
-            },
+            onTripNotFound: _markTripDeleted,
           ),
         ),
       ],
