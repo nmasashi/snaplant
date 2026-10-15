@@ -19,8 +19,6 @@ class UploadBanner extends StatelessWidget {
     return ListenableBuilder(
       listenable: uploadQueue,
       builder: (context, _) {
-        final items =
-            uploadQueue.items.where((item) => includes(item.tripId)).toList();
         final preparations = uploadQueue.preparations
             .where((progress) => includes(progress.tripId))
             .toList();
@@ -32,6 +30,9 @@ class UploadBanner extends StatelessWidget {
           return _container(
               Text('写真を準備中... $prepared/$total', style: AppTextStyles.body1));
         }
+        // 準備中は列の項目を数えない（準備の1枚ごとに通知されるので、数百枚で無駄な走査が重なる）
+        final items =
+            uploadQueue.items.where((item) => includes(item.tripId)).toList();
         if (items.isEmpty) return const SizedBox.shrink();
         int count(UploadState state) =>
             items.where((item) => uploadQueue.stateOf(item) == state).length;
