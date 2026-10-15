@@ -252,6 +252,42 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('1ページ目を読んだあとに別の端末で旅行が消され、続きのページが 404 になると、「この旅行は削除されています」と出し、「続きを読み込めませんでした」も編集・削除のメニューも出さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backendWith33Photos();
+    await openDetailFromHome(tester, backend);
+    // 別の端末で旅行が消された（2ページ目の要求だけが 404 TRIP_NOT_FOUND になる）
+    backend.failNext(TripRoute.photos, status: 404, code: 'TRIP_NOT_FOUND', message: '指定された旅行が見つかりません');
+
+    await _scrollToEnd(tester);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.text('続きを読み込めませんでした'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('旅行の取得のあとに別の端末で旅行が消され、開いた直後の写真の一覧（1ページ目）が 404 になると、「この旅行は削除されています」と出し、エラーの表示も編集・削除のメニューも出さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    // 旅行の取得は成功し、写真の一覧だけが 404 TRIP_NOT_FOUND になる
+    backend.failNext(TripRoute.photos, status: 404, code: 'TRIP_NOT_FOUND', message: '指定された旅行が見つかりません');
+
+    await openDetailFromHome(tester, backend);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('再試行'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('1ページ目だけ読んだところでグリッドを下に引っ張ると、続きからではなく先頭のページから読み直し、別の端末で増えた写真が出る', (tester) async {
     // 1ページ目を読んだ時点で、続きのトークンは残っている。
     // そのトークンで読み直すと、先頭ではなく2ページ目（元の写真の10:30 から）が返り、増えた写真は出ない
