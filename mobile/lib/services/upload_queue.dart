@@ -287,6 +287,10 @@ class UploadQueue extends ChangeNotifier {
     _items.removeWhere((i) => _states[i] == UploadState.done);
     _states.removeWhere((_, state) => state == UploadState.done);
     _alreadyElsewhere.clear();
+    // 送り直して送れた写真の、前の失敗の記録も捨てる（残すと列を使うほど溜まり続ける）
+    for (final item in done) {
+      _failures.remove(item);
+    }
   }
 
   /// 失敗した項目のうち、送り先が [where] に当たるものを送り直す。準備はやり直さない
