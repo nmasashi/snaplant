@@ -54,13 +54,17 @@ Future<String?> _lookupPlaceName(double latitude, double longitude) async {
         'placeName:${latitude.toStringAsFixed(3)},${longitude.toStringAsFixed(3)}';
     final cached = prefs.getString(key);
     if (cached != null) return cached;
-    final placemarks = await Geocoding(locale: const ui.Locale('ja', 'JP'))
-        .placemarkFromCoordinates(latitude, longitude)
+    // 言語はメソッドに渡す（geocoding 5 の公開のコンストラクタは locale を捨て、端末の言語で引いてしまう）
+    final placemarks = await Geocoding()
+        .placemarkFromCoordinates(latitude, longitude,
+            locale: const ui.Locale('ja', 'JP'))
         .timeout(_placeNameTimeout);
     if (placemarks.isEmpty) return null;
     final place = placemarks.first;
-    final name = '${place.administrativeArea ?? ''}${place.locality ?? ''}';
-    if (name.isEmpty) return null;
+    final name =
+        '${place.administrativeArea ?? ''}${place.locality ?? ''}'.trim();
+    // 空白だけ・100文字を超える地名はサーバが 400 にし、写真ごと送れなくなる。地名は手がかりなので、無しで送る
+    if (name.isEmpty || name.length > _placeNameMaxLength) return null;
     await prefs.setString(key, name);
     return name;
   } catch (e) {
@@ -71,6 +75,9 @@ Future<String?> _lookupPlaceName(double latitude, double longitude) async {
 
 /// 地名を引くのを待つ長さ。過ぎたら地名なしで送る（端末の Geocoder は応答しないことがあり、送信を止めない。06 §4.2）
 const _placeNameTimeout = Duration(seconds: 5);
+
+/// サーバが受け付ける地名の長さの上限（docs/travel-album/05_api_design.md §5.1 の 17）
+const _placeNameMaxLength = 100;
 
 /// サムネイルの長辺と画質（docs/travel-album/03_screen_design.md §4.7「準備」）
 const _thumbnailLongSide = 320;
