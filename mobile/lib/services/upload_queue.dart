@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart' show Geocoding;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart'
     show CompressFormat, FlutterImageCompress;
 import 'package:image_picker/image_picker.dart';
@@ -44,14 +45,23 @@ class UploadItem {
 
 /// 緯度・経度から地名（都道府県＋市区町村）を引く（docs/travel-album/06_processing_design.md §4.2）。
 /// 引けなければ null（送信は止めない）。端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
+///
+/// 同じ場所の写真が続くので、小数3桁（≒100m）に丸めた座標をキーに、引けた地名を端末に残して使い回す（引けなかったものは残さない）
 Future<String?> _lookupPlaceName(double latitude, double longitude) async {
   try {
+    final prefs = await SharedPreferences.getInstance();
+    final key =
+        'placeName:${latitude.toStringAsFixed(3)},${longitude.toStringAsFixed(3)}';
+    final cached = prefs.getString(key);
+    if (cached != null) return cached;
     final placemarks = await Geocoding(locale: const ui.Locale('ja', 'JP'))
         .placemarkFromCoordinates(latitude, longitude);
     if (placemarks.isEmpty) return null;
     final place = placemarks.first;
     final name = '${place.administrativeArea ?? ''}${place.locality ?? ''}';
-    return name.isEmpty ? null : name;
+    if (name.isEmpty) return null;
+    await prefs.setString(key, name);
+    return name;
   } catch (e) {
     debugPrint('UploadQueue: 地名の取得エラー: $e');
     return null;
