@@ -246,4 +246,48 @@ void main() {
     expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('写真ビューアで画面をタップすると上のバーと下の情報が消え、もう一度タップすると出る', (tester) async {
+    // 上のバーは戻るボタンで見る（「削除」は未実装）。
+    // 消えたことは、タップを受け取れる位置に無いこと（hitTestable）で確かめる
+    final semantics = tester.ensureSemantics();
+    final tapped = photoJson(
+        number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+      ..['location'] = {
+        'latitude': 43.7706,
+        'longitude': 142.365,
+        'placeName': '北海道旭川市',
+        'placeSource': 'device'
+      };
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [tapped],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await letFramesRun(tester);
+    expect(find.text('2026年10月5日 12:30').hitTestable(), findsOneWidget);
+    expect(find.text('北海道旭川市').hitTestable(), findsOneWidget);
+    expect(find.byType(BackButton).hitTestable(), findsOneWidget);
+
+    await tester.tap(find.byType(PageView));
+    await letFramesRun(tester);
+
+    expect(find.text('2026年10月5日 12:30').hitTestable(), findsNothing);
+    expect(find.text('北海道旭川市').hitTestable(), findsNothing);
+    expect(find.byType(BackButton).hitTestable(), findsNothing);
+
+    await tester.tap(find.byType(PageView));
+    await letFramesRun(tester);
+
+    expect(find.text('2026年10月5日 12:30').hitTestable(), findsOneWidget);
+    expect(find.text('北海道旭川市').hitTestable(), findsOneWidget);
+    expect(find.byType(BackButton).hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
 }
