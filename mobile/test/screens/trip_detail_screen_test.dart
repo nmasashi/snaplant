@@ -1781,6 +1781,9 @@ void main() {
     await tester.pump();
 
     expect(preparingBanner(_manyPhotos), findsOneWidget);
+    // 最初の1枚は準備が済んでいて、全部は済んでいない（k は準備の進み具合で変わるので、範囲で見る）
+    expect(preparedCountInBanner(_manyPhotos), inInclusiveRange(1, _manyPhotos - 1));
+    // 後片付け: 保留した応答を返す（応答を待つ間の時間切れのタイマーを、テストの終わりに残さない）
     firstReply.complete();
   });
 
@@ -1803,7 +1806,7 @@ void main() {
     expect(preparingBanner(_manyPhotos), findsOneWidget);
     expect(find.textContaining('を送信しました'), findsNothing);
 
-    await waitUntilFound(tester, find.text('100枚を送信しました'), step: const Duration(milliseconds: 1), maxIterations: 3000);
+    await waitUntilFound(tester, find.text('100枚を送信しました'), step: const Duration(milliseconds: 1));
 
     expect(find.text('100枚を送信しました'), findsOneWidget);
     expect(find.textContaining('を送信しました'), findsOneWidget);
@@ -1811,7 +1814,8 @@ void main() {
 
   testWidgets('1枚の送信の応答が60秒返らないときは、時間切れにして2秒後に送り直し、その送り直しが成功すれば、「1枚を送信しました」と知らせ、送信できなかった行は出ない', (tester) async {
     // 1回目の応答は保留して返さない（通信が固まった状態）。時間切れは通信の失敗と同じ扱いで、2秒後に送り直す。
-    // 送り直しの待ちと同じく、時間切れもフェイクの時間（pump）で進める。保留した応答は、最後に返す（時間切れのあとに届く古い応答で、結果は変わらない）
+    // 送り直しの待ちと同じく、時間切れもフェイクの時間（pump）で進める。要求が届いてから時間は進めていないので、
+    // 時間切れは 60 秒、送り直しはその 2 秒後。1ミリ秒手前では届かず、1ミリ秒進めると届く
     final image = writeTestImage('hokkaido.png');
     useGalleryReturning([image]);
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
@@ -1823,16 +1827,18 @@ void main() {
 
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
-    await tester.pump(const Duration(seconds: 60));
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 61999));
+    await _waitRealTime(tester);
+    expect(backend.uploadsReceived, 1);
+    await tester.pump(const Duration(milliseconds: 1));
     await waitUntilUploadsReceived(tester, backend, 2);
+    // 時間切れのあとに、保留していた1回目の応答が遅れて届いても、結果は変わらない
+    firstReply.complete();
     await letFramesRun(tester);
 
     await pumpUntilFound(tester, find.text('1枚を送信しました'));
     expect(find.text('1枚を送信しました'), findsOneWidget);
     expect(find.textContaining('送信できませんでした'), findsNothing);
-    firstReply.complete();
   });
 
   testWidgets('1枚の送信が1回目に 503 で失敗しても、2秒後の送り直しで成功すれば、写真は届いて「1枚を送信しました」と知らせ、送信できなかった行は出ない', (tester) async {
@@ -2078,7 +2084,7 @@ void main() {
     expect(preparingBanner(_manyPhotos), findsOneWidget);
     firstReply.complete();
     secondReply.complete();
-    await waitUntilFound(tester, find.textContaining('送信できませんでした'), step: const Duration(milliseconds: 1), maxIterations: 3000);
+    await waitUntilFound(tester, find.textContaining('送信できませんでした'), step: const Duration(milliseconds: 1));
 
     expect(backend.uploadsReceived, 2);
     expect(find.text('100枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
@@ -2108,6 +2114,69 @@ void main() {
 
     expect(backend.uploadsReceived, 2);
     expect(find.text('2枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+  });
+
+  testWidgets('旅行が消えていて失敗した写真を「閉じる」で消しても、消えた旅行は覚えていて、同じ旅行へ選び直した写真は送らずに失敗にし、「1枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
+    // 一区切りや「閉じる」では、消えた旅行を忘れない（忘れるのは「送り直す」を押したとき）。選び直した写真の要求は偽のサーバに届かない
+    final first = writeTestImage('first.png');
+    useGalleryReturning([first]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+    backend.trips.clear();
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    expect(find.text('1枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([second]);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilFound(tester, find.text('1枚を送信できませんでした（旅行が見つかりません）'));
+    await _waitRealTime(tester);
+
+    expect(backend.uploadsReceived, 1);
+    expect(find.text('1枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+  });
+
+  testWidgets('旅行が消えていて失敗した写真は、旅行が戻ってから「送り直す」で送れて、そのあとに同じ旅行へ選んだ写真も届く（「送り直す」で消えた旅行を忘れる）', (tester) async {
+    // 送り直しで届いた写真は、偽のサーバから取り除いておく（別の端末で消された状態）。取り除かないと、読み直した一覧にサムネイルが出て、
+    // そのあとの準備の実時間の待ちで、画像のキャッシュが端末の機能（path_provider）を探して落ちる
+    final first = writeTestImage('first.png');
+    useGalleryReturning([first]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+    backend.trips.clear();
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    expect(find.text('1枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+    backend.trips.add(tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0));
+    final retryReply = backend.holdNextReply(TripRoute.upload);
+
+    await tester.tap(find.text('送り直す'));
+    await waitUntilUploadsReceived(tester, backend, 2);
+    backend.photosByTripId[hokkaidoTripId]!.clear();
+    retryReply.complete();
+    await letFramesRun(tester);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([second]);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(backend.uploadsReceived, 3);
+    expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
   });
 
   testWidgets('2枚が別の理由で失敗したときは、バナーに後に失敗した方の理由を添える（先に 413、後に 500 なら、500 の理由）', (tester) async {

@@ -609,6 +609,12 @@ Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escap
 Finder preparingBanner(int total) => find.byWidgetPredicate(
     (widget) => widget is Text && RegExp('^写真を準備中\\.\\.\\. \\d+/$total\$').hasMatch(widget.data ?? ''));
 
+/// 進み具合バナー「写真を準備中... k/[total]」の k（準備が済んだ枚数）を読み取る。バナーが1つ出ているときに使う
+int preparedCountInBanner(int total) {
+  final text = (preparingBanner(total).evaluate().single.widget as Text).data!;
+  return int.parse(RegExp(r'(\d+)/').firstMatch(text)!.group(1)!);
+}
+
 /// multipart/form-data の1パート。ファイルのパートは [filename] を持つ
 class _MultipartPart {
   _MultipartPart(this.filename, this.contentType, this.bytes);
@@ -659,19 +665,23 @@ Future<void> waitUntilUploadsReceived(WidgetTester tester, FakeTripBackend backe
   }
 }
 
-/// [finder] に当たるものが出るまで、実時間で少しずつ待ち、画面を進める（既定は 100 ミリ秒ずつ、最長 10 秒）。
+/// [finder] に当たるものが出るまで、実時間で少しずつ待ち、画面を進める（既定は 100 ミリ秒ずつ。上限は実時間の [timeout]、既定は 30 秒）。
 /// 別の isolate での準備（ファイルの読み込み）の結果が、画面に知らせとして出るのを待つために使う。
-/// 準備と送信は、1枚につき画面を2回進めるごとに進むので、数十枚以上を待つときは [step] を短く、[maxIterations] を多くする
-/// （1ミリ秒ずつ・3000回なら、100枚の準備と送信が 1〜2 秒で終わる）。
-/// 出なくても例外にせず戻る（検証は呼び出し側）。写真のサムネイルが出る前に待ち終える使い方に限る
+/// 準備と送信は、1枚につき画面を2回進めるごとに進むので、数十枚以上を待つときは [step] を短くする
+/// （1ミリ秒ずつなら、100枚の準備と送信が 1〜2 秒で終わる）。
+/// [timeout] が尽きても出なければ、待った時間と探したものを添えて失敗にする。写真のサムネイルが出る前に待ち終える使い方に限る
 /// （出した後に実時間を進めると、画像のキャッシュが端末の機能（path_provider）を探して落ちる）
 Future<void> waitUntilFound(
   WidgetTester tester,
   Finder finder, {
   Duration step = const Duration(milliseconds: 100),
-  int maxIterations = 100,
+  Duration timeout = const Duration(seconds: 30),
 }) async {
-  for (var i = 0; i < maxIterations && finder.evaluate().isEmpty; i++) {
+  final stopwatch = Stopwatch()..start();
+  while (finder.evaluate().isEmpty) {
+    if (stopwatch.elapsed > timeout) {
+      fail('$finder が、実時間で ${timeout.inSeconds} 秒待っても出なかった');
+    }
     await tester.runAsync(() => Future<void>.delayed(step));
     await tester.pump(step);
   }
