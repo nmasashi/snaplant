@@ -2049,6 +2049,32 @@ void main() {
     expect(find.text('100枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
   });
 
+  testWidgets('送り直しを待っている写真があるときに、同じ旅行宛ての別の写真が 404 になったら、待っている写真も送り直さずに失敗にし、バナーに「2枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
+    // 同時に送る2枚のうち、1枚目の要求が 503（2秒後に送り直す）、2枚目の要求が 404 になる（失敗は、要求が届いた順に割り当てる）。
+    // 2枚目の 404 で旅行が無いと分かった以上、待ちが明けた1枚目も送らない（届いた要求は2回のまま）
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload);
+    backend.failNext(TripRoute.upload, status: 404, code: 'TRIP_NOT_FOUND', message: '指定された旅行が見つかりません');
+    // 3回目の要求（送り直しが送られてしまったとき）も失敗にして、写真が届いて画面に出る（サムネイルのあとの実時間の待ちで落ちる）ことを避ける
+    backend.failNext(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await _letUploadFail(tester, backend, 2);
+    await tester.pump(const Duration(seconds: 2));
+    await _waitRealTime(tester);
+    await letFramesRun(tester);
+
+    expect(backend.uploadsReceived, 2);
+    expect(find.text('2枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+  });
+
   testWidgets('2枚が別の理由で失敗したときは、バナーに後に失敗した方の理由を添える（先に 413、後に 500 なら、500 の理由）', (tester) async {
     // 同時に送る2枚の応答を保留し、先に 413 の応答を返してから、500 の応答を返す。失敗の順は、応答を返した順で決まる
     final first = writeTestImage('first.png');
