@@ -31,6 +31,8 @@ class PhotoViewerScreen extends StatefulWidget {
 
 class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   late final _pageController = PageController(initialPage: widget.initialIndex);
+  // 上のバーと下の情報を出しているか（画面のタップで切り替える）
+  bool _showChrome = true;
 
   @override
   void dispose() {
@@ -42,19 +44,25 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black54,
-        foregroundColor: Colors.white,
-      ),
-      body: ValueListenableBuilder<List<Photo>>(
-        valueListenable: widget.photos,
-        builder: (context, photos, _) => PageView.builder(
-          controller: _pageController,
-          itemCount: photos.length,
-          onPageChanged: (index) {
-            if (index == photos.length - 1) widget.onReachEnd();
-          },
-          itemBuilder: (context, index) => _PhotoPage(photo: photos[index]),
+      appBar: _showChrome
+          ? AppBar(
+              backgroundColor: Colors.black54,
+              foregroundColor: Colors.white,
+            )
+          : null,
+      body: GestureDetector(
+        onTap: () => setState(() => _showChrome = !_showChrome),
+        child: ValueListenableBuilder<List<Photo>>(
+          valueListenable: widget.photos,
+          builder: (context, photos, _) => PageView.builder(
+            controller: _pageController,
+            itemCount: photos.length,
+            onPageChanged: (index) {
+              if (index == photos.length - 1) widget.onReachEnd();
+            },
+            itemBuilder: (context, index) =>
+                _PhotoPage(photo: photos[index], showInfo: _showChrome),
+          ),
         ),
       ),
     );
@@ -73,9 +81,12 @@ String _placeText(Photo photo) {
 
 /// 写真1枚の画面（原寸の画像と、下の情報）
 class _PhotoPage extends StatelessWidget {
-  const _PhotoPage({required this.photo});
+  const _PhotoPage({required this.photo, required this.showInfo});
 
   final Photo photo;
+
+  /// 下の情報を出すか
+  final bool showInfo;
 
   @override
   Widget build(BuildContext context) {
@@ -89,20 +100,21 @@ class _PhotoPage extends StatelessWidget {
             fit: BoxFit.contain,
           ),
         ),
-        Container(
-          width: double.infinity,
-          color: Colors.black54,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(formatTakenAt(photo.takenAt),
-                  style: AppTextStyles.body1.copyWith(color: Colors.white)),
-              Text(_placeText(photo),
-                  style: AppTextStyles.body1.copyWith(color: Colors.white)),
-            ],
+        if (showInfo)
+          Container(
+            width: double.infinity,
+            color: Colors.black54,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(formatTakenAt(photo.takenAt),
+                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
+                Text(_placeText(photo),
+                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
