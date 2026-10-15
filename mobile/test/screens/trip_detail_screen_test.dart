@@ -1603,6 +1603,36 @@ void main() {
     expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': '北海道旭川市', 'placeSource': 'device'});
   });
 
+  testWidgets('同じ場所（座標を小数3桁に丸めると同じ）で撮った2枚を送ると、Geocoder で引くのは1回だけで、2枚とも同じ地名が入る', (tester) async {
+    // 1枚目は北緯 35度40分0秒・東経 139度45分0秒（10進で 35.66667 と 139.75）、2枚目は秒だけ1秒ずれる（35.66695 と 139.75028）。
+    // どちらも小数3桁に丸めると 35.667 と 139.750。端末の Geocoder は管理外の依存で、引くたびに時間もかかるので、呼んだ回数は観察できる振る舞い。
+    // 端末内のキャッシュ（shared_preferences）はテストをまたいで持ち越されうるので、他のテストが使わない座標（東京）にする。
+    // 2枚の画像は座標が違うので、バイト列も写真の id も違う
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 35.6667,
+        longitude: 139.75,
+        placemarks: [const Placemark(administrativeArea: '東京都', locality: '千代田区')],
+      ),
+    ]);
+    final first = writeTestImage('tokyo_1.jpg', bytes: exifJpegBytes(latitude: [35, 40, 0], longitude: [139, 45, 0]));
+    final second = writeTestImage('tokyo_2.jpg', bytes: exifJpegBytes(latitude: [35, 40, 1], longitude: [139, 45, 1]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(1));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['東京都千代田区', '東京都千代田区']);
+  });
+
   testWidgets('南緯・西経の EXIF の写真を送ると、緯度・経度は負の値で入る', (tester) async {
     // EXIF の向きが S（南緯）・W（西経）のとき、10進の度は負になる（-43.5 と -141.25）
     final image = writeTestImage('south_west.jpg', bytes: exifJpegBytes(latitudeRef: 'S', longitudeRef: 'W'));
