@@ -55,7 +55,8 @@ Future<String?> _lookupPlaceName(double latitude, double longitude) async {
     final cached = prefs.getString(key);
     if (cached != null) return cached;
     final placemarks = await Geocoding(locale: const ui.Locale('ja', 'JP'))
-        .placemarkFromCoordinates(latitude, longitude);
+        .placemarkFromCoordinates(latitude, longitude)
+        .timeout(_placeNameTimeout);
     if (placemarks.isEmpty) return null;
     final place = placemarks.first;
     final name = '${place.administrativeArea ?? ''}${place.locality ?? ''}';
@@ -67,6 +68,9 @@ Future<String?> _lookupPlaceName(double latitude, double longitude) async {
     return null;
   }
 }
+
+/// 地名を引くのを待つ長さ。過ぎたら地名なしで送る（端末の Geocoder は応答しないことがあり、送信を止めない。06 §4.2）
+const _placeNameTimeout = Duration(seconds: 5);
 
 /// サムネイルの長辺と画質（docs/travel-album/03_screen_design.md §4.7「準備」）
 const _thumbnailLongSide = 320;
