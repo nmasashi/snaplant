@@ -1210,6 +1210,9 @@ void main() {
     await letFramesRun(tester);
     // 確認を出している間に、別の端末で旅行が消された
     backend.trips.clear();
+    // 写真の一覧の読み直しは一時的な失敗（503）にする。404 になると、写真の一覧の側からも「削除されています」になり、
+    // 旅行の取り直しの 404 だけで削除の表示になることを確かめられない
+    backend.failNext(TripRoute.photos);
 
     await tapInDialog(tester, '削除');
 
