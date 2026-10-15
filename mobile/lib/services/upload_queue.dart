@@ -236,6 +236,11 @@ class UploadQueue extends ChangeNotifier {
           // 待つ間も送信中のまま（バナーは失敗の行にしない。同時に送る枠もふさいだまま）
           await Future.delayed(_retryDelays[attempt]);
           if (_disposed) return;
+          // 待っている間に、同じ宛先の別の写真で送り先が消えたと分かった。送っても同じ結果なので送らない
+          if (_missingTrips.contains(item.tripId)) {
+            _fail(item, _tripNotFoundReason);
+            break;
+          }
           continue;
         }
         if (e is ApiException && e.isTripNotFound) {
