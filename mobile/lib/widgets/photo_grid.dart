@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
+import '../screens/photo_viewer_screen.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -352,7 +353,9 @@ class _PhotoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final selection = this.selection;
     if (selection == null) {
-      return _buildImage(selected: null);
+      return GestureDetector(
+          onTap: () => _openViewer(context),
+          child: _buildImage(selected: null));
     }
     return ListenableBuilder(
       listenable: selection,
@@ -362,12 +365,19 @@ class _PhotoTile extends StatelessWidget {
             selection.isActive ? selection.isSelected(photo.id) : null;
         return GestureDetector(
           onLongPress: () => selection.start(photo.id),
-          // 選択モードでなければ何もしない（写真ビューアは PR 7）
-          onTap: selection.isActive ? () => selection.toggle(photo.id) : null,
+          onTap: selection.isActive
+              ? () => selection.toggle(photo.id)
+              : () => _openViewer(context),
           child: _buildImage(selected: selected),
         );
       },
     );
+  }
+
+  /// 写真ビューアを開く
+  void _openViewer(BuildContext context) {
+    Navigator.push(context,
+        MaterialPageRoute(builder: (_) => PhotoViewerScreen(photo: photo)));
   }
 
   /// [selected] は選択モードでなければ null

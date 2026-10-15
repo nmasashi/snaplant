@@ -13,12 +13,16 @@ class Photo {
   /// 撮影日時（タイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`）。無ければ null
   final String? takenAt;
 
+  /// 地名（`location.placeName`）。位置情報か地名が無ければ null
+  final String? placeName;
+
   const Photo({
     required this.id,
     this.tripId,
     required this.imageUrl,
     this.thumbnailUrl,
     this.takenAt,
+    this.placeName,
   });
 
   factory Photo.fromJson(Map<String, dynamic> json) {
@@ -28,6 +32,8 @@ class Photo {
       imageUrl: json['imageUrl'] as String,
       thumbnailUrl: json['thumbnailUrl'] as String?,
       takenAt: json['takenAt'] as String?,
+      placeName:
+          (json['location'] as Map<String, dynamic>?)?['placeName'] as String?,
     );
   }
 }
