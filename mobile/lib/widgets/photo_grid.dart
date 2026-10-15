@@ -60,6 +60,8 @@ const _tileDecodeWidth = 400;
 
 class _PhotoGridState extends State<PhotoGrid> {
   List<Photo>? _photos;
+  // 読み込み済みの写真。写真ビューアと共有し、開いた後に読んだページへも進めるようにする
+  final _loaded = ValueNotifier<List<Photo>>(const []);
   // 1ページ目の取得に失敗したときの文言。null なら失敗していない
   String? _errorMessage;
   // 続きを読むためのトークン。null なら最後まで読んだ
@@ -73,6 +75,12 @@ class _PhotoGridState extends State<PhotoGrid> {
   int _generation = 0;
   // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
   int _consecutiveEmptyPages = 0;
+
+  @override
+  void dispose() {
+    _loaded.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -119,6 +127,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _generation++;
       _errorMessage = null;
       _photos = page.photos;
+      _loaded.value = page.photos;
       _continuationToken = page.continuationToken;
       _isLoadingMore = false;
       _loadMoreFailed = false;
@@ -155,6 +164,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       if (!mounted || generation != _generation) return;
       setState(() {
         _photos = [...?_photos, ...page.photos];
+        _loaded.value = _photos!;
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
         _consecutiveEmptyPages =
@@ -184,12 +194,12 @@ class _PhotoGridState extends State<PhotoGrid> {
   }
 
   /// 写真ビューアを開く（一覧の写真を [index] の位置から）
-  void _openViewer(List<Photo> photos, int index) {
+  void _openViewer(int index) {
     Navigator.push(
         context,
         MaterialPageRoute(
             builder: (_) =>
-                PhotoViewerScreen(photos: photos, initialIndex: index)));
+                PhotoViewerScreen(photos: _loaded, initialIndex: index)));
   }
 
   /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
@@ -307,7 +317,7 @@ class _PhotoGridState extends State<PhotoGrid> {
                 return _PhotoTile(
                     photo: photos[index],
                     selection: widget.selection,
-                    onOpen: () => _openViewer(photos, index));
+                    onOpen: () => _openViewer(index));
               },
             ),
           ),

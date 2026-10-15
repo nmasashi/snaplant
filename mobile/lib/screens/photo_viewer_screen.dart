@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
 import '../theme/app_text_styles.dart';
@@ -12,7 +13,8 @@ class PhotoViewerScreen extends StatefulWidget {
   const PhotoViewerScreen(
       {super.key, required this.photos, required this.initialIndex});
 
-  final List<Photo> photos;
+  /// 一覧の読み込み済みの写真（一覧と共有する。一覧が続きのページを読むと伸びる）
+  final ValueListenable<List<Photo>> photos;
 
   /// 最初に出す写真の位置（[photos] の添え字）
   final int initialIndex;
@@ -38,11 +40,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         backgroundColor: Colors.black54,
         foregroundColor: Colors.white,
       ),
-      body: PageView.builder(
-        controller: _pageController,
-        itemCount: widget.photos.length,
-        itemBuilder: (context, index) =>
-            _PhotoPage(photo: widget.photos[index]),
+      body: ValueListenableBuilder<List<Photo>>(
+        valueListenable: widget.photos,
+        builder: (context, photos, _) => PageView.builder(
+          controller: _pageController,
+          itemCount: photos.length,
+          itemBuilder: (context, index) => _PhotoPage(photo: photos[index]),
+        ),
       ),
     );
   }
