@@ -123,6 +123,7 @@ enum TripRoute {
 /// - `POST /api/photos`（multipart）は、`photoId` が `image` の SHA-256 と一致しなければ 400「写真IDが画像の内容と一致しません」（実際のサーバと同じ）。
 ///   既にある id は 200 で既存を返し（冪等）、無ければ宛先（`tripId` が無ければ `none`）の末尾に足して 201 を返す。宛先の旅行の `photoCount`（と [unassignedPhotoCount]）も増やす。
 ///   `takenAt`・`latitude`・`longitude` は写真に反映する（`location` は緯度と経度を持つときだけ。地名は null）。
+///   `placeName` パートは `location.placeName` に入れ、`placeSource` を `device` にする（無ければ両方 null）。地名の検証（緯度・経度が無い・空・空白のみ・ファイル・100 文字超え）も実際のサーバと同じ。
 ///   `thumbnail` パートがあれば `thumbnailUrl` を入れ（無ければ null）、バイト列は [thumbnailsByPhotoId] に残す。サムネイルの検証（ファイルでない・形式・空・[thumbnailMaxSize] 超え）も実際のサーバと同じ。
 ///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
@@ -433,6 +434,16 @@ class FakeTripBackend {
             longitude!.abs() > 180)) {
       return _error(400, 'INVALID_REQUEST', '位置情報の形式が無効です');
     }
+    // 地名の検証（実際のサーバの 16・17）。緯度・経度と一緒でなければ断る。空・空白のみ・ファイル・100 文字超えも断る（前後の空白は除かずに数える）
+    final placeNamePart = parts['placeName'];
+    if (placeNamePart != null && latitudeText == null) {
+      return _error(400, 'INVALID_REQUEST', '地名は緯度・経度と一緒に指定してください');
+    }
+    if (placeNamePart != null &&
+        (placeNamePart.filename != null || placeNamePart.text.trim().isEmpty || placeNamePart.text.length > 100)) {
+      return _error(400, 'INVALID_REQUEST', '地名は100文字以内で指定してください');
+    }
+    final placeName = placeNamePart?.text;
     if (sha256.convert(image.bytes).toString() != photoId) {
       return _error(400, 'INVALID_REQUEST', '写真IDが画像の内容と一致しません');
     }
@@ -450,7 +461,12 @@ class FakeTripBackend {
       ..['fileSize'] = image.bytes.length
       ..['location'] = latitude == null
           ? null
-          : {'latitude': latitude, 'longitude': longitude, 'placeName': null, 'placeSource': null};
+          : {
+              'latitude': latitude,
+              'longitude': longitude,
+              'placeName': placeName,
+              'placeSource': placeName == null ? null : 'device',
+            };
     final targetKey = tripId ?? 'none';
     photosByTripId.putIfAbsent(targetKey, () => []).add(photo);
     if (thumbnail != null) thumbnailsByPhotoId[photoId] = thumbnail.bytes;

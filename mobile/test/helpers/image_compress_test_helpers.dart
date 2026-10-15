@@ -48,6 +48,11 @@ class CompressedImage {
 /// - 返すバイト列は [CompressedImage.bytes]。ファイルへ書く API（compressAndGetFile）なら、そのバイト列を書く
 /// - 作った画像は [results] に、呼ばれた順に残す
 class FakeImageCompress extends FlutterImageCompressPlatform with MockPlatformInterfaceMixin {
+  FakeImageCompress({this.failWith});
+
+  /// 指定すると、圧縮のたびにこの例外を投げる（画像を読めない・端末の機能が使えない状況）。何も作らないので [results] には残らない
+  final Object? failWith;
+
   /// 作った画像（呼ばれた順）
   final List<CompressedImage> results = [];
 
@@ -127,6 +132,7 @@ class FakeImageCompress extends FlutterImageCompressPlatform with MockPlatformIn
   void ignoreCheckSupportPlatform(bool bool) {}
 
   CompressedImage _compress(Uint8List source, int minWidth, int minHeight, int quality, CompressFormat format) {
+    if (failWith != null) throw failWith!;
     final data = ByteData.sublistView(source);
     final isPng = source.length >= 24 && source[0] == 0x89 && source[1] == 0x50 && source[2] == 0x4E && source[3] == 0x47;
     if (!isPng) throw UnsupportedError('偽の画像の圧縮が寸法を読めるのは PNG だけ。pngBytesOfSize で作った画像を使う');
@@ -151,10 +157,10 @@ class FakeImageCompress extends FlutterImageCompressPlatform with MockPlatformIn
   }
 }
 
-/// 画像の圧縮を偽物に差し替えて返す（テストが終わったら戻す）
-FakeImageCompress useFakeImageCompress() {
+/// 画像の圧縮を偽物に差し替えて返す（テストが終わったら戻す）。[failWith] を渡すと、圧縮のたびにその例外を投げる
+FakeImageCompress useFakeImageCompress({Object? failWith}) {
   final original = FlutterImageCompressPlatform.instance;
-  final fake = FakeImageCompress();
+  final fake = FakeImageCompress(failWith: failWith);
   FlutterImageCompressPlatform.instance = fake;
   addTearDown(() => FlutterImageCompressPlatform.instance = original);
   return fake;
