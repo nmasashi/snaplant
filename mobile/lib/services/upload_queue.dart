@@ -140,6 +140,8 @@ class UploadQueue extends ChangeNotifier {
 
   /// 選んだ写真を準備して列に入れる
   Future<void> addFiles(List<XFile> files, {String? tripId}) async {
+    // ギャラリーを開いている間に設定が変わって、この列が捨てられていた（送らないし、破棄後に通知もしない）
+    if (_disposed) return;
     // 読めない写真があっても残りの準備は続け、最後に失敗を呼び出し側へ伝える（呼び出し側が知らせる）
     Object? failure;
     final progress = PreparationProgress(tripId: tripId, total: files.length);
