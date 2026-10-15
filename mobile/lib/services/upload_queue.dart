@@ -235,17 +235,22 @@ class UploadQueue extends ChangeNotifier {
       if (_disposed) return;
       try {
         final prepared = await compute(_preparePhoto, file.path);
+        final latitude = prepared.metadata.latitude;
+        final longitude = prepared.metadata.longitude;
+        // サムネイルと地名は互いに関係しないので、同時に待つ（地名は最長5秒待つことがある）
+        final (thumbnail, placeName) = await (
+          _makeThumbnail(file.path),
+          latitude != null && longitude != null
+              ? _lookupPlaceName(latitude, longitude)
+              : Future<String?>.value(null),
+        ).wait;
         final item = UploadItem(
           path: file.path,
           photoId: prepared.photoId,
           tripId: tripId,
           metadata: prepared.metadata,
-          thumbnail: await _makeThumbnail(file.path),
-          placeName: prepared.metadata.latitude != null &&
-                  prepared.metadata.longitude != null
-              ? await _lookupPlaceName(
-                  prepared.metadata.latitude!, prepared.metadata.longitude!)
-              : null,
+          thumbnail: thumbnail,
+          placeName: placeName,
         );
         _items.add(item);
         if (_missingTrips.contains(tripId)) {
