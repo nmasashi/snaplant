@@ -10,7 +10,6 @@ void main() {
     // サムネイルは撮影日時を読み上げ用ラベルとしてだけ持ち、Text は出さない。
     // よって find.text で見つかる撮影日時と地名は、ビューアが出したもの
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
     final tapped = photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
       ..['location'] = {'latitude': 43.7706, 'longitude': 142.365, 'placeName': '北海道旭川市', 'placeSource': 'device'};
     final backend = FakeTripBackend(
@@ -33,5 +32,6 @@ void main() {
 
     expect(find.text('北海道旭川市'), findsOneWidget);
     expect(find.text('2026年10月5日 12:30'), findsOneWidget);
+    semantics.dispose();
   });
 }
