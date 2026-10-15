@@ -1,8 +1,14 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:geocoding/geocoding.dart' show Geocoding;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart'
+    show CompressFormat, FlutterImageCompress;
 import 'package:image_picker/image_picker.dart';
 
 import '../utils/photo_metadata.dart';
@@ -14,7 +20,9 @@ class UploadItem {
       {required this.path,
       required this.photoId,
       this.tripId,
-      this.metadata = PhotoMetadata.none});
+      this.metadata = PhotoMetadata.none,
+      this.thumbnail,
+      this.placeName});
 
   /// ギャラリーで選んだ画像のファイル（縮小済み）。バイト列は送るときに読む
   /// （数百枚を選んだときに、全部のバイト列をメモリに持ち続けないように）
@@ -28,6 +36,81 @@ class UploadItem {
 
   /// EXIF から読んだ撮影日時と位置
   final PhotoMetadata metadata;
+
+  /// 一覧用のサムネイル（長辺 320px・画質 70 の JPEG）。作れなければ null で、サムネイル無しで送る
+  final Uint8List? thumbnail;
+
+  /// 端末の Geocoder で引いた地名（「北海道旭川市」）。位置が無い・引けなければ null
+  final String? placeName;
+}
+
+/// 緯度・経度から地名（都道府県＋市区町村）を引く（docs/travel-album/06_processing_design.md §4.2）。
+/// 引けなければ null（送信は止めない）。端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
+///
+/// 同じ場所の写真が続くので、小数3桁（≒100m）に丸めた座標をキーに、引けた地名を端末に残して使い回す（引けなかったものは残さない）
+Future<String?> _lookupPlaceName(double latitude, double longitude) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final key =
+        'placeName:${latitude.toStringAsFixed(3)},${longitude.toStringAsFixed(3)}';
+    final cached = prefs.getString(key);
+    if (cached != null) return cached;
+    // 言語はメソッドに渡す（geocoding 5 の公開のコンストラクタは locale を捨て、端末の言語で引いてしまう）
+    final placemarks = await Geocoding()
+        .placemarkFromCoordinates(latitude, longitude,
+            locale: const ui.Locale('ja', 'JP'))
+        .timeout(_placeNameTimeout);
+    if (placemarks.isEmpty) return null;
+    final place = placemarks.first;
+    final name =
+        '${place.administrativeArea ?? ''}${place.locality ?? ''}'.trim();
+    // 空白だけ・100文字を超える地名はサーバが 400 にし、写真ごと送れなくなる。地名は手がかりなので、無しで送る
+    if (name.isEmpty || name.length > _placeNameMaxLength) return null;
+    await prefs.setString(key, name);
+    return name;
+  } catch (e) {
+    debugPrint('UploadQueue: 地名の取得エラー: $e');
+    return null;
+  }
+}
+
+/// 地名を引くのを待つ長さ。過ぎたら地名なしで送る（端末の Geocoder は応答しないことがあり、送信を止めない。06 §4.2）
+const _placeNameTimeout = Duration(seconds: 5);
+
+/// サーバが受け付ける地名の長さの上限（docs/travel-album/05_api_design.md §5.1 の 17）
+const _placeNameMaxLength = 100;
+
+/// サムネイルの長辺と画質（docs/travel-album/03_screen_design.md §4.7「準備」）
+const _thumbnailLongSide = 320;
+const _thumbnailQuality = 70;
+
+/// 一覧用のサムネイルを作る。作れなければ null（送信は止めない）。
+/// 端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
+Future<Uint8List?> _makeThumbnail(String path) async {
+  try {
+    // 画像は Dart に読み込まずに、ファイルのままエンジン（縦横を読む）とプラグイン（縮める）に渡す
+    // （数百枚の準備で、写真ごとに原寸のバイト列を Dart に読んでチャネル越しに渡し直さないように）
+    final buffer = await ui.ImmutableBuffer.fromFilePath(path);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final long = math.max(descriptor.width, descriptor.height);
+    final short = math.min(descriptor.width, descriptor.height);
+    descriptor.dispose();
+    buffer.dispose();
+    // プラグインは「縦・横とも指定の長さを下回らない最大の縮小」をする（短辺が指定に届くまで）。
+    // 縦横に同じ長さ（短辺を長辺 320 に合わせた長さ）を指定すると、向きの補正（EXIF の回転で縦横を入れ替える）の前後どちらで
+    // 縦横を読んでも、長辺が 320 になる。縦横で別の値を指定すると、向きを取り違えたときに長辺が 320 を超える
+    final side = (_thumbnailLongSide * short / long).round();
+    return await FlutterImageCompress.compressWithFile(
+      path,
+      minWidth: side,
+      minHeight: side,
+      quality: _thumbnailQuality,
+      format: CompressFormat.jpeg,
+    );
+  } catch (e) {
+    debugPrint('UploadQueue: サムネイルの作成エラー: $e');
+    return null;
+  }
 }
 
 /// 準備の結果（別の isolate から返す）
@@ -152,11 +235,22 @@ class UploadQueue extends ChangeNotifier {
       if (_disposed) return;
       try {
         final prepared = await compute(_preparePhoto, file.path);
+        final latitude = prepared.metadata.latitude;
+        final longitude = prepared.metadata.longitude;
+        // サムネイルと地名は互いに関係しないので、同時に待つ（地名は最長5秒待つことがある）
+        final (thumbnail, placeName) = await (
+          _makeThumbnail(file.path),
+          latitude != null && longitude != null
+              ? _lookupPlaceName(latitude, longitude)
+              : Future<String?>.value(null),
+        ).wait;
         final item = UploadItem(
           path: file.path,
           photoId: prepared.photoId,
           tripId: tripId,
           metadata: prepared.metadata,
+          thumbnail: thumbnail,
+          placeName: placeName,
         );
         _items.add(item);
         if (_missingTrips.contains(tripId)) {
@@ -224,7 +318,9 @@ class UploadQueue extends ChangeNotifier {
                 tripId: item.tripId,
                 takenAt: item.metadata.takenAt,
                 latitude: item.metadata.latitude,
-                longitude: item.metadata.longitude)
+                longitude: item.metadata.longitude,
+                thumbnail: item.thumbnail,
+                placeName: item.placeName)
             .timeout(_requestTimeout,
                 onTimeout: () => throw const ApiException(
                     statusCode: 0, message: '応答がありませんでした'));

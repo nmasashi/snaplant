@@ -114,12 +114,14 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 | `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
 | `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
 | `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
-| `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成、旅行に属さない写真の画面（複数選択の操作と枚数の取り直しを含む）（旅行アルバム） |
-| `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき、写真のグリッド（ページ・失敗・読み直し）、写真の複数選択と旅行への出し入れ・削除、写真の追加と送信（EXIF、進み具合バナー、失敗と送り直し、画面をまたぐ送信）（旅行アルバム） |
+| `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成、旅行に属さない写真の画面（複数選択の操作と枚数の取り直しを含む）、旅行詳細から戻った後の送信の進み具合と一覧の読み直し（旅行アルバム） |
+| `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき、写真のグリッド（ページ・失敗・読み直し）、写真の複数選択と旅行への出し入れ・削除、写真の追加と送信（EXIF、進み具合バナー、失敗と送り直し、画面をまたぐ送信、サムネイル、地名）（旅行アルバム） |
 | `screens/photo_thumbnail_test.dart` | 写真のサムネイルの画像を読み込めないときの表示（画像の取得まで実時間で待つので、他の画面のテストと分けている） |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
 | `helpers/gallery_test_helpers.dart` | （テストではない）OS のギャラリーの偽物 `FakeMultiGallery`（`pickMultiImage`）・テストの画像を書き出す `writeTestImage`・1x1 の PNG とその SHA-256・EXIF（撮影日時・GPS）付きの JPEG を組み立てる `exifJpegBytes` |
+| `helpers/image_compress_test_helpers.dart` | （テストではない）画像の圧縮の偽物 `FakeImageCompress`（`FlutterImageCompressPlatform.instance` を差し替える。Android の縮め方を再現し、EXIF の回転は再現しない）と、寸法を指定した PNG `pngBytesOfSize` |
+| `helpers/geocoding_test_helpers.dart` | （テストではない）端末の Geocoder の偽物 `FakeGeocoding`（`GeocodingPlatformFactory.instance` を差し替える。引いた座標を `lookups` に残し、失敗・応答なしも作れる） |
 | `helpers/trip_test_helpers.dart` | （テストではない）旅行の API の偽のサーバ `FakeTripBackend`（旅行を1つのリストで持ち、別の端末での変化はテストが書き換えて表す。1回だけの失敗は `failNext`、応答の保留は `holds`。写真の移動 `POST /api/photos/move` は本物と同じく 200 件の上限・空の配列・`tripId` のキーの省略を 400 で断り、写真の削除は無い写真に 404 `PHOTO_NOT_FOUND` を返す） |
 
 テストで踏みやすい点。
@@ -137,7 +139,7 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
 - **`ElevatedButton.icon` は `find.widgetWithText(ElevatedButton, ...)` で見つからない。**
   実体がサブクラスで、`byType` は型の完全一致を見るため。文言で探す
 - **端末の機能（OS の画像選択・セキュアストレージ）は、プラットフォーム層を偽物に差し替える。**
-  `ImagePickerPlatform.instance`（`camera_screen_test.dart`）、`FlutterSecureStoragePlatform.instance`
+  `ImagePickerPlatform.instance`（`camera_screen_test.dart`）、`FlutterImageCompressPlatform.instance`・`GeocodingPlatformFactory.instance`（写真の送信。テスト環境では未登録で、差し替えないと例外になる）、`FlutterSecureStoragePlatform.instance`
   （`helpers/app_test_helpers.dart` の `useSecureStorage`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
   最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる。

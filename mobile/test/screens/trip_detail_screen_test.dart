@@ -4,8 +4,11 @@ import 'dart:typed_data';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter_image_compress/flutter_image_compress.dart' show CompressFormat;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geocoding_platform_interface/geocoding_platform_interface.dart' show Placemark;
 import 'package:snaplant_mobile/screens/trip_detail_screen.dart';
 import 'package:snaplant_mobile/services/api_service.dart';
 import 'package:snaplant_mobile/services/upload_queue.dart';
@@ -13,6 +16,8 @@ import 'package:snaplant_mobile/theme/app_theme.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/gallery_test_helpers.dart';
+import '../helpers/geocoding_test_helpers.dart';
+import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/travel-album/03_screen_design.md §4.3・§4.4）。
@@ -25,13 +30,23 @@ const _apiKey = 'test-key';
 /// 最初の送信の要求が届いて確かめるまでの間（数百ミリ秒）に準備が終わらない枚数にする
 const _manyPhotos = 100;
 
-/// ステータス 500 の `ApiException.userMessage`（送信に失敗した行の理由に出る）
-const _serverErrorMessage = 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
-
-/// 旅行「京都」の id（写真の移し先に使う）
-const kyotoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
-
 FakeTripBackend _backendWith(List<Map<String, Object?>> trips) => FakeTripBackend(trips: trips, functionKey: _apiKey);
+
+/// 送った写真の位置のうち、緯度・経度だけ。地名は端末の Geocoder（テストごとに偽物に差し替える）次第で変わるので、
+/// EXIF の読み取りを確かめるテストは地名を見ない
+Map<String, Object?> _coordinatesOf(Map<String, Object?> photo) {
+  final location = photo['location'] as Map<String, Object?>;
+  return {'latitude': location['latitude'], 'longitude': location['longitude']};
+}
+
+/// サーバに届いたサムネイルを作った圧縮の結果。届いたバイト列と同じバイト列を返した圧縮を探す。
+/// 圧縮の呼び出しの件数や順には頼らない（作り直しなど、実装の都合で呼び出しが増えても、サーバに届いたものの寸法・画質・形式を見る）。
+/// 届いていなければ、見つからないものとして失敗にする
+CompressedImage _thumbnailReceived(FakeTripBackend backend, FakeImageCompress compress, Map<String, Object?> photo) {
+  final received = backend.thumbnailsByPhotoId[photo['id']];
+  if (received == null) fail('写真 ${photo['id']} のサムネイルがサーバに届いていない');
+  return compress.results.firstWhere((r) => listEquals(r.bytes, received), orElse: () => fail('届いたサムネイルを作った圧縮が無い'));
+}
 
 /// 旅行の写真が33枚（撮影日時は 2026-10-05 の 10:01〜10:33、この順）の偽のサーバ。サーバの1ページは30枚。
 /// 30枚（10行）は画面（約5行分）を超えるので、2ページ目は下端まで送ったときにだけ要る。2ページ目は3枚
@@ -1556,9 +1571,410 @@ void main() {
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['takenAt'], '2026-10-05T10:20:30');
-    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
+    expect(_coordinatesOf(photo), {'latitude': 43.5, 'longitude': 141.25});
     expect(photoThumbnail('2026年10月5日 10:20'), findsOneWidget);
     semantics.dispose();
+  });
+
+  testWidgets('位置情報のある写真を送ると、端末の Geocoder で引いた都道府県と市区町村をつないだ地名（北海道旭川市）が、端末由来としてその写真に入る', (tester) async {
+    // EXIF の位置は北緯 43.5・東経 141.25。偽の Geocoder（端末の機能。管理外の依存）は、その近くに対して、番地や区・郡・国まで含む結果を返す。
+    // 地名にするのは、都道府県（administrativeArea）と市区町村（locality）だけ（docs/travel-album/06_processing_design.md §4.2）
+    useFakeGeocoding(places: [
+      (
+        latitude: 43.5,
+        longitude: 141.25,
+        placemarks: [
+          const Placemark(
+            name: '1-1',
+            street: '東光1条1丁目',
+            country: '日本',
+            isoCountryCode: 'JP',
+            postalCode: '070-0031',
+            administrativeArea: '北海道',
+            subAdministrativeArea: '上川郡',
+            locality: '旭川市',
+            subLocality: '東光',
+          ),
+        ],
+      ),
+    ]);
+    final image = writeTestImage('hokkaido.jpg', bytes: exifJpegBytes());
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': '北海道旭川市', 'placeSource': 'device'});
+  });
+
+  testWidgets('同じ場所（座標を小数3桁に丸めると同じ）で撮った2枚を送ると、Geocoder で引くのは1回だけで、2枚とも同じ地名が入る', (tester) async {
+    // 1枚目は北緯 35度40分0秒・東経 139度45分0秒（10進で 35.66667 と 139.75）、2枚目は秒だけ1秒ずれる（35.66695 と 139.75028）。
+    // どちらも小数3桁に丸めると 35.667 と 139.750。端末の Geocoder は管理外の依存で、引くたびに時間もかかるので、呼んだ回数は観察できる振る舞い。
+    // 端末内のキャッシュ（shared_preferences）は、openTripsTab がテストごとに空にするので、他のテストの結果は持ち越されない。
+    // 2枚の画像は座標が違うので、バイト列も写真の id も違う
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 35.6667,
+        longitude: 139.75,
+        placemarks: [const Placemark(administrativeArea: '東京都', locality: '千代田区')],
+      ),
+    ]);
+    final first = writeTestImage('tokyo_1.jpg', bytes: exifJpegBytes(latitude: [35, 40, 0], longitude: [139, 45, 0]));
+    final second = writeTestImage('tokyo_2.jpg', bytes: exifJpegBytes(latitude: [35, 40, 1], longitude: [139, 45, 1]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(1));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['東京都千代田区', '東京都千代田区']);
+  });
+
+  testWidgets('丸めて違う場所（緯度だけが 0.001 度以上離れている）で撮った2枚を送ると、それぞれを Geocoder で引き、それぞれの地名が入る', (tester) async {
+    // 1枚目は北緯 34度40分0秒（34.66667）、2枚目は4秒北（34.66778）。東経は同じ 135度30分0秒（135.5）。
+    // 小数3桁に丸めると 34.667 と 34.668 で違うが、小数2桁なら両方 34.67 になる（丸めが粗すぎると、隣の街の地名を使い回してしまう）
+    final geocoding = useFakeGeocoding(places: [
+      (latitude: 34.66667, longitude: 135.5, placemarks: [const Placemark(administrativeArea: '大阪府', locality: '大阪市')]),
+      (latitude: 34.66778, longitude: 135.5, placemarks: [const Placemark(administrativeArea: '大阪府', locality: '堺市')]),
+    ]);
+    final first = writeTestImage('osaka_1.jpg', bytes: exifJpegBytes(latitude: [34, 40, 0], longitude: [135, 30, 0]));
+    final second = writeTestImage('osaka_2.jpg', bytes: exifJpegBytes(latitude: [34, 40, 4], longitude: [135, 30, 0]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(2));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['大阪府大阪市', '大阪府堺市']);
+  });
+
+  testWidgets('丸めて違う場所（経度だけが 0.001 度以上離れている）で撮った2枚を送ると、それぞれを Geocoder で引き、それぞれの地名が入る', (tester) async {
+    // 1枚目は東経 135度45分0秒（135.75）、2枚目は4秒東（135.75111）。北緯は同じ 35度0分0秒（35.0）。
+    // 小数3桁に丸めると 135.750 と 135.751 で違う（経度を見ずに緯度だけで場所を決めると、東西に離れた街の地名を使い回してしまう）
+    final geocoding = useFakeGeocoding(places: [
+      (latitude: 35.0, longitude: 135.75, placemarks: [const Placemark(administrativeArea: '京都府', locality: '京都市')]),
+      (latitude: 35.0, longitude: 135.75111, placemarks: [const Placemark(administrativeArea: '京都府', locality: '宇治市')]),
+    ]);
+    final first = writeTestImage('kyoto_1.jpg', bytes: exifJpegBytes(latitude: [35, 0, 0], longitude: [135, 45, 0]));
+    final second = writeTestImage('kyoto_2.jpg', bytes: exifJpegBytes(latitude: [35, 0, 0], longitude: [135, 45, 4]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(2));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], ['京都府京都市', '京都府宇治市']);
+  });
+
+  testWidgets('Geocoder で地名を引くときは、言語に日本語（ja_JP）を指定する（端末の言語が英語でも、「北海道旭川市」の形で引く）', (tester) async {
+    // 言語を指定しないと、端末の言語で返る（英語の端末だと "HokkaidoAsahikawa"）。端末の Geocoder は管理外の依存で、渡した引数が外から見える振る舞いなので、渡した言語を確かめる
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 43.7706,
+        longitude: 142.3650,
+        placemarks: [const Placemark(administrativeArea: '北海道', locality: '旭川市')],
+      ),
+    ]);
+    final image = writeTestImage('asahikawa.jpg', bytes: exifJpegBytes(latitude: [43, 46, 14], longitude: [142, 21, 54]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect([for (final lookup in geocoding.lookups) lookup.locale], [const Locale('ja', 'JP')]);
+  });
+
+  testWidgets('つないだ地名が空白だけなら、地名なしで送られる（空白だけの地名はサーバが 400 で断り、写真が届かなくなる）', (tester) async {
+    // Geocoder が都道府県に空白だけを返した（市区町村は null）。前後の空白を除くと空になる（docs/travel-album/06_processing_design.md §4.2）
+    useFakeGeocoding(places: [
+      (
+        latitude: 24.3333,
+        longitude: 124.1667,
+        placemarks: [const Placemark(country: '日本', administrativeArea: ' ', locality: null)],
+      ),
+    ]);
+    final image = writeTestImage('ishigaki.jpg', bytes: exifJpegBytes(latitude: [24, 20, 0], longitude: [124, 10, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('つないだ地名が101文字なら、地名なしで送られる（100文字を超える地名はサーバが 400 で断り、写真が届かなくなる）', (tester) async {
+    useFakeGeocoding(places: [
+      (
+        latitude: 26.2,
+        longitude: 127.6833,
+        placemarks: [Placemark(administrativeArea: null, locality: 'あ' * 101)],
+      ),
+    ]);
+    final image = writeTestImage('naha.jpg', bytes: exifJpegBytes(latitude: [26, 12, 0], longitude: [127, 41, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('つないだ地名がちょうど100文字なら、そのまま地名として送られる', (tester) async {
+    // 100文字の上限の境界。サーバは1〜100文字を受け付ける
+    useFakeGeocoding(places: [
+      (
+        latitude: 27.0833,
+        longitude: 142.2,
+        placemarks: [Placemark(administrativeArea: null, locality: 'あ' * 100)],
+      ),
+    ]);
+    final image = writeTestImage('chichijima.jpg', bytes: exifJpegBytes(latitude: [27, 5, 0], longitude: [142, 12, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], 'あ' * 100);
+  });
+
+  testWidgets('Geocoder が失敗しても、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
+    // 端末の Geocoder が例外を投げる（Google Play 開発者サービスが無い・ネットワークが無い、など）。地名は手がかりに過ぎないので、送信は止めない
+    final geocoding = useFakeGeocoding(failWith: Exception('Geocoder が使えない'));
+    final image = writeTestImage('sendai.jpg', bytes: exifJpegBytes(latitude: [38, 16, 0], longitude: [140, 52, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(1));
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('Geocoder が地名を返さなくても（空の結果）、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
+    // 本物の Geocoder は、引けなかった座標（海の上など）に空のリストを返す。偽物は、知らない場所に空のリストを返す
+    final geocoding = useFakeGeocoding();
+    final image = writeTestImage('fukuoka.jpg', bytes: exifJpegBytes(latitude: [33, 35, 0], longitude: [130, 24, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(1));
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('引けなかった場所は端末に残さないので、同じ場所の次の写真は、もう一度 Geocoder で引く', (tester) async {
+    // 引けなかった結果（空の結果）を残すと、一時的に引けなかっただけの場所の地名が、ずっと付かなくなる。
+    // 2枚は同じ場所（北緯 34度41分0秒（34.68333）と、1秒南の 34度40分59秒（34.68306）。丸めるとどちらも 34.683。東経は同じ 135度11分0秒）。偽の Geocoder はこの場所を知らない
+    final geocoding = useFakeGeocoding();
+    final first = writeTestImage('kobe_1.jpg', bytes: exifJpegBytes(latitude: [34, 41, 0], longitude: [135, 11, 0]));
+    final second = writeTestImage('kobe_2.jpg', bytes: exifJpegBytes(latitude: [34, 40, 59], longitude: [135, 11, 0]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(2));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], [null, null]);
+  });
+
+  testWidgets('Geocoder の結果に都道府県も市区町村も無ければ（null と空文字）、他の欄が埋まっていても、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
+    // 町名（subLocality）や国は埋まっているが、地名にするのは都道府県と市区町村だけ（docs/travel-album/06_processing_design.md §4.2）。どちらも空なら地名なし。
+    // 空の地名を送ると、サーバは 400（地名は1〜100文字）で断るので、写真が届くことでも、空の地名を送っていないことが分かる
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 36.5667,
+        longitude: 136.65,
+        placemarks: [
+          const Placemark(
+            name: '香林坊',
+            country: '日本',
+            isoCountryCode: 'JP',
+            administrativeArea: null,
+            locality: '',
+            subLocality: '香林坊',
+          ),
+        ],
+      ),
+    ]);
+    final image = writeTestImage('kanazawa.jpg', bytes: exifJpegBytes(latitude: [36, 34, 0], longitude: [136, 39, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(1));
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
+
+  testWidgets('Geocoder の結果に市区町村が無く都道府県だけなら（locality が null）、地名はその都道府県になり、端末由来としてその写真に入る', (tester) async {
+    // 島や海沿いなど、市区町村まで引けない場所。片方でもあれば、その分だけを地名にする（docs/travel-album/06_processing_design.md §4.2 は「どちらも空なら null」）
+    useFakeGeocoding(places: [
+      (
+        latitude: 33.1,
+        longitude: 139.78333,
+        placemarks: [const Placemark(country: '日本', administrativeArea: '東京都', locality: null)],
+      ),
+    ]);
+    final image = writeTestImage('hachijo.jpg', bytes: exifJpegBytes(latitude: [33, 6, 0], longitude: [139, 47, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], '東京都');
+    expect((photo['location'] as Map)['placeSource'], 'device');
+  });
+
+  testWidgets('都道府県も市区町村も無い結果は端末に残さないので、同じ場所の次の写真は、もう一度 Geocoder で引く', (tester) async {
+    // 地名にならなかった結果を残すと、同じ場所の写真に地名がずっと付かなくなる。
+    // 2枚は同じ場所（北緯 36度34分0秒と 36度34分1秒。丸めるとどちらも 36.567。東経は同じ 136度39分0秒）
+    final geocoding = useFakeGeocoding(places: [
+      (
+        latitude: 36.5667,
+        longitude: 136.65,
+        placemarks: [const Placemark(country: '日本', administrativeArea: null, locality: '', subLocality: '香林坊')],
+      ),
+    ]);
+    final first = writeTestImage('kanazawa_1.jpg', bytes: exifJpegBytes(latitude: [36, 34, 0], longitude: [136, 39, 0]));
+    final second = writeTestImage('kanazawa_2.jpg', bytes: exifJpegBytes(latitude: [36, 34, 1], longitude: [136, 39, 0]));
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+
+    expect(geocoding.lookups, hasLength(2));
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    expect([for (final photo in photos) (photo['location'] as Map)['placeName']], [null, null]);
+  });
+
+  testWidgets('Geocoder が5秒たっても応答しなければ、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
+    // 端末の Geocoder が固まる。引き始めてから 4.999 秒の間はまだ待ち（写真は送られない）、5 秒で諦めて送る。
+    // 時間はフェイクの時間で進める（実時間の 5 秒は待たない）。画面を進める letFramesRun は 1.5 秒ずつ進めてしまうので、引かれるのを待つ間は使わない。
+    // 引き始めの時刻は、引かれたのを見つけるまでフェイクの時間を進めていないので、そこから数えられる
+    final geocoding = useFakeGeocoding(hangs: true);
+    final image = writeTestImage('nagano.jpg', bytes: exifJpegBytes(latitude: [36, 39, 0], longitude: [138, 11, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilLookedUp(tester, geocoding, 1);
+    await tester.pump(const Duration(milliseconds: 4999));
+    await _waitRealTime(tester);
+    expect(backend.uploadsReceived, 0);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect((photo['location'] as Map)['placeName'], isNull);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
   testWidgets('南緯・西経の EXIF の写真を送ると、緯度・経度は負の値で入る', (tester) async {
@@ -1576,7 +1992,72 @@ void main() {
     await letFramesRun(tester);
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
-    expect(photo['location'], {'latitude': -43.5, 'longitude': -141.25, 'placeName': null, 'placeSource': null});
+    expect(_coordinatesOf(photo), {'latitude': -43.5, 'longitude': -141.25});
+  });
+
+  testWidgets('写真を送ると、長辺320px・画質70のJPEGのサムネイルを付けて送り、その写真にサムネイルが入る', (tester) async {
+    // 4000x3000 の写真。画像の圧縮（端末のネイティブの機能。管理外の依存）は偽物に差し替え、渡した引数から決まる寸法・画質・形式を結果として読む。
+    // 偽物は本物と同じく、短辺が渡した最小の値になるまで縮める。幅と高さの最小を両方 320 にすると 426x320 になるので、長辺 320 には 320x240 になる渡し方が要る。
+    // 圧縮は端末のネイティブの機能で、別の isolate（準備の compute）からは呼べない。この偽物が呼ばれる（結果が残る）ことで、メインの isolate で呼んでいることも分かる
+    final compress = useFakeImageCompress();
+    final image = writeTestImage('wide.png', bytes: pngBytesOfSize(4000, 3000));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(photo['thumbnailUrl'], isNotNull);
+    final thumbnail = _thumbnailReceived(backend, compress, photo);
+    expect((thumbnail.width, thumbnail.height, thumbnail.quality, thumbnail.format), (320, 240, 70, CompressFormat.jpeg));
+  });
+
+  testWidgets('縦長の写真（3000x4000）でも、長辺が320pxのサムネイル（240x320）になる', (tester) async {
+    // 偽の圧縮は短辺が渡した最小の値になるまで縮めるので、縦長のときは高さだけに 320 を渡さないと 320x426 になる
+    final compress = useFakeImageCompress();
+    final image = writeTestImage('tall.png', bytes: pngBytesOfSize(3000, 4000));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    final thumbnail = _thumbnailReceived(backend, compress, photo);
+    expect((thumbnail.width, thumbnail.height, thumbnail.quality, thumbnail.format), (240, 320, 70, CompressFormat.jpeg));
+  });
+
+  testWidgets('サムネイルを作れなかった写真も、サムネイル無しで送られ、「1枚を送信しました」と知らせる', (tester) async {
+    // 圧縮が例外を投げる（画像を読めない・端末の機能が使えない）。サムネイルは一覧の表示用で、無くても写真は保存できるので、送信は止めない。
+    // サムネイルのパートは省かれる（空のパートは 400 で断られるので、写真が届くことでも分かる）
+    useFakeImageCompress(failWith: Exception('サムネイルを作れない'));
+    final image = writeTestImage('hokkaido.png', bytes: pngBytesOfSize(4000, 3000));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+
+    final photo = backend.photosByTripId[hokkaidoTripId]!.single;
+    expect(photo['thumbnailUrl'], isNull);
+    expect(backend.thumbnailsByPhotoId, isEmpty);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
   testWidgets('2枚のうち2枚目の準備（ファイルの読み込み）に失敗しても、「画像の読み込みに失敗しました」と知らせ、読めた1枚目は送られて「1枚を送信しました」と知らせる', (tester) async {
@@ -1667,7 +2148,7 @@ void main() {
 
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['takenAt'], isNull);
-    expect(photo['location'], {'latitude': 43.5, 'longitude': 141.25, 'placeName': null, 'placeSource': null});
+    expect(_coordinatesOf(photo), {'latitude': 43.5, 'longitude': 141.25});
   });
 
   testWidgets('EXIF の緯度が範囲外（95度）の写真は、位置を省いて送られて届き、撮影日時はそのまま入る', (tester) async {
@@ -1687,33 +2168,6 @@ void main() {
     final photo = backend.photosByTripId[hokkaidoTripId]!.single;
     expect(photo['location'], isNull);
     expect(photo['takenAt'], '2026-10-05T10:20:30');
-  });
-
-  testWidgets('旅行一覧に戻っている間に送信が全部失敗しても、送れた写真が無いので旅行一覧は読み直さず、読み直しの失敗のエラーも出さない（バナーは「1枚を送信できませんでした」）', (tester) async {
-    // 戻った時点の読み直しは済ませてから、旅行一覧の取得の失敗（503）を仕掛ける。読み直していれば、その失敗がスナックバーに出る。
-    // 送信の応答は、解放したときに 500 の失敗で返す（失敗の指定は、解放したあとの応答で使われる）
-    final image = writeTestImage('hokkaido.png');
-    useGalleryReturning([image]);
-    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
-    final release = Completer<void>();
-    backend.holds[TripRoute.upload] = release.future;
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
-    await tester.pageBack();
-    await letFramesRun(tester);
-    expect(find.text('送信中 0/1'), findsOneWidget);
-    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
-    backend.failNext(TripRoute.list);
-
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.text('1枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
-    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
   });
 
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
@@ -2030,41 +2484,6 @@ void main() {
     expect(find.text('2枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
   });
 
-  testWidgets('旅行一覧に戻っている間に、送った写真が全部別の旅行に送信済み（200）だったと分かっても、宛先の一覧は変わらないので旅行一覧は読み直さず、読み直しの失敗のエラーも出さない', (tester) async {
-    // 戻った時点の読み直しは済ませてから、旅行一覧の取得の失敗（503）を仕掛ける。読み直していれば、その失敗がスナックバーに出る。
-    // スナックバーは順に出る（送信の知らせが消えてから、あとの知らせが出る）ので、フェイクの時間を進めて、エラーの文言が出ないことを見る
-    final alreadySent = writeTestImage('already_sent.png');
-    useGalleryReturning([alreadySent]);
-    final backend = FakeTripBackend(
-      trips: [
-        tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0),
-        tripJson(id: kyotoTripId, name: '京都', photoCount: 1),
-      ],
-      photosByTripId: {
-        kyotoTripId: [photoJson(number: 0, tripId: kyotoTripId)..['id'] = tinyPngSha256],
-      },
-    );
-    final release = Completer<void>();
-    backend.holds[TripRoute.upload] = release.future;
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 1);
-    await letFramesRun(tester);
-    await tester.pageBack();
-    await letFramesRun(tester);
-    expect(find.text('送信中 0/1'), findsOneWidget);
-    backend.failNext(TripRoute.list);
-
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.text('1枚を送信しました（1枚は送信済みでした。別の旅行か、旅行に属さない写真にあります）'), findsOneWidget);
-    await pumpUntilFound(tester, find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'));
-    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
-  });
-
   testWidgets('送り先の旅行が消えていて 404 になったあとに準備が済んだ同じ旅行宛ての写真も、送らずに失敗にし、バナーに「100枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
     // 100枚を選び、同時に送る1枚目と2枚目の応答（どちらも 404）を保留する。2本が届いた時点で準備はまだ続いているので、
     // 応答を返したあとに準備が済む写真がある。それらも送られない（届いた要求は2回のまま）
@@ -2201,7 +2620,7 @@ void main() {
     serverErrorReply.complete();
     await letFramesRun(tester);
 
-    expect(find.text('2枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('2枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
   });
 
   testWidgets('2枚のうち1枚の送信がサーバの失敗（500）になると、送れた1枚だけを「1枚を送信しました」と知らせ、バナーに「1枚を送信できませんでした」と「送り直す」「閉じる」を出す', (tester) async {
@@ -2220,7 +2639,7 @@ void main() {
     await letFramesRun(tester);
 
     expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
-    expect(find.text('1枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
     expect(find.text('送り直す'), findsOneWidget);
     expect(find.text('閉じる'), findsOneWidget);
     expect(find.text('1枚を送信しました'), findsOneWidget);
@@ -2240,7 +2659,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 2);
     await letFramesRun(tester);
-    expect(find.text('2枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('2枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
     expect(find.textContaining('を送信しました'), findsNothing);
     expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
 
@@ -2266,7 +2685,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
-    expect(find.text('1枚を送信できませんでした（$_serverErrorMessage）'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
 
     await tester.tap(find.text('閉じる'));
     await letFramesRun(tester);
@@ -2276,38 +2695,6 @@ void main() {
     expect(find.text('閉じる'), findsNothing);
     expect(find.textContaining('送信中'), findsNothing);
     expect(backend.photosByTripId[hokkaidoTripId]!.length, 1);
-  });
-
-  testWidgets('送信している間に旅行一覧へ戻っても送信は続き、旅行一覧の上部に全体の「送信中 0/2」を出し、応答が返ると「2枚を送信しました」と知らせて、一覧の北海道の枚数が「2枚」になる', (tester) async {
-    // 送信は画面ではなくアプリの根が持つので、詳細を閉じても止まらない。
-    // 偽のサーバは送信の応答を、解放されるまで返さない（写真は解放したときに入る）。一覧に戻った時点では、まだ0枚のまま。
-    // 一覧が「2枚」になるのは、送信が一区切りついたときに一覧を読み直すから
-    final first = writeTestImage('first.png');
-    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
-    useGalleryReturning([first, second]);
-    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
-    final release = Completer<void>();
-    backend.holds[TripRoute.upload] = release.future;
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 2);
-    await letFramesRun(tester);
-
-    await tester.pageBack();
-    await letFramesRun(tester);
-
-    expect(find.byType(TripDetailScreen), findsNothing);
-    expect(find.text('送信中 0/2'), findsOneWidget);
-    expect(find.text('0枚 · 撮影日時なし'), findsOneWidget);
-
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.textContaining('送信中'), findsNothing);
-    expect(find.text('2枚を送信しました'), findsOneWidget);
-    expect(find.text('2枚 · 撮影日時なし'), findsOneWidget);
   });
 
   testWidgets('京都宛ての写真100枚を準備している間に北海道の詳細を開いても、「写真を準備中」は出ない（旅行一覧は全体を数えるので、戻ると「写真を準備中... k/100」が出る）', (tester) async {
