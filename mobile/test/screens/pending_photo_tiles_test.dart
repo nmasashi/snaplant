@@ -210,6 +210,50 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('送信の途中で一覧を読み直しても、送れた写真をサーバの写真と端末の画像の二重に並べない', (tester) async {
+    // 2枚を送り、1枚目は送れて（サーバの一覧に入る）、2枚目はサーバに入る前で止める（要求の処理自体を止めるので、2枚目はサーバの一覧に入らない）。一区切りの前にグリッドを下に引っ張って読み直す。
+    // 送れた1枚目はサーバの写真として1回だけ並び、端末の画像のマスは送信中の2枚目の1つだけになる
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final first = writeTestImage('first.png', bytes: [...tinyPngBytes, 1]);
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 2]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
+      },
+    );
+    final release = Completer<void>();
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final sentPhotoTiles = find.bySemanticsLabel(RegExp('^撮影日時なし'));
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    backend.holds[TripRoute.upload] = release.future;
+    await waitUntilUploadsReceived(tester, backend, 2);
+    await letFramesRun(tester);
+    expect(deviceImageTiles, findsNWidgets(2));
+
+    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(sentPhotoTiles, findsOneWidget);
+    expect(deviceImageTiles, findsOneWidget);
+    expect(spinnerInGrid, findsOneWidget);
+    // 後始末: 送信を終わらせ、完了の知らせと画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    release.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 3);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
+
   testWidgets('他の旅行宛てに送信中の写真は、別の旅行の詳細には端末の画像のマスとして並べない', (tester) async {
     // 北海道の詳細から送って応答を止めたまま、一覧に戻って京都を開く。京都のグリッドには、サーバの写真（1枚）のマスだけが並ぶ。
     // 北海道の詳細を開き直すと端末の画像のマスが並ぶので、「並べない」が項目が無いせいではないことも確かめる
