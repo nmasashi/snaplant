@@ -155,6 +155,9 @@ class PreparationProgress {
 
   /// 準備を終えた枚数（読めなかった写真も含む）
   int prepared = 0;
+
+  /// 宛先の送信が取り消された（旅行を削除した）。残りの写真は準備しない
+  bool canceled = false;
 }
 
 /// 送る写真1枚の状態
@@ -236,6 +239,8 @@ class UploadQueue extends ChangeNotifier {
     for (final file in files) {
       // 準備の途中で設定が変わってこの列が捨てられたら、残りは準備しない（送らないので読むだけ無駄になる）
       if (_disposed) return;
+      // 宛先の送信が取り消された（旅行を削除した）。残りは準備しない（進み具合は取り消したときに外してある）
+      if (progress.canceled) return;
       try {
         final prepared = await compute(_preparePhoto, file.path);
         final latitude = prepared.metadata.latitude;
@@ -440,6 +445,11 @@ class UploadQueue extends ChangeNotifier {
   /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
   void cancelTrip(String tripId) {
     _canceledTrips.add(tripId);
+    // 準備中の写真は、残りを準備しない。進み具合も外す（「写真を準備中」を出し続けず、一区切りも待たせない）
+    for (final progress in _preparations.where((p) => p.tripId == tripId)) {
+      progress.canceled = true;
+    }
+    _preparations.removeWhere((p) => p.tripId == tripId);
     final canceled = [
       for (final item in _items)
         if (item.tripId == tripId && _states[item] != UploadState.sending) item
