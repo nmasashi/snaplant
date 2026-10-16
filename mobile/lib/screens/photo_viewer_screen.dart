@@ -105,8 +105,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onDeleted(photo.id);
     // 消した写真の拡大は次の写真に持ち越さない（ページは写真の id で作り直すので、スワイプの停止だけを解く）
     setState(() => _zoomed = false);
-    // 後ろの写真が今の位置に詰まったら、それが次の写真
-    if (index < widget.photos.value.length) return;
+    // 後ろの写真が今の位置に詰まったら、それが次の写真。それが読み込み済みの末尾なら続きを読ませる
+    // （ページの位置が変わらないので onPageChanged は呼ばれない）
+    final remaining = widget.photos.value.length;
+    if (index < remaining) {
+      if (index == remaining - 1) widget.onReachEnd();
+      return;
+    }
     // 読み込み済みの写真を使い切った。続きのページがあれば読ませて、届いたら次の写真へ移る
     if (widget.hasMore()) {
       _pendingIndex = index;
