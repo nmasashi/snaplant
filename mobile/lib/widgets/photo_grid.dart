@@ -304,7 +304,9 @@ class _PhotoGridState extends State<PhotoGrid> {
         if (mounted) _loadMore();
       });
     }
-    if (photos.isEmpty && _continuationToken == null) {
+    final pending = _pendingItems;
+    // 端末の画像があれば、サーバの写真が0枚でも0件の案内ではなくグリッドで並べる
+    if (photos.isEmpty && _continuationToken == null && pending.isEmpty) {
       return _pullToRefresh(
         Padding(
           padding: const EdgeInsets.all(24),
@@ -328,7 +330,6 @@ class _PhotoGridState extends State<PhotoGrid> {
       );
     }
     final hasFooter = _loadMoreFailed || _isLoadingMore;
-    final pending = _pendingItems;
     return Column(
       children: [
         Expanded(
