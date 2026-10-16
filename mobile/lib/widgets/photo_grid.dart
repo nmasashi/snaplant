@@ -20,7 +20,7 @@ class PhotoGrid extends StatefulWidget {
       required this.tripId,
       required this.emptyTitle,
       required this.emptyMessage,
-      this.selection,
+      required this.selection,
       this.onTripNotFound,
       this.onViewerClosed});
 
@@ -41,8 +41,8 @@ class PhotoGrid extends StatefulWidget {
   /// 写真ビューアから戻ったときに呼ぶ（画面が一覧と見出しを読み直す。削除したかどうかによらない）
   final Future<void> Function()? onViewerClosed;
 
-  /// 複数選択。渡さなければ写真を選べない
-  final PhotoSelection? selection;
+  /// 複数選択（長押しで始める）
+  final PhotoSelection selection;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -258,7 +258,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     }
     final photos = _photos;
     widget.selection
-        ?.updateLoaded([for (final p in photos ?? const <Photo>[]) p.id]);
+        .updateLoaded([for (final p in photos ?? const <Photo>[]) p.id]);
     if (photos == null) {
       return Center(
         child: Column(
@@ -383,22 +383,17 @@ class _PhotoGridState extends State<PhotoGrid> {
 
 /// サムネイル1枚。撮影日時を読み上げのラベルにする（画像だけでは写真を区別できないため）
 class _PhotoTile extends StatelessWidget {
-  const _PhotoTile({required this.photo, this.selection, required this.onOpen});
+  const _PhotoTile(
+      {required this.photo, required this.selection, required this.onOpen});
 
   final Photo photo;
-  final PhotoSelection? selection;
+  final PhotoSelection selection;
 
   /// タップで写真ビューアを開く（選択モードの間は選択を切り替える）
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final selection = this.selection;
-    if (selection == null) {
-      return GestureDetector(
-          onTap: onOpen,
-          child: _buildImage(selected: null));
-    }
     return ListenableBuilder(
       listenable: selection,
       builder: (context, _) {
