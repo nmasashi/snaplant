@@ -180,6 +180,10 @@ class FakeTripBackend {
   /// （送り直しの回数と間隔、404 の後に残りを送らないこと）。送れたかどうかは、写真が偽のサーバに入ったことで見る
   int uploadsReceived = 0;
 
+  /// 旅行の取得（`GET /api/trips/{tripId}`）の要求が届いた回数（応答を保留する前に数える）。
+  /// 応答は届いた時点の状態で決まるので、要求が旅行を消す前に届いたかを確かめる印として使う
+  int tripFetchesReceived = 0;
+
   /// サムネイルの上限（サーバの `THUMBNAIL_MAX_SIZE` の既定値。1MB）
   static const thumbnailMaxSize = 1048576;
 
@@ -234,6 +238,7 @@ class FakeTripBackend {
       deletePhotosSent.add(request.url.queryParameters['deletePhotos']);
     }
     if (route == TripRoute.upload) uploadsReceived++;
+    if (route == TripRoute.detail) tripFetchesReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す

@@ -19,7 +19,8 @@ class PhotoGrid extends StatefulWidget {
       required this.tripId,
       required this.emptyTitle,
       required this.emptyMessage,
-      this.selection});
+      this.selection,
+      this.onTripNotFound});
 
   final ApiService apiService;
 
@@ -29,6 +30,11 @@ class PhotoGrid extends StatefulWidget {
   /// 写真が0枚のときの案内（画面ごとに文言が違う）
   final String emptyTitle;
   final String emptyMessage;
+
+  /// 写真の一覧が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）と分かったときに呼ぶ。
+  /// 画面全体を「この旅行は削除されています」にするのは画面の役目なので、グリッドは失敗として出さずに知らせるだけにする。
+  /// 知らせた後は読み込み中の状態も戻さない（画面がグリッドを外す前提。残すと続きのページを二度と取りに行かない）
+  final VoidCallback? onTripNotFound;
 
   /// 複数選択。渡さなければ写真を選べない
   final PhotoSelection? selection;
@@ -73,6 +79,19 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadFirstPage();
   }
 
+  /// 写真の一覧の取得が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）なら画面へ知らせて true を返す。
+  /// 失敗として出さないのは、画面全体を「この旅行は削除されています」にするのが画面の役目だから（先頭・続き・読み直しのどれでも同じ）
+  bool _notifyIfTripNotFound(Object error) {
+    final onTripNotFound = widget.onTripNotFound;
+    if (onTripNotFound == null ||
+        error is! ApiException ||
+        !error.isTripNotFound) {
+      return false;
+    }
+    onTripNotFound();
+    return true;
+  }
+
   /// 先頭のページを読む
   Future<void> _loadFirstPage() async {
     final generation = _generation;
@@ -87,6 +106,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
+      if (_notifyIfTripNotFound(e)) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '写真の読み込みに失敗しました');
     }
@@ -116,6 +136,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み直しエラー: $e');
       if (!mounted || generation != _generation) return;
+      if (_notifyIfTripNotFound(e)) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
     }
@@ -144,6 +165,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
+      if (_notifyIfTripNotFound(e)) return;
       setState(() {
         _isLoadingMore = false;
         _loadMoreFailed = true;
