@@ -3313,6 +3313,46 @@ void main() {
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
 
+  testWidgets('旅行の削除が失敗した後、取り消した送信中の写真は回転する印のマスに残さず、送信中とも数えない', (tester) async {
+    // 1枚目は送信中（応答を保留）。削除の要求を 503 で失敗させて詳細に留まる。取り消した写真は戻らない。
+    // 写真が0枚の旅行なので、実時間を進めても path_provider は要らない
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final reply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.delete);
+    await openDeleteDialog(tester);
+    await tapInDialog(tester, '削除');
+    await tapInDialog(tester, '削除');
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    await tapInDialog(tester, 'キャンセル');
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('送信中 0/1'), findsNothing);
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+
+    // 取り消し済みなので、もう一度「削除」を選んでも送信の確認は出ず、旅行の削除のダイアログが出る
+    await openDeleteDialog(tester);
+
+    expect(find.text('送信中の写真があります。送信を止めて削除しますか？'), findsNothing);
+    expect(find.textContaining('を削除しますか？'), findsOneWidget);
+
+    // 後片付け: 止めていた応答を放し、届いた写真は偽のサーバから取り除いて（サムネイルを出さない）、タイマーを残さない
+    await tapInDialog(tester, 'キャンセル');
+    backend.photosByTripId[hokkaidoTripId]!.clear();
+    reply.complete();
+    await _waitRealTime(tester);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 5));
+    await letFramesRun(tester);
+  });
+
   testWidgets('送り直しを待っていた写真を取り消した後に削除が失敗しても、その写真は送らない', (tester) async {
     // 1回目が 503 で失敗して2秒の待ちに入る。待ちの間（2秒より手前）に削除を確定し、削除の要求も 503 で失敗させる。
     // 失敗が待ちの明ける前に起きていることは、組み立ての途中で確かめる（openDeleteDialog や tapInDialog は1.5秒ずつ進めて待ちを過ぎてしまうので、300ミリ秒ずつ進める）
