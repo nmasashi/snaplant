@@ -120,13 +120,36 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 旅行を削除する（中の写真をどうするかはダイアログで選ぶ）。削除できたら前の画面に戻る
   Future<void> _deleteTrip(TripSummary trip) async {
+    // 送信中の写真があれば、削除のダイアログの前に送信を止めてよいか確かめる
+    if (widget.uploadQueue.isActiveFor(trip.id)) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          content: const Text('送信中の写真があります。送信を止めて削除しますか？'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('削除')),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
     final result = await showDialog<TripDeleteResult>(
       context: context,
       builder: (context) => TripDeleteDialog(
         tripName: trip.name,
         photoCount: trip.photoCount,
-        onDelete: (deletePhotos) =>
-            widget.apiService.deleteTrip(trip.id, deletePhotos: deletePhotos),
+        onDelete: (deletePhotos) {
+          // 削除を確定したら、この旅行宛ての送信を取り消してから消す（消した旅行へ送り続けない）
+          widget.uploadQueue.cancelTrip(trip.id);
+          // 取り消しは、その時点の写真（準備中・送信待ち・送信中・失敗）だけに効く。削除が失敗しても、この後に追加した写真は送る
+          return widget.apiService
+              .deleteTrip(trip.id, deletePhotos: deletePhotos);
+        },
       ),
     );
     if (result == null || !mounted) return;
@@ -189,9 +212,21 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     );
   }
 
+  /// この旅行宛ての写真だけを数える送信の進み具合バナー
+  Widget _uploadBanner() => UploadBanner(
+      uploadQueue: widget.uploadQueue,
+      includes: (tripId) => tripId == widget.tripId);
+
   Widget _buildBody(TripSummary? trip) {
     if (_tripDeleted) {
-      return const Center(child: Text('この旅行は削除されています'));
+      // この旅行宛ての送信の失敗は「閉じる」で片付けられるように、バナーは出したままにする
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _uploadBanner(),
+          const Expanded(child: Center(child: Text('この旅行は削除されています'))),
+        ],
+      );
     }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
@@ -219,14 +254,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             style: AppTextStyles.body1,
           ),
         ),
-        // その旅行宛ての写真だけを数える
-        UploadBanner(
-            uploadQueue: widget.uploadQueue,
-            includes: (tripId) => tripId == widget.tripId),
+        _uploadBanner(),
         Expanded(
           child: PhotoGrid(
             key: ValueKey(_gridVersion),
             apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
             tripId: trip.id,
             selection: _selection,
             emptyTitle: 'まだ写真がありません',

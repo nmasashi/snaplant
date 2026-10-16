@@ -94,6 +94,7 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
             child: PhotoGrid(
               key: ValueKey(_gridVersion),
               apiService: widget.apiService,
+              uploadQueue: widget.uploadQueue,
               tripId: 'none',
               selection: _selection,
               emptyTitle: '旅行に属さない写真はありません',

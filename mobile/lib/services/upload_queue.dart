@@ -155,6 +155,9 @@ class PreparationProgress {
 
   /// 準備を終えた枚数（読めなかった写真も含む）
   int prepared = 0;
+
+  /// 宛先の送信が取り消された（旅行を削除した）。残りの写真は準備しない
+  bool canceled = false;
 }
 
 /// 送る写真1枚の状態
@@ -183,6 +186,13 @@ class UploadQueue extends ChangeNotifier {
   // 404 TRIP_NOT_FOUND を受けた送り先。後から準備が済んだ同じ宛先の写真は、送っても同じ結果なので送らずに失敗にする
   // （旅行の id は作り直されないので、消えた宛先を覚え続けても困らない。「送り直す」では利用者が試すので忘れる）
   final Set<String?> _missingTrips = {};
+
+  // 宛先の送信を取り消したときに送信中（送り直しの待ちを含む）だった写真。送り直さず、結果も知らせない
+  final Set<UploadItem> _canceledItems = {};
+
+  // 送れた写真のうち、一覧（GET /api/photos）にサーバの写真として出たもの。その後に消されたり移されたりしても、
+  // 一区切りまで端末の画像として並べ直さない
+  final Set<UploadItem> _landed = {};
   static const _tripNotFoundReason = '旅行が見つかりません';
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
@@ -195,7 +205,9 @@ class UploadQueue extends ChangeNotifier {
   Stream<UploadBatchResult> get finished => _finished.stream;
 
   /// 列にある項目（進み具合バナーが数える）
-  List<UploadItem> get items => List.unmodifiable(_items);
+  /// 取り消した送信中の写真（結果を待っているだけで知らせないもの）は含めない（並べず、バナーにも数えない）
+  List<UploadItem> get items => List.unmodifiable(
+      _items.where((item) => !_canceledItems.contains(item)));
 
   UploadState stateOf(UploadItem item) => _states[item]!;
 
@@ -233,6 +245,9 @@ class UploadQueue extends ChangeNotifier {
     for (final file in files) {
       // 準備の途中で設定が変わってこの列が捨てられたら、残りは準備しない（送らないので読むだけ無駄になる）
       if (_disposed) return;
+      // 宛先の送信が取り消された（旅行を削除した）。残りは準備しない（進み具合は取り消したときに外してある）。
+      // それまでに読めなかった写真があれば、ループの後で呼び出し側へ伝える
+      if (progress.canceled) break;
       try {
         final prepared = await compute(_preparePhoto, file.path);
         final latitude = prepared.metadata.latitude;
@@ -252,10 +267,13 @@ class UploadQueue extends ChangeNotifier {
           thumbnail: thumbnail,
           placeName: placeName,
         );
-        _items.add(item);
-        if (_missingTrips.contains(tripId)) {
+        if (progress.canceled) {
+          // 準備の間に宛先の送信が取り消された（旅行を削除した）。送らずに捨てる
+        } else if (_missingTrips.contains(tripId)) {
+          _items.add(item);
           _fail(item, _tripNotFoundReason);
         } else {
+          _items.add(item);
           _states[item] = UploadState.waiting;
         }
       } catch (e) {
@@ -273,6 +291,15 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
     if (failure != null) throw failure;
   }
+
+  /// [tripId] 宛ての送信が進行中か（準備中・送信待ち・送信中・送り直し待ちの写真がある）。失敗した写真は数えない
+  bool isActiveFor(String? tripId) =>
+      _preparations.any((p) => p.tripId == tripId) ||
+      _items.any((i) =>
+          i.tripId == tripId &&
+          !_canceledItems.contains(i) &&
+          (_states[i] == UploadState.waiting ||
+              _states[i] == UploadState.sending));
 
   int _count(UploadState state) =>
       _states.values.where((s) => s == state).length;
@@ -334,6 +361,8 @@ class UploadQueue extends ChangeNotifier {
           // 待つ間も送信中のまま（バナーは失敗の行にしない。同時に送る枠もふさいだまま）
           await Future.delayed(_retryDelays[attempt]);
           if (_disposed) return;
+          // 待っている間に宛先の送信が取り消された（旅行を削除した）。送らない
+          if (_canceledItems.contains(item)) break;
           // 待っている間に、同じ宛先の別の写真で送り先が消えたと分かった。送っても同じ結果なので送らない
           if (_missingTrips.contains(item.tripId)) {
             _fail(item, _tripNotFoundReason);
@@ -359,6 +388,8 @@ class UploadQueue extends ChangeNotifier {
     }
     // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
     if (_disposed) return;
+    // 送っている間に宛先の送信が取り消された。結果は知らせない（送れたかどうかも、失敗も数えない）
+    if (_canceledItems.remove(item)) _forget(item);
     _finishBatchIfIdle();
     notifyListeners();
     _pump();
@@ -383,6 +414,7 @@ class UploadQueue extends ChangeNotifier {
       alreadyElsewhere: done.where(_alreadyElsewhere.contains).length,
     ));
     _items.removeWhere((i) => _states[i] == UploadState.done);
+    _landed.clear();
     _states.removeWhere((_, state) => state == UploadState.done);
     _alreadyElsewhere.clear();
     // 送り直して送れた写真の、前の失敗の記録も捨てる（残すと列を使うほど溜まり続ける）
@@ -409,12 +441,47 @@ class UploadQueue extends ChangeNotifier {
         .where(
             (item) => where(item.tripId) && _states[item] == UploadState.failed)
         .toList();
-    for (final item in dismissed) {
-      _items.remove(item);
-      _states.remove(item);
-      _failures.remove(item);
-    }
+    dismissed.forEach(_forget);
     notifyListeners();
+  }
+
+  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/travel-album/03_screen_design.md §4.4）。
+  /// 送信待ち・失敗・送れた写真は列から消し、準備中の写真は準備が済んでも入れない。
+  /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
+  void cancelTrip(String tripId) {
+    _canceledItems.addAll(_items.where((item) =>
+        item.tripId == tripId && _states[item] == UploadState.sending));
+    // 準備中の写真は、残りを準備しない。進み具合も外す（「写真を準備中」を出し続けず、一区切りも待たせない）
+    for (final progress in _preparations.where((p) => p.tripId == tripId)) {
+      progress.canceled = true;
+    }
+    _preparations.removeWhere((p) => p.tripId == tripId);
+    final canceled = [
+      for (final item in _items)
+        if (item.tripId == tripId && _states[item] != UploadState.sending) item
+    ];
+    canceled.forEach(_forget);
+    _finishBatchIfIdle();
+    notifyListeners();
+  }
+
+  /// 一覧に [photoIds] の写真が出た。送れた写真なら、以後は端末の画像として並べない
+  void markLanded(Iterable<String> photoIds) {
+    final ids = photoIds.toSet();
+    _landed.addAll(_items.where((item) =>
+        _states[item] == UploadState.done && ids.contains(item.photoId)));
+  }
+
+  /// 送れた写真で、一覧にサーバの写真として一度出たもの
+  bool hasLanded(UploadItem item) => _landed.contains(item);
+
+  /// 列から写真を跡形なく消す（失敗にも完了にも数えない）
+  void _forget(UploadItem item) {
+    _landed.remove(item);
+    _items.remove(item);
+    _states.remove(item);
+    _failures.remove(item);
+    _alreadyElsewhere.remove(item);
   }
 
   @override

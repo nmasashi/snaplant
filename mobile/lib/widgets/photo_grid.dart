@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
 import '../screens/photo_viewer_screen.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
@@ -22,7 +25,8 @@ class PhotoGrid extends StatefulWidget {
       required this.emptyMessage,
       required this.selection,
       this.onTripNotFound,
-      this.onViewerClosed});
+      this.onViewerClosed,
+      required this.uploadQueue});
 
   final ApiService apiService;
 
@@ -40,6 +44,9 @@ class PhotoGrid extends StatefulWidget {
 
   /// 写真ビューアから戻ったときに呼ぶ（画面が一覧と見出しを読み直す。削除したかどうかによらない）
   final Future<void> Function()? onViewerClosed;
+
+  /// 写真の送信の列。この一覧の宛先に送っている写真を、サーバの写真の後ろに端末の画像で並べる
+  final UploadQueue uploadQueue;
 
   /// 複数選択（長押しで始める）
   final PhotoSelection selection;
@@ -80,8 +87,27 @@ class _PhotoGridState extends State<PhotoGrid> {
   // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
   int _consecutiveEmptyPages = 0;
 
+  /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
+  List<UploadItem> get _pendingItems {
+    final tripId = widget.tripId == 'none' ? null : widget.tripId;
+    // 一覧を読み直して既にサーバの写真として並んでいるもの（送れた写真）は、端末の画像では並べない（二重にしない）
+    final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
+    return [
+      for (final item in widget.uploadQueue.items)
+        if (item.tripId == tripId &&
+            !loadedIds.contains(item.photoId) &&
+            !widget.uploadQueue.hasLanded(item))
+          item
+    ];
+  }
+
+  void _onUploadQueueChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    widget.uploadQueue.removeListener(_onUploadQueueChanged);
     _loaded.dispose();
     super.dispose();
   }
@@ -89,7 +115,18 @@ class _PhotoGridState extends State<PhotoGrid> {
   @override
   void initState() {
     super.initState();
+    widget.uploadQueue.addListener(_onUploadQueueChanged);
     _loadFirstPage();
+  }
+
+  @override
+  void didUpdateWidget(PhotoGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 設定を変えると AppRoot が送信の列を作り直す。作り直されずに渡し直されたときも、新しい列を見る
+    if (oldWidget.uploadQueue != widget.uploadQueue) {
+      oldWidget.uploadQueue.removeListener(_onUploadQueueChanged);
+      widget.uploadQueue.addListener(_onUploadQueueChanged);
+    }
   }
 
   /// 写真の一覧の取得が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）なら画面へ知らせて true を返す。
@@ -132,6 +169,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _errorMessage = null;
       _photos = page.photos;
       _loaded.value = page.photos;
+      widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
       _continuationToken = page.continuationToken;
       _isLoadingMore = false;
       _loadMoreFailed = false;
@@ -169,6 +207,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       setState(() {
         _photos = [...?_photos, ...page.photos];
         _loaded.value = _photos!;
+        widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
         _consecutiveEmptyPages =
@@ -282,7 +321,11 @@ class _PhotoGridState extends State<PhotoGrid> {
         if (mounted) _loadMore();
       });
     }
-    if (photos.isEmpty && _continuationToken == null) {
+    // 端末の画像は最後のページまで読んでから並べる（続きが届くたびに後ろへずれないように）
+    final pending =
+        _continuationToken == null ? _pendingItems : const <UploadItem>[];
+    // 端末の画像があれば、サーバの写真が0枚でも0件の案内ではなくグリッドで並べる
+    if (photos.isEmpty && _continuationToken == null && pending.isEmpty) {
       return _pullToRefresh(
         Padding(
           padding: const EdgeInsets.all(24),
@@ -322,8 +365,13 @@ class _PhotoGridState extends State<PhotoGrid> {
                 mainAxisSpacing: 2,
                 crossAxisSpacing: 2,
               ),
-              itemCount: photos.length,
+              itemCount: photos.length + pending.length,
               itemBuilder: (context, index) {
+                if (index >= photos.length) {
+                  final item = pending[index - photos.length];
+                  return _PendingTile(
+                      item: item, state: widget.uploadQueue.stateOf(item));
+                }
                 // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
                 if (index >= photos.length - _loadMoreThreshold &&
                     _continuationToken != null &&
@@ -457,5 +505,46 @@ class _PhotoTile extends StatelessWidget {
         ],
       ]),
     );
+  }
+}
+
+/// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/travel-album/03_screen_design.md §4.4）
+class _PendingTile extends StatelessWidget {
+  const _PendingTile({required this.item, required this.state});
+
+  final UploadItem item;
+
+  /// 送れなかったら「!」、送れたら印なし（一区切りまでそのまま並べる）、それ以外（送信待ち・送信中・送り直し待ち）は回転する印
+  final UploadState state;
+
+  /// 準備で作ったサムネイル（長辺 320px）があればそれを、無ければ端末のファイルを縮めて出す
+  /// （数十枚を並べても、原寸のファイルを読み直さないように）。読めなければ灰色の枠だけを出す
+  Widget _image() {
+    const fit = BoxFit.cover;
+    Widget onError(BuildContext context, Object error, StackTrace? stack) =>
+        const ColoredBox(color: AppColors.surfaceVariant);
+    final thumbnail = item.thumbnail;
+    if (thumbnail != null) {
+      return Image.memory(thumbnail, fit: fit, errorBuilder: onError);
+    }
+    return Image.file(File(item.path),
+        fit: fit, cacheWidth: _tileDecodeWidth, errorBuilder: onError);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(fit: StackFit.expand, children: [
+      Opacity(opacity: 0.5, child: _image()),
+      if (state == UploadState.failed)
+        const Center(
+          child: Text('!',
+              style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.error)),
+        )
+      else if (state != UploadState.done)
+        const Center(child: CircularProgressIndicator()),
+    ]);
   }
 }
