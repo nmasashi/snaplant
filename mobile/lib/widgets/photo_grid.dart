@@ -348,7 +348,11 @@ class _PhotoGridState extends State<PhotoGrid> {
               itemCount: photos.length + pending.length,
               itemBuilder: (context, index) {
                 if (index >= photos.length) {
-                  return _PendingTile(item: pending[index - photos.length]);
+                  final item = pending[index - photos.length];
+                  return _PendingTile(
+                      item: item,
+                      failed: widget.uploadQueue.stateOf(item) ==
+                          UploadState.failed);
                 }
                 // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
                 if (index >= photos.length - _loadMoreThreshold &&
@@ -488,9 +492,12 @@ class _PhotoTile extends StatelessWidget {
 
 /// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/travel-album/03_screen_design.md §4.4）
 class _PendingTile extends StatelessWidget {
-  const _PendingTile({required this.item});
+  const _PendingTile({required this.item, required this.failed});
 
   final UploadItem item;
+
+  /// 送れなかった（「!」を出す）。そうでなければ送信待ち・送信中・送り直し待ち（回転する印を出す）
+  final bool failed;
 
   @override
   Widget build(BuildContext context) {
@@ -500,7 +507,15 @@ class _PendingTile extends StatelessWidget {
         child: Image.file(File(item.path),
             fit: BoxFit.cover, cacheWidth: _tileDecodeWidth),
       ),
-      const Center(child: CircularProgressIndicator()),
+      Center(
+        child: failed
+            ? const Text('!',
+                style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.error))
+            : const CircularProgressIndicator(),
+      ),
     ]);
   }
 }
