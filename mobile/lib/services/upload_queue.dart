@@ -189,6 +189,10 @@ class UploadQueue extends ChangeNotifier {
 
   // 宛先の送信を取り消したときに送信中（送り直しの待ちを含む）だった写真。送り直さず、結果も知らせない
   final Set<UploadItem> _canceledItems = {};
+
+  // 送れた写真のうち、一覧（GET /api/photos）にサーバの写真として出たもの。その後に消されたり移されたりしても、
+  // 一区切りまで端末の画像として並べ直さない
+  final Set<UploadItem> _landed = {};
   static const _tripNotFoundReason = '旅行が見つかりません';
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
@@ -406,6 +410,7 @@ class UploadQueue extends ChangeNotifier {
       alreadyElsewhere: done.where(_alreadyElsewhere.contains).length,
     ));
     _items.removeWhere((i) => _states[i] == UploadState.done);
+    _landed.clear();
     _states.removeWhere((_, state) => state == UploadState.done);
     _alreadyElsewhere.clear();
     // 送り直して送れた写真の、前の失敗の記録も捨てる（残すと列を使うほど溜まり続ける）
@@ -460,8 +465,19 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 一覧に [photoIds] の写真が出た。送れた写真なら、以後は端末の画像として並べない
+  void markLanded(Iterable<String> photoIds) {
+    final ids = photoIds.toSet();
+    _landed.addAll(_items.where((item) =>
+        _states[item] == UploadState.done && ids.contains(item.photoId)));
+  }
+
+  /// 送れた写真で、一覧にサーバの写真として一度出たもの
+  bool hasLanded(UploadItem item) => _landed.contains(item);
+
   /// 列から写真を跡形なく消す（失敗にも完了にも数えない）
   void _forget(UploadItem item) {
+    _landed.remove(item);
     _items.remove(item);
     _states.remove(item);
     _failures.remove(item);

@@ -94,7 +94,10 @@ class _PhotoGridState extends State<PhotoGrid> {
     final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
     return [
       for (final item in widget.uploadQueue.items)
-        if (item.tripId == tripId && !loadedIds.contains(item.photoId)) item
+        if (item.tripId == tripId &&
+            !loadedIds.contains(item.photoId) &&
+            !widget.uploadQueue.hasLanded(item))
+          item
     ];
   }
 
@@ -156,6 +159,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _errorMessage = null;
       _photos = page.photos;
       _loaded.value = page.photos;
+      widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
       _continuationToken = page.continuationToken;
       _isLoadingMore = false;
       _loadMoreFailed = false;
@@ -193,6 +197,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       setState(() {
         _photos = [...?_photos, ...page.photos];
         _loaded.value = _photos!;
+        widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
         _consecutiveEmptyPages =
