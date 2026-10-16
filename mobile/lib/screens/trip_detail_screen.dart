@@ -227,6 +227,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             emptyTitle: 'まだ写真がありません',
             emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
             onTripNotFound: _markTripDeleted,
+            onViewerClosed: _reloadPhotos,
           ),
         ),
       ],

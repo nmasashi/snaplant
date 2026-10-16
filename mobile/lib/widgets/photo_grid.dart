@@ -21,7 +21,8 @@ class PhotoGrid extends StatefulWidget {
       required this.emptyTitle,
       required this.emptyMessage,
       this.selection,
-      this.onTripNotFound});
+      this.onTripNotFound,
+      this.onViewerClosed});
 
   final ApiService apiService;
 
@@ -36,6 +37,9 @@ class PhotoGrid extends StatefulWidget {
   /// 画面全体を「この旅行は削除されています」にするのは画面の役目なので、グリッドは失敗として出さずに知らせるだけにする。
   /// 知らせた後は読み込み中の状態も戻さない（画面がグリッドを外す前提。残すと続きのページを二度と取りに行かない）
   final VoidCallback? onTripNotFound;
+
+  /// 写真ビューアから戻ったときに呼ぶ（画面が一覧と見出しを読み直す。削除したかどうかによらない）
+  final Future<void> Function()? onViewerClosed;
 
   /// 複数選択。渡さなければ写真を選べない
   final PhotoSelection? selection;
@@ -202,8 +206,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   }
 
   /// 写真ビューアを開く（一覧の写真を [index] の位置から）
-  void _openViewer(int index) {
-    Navigator.push(
+  Future<void> _openViewer(int index) async {
+    await Navigator.push(
         context,
         MaterialPageRoute(
             builder: (_) =>
@@ -213,6 +217,7 @@ class _PhotoGridState extends State<PhotoGrid> {
                 initialIndex: index,
                 onReachEnd: _loadMore,
                 onDeleted: _removeLoaded)));
+    await widget.onViewerClosed?.call();
   }
 
   /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
