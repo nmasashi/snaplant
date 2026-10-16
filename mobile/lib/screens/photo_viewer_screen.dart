@@ -79,6 +79,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('写真を削除しました')));
     widget.onDeleted(photo.id);
+    // 消した写真の拡大は次の写真に持ち越さない（ページは写真の id で作り直すので、スワイプの停止だけを解く）
+    setState(() => _zoomed = false);
     // 次の写真が無ければ（最後の1枚なら）一覧へ戻る
     if (index == photos.length - 1) Navigator.pop(context);
   }
@@ -112,6 +114,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               if (index == photos.length - 1) widget.onReachEnd();
             },
             itemBuilder: (context, index) => _PhotoPage(
+                // 削除で後ろの写真が詰まったときに、前の写真の拡大の状態を引き継がない
+                key: ValueKey(photos[index].id),
                 photo: photos[index],
                 showInfo: _showChrome,
                 onZoomChanged: (zoomed) {
@@ -137,7 +141,8 @@ String _placeText(Photo photo) {
 /// 写真1枚の画面（原寸の画像と、下の情報）。ピンチで拡大できる
 class _PhotoPage extends StatefulWidget {
   const _PhotoPage(
-      {required this.photo,
+      {super.key,
+      required this.photo,
       required this.showInfo,
       required this.onZoomChanged});
 
@@ -198,6 +203,11 @@ class _PhotoPageState extends State<_PhotoPage> {
                       cacheManager: PhotoCacheManager.thumbnails,
                       fit: BoxFit.contain,
                     ),
+              // SAS の期限切れ（403）などで読めないときは、グリッドと同じ文言を出す。戻って一覧を読み直せば新しい URL になる
+              errorWidget: (context, url, error) => const Center(
+                child:
+                    Text('画像を読み込めません', style: TextStyle(color: Colors.white70)),
+              ),
             ),
           ),
         ),
