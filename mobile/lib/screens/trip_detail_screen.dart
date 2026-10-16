@@ -39,6 +39,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   TripSummary? _trip;
   // 旅行が既に無い（一覧を読んだ後に別の端末で消された）
   bool _tripDeleted = false;
+  // 旅行の取得を出すたびに進める。取り直しが重なったとき、最後に出した取得の結果だけを使う
+  int _tripRequest = 0;
   // 読み込みに失敗したときの文言（旅行が無い場合を除く）。null なら失敗していない
   String? _errorMessage;
   // 写真の複数選択（見出し・下の操作バー・グリッドが見る）
@@ -67,11 +69,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   /// 旅行（枚数・撮影期間つき）を読み込む。
   /// [keepOnFailure] なら、取り直しの失敗（旅行が無い場合を除く）で画面をエラーにせず、前の見出しを残す
   Future<void> _loadTrip({bool keepOnFailure = false}) async {
+    final request = ++_tripRequest;
     setState(() => _errorMessage = null);
     try {
       final trip = await widget.apiService.getTrip(widget.tripId);
       // 待っている間に、写真の一覧の側で旅行が無いと分かっていたら、遅れて届いた成功で旅行名を戻さない
       if (!mounted || _tripDeleted) return;
+      // 後から出した取得がある。先に出したこの取得の結果（古い枚数・期間）では上書きしない
+      if (request != _tripRequest) return;
       setState(() => _trip = trip);
     } catch (e) {
       debugPrint('TripDetailScreen: 旅行の読み込みエラー: $e');
