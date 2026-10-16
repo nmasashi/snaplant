@@ -85,6 +85,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _markTripDeleted();
         return;
       }
+      // 後から出した取得がある。先に出したこの取得の失敗で、その結果をエラーの表示に置き換えない
+      // （旅行が無い 404 は、どの取得で分かっても事実なので、上で先に扱う）
+      if (request != _tripRequest) return;
       if (keepOnFailure && _trip != null) return;
       setState(() =>
           _errorMessage = e is ApiException ? e.userMessage : '旅行の読み込みに失敗しました');
