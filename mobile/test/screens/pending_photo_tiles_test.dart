@@ -85,8 +85,12 @@ void main() {
     expect(spinner.dy, greaterThan(serverTile.top));
     expect(spinner.dy, lessThan(serverTile.bottom));
     expect(spinner.dx, greaterThan(serverTile.right));
+    // 後始末: 送信を終わらせ、完了の知らせ（スナックバー）と画像のキャッシュの掃除のタイマー
+    // （flutter_cache_manager の CacheStore.cleanupRunMinInterval。3.4.1 で 10 秒）が過ぎるまで進める（タイマーを残して終えない）
     release.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
     await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
 }
