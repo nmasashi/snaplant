@@ -63,7 +63,12 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         busyLabel: '削除中...',
         failureMessage: '写真の削除に失敗しました',
         onConfirm: () async {
-          await widget.apiService.deletePhoto(photo.id);
+          try {
+            await widget.apiService.deletePhoto(photo.id);
+          } on ApiException catch (e) {
+            // 既に無い（別の端末で消された）なら、消せたのと同じ
+            if (!e.isPhotoNotFound) rethrow;
+          }
           return true;
         },
       ),
