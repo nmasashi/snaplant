@@ -47,16 +47,52 @@ void useGalleryReturning(List<File> files, {Object? failWith}) {
   addTearDown(() => ImagePickerPlatform.instance = original);
 }
 
-/// 一時ディレクトリに画像ファイルを書く（テスト終了時に削除する）。中身は [bytes]（既定は [tinyPngBytes]）
-File writeTestImage(String name, {List<int> bytes = tinyPngBytes}) {
-  final dir = Directory.systemTemp.createTempSync('snaplant_gallery_test_');
+const _tempDirectoryPrefix = 'snaplant_gallery_test_';
+
+/// 前の実行で消せずに残った一時ディレクトリを消したか（この実行の中で1回だけ消す）
+bool _sweptStaleDirectories = false;
+
+/// 前の実行で残った [_tempDirectoryPrefix] の一時ディレクトリを消す。消せないもの（まだ掴まれている）は飛ばす。
+/// Windows では、画像を掴んだままのファイルがあると、テストの終了時に消せない。しかも Windows は一時ディレクトリを自動では消さないので、
+/// 放っておくとテストを回すたびに溜まる。**1時間以上前のものだけ**を消す: テストは複数のファイルが並行して走るので、
+/// 今まさに別のテストが使っているディレクトリを消さないため（1回の実行は1時間もかからない）
+void _sweepStaleTempDirectories() {
+  if (_sweptStaleDirectories) return;
+  _sweptStaleDirectories = true;
+  final threshold = DateTime.now().subtract(const Duration(hours: 1));
+  try {
+    for (final entry in Directory.systemTemp.listSync(followLinks: false)) {
+      if (entry is! Directory || !entry.uri.pathSegments.where((s) => s.isNotEmpty).last.startsWith(_tempDirectoryPrefix)) {
+        continue;
+      }
+      try {
+        if (entry.statSync().modified.isBefore(threshold)) entry.deleteSync(recursive: true);
+      } on FileSystemException {
+        // まだ掴まれている。次の実行で消す
+      }
+    }
+  } on FileSystemException {
+    // 一時ディレクトリを一覧できない。掃除は諦める（テストには影響しない）
+  }
+}
+
+/// 画像を置く一時ディレクトリを作る（テスト終了時に削除する。消せなければ、次の実行の最初に [_sweepStaleTempDirectories] が消す）
+Directory _createTempDirectory() {
+  _sweepStaleTempDirectories();
+  final dir = Directory.systemTemp.createTempSync(_tempDirectoryPrefix);
   addTearDown(() {
     try {
       dir.deleteSync(recursive: true);
     } on FileSystemException {
-      // Windows では画像が掴んだままのファイルを消せない。一時ディレクトリなので OS に任せる
+      // Windows では画像が掴んだままのファイルを消せない
     }
   });
+  return dir;
+}
+
+/// 一時ディレクトリに画像ファイルを書く（テスト終了時に削除する）。中身は [bytes]（既定は [tinyPngBytes]）
+File writeTestImage(String name, {List<int> bytes = tinyPngBytes}) {
+  final dir = _createTempDirectory();
   return File('${dir.path}/$name')..writeAsBytesSync(bytes);
 }
 
@@ -65,14 +101,7 @@ File writeTestImage(String name, {List<int> bytes = tinyPngBytes}) {
 /// 準備は1枚ずつ別の isolate で行うので、大きなファイル1枚と違い、メモリを食わず、準備の終わりが枚数に比例して遅れる。
 /// 中身は [tinyPngBytes] に、通し番号の2バイトを足したもの（写真の id は画像のバイト列の SHA-256 なので、全部違う写真になる）
 List<File> writeTestImages(int count) {
-  final dir = Directory.systemTemp.createTempSync('snaplant_gallery_test_');
-  addTearDown(() {
-    try {
-      dir.deleteSync(recursive: true);
-    } on FileSystemException {
-      // Windows では画像が掴んだままのファイルを消せない。一時ディレクトリなので OS に任せる
-    }
-  });
+  final dir = _createTempDirectory();
   return [
     for (var i = 0; i < count; i++)
       File('${dir.path}/photo_$i.png')..writeAsBytesSync([...tinyPngBytes, i >> 8, i & 0xFF]),

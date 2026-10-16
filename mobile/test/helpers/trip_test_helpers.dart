@@ -123,6 +123,8 @@ enum TripRoute {
 /// - `POST /api/photos`（multipart）は、`photoId` が `image` の SHA-256 と一致しなければ 400「写真IDが画像の内容と一致しません」（実際のサーバと同じ）。
 ///   既にある id は 200 で既存を返し（冪等）、無ければ宛先（`tripId` が無ければ `none`）の末尾に足して 201 を返す。宛先の旅行の `photoCount`（と [unassignedPhotoCount]）も増やす。
 ///   `takenAt`・`latitude`・`longitude` は写真に反映する（`location` は緯度と経度を持つときだけ。地名は null）。
+///   `placeName` パートは `location.placeName` に入れ、`placeSource` を `device` にする（無ければ両方 null）。地名の検証（緯度・経度が無い・空・空白のみ・ファイル・100 文字超え）も実際のサーバと同じ。
+///   `thumbnail` パートがあれば `thumbnailUrl` を入れ（無ければ null）、バイト列は [thumbnailsByPhotoId] に残す。サムネイルの検証（ファイルでない・形式・空・[thumbnailMaxSize] 超え）も実際のサーバと同じ。
 ///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
@@ -181,6 +183,13 @@ class FakeTripBackend {
   /// 旅行の取得（`GET /api/trips/{tripId}`）の要求が届いた回数（応答を保留する前に数える）。
   /// 応答は届いた時点の状態で決まるので、要求が旅行を消す前に届いたかを確かめる印として使う
   int tripFetchesReceived = 0;
+
+  /// サムネイルの上限（サーバの `THUMBNAIL_MAX_SIZE` の既定値。1MB）
+  static const thumbnailMaxSize = 1048576;
+
+  /// 写真の送信で受け取ったサムネイルのバイト列（キーは写真の id）。写真を新しく保存したときだけ入る
+  /// （既にある id の再送では、サムネイルを足さない。docs/travel-album/05_api_design.md §5.1 の 3）
+  final Map<String, List<int>> thumbnailsByPhotoId = {};
 
   // 次の呼び出しの失敗を、届いた時点で作る（応答を返すものと、通信が切れて例外になるもの）
   final Map<TripRoute, List<http.Response Function()>> _failures = {};
@@ -397,6 +406,16 @@ class FakeTripBackend {
       return _error(415, 'UNSUPPORTED_MEDIA_TYPE', 'サポートされていない画像形式です');
     }
     if (image.bytes.isEmpty) return _error(400, 'INVALID_REQUEST', '画像ファイルが空です');
+    // サムネイルの検証（実際のサーバの 8〜11）。サムネイルは省けるので、あるときだけ見る
+    final thumbnail = parts['thumbnail'];
+    if (thumbnail != null) {
+      if (thumbnail.filename == null) return _error(400, 'INVALID_REQUEST', 'サムネイルはファイルで送信してください');
+      if (!supportedTypes.contains(thumbnail.contentType)) {
+        return _error(415, 'UNSUPPORTED_MEDIA_TYPE', 'サポートされていない画像形式です');
+      }
+      if (thumbnail.bytes.isEmpty) return _error(400, 'INVALID_REQUEST', 'サムネイルが空です');
+      if (thumbnail.bytes.length > thumbnailMaxSize) return _error(413, 'FILE_TOO_LARGE', 'サムネイルのサイズが大きすぎます');
+    }
     final tripId = parts['tripId']?.text;
     if (tripId != null && !RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(tripId)) {
       return _error(400, 'INVALID_REQUEST', '旅行IDの形式が無効です');
@@ -420,6 +439,16 @@ class FakeTripBackend {
             longitude!.abs() > 180)) {
       return _error(400, 'INVALID_REQUEST', '位置情報の形式が無効です');
     }
+    // 地名の検証（実際のサーバの 16・17）。緯度・経度と一緒でなければ断る。空・空白のみ・ファイル・100 文字超えも断る（前後の空白は除かずに数える）
+    final placeNamePart = parts['placeName'];
+    if (placeNamePart != null && latitudeText == null) {
+      return _error(400, 'INVALID_REQUEST', '地名は緯度・経度と一緒に指定してください');
+    }
+    if (placeNamePart != null &&
+        (placeNamePart.filename != null || placeNamePart.text.trim().isEmpty || placeNamePart.text.length > 100)) {
+      return _error(400, 'INVALID_REQUEST', '地名は100文字以内で指定してください');
+    }
+    final placeName = placeNamePart?.text;
     if (sha256.convert(image.bytes).toString() != photoId) {
       return _error(400, 'INVALID_REQUEST', '写真IDが画像の内容と一致しません');
     }
@@ -433,13 +462,19 @@ class FakeTripBackend {
     final photo = photoJson(number: 0, tripId: tripId, takenAt: takenAt)
       ..['id'] = photoId
       ..['imageUrl'] = '$blobHost/$photoId.jpg?sv=2024-01-01&sig=test'
-      ..['thumbnailUrl'] = parts['thumbnail'] == null ? null : '$blobHost/$photoId.thumb.jpg?sv=2024-01-01&sig=test'
+      ..['thumbnailUrl'] = thumbnail == null ? null : '$blobHost/$photoId.thumb.jpg?sv=2024-01-01&sig=test'
       ..['fileSize'] = image.bytes.length
       ..['location'] = latitude == null
           ? null
-          : {'latitude': latitude, 'longitude': longitude, 'placeName': null, 'placeSource': null};
+          : {
+              'latitude': latitude,
+              'longitude': longitude,
+              'placeName': placeName,
+              'placeSource': placeName == null ? null : 'device',
+            };
     final targetKey = tripId ?? 'none';
     photosByTripId.putIfAbsent(targetKey, () => []).add(photo);
+    if (thumbnail != null) thumbnailsByPhotoId[photoId] = thumbnail.bytes;
     _addToPhotoCount(targetKey, 1);
     return _ok(201, {'photo': photo, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
   }
@@ -555,6 +590,12 @@ class FakeTripBackend {
 
 /// 旅行「北海道 2026秋」の id
 const hokkaidoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+/// 旅行「京都」の id（写真の移し先や、別の旅行の宛先に使う）
+const kyotoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
+
+/// ステータス 500 の `ApiException.userMessage`（送信に失敗した行の理由に出る）
+const serverErrorMessage = 'サーバーで問題が発生しています。しばらく待ってから再試行してください。';
 
 /// 旅行「北海道 2026秋」（[photoCount] 枚、2026/10/05 〜 2026/10/08）の JSON
 Map<String, Object?> hokkaidoTrip({int photoCount = 12, String? description}) {
