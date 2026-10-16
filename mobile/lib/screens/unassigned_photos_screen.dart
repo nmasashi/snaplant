@@ -98,6 +98,7 @@ class _UnassignedPhotosScreenState extends State<UnassignedPhotosScreen> {
               selection: _selection,
               emptyTitle: '旅行に属さない写真はありません',
               emptyMessage: '「写真を追加」で送った写真は、あとから旅行に入れられます',
+              onViewerClosed: _reloadPhotos,
             ),
           ),
         ],
