@@ -3205,6 +3205,41 @@ void main() {
     expect(find.textContaining('枚を送信しました'), findsNothing);
   });
 
+  testWidgets('準備中に送信を止めて削除したら、残りの写真の準備をやめ、旅行一覧に「写真を準備中」を出さない', (tester) async {
+    // 準備を止める: 位置情報のある写真の Geocoder が固まる（5秒の時間切れまで準備中のまま）。3枚は中身（座標）を変えて、別の写真にする
+    final geocoding = useFakeGeocoding(hangs: true);
+    final images = [
+      writeTestImage('nagano1.jpg', bytes: exifJpegBytes(latitude: [36, 39, 0], longitude: [138, 11, 0])),
+      writeTestImage('nagano2.jpg', bytes: exifJpegBytes(latitude: [36, 40, 0], longitude: [138, 12, 0])),
+      writeTestImage('nagano3.jpg', bytes: exifJpegBytes(latitude: [36, 41, 0], longitude: [138, 13, 0])),
+    ];
+    useGalleryReturning(images);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilLookedUp(tester, geocoding, 1);
+    await tester.pump();
+    await openDeleteDialog(tester);
+    await tapInDialog(tester, '削除');
+    await tapInDialog(tester, '削除');
+    expect(find.byType(TripDetailScreen), findsNothing);
+
+    // 準備中だった1枚が済む（地名の時間切れ）まで進めてから、一覧にバナーが残っていないことを見る
+    await tester.pump(const Duration(seconds: 5));
+    await _waitRealTime(tester);
+    await tester.pump(const Duration(seconds: 5));
+    await letFramesRun(tester);
+
+    expect(preparingBanner(3), findsNothing);
+    // 後片付け: 残りの準備があっても時間切れのタイマーをテストの終わりに残さない
+    await tester.pump(const Duration(seconds: 5));
+    await _waitRealTime(tester);
+    await tester.pump(const Duration(seconds: 5));
+    await _waitRealTime(tester);
+  });
+
   testWidgets('送り直しを待っている写真があるときに送信を止めて削除したら、待ちが過ぎても送り直さない', (tester) async {
     // 1回目が 503 で失敗して2秒の待ちに入る。待ちの間（2秒より手前）に削除を確定する。
     // openDeleteDialog や tapInDialog は画面を1.5秒ずつ進めて待ちを過ぎてしまうので、ここでは300ミリ秒ずつ進める
