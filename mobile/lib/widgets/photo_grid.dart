@@ -502,14 +502,24 @@ class _PendingTile extends StatelessWidget {
   /// 送れなかったら「!」、送れたら印なし（一区切りまでそのまま並べる）、それ以外（送信待ち・送信中・送り直し待ち）は回転する印
   final UploadState state;
 
+  /// 準備で作ったサムネイル（長辺 320px）があればそれを、無ければ端末のファイルを縮めて出す
+  /// （数十枚を並べても、原寸のファイルを読み直さないように）。読めなければ灰色の枠だけを出す
+  Widget _image() {
+    const fit = BoxFit.cover;
+    Widget onError(BuildContext context, Object error, StackTrace? stack) =>
+        const ColoredBox(color: AppColors.surfaceVariant);
+    final thumbnail = item.thumbnail;
+    if (thumbnail != null) {
+      return Image.memory(thumbnail, fit: fit, errorBuilder: onError);
+    }
+    return Image.file(File(item.path),
+        fit: fit, cacheWidth: _tileDecodeWidth, errorBuilder: onError);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(fit: StackFit.expand, children: [
-      Opacity(
-        opacity: 0.5,
-        child: Image.file(File(item.path),
-            fit: BoxFit.cover, cacheWidth: _tileDecodeWidth),
-      ),
+      Opacity(opacity: 0.5, child: _image()),
       if (state == UploadState.failed)
         const Center(
           child: Text('!',
