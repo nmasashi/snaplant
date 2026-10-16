@@ -216,6 +216,7 @@ class _PhotoGridState extends State<PhotoGrid> {
                 photos: _loaded,
                 initialIndex: index,
                 onReachEnd: _loadMore,
+                hasMore: () => _continuationToken != null,
                 onDeleted: _removeLoaded)));
     await widget.onViewerClosed?.call();
   }

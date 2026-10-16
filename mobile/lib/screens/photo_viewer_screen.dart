@@ -18,6 +18,7 @@ class PhotoViewerScreen extends StatefulWidget {
       required this.photos,
       required this.initialIndex,
       required this.onReachEnd,
+      required this.hasMore,
       required this.onDeleted});
 
   final ApiService apiService;
@@ -30,6 +31,9 @@ class PhotoViewerScreen extends StatefulWidget {
 
   /// 読み込み済みの末尾の写真まで来たときに呼ぶ（一覧が続きのページを読む）
   final VoidCallback onReachEnd;
+
+  /// 一覧にまだ読んでいない続きのページがあるか
+  final bool Function() hasMore;
 
   /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
   final void Function(String photoId) onDeleted;
@@ -44,11 +48,31 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   bool _showChrome = true;
   // 今の写真を拡大している（拡大中はスワイプで前後に移らず、画像を動かす）
   bool _zoomed = false;
+  // 削除で読み込み済みの写真を使い切ったときの位置。続きのページが届いたらここへ移る
+  int? _pendingIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.photos.addListener(_onPhotosChanged);
+  }
 
   @override
   void dispose() {
+    widget.photos.removeListener(_onPhotosChanged);
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// 続きのページが届いて、削除の後に待っていた位置に写真が来たら、そこへ移る
+  void _onPhotosChanged() {
+    final pending = _pendingIndex;
+    if (pending == null || widget.photos.value.length <= pending) return;
+    _pendingIndex = null;
+    // 件数が増えた PageView が組み直されてから移る
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _pageController.jumpToPage(pending);
+    });
   }
 
   /// 今出している写真を、確かめてから削除する
@@ -81,8 +105,16 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onDeleted(photo.id);
     // 消した写真の拡大は次の写真に持ち越さない（ページは写真の id で作り直すので、スワイプの停止だけを解く）
     setState(() => _zoomed = false);
-    // 次の写真が無ければ（最後の1枚なら）一覧へ戻る
-    if (index == photos.length - 1) Navigator.pop(context);
+    // 後ろの写真が今の位置に詰まったら、それが次の写真
+    if (index < widget.photos.value.length) return;
+    // 読み込み済みの写真を使い切った。続きのページがあれば読ませて、届いたら次の写真へ移る
+    if (widget.hasMore()) {
+      _pendingIndex = index;
+      widget.onReachEnd();
+      return;
+    }
+    // 次の写真が無い（一覧の末尾の写真だった）なら一覧へ戻る
+    Navigator.pop(context);
   }
 
   @override
