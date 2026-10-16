@@ -31,6 +31,22 @@ bool _isOnScreen(WidgetTester tester, String text) {
   });
 }
 
+/// 1ページ目が30枚（10:01〜10:30）、2ページ目が3枚（10:31〜10:33）になる33枚の旅行の偽のサーバ
+FakeTripBackend _thirtyThreePhotosBackend() => FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+
 /// 旅行詳細を開き、[label] の写真のサムネイルをタップしてビューアを開く
 Future<void> _openViewerOn(WidgetTester tester,
     List<Map<String, Object?>> photos, String label) async {
@@ -191,20 +207,7 @@ void main() {
     // ビューアが開いた時点では2ページ目は一覧に無く、放した後に一覧の配列が伸びる。
     // ビューアが開いた時点の写真しか持たなければ、10:30で止まって次に進めない
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 33)],
-      functionKey: 'test-key',
-      pageSize: 30,
-      photosByTripId: {
-        hokkaidoTripId: [
-          for (var n = 1; n <= 33; n++)
-            photoJson(
-                number: n,
-                tripId: hokkaidoTripId,
-                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
-        ],
-      },
-    );
+    final backend = _thirtyThreePhotosBackend();
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -234,20 +237,7 @@ void main() {
     // グリッドは送らず、先頭の方の10:15を開く。グリッドが続きを読むのは末尾の6枚以内（10:25〜）を組み立てたときだけなので、
     // この時点で2ページ目は要求されていない
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 33)],
-      functionKey: 'test-key',
-      pageSize: 30,
-      photosByTripId: {
-        hokkaidoTripId: [
-          for (var n = 1; n <= 33; n++)
-            photoJson(
-                number: n,
-                tripId: hokkaidoTripId,
-                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
-        ],
-      },
-    );
+    final backend = _thirtyThreePhotosBackend();
     await openTripsTab(tester, backend);
     // 「まだ2ページ目を要求していない」を確かめるため、止める対象を2段にする。
     // 2ページ目の応答だけを止めておく形では、1ページ目を読んだ時点で既に2ページ目を要求していても、
@@ -287,20 +277,7 @@ void main() {
     // グリッドは送らずに10:15を開く（2ページ目は要求されていない。止め方は上のテストと同じ）。
     // 開いたあとで別の端末が旅行を消した状態にし、ビューアが末尾の10:30に来て読ませた続きのページで旅行が無いと分かる
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 33)],
-      functionKey: 'test-key',
-      pageSize: 30,
-      photosByTripId: {
-        hokkaidoTripId: [
-          for (var n = 1; n <= 33; n++)
-            photoJson(
-                number: n,
-                tripId: hokkaidoTripId,
-                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
-        ],
-      },
-    );
+    final backend = _thirtyThreePhotosBackend();
     await openTripsTab(tester, backend);
     final releaseFirstPage = Completer<void>();
     final releaseSecondPage = Completer<void>();
@@ -310,16 +287,19 @@ void main() {
     backend.holds[TripRoute.photos] = releaseSecondPage.future;
     releaseFirstPage.complete();
     await letFramesRun(tester);
+    expect(find.text('読み込み中...'), findsNothing);
     await tester.tap(photoThumbnail('2026年10月5日 10:15'));
     await letFramesRun(tester);
-    expect(find.text('読み込み中...'), findsNothing);
     expect(find.byType(PageView), findsOneWidget);
     releaseSecondPage.complete();
     backend.trips.clear();
 
-    for (var i = 0; i < 15; i++) {
+    for (var i = 0; i < 14; i++) {
       await _swipe(tester, toNext: true);
     }
+    expect(find.text('2026年10月5日 10:29').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: true);
 
     expect(find.byType(PageView), findsNothing);
     expect(find.text('この旅行は削除されています'), findsOneWidget);
@@ -335,20 +315,7 @@ void main() {
     // 2ページ目は削除より前に届いた要求なので、中身は届いた時点で決める（holdNextReply）。
     // 応答だけを止めて、削除の確定より後に放す
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 33)],
-      functionKey: 'test-key',
-      pageSize: 30,
-      photosByTripId: {
-        hokkaidoTripId: [
-          for (var n = 1; n <= 33; n++)
-            photoJson(
-                number: n,
-                tripId: hokkaidoTripId,
-                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
-        ],
-      },
-    );
+    final backend = _thirtyThreePhotosBackend();
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -382,20 +349,7 @@ void main() {
     // 2ページ目の要求は削除のあとに届く。続きは並び順の位置から返るので、前の写真を消しても飛ばさず、
     // 次に出る写真は10:31になる
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 33)],
-      functionKey: 'test-key',
-      pageSize: 30,
-      photosByTripId: {
-        hokkaidoTripId: [
-          for (var n = 1; n <= 33; n++)
-            photoJson(
-                number: n,
-                tripId: hokkaidoTripId,
-                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
-        ],
-      },
-    );
+    final backend = _thirtyThreePhotosBackend();
     final releaseFirstPage = Completer<void>();
     final releaseSecondPage = Completer<void>();
     backend.holds[TripRoute.photos] = releaseFirstPage.future;
@@ -411,7 +365,10 @@ void main() {
       await _swipe(tester, toNext: true);
     }
     expect(find.text('2026年10月5日 10:29').hitTestable(), findsOneWidget);
-    expect(find.text('読み込み中...'), findsNothing);
+    // 前提の確認（検証ではない）。ビューアは不透明なルートで下のグリッドが画面外になり、
+    // `find.text('読み込み中...')` では見えない。2ページ目の要求が届いた数で、まだ読まれていないことを確かめる。
+    // 既に要求されていると、削除の後に読まれたのかが区別できず、テストが何も守らなくなる
+    expect(backend.photoPagesReceived, 1);
     await tester.tap(
         find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
     await letFramesRun(tester);
