@@ -440,11 +440,7 @@ class UploadQueue extends ChangeNotifier {
         .where(
             (item) => where(item.tripId) && _states[item] == UploadState.failed)
         .toList();
-    for (final item in dismissed) {
-      _items.remove(item);
-      _states.remove(item);
-      _failures.remove(item);
-    }
+    dismissed.forEach(_forget);
     notifyListeners();
   }
 
