@@ -2986,7 +2986,11 @@ void main() {
     secondReply.complete();
     await _waitRealTime(tester);
     await letFramesRun(tester);
+    // スナックバーは順に出るので、「旅行を削除しました」が消えるまで進めてから、送信の知らせが出ていないことを見る
+    await tester.pump(const Duration(seconds: 5));
+    await letFramesRun(tester);
 
+    expect(find.textContaining('旅行を削除しました'), findsNothing);
     expect(backend.uploadsReceived, 2);
     expect(find.textContaining('送信できませんでした'), findsNothing);
     expect(find.textContaining('枚を送信しました'), findsNothing);
