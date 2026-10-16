@@ -93,4 +93,53 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+
+  testWidgets('送信に失敗した写真は、サーバの写真の後ろに端末の画像のマスを「!」付きで並べ、回転する印は付けない',
+      (tester) async {
+    // 失敗は、自動では送り直さない 500。端末の画像のマスは、グリッドの中の「!」で見分ける。
+    // 並びは、サーバの写真の読み上げ用ラベルのマスの位置と、「!」の位置を比べて見る
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
+      },
+    );
+    backend.failNext(TripRoute.upload,
+        status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final markInGrid =
+        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+    final spinnerInGrid = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byType(CircularProgressIndicator));
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
+    await letFramesRun(tester);
+
+    expect(markInGrid, findsOneWidget);
+    expect(spinnerInGrid, findsNothing);
+    final serverTile = tester.getRect(photoThumbnail('2026年10月5日 12:30'));
+    final mark = tester.getCenter(markInGrid);
+    // サーバの写真と同じ行で、その右隣（3列のグリッドの2列目）に並ぶ
+    expect(mark.dy, greaterThan(serverTile.top));
+    expect(mark.dy, lessThan(serverTile.bottom));
+    expect(mark.dx, greaterThan(serverTile.right));
+    // 後始末: 失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }
