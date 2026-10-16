@@ -227,6 +227,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           child: PhotoGrid(
             key: ValueKey(_gridVersion),
             apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
             tripId: trip.id,
             selection: _selection,
             emptyTitle: 'まだ写真がありません',
