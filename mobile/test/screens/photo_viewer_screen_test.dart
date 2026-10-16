@@ -346,4 +346,44 @@ void main() {
     expect(find.text('2026年10月5日 12:30'), findsNothing);
     semantics.dispose();
   });
+
+  testWidgets('写真ビューアで最後の1枚を削除すると、「写真を削除しました」を出して旅行詳細へ戻り、一覧からその写真が消える',
+      (tester) async {
+    // 次の写真が無いので、前の写真に留まらず一覧へ戻る。
+    // ビューアが閉じたことは PageView（ビューアだけが持つ）が無いことで見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-06T10:15:00'),
+          photoJson(
+              number: 2,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-07T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月7日 18:45'));
+    await letFramesRun(tester);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.byType(PageView), findsNothing);
+    expect(find.text('北海道 2026秋'), findsOneWidget);
+    expect(photoThumbnail('2026年10月6日 10:15'), findsOneWidget);
+    expect(photoThumbnail('2026年10月7日 18:45'), findsNothing);
+    expect(find.text('写真を削除しました'), findsOneWidget);
+    semantics.dispose();
+  });
 }
