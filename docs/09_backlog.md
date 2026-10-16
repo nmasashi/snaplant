@@ -311,6 +311,16 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **判断が要ること**: 読み直したら選択を読み込んだ写真に絞るか、選択モード中は引っ張る読み直しをさせないか、読み直したら選択モードを抜けるか。
 `docs/travel-album/03_screen_design.md` §4.8 に決めた扱いを書いてから直す。
 
+### 写真ビューアで続きのページの読み込みに失敗すると、ビューアからは読み直せない（Dart、旅行アルバム）
+
+写真ビューア（`mobile/lib/screens/photo_viewer_screen.dart`）は、読み込み済みの末尾まで来ると一覧（`PhotoGrid`）に続きを読ませる。
+一覧の続きの読み込みが失敗すると、一覧は「続きを読み込めませんでした」「再試行」を出して自動では読み直さない（`_loadMoreFailed`）。
+ビューアにはその表示が無いので、末尾で止まったまま理由が出ず、ビューアからは読み直せない（2026-10-16、PR 7d の contract-auditor の指摘。コードを読んでの判断）。
+戻れば一覧の「再試行」で読み直せる。
+
+**判断が要ること**: ビューアの末尾で失敗を知らせて「再試行」を出すか、ビューアからもう一度払ったら読み直すか、今のまま（戻って一覧で再試行）とするか。
+`docs/travel-album/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
+
 ### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない
 
 `StorageService` の `resolveBlobEndpointHost()` は、接続文字列に `EndpointSuffix` が無ければ `core.windows.net` として
