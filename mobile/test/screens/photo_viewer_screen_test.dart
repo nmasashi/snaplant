@@ -7,6 +7,8 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 写真ビューア（docs/travel-album/03_screen_design.md §4.6）。入口は旅行詳細の写真のグリッド
+//
+// 偽のサーバの写真は、本物の API と同じく sortAt の昇順で並べる（photoJson は sortAt = takenAt）。
 
 /// ビューアで1枚分だけ左右にスワイプする（[toNext] なら次の写真へ）。
 /// 画面の幅（480）を超えて引くと2枚分進むので、幅より短く払う
@@ -16,13 +18,41 @@ Future<void> _swipe(WidgetTester tester, {required bool toNext}) async {
   await letFramesRun(tester);
 }
 
+/// [text] がビューアの画面の中（横位置が画面の幅の内側）にあるか。
+/// PageView が隣のページを先に組み立てていても（画面の外の右や左に置かれる）、
+/// 出ている写真のものだけを数える。スナックバーが下の情報を覆うと hitTestable で見られないため、位置で見る。
+/// `find.text` は複数の要素に当たりうるので、1つでも画面の中にあれば true
+bool _isOnScreen(WidgetTester tester, String text) {
+  final screenWidth =
+      tester.view.physicalSize.width / tester.view.devicePixelRatio;
+  return find.text(text).evaluate().any((element) {
+    final x = tester.getCenter(find.byElementPredicate((e) => e == element)).dx;
+    return x >= 0 && x <= screenWidth;
+  });
+}
+
+/// 旅行詳細を開き、[label] の写真のサムネイルをタップしてビューアを開く
+Future<void> _openViewerOn(WidgetTester tester,
+    List<Map<String, Object?>> photos, String label) async {
+  final backend = FakeTripBackend(
+    trips: [hokkaidoTrip(photoCount: photos.length)],
+    functionKey: 'test-key',
+    photosByTripId: {hokkaidoTripId: photos},
+  );
+  await openTripsTab(tester, backend);
+  await tester.tap(find.text('北海道 2026秋'));
+  await letFramesRun(tester);
+  await tester.tap(photoThumbnail(label));
+  await letFramesRun(tester);
+}
+
 void main() {
   testWidgets('旅行詳細で写真をタップすると写真ビューアが開き、その写真の撮影日時と地名を出す', (tester) async {
     // サムネイルは撮影日時を読み上げ用ラベルとしてだけ持ち、Text は出さない。
     // よって find.text で見つかる撮影日時と地名は、ビューアが出したもの
     final semantics = tester.ensureSemantics();
     final tapped = photoJson(
-        number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00')
       ..['location'] = {
         'latitude': 43.7706,
         'longitude': 142.365,
@@ -37,7 +67,7 @@ void main() {
           photoJson(
               number: 1,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-06T10:15:00'),
+              takenAt: '2026-10-05T12:30:15'),
           tapped,
           photoJson(
               number: 3,
@@ -50,11 +80,11 @@ void main() {
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
 
-    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await tester.tap(photoThumbnail('2026年10月6日 10:15'));
     await letFramesRun(tester);
 
     expect(find.text('北海道旭川市'), findsOneWidget);
-    expect(find.text('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('2026年10月6日 10:15'), findsOneWidget);
     semantics.dispose();
   });
 
@@ -69,11 +99,11 @@ void main() {
           photoJson(
               number: 1,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-06T10:15:00'),
+              takenAt: '2026-10-05T12:30:15'),
           photoJson(
               number: 2,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-05T12:30:15'),
+              takenAt: '2026-10-06T10:15:00'),
           photoJson(
               number: 3,
               tripId: hokkaidoTripId,
@@ -84,30 +114,26 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await tester.tap(photoThumbnail('2026年10月6日 10:15'));
     await letFramesRun(tester);
 
     await _swipe(tester, toNext: true);
 
     expect(find.text('2026年10月7日 18:45').hitTestable(), findsOneWidget);
-    expect(find.text('2026年10月5日 12:30').hitTestable(), findsNothing);
-
-    await _swipe(tester, toNext: false);
-
-    expect(find.text('2026年10月5日 12:30').hitTestable(), findsOneWidget);
+    expect(find.text('2026年10月6日 10:15').hitTestable(), findsNothing);
 
     await _swipe(tester, toNext: false);
 
     expect(find.text('2026年10月6日 10:15').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: false);
+
+    expect(find.text('2026年10月5日 12:30').hitTestable(), findsOneWidget);
     expect(find.text('2026年10月7日 18:45').hitTestable(), findsNothing);
     semantics.dispose();
   });
 
-  testWidgets(
-      '写真ビューアは、地名が無ければ緯度・経度を小数4桁で、位置情報が無ければ「位置情報なし」を、撮影日時が無ければ「撮影日時なし」を出す',
-      (tester) async {
-    // サムネイルの読み上げ用ラベルにも「撮影日時なし」が入るので、
-    // 画面に出ている Text だけを hitTestable で見分ける
+  testWidgets('写真ビューアは、地名が無ければ緯度・経度を小数4桁で出す', (tester) async {
     final semantics = tester.ensureSemantics();
     final coordinatesOnly = photoJson(
         number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
@@ -117,37 +143,40 @@ void main() {
         'placeName': null,
         'placeSource': null
       };
-    final needsRounding = photoJson(
-        number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00')
+
+    await _openViewerOn(tester, [coordinatesOnly], '2026年10月5日 12:30');
+
+    expect(find.text('43.7700, 142.3600').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('写真ビューアは、地名が無く小数が4桁を超える緯度・経度を、小数4桁で出す', (tester) async {
+    // 43.770649 は丸めても切り捨てても 43.7706 になるので、丸め方までは固定しない。4桁で出すことだけを見る
+    final semantics = tester.ensureSemantics();
+    final moreThanFourDigits = photoJson(
+        number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
       ..['location'] = {
         'latitude': 43.770649,
         'longitude': 142.360049,
         'placeName': null,
         'placeSource': null
       };
-    final noTakenAtNoLocation =
-        photoJson(number: 3, tripId: hokkaidoTripId, takenAt: null);
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 3)],
-      functionKey: 'test-key',
-      photosByTripId: {
-        hokkaidoTripId: [coordinatesOnly, needsRounding, noTakenAtNoLocation],
-      },
-    );
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
 
-    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
-    await letFramesRun(tester);
-
-    expect(find.text('43.7700, 142.3600').hitTestable(), findsOneWidget);
-
-    await _swipe(tester, toNext: true);
+    await _openViewerOn(tester, [moreThanFourDigits], '2026年10月5日 12:30');
 
     expect(find.text('43.7706, 142.3600').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
 
-    await _swipe(tester, toNext: true);
+  testWidgets('写真ビューアは、撮影日時が無ければ「撮影日時なし」を、位置情報が無ければ「位置情報なし」を出す',
+      (tester) async {
+    // サムネイルは撮影日時を読み上げ用ラベルとしてだけ持ち、Text は出さない
+    // （撮影日時の無いサムネイルのラベルは「撮影日時なし」）。よって find.text で見つかるのはビューアが出したもの
+    final semantics = tester.ensureSemantics();
+    final noTakenAtNoLocation =
+        photoJson(number: 1, tripId: hokkaidoTripId, takenAt: null);
+
+    await _openViewerOn(tester, [noTakenAtNoLocation], '撮影日時なし');
 
     expect(find.text('撮影日時なし').hitTestable(), findsOneWidget);
     expect(find.text('位置情報なし').hitTestable(), findsOneWidget);
@@ -220,19 +249,24 @@ void main() {
       },
     );
     await openTripsTab(tester, backend);
+    // 「まだ2ページ目を要求していない」を確かめるため、止める対象を2段にする。
+    // 2ページ目の応答だけを止めておく形では、1ページ目を読んだ時点で既に2ページ目を要求していても、
+    // 止める前に応答が済んでいれば「読み込み中...」が出ず、見逃す。
+    // 偽のサーバは要求が届いた時点で holds を読むので、1ページ目（A）を止めている間に 2ページ目用の止め（B）に差し替え、
+    // それから A を放す。1ページ目が済んだ後に出る要求は必ず B で止まり、末尾に「読み込み中...」が出る
+    final releaseFirstPage = Completer<void>();
+    final releaseSecondPage = Completer<void>();
+    backend.holds[TripRoute.photos] = releaseFirstPage.future;
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    // 2ページ目の応答を止めておく。グリッドが既に要求していれば、止まっている間は
-    // 末尾に「読み込み中...」が出るので、出ていないことで「まだ要求していない」を確かめる
-    // （偽のサーバに届いた一覧の要求の数は数えていないための間接的な確認）
-    final release = Completer<void>();
-    backend.holds[TripRoute.photos] = release.future;
-    await tester.pump();
+    backend.holds[TripRoute.photos] = releaseSecondPage.future;
+    releaseFirstPage.complete();
+    await letFramesRun(tester);
     expect(find.text('読み込み中...'), findsNothing);
     await tester.tap(photoThumbnail('2026年10月5日 10:15'));
     await letFramesRun(tester);
     expect(find.text('2026年10月5日 10:15').hitTestable(), findsOneWidget);
-    release.complete();
+    releaseSecondPage.complete();
     await letFramesRun(tester);
 
     for (var i = 0; i < 15; i++) {
@@ -248,7 +282,7 @@ void main() {
   });
 
   testWidgets('写真ビューアで画面をタップすると上のバーと下の情報が消え、もう一度タップすると出る', (tester) async {
-    // 上のバーは戻るボタンで見る（「削除」は未実装）。
+    // 上のバーは戻るボタンで見る（「削除」も同じバーにあり、同時に消える）。
     // 消えたことは、タップを受け取れる位置に無いこと（hitTestable）で確かめる
     final semantics = tester.ensureSemantics();
     final tapped = photoJson(
@@ -303,11 +337,11 @@ void main() {
           photoJson(
               number: 1,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-06T10:15:00'),
+              takenAt: '2026-10-05T12:30:15'),
           photoJson(
               number: 2,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-05T12:30:15'),
+              takenAt: '2026-10-06T10:15:00'),
           photoJson(
               number: 3,
               tripId: hokkaidoTripId,
@@ -318,7 +352,7 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await tester.tap(photoThumbnail('2026年10月6日 10:15'));
     await letFramesRun(tester);
     await tester.tap(
         find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
@@ -338,12 +372,13 @@ void main() {
     expect(
         backend.photosByTripId[hokkaidoTripId]!
             .map((photo) => photo['takenAt']),
-        ['2026-10-06T10:15:00', '2026-10-07T18:45:00']);
+        ['2026-10-05T12:30:15', '2026-10-07T18:45:00']);
     expect(find.text('写真を削除しました'), findsOneWidget);
     // 下の情報は「写真を削除しました」のスナックバーに覆われるので、hitTestable では見ない。
-    // PageView は画面に出ている1枚だけを組み立てるので、見つかる撮影日時は出している写真のもの
-    expect(find.text('2026年10月7日 18:45'), findsOneWidget);
-    expect(find.text('2026年10月5日 12:30'), findsNothing);
+    // 画面の中にあるのが次の写真（10/7）で、前の写真（10/5）でも削除した写真（10/6）でもないことを位置で見る
+    expect(_isOnScreen(tester, '2026年10月7日 18:45'), isTrue);
+    expect(_isOnScreen(tester, '2026年10月5日 12:30'), isFalse);
+    expect(_isOnScreen(tester, '2026年10月6日 10:15'), isFalse);
     semantics.dispose();
   });
 
@@ -399,11 +434,11 @@ void main() {
           photoJson(
               number: 1,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-06T10:15:00'),
+              takenAt: '2026-10-05T12:30:15'),
           photoJson(
               number: 2,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-05T12:30:15'),
+              takenAt: '2026-10-06T10:15:00'),
           photoJson(
               number: 3,
               tripId: hokkaidoTripId,
@@ -414,7 +449,7 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await tester.tap(photoThumbnail('2026年10月6日 10:15'));
     await letFramesRun(tester);
     await tester.tap(
         find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
@@ -425,9 +460,10 @@ void main() {
 
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('写真を削除しました'), findsOneWidget);
-    // 下の情報はスナックバーに覆われるので、hitTestable では見ない
-    expect(find.text('2026年10月7日 18:45'), findsOneWidget);
-    expect(find.text('2026年10月5日 12:30'), findsNothing);
+    // 下の情報はスナックバーに覆われるので、hitTestable では見ず、位置で見る
+    expect(_isOnScreen(tester, '2026年10月7日 18:45'), isTrue);
+    expect(_isOnScreen(tester, '2026年10月5日 12:30'), isFalse);
+    expect(_isOnScreen(tester, '2026年10月6日 10:15'), isFalse);
     semantics.dispose();
   });
 
@@ -442,11 +478,11 @@ void main() {
           photoJson(
               number: 1,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-06T10:15:00'),
+              takenAt: '2026-10-05T12:30:15'),
           photoJson(
               number: 2,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-05T12:30:15'),
+              takenAt: '2026-10-06T10:15:00'),
           photoJson(
               number: 3,
               tripId: hokkaidoTripId,
@@ -457,7 +493,7 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await tester.tap(photoThumbnail('2026年10月6日 10:15'));
     await letFramesRun(tester);
     await tester.tap(
         find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
@@ -470,11 +506,11 @@ void main() {
     expect(
         backend.photosByTripId[hokkaidoTripId]!
             .map((photo) => photo['takenAt']),
-        ['2026-10-06T10:15:00', '2026-10-05T12:30:15', '2026-10-07T18:45:00']);
+        ['2026-10-05T12:30:15', '2026-10-06T10:15:00', '2026-10-07T18:45:00']);
     expect(find.text('写真を削除しました'), findsNothing);
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.byType(PageView), findsOneWidget);
-    expect(find.text('2026年10月5日 12:30'), findsOneWidget);
+    expect(find.text('2026年10月6日 10:15'), findsOneWidget);
     semantics.dispose();
   });
 
@@ -489,11 +525,11 @@ void main() {
           photoJson(
               number: 1,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-06T10:15:00'),
+              takenAt: '2026-10-05T12:30:15'),
           photoJson(
               number: 2,
               tripId: hokkaidoTripId,
-              takenAt: '2026-10-05T12:30:15'),
+              takenAt: '2026-10-06T10:15:00'),
         ],
       },
     );
