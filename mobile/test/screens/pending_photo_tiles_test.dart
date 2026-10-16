@@ -142,4 +142,69 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+
+  testWidgets('送れた写真は一区切りまで印を付けずに端末の画像のまま並べ、一区切りで一覧を取り直してサーバの写真として並び直す',
+      (tester) async {
+    // 2枚を送り、1枚目は送れて、2枚目の応答は止める（一区切りは、送信の列が空になったとき）。
+    // 端末の画像のマスは、グリッドの中の FileImage の画像で見分ける（サーバの写真は CachedNetworkImage で、FileImage ではない）。
+    // 2枚の画像は撮影日時を持たないので、サーバの写真のうち送った2枚は「撮影日時なし」のラベルのマスで数える
+    // （旅行の見出しの「N枚 · 撮影日時なし」と混ざらないよう、ラベルの先頭で探す）
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final first = writeTestImage('first.png', bytes: [...tinyPngBytes, 1]);
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 2]);
+    useGalleryReturning([first, second]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
+      },
+    );
+    // 1回目の応答はすぐ返し、2回目の応答だけ止める（要求は届いた順に使う）
+    backend.holdNextReply(TripRoute.upload).complete();
+    final release = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final deviceImageTiles = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byWidgetPredicate((widget) =>
+            widget is Image &&
+            widget.image is ResizeImage &&
+            (widget.image as ResizeImage).imageProvider is FileImage));
+    final spinnerInGrid = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byType(CircularProgressIndicator));
+    final markInGrid =
+        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+    final sentPhotoTiles = find.bySemanticsLabel(RegExp('^撮影日時なし'));
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 2);
+    await letFramesRun(tester);
+
+    // 一区切りの前: 送れた1枚目も端末の画像のまま並び、印が付くのは送信中の2枚目だけ
+    expect(deviceImageTiles, findsNWidgets(2));
+    expect(spinnerInGrid, findsOneWidget);
+    expect(markInGrid, findsNothing);
+    expect(sentPhotoTiles, findsNothing);
+
+    release.complete();
+    await waitUntilFound(tester, sentPhotoTiles);
+    await letFramesRun(tester);
+
+    // 一区切りの後: 一覧を取り直してサーバの写真3枚になり、端末の画像と印は残らない
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(sentPhotoTiles, findsNWidgets(2));
+    expect(deviceImageTiles, findsNothing);
+    expect(spinnerInGrid, findsNothing);
+    expect(markInGrid, findsNothing);
+    // 後始末: 画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }
