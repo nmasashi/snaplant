@@ -131,6 +131,40 @@ Future<void> openDetailFromHome(WidgetTester tester, FakeTripBackend backend, {T
   await letFramesRun(tester);
 }
 
+/// 3枚の旅行の詳細を開き、見出しの取り直しを2つ重ねて、どちらの応答も返すのを止めた状態にする。
+/// 1つ目（古い方）は「編集」の保存、2つ目（新しい方）は写真の削除で、応答の中身は届いた時点で決まる。
+/// 古い方は削除の前に届くので3枚、新しい方は削除の後に届くので2枚を持つ。[olderFails] なら古い方は 503 になる。
+/// 返すのは（古い方の応答を返す Completer, 新しい方の Completer）
+Future<(Completer<void>, Completer<void>)> startOverlappingTripRefetches(WidgetTester tester, {bool olderFails = false}) async {
+  final backend = FakeTripBackend(
+    trips: [hokkaidoTrip(photoCount: 3)],
+    functionKey: _apiKey,
+    photosByTripId: {
+      hokkaidoTripId: [
+        photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+        photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+        photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+      ],
+    },
+  );
+  await openDetailFromHome(tester, backend);
+  if (olderFails) backend.failNext(TripRoute.detail);
+  final olderReply = backend.holdNextReply(TripRoute.detail);
+  final newerReply = backend.holdNextReply(TripRoute.detail);
+  final tripFetchesBefore = backend.tripFetchesReceived;
+  await openEditDialog(tester);
+  await enterTripName(tester, '北海道 2026冬');
+  await tapInDialog(tester, '保存');
+  expect(backend.tripFetchesReceived, tripFetchesBefore + 1);
+  await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+  await letFramesRun(tester);
+  await tester.tap(find.text('削除'));
+  await letFramesRun(tester);
+  await tapInDialog(tester, '削除');
+  expect(backend.tripFetchesReceived, tripFetchesBefore + 2);
+  return (olderReply, newerReply);
+}
+
 void main() {
   testWidgets('旅行詳細を開くと、写真の一覧の1ページ目の読み込み中は「写真を読み込み中...」を出し、読み込めたらサーバが返す順にサムネイルを並べる', (tester) async {
     // サムネイルの画像は、テスト環境の HTTP が返さないので見えない。並びは、各サムネイルの読み上げ用ラベル（撮影日時）の位置で見る。
@@ -1353,87 +1387,35 @@ void main() {
   });
 
   testWidgets('旅行詳細の見出しの取り直しが重なったときは、後から出した取得の結果を出し、先に出した遅い取得の結果で上書きしない', (tester) async {
-    // 1つ目の取り直しは「編集」の保存、2つ目は写真の削除。応答の中身は届いた時点で決まるので、
-    // 1つ目が届いた後に偽のサーバの枚数を書き換えて、1つ目は古い枚数（3枚）、2つ目は新しい枚数（5枚）を持たせる
+    // 古い取得は写真の削除の前に届くので3枚、新しい取得は削除の後に届くので2枚を持つ（偽のサーバが削除で枚数を1減らす）
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 3)],
-      functionKey: _apiKey,
-      photosByTripId: {
-        hokkaidoTripId: [
-          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
-          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
-          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
-        ],
-      },
-    );
-    await openDetailFromHome(tester, backend);
-    final olderReply = backend.holdNextReply(TripRoute.detail);
-    final newerReply = backend.holdNextReply(TripRoute.detail);
-    final tripFetchesBefore = backend.tripFetchesReceived;
-    await openEditDialog(tester);
-    await enterTripName(tester, '北海道 2026冬');
-    await tapInDialog(tester, '保存');
-    expect(backend.tripFetchesReceived, tripFetchesBefore + 1);
-    backend.trips.single['photoCount'] = 6;
-    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('削除'));
-    await letFramesRun(tester);
-    await tapInDialog(tester, '削除');
-    expect(backend.tripFetchesReceived, tripFetchesBefore + 2);
+    final (olderReply, newerReply) = await startOverlappingTripRefetches(tester);
 
     newerReply.complete();
     await letFramesRun(tester);
-    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('2枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
     olderReply.complete();
     await letFramesRun(tester);
 
-    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('2枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
     expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsNothing);
     semantics.dispose();
   });
 
   testWidgets('旅行詳細の見出しの取り直しが重なったとき、先に出した取得が遅れて失敗しても、後から出した取得の結果をエラーの表示で置き換えない', (tester) async {
-    // 1つ目の取り直しは「編集」の保存、2つ目は写真の削除。失敗の指定は1つ目の要求にだけ当たり（2つ目は成功する）、
-    // 応答の中身は届いた時点で決まるので、1つ目は 503 のまま遅れて返り、2つ目は先に新しい枚数（5枚）で返る
+    // 古い方を編集の保存にするのは、こちらだけが失敗でエラーを出す取得だから（写真の操作の後の取得は前の見出しを残すので、失敗の側の確かめに届かない）。
+    // 失敗の指定は古い方の要求にだけ当たり（新しい方は成功する）、古い方は 503 のまま遅れて返り、新しい方は先に削除の後の2枚で返る
     final semantics = tester.ensureSemantics();
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 3)],
-      functionKey: _apiKey,
-      photosByTripId: {
-        hokkaidoTripId: [
-          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
-          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
-          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
-        ],
-      },
-    );
-    await openDetailFromHome(tester, backend);
-    backend.failNext(TripRoute.detail);
-    final olderReply = backend.holdNextReply(TripRoute.detail);
-    final newerReply = backend.holdNextReply(TripRoute.detail);
-    final tripFetchesBefore = backend.tripFetchesReceived;
-    await openEditDialog(tester);
-    await enterTripName(tester, '北海道 2026冬');
-    await tapInDialog(tester, '保存');
-    expect(backend.tripFetchesReceived, tripFetchesBefore + 1);
-    backend.trips.single['photoCount'] = 6;
-    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('削除'));
-    await letFramesRun(tester);
-    await tapInDialog(tester, '削除');
-    expect(backend.tripFetchesReceived, tripFetchesBefore + 2);
+    final (olderReply, newerReply) = await startOverlappingTripRefetches(tester, olderFails: true);
 
     newerReply.complete();
     await letFramesRun(tester);
-    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('2枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
     olderReply.complete();
     await letFramesRun(tester);
 
     expect(find.text('エラーが発生しました'), findsNothing);
-    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('2枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
     expect(find.byIcon(Icons.more_vert), findsOneWidget);
     semantics.dispose();
   });
