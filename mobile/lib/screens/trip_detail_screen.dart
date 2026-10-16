@@ -211,15 +211,18 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     );
   }
 
+  /// この旅行宛ての写真だけを数える送信の進み具合バナー
+  Widget _uploadBanner() => UploadBanner(
+      uploadQueue: widget.uploadQueue,
+      includes: (tripId) => tripId == widget.tripId);
+
   Widget _buildBody(TripSummary? trip) {
     if (_tripDeleted) {
       // この旅行宛ての送信の失敗は「閉じる」で片付けられるように、バナーは出したままにする
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          UploadBanner(
-              uploadQueue: widget.uploadQueue,
-              includes: (tripId) => tripId == widget.tripId),
+          _uploadBanner(),
           const Expanded(child: Center(child: Text('この旅行は削除されています'))),
         ],
       );
@@ -250,10 +253,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             style: AppTextStyles.body1,
           ),
         ),
-        // その旅行宛ての写真だけを数える
-        UploadBanner(
-            uploadQueue: widget.uploadQueue,
-            includes: (tripId) => tripId == widget.tripId),
+        _uploadBanner(),
         Expanded(
           child: PhotoGrid(
             key: ValueKey(_gridVersion),
