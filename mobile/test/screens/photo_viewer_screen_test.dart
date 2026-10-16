@@ -430,4 +430,51 @@ void main() {
     expect(find.text('2026年10月5日 12:30'), findsNothing);
     semantics.dispose();
   });
+
+  testWidgets('写真ビューアで削除に失敗したら、ビューアに留まって写真を残し、エラーの文言を出す', (tester) async {
+    // 失敗しても確認ダイアログは開いたまま（もう一度確定するか、キャンセルできる）
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-06T10:15:00'),
+          photoJson(
+              number: 2,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-05T12:30:15'),
+          photoJson(
+              number: 3,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-07T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await letFramesRun(tester);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.deletePhoto);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(
+        backend.photosByTripId[hokkaidoTripId]!
+            .map((photo) => photo['takenAt']),
+        ['2026-10-06T10:15:00', '2026-10-05T12:30:15', '2026-10-07T18:45:00']);
+    expect(find.text('写真を削除しました'), findsNothing);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(PageView), findsOneWidget);
+    expect(find.text('2026年10月5日 12:30'), findsOneWidget);
+    semantics.dispose();
+  });
 }
