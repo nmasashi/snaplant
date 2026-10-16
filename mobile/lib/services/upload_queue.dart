@@ -245,8 +245,9 @@ class UploadQueue extends ChangeNotifier {
     for (final file in files) {
       // 準備の途中で設定が変わってこの列が捨てられたら、残りは準備しない（送らないので読むだけ無駄になる）
       if (_disposed) return;
-      // 宛先の送信が取り消された（旅行を削除した）。残りは準備しない（進み具合は取り消したときに外してある）
-      if (progress.canceled) return;
+      // 宛先の送信が取り消された（旅行を削除した）。残りは準備しない（進み具合は取り消したときに外してある）。
+      // それまでに読めなかった写真があれば、ループの後で呼び出し側へ伝える
+      if (progress.canceled) break;
       try {
         final prepared = await compute(_preparePhoto, file.path);
         final latitude = prepared.metadata.latitude;

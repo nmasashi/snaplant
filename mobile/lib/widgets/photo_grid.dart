@@ -119,6 +119,16 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadFirstPage();
   }
 
+  @override
+  void didUpdateWidget(PhotoGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 設定を変えると AppRoot が送信の列を作り直す。作り直されずに渡し直されたときも、新しい列を見る
+    if (oldWidget.uploadQueue != widget.uploadQueue) {
+      oldWidget.uploadQueue.removeListener(_onUploadQueueChanged);
+      widget.uploadQueue.addListener(_onUploadQueueChanged);
+    }
+  }
+
   /// 写真の一覧の取得が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）なら画面へ知らせて true を返す。
   /// 失敗として出さないのは、画面全体を「この旅行は削除されています」にするのが画面の役目だから（先頭・続き・読み直しのどれでも同じ）
   bool _notifyIfTripNotFound(Object error) {
