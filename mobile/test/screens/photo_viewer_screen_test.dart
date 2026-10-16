@@ -340,8 +340,10 @@ void main() {
             .map((photo) => photo['takenAt']),
         ['2026-10-06T10:15:00', '2026-10-07T18:45:00']);
     expect(find.text('写真を削除しました'), findsOneWidget);
-    expect(find.text('2026年10月7日 18:45').hitTestable(), findsOneWidget);
-    expect(find.text('2026年10月5日 12:30').hitTestable(), findsNothing);
+    // 下の情報は「写真を削除しました」のスナックバーに覆われるので、hitTestable では見ない。
+    // PageView は画面に出ている1枚だけを組み立てるので、見つかる撮影日時は出している写真のもの
+    expect(find.text('2026年10月7日 18:45'), findsOneWidget);
+    expect(find.text('2026年10月5日 12:30'), findsNothing);
     semantics.dispose();
   });
 }
