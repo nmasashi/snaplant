@@ -2,9 +2,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
+import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/taken_at.dart';
+import '../widgets/confirm_action_dialog.dart';
 
 /// 写真ビューア（docs/travel-album/03_screen_design.md §4.6）
 ///
@@ -12,9 +14,13 @@ import '../utils/taken_at.dart';
 class PhotoViewerScreen extends StatefulWidget {
   const PhotoViewerScreen(
       {super.key,
+      required this.apiService,
       required this.photos,
       required this.initialIndex,
-      required this.onReachEnd});
+      required this.onReachEnd,
+      required this.onDeleted});
+
+  final ApiService apiService;
 
   /// 一覧の読み込み済みの写真（一覧と共有する。一覧が続きのページを読むと伸びる）
   final ValueListenable<List<Photo>> photos;
@@ -24,6 +30,9 @@ class PhotoViewerScreen extends StatefulWidget {
 
   /// 読み込み済みの末尾の写真まで来たときに呼ぶ（一覧が続きのページを読む）
   final VoidCallback onReachEnd;
+
+  /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
+  final void Function(String photoId) onDeleted;
 
   @override
   State<PhotoViewerScreen> createState() => _PhotoViewerScreenState();
@@ -40,6 +49,30 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     super.dispose();
   }
 
+  /// 今出している写真を、確かめてから削除する
+  Future<void> _deleteCurrent() async {
+    final photos = widget.photos.value;
+    final photo = photos[_pageController.page!.round()];
+    final deleted = await showDialog<bool>(
+      context: context,
+      builder: (context) => ConfirmActionDialog<bool>(
+        title: '写真を削除',
+        message: 'この写真を削除しますか？\nこの操作は元に戻せません。',
+        confirmLabel: '削除',
+        busyLabel: '削除中...',
+        failureMessage: '写真の削除に失敗しました',
+        onConfirm: () async {
+          await widget.apiService.deletePhoto(photo.id);
+          return true;
+        },
+      ),
+    );
+    if (deleted != true || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('写真を削除しました')));
+    widget.onDeleted(photo.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -48,6 +81,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
           ? AppBar(
               backgroundColor: Colors.black54,
               foregroundColor: Colors.white,
+              actions: [
+                TextButton(
+                  onPressed: _deleteCurrent,
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: const Text('削除'),
+                ),
+              ],
             )
           : null,
       body: GestureDetector(

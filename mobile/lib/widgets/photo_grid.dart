@@ -193,6 +193,14 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadMore();
   }
 
+  /// 写真ビューアで消した写真を、読み込み済みの写真から除く
+  void _removeLoaded(String photoId) {
+    setState(() {
+      _photos = [...?_photos?.where((p) => p.id != photoId)];
+      _loaded.value = _photos!;
+    });
+  }
+
   /// 写真ビューアを開く（一覧の写真を [index] の位置から）
   void _openViewer(int index) {
     Navigator.push(
@@ -200,7 +208,11 @@ class _PhotoGridState extends State<PhotoGrid> {
         MaterialPageRoute(
             builder: (_) =>
                 PhotoViewerScreen(
-                photos: _loaded, initialIndex: index, onReachEnd: _loadMore)));
+                apiService: widget.apiService,
+                photos: _loaded,
+                initialIndex: index,
+                onReachEnd: _loadMore,
+                onDeleted: _removeLoaded)));
   }
 
   /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
