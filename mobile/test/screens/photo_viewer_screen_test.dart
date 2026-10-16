@@ -281,6 +281,52 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('続きのページが残っているとき、写真ビューアで読み込んだ末尾の写真を削除しても一覧へ戻らず、続きを読んで次の写真へ移る',
+      (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
+    // 10:30 は読み込み済みの末尾だが、本当の末尾ではない（続きがある）。
+    // 2ページ目の応答を止めたまま 10:30 を開いて削除を確定し、確定のあとで放す。
+    // 止めている間にどの写真を出すかは固定せず、放したあとに 10:31 が画面に出ていることだけを見る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final release = Completer<void>();
+    backend.holds[TripRoute.photos] = release.future;
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.byType(PageView), findsOneWidget);
+    release.complete();
+    await letFramesRun(tester);
+    expect(find.byType(PageView), findsOneWidget);
+    expect(_isOnScreen(tester, '2026年10月5日 10:31'), isTrue);
+    expect(_isOnScreen(tester, '2026年10月5日 10:30'), isFalse);
+    semantics.dispose();
+  });
+
   testWidgets('写真ビューアで画面をタップすると上のバーと下の情報が消え、もう一度タップすると出る', (tester) async {
     // 上のバーは戻るボタンで見る（「削除」も同じバーにあり、同時に消える）。
     // 消えたことは、タップを受け取れる位置に無いこと（hitTestable）で確かめる
