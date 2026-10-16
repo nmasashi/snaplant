@@ -143,8 +143,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       builder: (context) => TripDeleteDialog(
         tripName: trip.name,
         photoCount: trip.photoCount,
-        onDelete: (deletePhotos) =>
-            widget.apiService.deleteTrip(trip.id, deletePhotos: deletePhotos),
+        onDelete: (deletePhotos) {
+          // 削除を確定したら、この旅行宛ての送信を取り消してから消す（消した旅行へ送り続けない）
+          widget.uploadQueue.cancelTrip(trip.id);
+          return widget.apiService
+              .deleteTrip(trip.id, deletePhotos: deletePhotos);
+        },
       ),
     );
     if (result == null || !mounted) return;

@@ -183,6 +183,9 @@ class UploadQueue extends ChangeNotifier {
   // 404 TRIP_NOT_FOUND を受けた送り先。後から準備が済んだ同じ宛先の写真は、送っても同じ結果なので送らずに失敗にする
   // （旅行の id は作り直されないので、消えた宛先を覚え続けても困らない。「送り直す」では利用者が試すので忘れる）
   final Set<String?> _missingTrips = {};
+
+  // 送信を取り消した宛先（旅行を削除した）。準備が済んでも列に入れず、送信中だった写真の結果も知らせない
+  final Set<String?> _canceledTrips = {};
   static const _tripNotFoundReason = '旅行が見つかりません';
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
@@ -252,10 +255,13 @@ class UploadQueue extends ChangeNotifier {
           thumbnail: thumbnail,
           placeName: placeName,
         );
-        _items.add(item);
-        if (_missingTrips.contains(tripId)) {
+        if (_canceledTrips.contains(tripId)) {
+          // 準備の間に宛先の送信が取り消された（旅行を削除した）。送らずに捨てる
+        } else if (_missingTrips.contains(tripId)) {
+          _items.add(item);
           _fail(item, _tripNotFoundReason);
         } else {
+          _items.add(item);
           _states[item] = UploadState.waiting;
         }
       } catch (e) {
@@ -342,6 +348,8 @@ class UploadQueue extends ChangeNotifier {
           // 待つ間も送信中のまま（バナーは失敗の行にしない。同時に送る枠もふさいだまま）
           await Future.delayed(_retryDelays[attempt]);
           if (_disposed) return;
+          // 待っている間に宛先の送信が取り消された（旅行を削除した）。送らない
+          if (_canceledTrips.contains(item.tripId)) break;
           // 待っている間に、同じ宛先の別の写真で送り先が消えたと分かった。送っても同じ結果なので送らない
           if (_missingTrips.contains(item.tripId)) {
             _fail(item, _tripNotFoundReason);
@@ -367,6 +375,8 @@ class UploadQueue extends ChangeNotifier {
     }
     // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
     if (_disposed) return;
+    // 送っている間に宛先の送信が取り消された。結果は知らせない（送れたかどうかも、失敗も数えない）
+    if (_canceledTrips.contains(item.tripId)) _forget(item);
     _finishBatchIfIdle();
     notifyListeners();
     _pump();
@@ -423,6 +433,28 @@ class UploadQueue extends ChangeNotifier {
       _failures.remove(item);
     }
     notifyListeners();
+  }
+
+  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/travel-album/03_screen_design.md §4.4）。
+  /// 送信待ち・失敗・送れた写真は列から消し、準備中の写真は準備が済んでも入れない。
+  /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
+  void cancelTrip(String tripId) {
+    _canceledTrips.add(tripId);
+    final canceled = [
+      for (final item in _items)
+        if (item.tripId == tripId && _states[item] != UploadState.sending) item
+    ];
+    canceled.forEach(_forget);
+    _finishBatchIfIdle();
+    notifyListeners();
+  }
+
+  /// 列から写真を跡形なく消す（失敗にも完了にも数えない）
+  void _forget(UploadItem item) {
+    _items.remove(item);
+    _states.remove(item);
+    _failures.remove(item);
+    _alreadyElsewhere.remove(item);
   }
 
   @override
