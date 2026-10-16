@@ -3058,4 +3058,114 @@ void main() {
     expect(backend.uploadsReceived, 3);
     expect(find.text('3枚を送信しました'), findsOneWidget);
   });
+
+  testWidgets('写真を準備中のあいだも、この旅行宛ての送信が進んでいるものとして、「削除」を選ぶと旅行の削除の前に「送信中の写真があります。送信を止めて削除しますか？」と確かめる', (tester) async {
+    // 準備を止める: 位置情報のある写真の Geocoder が固まる（5秒の時間切れまで準備中のまま。フェイクの時間で進める）。まだ1枚も送信の列に入っていない
+    final geocoding = useFakeGeocoding(hangs: true);
+    final image = writeTestImage('nagano.jpg', bytes: exifJpegBytes(latitude: [36, 39, 0], longitude: [138, 11, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilLookedUp(tester, geocoding, 1);
+    await tester.pump();
+    expect(backend.uploadsReceived, 0);
+
+    await openDeleteDialog(tester);
+
+    expect(inDialog(find.text('送信中の写真があります。送信を止めて削除しますか？')), findsOneWidget);
+    expect(find.textContaining('を削除しますか？'), findsNothing);
+    // 後片付け: 確認を閉じ、準備の時間切れを過ぎて送信を終わらせる（時間切れのタイマーを、テストの終わりに残さない）。
+    // 届いた写真は偽のサーバから取り除く（サムネイルを出して、実時間の待ちで path_provider を探して落ちないように）
+    await tapInDialog(tester, 'キャンセル');
+    await tester.pump(const Duration(seconds: 5));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    backend.photosByTripId[hokkaidoTripId]?.clear();
+    await letFramesRun(tester);
+  });
+
+  testWidgets('この旅行宛ての写真がサーバの失敗（500）で失敗しているだけなら、「削除」を選んでも送信を止める確認は出さず、旅行の削除のダイアログを出す', (tester) async {
+    // 失敗した写真は自動では送り直されず、進行中の送信ではない（バナーの「送り直す」「閉じる」は利用者が選ぶ）
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    expect(find.text('1枚を送信できませんでした（$serverErrorMessage）'), findsOneWidget);
+
+    await openDeleteDialog(tester);
+
+    expect(find.text('送信中の写真があります。送信を止めて削除しますか？'), findsNothing);
+    expect(find.textContaining('を削除しますか？'), findsOneWidget);
+  });
+
+  testWidgets('写真を準備している最中に送信を止めて削除したら、準備が済んでもその写真は送らず、失敗にも完了の知らせにも数えない', (tester) async {
+    // 準備を止める: 位置情報のある写真の Geocoder が固まる（フェイクの時間で5秒進めると準備が済む）。準備中に削除を確定し、そのあとで準備を済ませる
+    final geocoding = useFakeGeocoding(hangs: true);
+    final image = writeTestImage('nagano.jpg', bytes: exifJpegBytes(latitude: [36, 39, 0], longitude: [138, 11, 0]));
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilLookedUp(tester, geocoding, 1);
+    await tester.pump();
+    await openDeleteDialog(tester);
+    await tapInDialog(tester, '削除');
+    await tapInDialog(tester, '削除');
+    expect(find.byType(TripDetailScreen), findsNothing);
+    expect(find.textContaining('旅行を削除しました'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await _waitRealTime(tester);
+    // スナックバーは順に出るので、「旅行を削除しました」が消えるまで進めてから、送信の知らせが出ていないことを見る
+    await tester.pump(const Duration(seconds: 5));
+    await letFramesRun(tester);
+
+    expect(backend.uploadsReceived, 0);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+    expect(find.textContaining('枚を送信しました'), findsNothing);
+  });
+
+  testWidgets('送り直しを待っている写真があるときに送信を止めて削除したら、待ちが過ぎても送り直さない', (tester) async {
+    // 1回目が 503 で失敗して2秒の待ちに入る。待ちの間（2秒より手前）に削除を確定する。
+    // openDeleteDialog や tapInDialog は画面を1.5秒ずつ進めて待ちを過ぎてしまうので、ここでは300ミリ秒ずつ進める
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await _letUploadFail(tester, backend, 1);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('削除'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(inDialog(find.text('削除')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(inDialog(find.text('削除')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.byType(TripDetailScreen), findsNothing);
+    await _waitRealTime(tester);
+
+    expect(backend.uploadsReceived, 1);
+  });
 }
