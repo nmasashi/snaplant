@@ -189,6 +189,9 @@ class UploadQueue extends ChangeNotifier {
 
   // 送信を取り消した宛先（旅行を削除した）。準備が済んでも列に入れず、送信中だった写真の結果も知らせない
   final Set<String?> _canceledTrips = {};
+
+  // 取り消したときに送信中（送り直しの待ちを含む）だった写真。取り消しが解かれても送らず、結果も知らせない
+  final Set<UploadItem> _canceledItems = {};
   static const _tripNotFoundReason = '旅行が見つかりません';
   // 破棄した後に、送信や準備の途中の処理が終わっても、通知も送信もしない
   bool _disposed = false;
@@ -354,7 +357,10 @@ class UploadQueue extends ChangeNotifier {
           await Future.delayed(_retryDelays[attempt]);
           if (_disposed) return;
           // 待っている間に宛先の送信が取り消された（旅行を削除した）。送らない
-          if (_canceledTrips.contains(item.tripId)) break;
+          if (_canceledTrips.contains(item.tripId) ||
+              _canceledItems.contains(item)) {
+            break;
+          }
           // 待っている間に、同じ宛先の別の写真で送り先が消えたと分かった。送っても同じ結果なので送らない
           if (_missingTrips.contains(item.tripId)) {
             _fail(item, _tripNotFoundReason);
@@ -381,7 +387,9 @@ class UploadQueue extends ChangeNotifier {
     // 送っている間に設定が変わって、この列が捨てられた（前の設定の送信の結果は知らせない）
     if (_disposed) return;
     // 送っている間に宛先の送信が取り消された。結果は知らせない（送れたかどうかも、失敗も数えない）
-    if (_canceledTrips.contains(item.tripId)) _forget(item);
+    if (_canceledTrips.contains(item.tripId) || _canceledItems.remove(item)) {
+      _forget(item);
+    }
     _finishBatchIfIdle();
     notifyListeners();
     _pump();
@@ -445,6 +453,8 @@ class UploadQueue extends ChangeNotifier {
   /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
   void cancelTrip(String tripId) {
     _canceledTrips.add(tripId);
+    _canceledItems.addAll(_items.where((item) =>
+        item.tripId == tripId && _states[item] == UploadState.sending));
     // 準備中の写真は、残りを準備しない。進み具合も外す（「写真を準備中」を出し続けず、一区切りも待たせない）
     for (final progress in _preparations.where((p) => p.tripId == tripId)) {
       progress.canceled = true;
