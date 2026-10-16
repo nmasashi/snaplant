@@ -288,8 +288,7 @@ void main() {
     // 2ページ目の応答を止めたまま 10:30 を開いて削除を確定し、確定のあとで放す。
     // 止めている間にどの写真を出すかは固定せず、放したあとに 10:31 が画面に出ていることだけを見る。
     // 2ページ目は削除より前に届いた要求なので、中身は届いた時点で決める（holdNextReply）。
-    // holds だと放した時点の状態で決まり、偽のサーバの継続トークンは開始位置なので、削除で詰まった 10:31 を飛ばしてしまう
-    // （本物の継続トークンは並び順の位置で続きを返すので、前の写真を消しても飛ばさない）
+    // 応答だけを止めて、削除の確定より後に放す
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 33)],
@@ -326,6 +325,59 @@ void main() {
     expect(find.byType(PageView), findsOneWidget);
     expect(_isOnScreen(tester, '2026年10月5日 10:31'), isTrue);
     expect(_isOnScreen(tester, '2026年10月5日 10:30'), isFalse);
+    semantics.dispose();
+  });
+
+  testWidgets('写真ビューアで削除して後ろの写真が読み込み済みの末尾に詰まったら、一覧が次のページを読み、続けてスワイプできる',
+      (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
+    // グリッドは送らずに10:15を開き、末尾から2枚目の10:29まで進む。10:29は読み込み済みの末尾ではないので、まだ続きは読まれない。
+    // 10:29を削除すると10:30が今の位置に詰まって読み込み済みの末尾になるが、ページの位置は変わらない。
+    // 2ページ目の止め方は上のテストと同じ（1ページ目の止めを2ページ目の止めに差し替える）。
+    // 2ページ目の要求は削除のあとに届く。続きは並び順の位置から返るので、前の写真を消しても飛ばさず、
+    // 次に出る写真は10:31になる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    final releaseFirstPage = Completer<void>();
+    final releaseSecondPage = Completer<void>();
+    backend.holds[TripRoute.photos] = releaseFirstPage.future;
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.photos] = releaseSecondPage.future;
+    releaseFirstPage.complete();
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:15'));
+    await letFramesRun(tester);
+    for (var i = 0; i < 14; i++) {
+      await _swipe(tester, toNext: true);
+    }
+    expect(find.text('2026年10月5日 10:29').hitTestable(), findsOneWidget);
+    expect(find.text('読み込み中...'), findsNothing);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '削除');
+    expect(_isOnScreen(tester, '2026年10月5日 10:30'), isTrue);
+    releaseSecondPage.complete();
+    await letFramesRun(tester);
+
+    await _swipe(tester, toNext: true);
+
+    expect(_isOnScreen(tester, '2026年10月5日 10:31'), isTrue);
     semantics.dispose();
   });
 
