@@ -120,6 +120,24 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 旅行を削除する（中の写真をどうするかはダイアログで選ぶ）。削除できたら前の画面に戻る
   Future<void> _deleteTrip(TripSummary trip) async {
+    // 送信中の写真があれば、削除のダイアログの前に送信を止めてよいか確かめる
+    if (widget.uploadQueue.isActiveFor(trip.id)) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          content: const Text('送信中の写真があります。送信を止めて削除しますか？'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('削除')),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
     final result = await showDialog<TripDeleteResult>(
       context: context,
       builder: (context) => TripDeleteDialog(

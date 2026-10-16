@@ -274,6 +274,14 @@ class UploadQueue extends ChangeNotifier {
     if (failure != null) throw failure;
   }
 
+  /// [tripId] 宛ての送信が進行中か（準備中・送信待ち・送信中・送り直し待ちの写真がある）。失敗した写真は数えない
+  bool isActiveFor(String? tripId) =>
+      _preparations.any((p) => p.tripId == tripId) ||
+      _items.any((i) =>
+          i.tripId == tripId &&
+          (_states[i] == UploadState.waiting ||
+              _states[i] == UploadState.sending));
+
   int _count(UploadState state) =>
       _states.values.where((s) => s == state).length;
 
