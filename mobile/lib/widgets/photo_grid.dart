@@ -350,9 +350,7 @@ class _PhotoGridState extends State<PhotoGrid> {
                 if (index >= photos.length) {
                   final item = pending[index - photos.length];
                   return _PendingTile(
-                      item: item,
-                      failed: widget.uploadQueue.stateOf(item) ==
-                          UploadState.failed);
+                      item: item, state: widget.uploadQueue.stateOf(item));
                 }
                 // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
                 if (index >= photos.length - _loadMoreThreshold &&
@@ -492,12 +490,12 @@ class _PhotoTile extends StatelessWidget {
 
 /// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/travel-album/03_screen_design.md §4.4）
 class _PendingTile extends StatelessWidget {
-  const _PendingTile({required this.item, required this.failed});
+  const _PendingTile({required this.item, required this.state});
 
   final UploadItem item;
 
-  /// 送れなかった（「!」を出す）。そうでなければ送信待ち・送信中・送り直し待ち（回転する印を出す）
-  final bool failed;
+  /// 送れなかったら「!」、送れたら印なし（一区切りまでそのまま並べる）、それ以外（送信待ち・送信中・送り直し待ち）は回転する印
+  final UploadState state;
 
   @override
   Widget build(BuildContext context) {
@@ -507,15 +505,16 @@ class _PendingTile extends StatelessWidget {
         child: Image.file(File(item.path),
             fit: BoxFit.cover, cacheWidth: _tileDecodeWidth),
       ),
-      Center(
-        child: failed
-            ? const Text('!',
-                style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.error))
-            : const CircularProgressIndicator(),
-      ),
+      if (state == UploadState.failed)
+        const Center(
+          child: Text('!',
+              style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.error)),
+        )
+      else if (state != UploadState.done)
+        const Center(child: CircularProgressIndicator()),
     ]);
   }
 }
