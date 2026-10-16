@@ -115,6 +115,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     // 読み込み済みの写真を使い切った。続きのページがあれば読ませて、届いたら次の写真へ移る
     if (widget.hasMore()) {
       _pendingIndex = index;
+      // 末尾の写真に来た時点で、ふつうは一覧（グリッドかビューア）が続きを読み始めている。
+      // 念のため頼んでおく（読んでいる最中や失敗の後なら一覧の側で何もしない）
       widget.onReachEnd();
       return;
     }
