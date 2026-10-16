@@ -2946,7 +2946,8 @@ void main() {
     expect(inDialog(find.text('送信中の写真があります。送信を止めて削除しますか？')), findsOneWidget);
     expect(inDialog(find.text('キャンセル')), findsOneWidget);
     expect(inDialog(find.text('削除')), findsOneWidget);
-    expect(find.textContaining('を削除しますか？'), findsOneWidget);
+    // 旅行の削除のダイアログ（0枚なら「「北海道 2026秋」を削除しますか？」）はまだ出ていない
+    expect(find.textContaining('を削除しますか？'), findsNothing);
     expect(find.text('旅行を削除'), findsNothing);
 
     await tapInDialog(tester, 'キャンセル');
