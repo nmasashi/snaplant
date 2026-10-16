@@ -42,6 +42,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   late final _pageController = PageController(initialPage: widget.initialIndex);
   // 上のバーと下の情報を出しているか（画面のタップで切り替える）
   bool _showChrome = true;
+  // 今の写真を拡大している（拡大中はスワイプで前後に移らず、画像を動かす）
+  bool _zoomed = false;
 
   @override
   void dispose() {
@@ -104,12 +106,17 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
           valueListenable: widget.photos,
           builder: (context, photos, _) => PageView.builder(
             controller: _pageController,
+            physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
             itemCount: photos.length,
             onPageChanged: (index) {
               if (index == photos.length - 1) widget.onReachEnd();
             },
-            itemBuilder: (context, index) =>
-                _PhotoPage(photo: photos[index], showInfo: _showChrome),
+            itemBuilder: (context, index) => _PhotoPage(
+                photo: photos[index],
+                showInfo: _showChrome,
+                onZoomChanged: (zoomed) {
+                  if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+                }),
           ),
         ),
       ),
@@ -127,28 +134,74 @@ String _placeText(Photo photo) {
   return '${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)}';
 }
 
-/// 写真1枚の画面（原寸の画像と、下の情報）
-class _PhotoPage extends StatelessWidget {
-  const _PhotoPage({required this.photo, required this.showInfo});
+/// 写真1枚の画面（原寸の画像と、下の情報）。ピンチで拡大できる
+class _PhotoPage extends StatefulWidget {
+  const _PhotoPage(
+      {required this.photo,
+      required this.showInfo,
+      required this.onZoomChanged});
 
   final Photo photo;
 
   /// 下の情報を出すか
   final bool showInfo;
 
+  /// 拡大したか・等倍に戻ったかを知らせる（拡大中は前後の写真へのスワイプを止める）
+  final ValueChanged<bool> onZoomChanged;
+
+  @override
+  State<_PhotoPage> createState() => _PhotoPageState();
+}
+
+class _PhotoPageState extends State<_PhotoPage> {
+  final _transformation = TransformationController();
+  bool _zoomed = false;
+
+  @override
+  void dispose() {
+    _transformation.dispose();
+    super.dispose();
+  }
+
+  /// 指を離したときの倍率で、拡大中かを決める
+  void _onInteractionEnd(ScaleEndDetails details) {
+    final zoomed = _transformation.value.getMaxScaleOnAxis() > 1.01;
+    if (zoomed == _zoomed) return;
+    setState(() => _zoomed = zoomed);
+    widget.onZoomChanged(zoomed);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final photo = widget.photo;
+    final thumbnailUrl = photo.thumbnailUrl;
     return Column(
       children: [
         Expanded(
-          child: CachedNetworkImage(
-            imageUrl: photo.imageUrl,
-            cacheKey: imageCacheKey(photo.id),
-            cacheManager: PhotoCacheManager.images,
-            fit: BoxFit.contain,
+          child: InteractiveViewer(
+            transformationController: _transformation,
+            maxScale: 4,
+            // 等倍の間は1本指の動きを前後の写真へのスワイプに譲る
+            panEnabled: _zoomed,
+            onInteractionEnd: _onInteractionEnd,
+            child: CachedNetworkImage(
+              imageUrl: photo.imageUrl,
+              cacheKey: imageCacheKey(photo.id),
+              cacheManager: PhotoCacheManager.images,
+              fit: BoxFit.contain,
+              // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す
+              placeholder: (context, url) => thumbnailUrl == null
+                  ? const SizedBox.shrink()
+                  : CachedNetworkImage(
+                      imageUrl: thumbnailUrl,
+                      cacheKey: thumbnailCacheKey(photo.id),
+                      cacheManager: PhotoCacheManager.thumbnails,
+                      fit: BoxFit.contain,
+                    ),
+            ),
           ),
         ),
-        if (showInfo)
+        if (widget.showInfo)
           Container(
             width: double.infinity,
             color: Colors.black54,
