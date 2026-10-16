@@ -52,7 +52,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   /// 今出している写真を、確かめてから削除する
   Future<void> _deleteCurrent() async {
     final photos = widget.photos.value;
-    final photo = photos[_pageController.page!.round()];
+    final index = _pageController.page!.round();
+    final photo = photos[index];
     final deleted = await showDialog<bool>(
       context: context,
       builder: (context) => ConfirmActionDialog<bool>(
@@ -71,6 +72,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('写真を削除しました')));
     widget.onDeleted(photo.id);
+    // 次の写真が無ければ（最後の1枚なら）一覧へ戻る
+    if (index == photos.length - 1) Navigator.pop(context);
   }
 
   @override
