@@ -514,4 +514,38 @@ void main() {
     expect(photoThumbnail('2026年10月7日 18:45'), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('旅行に属さない写真の画面でも、写真をタップするとビューアが開き、戻ると一覧と枚数を読み直す', (tester) async {
+    // §4.5: 旅行詳細と同じ部品なので、ビューアも戻ったときの読み直しも同じ。
+    // 見出しの枚数は旅行の一覧（GET /api/trips）の unassignedPhotoCount から取り直す。
+    // ビューアを開いている間に、別の端末で旅行に属さない写真が1枚増えた状況
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip()],
+      unassignedPhotoCount: 2,
+      photosByTripId: {
+        'none': [
+          photoJson(number: 1, takenAt: '2026-09-01T10:15:00'),
+          photoJson(number: 2, takenAt: '2026-09-02T12:30:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(find.text('2枚'), findsOneWidget);
+    await tester.tap(photoThumbnail('2026年9月2日 12:30'));
+    await letFramesRun(tester);
+    expect(find.text('2026年9月2日 12:30').hitTestable(), findsOneWidget);
+    backend.photosByTripId['none']!
+        .add(photoJson(number: 3, takenAt: '2026-09-03T18:45:00'));
+    backend.unassignedPhotoCount = 3;
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    expect(find.text('3枚'), findsOneWidget);
+    expect(photoThumbnail('2026年9月3日 18:45'), findsOneWidget);
+    semantics.dispose();
+  });
 }
