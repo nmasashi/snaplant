@@ -331,4 +331,40 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+
+  testWidgets('写真が0枚の旅行でも、並べる端末の画像があれば「まだ写真がありません」ではなく端末の画像のマスを出す',
+      (tester) async {
+    // 端末の画像のマスは、グリッドの中の回転する印（CircularProgressIndicator）で見分ける。
+    // 空の表示はグリッドではなく文言なので、印がグリッドの中にあれば、空の表示ではなくグリッドが出ている
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 0)],
+      functionKey: _apiKey,
+      photosByTripId: {hokkaidoTripId: []},
+    );
+    final release = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final spinnerInGrid = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byType(CircularProgressIndicator));
+    expect(find.text('まだ写真がありません'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+
+    expect(find.text('まだ写真がありません'), findsNothing);
+    expect(spinnerInGrid, findsOneWidget);
+    // 後始末: 送信を終わらせ、完了の知らせと画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    release.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 1);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }
