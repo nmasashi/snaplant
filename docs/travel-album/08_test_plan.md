@@ -64,7 +64,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | `MockClient`（`package:http/testing.dart`） | `ApiService` の新メソッドと `UploadQueue`。メソッドとパスが一致したときだけ応答し、それ以外は 404。`content-type: application/json` を付ける |
 | `image_picker_platform_interface` の偽物 | `pickMultiImage()` の差し替え（既存の `camera_screen_test.dart` と同じ形） |
 | 小さな JPEG の資産 | EXIF（撮影日時・GPS あり/なし）を持つ数 KB の JPEG を `test/assets/` に置き、EXIF の読み取りとハッシュの固定値に使う |
-| `Geocoder` | `geocoding` の `GeocodingPlatform` を差し替える（可能か要確認。できなければ `UploadQueue` に `reverseGeocode` の関数を注入する） |
+| `Geocoder` | `geocoding_platform_interface` の `GeocodingPlatformFactory.instance` を偽物に差し替える（`test/helpers/geocoding_test_helpers.dart`。知っている場所の近くには結果を返し、知らない場所には空のリスト。失敗・応答しないも作れる。引いた座標を残す） |
+| 画像の圧縮（サムネイル） | `flutter_image_compress` の `FlutterImageCompressPlatform.instance` を偽物に差し替える（`test/helpers/image_compress_test_helpers.dart`。Android の実装と同じ規則で、渡された最小の幅・高さから作る寸法を決め、寸法・画質・形式を結果として残す。EXIF の回転は再現しない） |
 
 ## 3. 段階2のシナリオ一覧（api）
 
@@ -253,7 +254,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 | 順 | 確かめること | 手順 | 崩れたときの症状 |
 |---|---|---|---|
 | 1 | **ハッシュの決定性**（最初に） | 同じ写真をギャラリーから 2 回選び、`photoId` が一致するか。一致しなければ縮小なしに切り替える | 同じ写真が 2 枚入る |
-| 2 | `pickMultiImage` での EXIF と向き | 複数選択した写真の撮影日時・位置情報が読め、表示の向きが正しい | 日時なし・横倒し |
+| 2 | `pickMultiImage` での EXIF と向き | 複数選択した写真の撮影日時・位置情報が読め、表示の向きが正しい。縦で撮った写真のサムネイルが縦長（240×320）で、長辺が 320 を超えない（向きの補正の前後で縦横を取り違えると 320×426 になる。テストの偽物は回転を再現しない） | 日時なし・横倒し・サムネイルが大きい |
 | 3 | 端末の Geocoder | 位置情報のある写真で市区町村まで出るか。機内モードで `null` になり送信が止まらないか | 地名が出ない・送信が止まる |
 | 4 | SAS で表示できる | 旅行詳細のサムネイルと原寸が出る。61 分放置して 403 になった後、下に引っ張れば復帰する | 画像が出ない |
 | 5 | 300 枚の送信 | 完走する時間、失敗の枚数、電池。画面を移っても続く。結果を `docs/09_backlog.md` に記録 | 途中で止まる |

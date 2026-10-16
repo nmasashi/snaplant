@@ -219,7 +219,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `deploy-functions.yml` | `main` へのマージで本番デプロイ（既存）。**`@azure/storage-queue`（段階3）は `dependencies` に置く**。`npm prune --omit=dev` で外れると本番で読み込みに失敗する |
 | `terraform.yml` | `infrastructure/**` の変更で `fmt -check`・`validate`。`plan` は回らない |
 | `audit.yml` | `package*.json` の変更で `npm audit`。新しい依存を足すと走る |
-| `mobile/` | **CI の対象外のまま。** PR のマージ前にローカルで `flutter analyze` / `flutter test` を通す。段階0で CI に入れるのが先（`docs/09_backlog.md`） |
+| `flutter.yml` | `mobile/**` の変更で `flutter analyze`（info も含めて指摘があれば失敗）と `flutter test`（`TZ=Asia/Tokyo`）。本番デプロイの前提にはしていない。PR のマージ前にローカルでも回す |
 
 - デプロイの順序: **インフラ（apply）→ API（マージでデプロイ）→ アプリ（実機にインストール）**。API が先だと `COSMOS_DB_ALBUM_CONTAINER` が無く起動時に失敗する。
   段階2の API は `AlbumService` のコンストラクタで環境変数を読むので、`album` が無い状態でデプロイすると旅行・写真の関数だけが 500 になり、植物図鑑は動く
@@ -287,9 +287,10 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 |---|---|---|---|
 | 送信の同時本数（`UploadQueue`） | `2` | `POST /api/photos` を同時に送る数 | [02 §4.7](./02_design_overview.md#47-送り方は1リクエスト1枚クライアントが同時2本まで要件-52) |
 | 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ | [03 §4.7](./03_screen_design.md#47-写真の追加と送信の進み具合) |
-| サムネイル（`photo_metadata`） | 長辺 320px・画質 70・JPEG | 一覧用の小さな画像 | [04 §4.2](./04_data_design.md#42-blob-名) |
-| 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。ハッシュの決定性で見直す） | 原寸の大きさ | [09 §6](./09_implementation_plan.md#6-最初に実機で確かめること) |
-| 地名の変換（`photo_metadata`） | タイムアウト 5 秒、キャッシュの鍵は小数3桁 | 端末の Geocoder | [06 §4.2](./06_processing_design.md#42-段階2端末) |
+| サムネイル（`UploadQueue`。`upload_queue.dart` の `_thumbnailLongSide`・`_thumbnailQuality`） | 長辺 320px・画質 70・JPEG | 一覧用の小さな画像 | [04 §4.2](./04_data_design.md#42-blob-名)・[03 §4.7](./03_screen_design.md#47-写真の追加と送信の進み具合) |
+| 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。縮小してもハッシュが決まることは実機で確かめた） | 原寸の大きさ | [09 §6](./09_implementation_plan.md#6-最初に実機で確かめること) |
+| 地名の変換（`UploadQueue`。`upload_queue.dart` の `_placeNameTimeout`） | タイムアウト 5 秒、キャッシュの鍵は小数3桁（`shared_preferences`。引けた地名だけを残す） | 端末の Geocoder | [06 §4.2](./06_processing_design.md#42-段階2端末) |
+| Android の `minSdkVersion` / `compileSdk`（`mobile/android/app/build.gradle`） | `24`（Android 7.0）/ `36` | アプリを入れられる端末の下限と、ビルドに使う SDK | `geocoding` 5 の要求（PR 7c で 21 / 35 から上げた。旅行で使う SC-03K は Android 10 なので影響しない） |
 | 写真一覧のページ（`ApiService.getPhotos`） | `limit` を送らない（サーバの既定 100） | 下までスクロールで次のページ | [03 §4.4](./03_screen_design.md#44-旅行詳細画面) |
 | 画像キャッシュ（`photo_cache_manager.dart`） | 件数の上限を既定の 200 から引き上げる（値は実装時に決める） | 数百枚の旅行で入れ替わり続けないように | [03 §3](./03_screen_design.md#3-全画面共通) |
 | 旅行の削除ダイアログの既定 | 「写真は残す」 | 誤操作で写真が消えないように | [03 §4.4](./03_screen_design.md#44-旅行詳細画面) |

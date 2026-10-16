@@ -664,13 +664,14 @@ AI の解析をやり直す（要件 5.5.1）。
 
 `_parseResponse()` はボディ全体をコールバックに渡すので、各メソッドが `json['data']` を剥がす（CLAUDE.md「クライアント実装で踏みやすい罠」）。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）と `isPhotoNotFound`（`code == 'PHOTO_NOT_FOUND'`。複数選択の削除で既に無い写真を消せたと数える。ステータスだけで見ると宛先の誤りの 404 まで含むのでコードで見る）を足す。
-`uploadPhoto` は **実装済み**（PR 7a）。`multipart/form-data` で次のパートを送る。
+`uploadPhoto` は **実装済み**（PR 7a。`thumbnail`・`placeName` は PR 7c）。`multipart/form-data` で次のパートを送る。
 
 - `photoId`: 画像のバイト列の SHA-256（16進・小文字）。`image` と同じバイト列から求める（§5.1 の 18 を通るように）
 - `image`: 画像のバイト列。ファイル名は `photo`、Content-Type は拡張子ではなく先頭のバイト列（シグネチャ）で決める（PNG / JPEG / GIF / WebP。どれでもなければ `image/jpeg`）
 - `tripId`・`takenAt`: 値があるときだけ。無ければパートごと省く（空文字のパートは §5.1 の 12・13 で 400 になる）
 - `latitude`・`longitude`: 両方があるときだけ、両方を送る（片方だけは §5.1 の 14）。10進の小数 6 桁の文字列（`toStringAsFixed(6)`。指数表記にならない。§5.1 の 15）
-- `thumbnail`・`placeName` は PR 7b の時点では送らない（7c）
+- `thumbnail`: サムネイル（[03 §4.7](./03_screen_design.md#47-写真の追加と送信の進み具合) の準備で作った長辺 320px・画質 70 の JPEG）があるときだけ。ファイル名は `thumbnail.jpg`、Content-Type は `image/jpeg`。作れなかったらパートごと省く（空のパートは §5.1 の 10 で 400）
+- `placeName`: 地名（[06 §4.2](./06_processing_design.md#42-段階2端末)）があり、緯度・経度も送るときだけ（§5.1 の 16）。無ければパートごと省く（空・空白のみは §5.1 の 17 で 400）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
 段階4で足すもの: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`）、

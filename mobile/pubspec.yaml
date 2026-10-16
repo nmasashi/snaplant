@@ -33,6 +33,8 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   crypto: ^3.0.7
   exif: ^3.3.0
+  flutter_image_compress: ^2.5.1
+  geocoding: ^5.0.0
 
 dev_dependencies:
   flutter_test:
@@ -44,6 +46,9 @@ dev_dependencies:
   # ギャラリー（OS の画像選択）をテストで偽物に差し替えるため
   image_picker_platform_interface: ^2.10.1
   plugin_platform_interface: ^2.1.8
+
+  # 端末の Geocoder（地名への変換）をテストで偽物に差し替えるため
+  geocoding_platform_interface: ^5.0.0
 
 flutter:
   uses-material-design: true

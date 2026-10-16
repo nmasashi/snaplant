@@ -24,7 +24,8 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.snaplant.mobile"
-    compileSdk 35
+    // geocoding 5 が compileSdk 36 を求める
+    compileSdk 36
     ndkVersion "29.0.13599879"
     // ndkVersion flutter.ndkVersion  // Disabled for WSL compatibility
 
@@ -45,7 +46,8 @@ android {
         applicationId "com.snaplant.mobile"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdkVersion 21
+        // geocoding 5 が minSdk 24（Android 7.0）を求める。旅行で使う SC-03K は Android 10 なので影響しない
+        minSdkVersion 24
         targetSdkVersion 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
