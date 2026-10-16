@@ -13,21 +13,35 @@ class Photo {
   /// 撮影日時（タイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`）。無ければ null
   final String? takenAt;
 
+  /// 緯度・経度（`location`）。位置情報が無ければどちらも null
+  final double? latitude;
+  final double? longitude;
+
+  /// 地名（`location.placeName`）。位置情報か地名が無ければ null
+  final String? placeName;
+
   const Photo({
     required this.id,
     this.tripId,
     required this.imageUrl,
     this.thumbnailUrl,
     this.takenAt,
+    this.latitude,
+    this.longitude,
+    this.placeName,
   });
 
   factory Photo.fromJson(Map<String, dynamic> json) {
+    final location = json['location'] as Map<String, dynamic>?;
     return Photo(
       id: json['id'] as String,
       tripId: json['tripId'] as String?,
       imageUrl: json['imageUrl'] as String,
       thumbnailUrl: json['thumbnailUrl'] as String?,
       takenAt: json['takenAt'] as String?,
+      latitude: (location?['latitude'] as num?)?.toDouble(),
+      longitude: (location?['longitude'] as num?)?.toDouble(),
+      placeName: location?['placeName'] as String?,
     );
   }
 }

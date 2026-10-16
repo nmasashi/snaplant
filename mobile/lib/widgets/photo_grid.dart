@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
+import '../screens/photo_viewer_screen.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -19,8 +20,9 @@ class PhotoGrid extends StatefulWidget {
       required this.tripId,
       required this.emptyTitle,
       required this.emptyMessage,
-      this.selection,
-      this.onTripNotFound});
+      required this.selection,
+      this.onTripNotFound,
+      this.onViewerClosed});
 
   final ApiService apiService;
 
@@ -36,8 +38,11 @@ class PhotoGrid extends StatefulWidget {
   /// 知らせた後は読み込み中の状態も戻さない（画面がグリッドを外す前提。残すと続きのページを二度と取りに行かない）
   final VoidCallback? onTripNotFound;
 
-  /// 複数選択。渡さなければ写真を選べない
-  final PhotoSelection? selection;
+  /// 写真ビューアから戻ったときに呼ぶ（画面が一覧と見出しを読み直す。削除したかどうかによらない）
+  final Future<void> Function()? onViewerClosed;
+
+  /// 複数選択（長押しで始める）
+  final PhotoSelection selection;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -59,6 +64,8 @@ const _tileDecodeWidth = 400;
 
 class _PhotoGridState extends State<PhotoGrid> {
   List<Photo>? _photos;
+  // 読み込み済みの写真。写真ビューアと共有し、開いた後に読んだページへも進めるようにする
+  final _loaded = ValueNotifier<List<Photo>>(const []);
   // 1ページ目の取得に失敗したときの文言。null なら失敗していない
   String? _errorMessage;
   // 続きを読むためのトークン。null なら最後まで読んだ
@@ -72,6 +79,12 @@ class _PhotoGridState extends State<PhotoGrid> {
   int _generation = 0;
   // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
   int _consecutiveEmptyPages = 0;
+
+  @override
+  void dispose() {
+    _loaded.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -118,6 +131,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _generation++;
       _errorMessage = null;
       _photos = page.photos;
+      _loaded.value = page.photos;
       _continuationToken = page.continuationToken;
       _isLoadingMore = false;
       _loadMoreFailed = false;
@@ -154,6 +168,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       if (!mounted || generation != _generation) return;
       setState(() {
         _photos = [...?_photos, ...page.photos];
+        _loaded.value = _photos!;
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
         _consecutiveEmptyPages =
@@ -180,6 +195,30 @@ class _PhotoGridState extends State<PhotoGrid> {
       _consecutiveEmptyPages = 0;
     });
     _loadMore();
+  }
+
+  /// 写真ビューアで消した写真を、読み込み済みの写真から除く
+  void _removeLoaded(String photoId) {
+    setState(() {
+      _photos = [...?_photos?.where((p) => p.id != photoId)];
+      _loaded.value = _photos!;
+    });
+  }
+
+  /// 写真ビューアを開く（一覧の写真を [index] の位置から）
+  Future<void> _openViewer(int index) async {
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) =>
+                PhotoViewerScreen(
+                apiService: widget.apiService,
+                photos: _loaded,
+                initialIndex: index,
+                onReachEnd: _loadMore,
+                hasMore: () => _continuationToken != null,
+                onDeleted: _removeLoaded)));
+    await widget.onViewerClosed?.call();
   }
 
   /// グリッドの代わりに出す表示（0枚の案内・エラー）を、下に引っ張って読み直せる形にする（§3）。
@@ -220,7 +259,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     }
     final photos = _photos;
     widget.selection
-        ?.updateLoaded([for (final p in photos ?? const <Photo>[]) p.id]);
+        .updateLoaded([for (final p in photos ?? const <Photo>[]) p.id]);
     if (photos == null) {
       return Center(
         child: Column(
@@ -295,7 +334,9 @@ class _PhotoGridState extends State<PhotoGrid> {
                   });
                 }
                 return _PhotoTile(
-                    photo: photos[index], selection: widget.selection);
+                    photo: photos[index],
+                    selection: widget.selection,
+                    onOpen: () => _openViewer(index));
               },
             ),
           ),
@@ -343,17 +384,17 @@ class _PhotoGridState extends State<PhotoGrid> {
 
 /// サムネイル1枚。撮影日時を読み上げのラベルにする（画像だけでは写真を区別できないため）
 class _PhotoTile extends StatelessWidget {
-  const _PhotoTile({required this.photo, this.selection});
+  const _PhotoTile(
+      {required this.photo, required this.selection, required this.onOpen});
 
   final Photo photo;
-  final PhotoSelection? selection;
+  final PhotoSelection selection;
+
+  /// タップで写真ビューアを開く（選択モードの間は選択を切り替える）
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final selection = this.selection;
-    if (selection == null) {
-      return _buildImage(selected: null);
-    }
     return ListenableBuilder(
       listenable: selection,
       builder: (context, _) {
@@ -362,8 +403,9 @@ class _PhotoTile extends StatelessWidget {
             selection.isActive ? selection.isSelected(photo.id) : null;
         return GestureDetector(
           onLongPress: () => selection.start(photo.id),
-          // 選択モードでなければ何もしない（写真ビューアは PR 7）
-          onTap: selection.isActive ? () => selection.toggle(photo.id) : null,
+          onTap: selection.isActive
+              ? () => selection.toggle(photo.id)
+              : onOpen,
           child: _buildImage(selected: selected),
         );
       },

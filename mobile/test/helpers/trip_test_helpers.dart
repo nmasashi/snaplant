@@ -112,7 +112,12 @@ enum TripRoute {
 ///
 /// - 写真は旅行ごとに [photosByTripId] に持つ（キーは旅行の id。旅行に属さない写真は `none`）。
 ///   `GET /api/photos` は `tripId` で絞り込み、入れた順（サーバが返す順）に `limit`（クライアントが送らなければ [pageSize]）枚ずつ返す。
-///   続きがあるときの `continuationToken` は次の開始位置を表す文字列で、受け取ったものをそのまま次の要求に載せると続きが返る
+///   前提: 本物の API は `sortAt` の昇順で返すので、[photosByTripId] の各リストも `sortAt` の昇順に並べて渡すこと。
+///   偽のサーバは並べ替えず、続きの位置を「並びの位置」と `sortAt` の両方で決めるため、昇順でないと続きがずれる。
+///   続きがあるときの `continuationToken` は最後に返した写真の目印（`<sortAt>|<id>|<位置>`）で、受け取ったものをそのまま次の要求に載せると続きが返る。
+///   目印の写真が消えていれば、`sortAt` がそれより後の写真、または `sortAt` が同じで目印の元の位置以降の写真から返す
+///   （本物は並び順の位置から続けるので、読んだ後に前の写真を消しても後ろを飛ばさない。
+///   また、読んだ後に前に足された `sortAt` の早い写真は続きには出ない）
 ///   （旅行が無い `tripId` は 404 `TRIP_NOT_FOUND`。`none` は旅行の確認をしない）
 /// - `POST /api/photos/move` は、[photosByTripId] の写真を移し先の旅行（`tripId: null` なら `none`）の末尾へ動かし、写真の `tripId` を書き換える。
 ///   移した写真の元の旅行と移し先の旅行の `photoCount`（と [unassignedPhotoCount]）も合わせて更新する。
@@ -184,6 +189,10 @@ class FakeTripBackend {
   /// 応答は届いた時点の状態で決まるので、要求が旅行を消す前に届いたかを確かめる印として使う
   int tripFetchesReceived = 0;
 
+  /// 写真の一覧（`GET /api/photos`）の要求が届いた回数（応答を保留する前に数える）。
+  /// 「まだ続きのページを要求していない」ことを、応答が止まっていても確かめる印として使う
+  int photoPagesReceived = 0;
+
   /// サムネイルの上限（サーバの `THUMBNAIL_MAX_SIZE` の既定値。1MB）
   static const thumbnailMaxSize = 1048576;
 
@@ -239,6 +248,7 @@ class FakeTripBackend {
     }
     if (route == TripRoute.upload) uploadsReceived++;
     if (route == TripRoute.detail) tripFetchesReceived++;
+    if (route == TripRoute.photos) photoPagesReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -376,13 +386,36 @@ class FakeTripBackend {
         'urlExpiresAt': '2026-10-10T04:12:45.000Z',
       });
     }
-    final start = token == null || token.startsWith(emptyTokenPrefix) ? 0 : int.parse(token);
+    final start = token == null || token.startsWith(emptyTokenPrefix) ? 0 : _startAfter(photos, token);
     final end = start + limit < photos.length ? start + limit : photos.length;
     return _ok(200, {
       'photos': photos.sublist(start, end),
-      'continuationToken': end < photos.length ? '$end' : null,
+      // 続きの目印は「最後に返した写真」（`<sortAt>|<id>`）。位置（何枚目か）にしない
+      'continuationToken': end < photos.length ? _tokenAfter(photos[end - 1], end - 1) : null,
       'urlExpiresAt': '2026-10-10T04:12:45.000Z',
     });
+  }
+
+  /// 続きの目印。最後に返した写真の `sortAt`・id・そのときの位置
+  String _tokenAfter(Map<String, Object?> lastReturned, int index) => '${lastReturned['sortAt']}|${lastReturned['id']}|$index';
+
+  /// 目印の続きの開始位置。目印の写真がまだあればその直後、消えていれば `sortAt` がそれより後の最初の写真、
+  /// または `sortAt` が同じで目印の元の位置以降の最初の写真から
+  /// （実際の API は並び順の位置から続けるので、読んだ後に前の写真を消しても後ろを飛ばさない。
+  /// `sortAt` が同じ写真を飛ばさないよう、元の位置も見る）
+  int _startAfter(List<Map<String, Object?>> photos, String token) {
+    final first = token.indexOf('|');
+    final last = token.lastIndexOf('|');
+    final sortAt = token.substring(0, first);
+    final id = token.substring(first + 1, last);
+    final originalIndex = int.parse(token.substring(last + 1));
+    final index = photos.indexWhere((photo) => photo['id'] == id);
+    if (index >= 0) return index + 1;
+    final later = [for (var i = 0; i < photos.length; i++) i].indexWhere((i) {
+      final order = (photos[i]['sortAt'] as String).compareTo(sortAt);
+      return order > 0 || (order == 0 && i >= originalIndex);
+    });
+    return later >= 0 ? later : photos.length;
   }
 
   /// `POST /api/photos`（multipart。docs/travel-album/05_api_design.md §5.1）。

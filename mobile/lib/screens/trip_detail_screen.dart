@@ -90,6 +90,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   /// 取り直しで分かった場合も、古い旅行名と編集・削除のメニュー、写真の選択を残さない（選択中は戻るが1回目で止まるため）
   void _markTripDeleted() {
     _selection.clear();
+    // 上に写真ビューアなどが開いていれば閉じる（グリッドを外すので、ビューアから頼まれる続きの読み込みや削除の反映を受けられない）
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      Navigator.popUntil(context, (r) => r == route);
+    }
     setState(() {
       _tripDeleted = true;
       _trip = null;
@@ -227,6 +232,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             emptyTitle: 'まだ写真がありません',
             emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
             onTripNotFound: _markTripDeleted,
+            onViewerClosed: _reloadPhotos,
           ),
         ),
       ],
