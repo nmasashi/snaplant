@@ -449,6 +449,11 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [cancelTrip] を解く（旅行の削除が失敗した）。取り消して消した写真は戻らない（選び直せば送れる）
+  void resumeTrip(String tripId) {
+    _canceledTrips.remove(tripId);
+  }
+
   /// 列から写真を跡形なく消す（失敗にも完了にも数えない）
   void _forget(UploadItem item) {
     _items.remove(item);

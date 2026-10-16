@@ -147,7 +147,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           // 削除を確定したら、この旅行宛ての送信を取り消してから消す（消した旅行へ送り続けない）
           widget.uploadQueue.cancelTrip(trip.id);
           return widget.apiService
-              .deleteTrip(trip.id, deletePhotos: deletePhotos);
+              .deleteTrip(trip.id, deletePhotos: deletePhotos)
+              .catchError((Object e) {
+            // 削除できなかった（旅行が既に無い 404 は消せたのと同じ）。旅行は残るので、この後に追加した写真は送る
+            if (e is! ApiException || !e.isTripNotFound) {
+              widget.uploadQueue.resumeTrip(trip.id);
+            }
+            throw e;
+          });
         },
       ),
     );
