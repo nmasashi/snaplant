@@ -3312,4 +3312,46 @@ void main() {
     expect(backend.uploadsReceived, 2);
     expect(find.text('1枚を送信しました'), findsOneWidget);
   });
+
+  testWidgets('送り直しを待っていた写真を取り消した後に削除が失敗しても、その写真は送らない', (tester) async {
+    // 1回目が 503 で失敗して2秒の待ちに入る。待ちの間（2秒より手前）に削除を確定し、削除の要求も 503 で失敗させる。
+    // 失敗が待ちの明ける前に起きていることは、組み立ての途中で確かめる（openDeleteDialog や tapInDialog は1.5秒ずつ進めて待ちを過ぎてしまうので、300ミリ秒ずつ進める）
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNext(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await _letUploadFail(tester, backend, 1);
+    backend.failNext(TripRoute.delete);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('削除'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(inDialog(find.text('削除')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(inDialog(find.text('削除')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    // 削除の失敗が表示され、まだ送り直しの待ちが明けていない（2回目の要求は届いていない）
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+    expect(backend.uploadsReceived, 1);
+    await tester.tap(inDialog(find.text('キャンセル')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(backend.uploadsReceived, 1);
+
+    await tester.pump(const Duration(seconds: 3));
+    await _waitRealTime(tester);
+
+    expect(backend.uploadsReceived, 1);
+    expect(find.text('1枚を送信しました'), findsNothing);
+  });
 }
