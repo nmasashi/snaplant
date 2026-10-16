@@ -286,7 +286,10 @@ void main() {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
     // 10:30 は読み込み済みの末尾だが、本当の末尾ではない（続きがある）。
     // 2ページ目の応答を止めたまま 10:30 を開いて削除を確定し、確定のあとで放す。
-    // 止めている間にどの写真を出すかは固定せず、放したあとに 10:31 が画面に出ていることだけを見る
+    // 止めている間にどの写真を出すかは固定せず、放したあとに 10:31 が画面に出ていることだけを見る。
+    // 2ページ目は削除より前に届いた要求なので、中身は届いた時点で決める（holdNextReply）。
+    // holds だと放した時点の状態で決まり、偽のサーバの継続トークンは開始位置なので、削除で詰まった 10:31 を飛ばしてしまう
+    // （本物の継続トークンは並び順の位置で続きを返すので、前の写真を消しても飛ばさない）
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 33)],
@@ -305,8 +308,7 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    final release = Completer<void>();
-    backend.holds[TripRoute.photos] = release.future;
+    final release = backend.holdNextReply(TripRoute.photos);
     await tester.drag(find.byType(GridView), const Offset(0, -5000));
     await letFramesRun(tester);
     await tester.tap(photoThumbnail('2026年10月5日 10:30'));
