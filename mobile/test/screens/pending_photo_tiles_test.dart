@@ -278,7 +278,10 @@ void main() {
         ],
       },
     );
-    final release = backend.holdNextReply(TripRoute.upload);
+    // 要求の処理ごと止める（サーバはまだ写真を保存していない）。応答だけを止めると、北海道を開き直したときに
+    // 写真がサーバの写真として並び、送信中の端末の画像としては並ばない（二重に並べないため）
+    final release = Completer<void>();
+    backend.holds[TripRoute.upload] = release.future;
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -419,7 +422,10 @@ void main() {
         ],
       },
     );
-    final releaseUpload = backend.holdNextReply(TripRoute.upload);
+    // 要求の処理ごと止める（サーバはまだ写真を保存していない）。応答だけを止めると、2ページ目に写真が入り、
+    // サーバの写真として並んで端末の画像としては並ばない（二重に並べないため）
+    final releaseUpload = Completer<void>();
+    backend.holds[TripRoute.upload] = releaseUpload.future;
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
