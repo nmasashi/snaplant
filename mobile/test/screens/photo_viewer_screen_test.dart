@@ -386,4 +386,48 @@ void main() {
     expect(find.text('写真を削除しました'), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('写真ビューアで削除を確定したとき、その写真が既に無くて404が返っても、成功と同じ扱いで次の写真へ移る',
+      (tester) async {
+    // 別の端末で先に消された状況。偽のサーバは無い写真の削除に 404 PHOTO_NOT_FOUND を返す
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-06T10:15:00'),
+          photoJson(
+              number: 2,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-05T12:30:15'),
+          photoJson(
+              number: 3,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-07T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await letFramesRun(tester);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    backend.photosByTripId[hokkaidoTripId]!.removeAt(1);
+
+    await tapInDialog(tester, '削除');
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('写真を削除しました'), findsOneWidget);
+    // 下の情報はスナックバーに覆われるので、hitTestable では見ない
+    expect(find.text('2026年10月7日 18:45'), findsOneWidget);
+    expect(find.text('2026年10月5日 12:30'), findsNothing);
+    semantics.dispose();
+  });
 }
