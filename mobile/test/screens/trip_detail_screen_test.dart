@@ -3168,4 +3168,44 @@ void main() {
 
     expect(backend.uploadsReceived, 1);
   });
+
+  testWidgets('旅行の削除が失敗したら、送信の取り消しを解き、その後にこの旅行へ追加した写真は送る', (tester) async {
+    // 1枚目は送信中（応答を保留）。削除の要求を 503 で失敗させ、取り消しを解かれたあとで追加する2枚目が送られることを見る。
+    // 写真が0枚の旅行なので、実時間を進めても path_provider は要らない
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    useGalleryReturning([first]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.delete);
+    await openDeleteDialog(tester);
+    await tapInDialog(tester, '削除');
+    await tapInDialog(tester, '削除');
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    await tapInDialog(tester, 'キャンセル');
+    // 1枚目の結果は取り消し済みなので知らされない。届いた写真は偽のサーバから取り除いておく（サムネイルを出さない）
+    backend.photosByTripId[hokkaidoTripId]!.clear();
+    firstReply.complete();
+    await _waitRealTime(tester);
+    await letFramesRun(tester);
+    // スナックバーは順に出るので、削除の失敗の知らせが消えるまで進める
+    await tester.pump(const Duration(seconds: 5));
+    await letFramesRun(tester);
+    useGalleryReturning([second]);
+
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 2);
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    backend.photosByTripId[hokkaidoTripId]!.clear();
+    await letFramesRun(tester);
+
+    expect(backend.uploadsReceived, 2);
+    expect(find.text('1枚を送信しました'), findsOneWidget);
+  });
 }
