@@ -207,4 +207,128 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+
+  testWidgets('他の旅行宛てに送信中の写真は、別の旅行の詳細には端末の画像のマスとして並べない', (tester) async {
+    // 北海道の詳細から送って応答を止めたまま、一覧に戻って京都を開く。京都のグリッドには、サーバの写真（1枚）のマスだけが並ぶ。
+    // 北海道の詳細を開き直すと端末の画像のマスが並ぶので、「並べない」が項目が無いせいではないことも確かめる
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [
+        hokkaidoTrip(photoCount: 1),
+        tripJson(id: kyotoTripId, name: '京都', photoCount: 1),
+      ],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+        ],
+        kyotoTripId: [
+          photoJson(
+              number: 2, tripId: kyotoTripId, takenAt: '2026-10-06T09:00:00')
+        ],
+      },
+    );
+    final release = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    final deviceImageTiles = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byWidgetPredicate((widget) =>
+            widget is Image &&
+            widget.image is ResizeImage &&
+            (widget.image as ResizeImage).imageProvider is FileImage));
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    expect(deviceImageTiles, findsOneWidget);
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await tester.tap(find.text('京都'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月6日 09:00'), findsOneWidget);
+    expect(deviceImageTiles, findsNothing);
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(deviceImageTiles, findsOneWidget);
+    // 後始末: 送信を終わらせ、完了の知らせと画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    release.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 2);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
+
+  testWidgets('「旅行に属さない写真」の画面では、旅行を指定せずに送信中の写真だけを、サーバの写真の後ろに端末の画像のマスで並べる',
+      (tester) async {
+    // 先に北海道の詳細から1枚を送り（応答は止める）、一覧に戻って「旅行に属さない写真」を開き、そこから別の1枚を送る（これも止める）。
+    // この画面に並ぶ端末の画像のマスは後から送った1枚だけで、北海道宛ての1枚は並ばない
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final forTrip = writeTestImage('hokkaido.png');
+    final forNone = writeTestImage('none.png', bytes: [...tinyPngBytes, 7]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 0)],
+      unassignedPhotoCount: 1,
+      functionKey: _apiKey,
+      photosByTripId: {
+        'none': [photoJson(number: 1, takenAt: '2026-10-05T12:30:15')],
+      },
+    );
+    final releaseForTrip = backend.holdNextReply(TripRoute.upload);
+    final releaseForNone = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    final deviceImageTiles = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byWidgetPredicate((widget) =>
+            widget is Image &&
+            widget.image is ResizeImage &&
+            (widget.image as ResizeImage).imageProvider is FileImage));
+    final spinnerInGrid = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byType(CircularProgressIndicator));
+    useGalleryReturning([forTrip]);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(deviceImageTiles, findsNothing);
+
+    useGalleryReturning([forNone]);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 2);
+    await letFramesRun(tester);
+
+    expect(deviceImageTiles, findsOneWidget);
+    expect(spinnerInGrid, findsOneWidget);
+    final serverTile = tester.getRect(photoThumbnail('2026年10月5日 12:30'));
+    final spinner = tester.getCenter(spinnerInGrid);
+    // サーバの写真と同じ行で、その右隣（3列のグリッドの2列目）に並ぶ
+    expect(spinner.dy, greaterThan(serverTile.top));
+    expect(spinner.dy, lessThan(serverTile.bottom));
+    expect(spinner.dx, greaterThan(serverTile.right));
+    // 後始末: 2枚とも送信を終わらせ、完了の知らせと画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    releaseForTrip.complete();
+    releaseForNone.complete();
+    await waitUntilUploaded(tester, backend, 'none', count: 2);
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 1);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }
