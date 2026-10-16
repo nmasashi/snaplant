@@ -2685,6 +2685,33 @@ void main() {
     expect(find.text('100枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
   });
 
+  testWidgets('旅行が無いと分かった画面でも、この旅行宛ての送信の失敗のバナーは出したままにし、「閉じる」で消せる', (tester) async {
+    // 先に送信が 404（旅行が見つかりません）で失敗し、そのあと下に引っ張った読み直しで写真の一覧も 404 になって、画面が「この旅行は削除されています」になる。
+    // 順は決まっている（送信の失敗を見届けてから読み直す）。画面設計 §4.4: 送れなかった写真を「閉じる」で片付けられるよう、バナーは出したままにする
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+    backend.trips.clear();
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+    expect(find.text('1枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+
+    await tester.drag(find.byType(RefreshIndicator), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    expect(find.text('1枚を送信できませんでした（旅行が見つかりません）'), findsOneWidget);
+    expect(find.text('閉じる'), findsOneWidget);
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    expect(find.textContaining('送信できませんでした'), findsNothing);
+  });
+
   testWidgets('送り直しを待っている写真があるときに、同じ旅行宛ての別の写真が 404 になったら、待っている写真も送り直さずに失敗にし、バナーに「2枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
     // 同時に送る2枚のうち、1枚目の要求が 503（2秒後に送り直す）、2枚目の要求が 404 になる（失敗は、要求が届いた順に割り当てる）。
     // 2枚目の 404 で旅行が無いと分かった以上、待ちが明けた1枚目も送らない（届いた要求は2回のまま）
