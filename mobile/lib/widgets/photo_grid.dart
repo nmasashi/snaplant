@@ -94,7 +94,10 @@ class _PhotoGridState extends State<PhotoGrid> {
     final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
     return [
       for (final item in widget.uploadQueue.items)
-        if (item.tripId == tripId && !loadedIds.contains(item.photoId)) item
+        if (item.tripId == tripId &&
+            !loadedIds.contains(item.photoId) &&
+            !widget.uploadQueue.hasLanded(item))
+          item
     ];
   }
 
@@ -114,6 +117,16 @@ class _PhotoGridState extends State<PhotoGrid> {
     super.initState();
     widget.uploadQueue.addListener(_onUploadQueueChanged);
     _loadFirstPage();
+  }
+
+  @override
+  void didUpdateWidget(PhotoGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 設定を変えると AppRoot が送信の列を作り直す。作り直されずに渡し直されたときも、新しい列を見る
+    if (oldWidget.uploadQueue != widget.uploadQueue) {
+      oldWidget.uploadQueue.removeListener(_onUploadQueueChanged);
+      widget.uploadQueue.addListener(_onUploadQueueChanged);
+    }
   }
 
   /// 写真の一覧の取得が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）なら画面へ知らせて true を返す。
@@ -156,6 +169,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _errorMessage = null;
       _photos = page.photos;
       _loaded.value = page.photos;
+      widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
       _continuationToken = page.continuationToken;
       _isLoadingMore = false;
       _loadMoreFailed = false;
@@ -193,6 +207,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       setState(() {
         _photos = [...?_photos, ...page.photos];
         _loaded.value = _photos!;
+        widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
         _continuationToken = page.continuationToken;
         _isLoadingMore = false;
         _consecutiveEmptyPages =
