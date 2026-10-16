@@ -205,7 +205,9 @@ class UploadQueue extends ChangeNotifier {
   Stream<UploadBatchResult> get finished => _finished.stream;
 
   /// 列にある項目（進み具合バナーが数える）
-  List<UploadItem> get items => List.unmodifiable(_items);
+  /// 取り消した送信中の写真（結果を待っているだけで知らせないもの）は含めない（並べず、バナーにも数えない）
+  List<UploadItem> get items => List.unmodifiable(
+      _items.where((item) => !_canceledItems.contains(item)));
 
   UploadState stateOf(UploadItem item) => _states[item]!;
 
@@ -294,6 +296,7 @@ class UploadQueue extends ChangeNotifier {
       _preparations.any((p) => p.tripId == tripId) ||
       _items.any((i) =>
           i.tripId == tripId &&
+          !_canceledItems.contains(i) &&
           (_states[i] == UploadState.waiting ||
               _states[i] == UploadState.sending));
 
