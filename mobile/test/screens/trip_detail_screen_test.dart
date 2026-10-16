@@ -1352,6 +1352,48 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('旅行詳細の見出しの取り直しが重なったときは、後から出した取得の結果を出し、先に出した遅い取得の結果で上書きしない', (tester) async {
+    // 1つ目の取り直しは「編集」の保存、2つ目は写真の削除。応答の中身は届いた時点で決まるので、
+    // 1つ目が届いた後に偽のサーバの枚数を書き換えて、1つ目は古い枚数（3枚）、2つ目は新しい枚数（5枚）を持たせる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    final olderReply = backend.holdNextReply(TripRoute.detail);
+    final newerReply = backend.holdNextReply(TripRoute.detail);
+    final tripFetchesBefore = backend.tripFetchesReceived;
+    await openEditDialog(tester);
+    await enterTripName(tester, '北海道 2026冬');
+    await tapInDialog(tester, '保存');
+    expect(backend.tripFetchesReceived, tripFetchesBefore + 1);
+    backend.trips.single['photoCount'] = 6;
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '削除');
+    expect(backend.tripFetchesReceived, tripFetchesBefore + 2);
+
+    newerReply.complete();
+    await letFramesRun(tester);
+    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    olderReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('写真を旅行から外している間は、「外す」が「外しています...」になる', (tester) async {
     // 押せない・閉じないことは、同じ部品（確認のダイアログ）を通る削除の送信中のテストが見ている。ここでは文言だけを見る
     final semantics = tester.ensureSemantics();
