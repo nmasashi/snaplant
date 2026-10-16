@@ -290,4 +290,58 @@ void main() {
     expect(find.byType(BackButton).hitTestable(), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('写真ビューアの「削除」で確認ダイアログを出し、確定すると写真を消して「写真を削除しました」を出し、次の写真へ移る',
+      (tester) async {
+    // 上のバーとダイアログのボタンはどちらも「削除」なので、AppBar / AlertDialog の中に絞って探す
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-06T10:15:00'),
+          photoJson(
+              number: 2,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-05T12:30:15'),
+          photoJson(
+              number: 3,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-07T18:45:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await letFramesRun(tester);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    final dialog = find.byType(AlertDialog);
+    expect(find.descendant(of: dialog, matching: find.text('写真を削除')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: dialog, matching: find.text('この写真を削除しますか？\nこの操作は元に戻せません。')),
+        findsOneWidget);
+    expect(find.descendant(of: dialog, matching: find.text('キャンセル')),
+        findsOneWidget);
+
+    await tapInDialog(tester, '削除');
+
+    expect(
+        backend.photosByTripId[hokkaidoTripId]!
+            .map((photo) => photo['takenAt']),
+        ['2026-10-06T10:15:00', '2026-10-07T18:45:00']);
+    expect(find.text('写真を削除しました'), findsOneWidget);
+    expect(find.text('2026年10月7日 18:45').hitTestable(), findsOneWidget);
+    expect(find.text('2026年10月5日 12:30').hitTestable(), findsNothing);
+    semantics.dispose();
+  });
 }
