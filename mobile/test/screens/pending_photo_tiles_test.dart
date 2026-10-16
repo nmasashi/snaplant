@@ -367,4 +367,65 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+
+  testWidgets('サーバの写真の続きのページが残っている間は端末の画像を並べず、最後のページまで読んだら最後のサーバの写真の後ろに並べる',
+      (tester) async {
+    // 33枚の旅行（1ページ30枚、10:01〜10:33）。2ページ目の応答を止めたまま、1枚を送って送信中にする。
+    // 端末の画像のマスは、グリッドの中の回転する印（CircularProgressIndicator）で見分ける。
+    // 「並べない」が組み立てられていないだけで通らないよう、グリッドを下端まで送ってから確かめる
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: _apiKey,
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    final releaseUpload = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final releasePage = Completer<void>();
+    backend.holds[TripRoute.photos] = releasePage.future;
+    final spinnerInGrid = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byType(CircularProgressIndicator));
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await letFramesRun(tester);
+
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    // 2ページ目はまだ届いていない: 下端まで送っても端末の画像のマスは出ない
+    expect(photoThumbnail('2026年10月5日 10:30'), findsOneWidget);
+    expect(spinnerInGrid, findsNothing);
+
+    releasePage.complete();
+    await letFramesRun(tester);
+    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await letFramesRun(tester);
+
+    // 最後のページまで読んだ後: 端末の画像のマスが1つ、最後のサーバの写真（10:33）の後ろ（次の行）に並ぶ
+    expect(spinnerInGrid, findsOneWidget);
+    final lastServerTile = tester.getRect(photoThumbnail('2026年10月5日 10:33'));
+    expect(
+        tester.getCenter(spinnerInGrid).dy, greaterThan(lastServerTile.bottom));
+    // 後始末: 送信を終わらせ、完了の知らせと画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    releaseUpload.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId, count: 34);
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }
