@@ -477,4 +477,41 @@ void main() {
     expect(find.text('2026年10月5日 12:30'), findsOneWidget);
     semantics.dispose();
   });
+
+  testWidgets('写真ビューアから戻ると、削除していなくても写真の一覧と見出しの枚数を読み直す', (tester) async {
+    // ビューアを開いている間に、別の端末で写真が1枚増えた状況
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 2)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-06T10:15:00'),
+          photoJson(
+              number: 2,
+              tripId: hokkaidoTripId,
+              takenAt: '2026-10-05T12:30:15'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('2枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    await tester.tap(photoThumbnail('2026年10月5日 12:30'));
+    await letFramesRun(tester);
+    backend.photosByTripId[hokkaidoTripId]!.add(photoJson(
+        number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-07T18:45:00'));
+    backend.trips.single['photoCount'] = 3;
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(photoThumbnail('2026年10月7日 18:45'), findsOneWidget);
+    semantics.dispose();
+  });
 }
