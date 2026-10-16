@@ -21,15 +21,16 @@ import '../helpers/trip_test_helpers.dart';
 
 const _apiKey = 'test-key';
 
-/// グリッドの中の端末の画像のマス（FileImage の画像）。サーバの写真は CachedNetworkImage で、FileImage ではない。
+/// グリッドの中の端末の画像のマス（FileImage か MemoryImage の画像）。サーバの写真は CachedNetworkImage で、どちらでもない。
 /// 画像の読み込みの最適化で FileImage が ResizeImage（cacheWidth を指定したとき）に包まれても、見た目は変わらないので、包まれていてもいなくても数える
 final deviceImageTiles = find.descendant(
     of: find.byType(GridView),
     matching: find.byWidgetPredicate((widget) {
       if (widget is! Image) return false;
-      final provider = widget.image;
-      return provider is FileImage ||
-          (provider is ResizeImage && provider.imageProvider is FileImage);
+      // 端末の画像は、ファイルから読むか、準備で作ったサムネイルのバイト列から出す（縮小の包みの有無は問わない）
+      final image = widget.image;
+      final provider = image is ResizeImage ? image.imageProvider : image;
+      return provider is FileImage || provider is MemoryImage;
     }));
 
 /// グリッドの中の回転する印（CircularProgressIndicator）。送信中の端末の画像のマスに付く
