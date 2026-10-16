@@ -304,7 +304,9 @@ class _PhotoGridState extends State<PhotoGrid> {
         if (mounted) _loadMore();
       });
     }
-    final pending = _pendingItems;
+    // 端末の画像は最後のページまで読んでから並べる（続きが届くたびに後ろへずれないように）
+    final pending =
+        _continuationToken == null ? _pendingItems : const <UploadItem>[];
     // 端末の画像があれば、サーバの写真が0枚でも0件の案内ではなくグリッドで並べる
     if (photos.isEmpty && _continuationToken == null && pending.isEmpty) {
       return _pullToRefresh(
