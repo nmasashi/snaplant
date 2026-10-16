@@ -281,6 +281,51 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真ビューアを開いている間に旅行が無いと分かったら、ビューアを閉じて「この旅行は削除されています」を出す',
+      (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
+    // グリッドは送らずに10:15を開く（2ページ目は要求されていない。止め方は上のテストと同じ）。
+    // 開いたあとで別の端末が旅行を消した状態にし、ビューアが末尾の10:30に来て読ませた続きのページで旅行が無いと分かる
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 33)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    final releaseFirstPage = Completer<void>();
+    final releaseSecondPage = Completer<void>();
+    backend.holds[TripRoute.photos] = releaseFirstPage.future;
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.holds[TripRoute.photos] = releaseSecondPage.future;
+    releaseFirstPage.complete();
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:15'));
+    await letFramesRun(tester);
+    expect(find.text('読み込み中...'), findsNothing);
+    expect(find.byType(PageView), findsOneWidget);
+    releaseSecondPage.complete();
+    backend.trips.clear();
+
+    for (var i = 0; i < 15; i++) {
+      await _swipe(tester, toNext: true);
+    }
+
+    expect(find.byType(PageView), findsNothing);
+    expect(find.text('この旅行は削除されています'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('続きのページが残っているとき、写真ビューアで読み込んだ末尾の写真を削除しても一覧へ戻らず、続きを読んで次の写真へ移る',
       (tester) async {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
