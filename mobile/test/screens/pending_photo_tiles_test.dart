@@ -21,6 +21,23 @@ import '../helpers/trip_test_helpers.dart';
 
 const _apiKey = 'test-key';
 
+/// グリッドの中の端末の画像のマス（FileImage の画像）。サーバの写真は CachedNetworkImage で、FileImage ではない。
+/// 画像の読み込みの最適化で FileImage が ResizeImage（cacheWidth を指定したとき）に包まれても、見た目は変わらないので、包まれていてもいなくても数える
+final deviceImageTiles = find.descendant(
+    of: find.byType(GridView),
+    matching: find.byWidgetPredicate((widget) {
+      if (widget is! Image) return false;
+      final provider = widget.image;
+      return provider is FileImage ||
+          (provider is ResizeImage && provider.imageProvider is FileImage);
+    }));
+
+/// グリッドの中の回転する印（CircularProgressIndicator）。送信中の端末の画像のマスに付く
+/// （サーバの写真のマスの待ち表示は印ではなく色の面で、進み具合のバナーの印はグリッドの外）
+final spinnerInGrid = find.descendant(
+    of: find.byType(GridView),
+    matching: find.byType(CircularProgressIndicator));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -68,9 +85,6 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    final spinnerInGrid = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(CircularProgressIndicator));
     expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
     expect(spinnerInGrid, findsNothing);
 
@@ -119,9 +133,6 @@ void main() {
     await letFramesRun(tester);
     final markInGrid =
         find.descendant(of: find.byType(GridView), matching: find.text('!'));
-    final spinnerInGrid = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(CircularProgressIndicator));
 
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
@@ -170,15 +181,6 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    final deviceImageTiles = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byWidgetPredicate((widget) =>
-            widget is Image &&
-            widget.image is ResizeImage &&
-            (widget.image as ResizeImage).imageProvider is FileImage));
-    final spinnerInGrid = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(CircularProgressIndicator));
     final markInGrid =
         find.descendant(of: find.byType(GridView), matching: find.text('!'));
     final sentPhotoTiles = find.bySemanticsLabel(RegExp('^撮影日時なし'));
@@ -234,12 +236,6 @@ void main() {
     );
     final release = backend.holdNextReply(TripRoute.upload);
     await openTripsTab(tester, backend);
-    final deviceImageTiles = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byWidgetPredicate((widget) =>
-            widget is Image &&
-            widget.image is ResizeImage &&
-            (widget.image as ResizeImage).imageProvider is FileImage));
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
     await tester.tap(find.text('写真を追加'));
@@ -287,15 +283,6 @@ void main() {
     final releaseForTrip = backend.holdNextReply(TripRoute.upload);
     final releaseForNone = backend.holdNextReply(TripRoute.upload);
     await openTripsTab(tester, backend);
-    final deviceImageTiles = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byWidgetPredicate((widget) =>
-            widget is Image &&
-            widget.image is ResizeImage &&
-            (widget.image as ResizeImage).imageProvider is FileImage));
-    final spinnerInGrid = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(CircularProgressIndicator));
     useGalleryReturning([forTrip]);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -349,9 +336,6 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
-    final spinnerInGrid = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(CircularProgressIndicator));
     expect(find.text('まだ写真がありません'), findsOneWidget);
 
     await tester.tap(find.text('写真を追加'));
@@ -397,9 +381,6 @@ void main() {
     await letFramesRun(tester);
     final releasePage = Completer<void>();
     backend.holds[TripRoute.photos] = releasePage.future;
-    final spinnerInGrid = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(CircularProgressIndicator));
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await letFramesRun(tester);
