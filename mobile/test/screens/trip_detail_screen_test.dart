@@ -2995,4 +2995,40 @@ void main() {
     expect(find.textContaining('送信できませんでした'), findsNothing);
     expect(find.textContaining('枚を送信しました'), findsNothing);
   });
+
+  testWidgets('送信を止めるかの確認で「削除」を選んでも、旅行の削除のダイアログで「キャンセル」したら、送信は続ける（残りの写真も送り、完了を知らせる）', (tester) async {
+    // 3枚のうち2枚は同時に送信中（応答を保留）、3枚目は送信待ち。写真が0枚の旅行なので、実時間を進めても path_provider は要らない
+    final first = writeTestImage('first.png');
+    final second = writeTestImage('second.png', bytes: [...tinyPngBytes, 0]);
+    final third = writeTestImage('third.png', bytes: [...tinyPngBytes, 0, 0]);
+    useGalleryReturning([first, second, third]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    final secondReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 2);
+    await letFramesRun(tester);
+    await openDeleteDialog(tester);
+    await tapInDialog(tester, '削除');
+    expect(find.textContaining('を削除しますか？'), findsOneWidget);
+
+    await tapInDialog(tester, 'キャンセル');
+
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(TripDetailScreen), findsOneWidget);
+    expect(backend.deletePhotosSent, isEmpty);
+    firstReply.complete();
+    secondReply.complete();
+    // 届いた写真は偽のサーバから取り除いておく（別の端末で消された状態）。取り除かないと、読み直した一覧にサムネイルが出て、
+    // 実時間の待ちで画像のキャッシュが端末の機能（path_provider）を探して落ちる。画面は進めずに、実時間だけで3枚目の到着を待つ
+    await waitUntilUploadsReceived(tester, backend, 3);
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    backend.photosByTripId[hokkaidoTripId]!.clear();
+    await letFramesRun(tester);
+    expect(backend.uploadsReceived, 3);
+    expect(find.text('3枚を送信しました'), findsOneWidget);
+  });
 }
