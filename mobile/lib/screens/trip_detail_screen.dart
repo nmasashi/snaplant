@@ -213,7 +213,16 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   Widget _buildBody(TripSummary? trip) {
     if (_tripDeleted) {
-      return const Center(child: Text('この旅行は削除されています'));
+      // この旅行宛ての送信の失敗は「閉じる」で片付けられるように、バナーは出したままにする
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          UploadBanner(
+              uploadQueue: widget.uploadQueue,
+              includes: (tripId) => tripId == widget.tripId),
+          const Expanded(child: Center(child: Text('この旅行は削除されています'))),
+        ],
+      );
     }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
