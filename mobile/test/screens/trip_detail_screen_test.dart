@@ -1394,6 +1394,50 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('旅行詳細の見出しの取り直しが重なったとき、先に出した取得が遅れて失敗しても、後から出した取得の結果をエラーの表示で置き換えない', (tester) async {
+    // 1つ目の取り直しは「編集」の保存、2つ目は写真の削除。失敗の指定は1つ目の要求にだけ当たり（2つ目は成功する）、
+    // 応答の中身は届いた時点で決まるので、1つ目は 503 のまま遅れて返り、2つ目は先に新しい枚数（5枚）で返る
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 3)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+          photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:03:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    backend.failNext(TripRoute.detail);
+    final olderReply = backend.holdNextReply(TripRoute.detail);
+    final newerReply = backend.holdNextReply(TripRoute.detail);
+    final tripFetchesBefore = backend.tripFetchesReceived;
+    await openEditDialog(tester);
+    await enterTripName(tester, '北海道 2026冬');
+    await tapInDialog(tester, '保存');
+    expect(backend.tripFetchesReceived, tripFetchesBefore + 1);
+    backend.trips.single['photoCount'] = 6;
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '削除');
+    expect(backend.tripFetchesReceived, tripFetchesBefore + 2);
+
+    newerReply.complete();
+    await letFramesRun(tester);
+    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    olderReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('エラーが発生しました'), findsNothing);
+    expect(find.text('5枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('写真を旅行から外している間は、「外す」が「外しています...」になる', (tester) async {
     // 押せない・閉じないことは、同じ部品（確認のダイアログ）を通る削除の送信中のテストが見ている。ここでは文言だけを見る
     final semantics = tester.ensureSemantics();
