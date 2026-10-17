@@ -112,12 +112,13 @@ sequenceDiagram
 |---|---|
 | デプロイ | 環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。**未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う。** 当面は分類にも今のデプロイ（`gpt-6-luna`。Terraform の `azurerm_cognitive_deployment.gpt6_luna`）をそのまま使い、分類用のデプロイは足さない（2026-10-12 に人間が決定。2026-10-17 に今のデプロイを `gpt-5.6-luna` から `gpt-6-luna` に替えた。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。分類と識別を別のモデルにするときは、Terraform でデプロイを1つ足して環境変数を書き換えるだけ（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | 画像 | 原寸の Blob の読み取り SAS（15 分。既存の `TEMP_SAS_EXPIRY_MINUTES` と同じ理由）を `image_url` に、`detail: "low"` |
-| サービス | `api/src/services/photoClassifierService.ts`。`OpenAIVisionService` を一般化した `analyze({ deployment, schema, prompt, imageUrl, detail })` を呼ぶ |
+| サービス | `api/src/services/photoClassifierService.ts`。`OpenAIVisionService` を一般化した `analyze({ deployment, schemaName, schema, prompt, imageUrl })` を呼ぶ（`detail` は `"low"` で固定） |
 | 失敗 | `UpstreamError('ai')`。応答の検証違反も同じ（既存の `identifyPlant()` と同じ扱い） |
 
-`OpenAIVisionService` の一般化: `identifyPlant()` を残したまま、デプロイ名・スキーマ・プロンプトを引数で受ける `analyze()` を足す。
+`OpenAIVisionService` の一般化（3-2 で実装）: デプロイ名・スキーマ・プロンプトを引数で受ける `analyze()` を足し、`identifyPlant()` もこれを通す。
 Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temperature` を指定しない点はそのまま。
-`baseURL` にデプロイ名を埋め込む形（`openAIVisionService.ts` 96行）は、デプロイごとにクライアントを作る形に直す。
+クライアントはデプロイごとに作る（Azure ではデプロイ名が `baseURL` に入るため。OpenAI API は1つ）。
+今のデプロイ名（`AZURE_OPENAI_DEPLOYMENT_NAME`）の検査はコンストラクタに残す（アップロードは、一時コンテナに画像を置く前に設定の誤りで止まることに頼っている）。
 
 ### 2.2 契約（Structured Outputs）
 
