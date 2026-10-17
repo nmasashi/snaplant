@@ -1,5 +1,9 @@
 import { CATALOG_KINDS, OTHER_KIND, PhotoKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
+import { UpstreamError } from '../utils/errors';
+
+/** 分類 AI が選べる種類 */
+const CLASSIFICATION_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OTHER_KIND];
 
 /**
  * 分類の応答の形（Structured Outputs。docs/travel-album/06_processing_design.md §2.2）
@@ -12,7 +16,7 @@ const PHOTO_CLASSIFICATION_SCHEMA = {
   properties: {
     kind: {
       type: 'string',
-      enum: [...Object.keys(CATALOG_KINDS), OTHER_KIND],
+      enum: CLASSIFICATION_KINDS,
       description: '写真の主題のカテゴリ。どれにも当てはまらなければ other',
     },
     confidence: { type: 'number', description: '分類の信頼度（0-100）' },
@@ -53,14 +57,27 @@ ${placeSection}
 人や動物、建物の内装など、当てはまるものが無ければ other を選んでください。
 `;
 
-    const result = (await this.vision.analyze({
-      deployment,
-      schemaName: 'photo_classification',
-      schema: PHOTO_CLASSIFICATION_SCHEMA,
-      prompt,
-      imageUrl,
-    })) as { kind: PhotoKind; confidence: number };
+    try {
+      const result = (await this.vision.analyze({
+        deployment,
+        schemaName: 'photo_classification',
+        schema: PHOTO_CLASSIFICATION_SCHEMA,
+        prompt,
+        imageUrl,
+      })) as { kind: unknown; confidence: unknown };
 
-    return { kind: result.kind, confidence: result.confidence, model: deployment };
+      // strict のスキーマでも、範囲は強制できず、選択肢の外の値が来ないことも検査しないと保証できない。
+      // 検査を通らない応答を書き込むと、写真の category が図鑑の種類と食い違う
+      if (typeof result.kind !== 'string' || !CLASSIFICATION_KINDS.includes(result.kind)) {
+        throw new Error('kindが選択肢にありません');
+      }
+      if (typeof result.confidence !== 'number' || result.confidence < 0 || result.confidence > 100) {
+        throw new Error('confidenceが0-100の範囲の数値ではありません');
+      }
+
+      return { kind: result.kind as PhotoKind, confidence: result.confidence, model: deployment };
+    } catch (error: any) {
+      throw new UpstreamError(`写真の分類に失敗しました: ${error.message}`, 'ai', error);
+    }
   }
 }
