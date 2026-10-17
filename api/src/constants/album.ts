@@ -1,3 +1,5 @@
+import { positiveIntFromEnv } from './validation';
+
 /**
  * 旅行アルバムの定数
  */
@@ -34,3 +36,21 @@ export const PHOTO_CONTINUATION_TOKEN_LIMIT_KB = 2;
  * 上限に達したら空のページをトークン付きで返し、クライアントが続きを取る（無限に読み続けない）
  */
 export const PHOTO_EMPTY_PAGE_RETRIES = 10;
+
+/**
+ * 写真の解析（分類・識別）を試す回数の上限（PHOTO_PROCESSING_MAX_ATTEMPTS。既定 3）
+ *
+ * 上限に達したら failed にし、キューの再試行にも再投入のタイマーにも回さない（同じ画像で毎回失敗しても回り続けない）。
+ * キューの再試行の回数（host.json の maxDequeueCount 3）より大きくすると、上限の前にメッセージが poison に落ち、
+ * 残りはタイマーの再投入（10 分ごと）だけで進むので、maxDequeueCount 以下にする。呼ぶたびに読む
+ */
+export function photoProcessingMaxAttempts(): number {
+  return positiveIntFromEnv(process.env.PHOTO_PROCESSING_MAX_ATTEMPTS, 3);
+}
+
+/**
+ * 分類の AI に渡す原寸の SAS の有効期限（分）
+ *
+ * AI が画像を取りに来るまでの間だけ開ける（一時画像と同じ理由。docs/travel-album/06_processing_design.md §2.1）
+ */
+export const CLASSIFY_IMAGE_SAS_MINUTES = 15;

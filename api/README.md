@@ -35,16 +35,19 @@ npx tsc -p tsconfig.test.json --noEmit
 ## 関数の登録
 
 `src/app.ts` が唯一のエントリーポイント（`package.json` の `main` は `dist/src/app.js`）。
-各関数ファイルは末尾で `app.http(...)` を呼び、`app.ts` が全ファイルを import することで登録が走る。
-新しい関数を足したら `app.ts` に import を足す。足し忘れると、その関数は一切登録されない（404 になる）。
+各関数ファイルは末尾で `app.http(...)`（キューのトリガーは `app.storageQueue(...)`）を呼び、`app.ts` が全ファイルを import することで登録が走る。
+新しい関数を足したら `app.ts` に import を足す。足し忘れると、その関数は一切登録されない（HTTP の関数は 404 になり、キューのワーカーはメッセージを取らない）。
 
-全関数は `authLevel: 'function'` なので、呼び出しには `?code={FUNCTION_KEY}` が要る。
+HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しには `?code={FUNCTION_KEY}` が要る。
 ルートの一覧は `README.md`（リポジトリ直下）のエンドポイント表。
+
+キューのトリガーの関数は、旅行アルバムの写真の解析のワーカー `processPhoto`（`src/functions/processPhoto.ts`）だけ。
+キューの名前はアプリの設定 `PHOTO_QUEUE_NAME` から `%PHOTO_QUEUE_NAME%` で解決し、接続は `AzureWebJobsStorage`（設定値は `docs/travel-album/07_infrastructure_design.md` §6.1）。
 
 ## テスト
 
 - `tests/` は `src/` をミラーする。守り続けるテストは入口（エンドポイント）の `tests/functions/` に置く
-- Cosmos DB / Blob Storage の偽物は `tests/fakes/`、複数のテストが使うケースの表は `tests/helpers/`
+- Cosmos DB / Blob Storage / Storage Queue の偽物は `tests/fakes/`、複数のテストが使うケースの表は `tests/helpers/`
 - `tests/setup.ts` が環境変数と `openai` のモックをグローバルに設定する
 - 変異テストは `scripts/mutate.js`（使い方は先頭のコメント）
 - 原則は `.claude/test-principles.md`

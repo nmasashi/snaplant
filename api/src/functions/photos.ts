@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
+import { PhotoQueueService } from '../services/photoQueueService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { photoListResponseData, photoResponseData } from '../services/photoView';
 import {
@@ -75,12 +76,21 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
       hint: null,
       classification: null,
       identification: null,
-      processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+      processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: now },
       uploadedAt: now,
       updatedAt: now,
     };
     const { photo, created } = await album.createPhoto(doc);
     context.log(`写真保存成功: ID=${photo.id}`);
+
+    if (created) {
+      try {
+        await new PhotoQueueService().enqueue(photo.id);
+      } catch (error: any) {
+        // 写真は解析待ちのまま残り、再投入のタイマーが拾う。送信は保存できているので失敗にしない
+        context.log(`解析のキューへの投入に失敗しました（タイマーが再投入します）: ID=${photo.id}`, error);
+      }
+    }
 
     return createSuccessResponse(photoResponseData(photo, storage), created ? HttpStatusCode.CREATED : HttpStatusCode.OK);
   } catch (error: any) {

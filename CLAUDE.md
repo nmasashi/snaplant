@@ -102,7 +102,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 
 ### 関数の登録
 
-- **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)` で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる
+- **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)`（キューのワーカーは `app.storageQueue(...)`）で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる（ワーカーならメッセージが誰にも拾われずに溜まる）
 - `plants/{id}` は `plantDetail.ts`（GET・DELETE）と `updatePlant.ts`（PUT）の2ファイルが別々に登録している。片方だけ見て全体を判断しない
 - `photos/move` は `photos/{photoId}` と同じ階層のリテラルのルート（`photoMove.ts`）。デプロイ後に `{photoId}` に取られていないことを確かめる
 - 呼び出しに要る `?code=` は、Flutter の `ApiService._buildUrl()` が付ける
@@ -530,7 +530,6 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | テスト | 例外 | 理由 |
 |---|---|---|
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
-| `api/tests/services/photoClassifier.test.ts` | 例外ではない（期限付き。3-3 まで） | 分類の入口（キューのワーカー）は段階3の 3-3 で作る。3-3 でワーカーのテストへ寄せて消す |
 
 **複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
 仕様の「同じ」「全エンドポイント」を根拠に全ケースを通す入口を1つ決め、他の入口は1〜2行にして、
@@ -558,6 +557,7 @@ Cosmos DB / Blob Storage の差し替えには、**引数を見分ける状態�
 |---|---|
 | `tests/fakes/cosmos.ts` | `FakeCosmosBackend`（ドキュメントの `Map`）と `createFakeContainer()` |
 | `tests/fakes/blob.ts` | `FakeBlobBackend`（Blob の `Map`）と `createFakeBlobServiceClient()` |
+| `tests/fakes/queue.ts` | `FakeQueueBackend`（キューの名前ごとの本文）と `createFakeQueueClient()`・`decodeQueueMessage()`（本文は base64 で読み戻す。Functions のトリガーが base64 として読むので、JSON をそのまま送ると poison に落ちる） |
 
 状態を持たせるのは、**呼び出しを検証せずに結果を確認する**ため。
 保存できたか・消えたか・宛先を取り違えていないかは、`toHaveBeenCalledWith` ではなく

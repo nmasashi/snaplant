@@ -18,7 +18,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 原則 | この機能での適用 |
 |---|---|
-| 依存の種類でモックを決める | Cosmos DB・Blob Storage・Storage Queue は管理下にある依存 → 状態持ちの偽物（`tests/fakes/`）で差し替え、**やり取りは検証しない**。結果は `documents` / `store` / `messages` の中身で確かめる。Azure OpenAI・Azure Maps は管理外 → モックして呼び出しも検証してよい |
+| 依存の種類でモックを決める | Cosmos DB・Blob Storage・Storage Queue は管理下にある依存 → 状態持ちの偽物（`tests/fakes/`）で差し替え、**やり取りは検証しない**。結果は `documents` / `store` / `queues` の中身で確かめる。Azure OpenAI・Azure Maps は管理外 → モックして呼び出しも検証してよい |
 | 観察可能な振る舞いだけ | ハンドラはレスポンス（ステータス・`code`・`message`・`data`）と、偽物の状態。サービスは戻り値と偽物の状態 |
 | `details` は固定しない | 付くか付かないかを確かめるのは可。文言を `toEqual` で固定しない |
 | エラーの注入は実 SDK の形で | Cosmos: `{ code: 404 }` / `{ code: 409 }` / `{ code: 412 }`、`ENOTFOUND` は `cause` を持つ形も。Blob: `name: 'RestError'`・`statusCode`・`code`。OpenAI: 既存の3段の `cause`（CLAUDE.md「テストの流儀」の表） |
@@ -27,8 +27,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | 環境変数を消すときは `delete` | `process.env.X = undefined` は文字列 `"undefined"` になる |
 | テスト名は日本語の文 | 既存と同じ |
 
-ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`、
-`tests/services/tripSummaries.test.ts`（入口から入力を作れないので残す。CLAUDE.md の名簿）、`tests/services/photoClassifier.test.ts`（分類の入口のワーカーができるまでの期限付き。3-3 でワーカーのテストへ寄せて消す。CLAUDE.md の名簿）。ほかのサービスと `utils/` は単体のテストを持たず、入口（ハンドラ）のテストが通す（#44 で決めた「テストの入口」。#46 で入口へ寄せた）。
+ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`processPhoto.test.ts`（解析のワーカー。3-3a）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`、
+`tests/services/tripSummaries.test.ts`（入口から入力を作れないので残す。CLAUDE.md の名簿）。3-2 で期限付きで置いた `tests/services/photoClassifier.test.ts` は、3-3a で入口のワーカーのテスト（`processPhoto.test.ts`）へ寄せて消した。ほかのサービスと `utils/` は単体のテストを持たず、入口（ハンドラ）のテストが通す（#44 で決めた「テストの入口」。#46 で入口へ寄せた）。
 
 ## 2. テスト用の差し替え部品の拡張
 
@@ -40,7 +40,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | `query` のページ | `fetchNext()` が `maxItemCount` 件ずつ返し、続きがあれば `continuationToken`（偽物では挿入順の位置を表す文字列）を返す。同じトークンを渡すと続きから返す。`fetchAll()` も残す | 写真一覧のページの切れ目とトークンの受け渡し（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。`ORDER BY` は解釈しないので、**並び順は挿入順になる**（並びそのものは手で確かめる。§5.2） |
 | 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts` に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、集計の行から `TripSummary` / `CatalogEntry` を組み立てる所は純粋関数（`services/tripSummaries.ts` など）に分け、行を直接渡して単体で確かめる（`albumQueries` を差し替えない。PR 3 で決めた）。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
-| `item().patch(body, options)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }`。`condition` はこの設計で使う2つの形（`FROM c WHERE c.processing.state = "<値>"` と `FROM c WHERE IS_NULL(c.<path>) OR c.<path> = "<値>"`）だけを解釈し、満たさなければ `{ code: 412 }`。**それ以外の形は例外にする**（知らない条件を黙って通さない） | move・PATCH・旅行の削除（未所属へ戻す）・ワーカー（担当の条件付き patch、コメントの条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）が使う。条件が実環境で意図どおりかは手で確かめる（§5.3） |
+| `item().patch(body, options)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }`。`condition` はこの設計で使う2つの形（担当の `FROM c WHERE c.processing.state = "<文字列>" AND c.processing.attempts = <整数>` と、コメントの `FROM c WHERE IS_NULL(c.<path>) OR c.<path> = "<値>"`）だけを解釈し、満たさなければ `{ code: 412 }`（3-3a で1つ目の形（`c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだもの）を足した。2つ目はコメントを書く段階4で足す）。「読んだ後・patch の直前に他の操作が書き換えた」は `beforePatch` で作る。**それ以外の形は例外にする**（知らない条件を黙って通さない） | move・PATCH・旅行の削除（未所属へ戻す）・ワーカー（担当の条件付き patch、コメントの条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）が使う。条件が実環境で意図どおりかは手で確かめる（§5.3） |
 | `FakeCosmosDocument` の緩和 | `name` / `imagePath` を必須にしない（`{ id: string; type?: string; … }`）。`FakeCosmosBackend<TDoc>` の既定の型に `Trip | Photo` を足す | 旅行・写真は `name` / `imagePath` を持たない |
 | 挿入順の維持 | そのまま。テストは期待する並びの順に挿入し、ページの切れ目を確かめる | `ORDER BY` を解釈しないため |
 
@@ -53,8 +53,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 2.3 `tests/fakes/queue.ts`（段階3）
 
-`FakeQueueBackend { messages: string[]; forcedSendError?: Error }` と `createFakeQueueClient()`。`sendMessage(text)` は `messages` に積む。
-投入されたかは `messages` の中身（JSON を parse して `photoId`）で確かめ、呼び出しは検証しない。
+`FakeQueueBackend { queues: Map<キューの名前, string[]>; forcedSendError?: Error }` と `createFakeQueueClient(backend, queueName)`。`sendMessage(text)` はそのキューの配列に積む（宛先のキューの取り違えを見分けるため、名前ごとに持つ）。
+投入されたかは中身を `decodeQueueMessage()`（Functions のトリガーと同じく base64 として読み、JSON を parse する）で読み戻して確かめ、呼び出しは検証しない。
 `forcedSendError` で「投入に失敗しても応答は成功で、写真は `pending` のまま」（[04 §7.1](./04_data_design.md#71-操作ごとの表)）を作る。
 
 ### 2.4 `mobile/test/`
@@ -107,7 +107,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 上の旅行の削除の項目のうち、「射影に無かった写真は消さない」と「途中で失敗したとき済んだ分はそのまま」はテストが無い（失敗の注入は全部の写真の操作に効くので、1枚目で止まり何も変わらない形だけを確かめている）。
 
 写真:
-- 作成すると `type: "photo"`・`tripId: null`（指定なし）・`category: null`・`tags: []`・`processing.state: "none"`・全項目が揃って保存される（**`tripId` キーが存在して `null`**）
+- 作成すると `type: "photo"`・`tripId: null`（指定なし）・`category: null`・`tags: []`・`processing.state: "none"`（段階3からは `pending`・`step: "classify"`。§3.9）・全項目が揃って保存される（**`tripId` キーが存在して `null`**）
 - `takenAt` があれば `takenAtSource: "exif"`、無ければ `"none"`
 - `sortAt`: `takenAt` があればそれと同じ。無ければ `uploadedAt` を日本時間に直した TZ 無しの文字列（例: `uploadedAt` が `2026-10-10T03:12:45.000Z` なら `2026-10-10T12:12:45`。日付をまたぐ例 `2026-10-10T20:00:00.000Z` → `2026-10-11T05:00:00` も1本）
 - 緯度・経度・地名から `location` が組み立てられ、無ければ `null`
@@ -192,14 +192,18 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 
 整合性の表（[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）の「直り方」が成り立つことを、偽物の状態で確かめる。
 
-- `process`: 写真に `pending`・`step`・`hint`・`attempts: 0` が書かれ（`failed`・`attempts: 3` の写真でも）、`comment` / `commentSource` が `null` になり、`messages` に `{ photoId }` が積まれる。**投入に失敗しても 202** で写真は `pending` のまま。`tags`・`tripId` は変わらない
+- `process`: 写真に `pending`・`step`・`hint`・`attempts: 0` が書かれ（`failed`・`attempts: 3` の写真でも）、`comment` / `commentSource` が `null` になり、キュー（`queues`）に `{ photoId }` が積まれる。**投入に失敗しても 202** で写真は `pending` のまま。`tags`・`tripId` は変わらない
 - 分類の AI に送るもの（[06 §2.1](./06_processing_design.md#21-モデルとサービス)・§2.2。管理外の依存なのでモックの受けた要求で確かめる）: 画像（`detail: "low"`）とテキストの2パート、strict な `json_schema` の選択肢が定義表の種類 + `other`、`max_completion_tokens`（`max_tokens` と `temperature` は送らない）、撮影地があればテキストに含む。分類用のデプロイ名があればそのデプロイ（`baseURL` と `model`）に送り、今のデプロイ名が無くても分類できる。未設定・空・空白だけなら今のデプロイに送る。デプロイ名が決まらないときと、AI のクライアントを作れないとき（API キーが無い）は、AI を呼ばずに失敗し、`UpstreamError` にしない。種類が選択肢に無い・信頼度が数値でないか 0〜100 の外（0 と 100 は可）・空・JSON として読めない・SDK のエラーは `UpstreamError("ai")`
-- ワーカー（分類）: `category` が書かれ、`classification` が書かれ、`identification` が `null` になる。`tags`・`comment`・`tripId` は変わらない。識別対象なら `pending`・`step: "identify"` で `messages` に積まれ、投入に失敗しても写真はそのまま。`other` なら `done`
+- ワーカー（分類）: `category` が書かれ、`classification` が書かれ、`identification` が `null` になる。`tags`・`comment`・`tripId` は変わらない。識別対象なら `pending`・`step: "identify"` でキューに積まれ、投入に失敗しても写真はそのまま。`other` なら `done`（段階3は種類によらず `done`）
 - ワーカー（識別）: `identification` が `{ kind, matchesKind, name（trim 済み）, … }` で書かれ、`done`。`matchesKind: false` なら `name: null` で `comment` は変わらない
 - ワーカーは `commentSource: "user"` の `comment` を書き換えず、`identification`・`processing` は書く（コメントの条件付き patch が 412 でも結果の patch に進む）。`commentSource` が `null` / `"ai"` なら書く
 - ワーカーが読んだ後に利用者が `tags`・`tripId` を変えても（偽物の文書を途中で書き換える）、結果の patch で利用者の変更が残る
-- ワーカーは `state` が `pending` でない写真（担当の条件付き patch が 412。古い重複メッセージ）には何もしない。`done` / `failed` / `none` でも何もしない
-- タイマー（再投入）: 10 分以上更新されていない `pending` / `classifying` / `identifying` の写真が `{ photoId }` で積まれ、`attempts` が上限なら `failed` になる。**`failed` と `none` は拾わない**（`failed` の写真は何度タイマーが走っても `messages` に積まれない）
+- ワーカーは `state` が `pending` でない写真（担当の条件付き patch が 412。古い重複メッセージ）には何もしない。`done` / `failed` / `none` / 処理中でも何もしない。読んだ後・担当の直前に別のインスタンスが担当したときも、担当して失敗し `pending` に戻していたとき（`attempts` が変わっている）も何もしない（回数を数え直さない）
+- ワーカー（3-3a）: `step` が `classify` でなければ（識別は段階4）、AI を呼ばず写真も変えない
+- ワーカー（3-3a）: 写真が無い・メッセージに文字列の `photoId` が無い（JSON のオブジェクトでないものを含む）ときは何もせずに終える。写真を読めなければ写真を変えずに例外を投げる
+- ワーカーの失敗（3-3a）: AI の失敗（SDK のエラー・応答の検証違反）は `pending` に戻して `lastError: "ai"`・`attempts` +1 を書き、例外を投げる。結果の欄は書かない。上限（既定 3、`PHOTO_PROCESSING_MAX_ATTEMPTS` で変わる）の回の失敗は `failed` にして例外を投げない。設定の誤り（デプロイ名が無い・AI のクライアントを作れない）は `lastError: "internal"`。成功すると `lastError: null` に戻り、`attempts` は数え続ける
+- 写真の送信（3-3a）: 作ったときだけ `PHOTO_QUEUE_NAME` のキューに、base64 の本文で `{ photoId }` が1つ積まれる。既存を返す 200（読み取りで見つけたとき・`create` の 409）では積まない。投入に失敗しても、`PHOTO_QUEUE_NAME` が無くても 201 で、写真は `pending`・`classify` のまま
+- タイマー（再投入）: 10 分以上更新されていない `pending` / `classifying` / `identifying` の写真が `{ photoId }` で積まれ（処理中の写真は `pending` に戻ってから。`step`・`attempts` はそのまま。戻さないとワーカーが担当しない）、`attempts` が上限なら `failed` になる。**`failed` と `none` は拾わない**（`failed` の写真は何度タイマーが走ってもキューに積まれない）
 - 掃除のタイマー: 文書の無い Blob のうち1日より古いものだけが `store` から消え、新しいものと文書のある Blob は残る。存在しない旅行を指す写真が `tripId: null` になる（消えない）。Blob の無い文書は消えない
 - 図鑑のまとめ（組み立ての純粋関数に行を直接渡して）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並ぶ
 - 図鑑の API（形は案。段階4の詳しい設計で決める。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400。該当する写真が無いときの応答、`name` の渡し方、ページの方式は決まってから書く
@@ -284,7 +288,9 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - `c.category = @category` の絞り込み、タイマーの再投入クエリ（**`failed` の写真が拾われない**こと）、図鑑の `GROUP BY c.identification.name` と `c.identification.kind` の絞り込み、複合インデックスでの `TOP 1 … ORDER BY confidence DESC, at DESC`（[04 §5](./04_data_design.md#5-クエリ)）
 - Patch の `condition`: 写真にコメントを書いてからやり直しを頼み、結果でコメントが置き換わる（受付で消しているため）。写真を送った直後（自動の解析中）にコメントを書き、解析が終わっても利用者のコメントが残る。解析中にタグ・旅行を変えても結果と両方残る
 - 永遠に回り続けないこと: AI が必ず失敗する入力（例: 分類のスキーマ検証に通らない応答を返すモック、または壊れた画像）で 3 回失敗した写真が `failed` になり、タイマーが 10 分×数回走っても再投入されない。「やり直す」でもう一度 3 回だけ試す
-- キューの直列化（`batchSize: 1`）と poison の挙動（3 回失敗したメッセージが `photo-processing-poison` に落ち、写真は `failed` になってアプリに「やり直す」が出る。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
+- キューの直列化（`batchSize: 1`）と poison の挙動（AI が 3 回失敗した写真は、3 回目でワーカーが `failed` にして例外を投げないので poison には落ちず、アプリに「やり直す」が出る。担当の前に 3 回失敗したメッセージ（写真の読み取りの失敗など）だけが `photo-processing-poison` に落ちる。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
+- 関数の登録とキューのつながり（3-3a）: ポータルの「関数」に `processPhoto`（`app.storageQueue` の第1引数）がある。写真を1枚送り、`GET /api/photos/{photoId}` の `processing.state` が `done`・`category` が入る（投入の本文の base64・キューの名前・接続（`AzureWebJobsStorage`）は偽物では確かめられない。本文が読めなければ `photo-processing-poison` に落ち、写真は `pending` のまま）
+- 担当の `condition`（`FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ回数>`）が、実環境で `pending` でない写真と回数の違う写真に 412 を返す（偽物は条件を自前で評価している）
 - 10 枚のトークン使用量の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）。容量は今のまま（150）でよく、下げるかの判断材料にする
 - 図鑑の1種類の1ページを開く RU と時間の実測（識別済みの枚数・項目の数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）
 - 掃除のタイマー: `photos` に文書の無い Blob を手で置き、翌日消えている。文書のある Blob と、置いたばかりの Blob は残る

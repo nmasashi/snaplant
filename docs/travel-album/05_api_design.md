@@ -120,7 +120,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
   "hint": null,
   "classification": null,
   "identification": null,
-  "processing": { "state": "none", "step": null, "attempts": 0, "lastError": null, "updatedAt": null },
+  "processing": { "state": "pending", "step": "classify", "attempts": 0, "lastError": null, "updatedAt": "2026-10-10T03:12:45.000Z" },
   "uploadedAt": "2026-10-10T03:12:45.000Z",
   "updatedAt": "2026-10-10T03:12:45.000Z"
 }
@@ -131,6 +131,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 クライアントは `latitude`・`longitude`・`placeName` を読み、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
 `category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
+`classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
+`processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
@@ -213,7 +215,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 `takenAtSource` は受け取らない。サーバが `takenAt` の有無から `exif` / `none` を入れる。
 `sortAt` もサーバが決める（`takenAt` があればそれ、無ければ `uploadedAt` を日本時間に直したもの。[04 §1.3](./04_data_design.md#13-写真type-photo)）。`category` は `null`、`tags` は `[]` で作る。
 `location.placeSource` は `placeName` を送ったときだけ `"device"`、緯度・経度だけなら `placeName`・`placeSource` とも `null`。
-`comment`・`commentSource`・`hint`・`classification`・`identification` は `null`、`processing` は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`、
+`comment`・`commentSource`・`hint`・`classification`・`identification` は `null`、`processing` は段階3から `{ state: "pending", step: "classify", attempts: 0, lastError: null, updatedAt: <保存した時刻> }`（段階2は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`）、
 `fileSize` は原寸のバイト数、`uploadedAt` と `updatedAt` は同じ値（保存した時刻）。
 
 任意のパートは、値が無ければ**パートごと省く**。空文字のパートは「指定あり」として検証され 400 になる（`tripId` は 12、`takenAt` は 13、`latitude` / `longitude` は 15（片方だけなら 14）、`placeName` は 17（緯度・経度が無ければ 16））。
@@ -227,7 +229,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
    （先に見ると、保存に成功して応答が届かず、その間に旅行が消されたときの再送が 404 になり、冪等でなくなる）
 5. 原寸を `photos/<photoId><拡張子>` に上書きアップロード。サムネイルがあれば `photos/<photoId>.thumb.jpg` に上書き
 6. ドキュメントを `create`。409（3 と 6 の間に並行リクエストが作った）なら既存を読んで 200
-7. **201** で `{ photo, urlExpiresAt }`
+7. （段階3）キューに `{ photoId }` を投入する（[06 §1](./06_processing_design.md#1-キューとワーカー段階3)）。**投入に失敗してもログだけ出して 201 を返す**（キューの名前の設定 `PHOTO_QUEUE_NAME` が無い・空・空白だけのときも投入の失敗として同じ扱い。写真は `pending` のまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）。200 で既存を返すとき（3 と 6）は投入しない
+8. **201** で `{ photo, urlExpiresAt }`
 
 `tripId` を付けて送ったが既存だった（`tripId: null` または別の旅行）とき: 既存をそのまま 200 で返し、旅行は変えない。
 送信は「入れる」ではなく「送る」で、入れたければ `move` を使う。クライアントは応答の `tripId` が送ったものと違えば
