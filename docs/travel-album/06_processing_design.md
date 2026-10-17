@@ -19,15 +19,15 @@
 | 項目 | 値 | 理由 |
 |---|---|---|
 | キュー | Azure Storage Queue `photo-processing`（既存のストレージアカウント。`AzureWebJobsStorage` と同じ） | 追加のリソースが要らず、Functions のトリガーが標準で使える。Service Bus は過剰 |
-| メッセージ | `{ "photoId": "<id>" }`（JSON） | ワーカーは写真を読み直し、やる処理（`processing.step`）も手がかり（`hint`）も写真から取る。メッセージは「この写真を見ろ」という合図に過ぎない。メッセージに `step` や `hint` を載せると、再投入や重複配信で写真の中身と食い違ったものが届きうる（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
+| メッセージ | `{ "photoId": "<id>" }`（JSON を UTF-8 で base64 にした本文。Functions のキューのトリガーは本文を base64 として読む（`host.json` の `messageEncoding` の既定）ので、JSON をそのまま積むと読めずに poison に落ちる） | ワーカーは写真を読み直し、やる処理（`processing.step`）も手がかり（`hint`）も写真から取る。メッセージは「この写真を見ろ」という合図に過ぎない。メッセージに `step` や `hint` を載せると、再投入や重複配信で写真の中身と食い違ったものが届きうる（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
 | 投入 | API（Azure Functions）から `@azure/storage-queue` の `QueueClient.sendMessage()`（**`dependencies` に置く**） | 投入の失敗を握って応答を変えない、という制御をコードで書ける（出力バインディングは関数の戻り値で送るので、失敗時の扱いを制御しにくい）。`devDependencies` だと本番で読み込めない（CLAUDE.md「CI/CD」） |
-| ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName, connection: 'AzureWebJobsStorage', handler })` | API と同じ Function App（Azure 上の1つのアプリ）に同居 |
+| ワーカー | `api/src/functions/processPhoto.ts`。`app.storageQueue('processPhoto', { queueName: '%PHOTO_QUEUE_NAME%', connection: 'AzureWebJobsStorage', handler })` | API と同じ Function App（Azure 上の1つのアプリ）に同居 |
 | 直列化 | `host.json` の `extensions.queues` で `batchSize: 1`・`newBatchThreshold: 0` | AI のレート上限（TPM）と費用を抑える。1回の旅行で数百枚を一気に投入しても、順に流れる |
 | 可視性タイムアウト・再試行 | `visibilityTimeout: 00:01:00`、`maxDequeueCount: 3`。3回失敗すると `photo-processing-poison` に落ちる。**poison キューに特別な対処はしない**（§5） | 一時的な失敗（429・503）は自動で再試行され、恒久的な失敗は止まる。処理の状態は写真の文書が正で、poison の中身は使わない |
-| 再投入のタイマー | `api/src/functions/requeueStalePhotos.ts`。`app.timer`、10 分ごと。`processing.state` が `pending` / `classifying` / `identifying` のまま 10 分以上更新されていない写真を再投入（`{ photoId }`。やる処理は写真の `processing.step` にある）。**`failed` と `none` は拾わない** | poison に落ちたもの、投入前にプロセスが落ちたもの、投入に失敗したものを拾う。`attempts` が上限（3 回）なら再投入せず `failed` にする。`failed` を拾わないので、同じ画像で永遠に失敗し続けることが無い（§1.3） |
+| 再投入のタイマー | `api/src/functions/requeueStalePhotos.ts`。`app.timer`、10 分ごと。`processing.state` が `pending` / `classifying` / `identifying` のまま 10 分以上更新されていない写真を再投入（`{ photoId }`。やる処理は写真の `processing.step` にある）。**処理中（`classifying` / `identifying`）の写真は、先に `pending` に戻してから（`step`・`attempts` はそのまま）投入する**（ワーカーは `pending` の写真しか担当しないので、処理中のまま投入しても担当されない）。**`failed` と `none` は拾わない** | poison に落ちたもの、投入前にプロセスが落ちたもの、投入に失敗したものを拾う。`attempts` が上限（3 回）なら再投入せず `failed` にする。`failed` を拾わないので、同じ画像で永遠に失敗し続けることが無い（§1.3） |
 | 掃除のタイマー | `api/src/functions/sweepAlbum.ts`。`app.timer`、1日1回。文書の無い Blob（1日より古いもの）を消し、消えた旅行を指す写真を未所属に戻し、Blob の無い文書をログに出す | 途中で止まった操作の残骸を消す（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） |
 
-キュー名は環境変数 `PHOTO_QUEUE_NAME`（既定 `photo-processing`）。Terraform で作る（[07 §2](./07_infrastructure_design.md#2-段階3)）。
+キュー名は環境変数 `PHOTO_QUEUE_NAME`。**投入する側もワーカーも必須で、既定値は無い**（ワーカーのトリガーはアプリの設定から `%PHOTO_QUEUE_NAME%` を解決するので既定値を持てず、投入する側だけ既定のキューに積むと誰も拾わないキューに溜まるため）。投入する側（`PhotoQueueService`）は、未設定・空・空白だけなら投げる（前後の空白は除いて使う）。`POST /api/photos` ではこれも投入の失敗として扱い、ログだけで 201 を返す（[05 §5.1](./05_api_design.md#51-post-apiphotos)）。キューと設定は Terraform で作る（[07 §2](./07_infrastructure_design.md#2-段階3)・[07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
 
 ### 1.2 流れ
 
@@ -85,17 +85,22 @@ sequenceDiagram
 | `done` | 済み | 最後にやった処理 | `process` で `pending` |
 | `failed` | 上限まで失敗した。**自動では再試行しない** | 失敗した処理 | `process` で `pending`（`attempts` を 0 に戻す）。これ以外に `failed` から出る経路は無い |
 
-- ワーカーは取り出すたびに `attempts` を +1 し、`updatedAt` を更新する。失敗したら `lastError` に `{ service, status }` 程度を書く（例外のメッセージは入れない。SDK 由来の文言が残り続けるため）
-- `attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）で `failed`。それ未満は例外を投げてキューの再試行に任せる
-- 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending"` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。
-  読んだ写真の `state` が `done` / `failed` / `none` でも何もしない
+- ワーカーは担当するたびに（担当の条件付き patch で）`attempts` を +1 し、`updatedAt` を更新する。成功しても `attempts` は 0 に戻さない（戻すのは `process` だけ）。失敗したら `lastError` にどこで失敗したかだけを書く（`UpstreamError` の `service`（分類では `"ai"`）か、それ以外（設定の誤りを含む）なら `"internal"`）。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
+- 失敗したとき、`attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数。`constants/album.ts` の `photoProcessingMaxAttempts()` が呼ぶたびに読む。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）なら `failed` にして**例外を投げずに終える**（メッセージは消え、poison には落ちない）。それ未満は `state` を `pending` に戻して（`step` はそのまま）例外を投げ、キューの再試行（可視性タイムアウトの後）で担当し直す。結果の欄（`category`・`classification`・`identification`）には書かない
+- `PHOTO_PROCESSING_MAX_ATTEMPTS` は `host.json` の `maxDequeueCount`（3）以下にする。大きくすると、上限に達する前にメッセージが poison に落ち、残りの回は再投入のタイマー（10 分ごと）だけで進む
+- 写真の `processing.step` を見て、段階3は `classify` のときだけ担当する。それ以外（`identify` などの段階4の処理）なら何もしない（AI を呼ばず、写真も変えない）
+- 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts>` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。読んでから担当するまでに写真が消されていた（404）ときも何もしない。
+  `step` も条件に入れるのは、読んでから担当するまでに別の処理が `step` を変えていた（分類を済ませて識別の待ちにした。段階4）ときに、識別を捨てて分類し直さないため。`attempts` も条件に入れるのは、読んでから担当するまでの間に別のインスタンスが担当して失敗し `pending` に戻していた場合を見分けるため（`state` だけでは同じに見え、古い回数から数え直して上限で止まらなくなる）。
+  読んだ写真の `state` が `done` / `failed` / `none` / 処理中でも何もしない（どれも担当の条件付き patch が 412 になる。読んだ値で先に判断しない）
+- メッセージに写真 ID（文字列の `photoId`）が無いとき・写真が無いとき（消された後のメッセージ）は、何もせずに終える（例外にしない。何度送り直しても結果は同じで、poison に落ちるだけなので）。写真 ID が写真 ID の形式（SHA-256 の16進・小文字 64 文字）でないときも同じ（Cosmos の SDK は `/` `` `#` を含む id や空の id で通信の前に投げるので、形式を見ないと例外になって poison に落ちる）
+- 写真の読み取り（担当の前）に失敗したら、写真を変えずに例外を投げる（`attempts` は増えない）。キューの再試行が 3 回とも失敗すれば poison に落ち、写真は `pending` のまま残って再投入のタイマーが拾う
 - AI の 429 は `UpstreamError('ai')` のまま投げ、キューの再試行（可視性タイムアウト後）で吸収する
 
 **永遠に回り続けない。** 画像によっては AI が毎回失敗する（応答の検証違反・内容による拒否など）。その写真が自動の再試行を占有し続けないよう、上限で止める。
 
 | 経路 | 止め方 |
 |---|---|
-| キューの再試行 | `maxDequeueCount: 3` で poison キューに落ちる（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)）。poison からは戻さず、中身も読まない（§5） |
+| キューの再試行 | 担当した後の失敗は、ワーカーが `attempts` を数えて上限で `failed` にし、例外を投げずに終える（メッセージは消える）。担当の前の失敗（写真の読み取りなど）は `maxDequeueCount: 3` で poison キューに落ちる（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)）。poison からは戻さず、中身も読まない（§5） |
 | 再投入のタイマー | `attempts` が上限なら再投入せず `failed` にする。**`failed` は再投入のクエリに含めない**（[04 §5](./04_data_design.md#5-クエリ) の 5.8） |
 | 利用者のやり直し（`process`） | `attempts` を 0 に戻してもう一度だけ 3 回まで試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（§6） |
 
@@ -113,7 +118,7 @@ sequenceDiagram
 | デプロイ | 環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。**未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う。** 当面は分類にも今のデプロイ（`gpt-6-luna`。Terraform の `azurerm_cognitive_deployment.gpt6_luna`）をそのまま使い、分類用のデプロイは足さない（2026-10-12 に人間が決定。2026-10-17 に今のデプロイを `gpt-5.6-luna` から `gpt-6-luna` に替えた。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。分類と識別を別のモデルにするときは、Terraform でデプロイを1つ足して環境変数を書き換えるだけ（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | デプロイ名の入る所 | 空文字列・空白だけの `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` は未設定と同じに扱い、どちらの環境変数も前後の空白を取り除いて使う。分類用のデプロイ名があれば、`AZURE_OPENAI_DEPLOYMENT_NAME` が無くても分類できる。Azure OpenAI Service（`AZURE_OPENAI_ENDPOINT` がある）では、選んだデプロイ名が `baseURL`（`<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`）と `model` の両方に入る。OpenAI API に直接つなぐときは `model` だけで、どちらの環境変数も無ければ `gpt-5.6-luna`（植物図鑑と同じ既定値）。`api-version`・`api-key` ヘッダの付け方は植物図鑑と同じ（[docs/06_api_design.md §5.9](../06_api_design.md#59-ai-識別サービスへ渡すもの)） |
 | 設定の誤り | 次のどちらも、AI を呼ばずに失敗する。AI の障害ではないので `UpstreamError` にはしない（AI の失敗にすると、ワーカーが一時的な障害として送り直し続ける）。<br>・Azure OpenAI Service で送り先のデプロイ名が決まらない（`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` も `AZURE_OPENAI_DEPLOYMENT_NAME` も未設定。空文字列・空白だけを含む）<br>・AI のクライアントを作れない（API キーが無いなど。SDK がクライアントのコンストラクタで例外を投げる） |
-| 画像 | 原寸の Blob の読み取り SAS（15 分。既存の `TEMP_SAS_EXPIRY_MINUTES` と同じ理由）を `image_url` に、`detail: "low"` |
+| 画像 | 原寸（サムネイルではない）の Blob の読み取り SAS を `image_url` に、`detail: "low"`。有効期限は 15 分（`constants/album.ts` の定数 `CLASSIFY_IMAGE_SAS_MINUTES`。環境変数では変えられない。植物図鑑の一時画像の `TEMP_SAS_EXPIRY_MINUTES` と同じ理由）。写真の表示用の URL と同じ `PhotoStorageService.readUrl()` で作るので、`startsOn` は発行の 5 分前（[07 §6.2](./07_infrastructure_design.md#62-api-のコードの定数)） |
 | 要求の形 | `user` ロールのメッセージ1件に、テキスト（プロンプト）と画像の2パート。`response_format` は `json_schema`（名前 `photo_classification`、`strict: true`、スキーマは §2.2）。`max_completion_tokens: 4000`（`max_tokens` は送らない）。`temperature` は送らない |
 | サービス | `api/src/services/photoClassifierService.ts` の `classify(imageUrl, placeName)`。`new OpenAIVisionService(AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME)` を作り（`PhotoClassifierService` のコンストラクタ）、一般化した `analyze({ schemaName, schema, prompt, imageUrl })` を呼ぶ（`detail` は `"low"` で固定） |
 | 返すもの | `{ kind, confidence, model }`。`model` は要求を送ったデプロイ名（§2.3 の `classification.model`）。`reason` は返さない |
@@ -265,7 +270,10 @@ AI の担当の欄だけを1回の patch で `set` する（条件は付けな�
 | 失敗 | どこで | 扱い |
 |---|---|---|
 | キューへの投入の失敗（API・ワーカー） | `POST /api/photos`・`process`・分類の後の識別の投入 | どれも写真に `pending`・`step` を書いた後なので、投入に失敗しても成功を返し（201 / 202）、タイマーが `step` を見て再投入する。失敗を返すと「失敗したのに後で勝手に走る」ことになる |
-| AI の 429 / 503 | ワーカー | 例外を投げてキューの再試行。3 回で poison → タイマーが `failed` に |
+| AI の 429 / 503 | ワーカー | `pending` に戻し `lastError: "ai"` を書いて例外を投げ、キューの再試行。上限（3 回目）の失敗は `failed` にして例外を投げない（poison には落ちない。§1.3） |
+| 写真の読み取りの失敗（Cosmos） | ワーカー（担当の前） | 写真を変えずに例外を投げ、キューの再試行。3 回で poison。写真は `pending` のままなのでタイマーが再投入する |
+| メッセージに写真 ID が無い・写真が無い | ワーカー | 何もせずに終える（例外にしない） |
+| 設定の誤り（デプロイ名が無い・AI のクライアントを作れない・写真の保存先の設定が無いなど） | ワーカー | AI の失敗と同じ回数の扱いで、`lastError: "internal"`（§2.1） |
 | poison キュー（`photo-processing-poison`）に落ちたメッセージ | — | **特別な対処は要らない**（2026-10-12 に人間が決定）。処理の状態は写真の文書（`processing.state` が `failed` など）が正で、poison の中身は使わない。Storage Queue のメッセージは既定の TTL（7 日）で消える。失敗した写真はアプリに「失敗」と「やり直す」が出る（[03 §5.1](./03_screen_design.md#51-写真ビューアへの追加)）。必要になったら poison キューの件数を監視する程度 |
 | AI の応答の検証違反 | ワーカー | 同上（内容が変わる可能性があるので再試行する価値がある）。毎回失敗する画像でも 3 回で `failed` になり、以後は利用者が頼んだときだけ試す（§1.3） |
 | Blob の SAS 生成の失敗 | ワーカー | 同上 |

@@ -20,9 +20,9 @@ infrastructure/
 ```
 
 リソースは `main.tf` 1ファイルにまとめている（再利用可能なモジュールには分割していない）。
-定義しているのは、リソースグループ / Storage Account（`images`・`temp-images`・`photos` の3コンテナと、`temp-images` を1日で消すライフサイクル管理）/
+定義しているのは、リソースグループ / Storage Account（`images`・`temp-images`・`photos` の3コンテナと、`temp-images` を1日で消すライフサイクル管理、旅行アルバムの写真の解析のキュー `photo-processing`）/
 Cosmos DB（`snaplant-db`・`plants`・`album`）/ App Service Plan / Linux Function App /
-Application Insights / Azure OpenAI（`gpt-6-luna` デプロイメント）。
+Application Insights / Azure OpenAI（`gpt-6-luna` デプロイメント）/ リソースグループの月額の予算アラート（`azurerm_consumption_budget_resource_group`）。
 Azure API Management と Key Vault は**定義していない**。
 
 ## CI での静的チェック
@@ -85,7 +85,7 @@ terraform apply
 
 ### 2. 設定
 
-`variables.tf` で宣言している変数は次の12個。`terraform.tfvars` で上書きする。
+`variables.tf` で宣言している変数は次の14個。`terraform.tfvars` で上書きする。
 
 ```hcl
 # 基本設定
@@ -112,6 +112,10 @@ openai_location    = "East US"
 openai_sku         = "S0"
 openai_api_version = "2024-12-01-preview"
 
+# 予算アラート（月額。請求の通貨で、超えても止まらずメールで知らせる）
+monthly_budget_amount = 20
+budget_alert_email    = "<通知先のメールアドレス>"  # 既定値なし。リポジトリに入れない
+
 # タグ設定
 tags = {
   Project   = "SnapPlant"
@@ -123,7 +127,7 @@ Azure OpenAI の**APIキーは入力値ではない**。Terraform が作成し�
 `azurerm_cognitive_account.openai` の `primary_access_key` を Function App の
 `app_settings` に流し込む。
 
-`terraform.tfvars.example` は `variables.tf` の宣言12個と一致している。
+`terraform.tfvars.example` は `variables.tf` の宣言14個と一致している。
 以前は宣言の無い `openai_api_key` と `cognitive_services_sku` が残っていて、
 **本物のキーを書かせておいて一切使わない**という誘導になっていた。
 逆に `openai_location` が無く、OpenAI のリージョンを変える手段がなかった。

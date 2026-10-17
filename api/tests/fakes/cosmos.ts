@@ -71,8 +71,9 @@ import { TripDocument } from '../../src/types/album';
  * `path`（`/tripId` の1段、`/processing/state` の2段）に適用する。`id !== partitionKey` か、ドキュメントが無ければ
  * 実 SDK と同じ数値 `code` 404 を投げる。存在しない path への `replace` / `remove` は `code` 400（実 SDK も拒む）。
  * 適用は複製に対して行い、途中で失敗してもドキュメントは変わらない。
- * **`condition` はまだ解釈しない。渡されたら例外にする**（知らない条件を黙って通さない）。
- * 失敗の注入は `forcedPatchError`。
+ * `condition` は `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形（ワーカーの担当の条件）だけを解釈し、
+ * 満たさなければ実 SDK と同じ数値 `code` 412 を投げる（ドキュメントは変わらない）。**それ以外の形は例外にする**（知らない条件を黙って通さない）。
+ * 失敗の注入は `forcedPatchError`。「読んだ後・patch の直前に他の操作が書き換えた」は `beforePatch` で作る。
  *
  * ## 偽物では検証できないこと
  *
@@ -139,6 +140,11 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
   /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
   forcedPatchError?: Error | null;
   /**
+   * `item(id).patch()` の冒頭（条件を評価する前）で呼ばれる。「読んだ後・patch の直前に、他のリクエストが書き換えた」を再現する
+   * （コールバックの中で `documents` を書き換える）。呼ばれるたびに実行されるので、何回目かはコールバックの側で数える
+   */
+  beforePatch?: (id: string) => void;
+  /**
    * ドキュメントの id ごとに、`item(id).delete()` と `item(id).patch()` が投げるエラー。
    * `forcedDeleteError` / `forcedPatchError` は全件に効くので、「読んだ後に1枚だけ他の操作で消された」のような
    * 一部のドキュメントだけの失敗はこちらで起こす。エラーを投げるだけで、ドキュメント自体は Map に残る
@@ -152,6 +158,46 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
    * （ファイル冒頭の説明を参照）。既定は未設定（0）
    */
   emptyPagesBeforeResults?: number;
+}
+
+/** 実 SDK が、patch の condition を満たさないときに投げる形（数値 `code` 412） */
+export function cosmosPreconditionFailedError(): any {
+  const err: any = new Error('PreconditionFailed');
+  err.code = 412;
+  return err;
+}
+
+/**
+ * patch の condition を評価する
+ *
+ * 解釈できるのは `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形だけ
+ * （ワーカーの担当の条件 `c.processing.state = "pending" AND c.processing.attempts = <読んだ回数>`）
+ * @returns 条件を満たすか
+ */
+function satisfiesCondition(doc: unknown, condition: string): boolean {
+  const where = /^FROM c WHERE (.+)$/.exec(condition.trim());
+  if (!where) {
+    throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
+  }
+  return where[1].split(' AND ').every((term) => {
+    const match = /^c\.([A-Za-z_][\w.]*) = (?:"([^"]*)"|(-?\d+))$/.exec(term.trim());
+    if (!match) {
+      throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
+    }
+    const value = match[1].split('.').reduce<any>((current, key) => (current == null ? undefined : current[key]), doc);
+    return match[2] !== undefined ? value === match[2] : value === Number(match[3]);
+  });
+}
+
+/**
+ * 実 SDK は `item(id)` の URL を組み立てるとき（通信の前）に id を検査して投げる（@azure/cosmos 4.10 で実物を呼んで確かめた）。
+ * 偽物がこれを「見つからない」として返すと、本番では例外になる id をテストが「見つからない」として通してしまう
+ */
+function assertSdkItemId(id: unknown): void {
+  if (typeof id !== 'string') throw new Error('invalid input: input is not string');
+  const trimmed = id.replace(/^\/+|\/+$/g, '');
+  if (trimmed === '') throw new Error('Resource ID must be a string and cannot be undefined, null or empty');
+  if (/[/\\#]/.test(trimmed)) throw new Error("Illegal characters ['/', '\\', '#'] cannot be used in Resource ID");
 }
 
 /** 実 SDK が存在しないドキュメントへの replace / delete で投げる形に合わせたエラー */
@@ -357,6 +403,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
     },
     item: (id: string, partitionKey: string) => ({
       read: async () => {
+        assertSdkItemId(id);
         if (backend.forcedReadError) throw backend.forcedReadError;
         if (id !== partitionKey || !backend.documents.has(id)) {
           return { resource: undefined };
@@ -364,25 +411,28 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         return { resource: backend.documents.get(id) };
       },
       replace: async (doc: TDoc) => {
+        assertSdkItemId(id);
         if (backend.forcedReplaceError) throw backend.forcedReplaceError;
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
         backend.documents.set(id, doc);
         return { resource: doc };
       },
       patch: async (body: FakePatchBody) => {
+        assertSdkItemId(id);
         if (backend.forcedPatchError) throw backend.forcedPatchError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
-        // condition はまだ解釈できない。知らない条件を黙って通さず、使うテストを書くときに偽物を拡張させる
-        if (!Array.isArray(body) && body.condition !== undefined) {
-          throw new Error('偽物の patch は condition を解釈できません');
-        }
+        backend.beforePatch?.(id);
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
+        if (!Array.isArray(body) && body.condition !== undefined && !satisfiesCondition(backend.documents.get(id), body.condition)) {
+          throw cosmosPreconditionFailedError();
+        }
         const operations = Array.isArray(body) ? body : body.operations;
         const patched = applyPatchOperations(backend.documents.get(id)!, operations) as TDoc;
         backend.documents.set(id, patched);
         return { resource: patched };
       },
       delete: async () => {
+        assertSdkItemId(id);
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();

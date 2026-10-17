@@ -1,6 +1,6 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
-import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
@@ -281,6 +281,65 @@ export class AlbumService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 写真の解析を担当する（processing を処理中にする）。読んだときのまま分類の待ち（pending）のときだけ書く条件付きの patch
+   *
+   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。
+   * 回数も条件に入れる。読んでから担当するまでに、別のインスタンスが担当して失敗し分類の待ちに戻していると、
+   * state だけでは見分けられず、回数を数え直して上限で止まらなくなる
+   * @param id 写真 ID
+   * @param step 担当する処理。読んでから担当するまでに別の処理が step を変えていたら担当しない
+   * @param readAttempts 読んだときの失敗の回数（processing.attempts）
+   * @param processing 処理中の processing
+   * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
+   */
+  async claimPhotoProcessing(
+    id: string,
+    step: 'classify' | 'identify',
+    readAttempts: number,
+    processing: PhotoProcessing
+  ): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "${step}" AND c.processing.attempts = ${readAttempts}`,
+        operations: [{ op: 'set', path: '/processing', value: processing }],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）
+   * @param id 写真 ID
+   * @param processing 書く processing
+   */
+  async writeProcessing(id: string, processing: PhotoProcessing): Promise<void> {
+    await this.container.item(id, id).patch([{ op: 'set', path: '/processing', value: processing }]);
+  }
+
+  /**
+   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）
+   * @param id 写真 ID
+   * @param result 書く値
+   */
+  async writeClassification(
+    id: string,
+    result: { category: string; classification: unknown; processing: PhotoProcessing; updatedAt: string }
+  ): Promise<void> {
+    await this.container.item(id, id).patch([
+      { op: 'set', path: '/category', value: result.category },
+      { op: 'set', path: '/classification', value: result.classification },
+      { op: 'set', path: '/identification', value: null },
+      { op: 'set', path: '/processing', value: result.processing },
+      { op: 'set', path: '/updatedAt', value: result.updatedAt },
+    ]);
   }
 
   /**
