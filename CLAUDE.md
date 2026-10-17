@@ -535,6 +535,7 @@ PR を出す前に満たすこと。
 `test-consolidator` だけ先にするのは、寄せて消す前のテストを他のレビューに見せても無駄になるため。
 3つは互いにぶつからない（`test-reviewer` と `/code-review` は読むだけ、`contract-auditor` は文書だけを書く）。
 `test-reviewer` と `contract-auditor` は裏で動かし、その間に `/code-review` を回す。
+条件（下の表）に当たれば `/security-review` も同じ束で回す。条件に当たりそうなのに省くときは、PR の本文に理由を書く。
 
 | 条件 | 手段 | 見るもの |
 |---|---|---|
