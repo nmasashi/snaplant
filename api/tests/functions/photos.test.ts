@@ -189,6 +189,8 @@ describe('写真API', () => {
     jest.useRealTimers();
     jest.clearAllMocks();
     delete process.env.COSMOS_DB_ENDPOINT;
+    delete process.env.PHOTO_QUEUE_NAME;
+    delete process.env.AzureWebJobsStorage;
     delete process.env.COSMOS_DB_KEY;
     delete process.env.COSMOS_DB_DATABASE;
     delete process.env.COSMOS_DB_ALBUM_CONTAINER;
@@ -275,7 +277,7 @@ describe('写真API', () => {
 
     it('解析のキューの名前の設定（PHOTO_QUEUE_NAME）が無ければ、投入せずに201で返し、写真は解析待ちのまま残る', async () => {
       // 既定のキューに送ると、設定が無くて動かないワーカーの代わりに誰も拾わないキューへ積むことになる。
-      // 投入の失敗と同じく、写真は再投入のタイマーが拾う
+      // 送信は投入の失敗と同じ扱い。設定の誤りなので、直すまでは再投入のタイマーも投入できない（ログに出る）
       delete process.env.PHOTO_QUEUE_NAME;
 
       const response = await createPhotoHandler(createPhotoRequest(formDataWith()), mockContext);
