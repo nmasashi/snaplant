@@ -38,7 +38,10 @@ export interface PhotoClassification {
  * 写真の主題を AI に分類させる（段階3）
  */
 export class PhotoClassifierService {
-  constructor(private readonly vision = new OpenAIVisionService()) {}
+  // 分類用のデプロイが無ければ今のデプロイを使う（06 §2.1。OpenAIVisionService が空・空白だけも未設定として扱う）
+  constructor(
+    private readonly vision = new OpenAIVisionService(process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME)
+  ) {}
 
   /**
    * 写真を分類する
@@ -47,9 +50,6 @@ export class PhotoClassifierService {
    * @param placeName 撮影地（あれば手がかりとして AI に渡す）
    */
   async classify(imageUrl: string, placeName: string | null): Promise<PhotoClassification> {
-    // 分類用のデプロイが無ければ今のデプロイを使う（06 §2.1）
-    const deployment =
-      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME?.trim() || this.vision.defaultDeployment;
     const placeSection = placeName ? `\n撮影地: ${placeName}（手がかりとして使ってください）\n` : '';
     const prompt = `
 この写真の主題を1つ選んでください。
@@ -59,7 +59,6 @@ ${placeSection}
 
     try {
       const result = (await this.vision.analyze({
-        deployment,
         schemaName: 'photo_classification',
         schema: PHOTO_CLASSIFICATION_SCHEMA,
         prompt,
@@ -75,7 +74,7 @@ ${placeSection}
         throw new Error('confidenceが0-100の範囲の数値ではありません');
       }
 
-      return { kind: result.kind as PhotoKind, confidence: result.confidence, model: deployment };
+      return { kind: result.kind as PhotoKind, confidence: result.confidence, model: this.vision.deployment };
     } catch (error: any) {
       throw new UpstreamError(`写真の分類に失敗しました: ${error.message}`, 'ai', error);
     }

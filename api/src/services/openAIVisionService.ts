@@ -83,10 +83,8 @@ const PLANT_IDENTIFICATION_SCHEMA = {
 	additionalProperties: false,
 } as const;
 
-/** analyze() に渡すもの */
+/** analyze() に渡すもの（送り先のデプロイはコンストラクタで決める） */
 export interface AnalyzeRequest {
-	/** 送り先のデプロイ名（Azure OpenAI Service） */
-	deployment: string;
 	/** Structured Outputs のスキーマの名前 */
 	schemaName: string;
 	/** Structured Outputs のスキーマ（strict） */
@@ -132,36 +130,58 @@ ${contextSection}
 }
 
 export class OpenAIVisionService {
-	/** 送り先を指定しないときのデプロイ名（植物の識別が使う。Azure では接続先の URL にも入る） */
-	readonly defaultDeployment: string;
-	private readonly isAzure: boolean;
-	private readonly clients = new Map<string, OpenAI>();
+	/** 送り先のデプロイ名（Azure では接続先の URL にも入る） */
+	readonly deployment: string;
+	private readonly client: OpenAI;
 
-	constructor() {
+	/**
+	 * 送り先のデプロイを決め、クライアントを作る
+	 *
+	 * 設定の誤り（デプロイ名が無い、SDK がキーの無いときに投げる例外）はここで投げる。
+	 * analyze() の中で作ると、呼び出し側が AI の失敗（UpstreamError）に包んで AI の障害（502）に見えるうえ、
+	 * アップロードは一時コンテナに画像を置いた後で気づくことになる
+	 *
+	 * @param deployment 送り先のデプロイ名。省略・空・空白だけなら AZURE_OPENAI_DEPLOYMENT_NAME（今のデプロイ）
+	 */
+	constructor(deployment?: string) {
+		// アプリの設定に紛れた空白や改行のまま URL に入れると Azure の 404 になるので、前後を落とす
+		const name = deployment?.trim() || process.env.AZURE_OPENAI_DEPLOYMENT_NAME?.trim();
+
 		// Azure OpenAI または OpenAI APIの設定
-		this.isAzure = !!process.env.AZURE_OPENAI_ENDPOINT;
-
-		if (this.isAzure) {
+		if (process.env.AZURE_OPENAI_ENDPOINT) {
 			// デプロイ名は接続先の URL に入る。無いと .../deployments/undefined に送って Azure の 404 になり、
-			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/06 §5.9）。
-			// アップロードはこの例外を、一時コンテナに画像を置く前に受け取ることに頼っているので、コンストラクタで検査する
-			if (!process.env.AZURE_OPENAI_DEPLOYMENT_NAME?.trim()) {
+			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/06 §5.9）
+			if (!name) {
 				throw new Error('AZURE_OPENAI_DEPLOYMENT_NAME（Azure OpenAI Service のデプロイ名）が設定されていません');
 			}
-			this.defaultDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+			this.deployment = name;
+			this.client = new OpenAI({
+				apiKey: process.env.AZURE_OPENAI_API_KEY!,
+				baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${name}`,
+				defaultQuery: {
+					"api-version":
+						process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
+				},
+				defaultHeaders: {
+					"api-key": process.env.AZURE_OPENAI_API_KEY!,
+				},
+			});
 		} else {
-			this.defaultDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-5.6-luna";
+			this.deployment = name || "gpt-5.6-luna";
+			this.client = new OpenAI({
+				apiKey: process.env.OPENAI_API_KEY!,
+			});
 		}
 	}
 
 	/**
-	 * 指定したデプロイに、プロンプトと画像を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
+	 * プロンプトと画像を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
 	 *
 	 * 応答の中身の検証は呼び出し側が行う（スキーマの strict では範囲などを強制できないため）
 	 */
 	async analyze(request: AnalyzeRequest): Promise<unknown> {
-		const response = await this.clientFor(request.deployment).chat.completions.create({
-			model: request.deployment,
+		const response = await this.client.chat.completions.create({
+			model: this.deployment,
 			messages: [
 				{
 					role: "user",
@@ -204,42 +224,11 @@ export class OpenAIVisionService {
 	}
 
 	/**
-	 * 送り先のデプロイのクライアントを返す
-	 *
-	 * Azure OpenAI Service はデプロイ名が接続先の URL（baseURL）に入るので、デプロイごとに作る。
-	 * OpenAI API はモデル名を要求の中で指定するので、1つで足りる
-	 */
-	private clientFor(deployment: string): OpenAI {
-		const key = this.isAzure ? deployment : "";
-		let client = this.clients.get(key);
-		if (!client) {
-			client = this.isAzure
-				? new OpenAI({
-						apiKey: process.env.AZURE_OPENAI_API_KEY!,
-						baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${deployment}`,
-						defaultQuery: {
-							"api-version":
-								process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
-						},
-						defaultHeaders: {
-							"api-key": process.env.AZURE_OPENAI_API_KEY!,
-						},
-					})
-				: new OpenAI({
-						apiKey: process.env.OPENAI_API_KEY!,
-					});
-			this.clients.set(key, client);
-		}
-		return client;
-	}
-
-	/**
 	 * 画像を分析して植物かどうか判定し、植物の場合は識別結果を返す
 	 */
 	async identifyPlant(imageUrl: string, contextInfo?: string): Promise<IdentificationResult> {
 		try {
 			const parsed = await this.analyze({
-				deployment: this.defaultDeployment,
 				schemaName: "plant_identification",
 				schema: PLANT_IDENTIFICATION_SCHEMA,
 				prompt: plantIdentificationPrompt(contextInfo),
