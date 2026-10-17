@@ -239,7 +239,7 @@ resource "azurerm_linux_function_app" "main" {
     # Azure OpenAI設定
     "AZURE_OPENAI_ENDPOINT"        = azurerm_cognitive_account.openai.endpoint
     "AZURE_OPENAI_API_KEY"         = azurerm_cognitive_account.openai.primary_access_key
-    "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt5_luna.name
+    "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt6_luna.name
     "AZURE_OPENAI_API_VERSION"     = var.openai_api_version
   }
 
@@ -269,16 +269,19 @@ resource "azurerm_cognitive_account" "openai" {
   tags = var.tags
 }
 
-# GPT-5.6 Luna モデルのデプロイ (Vision機能含む)
-# 注: gpt-5.6-luna は Standard SKU 非対応のため GlobalStandard を使用
-resource "azurerm_cognitive_deployment" "gpt5_luna" {
-  name                 = "gpt-5.6-luna"
+# GPT-6 Luna モデルのデプロイ (Vision機能含む)。植物の識別と、旅行アルバムの分類・識別に使う
+# （2026-10-17 に gpt-5.6-luna から切り替え。GPT-6 系で一番安く、提供の終了も 2028-03-11 と遅い。
+#  分類と識別を別のモデルにするときは、分類用のデプロイを足して AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME に書く。
+#  docs/travel-album/07_infrastructure_design.md §2）
+# 注: Standard SKU は無いので GlobalStandard を使用
+resource "azurerm_cognitive_deployment" "gpt6_luna" {
+  name                 = "gpt-6-luna"
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
   model {
     format  = "OpenAI"
-    name    = "gpt-5.6-luna"
-    version = "2026-07-09"
+    name    = "gpt-6-luna"
+    version = "2026-09-22"
   }
 
   sku {
@@ -287,5 +290,17 @@ resource "azurerm_cognitive_deployment" "gpt5_luna" {
     # 画像1枚の識別でも上限に達しうる。本番の値（150 = 150K TPM）を明示している
     capacity = 150
   }
+
+  # デプロイ名が変わると作り直しになる。新しいデプロイを先に作り、Functions の向き先を替えてから古い方を消す
+  # （植物図鑑の識別が止まる時間を作らない）
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# gpt5_luna（gpt-5.6-luna）から置き換えた。state の上でも同じリソースの続きとして扱う
+moved {
+  from = azurerm_cognitive_deployment.gpt5_luna
+  to   = azurerm_cognitive_deployment.gpt6_luna
 }
 

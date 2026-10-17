@@ -257,7 +257,7 @@ Structured Outputs（`response_format: json_schema`, `strict: true`）で応答�
 - 推論モデルのため `max_completion_tokens` を使い（`max_tokens` ではない）、`temperature` は指定しない（デフォルト値のみサポート）
 - トークン節約のため画像は `detail: "low"` で渡す
 
-モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment` 名と一致する必要がある（現在 `gpt-5.6-luna`、GlobalStandard SKU）。
+モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment` 名と一致する必要がある（現在 `gpt-6-luna`、GlobalStandard SKU。2026-10-17 に `gpt-5.6-luna` から切り替え）。
 
 ### バリデーション定数
 
