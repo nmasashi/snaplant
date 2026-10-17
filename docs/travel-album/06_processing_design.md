@@ -111,14 +111,19 @@ sequenceDiagram
 | 項目 | 値 |
 |---|---|
 | デプロイ | 環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。**未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う。** 当面は分類にも今のデプロイ（`gpt-6-luna`。Terraform の `azurerm_cognitive_deployment.gpt6_luna`）をそのまま使い、分類用のデプロイは足さない（2026-10-12 に人間が決定。2026-10-17 に今のデプロイを `gpt-5.6-luna` から `gpt-6-luna` に替えた。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。分類と識別を別のモデルにするときは、Terraform でデプロイを1つ足して環境変数を書き換えるだけ（[07 §2](./07_infrastructure_design.md#2-段階3)） |
+| デプロイ名の入る所 | 空文字列・空白だけの `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` は未設定と同じに扱い、どちらの環境変数も前後の空白を取り除いて使う。分類用のデプロイ名があれば、`AZURE_OPENAI_DEPLOYMENT_NAME` が無くても分類できる。Azure OpenAI Service（`AZURE_OPENAI_ENDPOINT` がある）では、選んだデプロイ名が `baseURL`（`<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`）と `model` の両方に入る。OpenAI API に直接つなぐときは `model` だけで、どちらの環境変数も無ければ `gpt-5.6-luna`（植物図鑑と同じ既定値）。`api-version`・`api-key` ヘッダの付け方は植物図鑑と同じ（[docs/06_api_design.md §5.9](../06_api_design.md#59-ai-識別サービスへ渡すもの)） |
+| 設定の誤り | 次のどちらも、AI を呼ばずに失敗する。AI の障害ではないので `UpstreamError` にはしない（AI の失敗にすると、ワーカーが一時的な障害として送り直し続ける）。<br>・Azure OpenAI Service で送り先のデプロイ名が決まらない（`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` も `AZURE_OPENAI_DEPLOYMENT_NAME` も未設定。空文字列・空白だけを含む）<br>・AI のクライアントを作れない（API キーが無いなど。SDK がクライアントのコンストラクタで例外を投げる） |
 | 画像 | 原寸の Blob の読み取り SAS（15 分。既存の `TEMP_SAS_EXPIRY_MINUTES` と同じ理由）を `image_url` に、`detail: "low"` |
-| サービス | `api/src/services/photoClassifierService.ts`。`OpenAIVisionService` を一般化した `analyze({ deployment, schemaName, schema, prompt, imageUrl })` を呼ぶ（`detail` は `"low"` で固定） |
-| 失敗 | `UpstreamError('ai')`。応答の検証違反も同じ（既存の `identifyPlant()` と同じ扱い） |
+| 要求の形 | `user` ロールのメッセージ1件に、テキスト（プロンプト）と画像の2パート。`response_format` は `json_schema`（名前 `photo_classification`、`strict: true`、スキーマは §2.2）。`max_completion_tokens: 4000`（`max_tokens` は送らない）。`temperature` は送らない |
+| サービス | `api/src/services/photoClassifierService.ts` の `classify(imageUrl, placeName)`。`new OpenAIVisionService(AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME)` を作り（`PhotoClassifierService` のコンストラクタ）、一般化した `analyze({ schemaName, schema, prompt, imageUrl })` を呼ぶ（`detail` は `"low"` で固定） |
+| 返すもの | `{ kind, confidence, model }`。`model` は要求を送ったデプロイ名（§2.3 の `classification.model`）。`reason` は返さない |
+| 失敗 | `UpstreamError('ai')`。AI の呼び出しの失敗（SDK のエラー応答など）、応答が空・JSON として読めない、応答の検証違反（`kind` が選択肢に無い、`confidence` が数値でないか 0〜100 の範囲外。0 と 100 は受け付ける。`reason` は検査しない）のどれも同じ（既存の `identifyPlant()` と同じ扱い） |
 
-`OpenAIVisionService` の一般化（3-2 で実装）: デプロイ名・スキーマ・プロンプトを引数で受ける `analyze()` を足し、`identifyPlant()` もこれを通す。
+`OpenAIVisionService` の一般化（3-2 で実装）: スキーマ・プロンプトを引数で受ける `analyze()` を足し、`identifyPlant()` もこれを通す。
 Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temperature` を指定しない点はそのまま。
-クライアントはデプロイごとに作る（Azure ではデプロイ名が `baseURL` に入るため。OpenAI API は1つ）。
-今のデプロイ名（`AZURE_OPENAI_DEPLOYMENT_NAME`）の検査はコンストラクタに残す（アップロードは、一時コンテナに画像を置く前に設定の誤りで止まることに頼っている）。
+送り先のデプロイはコンストラクタの引数で決める（省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は落とす）。植物の識別は引数なしで作る。
+クライアントもコンストラクタで1つ作り、設定の誤り（デプロイ名が無い、SDK がクライアントを作れない）はコンストラクタで例外にする
+（`analyze()` の中で作ると、呼び出し側が AI の失敗に包んで AI の障害に見え、アップロードは一時コンテナに画像を置いた後で気づくことになる）。
 
 ### 2.2 契約（Structured Outputs）
 
@@ -127,7 +132,7 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
   "type": "object",
   "properties": {
     "kind": { "type": "string", "enum": ["plant", "food", "landscape", "other"],
-              "description": "写真の主題のカテゴリ。植物・食べ物・風景のどれでもなければ other" },
+              "description": "写真の主題のカテゴリ。plant（植物）・food（食べ物）・landscape（風景） のどれでもなければ other" },
     "confidence": { "type": "number", "description": "分類の信頼度（0-100）" },
     "reason": { "type": "string", "description": "判定理由（日本語で簡潔に）" }
   },
@@ -136,9 +141,11 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 }
 ```
 
-- `enum` は `Object.keys(CATALOG_KINDS)` + `'other'` から組み立てる（定義表に種類を足すと追従する）
+- `enum` は `Object.keys(CATALOG_KINDS)` + `'other'` から組み立てる（定義表に種類を足すと追従する）。`description` の種類の一覧も、定義表のキーと `label` から組み立てる
+- `description` の文言はプロンプトと同じく契約外（契約は項目・型・選択肢・`required`・`additionalProperties` まで）
 - strict モードの制約（`openAIVisionService.ts` 5〜14行）はそのまま: `minimum` / `maximum` が使えないので 0〜100 はコードで検証する
-- プロンプトは「主題を1つ選ぶ。人や動物、建物の内装など当てはまらないものは other」。撮影地（`placeName`）があれば手がかりとして渡す
+- プロンプトは「主題を、選択肢（定義表のキーと `label`。例 `plant（植物）`）から1つ選ぶ。人や動物、建物の内装など当てはまらないものは other」。撮影地（`placeName`）があれば手がかりとして渡す
+- `reason` は受け取るが保存しない（§2.3）。AI に判断を言葉にさせるために残している
 
 ### 2.3 書き込み
 
@@ -170,7 +177,7 @@ AI の担当の欄だけを1回の patch で `set` する（条件は付けな�
 - スキーマは `kind` ごとに定義表から組み立てる（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）。`attributes` の各項目は `required` に入れ、任意は `["string","null"]`、`string[]` は `["array","null"]`
 - `candidates` は無い。プロンプトで「候補を列挙せず1つに決める。信頼度が低いときは `comment` で補足する」と指示する
 - 命名規則は定義表の `namingRule` をプロンプト本文に入れる
-- 手がかりは既存の `contextSection`（`openAIVisionService.ts` 137〜141行）と同じ形で渡す:
+- 手がかりは既存の `contextSection`（`openAIVisionService.ts` の `plantIdentificationPrompt()`）と同じ形で渡す:
 
   ```
   追加情報：
@@ -278,7 +285,7 @@ AI の担当の欄だけを1回の patch で `set` する（条件は付けな�
 
 | 手段 | 何を抑えるか | どこで |
 |---|---|---|
-| (a) Azure OpenAI のデプロイの容量（1分あたりのトークン数の上限） | **1日の費用の天井**。容量 × 1,000 トークン/分 × 1,440 分 × 単価 を超えない。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる（止まらず、遅くなるだけ）。当面は今のデプロイの値（150）のまま（#17）。下げたくなったら Terraform の値を変えるだけ | Terraform の `azurerm_cognitive_deployment.gpt5_luna` の `sku.capacity`（[07 §2](./07_infrastructure_design.md#2-段階3)） |
+| (a) Azure OpenAI のデプロイの容量（1分あたりのトークン数の上限） | **1日の費用の天井**。容量 × 1,000 トークン/分 × 1,440 分 × 単価 を超えない。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる（止まらず、遅くなるだけ）。当面は今のデプロイの値（150）のまま（#17）。下げたくなったら Terraform の値を変えるだけ | Terraform の `azurerm_cognitive_deployment.gpt6_luna` の `sku.capacity`（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | (b) Azure の予算アラート | 想定を超えたときに**気づく** | `azurerm_consumption_budget_resource_group`（[07 §2](./07_infrastructure_design.md#2-段階3)） |
 | (c) 失敗の自動再試行の上限（3 回。`PHOTO_PROCESSING_MAX_ATTEMPTS`） | 同じ画像で**永遠に呼び続けない**（§1.3） | ワーカーとタイマー |
 

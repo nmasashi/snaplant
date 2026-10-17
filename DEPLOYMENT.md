@@ -240,15 +240,15 @@ Application Insights の2つは `site_config` の `application_insights_key` / `
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
-このときモデル名は `AZURE_OPENAI_DEPLOYMENT_NAME`、未設定なら `gpt-5.6-luna` です。
+このときモデル名は `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白は取り除く）、未設定（空文字列・空白だけを含む）なら `gpt-5.6-luna` です。
 
 `AZURE_OPENAI_ENDPOINT` を設定して `AZURE_OPENAI_DEPLOYMENT_NAME` を設定しない（空文字列・空白だけを含む）と、
 `POST /api/plants/identify` と `POST /api/images/upload` は、入力検証を通ったリクエストが
 AI 識別サービスを呼ばずに 500 `INTERNAL_ERROR` になります（`message` は `docs/06_api_design.md` §6.2 の
-エンドポイントごとの文言。`POST /api/images/upload` は一時保存の前に失敗するので、何も保存しません）。Terraform は必ず設定するので、手で設定するローカル開発で踏みやすい設定です。
+エンドポイントごとの文言。`POST /api/images/upload` は一時保存の前に失敗するので、何も保存しません）。API キーが無いなど、`openai` SDK がクライアントを作れない設定も同じ扱いです。Terraform は必ず設定するので、手で設定するローカル開発で踏みやすい設定です。
 
 `AZURE_OPENAI_ENDPOINT` が設定されている場合（Azure）の要求先は
-`${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT_NAME}` で、
+`${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT_NAME}`（デプロイ名は前後の空白を取り除いたもの）で、
 クエリの `api-version` に `AZURE_OPENAI_API_VERSION`（未設定時は `2024-12-01-preview`）を付けます。
 キー（`AZURE_OPENAI_API_KEY`）は `api-key` ヘッダで送ります（`openai` SDK の `apiKey` にも
 同じ値を渡しているため、SDK 既定の `Authorization: Bearer` ヘッダも付きます）。

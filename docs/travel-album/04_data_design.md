@@ -272,7 +272,7 @@ export const CATALOG_KINDS = {
   plant: {
     label: '植物',
     namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
-    // openAIVisionService.ts 157〜161行の文言を移す
+    // openAIVisionService.ts の plantIdentificationPrompt() の命名規則の文言を移す
     fields: [
       { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
       { key: 'familyName',     label: '科名', type: 'string', prompt: '科名（日本語）。特定できない場合は null' },
