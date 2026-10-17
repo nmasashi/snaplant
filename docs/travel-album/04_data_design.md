@@ -197,7 +197,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
   "characteristics": "淡い桃色の花を葉より先に咲かせる",
   "attributes": { "scientificName": "Prunus × yedoensis", "familyName": "バラ科" },
   "reason": null,
-  "model": "gpt-5.6-luna",
+  "model": "gpt-6-luna",
   "at": "2026-10-10T03:20:00.000Z"
 }
 ```

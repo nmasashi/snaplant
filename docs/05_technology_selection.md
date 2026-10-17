@@ -19,7 +19,7 @@ graph TB
     BlobStorage[(Azure Blob Storage<br/>画像ファイル保存)]
     
     %% AI Services
-    OpenAIVision[Azure OpenAI Service<br/>gpt-5.6-luna<br/>植物識別AI]
+    OpenAIVision[Azure OpenAI Service<br/>gpt-6-luna<br/>植物識別AI]
     
     %% Monitoring
     AppInsights[Application Insights<br/>監視・ログ・分析]
@@ -131,7 +131,7 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 
 ### 3.5 植物識別AI
 
-#### 選定：Azure OpenAI Service（デプロイメント `gpt-5.6-luna`、画像入力）
+#### 選定：Azure OpenAI Service（デプロイメント `gpt-6-luna`、画像入力）
 - **理由**:
   - 高精度な画像認識・植物識別能力
   - 専門知識による詳細な植物情報提供
@@ -142,7 +142,8 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
   - Structured Outputs（`response_format: json_schema`, `strict: true`）で応答構造を強制
 
 モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の
-`azurerm_cognitive_deployment.gpt5_luna`（`gpt-5.6-luna` / GlobalStandard SKU）と一致させる。
+`azurerm_cognitive_deployment.gpt6_luna`（`gpt-6-luna` / GlobalStandard SKU。2026-10-17 に `gpt-5.6-luna` から切り替え）と一致させる。
+`AZURE_OPENAI_ENDPOINT` も `AZURE_OPENAI_DEPLOYMENT_NAME` も無いときの既定値（OpenAI 公式 API へのフォールバック）は、コードの中で `gpt-5.6-luna` のまま。
 
 #### 要求の形を縛っている制約（なぜそうなっているか）
 
@@ -292,7 +293,7 @@ lib/
 1. **認証確認**: 設定画面からAPIキー取得（flutter_secure_storage）
 2. **画像選択**: Flutter image_picker → ギャラリーから画像を選択（カメラ撮影は画面から呼び出していない）
 3. **画像アップロード**: Flutter http → Azure Functions → Blob Storage (Function Key認証)
-4. **AI識別**: Azure Functions → Azure OpenAI Service → `gpt-5.6-luna`（画像入力・SAS URL対応）
+4. **AI識別**: Azure Functions → Azure OpenAI Service → `gpt-6-luna`（画像入力・SAS URL対応）
 5. **結果表示**: API Response → Flutter UI (Material Design)
 6. **データ保存**: Flutter → Azure Functions → Cosmos DB (Function Key認証)
 

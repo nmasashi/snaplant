@@ -22,7 +22,7 @@ infrastructure/
 リソースは `main.tf` 1ファイルにまとめている（再利用可能なモジュールには分割していない）。
 定義しているのは、リソースグループ / Storage Account（`images`・`temp-images`・`photos` の3コンテナと、`temp-images` を1日で消すライフサイクル管理）/
 Cosmos DB（`snaplant-db`・`plants`・`album`）/ App Service Plan / Linux Function App /
-Application Insights / Azure OpenAI（`gpt-5.6-luna` デプロイメント）。
+Application Insights / Azure OpenAI（`gpt-6-luna` デプロイメント）。
 Azure API Management と Key Vault は**定義していない**。
 
 ## CI での静的チェック
@@ -128,7 +128,7 @@ Azure OpenAI の**APIキーは入力値ではない**。Terraform が作成し�
 **本物のキーを書かせておいて一切使わない**という誘導になっていた。
 逆に `openai_location` が無く、OpenAI のリージョンを変える手段がなかった。
 
-`openai_location` は `location` とは別物。`gpt-5.6-luna` が使えるリージョンが
+`openai_location` は `location` とは別物。使うモデル（今は `gpt-6-luna`）が使えるリージョンが
 限られているため、OpenAI だけ別リージョンに置いている。
 
 ## セキュリティ
@@ -162,7 +162,7 @@ terraform {
 - **Cosmos DB**: 無料枠（`enable_free_tier = true`、400 RU/s）を活用
 - **Functions**: Consumption Plan（`Y1`）使用
 - **Storage**: Standard / LRS（アクセス層は既定のまま）
-- **Azure OpenAI**: `S0` SKU、`gpt-5.6-luna` を GlobalStandard でデプロイ
+- **Azure OpenAI**: `S0` SKU、`gpt-6-luna` を GlobalStandard でデプロイ
 - **API Management**: 未導入（固定費を避けるため Function Key 認証で代替）
 
 ## トラブルシューティング
@@ -190,6 +190,13 @@ terraform {
 - Providerバージョンの更新
 - セキュリティパッチの適用
 - 不要なリソースのクリーンアップ
+
+### OpenAIモデル移行（gpt-5.6-luna → gpt-6-luna、2026-10-17）
+
+リソース名を `azurerm_cognitive_deployment.gpt5_luna` から `gpt6_luna` に替え、`moved` ブロックで state の上でも続きとして扱う。
+デプロイ名（`gpt-6-luna`）が変わるので作り直しになるが、`create_before_destroy` で新しいデプロイを先に作り、
+Function App の `AZURE_OPENAI_DEPLOYMENT_NAME` を替えてから古い `gpt-5.6-luna` を消す（植物図鑑の識別が止まる時間を作らない）。
+`plan` では `gpt6_luna` の作り直し（`+/-`、create before destroy）と Function App の設定の更新が出る。
 
 ### OpenAIモデル移行時のstate整合（gpt-4o → gpt-5.6-luna）
 
@@ -222,7 +229,7 @@ state を持たない環境で `apply` すると全リソースを新規作成�
 
 Azure上に残っている `gpt-4o` という名前のデプロイは、中身が `gpt-5.1` に
 差し替わっており名前と実体が食い違っている。削除する場合は、**先に Function App の
-`AZURE_OPENAI_DEPLOYMENT_NAME` を `gpt-5.6-luna` に切り替えること**。
+`AZURE_OPENAI_DEPLOYMENT_NAME` を今のデプロイ（`gpt-6-luna`）に切り替えてあること**（Terraform が管理する設定なので、apply 済みなら切り替わっている）。
 この設定が `gpt-4o` を指したままデプロイを削除すると本番APIが即座に停止する。
 
 ## 参考リンク

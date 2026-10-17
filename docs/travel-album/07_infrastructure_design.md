@@ -115,9 +115,11 @@ resource "azurerm_storage_management_policy" "main" {
 `variables.tf` に `monthly_budget_amount`・`budget_alert_email` を足す。
 
 **分類用のデプロイは当面足さない**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。
-分類にも識別にも、今の GPT-5 系のデプロイ `azurerm_cognitive_deployment.gpt5_luna`（`gpt-5.6-luna`。`infrastructure/main.tf` 226行）をそのまま使う。
+分類にも識別にも、今のデプロイ `azurerm_cognitive_deployment.gpt6_luna`（`gpt-6-luna`、版 2026-09-22。`infrastructure/main.tf`）をそのまま使う。
+2026-10-17 に `gpt-5.6-luna` から `gpt-6-luna` に替えた（人間が決定。GPT-6 系で一番安く、入力・出力とも `gpt-5.6-luna` の半分以下の単価。提供の終了も 2028-03-11 と遅い）。
+識別の精度は、普段使いで見て決める（足りなければ、標準のデプロイを上位のモデル（`gpt-6-sol` など）に替え、分類用に `gpt-6-luna` のデプロイを足す）。
 API 側はデプロイ名を環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` から読み、未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う（[06 §2.1](./06_processing_design.md#21-モデルとサービス)）。
-安いモデル（GPT-5 系の nano / mini）に変えるときに、`azurerm_cognitive_deployment` を1つ足して `app_settings` に `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を書くだけでよい。
+分類と識別を別のモデルにするときは、`azurerm_cognitive_deployment` を1つ足して `app_settings` に `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を書くだけでよい。
 
 **デプロイの容量で費用を抑える**（2026-10-12 に人間が決定。アプリの中に1日の呼び出し回数のカウンタは置かない）。
 `capacity` は 1 単位 = 1,000 トークン/分（TPM）で、`capacity × 1,000 × 1,440 分 × 単価` が1日の費用の上限になる。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる。
@@ -256,7 +258,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。超えたら `failed` | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)） | 3 |
 | `PHOTO_PROCESSING_STALE_MINUTES` | `10` | これより長く更新の無い処理中の写真を再投入する（分） | 再投入のタイマー | 3 |
 | `ORPHAN_BLOB_MIN_AGE_DAYS` | `1` | 文書の無い Blob を消す前に待つ日数 | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
-| `AZURE_OPENAI_DEPLOYMENT_NAME`（既存） | （必須。Terraform が `gpt5_luna` の名前を入れる） | 今のデプロイ名。植物図鑑の識別に加え、旅行アルバムの分類（段階3）と識別（段階4）にも当面はこれを使う | `OpenAIVisionService`・`PhotoClassifierService`・`PhotoIdentifierService` | 3・4 |
+| `AZURE_OPENAI_DEPLOYMENT_NAME`（既存） | （必須。Terraform が `gpt6_luna` の名前を入れる） | 今のデプロイ名。植物図鑑の識別に加え、旅行アルバムの分類（段階3）と識別（段階4）にも当面はこれを使う | `OpenAIVisionService`・`PhotoClassifierService`・`PhotoIdentifierService` | 3・4 |
 | `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 分類用のデプロイ名。安いモデルのデプロイを足したときに設定する（#17） | `PhotoClassifierService` | 3 |
 | `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 識別用のデプロイ名。分類と同じく、別のモデルに変えるときに設定する | `PhotoIdentifierService` | 4 |
 | `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |

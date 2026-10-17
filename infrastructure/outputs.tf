@@ -127,7 +127,7 @@ output "azure_openai_api_key" {
 
 output "openai_deployment_name" {
   description = "Name of the Azure OpenAI model deployment"
-  value       = azurerm_cognitive_deployment.gpt5_luna.name
+  value       = azurerm_cognitive_deployment.gpt6_luna.name
 }
 
 # Summary output for easy reference
