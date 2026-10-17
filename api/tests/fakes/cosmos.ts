@@ -71,8 +71,9 @@ import { TripDocument } from '../../src/types/album';
  * `path`（`/tripId` の1段、`/processing/state` の2段）に適用する。`id !== partitionKey` か、ドキュメントが無ければ
  * 実 SDK と同じ数値 `code` 404 を投げる。存在しない path への `replace` / `remove` は `code` 400（実 SDK も拒む）。
  * 適用は複製に対して行い、途中で失敗してもドキュメントは変わらない。
- * **`condition` はまだ解釈しない。渡されたら例外にする**（知らない条件を黙って通さない）。
- * 失敗の注入は `forcedPatchError`。
+ * `condition` は `FROM c WHERE c.<path> = "<値>"`（ワーカーの担当の条件。`c.processing.state = "pending"`）の形だけを解釈し、
+ * 満たさなければ実 SDK と同じ数値 `code` 412 を投げる（ドキュメントは変わらない）。**それ以外の形は例外にする**（知らない条件を黙って通さない）。
+ * 失敗の注入は `forcedPatchError`。「読んだ後・patch の直前に他の操作が書き換えた」は `beforePatch` で作る。
  *
  * ## 偽物では検証できないこと
  *
@@ -139,6 +140,11 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
   /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
   forcedPatchError?: Error | null;
   /**
+   * `item(id).patch()` の冒頭（条件を評価する前）で呼ばれる。「読んだ後・patch の直前に、他のリクエストが書き換えた」を再現する
+   * （コールバックの中で `documents` を書き換える）。呼ばれるたびに実行されるので、何回目かはコールバックの側で数える
+   */
+  beforePatch?: (id: string) => void;
+  /**
    * ドキュメントの id ごとに、`item(id).delete()` と `item(id).patch()` が投げるエラー。
    * `forcedDeleteError` / `forcedPatchError` は全件に効くので、「読んだ後に1枚だけ他の操作で消された」のような
    * 一部のドキュメントだけの失敗はこちらで起こす。エラーを投げるだけで、ドキュメント自体は Map に残る
@@ -155,6 +161,26 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
 }
 
 /** 実 SDK が存在しないドキュメントへの replace / delete で投げる形に合わせたエラー */
+/** 実 SDK が、patch の condition を満たさないときに投げる形（数値 `code` 412） */
+export function cosmosPreconditionFailedError(): any {
+  const err: any = new Error('PreconditionFailed');
+  err.code = 412;
+  return err;
+}
+
+/**
+ * patch の condition を評価する。解釈できるのは `FROM c WHERE c.<path> = "<値>"` の形だけ
+ * @returns 条件を満たすか
+ */
+function satisfiesCondition(doc: unknown, condition: string): boolean {
+  const match = /^FROM c WHERE c.([A-Za-z_][w.]*) = "([^"]*)"$/.exec(condition.trim());
+  if (!match) {
+    throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
+  }
+  const value = match[1].split('.').reduce<any>((current, key) => (current == null ? undefined : current[key]), doc);
+  return value === match[2];
+}
+
 export function cosmosNotFoundError(): any {
   const err: any = new Error('NotFound');
   err.code = 404;
@@ -372,11 +398,11 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
       patch: async (body: FakePatchBody) => {
         if (backend.forcedPatchError) throw backend.forcedPatchError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
-        // condition はまだ解釈できない。知らない条件を黙って通さず、使うテストを書くときに偽物を拡張させる
-        if (!Array.isArray(body) && body.condition !== undefined) {
-          throw new Error('偽物の patch は condition を解釈できません');
-        }
+        backend.beforePatch?.(id);
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
+        if (!Array.isArray(body) && body.condition !== undefined && !satisfiesCondition(backend.documents.get(id), body.condition)) {
+          throw cosmosPreconditionFailedError();
+        }
         const operations = Array.isArray(body) ? body : body.operations;
         const patched = applyPatchOperations(backend.documents.get(id)!, operations) as TDoc;
         backend.documents.set(id, patched);
