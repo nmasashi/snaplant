@@ -1,6 +1,6 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
-import { PhotoDocument, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
@@ -281,6 +281,24 @@ export class AlbumService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）
+   * @param id 写真 ID
+   * @param result 書く値
+   */
+  async writeClassification(
+    id: string,
+    result: { category: string; classification: unknown; processing: PhotoProcessing; updatedAt: string }
+  ): Promise<void> {
+    await this.container.item(id, id).patch([
+      { op: 'set', path: '/category', value: result.category },
+      { op: 'set', path: '/classification', value: result.classification },
+      { op: 'set', path: '/identification', value: null },
+      { op: 'set', path: '/processing', value: result.processing },
+      { op: 'set', path: '/updatedAt', value: result.updatedAt },
+    ]);
   }
 
   /**
