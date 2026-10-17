@@ -498,7 +498,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
 | コメント・タグの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])` |
 | 処理状態の更新（段階3） | `item(id, id).patch([{ op: 'set', path: '/processing', ... }])` |
-| ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = <読んだ attempts>' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
+| ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts>' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
 | ワーカーの結果の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。`_etag` の条件は付けない（§7.4）。コメントだけは `item(id, id).patch({ operations: [comment・commentSource の set], condition: 'FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"' })` の**条件付き patch** で、412（利用者のコメントがある）なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, ...])` |
 
@@ -632,7 +632,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | コメントの patch の後、結果の patch の前に落ちる | AI のコメントだけ書かれ、`state` は処理中のまま | 「分類中...」 | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される） |
 | 写真の読み取り（担当の前）に失敗 | 何も変わらない（`attempts` も増えない） | 「分類中...」 | 自動（キューの再試行。3 回とも失敗すれば poison に落ち、写真は `pending` のままなのでタイマーが再投入） |
 | 写真が無い（消された後のメッセージ）・メッセージに写真 ID が無い | — | — | 何もせずに終える（例外にしない） |
-| 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | 担当の patch を `FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = <読んだ attempts>` の条件付きにする（§7.4）。412 なら別のインスタンスが担当済みなので何もしない。読んだ `state` が `done` / `failed` / `none` でも何もしない |
+| 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | 担当の patch を `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts>` の条件付きにする（§7.4）。412 なら別のインスタンスが担当済みなので何もしない。読んだ `state` が `done` / `failed` / `none` でも何もしない |
 | 読んだ後・担当の前に、別のインスタンスが担当して失敗し `pending` に戻した | — | — | 担当の条件の `attempts` が合わず 412。何もしない（古い回数から数え直さない） |
 | 地名のキャッシュ（`geocache`）の `create` が 409 | 既に同じ座標の地名がある | — | 無視する |
 
@@ -695,7 +695,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `tags`・`tripId`・`updatedAt` | 利用者（`PATCH`・move・旅行の削除）。`updatedAt` はワーカーも書く |
 
 - メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。段階3のワーカーは `step` が `classify` のときだけ担当し、それ以外なら何もしない
-- 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = <読んだ attempts>` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
+- 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts>` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
 - 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を `FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"` の条件付きで `set`。
   412 なら利用者がその間にコメントを書いたので、書かずに進む（送信直後の自動の解析が、利用者のコメントを消さないように）。
   **(2) 結果**: `category`・`classification`（分類）または `identification`（識別）と `processing`・`updatedAt` を `set`。条件は付けない（他に書く主体が無い）。

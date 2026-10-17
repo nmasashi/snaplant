@@ -89,8 +89,8 @@ sequenceDiagram
 - 失敗したとき、`attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数。`constants/album.ts` の `photoProcessingMaxAttempts()` が呼ぶたびに読む。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）なら `failed` にして**例外を投げずに終える**（メッセージは消え、poison には落ちない）。それ未満は `state` を `pending` に戻して（`step` はそのまま）例外を投げ、キューの再試行（可視性タイムアウトの後）で担当し直す。結果の欄（`category`・`classification`・`identification`）には書かない
 - `PHOTO_PROCESSING_MAX_ATTEMPTS` は `host.json` の `maxDequeueCount`（3）以下にする。大きくすると、上限に達する前にメッセージが poison に落ち、残りの回は再投入のタイマー（10 分ごと）だけで進む
 - 写真の `processing.step` を見て、段階3は `classify` のときだけ担当する。それ以外（`identify` などの段階4の処理）なら何もしない（AI を呼ばず、写真も変えない）
-- 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = <読んだ attempts>` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。読んでから担当するまでに写真が消されていた（404）ときも何もしない。
-  `attempts` も条件に入れるのは、読んでから担当するまでの間に別のインスタンスが担当して失敗し `pending` に戻していた場合を見分けるため（`state` だけでは同じに見え、古い回数から数え直して上限で止まらなくなる）。
+- 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts>` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。読んでから担当するまでに写真が消されていた（404）ときも何もしない。
+  `step` も条件に入れるのは、読んでから担当するまでに別の処理が `step` を変えていた（分類を済ませて識別の待ちにした。段階4）ときに、識別を捨てて分類し直さないため。`attempts` も条件に入れるのは、読んでから担当するまでの間に別のインスタンスが担当して失敗し `pending` に戻していた場合を見分けるため（`state` だけでは同じに見え、古い回数から数え直して上限で止まらなくなる）。
   読んだ写真の `state` が `done` / `failed` / `none` / 処理中でも何もしない（どれも担当の条件付き patch が 412 になる。読んだ値で先に判断しない）
 - メッセージに写真 ID（文字列の `photoId`）が無いとき・写真が無いとき（消された後のメッセージ）は、何もせずに終える（例外にしない。何度送り直しても結果は同じで、poison に落ちるだけなので）。写真 ID が写真 ID の形式（SHA-256 の16進・小文字 64 文字）でないときも同じ（Cosmos の SDK は `/` `` `#` を含む id や空の id で通信の前に投げるので、形式を見ないと例外になって poison に落ちる）
 - 写真の読み取り（担当の前）に失敗したら、写真を変えずに例外を投げる（`attempts` は増えない）。キューの再試行が 3 回とも失敗すれば poison に落ち、写真は `pending` のまま残って再投入のタイマーが拾う

@@ -290,7 +290,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 永遠に回り続けないこと: AI が必ず失敗する入力（例: 分類のスキーマ検証に通らない応答を返すモック、または壊れた画像）で 3 回失敗した写真が `failed` になり、タイマーが 10 分×数回走っても再投入されない。「やり直す」でもう一度 3 回だけ試す
 - キューの直列化（`batchSize: 1`）と poison の挙動（AI が 3 回失敗した写真は、3 回目でワーカーが `failed` にして例外を投げないので poison には落ちず、アプリに「やり直す」が出る。担当の前に 3 回失敗したメッセージ（写真の読み取りの失敗など）だけが `photo-processing-poison` に落ちる。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
 - 関数の登録とキューのつながり（3-3a）: ポータルの「関数」に `processPhoto`（`app.storageQueue` の第1引数）がある。写真を1枚送り、`GET /api/photos/{photoId}` の `processing.state` が `done`・`category` が入る（投入の本文の base64・キューの名前・接続（`AzureWebJobsStorage`）は偽物では確かめられない。本文が読めなければ `photo-processing-poison` に落ち、写真は `pending` のまま）
-- 担当の `condition`（`FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = <読んだ回数>`）が、実環境で `pending` でない写真と回数の違う写真に 412 を返す（偽物は条件を自前で評価している）
+- 担当の `condition`（`FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ回数>`）が、実環境で `pending` でない写真と回数の違う写真に 412 を返す（偽物は条件を自前で評価している）
 - 10 枚のトークン使用量の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）。容量は今のまま（150）でよく、下げるかの判断材料にする
 - 図鑑の1種類の1ページを開く RU と時間の実測（識別済みの枚数・項目の数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）
 - 掃除のタイマー: `photos` に文書の無い Blob を手で置き、翌日消えている。文書のある Blob と、置いたばかりの Blob は残る
