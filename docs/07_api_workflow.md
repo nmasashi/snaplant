@@ -164,6 +164,7 @@ images コンテナへの複製も残ります。一時コンテナの Blob は�
 **Azure OpenAI Service のデプロイ名が未設定の場合（500）:**
 `AZURE_OPENAI_ENDPOINT` があるのに `AZURE_OPENAI_DEPLOYMENT_NAME` が無いと、一時保存の前に
 500 `INTERNAL_ERROR` になります（`06_api_design.md` §5.9）。何も保存しないので、temp-images にも何も残りません。
+AI識別サービスのクライアントを作れない設定（API キーが無いなど）も同じです。
 
 #### ステップ4a後: Cosmos DB新規保存の状態
 ```json

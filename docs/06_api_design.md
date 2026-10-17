@@ -575,8 +575,8 @@ AI 識別サービスへ渡すものは 5.9 にまとめています。
 - それ以外 → 500 `INTERNAL_ERROR`（`画像アップロード・植物判定に失敗しました`）。
   ストレージの接続文字列が未対応の形（`BlobEndpoint=` を含む、`EndpointSuffix` が無い。`DEPLOYMENT.md` の
   「`STORAGE_CONNECTION_STRING` の制約」）の場合もこれで、何も保存せず AI識別サービスも呼びません。
-  Azure OpenAI Service のデプロイ名（`AZURE_OPENAI_DEPLOYMENT_NAME`）が未設定の場合（5.9）もこれで、
-  同じく何も保存せず AI識別サービスも呼びません
+  Azure OpenAI Service のデプロイ名（`AZURE_OPENAI_DEPLOYMENT_NAME`）が未設定の場合と、AI識別サービスのクライアントを作れない設定
+  （API キーが無いなど）の場合（5.9）もこれで、同じく何も保存せず AI識別サービスも呼びません
 
 AI識別の呼び出しが失敗した場合、一時保存した画像は削除されずに一時コンテナに残ります
 （[バックログ](./09_backlog.md)の「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」）。
@@ -657,8 +657,8 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 
 | 要素 | 内容 |
 |---|---|
-| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき `AZURE_OPENAI_DEPLOYMENT_NAME` は必須で、未設定（空文字列・空白だけを含む）なら要求を送らずに 500 `INTERNAL_ERROR` になる（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
-| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`。Azure OpenAI Service では必須なので、`baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、未設定なら `gpt-5.6-luna` を使う |
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき `AZURE_OPENAI_DEPLOYMENT_NAME` は必須で、未設定（空文字列・空白だけを含む）なら要求を送らずに 500 `INTERNAL_ERROR` になる（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<AZURE_OPENAI_DEPLOYMENT_NAME>`（デプロイ名は前後の空白を取り除いたもの）、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
+| モデル | `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。Azure OpenAI Service では必須なので、`baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、未設定（空文字列・空白だけを含む）なら `gpt-5.6-luna` を使う |
 | メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
 | 画像 | `image_url` パート。URL は、5.3 では `imagePath` そのもの、5.8 では一時コンテナの SAS 付き URL。5.8 の SAS は、一時コンテナのその Blob 1つだけを対象にした読み取り専用で、発行から15分で切れ、開始時刻を付けない（発行した時点から有効。値の根拠は `07_api_workflow.md` §2.3）。`detail: "low"`（トークン節約） |
 | コンテキスト情報 | `contextInfo` があるときだけ、プロンプトのテキストに含める。未指定・`null` のときは含めない |
@@ -676,7 +676,10 @@ Chat Completions。選定と、要求の形を縛っている制約の理由は 
 `message` は 6.2 の「500 `INTERNAL_ERROR` の `message`」のとおりエンドポイントごとの文言で、
 5.3 は `植物識別処理に失敗しました`、5.8 は `画像アップロード・植物判定に失敗しました` です。
 5.8 ではこの検査が一時保存の前に行われるため、何も保存しません。
-Terraform はこの環境変数を必ず設定します（`DEPLOYMENT.md` の「環境変数」）。
+Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定します（`DEPLOYMENT.md` の「環境変数」）。
+
+AI 識別サービスのクライアントを作れない設定（API キーが無いなど、SDK がクライアントを作る時点で例外を投げる場合）も同じで、
+要求を送らずに 500 `INTERNAL_ERROR`（`message` も上と同じ）を返し、5.8 では何も保存しません。
 
 ## 6. エラーレスポンス
 

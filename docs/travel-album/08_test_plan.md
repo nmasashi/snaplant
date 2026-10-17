@@ -28,7 +28,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | テスト名は日本語の文 | 既存と同じ |
 
 ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`、
-`tests/services/tripSummaries.test.ts`（入口から入力を作れないので残す。CLAUDE.md の名簿）。ほかのサービスと `utils/` は単体のテストを持たず、入口（ハンドラ）のテストが通す（#44 で決めた「テストの入口」。#46 で入口へ寄せた）。
+`tests/services/tripSummaries.test.ts`（入口から入力を作れないので残す。CLAUDE.md の名簿）、`tests/services/photoClassifier.test.ts`（分類の入口のワーカーができるまでの期限付き。3-3 でワーカーのテストへ寄せて消す。CLAUDE.md の名簿）。ほかのサービスと `utils/` は単体のテストを持たず、入口（ハンドラ）のテストが通す（#44 で決めた「テストの入口」。#46 で入口へ寄せた）。
 
 ## 2. テスト用の差し替え部品の拡張
 
@@ -193,6 +193,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 整合性の表（[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)）の「直り方」が成り立つことを、偽物の状態で確かめる。
 
 - `process`: 写真に `pending`・`step`・`hint`・`attempts: 0` が書かれ（`failed`・`attempts: 3` の写真でも）、`comment` / `commentSource` が `null` になり、`messages` に `{ photoId }` が積まれる。**投入に失敗しても 202** で写真は `pending` のまま。`tags`・`tripId` は変わらない
+- 分類の AI に送るもの（[06 §2.1](./06_processing_design.md#21-モデルとサービス)・§2.2。管理外の依存なのでモックの受けた要求で確かめる）: 画像（`detail: "low"`）とテキストの2パート、strict な `json_schema` の選択肢が定義表の種類 + `other`、`max_completion_tokens`（`max_tokens` と `temperature` は送らない）、撮影地があればテキストに含む。分類用のデプロイ名があればそのデプロイ（`baseURL` と `model`）に送り、今のデプロイ名が無くても分類できる。未設定・空・空白だけなら今のデプロイに送る。デプロイ名が決まらないときと、AI のクライアントを作れないとき（API キーが無い）は、AI を呼ばずに失敗し、`UpstreamError` にしない。種類が選択肢に無い・信頼度が数値でないか 0〜100 の外（0 と 100 は可）・空・JSON として読めない・SDK のエラーは `UpstreamError("ai")`
 - ワーカー（分類）: `category` が書かれ、`classification` が書かれ、`identification` が `null` になる。`tags`・`comment`・`tripId` は変わらない。識別対象なら `pending`・`step: "identify"` で `messages` に積まれ、投入に失敗しても写真はそのまま。`other` なら `done`
 - ワーカー（識別）: `identification` が `{ kind, matchesKind, name（trim 済み）, … }` で書かれ、`done`。`matchesKind: false` なら `name: null` で `comment` は変わらない
 - ワーカーは `commentSource: "user"` の `comment` を書き換えず、`identification`・`processing` は書く（コメントの条件付き patch が 412 でも結果の patch に進む）。`commentSource` が `null` / `"ai"` なら書く

@@ -1246,6 +1246,26 @@ describe('画像アップロード・植物判定統合API', () => {
       expect([...blobStore.keys()]).toEqual([]);
       expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
     });
+
+    it('AIのクライアントを作れない設定（APIキーが無い）なら、何も保存せず500エラー', async () => {
+      // OpenAI SDK はキーが無いとクライアントのコンストラクタで例外を投げる（openai 7.x の実際の文言）。
+      // AI の障害ではなく設定の誤りなので 502 にせず、一時コンテナにも何も置かない
+      jest.requireMock('openai').mockImplementation(() => {
+        throw new Error('Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.');
+      });
+
+      const response = await uploadImageHandler(jpegUploadRequest(), mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '画像アップロード・植物判定に失敗しました'
+        }
+      });
+      expect([...blobStore.keys()]).toEqual([]);
+    });
   });
 
   describe('ストレージにもAIにも届かない失敗', () => {
