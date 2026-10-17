@@ -16,6 +16,8 @@ class AddPhotosButton extends StatelessWidget {
   final String? tripId;
 
   Future<void> _addPhotos(BuildContext context) async {
+    // 待っている間に選択モードでボタンが外れても知らせを出せるよう、画面の ScaffoldMessenger を先に取っておく
+    final messenger = ScaffoldMessenger.of(context);
     // 写真を選ぶ部品は1枚ずつ縮小してから返すので、300枚では受け取るまで10分ほどかかる。
     // その間は「写真を読み込み中...」にして押せなくする（待ちの状態は送信の列が持つ。ボタンは選択モードで外れるため）
     uploadQueue.setPicking(tripId, true);
@@ -31,9 +33,7 @@ class AddPhotosButton extends StatelessWidget {
       await uploadQueue.addFiles(files, tripId: tripId);
     } catch (e) {
       debugPrint('AddPhotosButton: 画像の読み込みエラー: $e');
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('画像の読み込みに失敗しました')));
+      messenger.showSnackBar(const SnackBar(content: Text('画像の読み込みに失敗しました')));
     }
   }
 
