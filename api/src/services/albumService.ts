@@ -290,6 +290,40 @@ export class AlbumService {
   }
 
   /**
+   * 写真の解析のやり直しを受け付ける（分類の待ちにし、回数を 0 に戻し、手がかりを書き、コメントを消す）
+   *
+   * コメントは、やり直しの結果で置き換えるために消す（利用者の文は、アプリが手がかりに事前入力してから頼む。
+   * docs/travel-album/05_api_design.md §5.7）。前回の結果の欄（category など）は、やり直しの結果が出るまで残す
+   * @param id 写真 ID
+   * @param step やり直す処理
+   * @param hint 利用者からの手がかり。無ければ null
+   * @param now 受け付けた時刻（ISO）
+   * @returns 更新後の写真のドキュメント。無ければ null
+   */
+  async requestPhotoProcessing(
+    id: string,
+    step: 'classify' | 'identify',
+    hint: string | null,
+    now: string
+  ): Promise<PhotoDocument | null> {
+    try {
+      const { resource } = await this.container.item(id, id).patch<PhotoDocument>([
+        { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
+        { op: 'set', path: '/hint', value: hint },
+        { op: 'set', path: '/comment', value: null },
+        { op: 'set', path: '/commentSource', value: null },
+        { op: 'set', path: '/updatedAt', value: now },
+      ]);
+      return resource ?? null;
+    } catch (error: any) {
+      if (error.code === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * 写真の解析を担当する（processing を処理中にする）。読んだときのまま分類の待ち（pending）のときだけ書く条件付きの patch
    *
    * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。

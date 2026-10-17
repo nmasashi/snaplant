@@ -3,7 +3,7 @@ import { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { createErrorResponse, createValidationError, isValidUUID } from './response';
 import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
-import { FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
+import { CONTEXT_INFO_VALIDATION, FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
 import { PHOTO_KINDS } from '../catalog/kinds';
 
 /** 検証を通った写真の保存の入力 */
@@ -393,4 +393,43 @@ export async function readPhotoUpdateInput(
     input.tags = unique;
   }
   return { input };
+}
+
+/** 検証を通った解析のやり直しの入力 */
+export interface ProcessRequestInput {
+  /** やり直す処理（段階3は分類だけ） */
+  step: 'classify';
+  /** 利用者からの手がかり（前後の空白を除いたもの）。無ければ null */
+  hint: string | null;
+}
+
+/**
+ * 解析のやり直し（POST /api/photos/{photoId}/process）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.7 の 2〜6）
+ * @param request リクエスト
+ * @returns 検証を通った入力、または 400 の応答
+ */
+export async function readProcessRequestInput(
+  request: HttpRequest
+): Promise<{ input: ProcessRequestInput } | { error: HttpResponseInit }> {
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read;
+  }
+  const body = read.body;
+  if (body === null || body === undefined) {
+    return { error: createValidationError('リクエストボディが指定されていません') };
+  }
+  const { step, hint } = body as { step?: unknown; hint?: unknown };
+  // 識別（identify）は段階4。段階3では受け付けない
+  if (step !== 'classify') {
+    return { error: createValidationError('やり直す処理の種類が無効です') };
+  }
+  if (hint !== undefined && hint !== null && typeof hint !== 'string') {
+    return { error: createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.NOT_A_STRING) };
+  }
+  const trimmed = typeof hint === 'string' ? hint.trim() : '';
+  if (trimmed.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+    return { error: createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG) };
+  }
+  return { input: { step, hint: trimmed === '' ? null : trimmed } };
 }
