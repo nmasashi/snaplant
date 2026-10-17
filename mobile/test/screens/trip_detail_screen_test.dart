@@ -2518,6 +2518,32 @@ void main() {
     expect(find.text('写真を読み込み中...'), findsNothing);
   });
 
+  testWidgets('写真を受け取るのを待っている間にボタンが外れていても、読み込みに失敗したら「画像の読み込みに失敗しました」を出す', (tester) async {
+    // 選択モードの間は右下のボタンが外れ、押したボタンの context は生きていない。知らせる先の ScaffoldMessenger は生きている
+    final release = Completer<void>();
+    useGalleryReturning([], failWith: Exception('ギャラリーを開けない'), hold: release.future);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    expect(find.byType(FloatingActionButton), findsNothing);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
+  });
+
   testWidgets('2枚を送っている間は、旅行詳細の上部に「送信中 0/2」を出し、1枚の応答が返ると「送信中 1/2」に変わり、2枚目の応答が返るとバナーを消して「2枚を送信しました」と知らせる', (tester) async {
     // 偽のサーバは、届いた2回の送信の応答をそれぞれ保留する（同時に2本送られる）。届いた時点で写真は偽のサーバに入っている。
     // 応答を返すと完了と数える
