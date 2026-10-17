@@ -152,7 +152,11 @@ export class OpenAIVisionService {
 			// デプロイ名は接続先の URL に入る。無いと .../deployments/undefined に送って Azure の 404 になり、
 			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/06 §5.9）
 			if (!name) {
-				throw new Error('AZURE_OPENAI_DEPLOYMENT_NAME（Azure OpenAI Service のデプロイ名）が設定されていません');
+				throw new Error(
+					deployment === undefined
+						? 'AZURE_OPENAI_DEPLOYMENT_NAME（Azure OpenAI Service のデプロイ名）が設定されていません'
+						: '送り先のデプロイ名が設定されていません（指定されたデプロイ名も AZURE_OPENAI_DEPLOYMENT_NAME も空です）'
+				);
 			}
 			this.deployment = name;
 			this.client = new OpenAI({

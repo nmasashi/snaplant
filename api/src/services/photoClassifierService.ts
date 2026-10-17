@@ -44,7 +44,12 @@ export interface PhotoClassification {
  * 写真の主題を AI に分類させる（段階3）
  */
 export class PhotoClassifierService {
-  // 分類用のデプロイが無ければ今のデプロイを使う（06 §2.1。OpenAIVisionService が空・空白だけも未設定として扱う）
+  /**
+   * 分類用のデプロイ（`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。空・空白だけなら今のデプロイ）に送るサービスを作る（06 §2.1）
+   *
+   * 設定の誤り（デプロイ名が決まらない、API キーが無い）はここで例外になる。呼び出し側は、モジュールの最上位ではなく
+   * 失敗を扱える所（ワーカーの try の中）で作る。最上位で作ると、読み込みの時点で落ちて同じアプリの関数がすべて登録されない
+   */
   constructor(
     private readonly vision = new OpenAIVisionService(process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME)
   ) {}
