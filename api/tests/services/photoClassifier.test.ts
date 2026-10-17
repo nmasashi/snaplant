@@ -130,6 +130,29 @@ describe('写真の分類', () => {
     expect(result.model).toBe('main-deployment');
   });
 
+  it('分類用のデプロイ名があれば、今のデプロイ名が無くても分類できる', async () => {
+    process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
+    delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+
+    const result = await new PhotoClassifierService().classify(IMAGE_URL, null);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].options.baseURL).toBe('https://test.openai.azure.com/openai/deployments/classify-deployment');
+    expect(result.model).toBe('classify-deployment');
+  });
+
+  it('AIのクライアントを作れない設定（APIキーが無い）は、AIの失敗にしない', async () => {
+    // 設定の誤りを AI の失敗にすると、3-3 のワーカーが AI の一時的な障害として送り直し続ける
+    MockedOpenAI.mockImplementation(() => {
+      throw new Error('Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.');
+    });
+
+    const error = await (async () => new PhotoClassifierService().classify(IMAGE_URL, null))().catch((e) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(UpstreamError);
+  });
+
   it('Azure OpenAI Serviceの接続先があるのにデプロイ名がどちらも無ければ、AIを呼ばずに失敗する', async () => {
     delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 

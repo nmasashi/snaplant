@@ -886,6 +886,38 @@ describe('植物識別API', () => {
       expect(mockChatCompletions.create).not.toHaveBeenCalled();
     });
 
+    it('AIのクライアントを作れない設定（APIキーが無い）なら、AIの障害（502）ではなく500エラー', async () => {
+      // OpenAI SDK はキーが無いとクライアントのコンストラクタで例外を投げる（openai 7.x の実際の文言）。
+      // 何も保存しないことまで見るのは upload.test.ts（同じ規則で、一時保存がある入口）
+      MockedOpenAI.mockImplementation(() => {
+        throw new Error('Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.');
+      });
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '植物識別処理に失敗しました'
+        }
+      });
+    });
+
+    it('デプロイ名の前後に空白があれば、取り除いたデプロイに送る', async () => {
+      // アプリの設定に紛れた空白や改行のまま URL に入れると、Azure の 404 になって AI の障害（502）に見える
+      process.env.AZURE_OPENAI_ENDPOINT = 'https://test.openai.azure.com';
+      process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = ' test-deployment\n';
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(MockedOpenAI.mock.calls[0][0].baseURL).toBe('https://test.openai.azure.com/openai/deployments/test-deployment');
+      expect(mockChatCompletions.create.mock.calls[0][0].model).toBe('test-deployment');
+    });
+
     it('Azure OpenAI Serviceの接続先が無く、デプロイ名も未設定なら、既定のモデル（gpt-5.6-luna）を指定する', async () => {
       // tests/setup.ts が全体に値を入れているので、delete で未設定にする（元に戻すのは afterEach）
       delete process.env.AZURE_OPENAI_ENDPOINT;
