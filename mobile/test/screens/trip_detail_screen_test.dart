@@ -2464,7 +2464,7 @@ void main() {
     expect(gallery.openCount, 2);
   });
 
-  testWidgets('ギャラリーの読み込みに失敗して選ぶ画面が閉じたら、「画像の読み込みに失敗しました」と知らせ、ボタンを「写真を追加」に戻す', (tester) async {
+  testWidgets('ギャラリーの読み込みに失敗して選ぶ画面が閉じたら、「画像の読み込みに失敗しました」と知らせ、何も送らず、ボタンを「写真を追加」に戻す', (tester) async {
     final release = Completer<void>();
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'), hold: release.future);
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
@@ -2479,24 +2479,10 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
-    expect(find.text('写真を追加'), findsOneWidget);
-    expect(find.text('写真を読み込み中...'), findsNothing);
-  });
-
-  testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
-    useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
-    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    expect(find.text('写真を追加'), findsOneWidget);
-
-    await tester.tap(find.text('写真を追加'));
-    await letFramesRun(tester);
-
-    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
     expect(backend.photosByTripId[hokkaidoTripId] ?? [], isEmpty);
     expect(find.text('まだ写真がありません'), findsOneWidget);
+    expect(find.text('写真を追加'), findsOneWidget);
+    expect(find.text('写真を読み込み中...'), findsNothing);
   });
 
   testWidgets('2枚を送っている間は、旅行詳細の上部に「送信中 0/2」を出し、1枚の応答が返ると「送信中 1/2」に変わり、2枚目の応答が返るとバナーを消して「2枚を送信しました」と知らせる', (tester) async {
