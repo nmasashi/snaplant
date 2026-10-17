@@ -64,8 +64,8 @@ API と mobile の列は並行できるが、**同時に進めるなら別のブ
 | # | 内容 | 依存 |
 |---|---|---|
 | 3-1 | （実装済み）infra: Storage Queue、予算アラート、`app_settings`（[07 §2](./07_infrastructure_design.md#2-段階3)。分類用のデプロイは当面足さず、今の `gpt5_luna` を使う）。`host.json` の `extensions.queues` と `http` の位置 | 段階2完了 |
-| 3-2 | api: `OpenAIVisionService.analyze()` の一般化（`identifyPlant()` は残す）、`catalog/kinds.ts`（定義表と `OTHER_KIND`。段階3では分類の選択肢にだけ使う）、`PhotoClassifierService`、`tests/fakes/queue.ts` | 3-1 |
-| 3-3 | api: ワーカー `processPhoto.ts`（写真の `processing.step` を見る。担当は `state = "pending"` の条件付き patch。結果は AI の担当の欄だけの patch、コメントは条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）、タイマー `requeueStalePhotos.ts`（`failed` は拾わない）・`sweepAlbum.ts`（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos` のキュー投入（`pending`・`step: "classify"`）、`POST /api/photos/{photoId}/process`（受付でコメントを消し `attempts` を 0 に。投入に失敗しても 202）、`GET /api/photos?category=`。10 枚の実測を記録する（容量は今のまま。[06 §6](./06_processing_design.md#6-費用の抑え方)） | 3-2 |
+| 3-2 | api: `OpenAIVisionService.analyze()` の一般化（`identifyPlant()` は残す）、`catalog/kinds.ts`（定義表と `OTHER_KIND`。段階3では分類の選択肢にだけ使う）、`PhotoClassifierService`（`tests/fakes/queue.ts` は使い始める 3-3 で足す） | 3-1 |
+| 3-3 | api: `tests/fakes/queue.ts`、ワーカー `processPhoto.ts`（写真の `processing.step` を見る。担当は `state = "pending"` の条件付き patch。結果は AI の担当の欄だけの patch、コメントは条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）、タイマー `requeueStalePhotos.ts`（`failed` は拾わない）・`sweepAlbum.ts`（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos` のキュー投入（`pending`・`step: "classify"`）、`POST /api/photos/{photoId}/process`（受付でコメントを消し `attempts` を 0 に。投入に失敗しても 202）、`GET /api/photos?category=`。10 枚の実測を記録する（容量は今のまま。[06 §6](./06_processing_design.md#6-費用の抑え方)） | 3-2 |
 | 3-4 | mobile: カテゴリの表示、分類の状態（`failed` と「やり直す」）、やり直しダイアログ、カテゴリ横断画面、旅行詳細画面のカテゴリの絞り込み | 3-3 |
 | 3-5 | （任意）api + infra: Azure Maps の `GeocodingService` と `geocache` | 実機確認で Geocoder が不十分だったとき |
 

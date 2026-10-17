@@ -528,6 +528,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | テスト | 例外 | 理由 |
 |---|---|---|
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
+| `api/tests/services/photoClassifier.test.ts` | 入口がまだ無い（期限付き） | 分類の入口（キューのワーカー）は段階3の 3-3 で作る。3-3 でワーカーのテストへ寄せて消す |
 
 **複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
 仕様の「同じ」「全エンドポイント」を根拠に全ケースを通す入口を1つ決め、他の入口は1〜2行にして、
