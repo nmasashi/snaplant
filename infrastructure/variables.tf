@@ -146,3 +146,19 @@ variable "openai_api_version" {
   type        = string
   default     = "2024-12-01-preview"
 }
+
+variable "monthly_budget_amount" {
+  description = "リソースグループの月額の予算（請求の通貨。円の想定）。超えても止まらず、メールで知らせる"
+  type        = number
+  default     = 3000
+}
+
+variable "budget_alert_email" {
+  description = "予算アラートの通知先のメールアドレス。リポジトリに入れないので terraform.tfvars に書く"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+$", var.budget_alert_email))
+    error_message = "budget_alert_email にはメールアドレスを書いてください（terraform.tfvars）。"
+  }
+}

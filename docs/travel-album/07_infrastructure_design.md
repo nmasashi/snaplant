@@ -106,6 +106,8 @@ resource "azurerm_storage_management_policy" "main" {
 
 ## 2. 段階3
 
+**実装済み**（PR 3-1。Storage Queue・予算アラート・`app_settings`。Azure Maps は作っていない）。予算は月 3,000（請求の通貨。円の想定。2026-10-17 に人間が決定）で、実際の利用額が 8 割と 10 割に達したときに `budget_alert_email` へメールで知らせる。通知先のメールアドレスは `infrastructure/terraform.tfvars` にだけ書く。
+
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
 | `azurerm_storage_queue.photo_processing` | `photo-processing` | 既存のストレージアカウント | poison キュー（`photo-processing-poison`）は Functions が自動で作る |
@@ -184,6 +186,8 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 `plan` で `album`・`photos` に replace が出ないことを確かめる。無料枠は `album` 400 だけになる。
 
 ## 4. `host.json` の変更
+
+**実装済み**（PR 3-1）。
 
 段階3で `extensions.queues` を足すときに、`docs/09_backlog.md`「`api/host.json` の `http` がトップレベルにある」も直す。
 

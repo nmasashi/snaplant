@@ -709,8 +709,6 @@ SAS は発行から15分で切れるので、取得できるのはその間に�
 - **仕様にあるのにテストが無い振る舞い**: contextInfo の検証が一時保存と AI 呼び出しの前に行われること（upload の 501 文字のテストは Blob も OpenAI も見ていない）、
   503 になる `ECONNREFUSED`（植物図鑑の Cosmos DB を使うハンドラのテストは `ENOTFOUND` だけ）、
   identify の `contextInfo: null` と数値・オブジェクトの拒否、`CONTEXT_INFO_MAX_LENGTH` に有効な値を設定した場合
-- **`api/host.json` の `http` がトップレベルにある**（正しくは `extensions.http`）。`routePrefix: "api"` は既定値と同じなので実害は無いが、
-  `maxOutstandingRequests` などを設定するつもりでここに書いても効かない
 
 ---
 

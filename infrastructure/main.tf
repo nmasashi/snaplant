@@ -78,6 +78,14 @@ resource "azurerm_storage_container" "photos" {
   container_access_type = "private"
 }
 
+# 旅行アルバムの写真の処理（段階3の分類・段階4の識別）のキュー。API の写真の送信が { photoId } を入れ、ワーカーが1件ずつ取る。
+# 3回失敗した要求は Functions が自動で作る photo-processing-poison に落ちる（host.json の maxDequeueCount）。
+# docs/travel-album/07_infrastructure_design.md §2・06_processing_design.md §1
+resource "azurerm_storage_queue" "photo_processing" {
+  name               = "photo-processing"
+  storage_account_id = azurerm_storage_account.main.id
+}
+
 # temp-images に残った Blob を最終更新から1日で消す。
 # upload が途中で失敗すると一時 Blob が残り、コードの後片付けでは拾えない場合がある
 # （関数のタイムアウト・プロセスの停止・削除自体の失敗）
@@ -241,6 +249,16 @@ resource "azurerm_linux_function_app" "main" {
     "AZURE_OPENAI_API_KEY"         = azurerm_cognitive_account.openai.primary_access_key
     "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt6_luna.name
     "AZURE_OPENAI_API_VERSION"     = var.openai_api_version
+
+    # 旅行アルバムの写真の処理（段階3）。分類用のデプロイ名（AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME）は書かない
+    # （未設定なら AZURE_OPENAI_DEPLOYMENT_NAME を使う。07 §2）
+    "PHOTO_QUEUE_NAME"              = azurerm_storage_queue.photo_processing.name
+    "PHOTO_PROCESSING_MAX_ATTEMPTS" = "3"
+  }
+
+  # Azure がポータルの表示のために自動で付けるタグ。定義に無いので apply のたびに消そうとする差分が出る（害は無いが紛らわしい）
+  lifecycle {
+    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
   }
 
   tags = var.tags
@@ -304,3 +322,34 @@ moved {
   to   = azurerm_cognitive_deployment.gpt6_luna
 }
 
+# 月額の予算アラート。AI の費用の安全弁（アプリの中に呼び出し回数のカウンタは置かない代わり。06 §6・07 §2）。
+# 金額は請求の通貨（このサブスクリプションは円の想定）で、上限を超えても止まらず、メールで知らせるだけ
+resource "azurerm_consumption_budget_resource_group" "main" {
+  name              = "budget-${var.project_name}-${random_string.suffix.result}"
+  resource_group_id = azurerm_resource_group.main.id
+
+  amount     = var.monthly_budget_amount
+  time_grain = "Monthly"
+
+  time_period {
+    # 月の初日。過去の月は指定できないので、作った月の初日にしている（変えると作り直しになる）
+    start_date = "2026-10-01T00:00:00Z"
+  }
+
+  # 8割に達したときと、上限に達したとき（実際の利用額）に知らせる
+  notification {
+    enabled        = true
+    threshold      = 80
+    operator       = "GreaterThanOrEqualTo"
+    threshold_type = "Actual"
+    contact_emails = [var.budget_alert_email]
+  }
+
+  notification {
+    enabled        = true
+    threshold      = 100
+    operator       = "GreaterThanOrEqualTo"
+    threshold_type = "Actual"
+    contact_emails = [var.budget_alert_email]
+  }
+}

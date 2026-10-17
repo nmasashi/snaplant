@@ -225,13 +225,6 @@ state を持たない環境で `apply` すると全リソースを新規作成�
 先に「状態ファイル管理」セクションのリモートbackendを設定するか、
 既存の state を手元に用意すること。
 
-### 旧 gpt-4o デプロイの扱い（未対応）
-
-Azure上に残っている `gpt-4o` という名前のデプロイは、中身が `gpt-5.1` に
-差し替わっており名前と実体が食い違っている。削除する場合は、**先に Function App の
-`AZURE_OPENAI_DEPLOYMENT_NAME` を今のデプロイ（`gpt-6-luna`）に切り替えてあること**（Terraform が管理する設定なので、apply 済みなら切り替わっている）。
-この設定が `gpt-4o` を指したままデプロイを削除すると本番APIが即座に停止する。
-
 ## 参考リンク
 
 - [Azure Provider Documentation](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
