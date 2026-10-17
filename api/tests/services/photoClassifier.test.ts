@@ -1,4 +1,5 @@
 import { PhotoClassifierService } from '../../src/services/photoClassifierService';
+import { UpstreamError } from '../../src/utils/errors';
 
 // 分類の入口（キューのワーカー）は段階3の 3-3 で作る。それまでの間だけ、AI（管理外の依存）に送るものと、
 // 応答から返すものをここで確かめる。3-3 でワーカーのテストに同じ振る舞いが揃ったら寄せて消す（CLAUDE.md の名簿）
@@ -127,5 +128,68 @@ describe('写真の分類', () => {
     expect(sent[0].options.baseURL).toBe('https://test.openai.azure.com/openai/deployments/main-deployment');
     expect(sent[0].body.model).toBe('main-deployment');
     expect(result.model).toBe('main-deployment');
+  });
+
+  it('Azure OpenAI Serviceの接続先があるのにデプロイ名がどちらも無ければ、AIを呼ばずに失敗する', async () => {
+    delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+
+    // 設定の誤りは AI の障害ではないので、UpstreamError にはしない
+    const error = await (async () => new PhotoClassifierService().classify(IMAGE_URL, null))().catch((e) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(UpstreamError);
+    expect(sent).toHaveLength(0);
+  });
+
+  // AI の失敗（UpstreamError('ai')）として投げたか
+  const expectAiFailure = async (promise: Promise<unknown>) => {
+    const error = await promise.catch((e) => e);
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect(error.service).toBe('ai');
+  };
+
+  it.each([
+    ['負の数', -0.1],
+    ['100を超える', 100.5],
+    ['数値でない', '90']
+  ])('信頼度が%sなら、AIの失敗にする', async (_label, confidence) => {
+    aiReturns({ kind: 'food', confidence, reason: 'テスト' });
+
+    await expectAiFailure(new PhotoClassifierService().classify(IMAGE_URL, null));
+  });
+
+  it.each([0, 100])('信頼度が%sなら受け付ける', async (confidence) => {
+    aiReturns({ kind: 'landscape', confidence, reason: 'テスト' });
+
+    const result = await new PhotoClassifierService().classify(IMAGE_URL, null);
+
+    expect(result.confidence).toBe(confidence);
+  });
+
+  it('種類が選択肢に無ければ、AIの失敗にする', async () => {
+    aiReturns({ kind: 'animal', confidence: 90, reason: '犬が写っている' });
+
+    await expectAiFailure(new PhotoClassifierService().classify(IMAGE_URL, null));
+  });
+
+  it.each([
+    ['空', null],
+    ['JSONとして読めない', '{"kind": "food"']
+  ])('応答が%sなら、AIの失敗にする', async (_label, content) => {
+    reply = async () => ({ choices: [{ message: { content } }] });
+
+    await expectAiFailure(new PhotoClassifierService().classify(IMAGE_URL, null));
+  });
+
+  it('AIの呼び出しが失敗したら、AIの失敗にする', async () => {
+    // 実 SDK のエラー応答の形（message に OpenAI は入らない）
+    reply = async () => {
+      throw Object.assign(new Error('500 The server had an error while processing your request.'), {
+        name: 'InternalServerError',
+        status: 500
+      });
+    };
+
+    await expectAiFailure(new PhotoClassifierService().classify(IMAGE_URL, null));
   });
 });
