@@ -61,13 +61,13 @@ export class PhotoClassifierService {
     imageUrl: string,
     clues: { placeName: string | null; hint: string | null }
   ): Promise<PhotoClassification> {
-    const placeSection =
+    const clueSection =
       (clues.hint ? `\n利用者からの手がかり: ${clues.hint}` : '') +
       (clues.placeName ? `\n撮影地: ${clues.placeName}（手がかりとして使ってください）` : '') +
       (clues.hint || clues.placeName ? '\n' : '');
     const prompt = `
 この写真の主題を、${KIND_LABELS} から1つ選んでください。
-${placeSection}
+${clueSection}
 人や動物、建物の内装など、当てはまるものが無ければ other を選んでください。
 `;
 
