@@ -26,8 +26,8 @@ const tinyPngSha256 = 'd5a51b6aed15684ec8c123e30fe5703155359d6543b6d7b47cb5766ef
 class FakeMultiGallery extends ImagePickerPlatform with MockPlatformInterfaceMixin {
   FakeMultiGallery(this.files, {this.failWith, this.hold});
 
-  /// 選ばれるファイル（選ばずに閉じる状況は、空のリスト）
-  final List<File> files;
+  /// 選ばれるファイル（選ばずに閉じる状況は、空のリスト）。2回目以降に選ばれるものを変えたいテストが差し替えられる
+  List<File> files;
 
   /// 指定すると、選ぶたびにこの例外を投げる
   final Object? failWith;

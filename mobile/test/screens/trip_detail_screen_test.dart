@@ -2414,7 +2414,62 @@ void main() {
     expect(photo['takenAt'], '2026-10-05T10:20:30');
   });
 
-  testWidgets('「写真を追加」を押してから写真を受け取るまで、ボタンを「写真を読み込み中...」（回転する印つき）にして押せなくし、受け取ると「写真を追加」に戻る', (tester) async {
+  testWidgets('写真を受け取ったら、選んだ写真の準備が続いている間も、ボタンは「写真を追加」に戻って押せる', (tester) async {
+    // 押せなくするのは写真を受け取るまで。受け取った後の準備（100枚で数秒かかる）の間は、次の写真を選べる。
+    // 1枚目の応答は保留して、送信が終わったことでボタンが戻るのではないことを保つ
+    final gallery = useGalleryReturning(writeTestImages(_manyPhotos));
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    final firstReply = backend.holdNextReply(TripRoute.upload);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await tester.pump();
+    expect(preparingBanner(_manyPhotos), findsOneWidget);
+    // 2回目に選ばれるのは空（準備を増やさない）
+    gallery.files = [];
+
+    final addButton = find.descendant(of: find.byType(FloatingActionButton), matching: find.text('写真を追加'));
+    expect(addButton, findsOneWidget);
+    await tester.tap(addButton);
+    await tester.pump();
+
+    expect(gallery.openCount, 2);
+    // 後片付け: 保留した応答を返す（応答を待つ間の時間切れのタイマーを、テストの終わりに残さない）
+    firstReply.complete();
+  });
+
+  testWidgets('選択モードの見出しの「N枚を選択中」と「表示中をすべて選択」は、幅 360dp の端末でも切れずに出る', (tester) async {
+    // 左に「×」、右に「表示中をすべて選択」があるので、3桁の枚数の見出しが狭い端末で折り返されたり省略されたりしやすい
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 300)],
+      functionKey: _apiKey,
+      pageSize: 300,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 300; n++) photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'),
+        ],
+      },
+    );
+    await openDetailFromHome(tester, backend);
+    tester.view.physicalSize = const Size(1080, 2220);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await letFramesRun(tester);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
+    await letFramesRun(tester);
+    await tester.tap(find.text('表示中をすべて選択'));
+    await letFramesRun(tester);
+
+    final appBar = find.byType(AppBar);
+    final title = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('300枚を選択中')));
+    final selectAll = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('表示中をすべて選択')));
+    expect(title.didExceedMaxLines, isFalse);
+    expect(selectAll.didExceedMaxLines, isFalse);
+  });
+
+  testWidgets('「写真を追加」を押してから写真を受け取るまで、ボタンを「写真を読み込み中...」（回転する印つき）にして押せなくする', (tester) async {
     // ギャラリーの返事を保留して、選ぶ画面を開いてから写真を受け取るまでの間をつくる。2回目に押しても選ぶ画面は開き直されない
     final image = writeTestImage('hokkaido.png');
     final release = Completer<void>();
@@ -2438,8 +2493,6 @@ void main() {
     release.complete();
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
-    expect(find.text('写真を追加'), findsOneWidget);
-    expect(find.text('写真を読み込み中...'), findsNothing);
   });
 
   testWidgets('写真を受け取るのを待っている間に選択モードに入って抜けても、ボタンは「写真を読み込み中...」のままで、選ぶ画面を二重に開かない', (tester) async {
