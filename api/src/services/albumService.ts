@@ -284,6 +284,29 @@ export class AlbumService {
   }
 
   /**
+   * 写真の解析を担当する（processing を処理中にする）。分類の待ち（pending）のときだけ書く条件付きの patch
+   *
+   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）
+   * @param id 写真 ID
+   * @param processing 処理中の processing
+   * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
+   */
+  async claimPhotoProcessing(id: string, processing: PhotoProcessing): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: 'FROM c WHERE c.processing.state = "pending"',
+        operations: [{ op: 'set', path: '/processing', value: processing }],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）
    * @param id 写真 ID
    * @param result 書く値
