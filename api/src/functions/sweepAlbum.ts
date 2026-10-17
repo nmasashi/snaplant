@@ -40,9 +40,11 @@ export async function sweepAlbumHandler(_timer: Timer, context: InvocationContex
     }
   }
 
-  const detached = photos.filter((photo) => photo.tripId !== null && !tripIds.has(photo.tripId)).map((photo) => photo.id);
-  if (detached.length > 0) {
-    await album.movePhotos(detached, null);
+  const detached: string[] = [];
+  for (const photo of photos) {
+    if (photo.tripId !== null && !tripIds.has(photo.tripId) && (await album.detachPhotoFromMissingTrip(photo.id, photo.tripId))) {
+      detached.push(photo.id);
+    }
   }
 
   const missingBlobs = photos.filter((photo) => !blobNames.has(photo.blobName)).map((photo) => photo.id);

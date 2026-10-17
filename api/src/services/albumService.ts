@@ -305,6 +305,32 @@ export class AlbumService {
   }
 
   /**
+   * 消えた旅行を指す写真を、どの旅行にも属さない写真に戻す（掃除のタイマー）。読んだ旅行のままのときだけ書く条件付きの patch
+   *
+   * 読んだ後に利用者が別の旅行へ移していたら戻さない
+   * @param id 写真 ID
+   * @param missingTripId 読んだときに写真が指していた（消えた）旅行の ID
+   * @returns 戻したら true。旅行が変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async detachPhotoFromMissingTrip(id: string, missingTripId: string): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: `FROM c WHERE c.tripId = "${missingTripId}"`,
+        operations: [
+          { op: 'set', path: '/tripId', value: null },
+          { op: 'set', path: '/updatedAt', value: new Date().toISOString() },
+        ],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * 全旅行の id を読む（掃除のタイマー）
    */
   async listTripIds(): Promise<string[]> {
@@ -349,7 +375,7 @@ export class AlbumService {
   async resetStalePhotoProcessing(id: string, read: PhotoProcessing, next: PhotoProcessing): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: `FROM c WHERE c.processing.state = "${read.state}" AND c.processing.attempts = ${read.attempts}`,
+        condition: processingCondition(read),
         operations: [{ op: 'set', path: '/processing', value: next }],
       });
       return true;
@@ -407,15 +433,10 @@ export class AlbumService {
    * @param processing 処理中の processing
    * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
    */
-  async claimPhotoProcessing(
-    id: string,
-    step: 'classify' | 'identify',
-    readAttempts: number,
-    processing: PhotoProcessing
-  ): Promise<boolean> {
+  async claimPhotoProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "${step}" AND c.processing.attempts = ${readAttempts}`,
+        condition: processingCondition(expected),
         operations: [{ op: 'set', path: '/processing', value: processing }],
       });
       return true;
@@ -432,8 +453,8 @@ export class AlbumService {
    * @param id 写真 ID
    * @param processing 書く processing
    */
-  async writeProcessing(id: string, claimedAttempts: number, processing: PhotoProcessing): Promise<boolean> {
-    return this.patchIfStillClaimed(id, claimedAttempts, [{ op: 'set', path: '/processing', value: processing }]);
+  async writeProcessing(id: string, claimed: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
+    return this.patchIfStillClaimed(id, claimed, [{ op: 'set', path: '/processing', value: processing }]);
   }
 
   /**
@@ -443,10 +464,10 @@ export class AlbumService {
    */
   async writeClassification(
     id: string,
-    claimedAttempts: number,
+    claimed: PhotoProcessing,
     result: { category: string; classification: unknown; processing: PhotoProcessing; updatedAt: string }
   ): Promise<boolean> {
-    return this.patchIfStillClaimed(id, claimedAttempts, [
+    return this.patchIfStillClaimed(id, claimed, [
       { op: 'set', path: '/category', value: result.category },
       { op: 'set', path: '/classification', value: result.classification },
       { op: 'set', path: '/identification', value: null },
@@ -464,12 +485,12 @@ export class AlbumService {
    */
   private async patchIfStillClaimed(
     id: string,
-    claimedAttempts: number,
+    claimed: PhotoProcessing,
     operations: { op: 'set'; path: string; value: unknown }[]
   ): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: `FROM c WHERE c.processing.state = "classifying" AND c.processing.attempts = ${claimedAttempts}`,
+        condition: processingCondition(claimed),
         operations,
       });
       return true;
@@ -625,4 +646,21 @@ function toTrip(doc: TripDocument): Trip {
 function tripsWithPhotos(tripIds: string[], counts: PhotoCountRow[]): string[] {
   const withPhotos = new Set(counts.map((row) => row.tripId));
   return tripIds.filter((id) => withPhotos.has(id));
+}
+
+/**
+ * 写真の processing が、読んだ（または書いた）ときのままのときだけ書く patch の条件
+ *
+ * state・step・回数に加えて processing.updatedAt も見る。やり直しの受付は回数を 0 に戻すので、
+ * state と回数だけでは「やり直しの後に取り直された担当」と古い担当が同じ値に見える（ABA）。
+ * updatedAt は processing を書くたびに今の時刻になるので、担当ごとの印になる
+ * @param expected 読んだ（または書いた）ときの processing
+ */
+function processingCondition(expected: PhotoProcessing): string {
+  return (
+    `FROM c WHERE c.processing.state = "${expected.state}"` +
+    (expected.step !== null ? ` AND c.processing.step = "${expected.step}"` : '') +
+    ` AND c.processing.attempts = ${expected.attempts}` +
+    (expected.updatedAt !== null ? ` AND c.processing.updatedAt = "${expected.updatedAt}"` : '')
+  );
 }

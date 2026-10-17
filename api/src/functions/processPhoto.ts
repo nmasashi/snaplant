@@ -4,6 +4,7 @@ import { PhotoClassifierService } from '../services/photoClassifierService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../constants/album';
 import { UpstreamError } from '../utils/errors';
+import { PhotoProcessing } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
 
 /**
@@ -29,12 +30,19 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
   // 読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる。
   // 段階3のワーカーがやるのは分類だけ（識別は段階4）で、step が classify でない写真は担当できずに終わる
   const attempts = photo.processing.attempts + 1;
-  const claimed = await album.claimPhotoProcessing(photo.id, 'classify', photo.processing.attempts, {
+  const claimedProcessing: PhotoProcessing = {
     ...photo.processing,
     state: 'classifying',
+    step: 'classify',
     attempts,
     updatedAt: new Date().toISOString(),
-  });
+  };
+  // 読んだときのまま（分類の待ちで、step が classify）のときだけ担当する。step は読んだ値でなく classify を条件にする
+  const claimed = await album.claimPhotoProcessing(
+    photo.id,
+    { ...photo.processing, state: 'pending', step: 'classify' },
+    claimedProcessing
+  );
   if (!claimed) {
     context.log(`分類の待ちではないか、別のインスタンスが先に担当しました（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}, 処理=${photo.processing.step}`);
     return;
@@ -49,7 +57,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     });
 
     const now = new Date().toISOString();
-    const written = await album.writeClassification(photo.id, attempts, {
+    const written = await album.writeClassification(photo.id, claimedProcessing, {
       category: result.kind,
       classification: { kind: result.kind, confidence: result.confidence, model: result.model, at: now },
       processing: { state: 'done', step: 'classify', attempts, lastError: null, updatedAt: now },
@@ -67,7 +75,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     const failed = attempts >= photoProcessingMaxAttempts();
     // 失敗の記録より先にログを出す。記録も失敗したとき（Cosmos の障害など）に、元の原因が残らなくなるため
     context.log(`写真の分類に失敗しました: ID=${photo.id}, 回数=${attempts}, 失敗した所=${lastError}${failed ? '（上限のため失敗にします）' : ''}`, error);
-    const written = await album.writeProcessing(photo.id, attempts, {
+    const written = await album.writeProcessing(photo.id, claimedProcessing, {
       state: failed ? 'failed' : 'pending',
       step: 'classify',
       attempts,
