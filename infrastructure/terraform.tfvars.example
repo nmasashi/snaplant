@@ -31,8 +31,9 @@ openai_location    = "East US"
 openai_sku         = "S0"
 openai_api_version = "2024-12-01-preview"
 
-# 予算アラート（段階3）。金額は請求の通貨（円の想定）。メールアドレスはここ（terraform.tfvars）にだけ書く
-monthly_budget_amount = 3000
+# 予算アラート（段階3）。金額は請求の通貨（このサブスクリプションは米ドル。3,000円のつもりで 20）。
+# メールアドレスはここ（terraform.tfvars）にだけ書く
+monthly_budget_amount = 20
 budget_alert_email    = "you@example.com"
 
 # Tags for resource management

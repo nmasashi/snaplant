@@ -148,9 +148,9 @@ variable "openai_api_version" {
 }
 
 variable "monthly_budget_amount" {
-  description = "リソースグループの月額の予算（請求の通貨。円の想定）。超えても止まらず、メールで知らせる"
+  description = "リソースグループの月額の予算（請求の通貨。このサブスクリプションは米ドル。3,000円のつもりで 20 ドル）。超えても止まらず、メールで知らせる"
   type        = number
-  default     = 3000
+  default     = 20
 }
 
 variable "budget_alert_email" {

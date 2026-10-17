@@ -323,7 +323,7 @@ moved {
 }
 
 # 月額の予算アラート。AI の費用の安全弁（アプリの中に呼び出し回数のカウンタは置かない代わり。06 §6・07 §2）。
-# 金額は請求の通貨（このサブスクリプションは円の想定）で、上限を超えても止まらず、メールで知らせるだけ
+# 金額は請求の通貨（このサブスクリプションは米ドル）で、上限を超えても止まらず、メールで知らせるだけ
 resource "azurerm_consumption_budget_resource_group" "main" {
   name              = "budget-${var.project_name}-${random_string.suffix.result}"
   resource_group_id = azurerm_resource_group.main.id

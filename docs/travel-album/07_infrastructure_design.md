@@ -106,7 +106,7 @@ resource "azurerm_storage_management_policy" "main" {
 
 ## 2. 段階3
 
-**実装済み**（PR 3-1。Storage Queue・予算アラート・`app_settings`。Azure Maps は作っていない）。予算は月 3,000（請求の通貨。円の想定。2026-10-17 に人間が決定）で、実際の利用額が 8 割と 10 割に達したときに `budget_alert_email` へメールで知らせる。通知先のメールアドレスは `infrastructure/terraform.tfvars` にだけ書く。
+**実装済み**（PR 3-1。Storage Queue・予算アラート・`app_settings`。Azure Maps は作っていない）。予算は月 20 ドル（3,000円のつもり。請求の通貨が米ドルなので 1 ドル 150 円で換算。2026-10-17 に人間が決定）で、実際の利用額が 8 割と 10 割に達したときに `budget_alert_email` へメールで知らせる。通知先のメールアドレスは `infrastructure/terraform.tfvars` にだけ書く。
 
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
