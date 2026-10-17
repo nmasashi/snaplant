@@ -52,7 +52,7 @@ export interface PhotoLocation {
   placeSource: 'device' | 'server' | null;
 }
 
-/** 写真の解析（分類・識別）の進み具合。段階2は state: none 固定 */
+/** 写真の解析（分類・識別）の進み具合。段階2の写真は state: none、段階3から送った写真は pending から始まる */
 export interface PhotoProcessing {
   state: 'none' | 'pending' | 'classifying' | 'identifying' | 'done' | 'failed';
   step: 'classify' | 'identify' | null;
