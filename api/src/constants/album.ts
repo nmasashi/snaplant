@@ -62,3 +62,11 @@ export const CLASSIFY_IMAGE_SAS_MINUTES = 15;
  * 短いと、キューに残っているだけの写真まで積み直して、メッセージが増える（06 §1.1）
  */
 export const PHOTO_REQUEUE_AFTER_MINUTES = 10;
+
+/**
+ * 掃除のタイマーが、写真の文書の無い Blob を消すまでの時間（時間）
+ *
+ * 新しい Blob は送信の途中（Blob を書いた後、文書を作る前）かもしれないので消さない。
+ * 一時画像のライフサイクル管理（最終更新から1日）と同じ根拠（04 §7.2）
+ */
+export const ORPHAN_BLOB_MIN_AGE_HOURS = 24;

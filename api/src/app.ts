@@ -13,6 +13,7 @@ import './functions/plants';
 import './functions/processPhoto';
 import './functions/requeueStalePhotos';
 import './functions/save';
+import './functions/sweepAlbum';
 import './functions/tripDetail';
 import './functions/trips';
 import './functions/updatePlant';

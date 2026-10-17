@@ -290,6 +290,34 @@ export class AlbumService {
   }
 
   /**
+   * 全写真の id・旅行・原寸の Blob 名だけを読む（掃除のタイマー。04 §5 の 5.9）
+   *
+   * 全件を読むのはこのタイマーだけ（1日1回。1万枚でも 1 MB 程度の射影）。画面から呼ぶ API には置かない
+   */
+  async listPhotoRefs(): Promise<{ id: string; tripId: string | null; blobName: string }[]> {
+    const { resources } = await this.container.items
+      .query<{ id: string; tripId: string | null; blobName: string }>({
+        query: 'SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type',
+        parameters: [{ name: '@type', value: 'photo' }],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
+   * 全旅行の id を読む（掃除のタイマー）
+   */
+  async listTripIds(): Promise<string[]> {
+    const { resources } = await this.container.items
+      .query<{ id: string }>({
+        query: 'SELECT c.id FROM c WHERE c.type = @type',
+        parameters: [{ name: '@type', value: 'trip' }],
+      })
+      .fetchAll();
+    return resources.map((trip) => trip.id);
+  }
+
+  /**
    * 解析待ち・処理中のまま、指定した時刻より前から止まっている写真を読む（再投入のタイマー。04 §5 の 5.8）
    *
    * failed と none は含めない（failed を拾うと同じ画像で永遠に失敗し続け、none を拾うと段階2の写真すべてに課金する）
