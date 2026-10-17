@@ -344,6 +344,25 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(failedOnceByOther);
     });
 
+    it('読んだ後・担当する前に、別の処理がやる処理（step）を変えていたら、AIを呼ばず、その写真を変えない', async () => {
+      // 同じ分類のメッセージが2回届き、片方が分類を済ませて識別の待ち（段階4。06 §2.3）にした後で、もう片方が担当しようとする。
+      // state も回数も読んだときと同じに見えるので、step も担当の条件に入れないと、識別を捨てて分類し直す
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const waitingForIdentify = pendingPhoto({
+        category: 'plant',
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:59.000Z' }
+      });
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = undefined;
+        cosmosBackend.documents.set(PHOTO_ID, waitingForIdentify);
+      };
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(waitingForIdentify);
+    });
+
     it('やる処理（step）が分類でなければ（識別は段階4）、AIを呼ばず、写真も変えない', async () => {
       const photo = pendingPhoto({
         processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' }
