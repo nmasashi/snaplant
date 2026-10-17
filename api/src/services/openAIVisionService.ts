@@ -95,115 +95,19 @@ export interface AnalyzeRequest {
 	imageUrl: string;
 }
 
-export class OpenAIVisionService {
-	private client: OpenAI;
-	private clientsByDeployment = new Map<string, OpenAI>();
-
-	constructor() {
-		// Azure OpenAI または OpenAI APIの設定
-		const isAzure = !!process.env.AZURE_OPENAI_ENDPOINT;
-
-		if (isAzure) {
-			// デプロイ名は接続先の URL に入る。無いと .../deployments/undefined に送って Azure の 404 になり、
-			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/06 §5.9）
-			if (!process.env.AZURE_OPENAI_DEPLOYMENT_NAME?.trim()) {
-				throw new Error('AZURE_OPENAI_DEPLOYMENT_NAME（Azure OpenAI Service のデプロイ名）が設定されていません');
-			}
-			this.client = new OpenAI({
-				apiKey: process.env.AZURE_OPENAI_API_KEY!,
-				baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
-				defaultQuery: {
-					"api-version":
-						process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
-				},
-				defaultHeaders: {
-					"api-key": process.env.AZURE_OPENAI_API_KEY!,
-				},
-			});
-		} else {
-			this.client = new OpenAI({
-				apiKey: process.env.OPENAI_API_KEY!,
-			});
-		}
-	}
-
-	/**
-	 * 指定したデプロイに、プロンプトと画像を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
-	 *
-	 * 応答の中身の検証は呼び出し側が行う
-	 */
-	async analyze(request: AnalyzeRequest): Promise<unknown> {
-		let client = this.clientsByDeployment.get(request.deployment);
-		if (!client) {
-			client = new OpenAI({
-				apiKey: process.env.AZURE_OPENAI_API_KEY!,
-				baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${request.deployment}`,
-				defaultQuery: {
-					"api-version":
-						process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
-				},
-				defaultHeaders: {
-					"api-key": process.env.AZURE_OPENAI_API_KEY!,
-				},
-			});
-			this.clientsByDeployment.set(request.deployment, client);
-		}
-
-		const response = await client.chat.completions.create({
-			model: request.deployment,
-			messages: [
-				{
-					role: "user",
-					content: [
-						{ type: "text", text: request.prompt },
-						{ type: "image_url", image_url: { url: request.imageUrl, detail: "low" } },
-					],
-				},
-			],
-			max_completion_tokens: 4000,
-			response_format: {
-				type: "json_schema",
-				json_schema: { name: request.schemaName, strict: true, schema: request.schema },
-			},
-		});
-
-		return JSON.parse(response.choices[0].message.content!);
-	}
-
-	/**
-	 * 画像を分析して植物かどうか判定し、植物の場合は識別結果を返す
-	 */
-	async identifyPlant(imageUrl: string, contextInfo?: string): Promise<IdentificationResult> {
-		try {
-			const analysisResult = await this.analyzeImage(imageUrl, contextInfo);
-
-			return {
-				isPlant: analysisResult.isPlant,
-				confidence: analysisResult.confidence,
-				reason: analysisResult.reason,
-				candidates:
-					analysisResult.isPlant && analysisResult.plantAnalysis
-						? analysisResult.plantAnalysis.candidates
-						: [],
-			};
-		} catch (error: any) {
-			throw new UpstreamError(`植物識別に失敗しました: ${error.message}`, "ai", error);
-		}
-	}
-
-	/**
-	 * LLMを使用して画像を分析
-	 */
-	private async analyzeImage(imageUrl: string, contextInfo?: string): Promise<LLMAnalysisResult> {
-		const contextSection = contextInfo ? `
+/**
+ * 植物の識別のプロンプト
+ *
+ * 応答の構造は PLANT_IDENTIFICATION_SCHEMA で強制されるため、プロンプトでは判定基準と命名規則のみを指示する
+ */
+function plantIdentificationPrompt(contextInfo?: string): string {
+	const contextSection = contextInfo ? `
     追加情報：
     撮影時の環境やコンテキスト情報: ${contextInfo}
     この情報を参考にして、植物の識別精度を向上させてください。
     ` : '';
 
-		// 応答の構造は PLANT_IDENTIFICATION_SCHEMA で強制されるため、
-		// プロンプトでは判定基準と命名規則のみを指示する
-		const prompt = `
+	return `
     この画像を専門的に分析して、植物かどうかを判定してください。
 ${contextSection}
     植物と判定する例：
@@ -225,18 +129,48 @@ ${contextSection}
     日本の植物に詳しく、正確な学名と科名を含めてください。
     各候補の「name」は上記の命名規則に従って設定してください。
     `;
+}
 
-		const response = await this.client.chat.completions.create({
-			model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-5.6-luna",
+export class OpenAIVisionService {
+	/** 送り先を指定しないときのデプロイ名（植物の識別が使う。Azure では接続先の URL にも入る） */
+	readonly defaultDeployment: string;
+	private readonly isAzure: boolean;
+	private readonly clients = new Map<string, OpenAI>();
+
+	constructor() {
+		// Azure OpenAI または OpenAI APIの設定
+		this.isAzure = !!process.env.AZURE_OPENAI_ENDPOINT;
+
+		if (this.isAzure) {
+			// デプロイ名は接続先の URL に入る。無いと .../deployments/undefined に送って Azure の 404 になり、
+			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/06 §5.9）。
+			// アップロードはこの例外を、一時コンテナに画像を置く前に受け取ることに頼っているので、コンストラクタで検査する
+			if (!process.env.AZURE_OPENAI_DEPLOYMENT_NAME?.trim()) {
+				throw new Error('AZURE_OPENAI_DEPLOYMENT_NAME（Azure OpenAI Service のデプロイ名）が設定されていません');
+			}
+			this.defaultDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+		} else {
+			this.defaultDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-5.6-luna";
+		}
+	}
+
+	/**
+	 * 指定したデプロイに、プロンプトと画像を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
+	 *
+	 * 応答の中身の検証は呼び出し側が行う（スキーマの strict では範囲などを強制できないため）
+	 */
+	async analyze(request: AnalyzeRequest): Promise<unknown> {
+		const response = await this.clientFor(request.deployment).chat.completions.create({
+			model: request.deployment,
 			messages: [
 				{
 					role: "user",
 					content: [
-						{ type: "text", text: prompt },
+						{ type: "text", text: request.prompt },
 						{
 							type: "image_url",
 							image_url: {
-								url: imageUrl,
+								url: request.imageUrl,
 								detail: "low", // トークン消費を抑制
 							},
 						},
@@ -250,9 +184,9 @@ ${contextSection}
 			response_format: {
 				type: "json_schema",
 				json_schema: {
-					name: "plant_identification",
+					name: request.schemaName,
 					strict: true,
-					schema: PLANT_IDENTIFICATION_SCHEMA,
+					schema: request.schema,
 				},
 			},
 		});
@@ -262,17 +196,72 @@ ${contextSection}
 			throw new Error("LLMからの応答が空です");
 		}
 
-		let parsed: unknown;
 		try {
-			parsed = JSON.parse(content);
+			return JSON.parse(content);
 		} catch (parseError) {
 			throw new Error(`LLM応答のJSONパースに失敗しました: ${parseError}`);
 		}
-		// 検証はパースの try の外に置く。中に置くと、JSON としては正しいのに
-		// 中身が不正な応答まで「JSONパースに失敗しました」と記録され、原因の調査を誤らせる
-		const result = this.normalizeNulls(parsed);
-		this.validateAnalysisResult(result);
-		return result;
+	}
+
+	/**
+	 * 送り先のデプロイのクライアントを返す
+	 *
+	 * Azure OpenAI Service はデプロイ名が接続先の URL（baseURL）に入るので、デプロイごとに作る。
+	 * OpenAI API はモデル名を要求の中で指定するので、1つで足りる
+	 */
+	private clientFor(deployment: string): OpenAI {
+		const key = this.isAzure ? deployment : "";
+		let client = this.clients.get(key);
+		if (!client) {
+			client = this.isAzure
+				? new OpenAI({
+						apiKey: process.env.AZURE_OPENAI_API_KEY!,
+						baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${deployment}`,
+						defaultQuery: {
+							"api-version":
+								process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
+						},
+						defaultHeaders: {
+							"api-key": process.env.AZURE_OPENAI_API_KEY!,
+						},
+					})
+				: new OpenAI({
+						apiKey: process.env.OPENAI_API_KEY!,
+					});
+			this.clients.set(key, client);
+		}
+		return client;
+	}
+
+	/**
+	 * 画像を分析して植物かどうか判定し、植物の場合は識別結果を返す
+	 */
+	async identifyPlant(imageUrl: string, contextInfo?: string): Promise<IdentificationResult> {
+		try {
+			const parsed = await this.analyze({
+				deployment: this.defaultDeployment,
+				schemaName: "plant_identification",
+				schema: PLANT_IDENTIFICATION_SCHEMA,
+				prompt: plantIdentificationPrompt(contextInfo),
+				imageUrl,
+			});
+			// 検証は analyze() の JSON の読み取りとは分けて置く。一緒にすると、JSON としては正しいのに
+			// 中身が不正な応答まで「JSONパースに失敗しました」と記録され、原因の調査を誤らせる
+			const analysisResult = this.normalizeNulls(parsed);
+			this.validateAnalysisResult(analysisResult);
+
+			return {
+				isPlant: analysisResult.isPlant,
+				confidence: analysisResult.confidence,
+				reason: analysisResult.reason,
+				candidates:
+					analysisResult.isPlant && analysisResult.plantAnalysis
+						? analysisResult.plantAnalysis.candidates
+						: [],
+			};
+		} catch (error: any) {
+			throw new UpstreamError(`植物識別に失敗しました: ${error.message}`, "ai", error);
+		}
 	}
 
 	/**

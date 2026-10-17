@@ -45,7 +45,7 @@ export class PhotoClassifierService {
   async classify(imageUrl: string, placeName: string | null): Promise<PhotoClassification> {
     // 分類用のデプロイが無ければ今のデプロイを使う（06 §2.1）
     const deployment =
-      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME?.trim() || process.env.AZURE_OPENAI_DEPLOYMENT_NAME!;
+      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME?.trim() || this.vision.defaultDeployment;
     const placeSection = placeName ? `\n撮影地: ${placeName}（手がかりとして使ってください）\n` : '';
     const prompt = `
 この写真の主題を1つ選んでください。
