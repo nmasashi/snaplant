@@ -775,6 +775,7 @@ describe('植物識別API', () => {
       'AZURE_OPENAI_ENDPOINT',
       'AZURE_OPENAI_API_KEY',
       'AZURE_OPENAI_DEPLOYMENT_NAME',
+      'AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME',
       'AZURE_OPENAI_API_VERSION',
       'OPENAI_API_KEY'
     ] as const;
@@ -903,6 +904,20 @@ describe('植物識別API', () => {
           message: '植物識別処理に失敗しました'
         }
       });
+    });
+
+    it('分類用のデプロイ名（旅行アルバム）があっても、植物の識別は今のデプロイに送る', async () => {
+      // 分類と識別は同じ OpenAIVisionService を通る。分類用のデプロイを足した日に、識別まで分類用のモデルへ送らないように
+      process.env.AZURE_OPENAI_ENDPOINT = 'https://test.openai.azure.com';
+      process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'test-deployment';
+      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
+
+      const response = await identifyPlantHandler(identifyRequest(), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(MockedOpenAI.mock.calls[0][0].baseURL).toBe('https://test.openai.azure.com/openai/deployments/test-deployment');
+      expect(mockChatCompletions.create.mock.calls[0][0].model).toBe('test-deployment');
     });
 
     it('デプロイ名の前後に空白があれば、取り除いたデプロイに送る', async () => {

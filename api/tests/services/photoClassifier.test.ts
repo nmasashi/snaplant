@@ -3,7 +3,11 @@ import { UpstreamError } from '../../src/utils/errors';
 
 // 分類の入口（キューのワーカー）は段階3の 3-3 で作る。それまでの間だけ、AI（管理外の依存）に送るものと、
 // 応答から返すものをここで確かめる。3-3 でワーカーのテストに同じ振る舞いが揃ったら寄せて消す（CLAUDE.md の名簿）
-jest.mock('openai');
+// tests/setup.ts のグローバルなモックに頼らず、このファイルで差し替える（送った要求は各テストの mockImplementation で残す）
+jest.mock('openai', () => {
+  const MockOpenAI = jest.fn();
+  return Object.assign(MockOpenAI, { default: MockOpenAI });
+});
 const MockedOpenAI = jest.requireMock('openai');
 
 const ENV_KEYS = [
@@ -88,6 +92,9 @@ describe('写真の分類', () => {
     expect([...schema.required].sort()).toEqual(['confidence', 'kind', 'reason']);
     expect(Object.keys(schema.properties).sort()).toEqual([...schema.required].sort());
     expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.kind.type).toBe('string');
+    expect(schema.properties.confidence.type).toBe('number');
+    expect(schema.properties.reason.type).toBe('string');
 
     // トークン上限は max_completion_tokens（max_tokens は新しいモデルでは 400）。temperature は送らない
     expect(typeof body.max_completion_tokens).toBe('number');
@@ -102,6 +109,22 @@ describe('写真の分類', () => {
     expect(text).toContain('北海道札幌市中央区');
   });
 
+  it('撮影地が無ければ、プロンプトに撮影地を入れない', async () => {
+    await new PhotoClassifierService().classify(IMAGE_URL, null);
+
+    // 文言は契約外なので、無い値（null）が文字として紛れ込んでいないことだけを見る
+    const text = sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
+    expect(text).not.toContain('null');
+  });
+
+  it('どの種類にも当てはまらない写真は、other を返す', async () => {
+    aiReturns({ kind: 'other', confidence: 70, reason: '人物が写っている' });
+
+    const result = await new PhotoClassifierService().classify(IMAGE_URL, null);
+
+    expect(result.kind).toBe('other');
+  });
+
   it('分類用のデプロイ名（AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME）があれば、そのデプロイに送る', async () => {
     process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
 
@@ -113,14 +136,21 @@ describe('写真の分類', () => {
     expect(result.model).toBe('classify-deployment');
   });
 
+  it('分類用のデプロイ名が未設定なら、今のデプロイ（AZURE_OPENAI_DEPLOYMENT_NAME）に送る', async () => {
+    // 未設定にするのは beforeEach
+    const result = await new PhotoClassifierService().classify(IMAGE_URL, null);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].options.baseURL).toBe('https://test.openai.azure.com/openai/deployments/main-deployment');
+    expect(sent[0].body.model).toBe('main-deployment');
+    expect(result.model).toBe('main-deployment');
+  });
+
   it.each([
-    ['未設定', undefined],
     ['空文字列', ''],
     ['空白だけ', '  ']
-  ])('分類用のデプロイ名が%sなら、今のデプロイ（AZURE_OPENAI_DEPLOYMENT_NAME）に送る', async (_label, value) => {
-    if (value !== undefined) {
-      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = value;
-    }
+  ])('分類用のデプロイ名が%sなら、未設定と同じく今のデプロイに送る', async (_label, value) => {
+    process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = value;
 
     const result = await new PhotoClassifierService().classify(IMAGE_URL, null);
 
