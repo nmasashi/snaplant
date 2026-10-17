@@ -773,3 +773,20 @@ Azure Functions のランタイムが 401 を返し、アプリケーション�
 レート制限とヘルスチェックエンドポイントは未実装です。
 この設計書は実装済みの仕様のみを記載する方針のため、
 これらは [バックログ](./09_backlog.md) に移しました。
+
+## 8. デプロイ後に手で確かめること
+
+Cosmos DB の SQL（絞り込み・並び順・射影）を検証しているテストはありません。
+ユニットテストの偽物は SQL 文字列を解釈しないため原理的に検証できず、エミュレータも E2E も導入していません
+（環境が1つしかないため。[バックログ](./09_backlog.md)）。偽物は渡したドキュメントをそのまま返すので、
+射影の崩れは実際の Cosmos DB でしか観測できません。
+
+そのため `cosmosService.ts` のクエリを変更したら、デプロイ後に次を手で確かめます。
+
+| 確認すること | 崩れたときの症状 |
+|---|---|
+| `GET /api/plants` の応答に余分なキーが出ていないか | 射影が崩れると `description` / `updatedAt` / `scientificName` が漏れ、`PlantSummary` の契約が壊れる |
+| `GET /api/plants` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失 |
+| `GET /api/plants/check-duplicate` が別名の植物を拾わないか | `WHERE` 句の消失 |
+
+旅行アルバムの分は `docs/travel-album/08_test_plan.md` §5.2 にあります。

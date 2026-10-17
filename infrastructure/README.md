@@ -131,6 +131,24 @@ Azure OpenAI の**APIキーは入力値ではない**。Terraform が作成し�
 `openai_location` は `location` とは別物。使うモデル（今は `gpt-6-luna`）が使えるリージョンが
 限られているため、OpenAI だけ別リージョンに置いている。
 
+## この PC からの実行（`scripts/tf.cmd`）
+
+この環境からは IPv4 か IPv6 の片方の接続が、日によって確立した直後に切られる。HashiCorp（`registry.terraform.io`・
+`releases.hashicorp.com`）にも Azure の管理 API（`management.azure.com`）にも起きる。Terraform（Go）は IPv6 を先に使い、
+切られても IPv4 に切り替えない。再送しない POST（`listKeys` など）だけが `connection may have been reset` で失敗し、
+`plan` / `apply` が通らない。Windows の IPv4 優先の設定（`netsh interface ipv6 set prefixpolicy ::ffff:0:0/96 60 4`）は
+Terraform には効かなかった（2026-10-12）。
+
+そのため `plan` / `apply` は `infrastructurescripts	f.cmd plan` / `apply` で回す（コマンドプロンプト・Git Bash のどちらからでも、
+どこからでも可）。IPv4 で Azure と HashiCorp につながれば IPv4 だけでつなぐ中継（`tf.js`。TLS は中身を見ずに転送する）を通し、
+つながらなければそのまま `terraform` を実行する。2026-10-12 以降の apply はこれで通している。
+
+`terraform init` のプロバイダのダウンロードもこれで通るはずだが未確認。通らなければ、`curl -4` で再試行しながら
+プロバイダの zip を落とし、公開されている `SHA256SUMS` と照合したうえで
+`<dir>/registry.terraform.io/hashicorp/<name>/terraform-provider-<name>_<ver>_windows_amd64.zip` に置いて
+`terraform init -plugin-dir=<dir>` で読み込ませる。`terraform validate` は Azure と通信しないので、そのまま実行できる
+（CI の `terraform.yml` でも回る）。
+
 ## セキュリティ
 
 ### 機密情報の管理

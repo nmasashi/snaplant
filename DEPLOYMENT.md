@@ -253,6 +253,12 @@ AI 識別サービスを呼ばずに 500 `INTERNAL_ERROR` になります（`mes
 キー（`AZURE_OPENAI_API_KEY`）は `api-key` ヘッダで送ります（`openai` SDK の `apiKey` にも
 同じ値を渡しているため、SDK 既定の `Authorization: Bearer` ヘッダも付きます）。
 
+### 検証の上限値の上書き
+
+`api/src/constants/validation.ts` の上限値は、環境変数で上書きできる（`MAX_FILE_SIZE`、`PLANT_NAME_MAX_LENGTH`、
+`CONTEXT_INFO_MAX_LENGTH` など。一覧は同ファイル）。エラーメッセージも同じ値から文字数を埋め込んで作るので、
+値を変えるとメッセージも追従する。正の整数として読めない値は既定値になる。
+
 ### `STORAGE_CONNECTION_STRING` の制約
 
 `BlobEndpoint=` を含む接続文字列を設定すると、`StorageService` のコンストラクタが
