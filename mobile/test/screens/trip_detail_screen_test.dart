@@ -914,7 +914,7 @@ void main() {
     expect(find.byIcon(Icons.more_vert), findsNothing);
   });
 
-  testWidgets('写真を長押しすると選択モードに入り、見出しが「1枚を選択中」と「×」「すべて選択」に替わり、押した写真だけが選択中になって、下に「旅行に入れる」「旅行から外す」「削除」が出る', (tester) async {
+  testWidgets('写真を長押しすると選択モードに入り、見出しが「1枚を選択中」と「×」「表示中をすべて選択」に替わり、押した写真だけが選択中になって、下に「旅行に入れる」「旅行から外す」「削除」が出る', (tester) async {
     // 選択中かどうかは、サムネイルの読み上げ用ラベルを持つ Semantics の「選択中」の状態で見る（チェックの絵は画像のため見分けにくい）
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
@@ -937,7 +937,7 @@ void main() {
 
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('1枚を選択中')), findsOneWidget);
     expect(find.descendant(of: find.byType(AppBar), matching: find.byIcon(Icons.close)), findsOneWidget);
-    expect(find.descendant(of: find.byType(AppBar), matching: find.text('すべて選択')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('表示中をすべて選択')), findsOneWidget);
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('北海道 2026秋')), findsNothing);
     expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isTrue);
     expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:02')).hasFlag(SemanticsFlag.isSelected), isFalse);
@@ -1001,7 +1001,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('選択モードで「すべて選択」を押すと、読み込んでいる写真がすべて選択中になり、見出しが「3枚を選択中」に変わる', (tester) async {
+  testWidgets('選択モードで「表示中をすべて選択」を押すと、読み込んでいる写真がすべて選択中になり、見出しが「3枚を選択中」に変わる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 3)],
@@ -1018,7 +1018,7 @@ void main() {
     await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
     await letFramesRun(tester);
 
-    await tester.tap(find.text('すべて選択'));
+    await tester.tap(find.text('表示中をすべて選択'));
     await letFramesRun(tester);
 
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('3枚を選択中')), findsOneWidget);
@@ -1143,7 +1143,7 @@ void main() {
     await openDetailFromHome(tester, backend);
     await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
     await letFramesRun(tester);
-    await tester.tap(find.text('すべて選択'));
+    await tester.tap(find.text('表示中をすべて選択'));
     await letFramesRun(tester);
     await tester.tap(find.text('旅行に入れる'));
     await letFramesRun(tester);
@@ -1173,7 +1173,7 @@ void main() {
     await openDetailFromHome(tester, backend);
     await tester.longPress(photoThumbnail('2026年10月5日 10:00').first);
     await letFramesRun(tester);
-    await tester.tap(find.text('すべて選択'));
+    await tester.tap(find.text('表示中をすべて選択'));
     await letFramesRun(tester);
     await tester.tap(find.text('旅行に入れる'));
     await letFramesRun(tester);
@@ -1449,7 +1449,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('選択モードの見出しの「すべて選択」は、見出しの背景と違う色の文字で出る（背景と同じ色だと読めない）', (tester) async {
+  testWidgets('選択モードの見出しの「表示中をすべて選択」は、見出しの背景と違う色の文字で出る（背景と同じ色だと読めない）', (tester) async {
     // アプリのテーマが効いた状態で見る。テーマのテキストボタンの文字色が、見出しの背景と同じ色だと、押せるのに文字が見えなくなる
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 1)],
@@ -1465,7 +1465,7 @@ void main() {
 
     final appBar = find.byType(AppBar);
     final background = tester.widget<Material>(find.descendant(of: appBar, matching: find.byType(Material)).first).color;
-    final selectAll = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('すべて選択')));
+    final selectAll = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('表示中をすべて選択')));
     expect(background, isNotNull);
     expect(selectAll.text.style?.color, isNotNull);
     expect(selectAll.text.style?.color, isNot(background));
