@@ -188,6 +188,108 @@ describe('写真の解析のワーカー', () => {
       const text = sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
       expect(text).toContain('北海道札幌市中央区');
     });
+
+    it.each([
+      ['位置情報が無い', null],
+      ['位置はあるが地名が無い', { latitude: 43.06, longitude: 141.35, placeName: null, placeSource: 'device' as const }]
+    ])('撮影地が無ければ（%s）、無い値（null）を撮影地としてAIに渡さない', async (_label, location) => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ location }));
+
+      await runWorker();
+
+      // 文言は契約外なので、無い値（null）が文字として紛れ込んでいないことだけを見る
+      const text = sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
+      expect(text).not.toContain('null');
+    });
+
+    it('AIに送る要求は、テキストと画像の2パートと、定義表の種類とotherから1つ選ばせるstrictな応答の形（06 §2.1・§2.2）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      const body = sent[0].body;
+
+      // メッセージ: user ロールの1件。テキストと画像の2パート（画像の URL の中身は「AIに送る画像は…」の行で見る）
+      expect(body.messages).toHaveLength(1);
+      expect(body.messages[0].role).toBe('user');
+      expect(body.messages[0].content).toHaveLength(2);
+      expect(body.messages[0].content).toEqual(expect.arrayContaining([
+        { type: 'text', text: expect.any(String) },
+        { type: 'image_url', image_url: { url: expect.any(String), detail: 'low' } }
+      ]));
+
+      // 応答の形: Structured Outputs（json_schema・strict）。選択肢は定義表の種類と other。description の文言は契約外
+      expect(body.response_format.type).toBe('json_schema');
+      expect(body.response_format.json_schema.strict).toBe(true);
+      const schema = body.response_format.json_schema.schema;
+      expect(schema.properties.kind.enum).toEqual(['plant', 'food', 'landscape', 'other']);
+      expect([...schema.required].sort()).toEqual(['confidence', 'kind', 'reason']);
+      expect(Object.keys(schema.properties).sort()).toEqual([...schema.required].sort());
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.properties.kind.type).toBe('string');
+      expect(schema.properties.confidence.type).toBe('number');
+      expect(schema.properties.reason.type).toBe('string');
+
+      // トークン上限は max_completion_tokens（max_tokens は新しいモデルでは 400）。temperature は送らない
+      expect(typeof body.max_completion_tokens).toBe('number');
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it.each([0, 100])('信頼度が%sでも受け付けて、分類の結果に書く', async (confidence) => {
+      // 0〜100 の両端は範囲内（06 §2.1）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      aiReturns({ kind: 'landscape', confidence, reason: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().classification).toEqual({ kind: 'landscape', confidence, model: 'main-deployment', at: NOW });
+      expect(storedPhoto().processing.state).toBe('done');
+    });
+  });
+
+  describe('分類に使うAIのデプロイ', () => {
+    // 選んだデプロイ名は、接続先の URL・要求の model・写真に書く classification.model のすべてに入る（06 §2.1）
+    const expectDeployment = (deployment: string) => {
+      expect(sent).toHaveLength(1);
+      expect(sent[0].options.baseURL).toBe(`https://test.openai.azure.com/openai/deployments/${deployment}`);
+      expect(sent[0].body.model).toBe(deployment);
+      expect(storedPhoto().classification).toMatchObject({ model: deployment });
+    };
+
+    it('分類用のデプロイ名（AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME）が未設定なら、今のデプロイ（AZURE_OPENAI_DEPLOYMENT_NAME）を使う', async () => {
+      // 未設定にするのは beforeEach
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expectDeployment('main-deployment');
+    });
+
+    it.each([
+      ['があれば、そのデプロイを使う', 'classify-deployment', 'classify-deployment'],
+      ['が空文字列なら、未設定と同じく今のデプロイを使う', '', 'main-deployment'],
+      ['が空白だけなら、未設定と同じく今のデプロイを使う', '  ', 'main-deployment']
+    ])('分類用のデプロイ名%s', async (_label, classifyDeployment, expected) => {
+      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = classifyDeployment;
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expectDeployment(expected);
+    });
+
+    it('分類用のデプロイ名があれば、今のデプロイ名が無くても分類できる', async () => {
+      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expectDeployment('classify-deployment');
+      expect(storedPhoto().processing.state).toBe('done');
+    });
   });
 
   describe('何もしないとき', () => {
@@ -316,6 +418,40 @@ describe('写真の解析のワーカー', () => {
 
       expect(sent).toHaveLength(0);
       expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'classify', attempts: 1, lastError: 'internal', updatedAt: NOW });
+    });
+
+    it('AIのクライアントを作れない設定（APIキーが無い）は、AIの失敗とは分けて、内部の失敗として数える', async () => {
+      // 実 SDK はキーが無いとクライアントのコンストラクタで投げる。AI の失敗にすると、一時的な障害として送り直し続ける（06 §2.1）
+      delete process.env.AZURE_OPENAI_API_KEY;
+      MockedOpenAI.mockImplementation(() => {
+        throw new Error('Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.');
+      });
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'classify', attempts: 1, lastError: 'internal', updatedAt: NOW });
+    });
+
+    it.each([
+      ['選択肢に無い種類', JSON.stringify({ kind: 'animal', confidence: 90, reason: '犬が写っている' })],
+      ['負の数の信頼度', JSON.stringify({ kind: 'food', confidence: -0.1, reason: 'テスト' })],
+      ['100を超える信頼度', JSON.stringify({ kind: 'food', confidence: 100.5, reason: 'テスト' })],
+      ['数値でない信頼度', JSON.stringify({ kind: 'food', confidence: '90', reason: 'テスト' })],
+      ['空', null],
+      ['JSONとして読めない', '{"kind": "food"']
+    ])('AIの応答が%sなら、AIの失敗として分類の待ちに戻し、結果を書かない', async (_label, content) => {
+      // 検査を通らない応答を書き込むと、写真の category が図鑑の種類と食い違う（06 §2.1）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      reply = async () => ({ choices: [{ message: { content } }] });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto()).toEqual(
+        pendingPhoto({
+          processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: NOW }
+        })
+      );
     });
 
     it('写真を読めなければ、写真を変えずに例外を投げる（キューの再試行に任せる）', async () => {
