@@ -25,13 +25,9 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     context.log(`写真がありません（消された後のメッセージ。何もしません）: ID=${photoId}`);
     return;
   }
-  // 分類の待ち（pending）かどうかは、担当の条件付き patch が見る。読んだ値で先に判断しても、
-  // 読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる
-  if (photo.processing.step !== 'classify') {
-    // 段階3のワーカーがやるのは分類だけ（識別は段階4）。分からない処理の写真には触らない
-    context.log(`ワーカーが扱わない処理です（何もしません）: ID=${photoId}, 処理=${photo.processing.step}`);
-    return;
-  }
+  // 分類の待ち（state が pending で step が classify）かどうかは、担当の条件付き patch が見る。読んだ値で先に判断しても、
+  // 読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる。
+  // 段階3のワーカーがやるのは分類だけ（識別は段階4）で、step が classify でない写真は担当できずに終わる
   const attempts = photo.processing.attempts + 1;
   const claimed = await album.claimPhotoProcessing(photo.id, 'classify', photo.processing.attempts, {
     ...photo.processing,
@@ -40,7 +36,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     updatedAt: new Date().toISOString(),
   });
   if (!claimed) {
-    context.log(`分類の待ちではないか、別のインスタンスが先に担当しました（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}`);
+    context.log(`分類の待ちではないか、別のインスタンスが先に担当しました（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}, 処理=${photo.processing.step}`);
     return;
   }
 
