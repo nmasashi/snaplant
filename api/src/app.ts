@@ -11,6 +11,7 @@ import './functions/photos';
 import './functions/plantDetail';
 import './functions/plants';
 import './functions/processPhoto';
+import './functions/requeueStalePhotos';
 import './functions/save';
 import './functions/tripDetail';
 import './functions/trips';

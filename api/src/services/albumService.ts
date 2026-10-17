@@ -290,6 +290,50 @@ export class AlbumService {
   }
 
   /**
+   * 解析待ち・処理中のまま、指定した時刻より前から止まっている写真を読む（再投入のタイマー。04 §5 の 5.8）
+   *
+   * failed と none は含めない（failed を拾うと同じ画像で永遠に失敗し続け、none を拾うと段階2の写真すべてに課金する）
+   * @param before この時刻（ISO）より前に processing が更新された写真を読む
+   */
+  async listStalePhotos(before: string): Promise<PhotoDocument[]> {
+    const { resources } = await this.container.items
+      .query<PhotoDocument>({
+        query:
+          "SELECT * FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before",
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@before', value: before },
+        ],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
+   * 止まった写真の processing を書き換える（解析待ちに戻すか、失敗にする）。読んだときのままのときだけ書く条件付きの patch
+   *
+   * 読んでから書くまでにワーカーが担当していたら（state か回数が変わる）書かない
+   * @param id 写真 ID
+   * @param read 読んだときの processing
+   * @param next 書く processing
+   * @returns 書けたら true。読んだときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async resetStalePhotoProcessing(id: string, read: PhotoProcessing, next: PhotoProcessing): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: `FROM c WHERE c.processing.state = "${read.state}" AND c.processing.attempts = ${read.attempts}`,
+        operations: [{ op: 'set', path: '/processing', value: next }],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * 写真の解析のやり直しを受け付ける（分類の待ちにし、回数を 0 に戻し、手がかりを書き、コメントを消す）
    *
    * コメントは、やり直しの結果で置き換えるために消す（利用者の文は、アプリが手がかりに事前入力してから頼む。
