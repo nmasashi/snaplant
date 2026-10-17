@@ -290,14 +290,20 @@ export class AlbumService {
    * 回数も条件に入れる。読んでから担当するまでに、別のインスタンスが担当して失敗し分類の待ちに戻していると、
    * state だけでは見分けられず、回数を数え直して上限で止まらなくなる
    * @param id 写真 ID
+   * @param step 担当する処理。読んでから担当するまでに別の処理が step を変えていたら担当しない
    * @param readAttempts 読んだときの失敗の回数（processing.attempts）
    * @param processing 処理中の processing
    * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
    */
-  async claimPhotoProcessing(id: string, readAttempts: number, processing: PhotoProcessing): Promise<boolean> {
+  async claimPhotoProcessing(
+    id: string,
+    step: 'classify' | 'identify',
+    readAttempts: number,
+    processing: PhotoProcessing
+  ): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: `FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = ${readAttempts}`,
+        condition: `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "${step}" AND c.processing.attempts = ${readAttempts}`,
         operations: [{ op: 'set', path: '/processing', value: processing }],
       });
       return true;

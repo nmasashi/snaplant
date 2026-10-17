@@ -33,7 +33,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     return;
   }
   const attempts = photo.processing.attempts + 1;
-  const claimed = await album.claimPhotoProcessing(photo.id, photo.processing.attempts, {
+  const claimed = await album.claimPhotoProcessing(photo.id, 'classify', photo.processing.attempts, {
     ...photo.processing,
     state: 'classifying',
     attempts,
