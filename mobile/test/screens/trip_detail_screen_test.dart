@@ -2442,6 +2442,47 @@ void main() {
     expect(find.text('写真を読み込み中...'), findsNothing);
   });
 
+  testWidgets('選ぶ画面を何も選ばずに閉じたら、ボタンを「写真を追加」に戻し、もう一度押せば選ぶ画面を開ける', (tester) async {
+    // 閉じるまでの間は「写真を読み込み中...」のまま。何も選ばれなかったときも、ボタンは元に戻る
+    final release = Completer<void>();
+    final gallery = useGalleryReturning([], hold: release.future);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('写真を追加'), findsOneWidget);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+    expect(gallery.openCount, 2);
+  });
+
+  testWidgets('ギャラリーの読み込みに失敗して選ぶ画面が閉じたら、「画像の読み込みに失敗しました」と知らせ、ボタンを「写真を追加」に戻す', (tester) async {
+    final release = Completer<void>();
+    useGalleryReturning([], failWith: Exception('ギャラリーを開けない'), hold: release.future);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('画像の読み込みに失敗しました'), findsOneWidget);
+    expect(find.text('写真を追加'), findsOneWidget);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+  });
+
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
