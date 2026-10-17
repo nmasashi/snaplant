@@ -1,0 +1,154 @@
+import { InvocationContext, Timer } from '@azure/functions';
+import { CosmosClient } from '@azure/cosmos';
+import { QueueClient } from '@azure/storage-queue';
+import { requeueStalePhotosHandler } from '../../src/functions/requeueStalePhotos';
+import { PhotoDocument, PhotoProcessing } from '../../src/types/album';
+import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
+import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
+import { photoDocument, tripDocument } from '../helpers/albumDocuments';
+
+// 外部依存のみモック。Cosmos DB とキューは状態持ちの偽物
+jest.mock('@azure/cosmos');
+jest.mock('@azure/storage-queue', () => ({ QueueClient: jest.fn() }));
+
+const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
+const MockedQueueClient = QueueClient as jest.MockedClass<typeof QueueClient>;
+
+const NOW = '2026-10-18T03:00:00.000Z';
+// 10 分を過ぎた時刻と、まだ過ぎていない時刻（06 §1.1 の再投入のタイマー）
+const STALE = '2026-10-18T02:49:59.000Z';
+const FRESH = '2026-10-18T02:50:01.000Z';
+
+// 写真の id（SHA-256 の16進）。並びで取り違えを見分けられるよう、先頭の文字だけ変える
+const photoId = (head: string): string => head.repeat(64);
+
+const timer = { isPastDue: false } as unknown as Timer;
+
+/** 解析の進み具合だけを指定した写真 */
+const photoWith = (id: string, processing: PhotoProcessing): PhotoDocument => photoDocument(id, { processing });
+
+describe('再投入のタイマー', () => {
+  let mockContext: InvocationContext;
+  let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
+  let queueBackend: FakeQueueBackend;
+
+  const stored = (id: string) => cosmosBackend.documents.get(id) as PhotoDocument;
+  const queuedPhotoIds = (): unknown[] =>
+    (queueBackend.queues.get('photo-processing') ?? []).map((message) => (decodeQueueMessage(message) as any).photoId);
+
+  beforeEach(() => {
+    jest.useFakeTimers({
+      now: new Date(NOW),
+      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+    });
+    mockContext = { log: jest.fn() } as any;
+
+    cosmosBackend = { documents: new Map() };
+    const fakeContainer = createFakeContainer(cosmosBackend);
+    MockedCosmosClient.mockImplementation(() => ({
+      database: () => ({ container: () => fakeContainer })
+    }) as unknown as CosmosClient);
+
+    queueBackend = { queues: new Map(), forcedSendError: null };
+    MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
+      createFakeQueueClient(queueBackend, queueName)) as any);
+
+    process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
+    process.env.COSMOS_DB_KEY = 'test-key';
+    process.env.COSMOS_DB_DATABASE = 'test-db';
+    process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
+    process.env.AzureWebJobsStorage =
+      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+    process.env.PHOTO_QUEUE_NAME = 'photo-processing';
+    delete process.env.PHOTO_PROCESSING_MAX_ATTEMPTS;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+    delete process.env.PHOTO_QUEUE_NAME;
+    delete process.env.AzureWebJobsStorage;
+  });
+
+  it('10分以上止まっている解析待ち・処理中の写真を、解析待ちに戻して（処理と回数はそのまま）キューに積む', async () => {
+    // 投入に失敗した写真（pending）、処理中に落ちた写真（classifying / identifying）。
+    // ワーカーは解析待ち（pending）の写真しか担当しないので、処理中の写真は解析待ちに戻してから積む（06 §1.1）
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+    cosmosBackend.documents.set(photoId('b'), photoWith(photoId('b'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: STALE }));
+    cosmosBackend.documents.set(photoId('c'), photoWith(photoId('c'), { state: 'identifying', step: 'identify', attempts: 2, lastError: 'ai', updatedAt: STALE }));
+    // 旅行のドキュメントは写真ではないので拾わない
+    cosmosBackend.documents.set('123e4567-e89b-42d3-a456-426614174000', tripDocument('123e4567-e89b-42d3-a456-426614174000', '北海道'));
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a')).processing).toEqual({ state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: NOW });
+    expect(stored(photoId('b')).processing).toEqual({ state: 'pending', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+    expect(stored(photoId('c')).processing).toEqual({ state: 'pending', step: 'identify', attempts: 2, lastError: 'ai', updatedAt: NOW });
+    expect(queuedPhotoIds()).toEqual([photoId('a'), photoId('b'), photoId('c')]);
+  });
+
+  it('回数が上限（3回）に達した写真は、積まずに失敗（failed）にする', async () => {
+    // 処理中に落ち続けた写真が、永遠に回り続けない（06 §1.3）
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'classifying', step: 'classify', attempts: 3, lastError: null, updatedAt: STALE }));
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a')).processing).toEqual({ state: 'failed', step: 'classify', attempts: 3, lastError: null, updatedAt: NOW });
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+
+  it.each([
+    ['上限まで失敗した（failed）', { state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: STALE }],
+    ['解析の対象になっていない（none）', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
+    ['済み（done）', { state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: STALE }],
+    ['止まってまだ10分たっていない解析待ち', { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: FRESH }],
+    ['止まってまだ10分たっていない処理中', { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: FRESH }]
+  ] as [string, PhotoProcessing][])('%sの写真は拾わない（写真も変えず、積まない）', async (_label, processing) => {
+    // failed を拾うと同じ画像で永遠に失敗し続け、none を拾うと段階2の写真すべてに意図せず課金する（06 §1.2）
+    const photo = photoWith(photoId('a'), processing);
+    cosmosBackend.documents.set(photoId('a'), photo);
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a'))).toEqual(photo);
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+
+  it('読んだ後にワーカーが担当していたら、その写真には触らない', async () => {
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+    const claimed = photoWith(photoId('a'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+    cosmosBackend.beforePatch = () => {
+      cosmosBackend.beforePatch = undefined;
+      cosmosBackend.documents.set(photoId('a'), claimed);
+    };
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a'))).toEqual(claimed);
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+
+  it('キューへの投入に失敗しても、残りの写真の再投入を続け、写真は解析待ちのまま残る（次の回に拾う）', async () => {
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: STALE }));
+    cosmosBackend.documents.set(photoId('b'), photoWith(photoId('b'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+    queueBackend.forcedSendError = Object.assign(new Error('The specified queue does not exist.'), {
+      name: 'RestError',
+      statusCode: 404,
+      code: 'QueueNotFound'
+    });
+
+    await expect(requeueStalePhotosHandler(timer, mockContext)).resolves.toBeUndefined();
+
+    expect(stored(photoId('a')).processing.state).toBe('pending');
+    expect(stored(photoId('b')).processing).toEqual({ state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: NOW });
+  });
+
+  it('写真を読めなければ、例外を投げる（次の回に読み直す）', async () => {
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+    cosmosBackend.forcedQueryError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+
+    await expect(requeueStalePhotosHandler(timer, mockContext)).rejects.toThrow();
+
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+});
