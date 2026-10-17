@@ -284,17 +284,20 @@ export class AlbumService {
   }
 
   /**
-   * 写真の解析を担当する（processing を処理中にする）。分類の待ち（pending）のときだけ書く条件付きの patch
+   * 写真の解析を担当する（processing を処理中にする）。読んだときのまま分類の待ち（pending）のときだけ書く条件付きの patch
    *
-   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）
+   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。
+   * 回数も条件に入れる。読んでから担当するまでに、別のインスタンスが担当して失敗し分類の待ちに戻していると、
+   * state だけでは見分けられず、回数を数え直して上限で止まらなくなる
    * @param id 写真 ID
+   * @param readAttempts 読んだときの失敗の回数（processing.attempts）
    * @param processing 処理中の processing
    * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
    */
-  async claimPhotoProcessing(id: string, processing: PhotoProcessing): Promise<boolean> {
+  async claimPhotoProcessing(id: string, readAttempts: number, processing: PhotoProcessing): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: 'FROM c WHERE c.processing.state = "pending"',
+        condition: `FROM c WHERE c.processing.state = "pending" AND c.processing.attempts = ${readAttempts}`,
         operations: [{ op: 'set', path: '/processing', value: processing }],
       });
       return true;

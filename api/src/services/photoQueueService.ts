@@ -10,11 +10,14 @@ export class PhotoQueueService {
   private readonly client: QueueClient;
 
   constructor() {
+    // キューの名前は必須（既定値を持たない）。ワーカーのトリガー（'%PHOTO_QUEUE_NAME%'）は既定値を持てないので、
+    // 送る側だけ既定のキューに送ると、設定が無くて動かないワーカーの代わりに誰も拾わないキューへ積むことになる
+    const queueName = process.env.PHOTO_QUEUE_NAME?.trim();
+    if (!queueName) {
+      throw new Error('PHOTO_QUEUE_NAME（解析のキューの名前）が設定されていません');
+    }
     // ワーカーのトリガー（connection: 'AzureWebJobsStorage'）と同じストレージアカウントのキュー
-    this.client = new QueueClient(
-      process.env.AzureWebJobsStorage!,
-      process.env.PHOTO_QUEUE_NAME || 'photo-processing'
-    );
+    this.client = new QueueClient(process.env.AzureWebJobsStorage!, queueName);
   }
 
   /**

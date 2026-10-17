@@ -29,8 +29,13 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
   }
   // 分類の待ち（pending）かどうかは、担当の条件付き patch が見る。読んだ値で先に判断しても、
   // 読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる
+  if (photo.processing.step !== 'classify') {
+    // 段階3のワーカーがやるのは分類だけ（識別は段階4）。分からない処理の写真には触らない
+    context.log(`ワーカーが扱わない処理です（何もしません）: ID=${photoId}, 処理=${photo.processing.step}`);
+    return;
+  }
   const attempts = photo.processing.attempts + 1;
-  const claimed = await album.claimPhotoProcessing(photo.id, {
+  const claimed = await album.claimPhotoProcessing(photo.id, photo.processing.attempts, {
     ...photo.processing,
     state: 'classifying',
     attempts,
