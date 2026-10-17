@@ -2414,6 +2414,34 @@ void main() {
     expect(photo['takenAt'], '2026-10-05T10:20:30');
   });
 
+  testWidgets('「写真を追加」を押してから写真を受け取るまで、ボタンを「写真を読み込み中...」（回転する印つき）にして押せなくし、受け取ると「写真を追加」に戻る', (tester) async {
+    // ギャラリーの返事を保留して、選ぶ画面を開いてから写真を受け取るまでの間をつくる。2回目に押しても選ぶ画面は開き直されない
+    final image = writeTestImage('hokkaido.png');
+    final release = Completer<void>();
+    final gallery = useGalleryReturning([image], hold: release.future);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+    expect(find.descendant(of: find.byType(FloatingActionButton), matching: find.byType(CircularProgressIndicator)), findsOneWidget);
+    expect(find.text('写真を追加'), findsNothing);
+    await tester.tap(find.text('写真を読み込み中...'));
+    await letFramesRun(tester);
+    expect(gallery.openCount, 1);
+
+    release.complete();
+    await waitUntilUploaded(tester, backend, hokkaidoTripId);
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+    expect(find.text('写真を読み込み中...'), findsNothing);
+  });
+
   testWidgets('「写真を追加」でギャラリーの読み込みに失敗すると、「画像の読み込みに失敗しました」と知らせ、何も送らない', (tester) async {
     useGalleryReturning([], failWith: Exception('ギャラリーを開けない'));
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);

@@ -21,9 +21,10 @@ const tinyPngBytes = <int>[
 /// [tinyPngBytes] の SHA-256（16進・小文字）。画像のバイト列から `photoId` が決まることを、テスト側の計算ではなくリテラルで確かめる
 const tinyPngSha256 = 'd5a51b6aed15684ec8c123e30fe5703155359d6543b6d7b47cb5766ef44939de';
 
-/// 複数選択のギャラリーの偽物。選ばれるたびに、渡されたファイルをまとめて返す（[failWith] を渡すと例外を投げる）
+/// 複数選択のギャラリーの偽物。選ばれるたびに、渡されたファイルをまとめて返す（[failWith] を渡すと例外を投げる）。
+/// [hold] を渡すと、それが完了するまで返さない（選ぶ画面を開いてから写真を受け取るまでの間を、テストが観察するため）
 class FakeMultiGallery extends ImagePickerPlatform with MockPlatformInterfaceMixin {
-  FakeMultiGallery(this.files, {this.failWith});
+  FakeMultiGallery(this.files, {this.failWith, this.hold});
 
   /// 選ばれるファイル（選ばずに閉じる状況は、空のリスト）
   final List<File> files;
@@ -31,20 +32,30 @@ class FakeMultiGallery extends ImagePickerPlatform with MockPlatformInterfaceMix
   /// 指定すると、選ぶたびにこの例外を投げる
   final Object? failWith;
 
+  /// 指定すると、選ぶたびにこれが完了するまで待ってから返す
+  final Future<void>? hold;
+
+  /// 選ぶ画面を開かれた回数
+  int openCount = 0;
+
   @override
   Future<List<XFile>> getMultiImageWithOptions({
     MultiImagePickerOptions options = const MultiImagePickerOptions(),
   }) async {
+    openCount++;
+    if (hold != null) await hold;
     if (failWith != null) throw failWith!;
     return [for (final file in files) XFile(file.path)];
   }
 }
 
 /// ギャラリーを [files] を返す偽物に差し替える（テストが終わったら戻す）
-void useGalleryReturning(List<File> files, {Object? failWith}) {
+FakeMultiGallery useGalleryReturning(List<File> files, {Object? failWith, Future<void>? hold}) {
   final original = ImagePickerPlatform.instance;
-  ImagePickerPlatform.instance = FakeMultiGallery(files, failWith: failWith);
+  final gallery = FakeMultiGallery(files, failWith: failWith, hold: hold);
+  ImagePickerPlatform.instance = gallery;
   addTearDown(() => ImagePickerPlatform.instance = original);
+  return gallery;
 }
 
 const _tempDirectoryPrefix = 'snaplant_gallery_test_';
