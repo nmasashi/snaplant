@@ -360,8 +360,8 @@ export class AlbumService {
    * @param id 写真 ID
    * @param processing 書く processing
    */
-  async writeProcessing(id: string, processing: PhotoProcessing): Promise<void> {
-    await this.container.item(id, id).patch([{ op: 'set', path: '/processing', value: processing }]);
+  async writeProcessing(id: string, claimedAttempts: number, processing: PhotoProcessing): Promise<boolean> {
+    return this.patchIfStillClaimed(id, claimedAttempts, [{ op: 'set', path: '/processing', value: processing }]);
   }
 
   /**
@@ -371,15 +371,42 @@ export class AlbumService {
    */
   async writeClassification(
     id: string,
+    claimedAttempts: number,
     result: { category: string; classification: unknown; processing: PhotoProcessing; updatedAt: string }
-  ): Promise<void> {
-    await this.container.item(id, id).patch([
+  ): Promise<boolean> {
+    return this.patchIfStillClaimed(id, claimedAttempts, [
       { op: 'set', path: '/category', value: result.category },
       { op: 'set', path: '/classification', value: result.classification },
       { op: 'set', path: '/identification', value: null },
       { op: 'set', path: '/processing', value: result.processing },
       { op: 'set', path: '/updatedAt', value: result.updatedAt },
     ]);
+  }
+
+  /**
+   * 担当したときのまま（分類中で、回数が担当したときの値）のときだけ書く条件付きの patch
+   *
+   * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
+   * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
+   * @returns 書けたら true。担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  private async patchIfStillClaimed(
+    id: string,
+    claimedAttempts: number,
+    operations: { op: 'set'; path: string; value: unknown }[]
+  ): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: `FROM c WHERE c.processing.state = "classifying" AND c.processing.attempts = ${claimedAttempts}`,
+        operations,
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   /**

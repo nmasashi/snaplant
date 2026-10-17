@@ -55,10 +55,16 @@ export class PhotoClassifierService {
    * 写真を分類する
    *
    * @param imageUrl 原寸の Blob の読み取り SAS 付き URL
-   * @param placeName 撮影地（あれば手がかりとして AI に渡す）
+   * @param clues 手がかり。撮影地（placeName）と、やり直しで利用者が書いた手がかり（hint）。あれば AI に渡す
    */
-  async classify(imageUrl: string, placeName: string | null): Promise<PhotoClassification> {
-    const placeSection = placeName ? `\n撮影地: ${placeName}（手がかりとして使ってください）\n` : '';
+  async classify(
+    imageUrl: string,
+    clues: { placeName: string | null; hint: string | null }
+  ): Promise<PhotoClassification> {
+    const placeSection =
+      (clues.hint ? `\n利用者からの手がかり: ${clues.hint}` : '') +
+      (clues.placeName ? `\n撮影地: ${clues.placeName}（手がかりとして使ってください）` : '') +
+      (clues.hint || clues.placeName ? '\n' : '');
     const prompt = `
 この写真の主題を、${KIND_LABELS} から1つ選んでください。
 ${placeSection}
