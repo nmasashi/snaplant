@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/upload_queue.dart';
+import '../theme/app_colors.dart';
 
 /// 「写真を追加」（docs/travel-album/03_screen_design.md §4.7「写真を選ぶ」）
 ///
@@ -44,8 +45,11 @@ class AddPhotosButton extends StatelessWidget {
       builder: (context, _) {
         if (uploadQueue.isPicking(tripId)) {
           // 押せない（二重に選ぶ画面を開かない）
+          // 押せないことが見て分かるよう、灰色にする（onPressed が null でも、浮かぶボタンは色が変わらない）
           return const FloatingActionButton.extended(
             onPressed: null,
+            backgroundColor: AppColors.surfaceVariant,
+            foregroundColor: AppColors.textSecondary,
             icon: SizedBox(
                 width: 20,
                 height: 20,
