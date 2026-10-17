@@ -69,7 +69,13 @@ class PhotoSelectionScaffold extends StatelessWidget {
         tooltip: '選択をやめる',
         onPressed: selection.clear,
       ),
-      title: Text('${selection.count}枚を選択中', style: AppTextStyles.appBarTitle),
+      // 幅 360dp の端末では「300枚を選択中」と「表示中をすべて選択」が並ぶと入りきらない。切らずに縮めて出す
+      title: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text('${selection.count}枚を選択中',
+            style: AppTextStyles.appBarTitle),
+      ),
       actions: [
         // テーマの文字ボタンは主色の文字で、見出しの背景（主色）と同じになり読めないので、見出しの前景色にする
         TextButton(
