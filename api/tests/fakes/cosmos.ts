@@ -173,7 +173,7 @@ export function cosmosPreconditionFailedError(): any {
  * @returns 条件を満たすか
  */
 function satisfiesCondition(doc: unknown, condition: string): boolean {
-  const match = /^FROM c WHERE c.([A-Za-z_][w.]*) = "([^"]*)"$/.exec(condition.trim());
+  const match = /^FROM c WHERE c\.([A-Za-z_][\w.]*) = "([^"]*)"$/.exec(condition.trim());
   if (!match) {
     throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
   }
