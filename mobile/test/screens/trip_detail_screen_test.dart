@@ -2442,6 +2442,39 @@ void main() {
     expect(find.text('写真を読み込み中...'), findsNothing);
   });
 
+  testWidgets('写真を受け取るのを待っている間に選択モードに入って抜けても、ボタンは「写真を読み込み中...」のままで、選ぶ画面を二重に開かない', (tester) async {
+    // 選択モードの間は右下のボタンが外れる。抜けて作り直されたボタンが待ちの状態を忘れて「写真を追加」に戻ると、押せてしまう
+    final release = Completer<void>();
+    final gallery = useGalleryReturning([], hold: release.future);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00')],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('写真を追加'));
+    await letFramesRun(tester);
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+    await letFramesRun(tester);
+    expect(find.byType(FloatingActionButton), findsNothing);
+
+    await tester.tap(find.descendant(of: find.byType(AppBar), matching: find.byIcon(Icons.close)));
+    await letFramesRun(tester);
+
+    expect(find.text('写真を読み込み中...'), findsOneWidget);
+    expect(find.text('写真を追加'), findsNothing);
+    await tester.tap(find.byType(FloatingActionButton));
+    await letFramesRun(tester);
+    expect(gallery.openCount, 1);
+    release.complete();
+    await letFramesRun(tester);
+  });
+
   testWidgets('選ぶ画面を何も選ばずに閉じたら、ボタンを「写真を追加」に戻し、もう一度押せば選ぶ画面を開ける', (tester) async {
     // 閉じるまでの間は「写真を読み込み中...」のまま。何も選ばれなかったときも、ボタンは元に戻る
     final release = Completer<void>();
