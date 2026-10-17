@@ -189,4 +189,65 @@ describe('写真の解析のワーカー', () => {
       expect(text).toContain('北海道札幌市中央区');
     });
   });
+
+  describe('何もしないとき', () => {
+    it.each([
+      ['解析の対象になっていない（none）', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
+      ['別のインスタンスが処理中（classifying）', { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T02:59:30.000Z' }],
+      ['済み（done）', { state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T02:59:30.000Z' }],
+      ['上限まで失敗した（failed）', { state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: '2026-10-18T02:59:30.000Z' }]
+    ] as const)('写真が%sなら、AIを呼ばず、写真も変えない', async (_label, processing) => {
+      // 古いメッセージの重複配信や、やり直しの受付の後に残っていたメッセージ。06 §1.3
+      const photo = pendingPhoto({ processing: { ...processing } });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(photo);
+    });
+
+    it('読んだ後に別のインスタンスが先に担当していたら、AIを呼ばず、その担当を邪魔しない', async () => {
+      // 同じメッセージが2回届き（可視性タイムアウト後の重複配信）、両方が分類の待ちとして読んだ状態。
+      // このワーカーが担当を書く直前に、もう一方が処理中にする
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const claimedByOther = pendingPhoto({
+        processing: { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T02:59:59.000Z' }
+      });
+      let patches = 0;
+      cosmosBackend.beforePatch = () => {
+        patches += 1;
+        if (patches === 1) {
+          cosmosBackend.documents.set(PHOTO_ID, claimedByOther);
+        }
+      };
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(claimedByOther);
+    });
+
+    it('写真が無ければ（消された後のメッセージ）、何もせずに終える', async () => {
+      // 例外にすると、写真が無いメッセージがキューの再試行を3回使って poison に落ちるだけになる
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(sent).toHaveLength(0);
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    it.each([
+      ['写真IDが無い', {}],
+      ['写真IDが文字列でない', { photoId: 123 }],
+      ['写真IDの形式が違う', { photoId: '../photos/other' }],
+      ['JSONのオブジェクトでない', 'not-json']
+    ])('メッセージの%sなら、何もせずに終える', async (_label, message) => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await expect(runWorker(message)).resolves.toBeUndefined();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(pendingPhoto());
+    });
+  });
 });
