@@ -309,6 +309,40 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(photo);
     });
 
+    it('読んだ後に別のインスタンスが担当して失敗し、分類の待ちに戻していたら、担当せず失敗の回数を数え直さない', async () => {
+      // 同じメッセージが2回届き、両方が回数 0 の分類の待ちとして読んだ。このワーカーが担当を書く直前に、
+      // もう一方が担当して AI に失敗し、回数 1 で分類の待ちに戻している。ここで担当すると回数をまた 1 と書き、
+      // 上限（3回）で止まらなくなる（06 §1.3）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const failedOnceByOther = pendingPhoto({
+        processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:59.000Z' }
+      });
+      let patches = 0;
+      cosmosBackend.beforePatch = () => {
+        patches += 1;
+        if (patches === 1) {
+          cosmosBackend.documents.set(PHOTO_ID, failedOnceByOther);
+        }
+      };
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(failedOnceByOther);
+    });
+
+    it('やる処理（step）が分類でなければ（識別は段階4）、AIを呼ばず、写真も変えない', async () => {
+      const photo = pendingPhoto({
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' }
+      });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(photo);
+    });
+
     it('読んだ後に別のインスタンスが先に担当していたら、AIを呼ばず、その担当を邪魔しない', async () => {
       // 同じメッセージが2回届き（可視性タイムアウト後の重複配信）、両方が分類の待ちとして読んだ状態。
       // このワーカーが担当を書く直前に、もう一方が処理中にする

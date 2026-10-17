@@ -177,7 +177,8 @@ describe('写真API', () => {
       createFakeQueueClient(queueBackend, queueName)) as any);
     process.env.AzureWebJobsStorage =
       'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
-    delete process.env.PHOTO_QUEUE_NAME;
+    // Terraform が入れる値。ワーカーのトリガーは既定値を持てないので、送る側も設定を必須にしている
+    process.env.PHOTO_QUEUE_NAME = 'photo-processing';
   });
 
   /** キューに積まれたメッセージを、キューの名前ごとに読み戻す（ワーカーのトリガーが読むのと同じ形で） */
@@ -270,6 +271,18 @@ describe('写真API', () => {
       );
       // 状態: 解析のキュー（photo-processing）に、この写真の ID だけが1つ積まれる
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
+
+    it('解析のキューの名前の設定（PHOTO_QUEUE_NAME）が無ければ、投入せずに201で返し、写真は解析待ちのまま残る', async () => {
+      // 既定のキューに送ると、設定が無くて動かないワーカーの代わりに誰も拾わないキューへ積むことになる。
+      // 投入の失敗と同じく、写真は再投入のタイマーが拾う
+      delete process.env.PHOTO_QUEUE_NAME;
+
+      const response = await createPhotoHandler(createPhotoRequest(formDataWith()), mockContext);
+
+      expect(response.status).toBe(201);
+      expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).processing.state).toBe('pending');
+      expect(queuedMessages()).toEqual([]);
     });
 
     it('解析のキューの名前は、環境変数（PHOTO_QUEUE_NAME）で決まる', async () => {

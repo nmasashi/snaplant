@@ -71,7 +71,7 @@ import { TripDocument } from '../../src/types/album';
  * `path`（`/tripId` の1段、`/processing/state` の2段）に適用する。`id !== partitionKey` か、ドキュメントが無ければ
  * 実 SDK と同じ数値 `code` 404 を投げる。存在しない path への `replace` / `remove` は `code` 400（実 SDK も拒む）。
  * 適用は複製に対して行い、途中で失敗してもドキュメントは変わらない。
- * `condition` は `FROM c WHERE c.<path> = "<値>"`（ワーカーの担当の条件。`c.processing.state = "pending"`）の形だけを解釈し、
+ * `condition` は `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形（ワーカーの担当の条件）だけを解釈し、
  * 満たさなければ実 SDK と同じ数値 `code` 412 を投げる（ドキュメントは変わらない）。**それ以外の形は例外にする**（知らない条件を黙って通さない）。
  * 失敗の注入は `forcedPatchError`。「読んだ後・patch の直前に他の操作が書き換えた」は `beforePatch` で作る。
  *
@@ -160,7 +160,6 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | Pla
   emptyPagesBeforeResults?: number;
 }
 
-/** 実 SDK が存在しないドキュメントへの replace / delete で投げる形に合わせたエラー */
 /** 実 SDK が、patch の condition を満たさないときに投げる形（数値 `code` 412） */
 export function cosmosPreconditionFailedError(): any {
   const err: any = new Error('PreconditionFailed');
@@ -169,18 +168,28 @@ export function cosmosPreconditionFailedError(): any {
 }
 
 /**
- * patch の condition を評価する。解釈できるのは `FROM c WHERE c.<path> = "<値>"` の形だけ
+ * patch の condition を評価する
+ *
+ * 解釈できるのは `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形だけ
+ * （ワーカーの担当の条件 `c.processing.state = "pending" AND c.processing.attempts = <読んだ回数>`）
  * @returns 条件を満たすか
  */
 function satisfiesCondition(doc: unknown, condition: string): boolean {
-  const match = /^FROM c WHERE c\.([A-Za-z_][\w.]*) = "([^"]*)"$/.exec(condition.trim());
-  if (!match) {
+  const where = /^FROM c WHERE (.+)$/.exec(condition.trim());
+  if (!where) {
     throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
   }
-  const value = match[1].split('.').reduce<any>((current, key) => (current == null ? undefined : current[key]), doc);
-  return value === match[2];
+  return where[1].split(' AND ').every((term) => {
+    const match = /^c\.([A-Za-z_][\w.]*) = (?:"([^"]*)"|(-?\d+))$/.exec(term.trim());
+    if (!match) {
+      throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
+    }
+    const value = match[1].split('.').reduce<any>((current, key) => (current == null ? undefined : current[key]), doc);
+    return match[2] !== undefined ? value === match[2] : value === Number(match[3]);
+  });
 }
 
+/** 実 SDK が存在しないドキュメントへの replace / delete で投げる形に合わせたエラー */
 export function cosmosNotFoundError(): any {
   const err: any = new Error('NotFound');
   err.code = 404;
