@@ -307,6 +307,15 @@ export class AlbumService {
   }
 
   /**
+   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）
+   * @param id 写真 ID
+   * @param processing 書く processing
+   */
+  async writeProcessing(id: string, processing: PhotoProcessing): Promise<void> {
+    await this.container.item(id, id).patch([{ op: 'set', path: '/processing', value: processing }]);
+  }
+
+  /**
    * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）
    * @param id 写真 ID
    * @param result 書く値
