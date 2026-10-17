@@ -250,4 +250,106 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(pendingPhoto());
     });
   });
+
+  describe('失敗したとき', () => {
+    // 実 SDK のエラー応答の形（message に OpenAI は入らない）
+    const aiServerError = () =>
+      Object.assign(new Error('500 The server had an error while processing your request.'), {
+        name: 'InternalServerError',
+        status: 500
+      });
+
+    it('AIが失敗したら、分類の待ちに戻してどこで失敗したかを書き、例外を投げてキューの再試行に任せる', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      reply = async () => {
+        throw aiServerError();
+      };
+
+      await expect(runWorker()).rejects.toThrow();
+
+      // 例外のメッセージは書かない（SDK 由来の文言が残り続ける）。結果の欄には何も書かない
+      expect(storedPhoto()).toEqual(
+        pendingPhoto({
+          processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: NOW }
+        })
+      );
+    });
+
+    it('上限（3回）目の失敗なら、失敗（failed）にして例外を投げない（キューの再試行もタイマーも拾わない）', async () => {
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        pendingPhoto({
+          processing: { state: 'pending', step: 'classify', attempts: 2, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
+        })
+      );
+      reply = async () => {
+        throw aiServerError();
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto().processing).toEqual({ state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: NOW });
+    });
+
+    it('上限の回数は、環境変数（PHOTO_PROCESSING_MAX_ATTEMPTS）で決まる', async () => {
+      process.env.PHOTO_PROCESSING_MAX_ATTEMPTS = '5';
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        pendingPhoto({
+          processing: { state: 'pending', step: 'classify', attempts: 2, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
+        })
+      );
+      reply = async () => {
+        throw aiServerError();
+      };
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: NOW });
+    });
+
+    it('AIの設定の誤り（デプロイ名が無い）は、AIの失敗とは分けて、内部の失敗として数える', async () => {
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'classify', attempts: 1, lastError: 'internal', updatedAt: NOW });
+    });
+
+    it('写真を読めなければ、写真を変えずに例外を投げる（キューの再試行に任せる）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      cosmosBackend.forcedReadError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(pendingPhoto());
+    });
+  });
+
+  describe('解析中に利用者が写真を変えたとき', () => {
+    it('担当の後、結果を書く前に利用者がタグと旅行を変えても、結果を書いた後に残る', async () => {
+      // ロックは置かず、AI は自分の欄だけを書く（04 §7.4）。解析中でも利用者は写真を編集できる
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      let patches = 0;
+      cosmosBackend.beforePatch = () => {
+        patches += 1;
+        if (patches === 2) {
+          const edited: PhotoDocument = { ...storedPhoto(), tags: ['朝食', '札幌'], tripId: null };
+          cosmosBackend.documents.set(PHOTO_ID, edited);
+        }
+      };
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({
+        tags: ['朝食', '札幌'],
+        tripId: null,
+        category: 'food',
+        processing: { state: 'done' }
+      });
+    });
+  });
 });
