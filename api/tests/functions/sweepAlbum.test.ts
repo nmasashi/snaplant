@@ -21,6 +21,8 @@ const NOW = '2026-10-18T18:00:00.000Z';
 // 1日より古い時刻と、まだ1日たっていない時刻（送信の途中かもしれない。04 §7.2）
 const OLD = new Date('2026-10-17T17:59:59.000Z');
 const RECENT = new Date('2026-10-17T18:00:01.000Z');
+// ちょうど1日前（「1日より古い」に入らないので残す）
+const EXACTLY_ONE_DAY = new Date('2026-10-17T18:00:00.000Z');
 
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
 const DELETED_TRIP_ID = '223e4567-e89b-42d3-a456-426614174000';
@@ -76,6 +78,7 @@ describe('掃除のタイマー', () => {
     blobBackend.store.set(`photos/${photoId('b')}.png`, blob(OLD));
     blobBackend.store.set(`photos/${photoId('b')}.thumb.jpg`, blob(OLD));
     blobBackend.store.set(`photos/${photoId('c')}.jpg`, blob(RECENT));
+    blobBackend.store.set(`photos/${photoId('e')}.jpg`, blob(EXACTLY_ONE_DAY));
     // 別のコンテナの Blob には触らない
     blobBackend.store.set(`images/${photoId('d')}.jpg`, blob(OLD));
 
@@ -86,6 +89,7 @@ describe('掃除のタイマー', () => {
         `photos/${photoId('a')}.jpg`,
         `photos/${photoId('a')}.thumb.jpg`,
         `photos/${photoId('c')}.jpg`,
+        `photos/${photoId('e')}.jpg`,
         `images/${photoId('d')}.jpg`
       ].sort()
     );
@@ -95,10 +99,14 @@ describe('掃除のタイマー', () => {
     // photos コンテナに置くのはこのアプリだけだが、名前から写真を決められないものは消さない
     blobBackend.store.set('photos/readme.txt', blob(OLD));
     blobBackend.store.set(`photos/${photoId('A')}.jpg`, blob(OLD));
+    // 写真 ID（64 文字）の後が拡張子の区切りでない
+    blobBackend.store.set(`photos/${'f'.repeat(65)}.jpg`, blob(OLD));
 
     await sweepAlbumHandler(timer, mockContext);
 
-    expect([...blobBackend.store.keys()].sort()).toEqual(['photos/readme.txt', `photos/${photoId('A')}.jpg`].sort());
+    expect([...blobBackend.store.keys()].sort()).toEqual(
+      ['photos/readme.txt', `photos/${photoId('A')}.jpg`, `photos/${'f'.repeat(65)}.jpg`].sort()
+    );
   });
 
   it('消えた旅行を指す写真を、どの旅行にも属さない写真に戻し（消さない）、ある旅行の写真はそのままにする', async () => {
