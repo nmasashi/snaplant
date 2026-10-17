@@ -349,11 +349,11 @@ export class AlbumService {
    * failed と none は含めない（failed を拾うと同じ画像で永遠に失敗し続け、none を拾うと段階2の写真すべてに課金する）
    * @param before この時刻（ISO）より前に processing が更新された写真を読む
    */
-  async listStalePhotos(before: string): Promise<PhotoDocument[]> {
+  async listStalePhotos(before: string): Promise<{ id: string; processing: PhotoProcessing }[]> {
     const { resources } = await this.container.items
-      .query<PhotoDocument>({
+      .query<{ id: string; processing: PhotoProcessing }>({
         query:
-          "SELECT * FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before",
+          "SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before",
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@before', value: before },

@@ -2,9 +2,17 @@ import { app, InvocationContext, Timer } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { ORPHAN_BLOB_MIN_AGE_HOURS } from '../constants/album';
+import { PHOTO_VALIDATION } from '../constants/validation';
 
-/** 写真の Blob 名（<写真 ID>.<拡張子> と <写真 ID>.thumb.jpg）から写真 ID を取り出す */
-const PHOTO_BLOB_NAME = /^([0-9a-f]{64})\./;
+/**
+ * 写真の Blob 名（<写真 ID>.<拡張子> と <写真 ID>.thumb.jpg）から写真 ID を取り出す
+ * @returns 写真 ID。最初の「.」の前が写真 ID の形式でなければ null
+ */
+function photoIdOfBlob(blobName: string): string | null {
+  const dot = blobName.indexOf('.');
+  const head = dot === -1 ? blobName : blobName.slice(0, dot);
+  return dot !== -1 && PHOTO_VALIDATION.ID_REGEX.test(head) ? head : null;
+}
 
 /**
  * 掃除のタイマー（1日1回、日本時間の午前3時）
@@ -27,18 +35,24 @@ export async function sweepAlbumHandler(_timer: Timer, context: InvocationContex
   const deletedBlobs: string[] = [];
   for await (const blob of storage.listBlobs()) {
     blobNames.add(blob.name);
-    const match = PHOTO_BLOB_NAME.exec(blob.name);
+    const photoId = photoIdOfBlob(blob.name);
     // 名前から写真を決められない Blob と、文書のある写真の Blob と、新しい Blob は残す
-    if (!match || photoIds.has(match[1]) || blob.lastModified.getTime() >= oldestKept) {
+    if (photoId === null || photoIds.has(photoId) || blob.lastModified.getTime() >= oldestKept) {
       continue;
     }
     try {
       await storage.delete(blob.name);
-      deletedBlobs.push(match[1]);
+      deletedBlobs.push(photoId);
     } catch (error: any) {
-      context.log(`文書の無い Blob を消せませんでした（次の回にもう一度消します）: 写真ID=${match[1]}`, error);
+      context.log(`文書の無い Blob を消せませんでした（次の回にもう一度消します）: 写真ID=${photoId}`, error);
     }
   }
+  // 件数と写真 ID だけを出す（ファイル名や地名は出さない。05 §1）。手順ごとに出し、後の手順が失敗しても記録が残るようにする
+  context.log(`掃除のタイマー: 文書の無い Blob を消した ${deletedBlobs.length} 件`);
+  if (deletedBlobs.length > 0) context.log(`Blob を消した写真ID: ${[...new Set(deletedBlobs)].join(', ')}`);
+
+  const missingBlobs = photos.filter((photo) => !blobNames.has(photo.blobName)).map((photo) => photo.id);
+  if (missingBlobs.length > 0) context.log(`原寸の Blob が無い写真ID（手で直す）: ${missingBlobs.join(', ')}`);
 
   const detached: string[] = [];
   for (const photo of photos) {
@@ -47,15 +61,8 @@ export async function sweepAlbumHandler(_timer: Timer, context: InvocationContex
     }
   }
 
-  const missingBlobs = photos.filter((photo) => !blobNames.has(photo.blobName)).map((photo) => photo.id);
-
-  // 件数と写真 ID だけを出す（ファイル名や地名は出さない。05 §1）
-  context.log(
-    `掃除のタイマー: 文書の無い Blob を消した ${deletedBlobs.length} 件、未所属に戻した写真 ${detached.length} 枚、原寸の Blob が無い写真 ${missingBlobs.length} 枚`
-  );
-  if (deletedBlobs.length > 0) context.log(`Blob を消した写真ID: ${[...new Set(deletedBlobs)].join(', ')}`);
+  context.log(`掃除のタイマー: 未所属に戻した写真 ${detached.length} 枚`);
   if (detached.length > 0) context.log(`未所属に戻した写真ID: ${detached.join(', ')}`);
-  if (missingBlobs.length > 0) context.log(`原寸の Blob が無い写真ID（手で直す）: ${missingBlobs.join(', ')}`);
 }
 
 app.timer('sweepAlbum', {
