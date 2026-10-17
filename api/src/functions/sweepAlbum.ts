@@ -10,8 +10,11 @@ import { PHOTO_VALIDATION } from '../constants/validation';
  */
 function photoIdOfBlob(blobName: string): string | null {
   const dot = blobName.indexOf('.');
-  const head = dot === -1 ? blobName : blobName.slice(0, dot);
-  return dot !== -1 && PHOTO_VALIDATION.ID_REGEX.test(head) ? head : null;
+  if (dot === -1) {
+    return null;
+  }
+  const head = blobName.slice(0, dot);
+  return PHOTO_VALIDATION.ID_REGEX.test(head) ? head : null;
 }
 
 /**

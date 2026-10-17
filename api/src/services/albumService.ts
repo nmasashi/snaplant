@@ -315,7 +315,7 @@ export class AlbumService {
   async detachPhotoFromMissingTrip(id: string, missingTripId: string): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: `FROM c WHERE c.tripId = "${missingTripId}"`,
+        condition: `FROM c WHERE c.tripId = ${sqlString(missingTripId)}`,
         operations: [
           { op: 'set', path: '/tripId', value: null },
           { op: 'set', path: '/updatedAt', value: new Date().toISOString() },
@@ -422,15 +422,14 @@ export class AlbumService {
   }
 
   /**
-   * 写真の解析を担当する（processing を処理中にする）。読んだときのまま分類の待ち（pending）のときだけ書く条件付きの patch
+   * 写真の解析を担当する（processing を処理中にする）。processing が expected のままのときだけ書く条件付きの patch
    *
    * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。
-   * 回数も条件に入れる。読んでから担当するまでに、別のインスタンスが担当して失敗し分類の待ちに戻していると、
-   * state だけでは見分けられず、回数を数え直して上限で止まらなくなる
+   * 条件は processingCondition()（state・step・回数・updatedAt）。読んでから担当するまでに、別のインスタンスの担当と失敗や、
+   * やり直しの受付が入っていたら担当しない
    * @param id 写真 ID
-   * @param step 担当する処理。読んでから担当するまでに別の処理が step を変えていたら担当しない
-   * @param readAttempts 読んだときの失敗の回数（processing.attempts）
-   * @param processing 処理中の processing
+   * @param expected 担当してよい processing。読んだ値に、担当する state（pending）と step を入れたもの
+   * @param processing 処理中の processing（updatedAt は今。結果を書くときの条件になる）
    * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
    */
   async claimPhotoProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
@@ -449,18 +448,22 @@ export class AlbumService {
   }
 
   /**
-   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）
+   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）。担当したときのままのときだけ書く
    * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
    * @param processing 書く processing
+   * @returns 書けたら true。担当したときと変わっていたら false
    */
   async writeProcessing(id: string, claimed: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
     return this.patchIfStillClaimed(id, claimed, [{ op: 'set', path: '/processing', value: processing }]);
   }
 
   /**
-   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）
+   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）。担当したときのままのときだけ書く
    * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
    * @param result 書く値
+   * @returns 書けたら true。担当したときと変わっていたら false
    */
   async writeClassification(
     id: string,
@@ -477,7 +480,7 @@ export class AlbumService {
   }
 
   /**
-   * 担当したときのまま（分類中で、回数が担当したときの値）のときだけ書く条件付きの patch
+   * 担当したときのまま（processing が担当したときに書いたもののまま）のときだけ書く条件付きの patch
    *
    * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
    * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
@@ -657,10 +660,21 @@ function tripsWithPhotos(tripIds: string[], counts: PhotoCountRow[]): string[] {
  * @param expected 読んだ（または書いた）ときの processing
  */
 function processingCondition(expected: PhotoProcessing): string {
+  // 解析の待ち・処理中の写真は必ず updatedAt を持つ（送信・やり直し・担当・タイマーが今の時刻を書く）。null は段階2の none の写真だけ
   return (
-    `FROM c WHERE c.processing.state = "${expected.state}"` +
-    (expected.step !== null ? ` AND c.processing.step = "${expected.step}"` : '') +
-    ` AND c.processing.attempts = ${expected.attempts}` +
-    (expected.updatedAt !== null ? ` AND c.processing.updatedAt = "${expected.updatedAt}"` : '')
+    `FROM c WHERE c.processing.state = ${sqlString(expected.state)}` +
+    (expected.step !== null ? ` AND c.processing.step = ${sqlString(expected.step)}` : '') +
+    ` AND c.processing.attempts = ${Number(expected.attempts)}` +
+    (expected.updatedAt !== null ? ` AND c.processing.updatedAt = ${sqlString(expected.updatedAt)}` : '')
   );
+}
+
+/**
+ * patch の condition に埋める文字列のリテラル
+ *
+ * condition はパラメータを取れないので値を埋め込む。埋める値はどれもサーバが書いた列挙・時刻・UUID だが、
+ * 引用符が混ざっても条件が壊れないよう、JSON の文字列としてエスケープする（Cosmos SQL の文字列リテラルと同じ書き方）
+ */
+function sqlString(value: string): string {
+  return JSON.stringify(value);
 }
