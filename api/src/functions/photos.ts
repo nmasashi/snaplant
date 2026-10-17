@@ -114,15 +114,15 @@ export async function listPhotosHandler(request: HttpRequest, context: Invocatio
   if ('error' in validated) {
     return validated.error;
   }
-  const { tripId, limit, continuationToken } = validated.query;
+  const { tripId, category, limit, continuationToken } = validated.query;
   try {
     const album = new AlbumService();
-    if (tripId !== null && !(await album.tripExists(tripId))) {
+    if (typeof tripId === 'string' && !(await album.tripExists(tripId))) {
       return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
     }
     let page;
     try {
-      page = await album.listPhotos(tripId, limit, continuationToken);
+      page = await album.listPhotos({ tripId, category }, limit, continuationToken);
     } catch (error: any) {
       // JSON としては読めるが Cosmos が受け付けない継続トークン（別の絞り込みのものなど）は、サーバが 400 で拒む
       // （推測。実環境で確かめる）。一覧のクエリでトークンを渡したときの 400 だけをトークンの不正とみなす

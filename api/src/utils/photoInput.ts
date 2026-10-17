@@ -4,6 +4,7 @@ import { createErrorResponse, createValidationError, isValidUUID } from './respo
 import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
+import { PHOTO_KINDS } from '../catalog/kinds';
 
 /** 検証を通った写真の保存の入力 */
 export interface PhotoInput {
@@ -215,8 +216,10 @@ function fail(message: string, details?: string): Result {
 
 /** 検証を通った写真一覧のクエリ */
 export interface PhotoListQuery {
-  /** 旅行 ID。どの旅行にも属さない写真なら null（クエリでは none） */
-  tripId: string | null;
+  /** 旅行 ID。どの旅行にも属さない写真なら null（クエリでは none）。旅行で絞らないなら undefined */
+  tripId: string | null | undefined;
+  /** カテゴリ。カテゴリで絞らないなら undefined */
+  category: string | undefined;
   limit: number;
   /** 前のページの継続トークン。先頭からなら undefined */
   continuationToken: string | undefined;
@@ -234,11 +237,15 @@ export function readPhotoListQuery(
   query: URLSearchParams
 ): { query: PhotoListQuery } | { error: HttpResponseInit } {
   const tripIdParam = query.get('tripId');
-  if (tripIdParam === null) {
+  const categoryParam = query.get('category');
+  if (tripIdParam === null && categoryParam === null) {
     return { error: createValidationError('絞り込み条件を指定してください') };
   }
-  if (tripIdParam !== 'none' && !isValidUUID(tripIdParam)) {
+  if (tripIdParam !== null && tripIdParam !== 'none' && !isValidUUID(tripIdParam)) {
     return { error: createValidationError('旅行IDの形式が無効です') };
+  }
+  if (categoryParam !== null && !PHOTO_KINDS.includes(categoryParam)) {
+    return { error: createValidationError('カテゴリが無効です') };
   }
 
   const limitParam = query.get('limit');
@@ -259,7 +266,8 @@ export function readPhotoListQuery(
 
   return {
     query: {
-      tripId: tripIdParam === 'none' ? null : tripIdParam,
+      tripId: tripIdParam === null ? undefined : tripIdParam === 'none' ? null : tripIdParam,
+      category: categoryParam ?? undefined,
       limit,
       continuationToken: continuationToken ?? undefined,
     },

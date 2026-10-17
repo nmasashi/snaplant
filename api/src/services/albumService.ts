@@ -163,13 +163,14 @@ export class AlbumService {
    *
    * どの旅行にも属さない写真は tripId に null を渡す（c.tripId = null は値が null のものだけに一致し、
    * 項目が無いドキュメントには一致しない。写真は必ず tripId を書くので漏れない）
-   * @param tripId 旅行 ID。どの旅行にも属さない写真なら null
+   * @param filter 絞り込み。tripId は旅行 ID（どの旅行にも属さない写真なら null、旅行で絞らないなら undefined）、
+   *   category はカテゴリ（絞らないなら undefined）。両方あれば AND
    * @param limit 1ページの最大枚数
    * @param continuationToken 前のページの継続トークン。先頭からなら undefined
    * @returns 写真と、次のページの継続トークン（最後のページなら null）
    */
   async listPhotos(
-    tripId: string | null,
+    filter: { tripId: string | null | undefined; category: string | undefined },
     limit: number,
     continuationToken: string | undefined
   ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
@@ -178,10 +179,15 @@ export class AlbumService {
     // enableQueryControl では、結果が揃っていないと空のページをトークン付きで返すので、写真が取れるまで読み進める
     const iterator = this.container.items.query<PhotoDocument>(
       {
-        query: 'SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC',
+        query:
+          'SELECT * FROM c WHERE c.type = @type' +
+          (filter.tripId !== undefined ? ' AND c.tripId = @tripId' : '') +
+          (filter.category !== undefined ? ' AND c.category = @category' : '') +
+          ' ORDER BY c.sortAt ASC',
         parameters: [
           { name: '@type', value: 'photo' },
-          { name: '@tripId', value: tripId },
+          ...(filter.tripId !== undefined ? [{ name: '@tripId', value: filter.tripId }] : []),
+          ...(filter.category !== undefined ? [{ name: '@category', value: filter.category }] : []),
         ],
       },
       {
