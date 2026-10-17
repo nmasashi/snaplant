@@ -6,10 +6,12 @@ import {
   StorageSharedKeyCredential,
   generateBlobSASQueryParameters
 } from '@azure/storage-blob';
+import { QueueClient } from '@azure/storage-queue';
 import { createPhotoHandler } from '../../src/functions/photos';
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
@@ -26,8 +28,10 @@ jest.mock('@azure/storage-blob', () => ({
   StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
   generateBlobSASQueryParameters: jest.fn()
 }));
+jest.mock('@azure/storage-queue', () => ({ QueueClient: jest.fn() }));
 
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
+const MockedQueueClient = QueueClient as jest.MockedClass<typeof QueueClient>;
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
   typeof generateBlobSASQueryParameters
@@ -131,6 +135,7 @@ describe('写真API', () => {
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let blobStore: Map<string, BlobEntry>;
   let blobBackend: FakeBlobBackend;
+  let queueBackend: FakeQueueBackend;
 
   beforeEach(() => {
     mockContext = { log: jest.fn() } as any;
@@ -164,7 +169,20 @@ describe('写真API', () => {
       'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
     process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
     process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
+
+    // 解析のキュー（段階3）。キューの名前ごとに積まれた本文を持つ
+    queueBackend = { queues: new Map(), forcedSendError: null };
+    // new QueueClient(接続文字列, キューの名前) の形で作る
+    MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
+      createFakeQueueClient(queueBackend, queueName)) as any);
+    process.env.AzureWebJobsStorage =
+      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+    delete process.env.PHOTO_QUEUE_NAME;
   });
+
+  /** キューに積まれたメッセージを、キューの名前ごとに読み戻す（ワーカーのトリガーが読むのと同じ形で） */
+  const queuedMessages = (): Array<[string, unknown[]]> =>
+    [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
 
   afterEach(() => {
     jest.useRealTimers();
@@ -208,7 +226,8 @@ describe('写真API', () => {
         hint: null,
         classification: null,
         identification: null,
-        processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null },
+        // 段階3から、新しい写真は分類の待ち（docs/travel-album/05_api_design.md §5.1）
+        processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-10T03:12:45.000Z' },
         uploadedAt: '2026-10-10T03:12:45.000Z',
         updatedAt: '2026-10-10T03:12:45.000Z'
       };
@@ -249,6 +268,37 @@ describe('写真API', () => {
           [`photos/${PHOTO_ID}.thumb.jpg`, { content: THUMBNAIL_BYTES, contentType: 'image/jpeg' }]
         ])
       );
+      // 状態: 解析のキュー（photo-processing）に、この写真の ID だけが1つ積まれる
+      expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
+
+    it('解析のキューの名前は、環境変数（PHOTO_QUEUE_NAME）で決まる', async () => {
+      // Terraform が作るキューの名前を渡す。ワーカーのトリガーも同じ値を読む
+      process.env.PHOTO_QUEUE_NAME = 'photo-processing-test';
+
+      const response = await createPhotoHandler(createPhotoRequest(formDataWith()), mockContext);
+
+      expect(response.status).toBe(201);
+      expect(queuedMessages()).toEqual([['photo-processing-test', [{ photoId: PHOTO_ID }]]]);
+    });
+
+    it('解析のキューへの投入に失敗しても、201で保存した写真を返し、写真は解析待ちのまま残る', async () => {
+      // 解析待ちの写真は再投入のタイマーが拾う（docs/travel-album/04_data_design.md §7.1）。
+      // 投入の失敗で送信を失敗にすると、保存できているのにアプリが送り直すことになる
+      queueBackend.forcedSendError = Object.assign(new Error('The specified queue does not exist.'), {
+        name: 'RestError',
+        statusCode: 404,
+        code: 'QueueNotFound'
+      });
+
+      const response = await createPhotoHandler(createPhotoRequest(formDataWith()), mockContext);
+
+      expect(response.status).toBe(201);
+      expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).processing).toMatchObject({
+        state: 'pending',
+        step: 'classify'
+      });
+      expect(queuedMessages()).toEqual([]);
     });
 
     it('写真IDと画像だけを送ると、サムネイル・撮影日時・位置情報なしの写真として保存される', async () => {
@@ -579,6 +629,8 @@ describe('写真API', () => {
         new Map([[`photos/${PHOTO_ID}.jpg`, { content: savedBytes, contentType: 'image/jpeg' }]])
       );
       expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual(storedPhoto);
+      // 保存済みの写真は、解析のキューに積み直さない（解析のやり直しは POST /api/photos/{photoId}/process）
+      expect(queuedMessages()).toEqual([]);
     });
 
     it('保存済みの写真を再送したときは、送り先の旅行が消えていても、200で保存済みの写真を返す', async () => {
@@ -653,6 +705,8 @@ describe('写真API', () => {
       });
       // 状態: 写真のドキュメントは先に作られた1件のまま（この送信のもので置き換わらない）
       expect(cosmosBackend.documents).toEqual(new Map([[PHOTO_ID, firstStored]]));
+      // 先に作った送信が積むので、この送信は解析のキューに積まない
+      expect(queuedMessages()).toEqual([]);
     });
 
     // データベースの失敗する箇所（写真を読む・写真を作る）ごとに同じ分類の表を回す。どちらで失敗しても応答は同じになる。
