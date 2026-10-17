@@ -141,6 +141,28 @@ describe('掃除のタイマー', () => {
     expect(stored(photoId('a'))).toEqual(moved);
   });
 
+  it('消せないBlobがあっても、他のBlobの削除と、消えた旅行を指す写真を戻すことは続ける（次の回にもう一度消す）', async () => {
+    // 未所属に戻すのは、旅行の削除と重なって残った写真を拾う唯一の仕組み（04 §7.3）。1つの Blob で止めない
+    const orphaned = photoDocument(photoId('a'), { tripId: DELETED_TRIP_ID });
+    cosmosBackend.documents.set(photoId('a'), orphaned);
+    blobBackend.store.set(`photos/${photoId('a')}.jpg`, blob(OLD));
+    const undeletable = {
+      ...blob(OLD),
+      failWith: Object.assign(new Error('This request is not authorized to perform this operation.'), {
+        name: 'RestError',
+        statusCode: 403,
+        code: 'AuthorizationFailure'
+      })
+    };
+    blobBackend.store.set(`photos/${photoId('b')}.jpg`, undeletable);
+    blobBackend.store.set(`photos/${photoId('c')}.jpg`, blob(OLD));
+
+    await expect(sweepAlbumHandler(timer, mockContext)).resolves.toBeUndefined();
+
+    expect([...blobBackend.store.keys()].sort()).toEqual([`photos/${photoId('a')}.jpg`, `photos/${photoId('b')}.jpg`].sort());
+    expect(stored(photoId('a')).tripId).toBeNull();
+  });
+
   it('原寸のBlobが無い写真の文書は、消さずに残す（手で直す）', async () => {
     // 写真の削除と送信が重なったときに残りうる（04 §7.1）。タイマーはログに出すだけ
     const photo = photoDocument(photoId('a'), { blobName: `${photoId('a')}.jpg` });
@@ -154,9 +176,10 @@ describe('掃除のタイマー', () => {
   it('写真の文書を読めなければ、Blobを消さずに例外を投げる（文書の無いBlobと取り違えない）', async () => {
     cosmosBackend.documents.set(photoId('a'), photoDocument(photoId('a'), { blobName: `${photoId('a')}.jpg` }));
     blobBackend.store.set(`photos/${photoId('a')}.jpg`, blob(OLD));
-    cosmosBackend.forcedQueryError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+    const queryError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+    cosmosBackend.forcedQueryError = queryError;
 
-    await expect(sweepAlbumHandler(timer, mockContext)).rejects.toThrow();
+    await expect(sweepAlbumHandler(timer, mockContext)).rejects.toBe(queryError);
 
     expect([...blobBackend.store.keys()]).toEqual([`photos/${photoId('a')}.jpg`]);
   });

@@ -181,6 +181,18 @@ describe('写真の解析のやり直しAPI', () => {
     expect(storedPhoto().hint).toBeNull();
   });
 
+  it('手がかりは500文字までなら受け付ける', async () => {
+    cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+
+    const response = await processPhotoRequestHandler(
+      createRequest(PHOTO_ID, { step: 'classify', hint: 'あ'.repeat(500) }),
+      mockContext
+    );
+
+    expect(response.status).toBe(202);
+    expect(storedPhoto().hint).toBe('あ'.repeat(500));
+  });
+
   it('手がかりは、前後の空白を除いて書く', async () => {
     cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
 

@@ -614,6 +614,18 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(reclaimed);
     });
 
+    it('分類の間に写真が消されたら、何も書かず、例外も投げない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      reply = async () => {
+        cosmosBackend.documents.delete(PHOTO_ID);
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
     it('分類の間にやり直しの受付が入ったら、古い分類の失敗も書かず、例外も投げない', async () => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
       reply = async () => {

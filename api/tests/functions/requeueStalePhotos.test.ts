@@ -158,11 +158,41 @@ describe('再投入のタイマー', () => {
     expect(stored(photoId('b')).processing).toEqual({ state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: NOW });
   });
 
+  it('読んだ後に、ワーカーが担当して失敗し解析待ちに戻していたら（state は同じで回数が違う）、その写真には触らない', async () => {
+    // 読んだ値で上書きすると、回数が巻き戻って上限で止まらなくなる（06 §1.3）
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: STALE }));
+    const failedAgain = photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 2, lastError: 'ai', updatedAt: NOW });
+    cosmosBackend.beforePatch = () => {
+      cosmosBackend.beforePatch = undefined;
+      cosmosBackend.documents.set(photoId('a'), failedAgain);
+    };
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a'))).toEqual(failedAgain);
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+
+  it('読んだ後に写真が消されていても、残りの写真の再投入を続ける', async () => {
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+    cosmosBackend.documents.set(photoId('b'), photoWith(photoId('b'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+    cosmosBackend.beforePatch = () => {
+      cosmosBackend.beforePatch = undefined;
+      cosmosBackend.documents.delete(photoId('a'));
+    };
+
+    await expect(requeueStalePhotosHandler(timer, mockContext)).resolves.toBeUndefined();
+
+    expect(cosmosBackend.documents.has(photoId('a'))).toBe(false);
+    expect(queuedPhotoIds()).toEqual([photoId('b')]);
+  });
+
   it('写真を読めなければ、例外を投げる（次の回に読み直す）', async () => {
     cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
-    cosmosBackend.forcedQueryError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+    const queryError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+    cosmosBackend.forcedQueryError = queryError;
 
-    await expect(requeueStalePhotosHandler(timer, mockContext)).rejects.toThrow();
+    await expect(requeueStalePhotosHandler(timer, mockContext)).rejects.toBe(queryError);
 
     expect(queuedPhotoIds()).toEqual([]);
   });
