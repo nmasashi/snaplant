@@ -213,7 +213,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 `takenAtSource` は受け取らない。サーバが `takenAt` の有無から `exif` / `none` を入れる。
 `sortAt` もサーバが決める（`takenAt` があればそれ、無ければ `uploadedAt` を日本時間に直したもの。[04 §1.3](./04_data_design.md#13-写真type-photo)）。`category` は `null`、`tags` は `[]` で作る。
 `location.placeSource` は `placeName` を送ったときだけ `"device"`、緯度・経度だけなら `placeName`・`placeSource` とも `null`。
-`comment`・`commentSource`・`hint`・`classification`・`identification` は `null`、`processing` は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`、
+`comment`・`commentSource`・`hint`・`classification`・`identification` は `null`、`processing` は段階3から `{ state: "pending", step: "classify", attempts: 0, lastError: null, updatedAt: <保存した時刻> }`（段階2は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`）、
 `fileSize` は原寸のバイト数、`uploadedAt` と `updatedAt` は同じ値（保存した時刻）。
 
 任意のパートは、値が無ければ**パートごと省く**。空文字のパートは「指定あり」として検証され 400 になる（`tripId` は 12、`takenAt` は 13、`latitude` / `longitude` は 15（片方だけなら 14）、`placeName` は 17（緯度・経度が無ければ 16））。
@@ -227,7 +227,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
    （先に見ると、保存に成功して応答が届かず、その間に旅行が消されたときの再送が 404 になり、冪等でなくなる）
 5. 原寸を `photos/<photoId><拡張子>` に上書きアップロード。サムネイルがあれば `photos/<photoId>.thumb.jpg` に上書き
 6. ドキュメントを `create`。409（3 と 6 の間に並行リクエストが作った）なら既存を読んで 200
-7. **201** で `{ photo, urlExpiresAt }`
+7. （段階3）キューに `{ photoId }` を投入する（[06 §1](./06_processing_design.md#1-キューとワーカー段階3)）。**投入に失敗してもログだけ出して 201 を返す**（写真は `pending` のまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）。200 で既存を返すとき（3 と 6）は投入しない
+8. **201** で `{ photo, urlExpiresAt }`
 
 `tripId` を付けて送ったが既存だった（`tripId: null` または別の旅行）とき: 既存をそのまま 200 で返し、旅行は変えない。
 送信は「入れる」ではなく「送る」で、入れたければ `move` を使う。クライアントは応答の `tripId` が送ったものと違えば
