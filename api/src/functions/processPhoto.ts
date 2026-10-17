@@ -2,7 +2,6 @@ import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { PhotoClassifierService } from '../services/photoClassifierService';
 import { PhotoStorageService } from '../services/photoStorageService';
-import { PHOTO_VALIDATION } from '../constants/validation';
 
 /** AI に渡す原寸の SAS の有効期限（分）。AI が画像を取りに来るまでの間だけ開ける（一時画像と同じ理由。06 §2.1） */
 const CLASSIFY_IMAGE_SAS_MINUTES = 15;
@@ -22,11 +21,12 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
   }
   const album = new AlbumService();
   const photo = await album.getPhoto(photoId);
-  // 消された写真と、分類の待ちでない写真（古いメッセージの重複配信など）は何もしない
-  if (!photo || photo.processing.state !== 'pending') {
-    context.log(`解析の対象ではありません（何もしません）: ID=${photoId}, 状態=${photo?.processing.state ?? '写真なし'}`);
+  if (!photo) {
+    context.log(`写真がありません（消された後のメッセージ。何もしません）: ID=${photoId}`);
     return;
   }
+  // 分類の待ち（pending）かどうかは、担当の条件付き patch が見る。読んだ値で先に判断しても、
+  // 読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる
   const attempts = photo.processing.attempts + 1;
   const claimed = await album.claimPhotoProcessing(photo.id, {
     ...photo.processing,
@@ -35,7 +35,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     updatedAt: new Date().toISOString(),
   });
   if (!claimed) {
-    context.log(`別のインスタンスが先に担当しました（何もしません）: ID=${photoId}`);
+    context.log(`分類の待ちではないか、別のインスタンスが先に担当しました（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}`);
     return;
   }
 
@@ -59,7 +59,8 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
  */
 function photoIdOf(message: unknown): string | null {
   const photoId = (message as { photoId?: unknown } | null)?.photoId;
-  return typeof photoId === 'string' && PHOTO_VALIDATION.ID_REGEX.test(photoId) ? photoId : null;
+  // 形式（SHA-256 の16進）は見ない。形式の違う ID は写真が見つからず、何もせずに終わる
+  return typeof photoId === 'string' ? photoId : null;
 }
 
 app.storageQueue('processPhoto', {
