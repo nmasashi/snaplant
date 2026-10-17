@@ -202,7 +202,7 @@ az functionapp log tail --name <FUNCTION_APP_NAME> --resource-group <RESOURCE_GR
 
 - Azure OpenAI のキーは Terraform が Function App の app_settings に直接流し込む（`terraform.tfvars` は Git 管理外）
 - GitHub Secrets で認証情報を安全に保管
-- 各関数は `authLevel: 'function'`。呼び出しには `?code={FUNCTION_KEY}` が必要
+- HTTP の各関数は `authLevel: 'function'`。呼び出しには `?code={FUNCTION_KEY}` が必要（キューのトリガーの関数は HTTP で呼び出せない）
 - CORS は **全オリジン許可**（`infrastructure/main.tf` の `site_config.cors.allowed_origins = ["*"]`）。
   Blob Storage 側の `cors_rule` も `allowed_origins = ["*"]`。オリジンの制限はしていない
 

@@ -67,7 +67,7 @@ API と mobile の列は並行できるが、**同時に進めるなら別のブ
 | 3-2 | api: `OpenAIVisionService.analyze()` の一般化（`identifyPlant()` は残す）、`catalog/kinds.ts`（定義表と `OTHER_KIND`。段階3では分類の選択肢にだけ使う）、`PhotoClassifierService`（`tests/fakes/queue.ts` は使い始める 3-3 で足す） | 3-1 |
 | 3-3 | 2,000 行に収めるため 3-3a・3-3b に分ける（2026-10-18） | 3-2 |
 | 3-3a | api: `tests/fakes/queue.ts`（と Cosmos の偽物の条件付き patch）、`POST /api/photos` のキュー投入（`pending`・`step: "classify"`。投入に失敗しても 201）、ワーカー `processPhoto.ts`（分類だけ。写真の `processing.step` を見る。担当は `state = "pending"` の条件付き patch。結果は AI の担当の欄だけの patch。段階3は分類の後すべて `done`。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。3-2 の `tests/services/photoClassifier.test.ts` をワーカーのテストへ寄せて消し、CLAUDE.md の名簿の期限付きの行も消す（作業単位の終わりの test-consolidator に頼む） | 3-2 |
-| 3-3b | api: タイマー `requeueStalePhotos.ts`（`failed` は拾わない）・`sweepAlbum.ts`（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos/{photoId}/process`（受付でコメントを消し `attempts` を 0 に。投入に失敗しても 202）、`GET /api/photos?category=`。10 枚の実測を記録する（容量は今のまま。[06 §6](./06_processing_design.md#6-費用の抑え方)） | 3-3a |
+| 3-3b | api: タイマー `requeueStalePhotos.ts`（`failed` は拾わない。処理中の写真は `pending` に戻してから投入する。[06 §1.1](./06_processing_design.md#11-構成)）・`sweepAlbum.ts`（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos/{photoId}/process`（受付でコメントを消し `attempts` を 0 に。投入に失敗しても 202。ワーカーの結果・失敗の書き込みを、担当したときの `state` と `attempts` の条件付きにするか（やり直しの受付と重なったとき、古い処理の結果でやり直しを上書きしないため。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）を決める）、`GET /api/photos?category=`。10 枚の実測を記録する（容量は今のまま。[06 §6](./06_processing_design.md#6-費用の抑え方)） | 3-3a |
 | 3-4 | mobile: カテゴリの表示、分類の状態（`failed` と「やり直す」）、やり直しダイアログ、カテゴリ横断画面、旅行詳細画面のカテゴリの絞り込み | 3-3 |
 | 3-5 | （任意）api + infra: Azure Maps の `GeocodingService` と `geocache` | 実機確認で Geocoder が不十分だったとき |
 
