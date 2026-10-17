@@ -558,6 +558,7 @@ Cosmos DB / Blob Storage の差し替えには、**引数を見分ける状態�
 |---|---|
 | `tests/fakes/cosmos.ts` | `FakeCosmosBackend`（ドキュメントの `Map`）と `createFakeContainer()` |
 | `tests/fakes/blob.ts` | `FakeBlobBackend`（Blob の `Map`）と `createFakeBlobServiceClient()` |
+| `tests/fakes/queue.ts` | `FakeQueueBackend`（キューの名前ごとの本文）と `createFakeQueueClient()`・`decodeQueueMessage()`（本文は base64 で読み戻す。Functions のトリガーが base64 として読むので、JSON をそのまま送ると poison に落ちる） |
 
 状態を持たせるのは、**呼び出しを検証せずに結果を確認する**ため。
 保存できたか・消えたか・宛先を取り違えていないかは、`toHaveBeenCalledWith` ではなく

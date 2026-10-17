@@ -85,7 +85,7 @@ sequenceDiagram
 | `done` | 済み | 最後にやった処理 | `process` で `pending` |
 | `failed` | 上限まで失敗した。**自動では再試行しない** | 失敗した処理 | `process` で `pending`（`attempts` を 0 に戻す）。これ以外に `failed` から出る経路は無い |
 
-- ワーカーは取り出すたびに `attempts` を +1 し、`updatedAt` を更新する。失敗したら `lastError` にどこで失敗したかだけを書く（`"ai"`（`UpstreamError` の `service`）/ `"storage"` / `"database"` / `"internal"`（それ以外。設定の誤りを含む））。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
+- ワーカーは取り出すたびに `attempts` を +1 し、`updatedAt` を更新する。失敗したら `lastError` にどこで失敗したかだけを書く（`UpstreamError` の `service`（分類では `"ai"`）か、それ以外（設定の誤りを含む）なら `"internal"`）。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
 - `attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）で `failed`。それ未満は例外を投げてキューの再試行に任せる
 - 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending"` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。
   読んだ写真の `state` が `done` / `failed` / `none` でも何もしない

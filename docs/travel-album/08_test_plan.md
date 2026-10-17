@@ -53,8 +53,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 2.3 `tests/fakes/queue.ts`（段階3）
 
-`FakeQueueBackend { messages: string[]; forcedSendError?: Error }` と `createFakeQueueClient()`。`sendMessage(text)` は `messages` に積む。
-投入されたかは `messages` の中身（JSON を parse して `photoId`）で確かめ、呼び出しは検証しない。
+`FakeQueueBackend { queues: Map<キューの名前, string[]>; forcedSendError?: Error }` と `createFakeQueueClient(backend, queueName)`。`sendMessage(text)` はそのキューの配列に積む（宛先のキューの取り違えを見分けるため、名前ごとに持つ）。
+投入されたかは中身を `decodeQueueMessage()`（Functions のトリガーと同じく base64 として読み、JSON を parse する）で読み戻して確かめ、呼び出しは検証しない。
 `forcedSendError` で「投入に失敗しても応答は成功で、写真は `pending` のまま」（[04 §7.1](./04_data_design.md#71-操作ごとの表)）を作る。
 
 ### 2.4 `mobile/test/`
