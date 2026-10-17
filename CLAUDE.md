@@ -20,111 +20,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Windows に統一している**（2026-10-11 に WSL との併用をやめた）。Claude Code の Bash ツールは Git Bash で動く。
 api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C:\Users\masas\git\snaplant`）で行い、検証もここで回す。
 
-以前は WSL 側に別のクローン（`/home/noguchi/git/snaplant`）があり、api は WSL、Flutter は Windows と分けていた。
-その名残で注意すること。
-
-- **`api/node_modules` はマシンごとに `npm ci` で作る。** WSL と共有していた時期は無く、Windows 側の
-  `node_modules` は 2025-08 から更新されていなかった（TypeScript 5.8 のままで、`tsconfig` の `module: node20` を読めず全テストが落ちた）。
-  `package-lock.json` が変わったら `npm ci` し直す
-- **リポジトリに入っていない作業マシン専用のファイルは、WSL 側のクローンにしか無かった。**
-  `infrastructure/terraform.tfstate`（と `.backup`）、`infrastructure/terraform.tfvars`、`api/local.settings.json`。
-  どれも秘密情報を含むので、人間が Windows 側の同じ場所へ移す。**WSL 側のクローンを消す前に必ず移すこと**（state を失うと
-  Terraform で既存の Azure リソースを管理できなくなる）
-- **テキストは作業ツリーも LF にそろえている**（`.gitattributes` の `* text=auto eol=lf`、2026-10-12）。
-  この PC の Git は `core.autocrlf=true` で、以前は作業ツリーが CRLF になり、ツールが LF で書いたファイルと混ざって
-  バイト比較や行末の検索が `\r` に邪魔され、Git Bash ではシェルスクリプトも失敗した。新しいファイルも LF で書くこと。
-  Windows 用のスクリプト（`.bat` / `.cmd` / `.ps1`）だけは CRLF。
-  `.gitattributes` が入る前のブランチを取り出すと、そのブランチのファイルは CRLF に戻る
-
-Terraform は Windows に導入済み（2026-10-11 時点で 1.16.5）。`plan` / `apply` には上記の state と `terraform.tfvars` が要る。
-azurerm プロバイダは v4 で、サブスクリプション ID を環境変数 `ARM_SUBSCRIPTION_ID` で渡す
-（`export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)`。`scripts/deploy.sh`・`destroy.sh` は自動で設定する）。
-
-**この環境からは IPv4 か IPv6 の片方の接続が、日によって確立した直後に切られる。** HashiCorp（`registry.terraform.io`・
-`releases.hashicorp.com`）にも Azure の管理 API（`management.azure.com`）にも起きる。Terraform（Go）は IPv6 を先に使い、
-切られても IPv4 に切り替えない。再送しない POST（`listKeys` など）だけが `connection may have been reset` で失敗し、
-`plan` / `apply` が通らない。Windows の IPv4 優先の設定（`netsh interface ipv6 set prefixpolicy ::ffff:0:0/96 60 4`）は
-Terraform には効かなかった（2026-10-12）。**`infrastructurescripts	f.cmd plan` / `apply` で回す**（コマンドプロンプト・
-Git Bash のどちらからでも、どこからでも可）。IPv4 で Azure と HashiCorp につながれば IPv4 だけでつなぐ中継（`tf.js`。
-TLS は中身を見ずに転送する）を通し、つながらなければそのまま `terraform` を実行する。2026-10-12 の apply はこれで通した。
-`terraform init` のプロバイダのダウンロードもこれで通るはずだが未確認。通らなければ次の手順。
-そのときは `curl -4` で再試行しながらプロバイダの zip を落とし、公開されている `SHA256SUMS` と照合したうえで、
-`<dir>/registry.terraform.io/hashicorp/<name>/terraform-provider-<name>_<ver>_windows_amd64.zip` に置いて
-`terraform init -plugin-dir=<dir>` で読み込ませる。`terraform validate` は CI（`terraform.yml`）でも回る。
-
-Windows に入っていないツール（必要になったら入れる）。
-
-| ツール | 用途 | 無い間にできないこと |
-|---|---|---|
-| Azure Functions Core Tools（`func`） | api のローカル起動 | `npm start`（テストと型チェックには不要） |
+- **`api/node_modules` はマシンごとに `npm ci` で作る。** `package-lock.json` が変わったら `npm ci` し直す
+  （古いまま使うと、`tsconfig` の `module: node20` を読めずに全テストが落ちる、という形で現れる）
+- **リポジトリに入っていない秘密のファイル**（`infrastructure/terraform.tfstate`・`terraform.tfvars`、`api/local.settings.json`）は作業マシンにしか無く、人間が扱う。
+  中身を読まない・表示しない。場所と扱いは `infrastructure/README.md`・`DEPLOYMENT.md`
+- **テキストは作業ツリーも LF**（`.gitattributes` の `* text=auto eol=lf`）。新しいファイルも LF で書く。Windows 用のスクリプト（`.bat` / `.cmd` / `.ps1`）だけは CRLF。
+  CRLF が混ざると、バイト比較や行末の検索が `\r` に邪魔され、Git Bash ではシェルスクリプトも失敗する
+- **Terraform の `plan` / `apply` は `infrastructure\scripts\tf.cmd` で回す。** この PC は IPv4/IPv6 の片方の接続が日によって切られ、素の `terraform` は通らない。
+  仕組みと、`init` が通らないときの手順は `infrastructure/README.md`。`validate` はそのまま実行できる
+- Azure Functions Core Tools（`func`）は入っていないので、`npm start`（api のローカル起動）は動かない。テストと型チェックには要らない
 
 ## コマンド
+
+一覧は部品ごとの README にある（`api/README.md`・`mobile/README.md`・`infrastructure/README.md`）。ここには毎回使うものと罠だけ。
 
 ### api/
 
 ```bash
 cd api
-npm ci                    # package-lock.json どおりに入れる。lock が変わったらやり直す
-npm start                 # prestart で build + func extensions install を実行してから func start
-npm run build             # tsc（src のみ → dist/src/ 配下に出力）
-npm test
-npm run test:coverage
-
-# 単一テストの実行
-npx jest tests/functions/save.test.ts
-npx jest -t "植物一覧取得"
-
-# 型チェック（tests も含める。tsconfig.json は src のみ対象）
-npx tsc -p tsconfig.test.json --noEmit
+npm ci                                  # lock が変わったらやり直す
+npm test                                # 単一: npx jest tests/functions/save.test.ts、npx jest -t "植物一覧取得"
+npx tsc -p tsconfig.test.json --noEmit  # 型チェック（tests も含める。tsconfig.json は src のみ対象）
 ```
 
-リンターは未設定（CI も `npm run lint` が無いことを前提にスキップする）。
-
-tsconfig が4分割されている理由：`tsconfig.base.json` が共通設定、`tsconfig.json` がビルド用（`src` のみ・emit あり）、`tsconfig.test.json` が型チェック用（`src` + `tests`・`noEmit`）、`tsconfig.editor.json` が IDE 用（両者を project references で束ねる）。Jest は `tsconfig.test.json` を使う。
+リンターは未設定。tsconfig が4つある理由は `api/README.md`。
 
 ### mobile/
 
-```bash
-cd mobile
-flutter pub get
-flutter run
-flutter analyze           # flutter_lints 準拠
-flutter test
-flutter test test/services/api_service_test.dart
-flutter build apk --release
-```
-
 Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上にある。
-Dart を変更したら、その場で `flutter analyze` / `flutter test` を回して検証する。
 
-**デバッグ版（`flutter run`）は別のアプリとして入る**（パッケージ名 `com.snaplant.mobile.debug`、ホーム画面の名前は「SnapPlant 開発版」。
-`android/app/build.gradle` の `applicationIdSuffix`）。普段使いのリリース版（`com.snaplant.mobile`）を上書きしない。
-以前は同じパッケージ名で、署名の鍵が違うと `flutter run` が古い版を黙ってアンインストールし、端末に保存した API キーなどの設定が消えた（2026-10-13）。
-デバッグ版とリリース版は設定を別々に持つので、デバッグ版にも API キーの入力が要る。
-
-`flutter analyze` の指摘は0件にしてある（2026-10-12、#24）。info も含めて1件でも出れば CI（`flutter.yml`）が失敗するので、
-指摘を残したまま PR を出さない。
-
-`test/` の構成。
-
-| ファイル | 対象 |
-|---|---|
-| `services/api_service_test.dart` | `ApiService` の封筒の解釈（成功・エラー）と、送信する Content-Type（マジックバイトによる画像形式の判定を含む） |
-| `screens/identification_screen_test.dart` | 保存時の 409 の扱い |
-| `screens/camera_screen_test.dart` | 処理中の画面操作（選び直し・戻る）と、取り込みに失敗したときの表示 |
-| `app_root_test.dart` | 設定の有無・読み込みの失敗・リセットに応じた起動直後の表示（アプリ全体を開く） |
-| `screens/home_shell_test.dart` | 下のタブ（図鑑 / 旅行）の切り替えと、切り替えても一覧を読み直さないこと |
-| `screens/trip_list_screen_test.dart` | 旅行一覧の表示・読み込みの失敗と読み直し、旅行の作成、旅行に属さない写真の画面（複数選択の操作と枚数の取り直しを含む）、旅行詳細から戻った後の送信の進み具合と一覧の読み直し（旅行アルバム） |
-| `screens/trip_detail_screen_test.dart` | 旅行詳細の表示、編集、削除（写真を残すか消すか）、旅行が既に無いとき、写真のグリッド（ページ・失敗・読み直し）、写真の複数選択と旅行への出し入れ・削除、写真の追加と送信（EXIF、進み具合バナー、失敗と送り直し、画面をまたぐ送信、サムネイル、地名）、送信中の旅行の削除の確認と送信の取り消し（旅行アルバム） |
-| `screens/photo_viewer_screen_test.dart` | 写真ビューア（旅行詳細・旅行に属さない写真から開く。スワイプ、位置情報の表示、続きのページ、表示の切り替え、削除、戻ったときの読み直し）（旅行アルバム）。スワイプは画面の幅より短く払う（`_swipe`。幅を超えて引くと2枚分進む） |
-| `screens/pending_photo_tiles_test.dart` | 送信中・失敗の写真をグリッドの後ろに端末の画像で並べること（旅行詳細・旅行に属さない写真。宛先、一区切りまでの扱い、0枚の旅行、続きのページ）（旅行アルバム）。サーバの写真の画像を出したまま送信の実時間を進めるので、`path_provider` をファイル全体で1回だけ差し替え、各テストの終わりに画像のキャッシュの掃除のタイマー（10 秒）を過ぎるまで進める |
-| `screens/photo_thumbnail_test.dart` | 写真のサムネイルの画像を読み込めないときの表示（画像の取得まで実時間で待つので、他の画面のテストと分けている） |
-| `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
-| `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
-| `helpers/gallery_test_helpers.dart` | （テストではない）OS のギャラリーの偽物 `FakeMultiGallery`（`pickMultiImage`）・テストの画像を書き出す `writeTestImage`・1x1 の PNG とその SHA-256・EXIF（撮影日時・GPS）付きの JPEG を組み立てる `exifJpegBytes` |
-| `helpers/image_compress_test_helpers.dart` | （テストではない）画像の圧縮の偽物 `FakeImageCompress`（`FlutterImageCompressPlatform.instance` を差し替える。Android の縮め方を再現し、EXIF の回転は再現しない）と、寸法を指定した PNG `pngBytesOfSize` |
-| `helpers/geocoding_test_helpers.dart` | （テストではない）端末の Geocoder の偽物 `FakeGeocoding`（`GeocodingPlatformFactory.instance` を差し替える。引いた座標を `lookups` に残し、失敗・応答なしも作れる） |
-| `helpers/trip_test_helpers.dart` | （テストではない）旅行の API の偽のサーバ `FakeTripBackend`（旅行を1つのリストで持ち、別の端末での変化はテストが書き換えて表す。1回だけの失敗は `failNext`、応答の保留は `holds`。写真の移動 `POST /api/photos/move` は本物と同じく 200 件の上限・空の配列・`tripId` のキーの省略を 400 で断り、写真の削除は無い写真に 404 `PHOTO_NOT_FOUND` を返す） |
+- Dart を変更したら、その場で `flutter analyze` / `flutter test` を回す。`analyze` は info も含めて0件にする（1件でも CI が落ちる）
+- `flutter run` で入るデバッグ版は、リリース版とは別のアプリ（`com.snaplant.mobile.debug`「SnapPlant 開発版」）で、設定も別。
+  実機確認で入れたときは、API キーの入力が要ることを人間に伝える（詳細は `mobile/README.md`）
+- `dart format` は変えたファイルだけにかける。`mobile/lib` 全体や、整形されていない大きなテストファイル（`trip_detail_screen_test.dart` など）にかけると、無関係な行まで整形されて差分が膨らむ
+- 端末の機能の偽物は `test/helpers/` にある（ギャラリー・画像の圧縮・Geocoder・セキュアストレージ・旅行 API の偽のサーバ）。表は `mobile/README.md`
 
 テストで踏みやすい点。
 
@@ -161,125 +90,56 @@ Dart を変更したら、その場で `flutter analyze` / `flutter test` を回
   テストの冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
   CI（`flutter.yml`）は `TZ=Asia/Tokyo` で動かしている
 
-### infrastructure/
-
-```bash
-cd infrastructure
-cp terraform.tfvars.example terraform.tfvars   # openai_api_key を設定
-./scripts/deploy.sh                            # terraform apply 一式
-./scripts/get-publish-profile.sh               # GitHub Secrets 用の Publish Profile 取得
-./scripts/destroy.sh
-```
-
-`terraform.tfstate` はローカルファイルとして存在するが、**`infrastructure/.gitignore` が `*.tfstate` を除外しているためリポジトリには入っていない**（リモートバックエンドもなし）。つまり state は作業マシンにしかない。
-
 ## アーキテクチャ
 
-### 関数の登録経路
+設計そのものは仕様書にある（`docs/06_api_design.md`・`docs/07_api_workflow.md`、旅行アルバムは `docs/travel-album/`）。
+ここには、コードを読んでも分からない罠と、守っている判断だけを書く。
 
-`api/src/app.ts` が唯一のエントリーポイント（`package.json` の `main` は `dist/src/app.js`）。各関数ファイルは末尾で `app.http(...)` を呼び、`app.ts` が全ファイルを import することで登録が走る。**新しい関数を追加したら `app.ts` に import を追記しないと一切登録されない。**
+### 関数の登録
 
-全関数は `authLevel: 'function'` なので、呼び出しには `?code={FUNCTION_KEY}` が必要。Flutter 側は `ApiService._buildUrl()` が自動で付与する。
+- **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)` で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる
+- `plants/{id}` は `plantDetail.ts`（GET・DELETE）と `updatePlant.ts`（PUT）の2ファイルが別々に登録している。片方だけ見て全体を判断しない
+- `photos/move` は `photos/{photoId}` と同じ階層のリテラルのルート（`photoMove.ts`）。デプロイ後に `{photoId}` に取られていないことを確かめる
+- 呼び出しに要る `?code=` は、Flutter の `ApiService._buildUrl()` が付ける
 
-実際のルート（`host.json` の `routePrefix: "api"` が前につく）:
+### Blob Storage
 
-| ルート | メソッド | ファイル |
-|---|---|---|
-| `/api/images/upload` | POST | `functions/upload.ts` |
-| `/api/plants/identify` | POST | `functions/identify.ts` |
-| `/api/plants/check-duplicate` | GET | `functions/checkDuplicate.ts` |
-| `/api/plants/save` | POST | `functions/save.ts` |
-| `/api/plants` | GET | `functions/plants.ts` |
-| `/api/plants/{id}` | GET, DELETE | `functions/plantDetail.ts` |
-| `/api/plants/{id}` | PUT | `functions/updatePlant.ts` |
-| `/api/trips` | GET, POST | `functions/trips.ts`（旅行アルバム） |
-| `/api/trips/{tripId}` | GET, PUT, DELETE | `functions/tripDetail.ts`（旅行アルバム） |
-| `/api/photos` | GET, POST | `functions/photos.ts`（旅行アルバム） |
-| `/api/photos/{photoId}` | GET, PATCH, DELETE | `functions/photoDetail.ts`（旅行アルバム） |
-| `/api/photos/move` | POST | `functions/photoMove.ts`（旅行アルバム。`photos/{photoId}` と同じ階層のリテラルのルート） |
-
-`plants/{id}` は `plantDetail.ts` と `updatePlant.ts` の2ファイルが別々に登録している（メソッドが異なるため共存可能）。片方だけ見て全体を判断しないこと。
-
-### 画像アップロードが3役を兼ねる設計
-
-`upload.ts` は単なるアップロードではなく、**一時保存 → AI 判定 → 永続化** を1リクエストで完結させる。ここがこのアプリの設計上の核心。
-
-1. `uploadImageToTemp()` で temp コンテナに保存（SAS トークン付き URL を返す）
-2. `OpenAIVisionService.validateImage()` → `identifyPlant()` で植物判定
-3. 植物でなければ temp ファイルを削除し `NOT_A_PLANT` エラーを返す
-4. 植物なら `moveFromTempToPermanent()` で images コンテナへ移動（公開 URL を返す）
-5. 画像 URL と識別候補をまとめて返す
-
-Blob Storage のコンテナは植物図鑑の2つで役割が違う：`images`（永続・公開 URL）と `temp-images`（一時・SAS 付き URL）。`temp-images` はライフサイクル管理で最終更新から1日を過ぎると消える。旅行アルバムの写真は `photos`（非公開。読み取りは Blob 単位の SAS で、`PhotoStorageService` が扱う）、旅行と写真のデータは Cosmos DB の `album`（`docs/travel-album/`）。コンテナ名は環境変数から取る。`'temp'` は `TEMP_STORAGE_CONTAINER_NAME` が未設定のときのコード側のフォールバック値にすぎず、Terraform が作るのは `temp-images`。`StorageService` は URL を**ホストの一致**と**パスセグメントの完全一致**で検証する。自ストレージアカウント以外のホストを指す URL は何も削除せず `false` を返す。コンテナはパスの最初のセグメントで決め、永続コンテナ名・一時コンテナ名のどちらとも完全一致しなければやはり何も削除せず `false` を返す（未知のコンテナを永続側にフォールバックさせると、永続側の同名 Blob を消せてしまうため）。文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せてしまった。
-
-**接続文字列に `BlobEndpoint=` があるとコンストラクタが例外を投げる**（未対応）。SDK はそのエンドポイントを使う一方で `StorageService` は `AccountName` と `EndpointSuffix` からホストを組み立てるため、食い違うと自分が生成した URL を自分で弾いて孤児 Blob が残る。Azurite はこの形式なので使えない。
+- 一時コンテナの名前は環境変数から取る。コードの `'temp'` は未設定時のフォールバック値にすぎず、Terraform が作るのは `temp-images`
+- `StorageService` は削除する URL を、ホストの一致とパスセグメントの完全一致で検証し、合わなければ何も消さずに `false` を返す。
+  文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せた。緩めない
+- Blob 名の拡張子は検証済みの Content-Type から引く。クライアントのファイル名からは取らない（`/` を含む名前で署名対象がずれるため）。`upload` の応答の `fileName` は Blob 名とは別物
+- `BlobEndpoint=` 形式の接続文字列（Azurite）は使えない（`docs/06`・`DEPLOYMENT.md`）
 
 ### レスポンス規約
 
-すべてのハンドラは `utils/response.ts` のヘルパー経由でレスポンスを作る。生の `HttpResponseInit` を手書きしない。
-
-- 成功: `createSuccessResponse(data, statusCode?)` → `{ success: true, data }`
-- 失敗: `createErrorResponse(code, message, statusCode, details?)` → `{ success: false, error: { code, message, details } }`
-- 定型エラー: `createValidationError()` / `createNotFoundError()` / `createInternalError()`
-- 上流（AI・Blob Storage）の失敗: `createUpstreamErrorResponse(error)`。サービスは失敗を `UpstreamError`（`utils/errors.ts`、`service: 'ai' | 'storage'`）で投げ、ハンドラは `error instanceof UpstreamError` で受けてこれに渡す。接続できない（`cause` をたどって errno を探す `hasCauseCode()`）なら 503、接続できたうえでの失敗なら 502。**メッセージの文字列で分類しない**（SDK のメッセージに `OpenAI` や `Storage` は入らない）。Cosmos DB 側のハンドラはまだトップレベルの `code` で 503 を判定している（`docs/09_backlog.md`）
-
-`code` は `types/api.ts` の `ErrorCode` enum、ステータスは `HttpStatusCode` enum から選ぶ。新しいエラー種別が必要なら enum に追加する。
-
-**エラー応答の契約は、ステータス・`code`・`message` まで。`details` は契約外。**（2026-10-11 に人間が決定）
-
-| 項目 | 扱い | 理由 |
-|---|---|---|
-| ステータス・`code` | 契約。仕様書に書き、テストで固定する | クライアントが分岐に使う |
-| `message` | 契約。仕様書に文言まで書き、テストで固定する | Flutter は 400・409 などで `message` をそのまま画面に出すので、利用者に見える |
-| `details` | 契約外。仕様書に文言が載っていても参考扱いで保証しない。**テストで文言を固定しない** | 500 系では catch した例外の `message`（SDK 由来の英語など）がそのまま入り、SDK の更新で変わる。入力検証の `details` は固定文言だが、扱いを一律にするため同じく契約外とする |
-
-`message` を変えたら仕様書（`docs/06_api_openapi.yaml`・`docs/06_api_design.md`）も変える。
-`details` は付くか付かないかを確かめるのは構わないが、文言を `toEqual` で固定しない。
+- すべてのハンドラは `utils/response.ts` のヘルパーでレスポンスを作る。生の `HttpResponseInit` を手書きしない
+  （`createSuccessResponse` / `createErrorResponse` / `createValidationError` / `createNotFoundError` / `createInternalError` / `createUpstreamErrorResponse`）
+- `code` は `types/api.ts` の `ErrorCode`、ステータスは `HttpStatusCode` から選ぶ。新しい種別は enum に足す
+- 上流（AI・Blob）の失敗は `UpstreamError` で投げ、ハンドラが `createUpstreamErrorResponse` に渡す。**メッセージの文字列で分類しない**（SDK のメッセージに `OpenAI` や `Storage` は入らない）。
+  Cosmos DB 側のハンドラはまだトップレベルの `code` で 503 を判定している（バックログ）
+- **エラー応答の契約はステータス・`code`・`message` まで。`details` は契約外**（2026-10-11 に人間が決定）。500 系の `details` には SDK 由来の例外の文言がそのまま入って更新で変わるので、
+  入力検証の固定文言も含めて一律に契約外にした。テストで `details` の文言を `toEqual` で固定しない。`message` を変えたら仕様書も変える
 
 ### Cosmos DB
 
-パーティションキーは `/id`（Terraform で定義）。そのため単一ドキュメント操作は `container.item(id, id)` と id を2回渡す形になる。`CosmosService` は `StorageService` を内部に持つ。`updatePlant()` で `imagePath` が変わった場合のみ旧画像を Blob から削除する。`deletePlant()` も削除前に `imagePath` を読んで画像を削除する。**どちらも Blob 削除の失敗はログだけ出してドキュメント操作は成功扱いにする。**
+- パーティションキーは `/id`。単一ドキュメントの操作は `container.item(id, id)` と id を2回渡す
+- `updatePlant()` / `deletePlant()` は `imagePath` の Blob を無条件に消す（失敗はログだけ）。**同じ `imagePath` のレコードが2つあると、一方の削除で他方の画像が消える。**
+  だから `save` と `PUT` の両方が、重複を 409 `IMAGE_ALREADY_SAVED` で止める（`PUT` は自分自身が持つ画像なら通す。振る舞いは `docs/06`）。片方の入口だけ塞いでも、もう片方から同じ状態を作れる
+- これは read-then-write なので、ほぼ同時に届いた2件には効かない（パーティションキーが `/id` なので一意キーを張れない。バックログ）
 
-この「`imagePath` の Blob を無条件に削除する」性質があるため、**同じ `imagePath` を持つレコードが2つあると一方の削除で他方の画像が消える**。そのため `save` と `PUT`（`updatePlant`）の**両方**が `getPlantsByImagePath()`（配列を返す）で重複を確認し、既にあれば 409 + `IMAGE_ALREADY_SAVED` を返す。`PUT` は**更新対象自身が既にその画像を持っていれば通す**（`heldBySelf`）ため、`imagePath` を変えずに他のフィールドだけ更新しても 409 にはならない。他に同じ画像のレコードが既に残っていても通す。1件だけ取って id を比べる形や「自分以外が残るか」で見る形では、既存の重複を理由に正当な更新を永久に拒んでいた（経緯は `updatePlant.ts` のコメント）。`save` 側だけ塞いでも `PUT` から同じ状態を作れるので、入口を揃えている。発生経路はリトライで、保存に成功したがレスポンスが届かず同じ `imagePath` で再送されるケース。ただし Flutter クライアントは保存の前に名前で重複確認をするため、同じ候補での再保存は `PUT` に進み、自分自身が画像を持っているので 409 にならない。クライアントから 409 になるのは、レスポンスが届かなかった後に**別の候補**で保存し直したとき。
+### OpenAI
 
-`save` にはもう1つ別の 409 がある。Cosmos DB 自身が返す 409 を `DATABASE_ERROR` に変換するもので（`save.ts` の catch）、`imagePath` の重複とは別物。`updatePlant` はこちらを変換していないため 500 になる。
+- Structured Outputs の strict の制約（全プロパティを `required` に、`minimum` などが使えない、`max_completion_tokens`、`temperature` を渡さない、`detail: "low"`）が設計を縛っている。
+  理由は `openAIVisionService.ts` 冒頭のコメントにある。守ったまま変える
+- デプロイ名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment` 名と一致している必要がある（現在 `gpt-6-luna`）
 
-**ただしこれは read-then-write なので、ほぼ同時に届いた2件には効かない。** パーティションキーが `/id` のため Cosmos の一意キーでは `imagePath` の制約を張れず、根本解決には設計変更が必要（バックログに記録済み）。
+### 入力検証
 
-### OpenAI 呼び出し
-
-`openAIVisionService.ts` は Azure OpenAI と OpenAI API の両方に対応し、`AZURE_OPENAI_ENDPOINT` の有無で分岐する。Azure 側は `baseURL` にデプロイメントパスを埋め込み、`api-version` を `defaultQuery` で渡す。
-
-Structured Outputs（`response_format: json_schema`, `strict: true`）で応答構造を強制している。strict モードの制約がコード上の設計を縛っている点に注意：
-
-- 全プロパティを `required` に列挙する必要があるため、任意項目は `["string", "null"]` で null 許容として表現する
-- `minimum` / `maximum` / `maxItems` が使えないため、信頼度の範囲は `validateAnalysisResult()` で、候補数の上限はプロンプトで担保している
-- 推論モデルのため `max_completion_tokens` を使い（`max_tokens` ではない）、`temperature` は指定しない（デフォルト値のみサポート）
-- トークン節約のため画像は `detail: "low"` で渡す
-
-モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment` 名と一致する必要がある（現在 `gpt-6-luna`、GlobalStandard SKU。2026-10-17 に `gpt-5.6-luna` から切り替え）。
-
-### バリデーション定数
-
-アップロード検証の失敗は 400 ではなく専用のステータスを返す：形式不正は 415 + `UNSUPPORTED_MEDIA_TYPE`、
-サイズ超過は 413 + `FILE_TOO_LARGE`。ファイル未指定や Content-Type 不正は 400 + `INVALID_REQUEST`。
-
-`imagePath` は `save` と `updatePlant` で `StorageService.isValidImagePath()` により**3条件すべて**を検証する。アップロード API が返した URL 以外は 400 になる。
-
-1. スキームが `https:`
-2. ホストが自ストレージアカウントの Blob エンドポイント
-3. パスが**ちょうど `/<永続コンテナ名>/<Blob名>` の2セグメント**
-4. **生の文字列が `https://<ホスト>/<コンテナ>/<Blob名>` と完全一致する**
-
-4つ目が最後の関門。`new URL()` はホストの大文字小文字や先頭の空白を正規化し、クエリ文字列・フラグメント・認証情報は `pathname` に出ないため、**パース結果を見る限り正当な URL と区別できない**。保存されるのは生の文字列なので、`?x=1` を付けただけで `save` の重複チェック（文字列一致）を素通りでき、`updatePlant` の旧画像削除の判定（文字列比較）が誤作動して更新後も指している画像を消す。
-
-4つは独立した条件にしてある。過去に「URL の一部を無視する」誤りを4回繰り返したため、1つが緩んでも他が残るようにしている。これは外部ホストの URL を保存して更新時の旧画像削除を発火させ、他レコードの Blob を消す経路を塞ぐためで、**入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている**。片方だけ緩めないこと。
-
-Blob 名の拡張子は**検証済みの Content-Type から引く**（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`）。クライアントが送るファイル名からは取らない。`/` を含む名前で拡張子にパス区切りが紛れ込み、Blob 名と SAS の署名対象がずれるため。`upload` のレスポンスの `fileName` はクライアントが送った名前をそのまま返すもので、**Blob 名とは別物**。
-
-`constants/validation.ts` の各上限値は環境変数で上書きできる（`MAX_FILE_SIZE`, `PLANT_NAME_MAX_LENGTH`, `CONTEXT_INFO_MAX_LENGTH` など）。エラーメッセージも同じ環境変数から文字数を埋め込んで生成されるため、値を変えるとメッセージも追従する。
-
-読み取りは `positiveIntFromEnv()` を通す。**正の整数として読めない値は既定値にフォールバックする。** `parseInt` が返す `NaN` をそのまま上限値に使うと、`length > NaN` が常に false になって**上限が静かに消える**（`size <= NaN` 側は全部拒否になるので気づけるが、こちらは気づけない）。マジックナンバーをハンドラに直接書かない。
+- `imagePath` の検証（`StorageService.isValidImagePath()`）は4つの独立した条件で、最後は生の文字列の完全一致（条件は `docs/06`）。
+  `new URL()` はクエリや大文字小文字を正規化するので、パース結果を見る限り正当な URL と区別できない。過去に「URL の一部を無視する」誤りを4回繰り返したので、1つが緩んでも他が残る形にしてある。
+  入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている。片方だけ緩めない
+- 上限値は `constants/validation.ts` にあり、環境変数は `positiveIntFromEnv()` で読む。**正の整数として読めない値は既定値に戻す。** `parseInt` の `NaN` をそのまま使うと `length > NaN` が常に false になり、上限が静かに消える。
+  マジックナンバーをハンドラに直接書かない
 
 ## 開発の流れ
 
@@ -608,19 +468,8 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
   `any` を使っている（api 側で20箇所）。`error.code` や `error.message` への
   アクセスのため。ここを `unknown` + 型ガードに変えるなら全体で揃えること。
   **1箇所だけ流儀を変えない**
-- **Flutter 側の構成方針**（2026-10-11 に人間が決定。実態に合わせた）。
-
-  | 項目 | 方針 | 理由 |
-  |---|---|---|
-  | 状態管理 | `setState`。`ApiService` などは画面のコンストラクタで渡す | 画面をまたいで共有するクライアント状態が無く、扱うのはサーバのデータだけ |
-  | 画面遷移 | `Navigator.push` / `pop`（`MaterialPageRoute`）。名前付きルートは使わない | ディープリンクや Web の履歴に対応する予定が無い（Android のみ） |
-  | HTTP | `http`。テストは同梱の `MockClient` で差し替える | テストがこれに依存している |
-
-  **見直す条件**: 画面をまたいで共有するクライアント状態（お気に入り、絞り込み条件、
-  オフラインのキャッシュなど）が要る機能を足すとき。そのときは状態管理の方式を選び直し、
-  **全画面を一度に移す**（`setState` と混在させると状態の所在が追えなくなる）。
-  `pubspec.yaml` には使うパッケージだけを宣言する。かつて `provider` / `go_router` / `dio` /
-  `uuid` / `intl` が使われないまま宣言されており、どれを使うべきか判断がぶれていた
+- **Flutter 側の構成方針**（`setState`、`Navigator.push` / `pop`、`http`）と、その理由は `docs/05_technology_selection.md` §4.2 にある。
+  見直すときは状態管理の方式を選び直し、**全画面を一度に移す**（`setState` と混在させると状態の所在が追えなくなる）。`pubspec.yaml` には使うパッケージだけを宣言する
 
 ## テストの流儀
 
@@ -678,25 +527,9 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 どこで全ケースを通しているかをコメントに書く（`photos.test.ts` の `storageFailureCases` のコメントが既にこの形）。
 `databaseFailureCases` のように同じ表を入口ごとに全件回す形は、この決め方で減らす。
 
-**変異の回し方**（原則7。`test-consolidator` と `test-reviewer` が使う）。api は `api/scripts/mutate.js` で回す。
-
-```bash
-cd api
-node scripts/mutate.js mutations.json                    # 結果は標準出力
-node scripts/mutate.js mutations.json --out result.json  # JSON でも残す
-```
-
-`mutations.json` は `{ file, old, new, name? }` の配列。`file` は `api/` からの相対パス、`old` はそのファイルに
-ちょうど1回だけ現れる文字列（0回・2回以上なら実行前に止まる）、`new` は置き換え後（空文字なら削除）。
-変異ごとに、退避 → 置換 → **全テスト**を実行 → 退避から復元 → バイト比較、の順に回し、
-どのテストが落ちたか（殺した）と、どのテストも落ちなかった変異（生き残り）を報告する。
-変異を入れる前から落ちているテストは数えない。import 先を壊すなど読み込みの時点で落ちた変異は、
-テストが捕まえたのではないので「無効」として分ける。**型だけを変える変異は捕まらない**（ts-jest は
-`isolatedModules` で型検査をしないため、実行時の振る舞いが変わらなければ生き残りになる）。
+**変異の回し方**（原則7。`test-consolidator` と `test-reviewer` が使う）。api は `api/scripts/mutate.js`（使い方は先頭のコメント）。
+`mutations.json` はその場で書いて捨てる。**型だけを変える変異は捕まらない**（ts-jest は型検査をしない）ので、
 実行時の振る舞いが変わる変異（検証対象の削除、条件の反転、定数の変更）を選ぶ。
-終了コードが非 0 になるのは、復元に失敗したとき（1。退避先のパスを出す）と入力の誤り（2）だけで、
-生き残りがあっても 0（残すか直すかは読む側が判断する）。`mutations.json` はその場で書いて捨て、リポジトリに入れない。
-`api/scripts/` はデプロイのパッケージ（`api/` 丸ごと）に含まれるが、実行時に読み込まれることは無い。
 
 mobile は `flutter test` が Windows でしか回らず道具が無いので、手で回す。
 
@@ -804,12 +637,13 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` — テスト・カバレッジ・ビルド・CodeQL。トリガーは `api/` と `.github/workflows/` 配下の変更のみ。
-- `.github/workflows/audit.yml` — `npm audit --audit-level=high`。`api/package*.json` の変更と、毎週月曜の定期実行。**失敗はそのまま失敗にするが、デプロイは止めない**（人間の判断）。ci.yml とは別のワークフローにしているのは terraform.yml と同じ理由。以前は ci.yml の中で `continue-on-error: true` にしており、critical の脆弱性があっても成功扱いで誰も気づけなかった。**`continue-on-error` で失敗を握りつぶさない**こと。デプロイを止めたくない検査は、別のワークフローに分ける
-- `.github/workflows/terraform.yml` — `terraform fmt -check` と `terraform validate`。トリガーは `infrastructure/**` と `.github/workflows/terraform.yml`（`main` / `develop` への push と `main` への PR）。**Azure へは通信せず認証情報も不要**で、定義ファイルの構文と内部整合性を見るだけ。`plan` は回さない（認証情報が必要になるうえ、リポジトリに入っている `terraform.tfstate` が実態と乖離していると誤った差分を出す）。**ci.yml とは別のワークフローにしている** — `deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため、ci.yml に足すとインフラ定義の整形崩れが API のデプロイを止めてしまう。
-- `.github/workflows/flutter.yml` — `mobile/` の `flutter analyze`（info も含めて指摘があれば失敗）と `flutter test`（`TZ=Asia/Tokyo`。日時の表示のテストが日本時間を前提にしている）。トリガーは `mobile/**` と `flutter.yml` の変更。Flutter の版は手元と同じ 3.32.8 に固定しているので、上げるときは手元と一緒に上げる。ci.yml とは別のワークフロー（`mobile/` は本番デプロイと関係が無いため）。
-- `.github/workflows/deploy-functions.yml` — `main` への push で ci.yml を呼んでから本番デプロイ
-- デプロイは `scm-do-build-during-deployment: false` / `enable-oryx-build: false`。つまり**サーバ側でビルドしない**ため、ワークフロー内で `npm run build` 済みの `dist/` がそのままパッケージされる。ビルド出力パスを変える場合はデプロイ設定とあわせて確認する。ビルドの後に `npm prune --omit=dev` で開発用の依存を外してから `api/` を丸ごと送るので、**実行時に読み込むパッケージは `dependencies` に置く**（`devDependencies` に置くと、テストは通るのに本番で読み込みに失敗する）
+ワークフローの一覧とトリガーは `DEPLOYMENT.md`。守ること。
+
+- **`continue-on-error` で失敗を握りつぶさない。** デプロイを止めたくない検査（`npm audit`、Terraform の `fmt` / `validate`、Flutter）は、ci.yml に足さず別のワークフローに分ける
+  （`deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため。以前 `continue-on-error: true` にしていて、critical の脆弱性に誰も気づけなかった）
+- **実行時に読み込むパッケージは `dependencies` に置く。** サーバ側ではビルドせず、ビルド後に `npm prune --omit=dev` で開発用の依存を外してから `api/` を丸ごと送るので、
+  `devDependencies` だとテストは通るのに本番で読み込みに失敗する
+- Flutter の版は CI（`flutter.yml`）と手元で同じ 3.32.8 に固定している。上げるときは一緒に上げる
 
 ## ドキュメントの扱い
 
@@ -854,61 +688,15 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 
 ### Cosmos のクエリを変更したら手で確認する
 
-**SQL の絞り込み・並び順・射影を検証しているテストは存在しない。**
-ユニットテストの偽物は SQL 文字列を解釈しないため原理的に検証できず、
-エミュレータも E2E も導入していない（環境が1つしかないため却下。`docs/09_backlog.md` 参照）。
-
-そのため `cosmosService.ts` のクエリを変更したら、**デプロイ後に手で確認する**。
-実測で穴が分かっている3点。
-
-| 確認すること | 崩れたときの症状 |
-|---|---|
-| `GET /api/plants` のレスポンスに余分なキーが出ていないか | 射影が崩れると `description` / `updatedAt` / `scientificName` が漏れ、`PlantSummary` の契約が壊れる |
-| `GET /api/plants` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失 |
-| `GET /api/plants/check-duplicate` が別名の植物を拾わないか | `WHERE` 句の消失 |
-| `GET /api/trips` が作成日時の降順か | `ORDER BY c.createdAt DESC` の消失（`AlbumService.listTrips`） |
-| `GET /api/photos?tripId=...` が撮影日時（`sortAt`）の昇順か、継続トークンでページが続くか | `ORDER BY c.sortAt ASC` の消失。偽物は挿入順で返す |
-| `GET /api/photos?tripId=none` が `tripId` が `null` の写真だけを返すか（`c.tripId = @tripId` に null を渡す） | 未所属の一覧が空か、旅行の写真が混ざる |
-| `GET /api/trips` の表紙が各旅行の撮影日時の最初の写真か（`queryCover` の `TOP 1 … ORDER BY`） | 別の写真が表紙になる |
-| `GET /api/trips` の枚数・撮影期間・旅行に属さない写真の枚数（`albumQueries.ts` の `GROUP BY`。`tripId` が `null` の写真が1つのグループになるか） | 集計が崩れる。偽物は集計を解釈しないので単体テストでは見えない |
-
-偽物は渡したドキュメントをそのまま返すので、**射影の崩れは実際の Cosmos でしか観測できない。**
+SQL の絞り込み・並び順・射影を検証しているテストは無い（偽物は SQL を解釈せず、エミュレータも E2E も無い）。
+`cosmosService.ts` や `albumQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
+項目は `docs/06_api_design.md` §8（植物図鑑）と `docs/travel-album/08_test_plan.md` §5.2（旅行アルバム）。
 
 ### クライアント実装で踏みやすい罠
 
-**非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。**
-`ApiException.code` にエラーコード、`message` にサーバの日本語メッセージが入り、
-`userMessage` は 0 / 401 / 404 / 429 / 500 / 502 / 503 以外ではその `message` をそのまま返す。
-429 はアプリが返すのではなく、従量課金プランの Functions ランタイムが過負荷時に封筒なしで返す。
-401 は Functions ランタイムが返すため封筒にならないなど、読めないボディでは `code` が null になり、
-ステータスを添えた固定の日本語メッセージになる。
-**同じステータスでもコードで意味が違うものがある**（409 は `IMAGE_ALREADY_SAVED` と `DATABASE_ERROR`）。
-分岐はステータスではなく `code` で行う（例: `ApiException.isImageAlreadySaved`）。
-
-以下は 2xx の場合の話。API のレスポンスは必ず `{ success, data }` の封筒に包まれている。
-Flutter 側の `_parseResponse()` は**ボディ全体**をコールバックに渡すため、
-各メソッドが自分で `json['data']` を剥がす必要がある。これを忘れると実行時に
-`fromJson` がキーを見つけられず失敗する（過去に `ApiService` の `identifyPlant()` と `uploadImage()` で発生。どちらも未使用だったため削除済み）。
-`mobile/test/services/api_service_test.dart` が、クライアントが `data` を読む下表の植物の API のエンドポイントすべてでこれを固定している
-（`DELETE` は `data` を読まず、`identify` はクライアントから呼んでいないので対象外）。
-旅行アルバムの API は、画面のテストが偽のサーバ（`FakeTripBackend`）越しに封筒の剥がし方まで通しているので、`api_service_test.dart` にメソッドごとのテストを足していない
-（上位に従属するテストを作らない。Issue #41）。メソッドを足したら、それを使う画面のテストで `data` の読み違いが落ちることを確かめる。
-メソッドを足したら同じ形でテストを足すこと。
-
-さらに封筒の内側のキーが関数ごとに違う点にも注意：
-
-| エンドポイント | `data` の中身 |
-|---|---|
-| `GET /api/plants` | `{ plants, total }` |
-| `GET` / `PUT /api/plants/{id}` | `{ plant }` |
-| `POST /api/plants/save` | `{ plant }` |
-| `DELETE /api/plants/{id}` | `{ message }` |
-| `POST /api/plants/identify` | `{ result }`（クライアントからは呼んでいない） |
-| `GET /api/plants/check-duplicate` | `DuplicateCheckResult` を直接 |
-| `POST /api/images/upload` | `{ imagePath, fileName, contentType, fileSize, identificationResult }` |
-| `GET /api/trips` | `{ trips, total, unassignedPhotoCount }` |
-| `POST /api/trips`・`GET` / `PUT /api/trips/{tripId}` | `{ trip }` |
-| `DELETE /api/trips/{tripId}` | `{ message, deletedPhotoCount, detachedPhotoCount }` |
-| `GET /api/photos` | `{ photos, continuationToken, urlExpiresAt }` |
-| `POST /api/photos/move` | `{ moved, notFound }`（`ApiService.movePhotos` が 200 件ずつ分けて送り、結果を合わせる） |
-| `DELETE /api/photos/{photoId}` | `{ message }`（クライアントは `data` を読まない） |
+- 非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。`userMessage` の決まりは `docs/05_technology_selection.md` §4.2。
+  **同じステータスでも `code` で意味が違うものがある**（409 は `IMAGE_ALREADY_SAVED` と `DATABASE_ERROR`）。分岐はステータスではなく `code` で行う（例: `ApiException.isImageAlreadySaved`）
+- 2xx の応答は `{ success, data }` の封筒に包まれていて、`_parseResponse()` は**ボディ全体**をコールバックに渡す。各メソッドが自分で `json['data']` を剥がす。
+  忘れると実行時に `fromJson` がキーを見つけられず失敗する。`data` の中身はエンドポイントごとに違う（表は `docs/06_api_design.md` と `docs/travel-album/05_api_design.md` §2）
+- 植物の API は `mobile/test/services/api_service_test.dart` が `data` の読み方を固定している。旅行アルバムの API は画面のテストが偽のサーバ越しに通すので、
+  `api_service_test.dart` にメソッドごとのテストは足さない（上位に従属するテストを作らない。#41）。メソッドを足したら、それを使う画面のテストで `data` の読み違いが落ちることを確かめる
