@@ -189,6 +189,17 @@ function satisfiesCondition(doc: unknown, condition: string): boolean {
   });
 }
 
+/**
+ * 実 SDK は `item(id)` の URL を組み立てるとき（通信の前）に id を検査して投げる（@azure/cosmos 4.10 で実物を呼んで確かめた）。
+ * 偽物がこれを「見つからない」として返すと、本番では例外になる id をテストが「見つからない」として通してしまう
+ */
+function assertSdkItemId(id: unknown): void {
+  if (typeof id !== 'string') throw new Error('invalid input: input is not string');
+  const trimmed = id.replace(/^\/+|\/+$/g, '');
+  if (trimmed === '') throw new Error('Resource ID must be a string and cannot be undefined, null or empty');
+  if (/[/\\#]/.test(trimmed)) throw new Error("Illegal characters ['/', '\\', '#'] cannot be used in Resource ID");
+}
+
 /** 実 SDK が存在しないドキュメントへの replace / delete で投げる形に合わせたエラー */
 export function cosmosNotFoundError(): any {
   const err: any = new Error('NotFound');
@@ -392,6 +403,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
     },
     item: (id: string, partitionKey: string) => ({
       read: async () => {
+        assertSdkItemId(id);
         if (backend.forcedReadError) throw backend.forcedReadError;
         if (id !== partitionKey || !backend.documents.has(id)) {
           return { resource: undefined };
@@ -399,12 +411,14 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         return { resource: backend.documents.get(id) };
       },
       replace: async (doc: TDoc) => {
+        assertSdkItemId(id);
         if (backend.forcedReplaceError) throw backend.forcedReplaceError;
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
         backend.documents.set(id, doc);
         return { resource: doc };
       },
       patch: async (body: FakePatchBody) => {
+        assertSdkItemId(id);
         if (backend.forcedPatchError) throw backend.forcedPatchError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         backend.beforePatch?.(id);
@@ -418,6 +432,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         return { resource: patched };
       },
       delete: async () => {
+        assertSdkItemId(id);
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
