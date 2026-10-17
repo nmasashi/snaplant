@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { PhotoQueueService } from '../services/photoQueueService';
+import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { photoListResponseData, photoResponseData } from '../services/photoView';
 import {
@@ -84,12 +84,7 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
     context.log(`写真保存成功: ID=${photo.id}`);
 
     if (created) {
-      try {
-        await new PhotoQueueService().enqueue(photo.id);
-      } catch (error: any) {
-        // 写真は解析待ちのまま残り、再投入のタイマーが拾う。送信は保存できているので失敗にしない
-        context.log(`解析のキューへの投入に失敗しました（タイマーが再投入します）: ID=${photo.id}`, error);
-      }
+      await enqueuePhotoOrLog(photo.id, (...args) => context.log(...args));
     }
 
     return createSuccessResponse(photoResponseData(photo, storage), created ? HttpStatusCode.CREATED : HttpStatusCode.OK);

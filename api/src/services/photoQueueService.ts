@@ -32,3 +32,23 @@ export class PhotoQueueService {
     await this.client.sendMessage(body);
   }
 }
+
+/**
+ * 写真の解析を依頼する。失敗しても投げず、ログを出して false を返す
+ *
+ * 投入の前に写真を分類の待ち（pending）にしてあるので、投入に失敗しても再投入のタイマーが拾う。
+ * 呼び出し側（送信・やり直しの受付）は、投入の失敗で応答を失敗にしない（失敗を返すと、保存・受付できているのに
+ * 利用者が送り直したり、「失敗したのに後で勝手に走る」ことになる）
+ * @param photoId 写真の ID
+ * @param log ログの出し先
+ * @returns 投入できたら true
+ */
+export async function enqueuePhotoOrLog(photoId: string, log: (...args: unknown[]) => void): Promise<boolean> {
+  try {
+    await new PhotoQueueService().enqueue(photoId);
+    return true;
+  } catch (error: any) {
+    log(`解析のキューへの投入に失敗しました（タイマーが再投入します）: ID=${photoId}`, error);
+    return false;
+  }
+}

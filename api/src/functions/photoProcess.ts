@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { PhotoQueueService } from '../services/photoQueueService';
+import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { photoResponseData } from '../services/photoView';
 import { createDatabaseErrorResponse, createNotFoundError, createSuccessResponse, createValidationError } from '../utils/response';
@@ -41,12 +41,7 @@ export async function processPhotoRequestHandler(request: HttpRequest, context: 
     return createNotFoundError('指定された写真が見つかりません', ErrorCode.PHOTO_NOT_FOUND);
   }
 
-  try {
-    await new PhotoQueueService().enqueue(photoId);
-  } catch (error: any) {
-    // 写真は分類の待ちのまま残り、再投入のタイマーが拾う。失敗を返すと「失敗したのに後で勝手に走る」ことになる
-    context.log(`解析のキューへの投入に失敗しました（タイマーが再投入します）: ID=${photoId}`, error);
-  }
+  await enqueuePhotoOrLog(photoId, (...args) => context.log(...args));
   return createSuccessResponse(photoResponseData(photo, storage), HttpStatusCode.ACCEPTED);
 }
 
