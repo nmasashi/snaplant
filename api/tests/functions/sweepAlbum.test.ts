@@ -163,6 +163,17 @@ describe('掃除のタイマー', () => {
     expect(stored(photoId('a')).tripId).toBeNull();
   });
 
+  it('消えた旅行を指す写真の1枚を戻せなくても、残りの写真は戻す（次の回にもう一度戻す）', async () => {
+    cosmosBackend.documents.set(photoId('a'), photoDocument(photoId('a'), { tripId: DELETED_TRIP_ID }));
+    cosmosBackend.documents.set(photoId('b'), photoDocument(photoId('b'), { tripId: DELETED_TRIP_ID }));
+    cosmosBackend.forcedErrorById = { [photoId('a')]: Object.assign(new Error('Request rate is large'), { code: 429 }) };
+
+    await expect(sweepAlbumHandler(timer, mockContext)).resolves.toBeUndefined();
+
+    expect(stored(photoId('a')).tripId).toBe(DELETED_TRIP_ID);
+    expect(stored(photoId('b')).tripId).toBeNull();
+  });
+
   it('原寸のBlobが無い写真の文書は、消さずに残す（手で直す）', async () => {
     // 写真の削除と送信が重なったときに残りうる（04 §7.1）。タイマーはログに出すだけ
     const photo = photoDocument(photoId('a'), { blobName: `${photoId('a')}.jpg` });
