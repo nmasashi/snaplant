@@ -4,6 +4,7 @@ import { PhotoClassifierService } from '../services/photoClassifierService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../constants/album';
 import { UpstreamError } from '../utils/errors';
+import { PHOTO_VALIDATION } from '../constants/validation';
 
 /**
  * 写真の解析のワーカー（キュー photo-processing のメッセージ `{ photoId }` で動く）
@@ -83,8 +84,9 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
  */
 function photoIdOf(message: unknown): string | null {
   const photoId = (message as { photoId?: unknown } | null)?.photoId;
-  // 形式（SHA-256 の16進）は見ない。形式の違う ID は写真が見つからず、何もせずに終わる
-  return typeof photoId === 'string' ? photoId : null;
+  // 形式（SHA-256 の16進）も見る。Cosmos の SDK は / \ # を含む id や空の id で通信の前に投げるので、
+  // 見ないと読めないメッセージが例外になって poison に落ちる
+  return typeof photoId === 'string' && PHOTO_VALIDATION.ID_REGEX.test(photoId) ? photoId : null;
 }
 
 app.storageQueue('processPhoto', {
