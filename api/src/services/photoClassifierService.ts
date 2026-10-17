@@ -5,6 +5,11 @@ import { UpstreamError } from '../utils/errors';
 /** 分類 AI が選べる種類 */
 const CLASSIFICATION_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OTHER_KIND];
 
+/** 選択肢のキーの意味（例: `plant（植物）・food（食べ物）`）。キーだけでは AI が種類の境目を判断できないので、定義表の名前を添える */
+const KIND_LABELS = Object.entries(CATALOG_KINDS)
+  .map(([kind, { label }]) => `${kind}（${label}）`)
+  .join('・');
+
 /**
  * 分類の応答の形（Structured Outputs。docs/travel-album/06_processing_design.md §2.2）
  *
@@ -17,9 +22,10 @@ const PHOTO_CLASSIFICATION_SCHEMA = {
     kind: {
       type: 'string',
       enum: CLASSIFICATION_KINDS,
-      description: '写真の主題のカテゴリ。どれにも当てはまらなければ other',
+      description: `写真の主題のカテゴリ。${KIND_LABELS} のどれでもなければ other`,
     },
     confidence: { type: 'number', description: '分類の信頼度（0-100）' },
+    // 判定理由は保存しない（06 §2.3）。AI に理由を書かせて判断を言葉にさせるために残し、出力は数十トークンで費用は無視できる
     reason: { type: 'string', description: '判定理由（日本語で簡潔に）' },
   },
   required: ['kind', 'confidence', 'reason'],
@@ -52,7 +58,7 @@ export class PhotoClassifierService {
   async classify(imageUrl: string, placeName: string | null): Promise<PhotoClassification> {
     const placeSection = placeName ? `\n撮影地: ${placeName}（手がかりとして使ってください）\n` : '';
     const prompt = `
-この写真の主題を1つ選んでください。
+この写真の主題を、${KIND_LABELS} から1つ選んでください。
 ${placeSection}
 人や動物、建物の内装など、当てはまるものが無ければ other を選んでください。
 `;
