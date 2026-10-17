@@ -128,10 +128,12 @@ describe('写真の解析のワーカー', () => {
 
   describe('分類', () => {
     it('分類の待ちの写真を分類すると、種類と分類の結果が書かれて済みになり、利用者の書いた欄は変わらない', async () => {
-      // 前に1回失敗している（attempts 1・lastError あり）。成功で lastError が消え、attempts は数え続ける
+      // 前に1回失敗している（attempts 1・lastError あり）。成功で lastError が消え、attempts は数え続ける。
+      // 前回の解析の識別が残っている（やり直し）。分類で種類が変わりうるので、識別は消す（06 §2.3）
       cosmosBackend.documents.set(
         PHOTO_ID,
         pendingPhoto({
+          identification: { kind: 'plant', name: 'ソメイヨシノ' },
           processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
         })
       );
@@ -146,6 +148,20 @@ describe('写真の解析のワーカー', () => {
         processing: { state: 'done', step: 'classify', attempts: 2, lastError: null, updatedAt: NOW },
         updatedAt: NOW
       });
+    });
+
+    it('分類している間、写真は処理中（classifying）で、回数と時刻が更新されている', async () => {
+      // 処理中は画面に「分類中...」と出る。重複配信で同じ写真が2回分類されないのも、この状態による（04 §7.4）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      let duringAi: unknown;
+      reply = async () => {
+        duringAi = storedPhoto().processing;
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+      };
+
+      await runWorker();
+
+      expect(duringAi).toEqual({ state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
     it.each(['plant', 'landscape', 'other'])(
@@ -317,12 +333,9 @@ describe('写真の解析のワーカー', () => {
       const failedOnceByOther = pendingPhoto({
         processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:59.000Z' }
       });
-      let patches = 0;
       cosmosBackend.beforePatch = () => {
-        patches += 1;
-        if (patches === 1) {
-          cosmosBackend.documents.set(PHOTO_ID, failedOnceByOther);
-        }
+        cosmosBackend.beforePatch = undefined;
+        cosmosBackend.documents.set(PHOTO_ID, failedOnceByOther);
       };
 
       await runWorker();
@@ -350,18 +363,28 @@ describe('写真の解析のワーカー', () => {
       const claimedByOther = pendingPhoto({
         processing: { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T02:59:59.000Z' }
       });
-      let patches = 0;
       cosmosBackend.beforePatch = () => {
-        patches += 1;
-        if (patches === 1) {
-          cosmosBackend.documents.set(PHOTO_ID, claimedByOther);
-        }
+        cosmosBackend.beforePatch = undefined;
+        cosmosBackend.documents.set(PHOTO_ID, claimedByOther);
       };
 
       await runWorker();
 
       expect(sent).toHaveLength(0);
       expect(storedPhoto()).toEqual(claimedByOther);
+    });
+
+    it('読んだ後・担当する前に写真が消されたら、AIを呼ばずに何もせず終える', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = undefined;
+        cosmosBackend.documents.delete(PHOTO_ID);
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(sent).toHaveLength(0);
+      expect(cosmosBackend.documents.size).toBe(0);
     });
 
     it('写真が無ければ（消された後のメッセージ）、何もせずに終える', async () => {
@@ -503,13 +526,13 @@ describe('写真の解析のワーカー', () => {
     it('担当の後、結果を書く前に利用者がタグと旅行を変えても、結果を書いた後に残る', async () => {
       // ロックは置かず、AI は自分の欄だけを書く（04 §7.4）。解析中でも利用者は写真を編集できる
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
-      let patches = 0;
+      // 1回目の patch は担当。2回目（結果の書き込み）の直前に、利用者の編集が入る
       cosmosBackend.beforePatch = () => {
-        patches += 1;
-        if (patches === 2) {
+        cosmosBackend.beforePatch = () => {
+          cosmosBackend.beforePatch = undefined;
           const edited: PhotoDocument = { ...storedPhoto(), tags: ['朝食', '札幌'], tripId: null };
           cosmosBackend.documents.set(PHOTO_ID, edited);
-        }
+        };
       };
 
       await runWorker();
