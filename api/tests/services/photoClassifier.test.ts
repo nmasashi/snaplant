@@ -143,7 +143,7 @@ describe('写真の分類', () => {
 
   // AI の失敗（UpstreamError('ai')）として投げたか
   const expectAiFailure = async (promise: Promise<unknown>) => {
-    const error = await promise.catch((e) => e);
+    const error: any = await promise.catch((e) => e);
     expect(error).toBeInstanceOf(UpstreamError);
     expect(error.service).toBe('ai');
   };
