@@ -109,7 +109,7 @@ describe('写真の分類', () => {
     expect(text).toContain('北海道札幌市中央区');
   });
 
-  it('撮影地が無ければ、プロンプトに撮影地を入れない', async () => {
+  it('撮影地が無ければ、無い値（null）を撮影地としてプロンプトに入れない', async () => {
     await new PhotoClassifierService().classify(IMAGE_URL, null);
 
     // 文言は契約外なので、無い値（null）が文字として紛れ込んでいないことだけを見る
