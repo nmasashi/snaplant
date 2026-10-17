@@ -403,6 +403,27 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(claimedByOther);
     });
 
+    it('読んだ後・担当する前にやり直しの受付が入ったら（state・処理・回数が同じに戻る）、担当せず、新しい手がかりを捨てない', async () => {
+      // 送った直後の写真（回数 0）を読んだ後に、利用者が手がかり付きでやり直しを頼むと、state・step・回数は同じ値に戻る。
+      // 担当すると読んだ古い写真（手がかり無し）で分類して済みにし、やり直しのメッセージは担当できずに捨てられる
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const redo = pendingPhoto({
+        hint: '富士山',
+        comment: null,
+        commentSource: null,
+        processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:59.000Z' }
+      });
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = undefined;
+        cosmosBackend.documents.set(PHOTO_ID, redo);
+      };
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(redo);
+    });
+
     it('読んだ後・担当する前に写真が消されたら、AIを呼ばずに何もせず終える', async () => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
       cosmosBackend.beforePatch = () => {
@@ -572,6 +593,25 @@ describe('写真の解析のワーカー', () => {
       await expect(runWorker()).resolves.toBeUndefined();
 
       expect(storedPhoto()).toEqual(redoRequested());
+    });
+
+    it('分類の間にやり直しが受け付けられ、別のインスタンスが担当し直していたら（回数が同じ）、古い分類の結果を書かない', async () => {
+      // やり直しで回数が 0 に戻り、新しい担当でまた 1 になる。state と回数だけでは古い担当と見分けられない
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const reclaimed = pendingPhoto({
+        hint: '富士山',
+        comment: null,
+        commentSource: null,
+        processing: { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T03:00:30.000Z' }
+      });
+      reply = async () => {
+        cosmosBackend.documents.set(PHOTO_ID, reclaimed);
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto()).toEqual(reclaimed);
     });
 
     it('分類の間にやり直しの受付が入ったら、古い分類の失敗も書かず、例外も投げない', async () => {

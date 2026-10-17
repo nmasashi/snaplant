@@ -126,6 +126,21 @@ describe('掃除のタイマー', () => {
     expect(stored(photoId('c'))).toEqual(unassigned);
   });
 
+  it('読んだ後に利用者が写真を別の旅行へ移していたら、未所属に戻さない', async () => {
+    // 読んだときは消えた旅行を指していたが、未所属に戻す前に利用者が移した
+    cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道'));
+    cosmosBackend.documents.set(photoId('a'), photoDocument(photoId('a'), { tripId: DELETED_TRIP_ID }));
+    const moved = photoDocument(photoId('a'), { tripId: TRIP_ID, updatedAt: NOW });
+    cosmosBackend.beforePatch = () => {
+      cosmosBackend.beforePatch = undefined;
+      cosmosBackend.documents.set(photoId('a'), moved);
+    };
+
+    await sweepAlbumHandler(timer, mockContext);
+
+    expect(stored(photoId('a'))).toEqual(moved);
+  });
+
   it('原寸のBlobが無い写真の文書は、消さずに残す（手で直す）', async () => {
     // 写真の削除と送信が重なったときに残りうる（04 §7.1）。タイマーはログに出すだけ
     const photo = photoDocument(photoId('a'), { blobName: `${photoId('a')}.jpg` });

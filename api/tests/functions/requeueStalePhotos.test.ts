@@ -114,6 +114,21 @@ describe('再投入のタイマー', () => {
     expect(queuedPhotoIds()).toEqual([]);
   });
 
+  it('読んだ後にやり直しが受け付けられ、ワーカーが担当し直していたら（state・回数が同じ）、その写真には触らない', async () => {
+    // 処理中に落ちた写真（classifying・回数 1）を読んだ後、やり直しで回数が 0 に戻り、新しい担当でまた classifying・1 になる
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: STALE }));
+    const reclaimed = photoWith(photoId('a'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+    cosmosBackend.beforePatch = () => {
+      cosmosBackend.beforePatch = undefined;
+      cosmosBackend.documents.set(photoId('a'), reclaimed);
+    };
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a'))).toEqual(reclaimed);
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+
   it('読んだ後にワーカーが担当していたら、その写真には触らない', async () => {
     cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
     const claimed = photoWith(photoId('a'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
