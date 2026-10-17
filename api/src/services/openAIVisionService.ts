@@ -83,8 +83,21 @@ const PLANT_IDENTIFICATION_SCHEMA = {
 	additionalProperties: false,
 } as const;
 
+/** analyze() に渡すもの */
+export interface AnalyzeRequest {
+	/** 送り先のデプロイ名（Azure OpenAI Service） */
+	deployment: string;
+	/** Structured Outputs のスキーマの名前 */
+	schemaName: string;
+	/** Structured Outputs のスキーマ（strict） */
+	schema: Record<string, unknown>;
+	prompt: string;
+	imageUrl: string;
+}
+
 export class OpenAIVisionService {
 	private client: OpenAI;
+	private clientsByDeployment = new Map<string, OpenAI>();
 
 	constructor() {
 		// Azure OpenAI または OpenAI APIの設定
@@ -112,6 +125,49 @@ export class OpenAIVisionService {
 				apiKey: process.env.OPENAI_API_KEY!,
 			});
 		}
+	}
+
+	/**
+	 * 指定したデプロイに、プロンプトと画像を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
+	 *
+	 * 応答の中身の検証は呼び出し側が行う
+	 */
+	async analyze(request: AnalyzeRequest): Promise<unknown> {
+		let client = this.clientsByDeployment.get(request.deployment);
+		if (!client) {
+			client = new OpenAI({
+				apiKey: process.env.AZURE_OPENAI_API_KEY!,
+				baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${request.deployment}`,
+				defaultQuery: {
+					"api-version":
+						process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview",
+				},
+				defaultHeaders: {
+					"api-key": process.env.AZURE_OPENAI_API_KEY!,
+				},
+			});
+			this.clientsByDeployment.set(request.deployment, client);
+		}
+
+		const response = await client.chat.completions.create({
+			model: request.deployment,
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: request.prompt },
+						{ type: "image_url", image_url: { url: request.imageUrl, detail: "low" } },
+					],
+				},
+			],
+			max_completion_tokens: 4000,
+			response_format: {
+				type: "json_schema",
+				json_schema: { name: request.schemaName, strict: true, schema: request.schema },
+			},
+		});
+
+		return JSON.parse(response.choices[0].message.content!);
 	}
 
 	/**

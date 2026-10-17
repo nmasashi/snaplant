@@ -1,0 +1,43 @@
+/**
+ * 図鑑の種類の定義表（docs/travel-album/04_data_design.md §3.2）
+ *
+ * 種類を足すときは、この表に1行足す。分類 AI の選択肢（段階3）と、識別 AI のスキーマ・
+ * `GET /api/catalog/kinds`（段階4）がこの表から追従する。段階3で使うのはキー（分類の選択肢）だけで、
+ * `namingRule` と `fields` は段階4の識別で使う
+ */
+export const CATALOG_KINDS = {
+  plant: {
+    label: '植物',
+    namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
+    fields: [
+      { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
+      { key: 'familyName', label: '科名', type: 'string', prompt: '科名（日本語）。特定できない場合は null' },
+    ],
+  },
+  food: {
+    label: '食べ物',
+    namingRule: '固有の料理名（名物名・店の看板料理）→ 一般的な料理名 → 料理の種類の順に、分かる最も細かい粒度（例: 札幌味噌ラーメン → 味噌ラーメン → ラーメン）',
+    fields: [
+      { key: 'genre', label: '料理のジャンル', type: 'string', prompt: '和食・中華・洋食など' },
+      { key: 'mainIngredients', label: '主な食材', type: 'string[]', prompt: '主な食材を日本語で' },
+    ],
+  },
+  landscape: {
+    label: '風景',
+    namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
+    fields: [
+      { key: 'placeType', label: '場所の種類', type: 'string', prompt: '山・海・寺社・街並みなど' },
+      { key: 'placeName', label: '場所の名前', type: 'string', prompt: '固有名。特定できない場合は null' },
+      { key: 'region', label: '地域', type: 'string', prompt: '都道府県や国など' },
+    ],
+  },
+} as const;
+
+/** 図鑑に載せる種類 */
+export type CatalogKind = keyof typeof CATALOG_KINDS;
+
+/** どの種類にも当てはまらない写真の分類（図鑑には載せない） */
+export const OTHER_KIND = 'other';
+
+/** 分類 AI が選ぶ種類（写真の `category` に入る値） */
+export type PhotoKind = CatalogKind | typeof OTHER_KIND;
