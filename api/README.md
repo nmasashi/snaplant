@@ -35,14 +35,21 @@ npx tsc -p tsconfig.test.json --noEmit
 ## 関数の登録
 
 `src/app.ts` が唯一のエントリーポイント（`package.json` の `main` は `dist/src/app.js`）。
-各関数ファイルは末尾で `app.http(...)`（キューのトリガーは `app.storageQueue(...)`）を呼び、`app.ts` が全ファイルを import することで登録が走る。
-新しい関数を足したら `app.ts` に import を足す。足し忘れると、その関数は一切登録されない（HTTP の関数は 404 になり、キューのワーカーはメッセージを取らない）。
+各関数ファイルは末尾で `app.http(...)`（キューのトリガーは `app.storageQueue(...)`、タイマーは `app.timer(...)`）を呼び、`app.ts` が全ファイルを import することで登録が走る。
+新しい関数を足したら `app.ts` に import を足す。足し忘れると、その関数は一切登録されない（HTTP の関数は 404 になり、キューのワーカーはメッセージを取らず、タイマーは走らない）。
 
 HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しには `?code={FUNCTION_KEY}` が要る。
 ルートの一覧は `README.md`（リポジトリ直下）のエンドポイント表。
 
 キューのトリガーの関数は、旅行アルバムの写真の解析のワーカー `processPhoto`（`src/functions/processPhoto.ts`）だけ。
 キューの名前はアプリの設定 `PHOTO_QUEUE_NAME` から `%PHOTO_QUEUE_NAME%` で解決し、接続は `AzureWebJobsStorage`（設定値は `docs/travel-album/07_infrastructure_design.md` §6.1）。
+
+タイマーの関数は旅行アルバムの2つ（スケジュールは UTC の cron。設計は `docs/travel-album/06_processing_design.md` §1.1）。
+
+| 関数（`app.timer` の第1引数） | ファイル | スケジュール | 内容 |
+|---|---|---|---|
+| `requeueStalePhotos` | `src/functions/requeueStalePhotos.ts` | `0 */10 * * * *`（10 分ごと） | 解析待ち・処理中のまま 10 分以上止まった写真を解析待ちに戻してキューに積む。回数が上限なら失敗にする |
+| `sweepAlbum` | `src/functions/sweepAlbum.ts` | `0 0 18 * * *`（毎日 UTC 18 時 = 日本時間の午前3時） | 文書の無い古い Blob を消し、消えた旅行を指す写真を未所属に戻し、原寸の Blob の無い写真をログに出す |
 
 ## テスト
 

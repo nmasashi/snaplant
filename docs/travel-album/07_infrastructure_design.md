@@ -232,6 +232,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 - Function Key は変わらない（同じ Function App に関数を足すだけ）
 - 新しい関数が登録されたことは、デプロイ後にポータルの「関数」一覧か `GET /api/trips` で確かめる（`app.ts` の import 忘れはここで分かる）
 - 段階3の解析のワーカー（`processPhoto`。HTTP ではなくキューのトリガーなので、URL では確かめられない）は、ポータルの「関数」一覧にあることと、写真を1枚送って `processing.state` が `done` になることで確かめる。`PHOTO_QUEUE_NAME` が無いとトリガーの `%PHOTO_QUEUE_NAME%` が解決できず、ワーカーが動かない（推測）。投入する側も積めない（投入の失敗としてログだけ出し、送信は 201）ので、写真が `pending` に溜まる
+- 段階3のタイマー（`requeueStalePhotos`・`sweepAlbum`。`app.timer` の第1引数）も URL では確かめられないので、ポータルの「関数」一覧にあることと、実行の履歴（ログ）で確かめる（[08 §5.3](./08_test_plan.md#53-段階34で足すもの)）
 
 ## 6. 設定値の一覧
 
@@ -258,11 +259,9 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `TAG_MAX_LENGTH` | `30` | 利用者のタグの上限（文字） | `PATCH /api/photos/{photoId}` | 2 |
 | `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | `100` / `200` | 写真一覧の1ページの既定と上限（枚）。上限は `limit` の 400 の `message` にも埋め込まれる | `GET /api/photos`・`GET /api/catalog/entry` | 2 |
 | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | `50` / `100` | 図鑑の項目一覧の1ページの既定と上限（件） | `GET /api/catalog/entries` | 4 |
-| `PHOTO_QUEUE_NAME` | （必須。既定値なし。Terraform が `photo-processing` を入れる）。ワーカーのトリガーは `queueName: '%PHOTO_QUEUE_NAME%'` でアプリの設定から解決するので既定値を持てず、投入する側（`PhotoQueueService`）も揃えて、未設定・空・空白だけなら投げる（`POST /api/photos` は投入の失敗として 201） | 分類・識別のキュー名 | 投入する API（`PhotoQueueService`。`POST /api/photos`）とワーカー（`processPhoto.ts` のトリガー） | 3 |
+| `PHOTO_QUEUE_NAME` | （必須。既定値なし。Terraform が `photo-processing` を入れる）。ワーカーのトリガーは `queueName: '%PHOTO_QUEUE_NAME%'` でアプリの設定から解決するので既定値を持てず、投入する側（`PhotoQueueService`）も揃えて、未設定・空・空白だけなら投げる（`POST /api/photos` は投入の失敗として 201） | 分類・識別のキュー名 | 投入する側（`PhotoQueueService`。`POST /api/photos`・`POST /api/photos/{photoId}/process`・再投入のタイマー。どれも投入の失敗はログだけ）とワーカー（`processPhoto.ts` のトリガー） | 3 |
 | `AzureWebJobsStorage`（既存） | （必須。Function App が `storage_account_name` / `storage_account_access_key` から自動で入れる。§2） | キューのストレージアカウントの接続文字列 | 投入する API（`PhotoQueueService`）とワーカーのトリガー（`connection: 'AzureWebJobsStorage'`） | 3 |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。達したら `failed`。`photoProcessingMaxAttempts()`（`constants/album.ts`）が呼ぶたびに読む。**`host.json` の `maxDequeueCount`（3）以下にする**（大きくすると上限の前にメッセージが poison に落ち、残りの回は再投入のタイマーだけで進む） | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)） | 3 |
-| `PHOTO_PROCESSING_STALE_MINUTES` | `10` | これより長く更新の無い処理中の写真を再投入する（分） | 再投入のタイマー | 3 |
-| `ORPHAN_BLOB_MIN_AGE_DAYS` | `1` | 文書の無い Blob を消す前に待つ日数 | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
 | `AZURE_OPENAI_DEPLOYMENT_NAME`（既存） | （必須。Terraform が `gpt6_luna` の名前を入れる） | 今のデプロイ名。植物図鑑の識別に加え、旅行アルバムの分類（段階3）と識別（段階4）にも当面はこれを使う | `OpenAIVisionService`・`PhotoClassifierService`・`PhotoIdentifierService` | 3・4 |
 | `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 分類用のデプロイ名。安いモデルのデプロイを足したときに設定する（#17） | `PhotoClassifierService` | 3 |
 | `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 識別用のデプロイ名。分類と同じく、別のモデルに変えるときに設定する | `PhotoIdentifierService` | 4 |
@@ -283,10 +282,12 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `PHOTO_CONTINUATION_TOKEN_LIMIT_KB`（`constants/album.ts`） | `2` | 写真一覧の継続トークンの大きさの上限（KB）。クエリパラメータで受け渡すので URL の長さに収める | `AlbumService.listPhotos()`（`GET /api/photos`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)） | 2 |
 | `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |
 | `CLASSIFY_IMAGE_SAS_MINUTES`（`constants/album.ts`） | `15` | AI に渡す原寸の読み取り SAS の有効期限（分）。植物図鑑の一時画像の SAS（`services/storageService.ts` の `TEMP_SAS_EXPIRY_MINUTES`、同じく 15 分のコードの定数）と同じ理由。環境変数では変えられない | ワーカー（[06 §2.1](./06_processing_design.md#21-モデルとサービス)） | 3 |
-| `OTHER_KIND`・`CATALOG_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表 | カテゴリと図鑑の種類 | 分類の選択肢・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
+| `PHOTO_REQUEUE_AFTER_MINUTES`（`constants/album.ts`） | `10` | 解析待ち・処理中のまま、これより長く `processing.updatedAt` が更新されていない写真を再投入する（分）。キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの1回（5 分以内）より長くとる。環境変数では変えられない | 再投入のタイマー（[06 §1.1](./06_processing_design.md#11-構成)） | 3 |
+| `ORPHAN_BLOB_MIN_AGE_HOURS`（`constants/album.ts`） | `24` | 文書の無い Blob を消す前に待つ時間（最終更新から）。環境変数では変えられない | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
+| `OTHER_KIND`・`CATALOG_KINDS`・`PHOTO_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表・定義表のキー + `'other'` | カテゴリと図鑑の種類 | 分類の選択肢と `GET /api/photos` の `category` の検証（`PHOTO_KINDS`）・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
 | `geocache` の丸め | 小数3桁（≒ 100 m） | 地名のキャッシュの鍵 | `GeocodingService` | 3・任意 |
 | `host.json` の `extensions.queues` | `batchSize: 1`・`newBatchThreshold: 0`・`maxDequeueCount: 3`・`visibilityTimeout: 00:01:00`・`maxPollingInterval: 00:00:10` | キューの直列化・再試行・待ち時間 | ワーカー（§4） | 3 |
-| タイマーの間隔（`app.timer` の cron） | 再投入 10 分ごと、掃除 1日1回（深夜） | | `requeueStalePhotos.ts`・`sweepAlbum.ts` | 3 |
+| タイマーの間隔（`app.timer` の cron。UTC） | 再投入 `0 */10 * * * *`（10 分ごと）、掃除 `0 0 18 * * *`（毎日 UTC 18 時 = 日本時間の午前3時） | | `requeueStalePhotos.ts`・`sweepAlbum.ts` | 3 |
 | ライフサイクルの日数（Terraform） | `1` | `temp-images` の Blob を消すまでの日数 | §1.2 | 2 |
 
 ### 6.3 Flutter 側の定数
