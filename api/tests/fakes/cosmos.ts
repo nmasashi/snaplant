@@ -78,7 +78,7 @@ import { TripDocument } from '../../src/types/album';
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
- * （`@name` / `@imagePath` / `@type` / `@tripId`）の値で絞り込むだけに留める。クエリ文字列自体への
+ * （`@name` / `@imagePath` / `@type` / `@tripId` / `@category`）の値で絞り込むだけに留める。クエリ文字列自体への
  * 依存はリファクタリング耐性を失うため見ない。この簡略化の結果、
  * 次の点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
  * もしくは E2E テストに委ねる）:
@@ -119,6 +119,8 @@ export interface FakeCosmosDocument {
   imagePath?: string;
   /** 写真の属する旅行。旅行に属さないときは null、旅行のドキュメントなどは項目ごと持たない */
   tripId?: string | null;
+  /** 写真のカテゴリ（分類前は null） */
+  category?: string | null;
 }
 
 export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | PlantSummary | TripDocument> {
@@ -343,6 +345,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         const typeParam = parameters.find((p: any) => p.name === '@type')?.value;
         // @tripId は null を値として渡せる（旅行に属さない写真）ので、値ではなくパラメータがあるかで判断する
         const tripIdParam = parameters.find((p: any) => p.name === '@tripId');
+        const categoryParam = parameters.find((p: any) => p.name === '@category')?.value;
         let docs = Array.from(backend.documents.values());
         if (nameParam !== undefined) {
           docs = docs.filter((d) => d.name === nameParam);
@@ -356,6 +359,9 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         if (tripIdParam !== undefined) {
           // 厳密な一致。null を渡せば tripId が null のものだけで、項目が無い（undefined の）ドキュメントは含めない
           docs = docs.filter((d) => d.tripId === tripIdParam.value);
+        }
+        if (categoryParam !== undefined) {
+          docs = docs.filter((d) => d.category === categoryParam);
         }
         // 実 SDK の iterator と同じく、fetchNext を呼び直すと続きから読む。
         // 最初の fetchNext で（渡されたトークンがあればそれを読んで）決める。トークンの不正は、そのとき投げる

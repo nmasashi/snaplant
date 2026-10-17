@@ -371,6 +371,12 @@ describe('写真一覧API', () => {
       ['tripIdがNONE（大文字）', { tripId: 'NONE' }, '旅行IDの形式が無効です'],
       // 空は「指定あり」なので、「無い」（1）ではなく形式の不正（2）になる
       ['tripIdが空', { tripId: '' }, '旅行IDの形式が無効です'],
+      // カテゴリは定義表のキーと other だけ（段階3。05 §5.2 の表の 3）
+      ['categoryが定義表に無い', { category: 'animal' }, 'カテゴリが無効です'],
+      ['categoryが大文字', { category: 'FOOD' }, 'カテゴリが無効です'],
+      ['categoryが空', { tripId: TRIP_A_ID, category: '' }, 'カテゴリが無効です'],
+      ['tripIdもcategoryも不正（tripIdの指摘が先）', { tripId: 'abc', category: 'animal' }, '旅行IDの形式が無効です'],
+      ['categoryもlimitも不正（categoryの指摘が先）', { category: 'animal', limit: '0' }, 'カテゴリが無効です'],
       ['limitが0', { tripId: TRIP_A_ID, limit: '0' }, INVALID_LIMIT_MESSAGE],
       ['limitが201', { tripId: TRIP_A_ID, limit: '201' }, INVALID_LIMIT_MESSAGE],
       ['limitが負の数', { tripId: TRIP_A_ID, limit: '-1' }, INVALID_LIMIT_MESSAGE],
@@ -473,6 +479,40 @@ describe('写真一覧API', () => {
     // 旅行があれば、写真が1枚も無くても 200 で空の一覧を返す（404 にしない）。
     // 別の旅行 B には写真を置き、絞り込みが効かずに他の旅行の写真が混ざる誤りも区別できるようにする。
     // 空でも URL の期限は返る
+    it('カテゴリだけを指定すると、旅行をまたいで、そのカテゴリの写真だけが返る', async () => {
+      // 旅行 A・B と、どの旅行にも属さない写真に、食べ物の写真とそれ以外を混ぜて置く（05 §5.2。段階3）。
+      // 旅行を指定しないので、旅行の確認（404）はしない
+      cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
+      cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { category: 'food' }));
+      cosmosBackend.documents.set(PHOTO_A2_ID, storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { category: 'landscape' }));
+      cosmosBackend.documents.set(PHOTO_B1_ID, storedPhoto(PHOTO_B1_ID, TRIP_B_ID, { category: 'food' }));
+      cosmosBackend.documents.set(PHOTO_UNASSIGNED_ID, storedPhoto(PHOTO_UNASSIGNED_ID, null, { category: 'food' }));
+
+      const response = await listPhotosHandler(createListPhotosRequest({ category: 'food' }), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photos.map((photo: any) => photo.id)).toEqual([
+        PHOTO_A1_ID,
+        PHOTO_B1_ID,
+        PHOTO_UNASSIGNED_ID
+      ]);
+    });
+
+    it('旅行とカテゴリの両方を指定すると、その旅行のそのカテゴリの写真だけが返る', async () => {
+      cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
+      cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { category: 'other' }));
+      cosmosBackend.documents.set(PHOTO_A2_ID, storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { category: 'food' }));
+      cosmosBackend.documents.set(PHOTO_B1_ID, storedPhoto(PHOTO_B1_ID, TRIP_B_ID, { category: 'other' }));
+
+      const response = await listPhotosHandler(
+        createListPhotosRequest({ tripId: TRIP_A_ID, category: 'other' }),
+        mockContext
+      );
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photos.map((photo: any) => photo.id)).toEqual([PHOTO_A1_ID]);
+    });
+
     it('旅行はあるが写真が1枚も無ければ、空の一覧が返る', async () => {
       freezeNow('2026-10-10T03:12:45.000Z');
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
