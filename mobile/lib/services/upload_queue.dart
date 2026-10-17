@@ -292,6 +292,20 @@ class UploadQueue extends ChangeNotifier {
     if (failure != null) throw failure;
   }
 
+  // 写真を選ぶ画面を開いてから写真を受け取るまでの宛先。「写真を追加」のボタンは選択モードの間は外れて作り直されるので、
+  // 待ちの状態はボタンではなく、画面より長く生きるこの列が持つ
+  final Set<String?> _picking = {};
+
+  /// [tripId] 宛てに、写真を選ぶ画面から写真を受け取るのを待っているか
+  bool isPicking(String? tripId) => _picking.contains(tripId);
+
+  /// 写真を選ぶ画面を開いた（[picking] が true）・写真を受け取った（false）
+  void setPicking(String? tripId, bool picking) {
+    if (_disposed) return;
+    if (picking ? !_picking.add(tripId) : !_picking.remove(tripId)) return;
+    notifyListeners();
+  }
+
   /// [tripId] 宛ての送信が進行中か（準備中・送信待ち・送信中・送り直し待ちの写真がある）。失敗した写真は数えない
   bool isActiveFor(String? tripId) =>
       _preparations.any((p) => p.tripId == tripId) ||

@@ -61,7 +61,7 @@ class PhotoSelectionScaffold extends StatelessWidget {
     );
   }
 
-  /// 選択モードの見出し（閉じる・枚数・すべて選択）
+  /// 選択モードの見出し（閉じる・枚数・表示中をすべて選択）
   PreferredSizeWidget _buildSelectionAppBar() {
     return AppBar(
       leading: IconButton(
@@ -69,14 +69,21 @@ class PhotoSelectionScaffold extends StatelessWidget {
         tooltip: '選択をやめる',
         onPressed: selection.clear,
       ),
-      title: Text('${selection.count}枚を選択中', style: AppTextStyles.appBarTitle),
+      // 幅 360dp の端末では「300枚を選択中」と「表示中をすべて選択」が並ぶと入りきらない。切らずに縮めて出す
+      title: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text('${selection.count}枚を選択中',
+            style: AppTextStyles.appBarTitle),
+      ),
       actions: [
         // テーマの文字ボタンは主色の文字で、見出しの背景（主色）と同じになり読めないので、見出しの前景色にする
         TextButton(
             onPressed: selection.selectAll,
             style:
                 TextButton.styleFrom(foregroundColor: AppColors.textOnPrimary),
-            child: const Text('すべて選択')),
+            // 選ぶのは読み込み済みの写真だけ（続きのページは入らない）なので、その範囲が分かる文言にする
+            child: const Text('表示中をすべて選択')),
       ],
     );
   }
