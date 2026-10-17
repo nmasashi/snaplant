@@ -56,8 +56,16 @@ export async function sweepAlbumHandler(_timer: Timer, context: InvocationContex
 
   const detached: string[] = [];
   for (const photo of photos) {
-    if (photo.tripId !== null && !tripIds.has(photo.tripId) && (await album.detachPhotoFromMissingTrip(photo.id, photo.tripId))) {
-      detached.push(photo.id);
+    if (photo.tripId === null || tripIds.has(photo.tripId)) {
+      continue;
+    }
+    try {
+      if (await album.detachPhotoFromMissingTrip(photo.id, photo.tripId)) {
+        detached.push(photo.id);
+      }
+    } catch (error: any) {
+      // 1枚の失敗（429 など）で残りを止めない。未所属に戻すのはこのタイマーだけなので、次の回にもう一度戻す
+      context.log(`消えた旅行を指す写真を未所属に戻せませんでした（次の回にもう一度戻します）: 写真ID=${photo.id}`, error);
     }
   }
 
