@@ -23,12 +23,15 @@ api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C
 - **`api/node_modules` はマシンごとに `npm ci` で作る。** `package-lock.json` が変わったら `npm ci` し直す
   （古いまま使うと、`tsconfig` の `module: node20` を読めずに全テストが落ちる、という形で現れる）
 - **リポジトリに入っていない秘密のファイル**（`infrastructure/terraform.tfstate`・`terraform.tfvars`、`api/local.settings.json`）は作業マシンにしか無く、人間が扱う。
-  中身を読まない・表示しない。場所と扱いは `infrastructure/README.md`・`DEPLOYMENT.md`
+  中身を読まない・表示しない（関数キーや SAS 付きの URL も、ログや返答に出さない）。場所と扱いは `infrastructure/README.md`・`DEPLOYMENT.md`
 - **テキストは作業ツリーも LF**（`.gitattributes` の `* text=auto eol=lf`）。新しいファイルも LF で書く。Windows 用のスクリプト（`.bat` / `.cmd` / `.ps1`）だけは CRLF。
-  CRLF が混ざると、バイト比較や行末の検索が `\r` に邪魔され、Git Bash ではシェルスクリプトも失敗する
+  CRLF が混ざると、バイト比較や行末の検索が `\r` に邪魔され、Git Bash ではシェルスクリプトも失敗する。`.gitattributes` が入る前のブランチを取り出すと CRLF に戻る
 - **Terraform の `plan` / `apply` は `infrastructure\scripts\tf.cmd` で回す。** この PC は IPv4/IPv6 の片方の接続が日によって切られ、素の `terraform` は通らない。
-  仕組みと、`init` が通らないときの手順は `infrastructure/README.md`。`validate` はそのまま実行できる
+  仕組みと、`init` が通らないときの手順は `infrastructure/README.md`。`validate` はそのまま実行できる。
+  **`apply` は人間が実行する。** Claude は `plan` の差分を読んで、想定どおりかを人間と一緒に確かめる
 - Azure Functions Core Tools（`func`）は入っていないので、`npm start`（api のローカル起動）は動かない。テストと型チェックには要らない
+- この PC の `python` は Microsoft Store のスタブで、呼んでも何もしない。使い捨てのスクリプトは node で書く（サブエージェントにも伝える。
+  `python` で編集したつもりで反映されず、変異の結果を取り違えたことが何度かあった）
 
 ## コマンド
 
@@ -89,6 +92,8 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 - **日時の表示のテストは、日本時間で動くことを前提にしている。** 期待値を日本時間の文字列で書き、
   テストの冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
   CI（`flutter.yml`）は `TZ=Asia/Tokyo` で動かしている
+- **送信まわりのテスト（`trip_detail_screen_test.dart`）は、負荷が高いと稀に落ちる**（変異で全テストを繰り返しているときなど）。
+  落ちたら、もう一度回してから判断する
 
 ## アーキテクチャ
 
@@ -313,6 +318,8 @@ PR が大きすぎることが、そのままレビューの穴になる。
   PR が小さいほど1回のデプロイの影響範囲が狭く、切り分けも早い
 - **`mobile/` の変更を含む PR も、手元で `flutter analyze` / `flutter test` を回してから出す。**
   CI（`flutter.yml`）でも回るが、手元で先に見る方が早い
+- **PR を重ねない**（別の PR のブランチを base にして出さない）。同じファイルを触る次の作業は、前の PR のブランチから切って進めてよいが、
+  PR は前のがマージされてから main に付け替えて出す。重ねた PR が元のブランチへマージされ、main に入らなかったことがある（#7）
 
 なお `ci.yml` と `terraform.yml` は `[main, develop]` をトリガにしているが、
 **`develop` ブランチは存在しない**。PR を `develop` に集約して `main` へは
@@ -642,7 +649,7 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 - **`continue-on-error` で失敗を握りつぶさない。** デプロイを止めたくない検査（`npm audit`、Terraform の `fmt` / `validate`、Flutter）は、ci.yml に足さず別のワークフローに分ける
   （`deploy-functions.yml` が ci.yml の成功をデプロイの前提にしているため。以前 `continue-on-error: true` にしていて、critical の脆弱性に誰も気づけなかった）
 - **実行時に読み込むパッケージは `dependencies` に置く。** サーバ側ではビルドせず、ビルド後に `npm prune --omit=dev` で開発用の依存を外してから `api/` を丸ごと送るので、
-  `devDependencies` だとテストは通るのに本番で読み込みに失敗する
+  `devDependencies` だとテストは通るのに本番で読み込みに失敗する。ビルド出力（`dist/`）の場所を変えるなら `deploy-functions.yml` も合わせる
 - Flutter の版は CI（`flutter.yml`）と手元で同じ 3.32.8 に固定している。上げるときは一緒に上げる
 
 ## ドキュメントの扱い
