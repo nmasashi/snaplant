@@ -252,6 +252,19 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     expect(photo(sha256(image))?.legacyPlantId).toBe('p2');
   });
 
+  it('画像の Content-Type が無い植物は、形式の分からない画像として飛ばして一覧に出す', async () => {
+    // 中身の分からない画像を JPEG とみなして移さない
+    plantsBackend.documents.set('p1', plant('p1') as unknown as FakeCosmosDocument);
+    blobBackend.store.set('images/p1.jpg', { content: Buffer.from('no-type') });
+
+    const result = await migratePlants({ apply: true, log });
+
+    expect(result.skipped).toEqual([
+      { plantId: 'p1', name: 'ソメイヨシノ', reason: '画像の形式（）が写真として受け付けないもの' }
+    ]);
+    expect(albumBackend.documents.size).toBe(0);
+  });
+
   it('画像の形式が写真として受け付けないもの（HEIC など）の植物は飛ばして一覧に出す', async () => {
     putPlant(plant('p1'), Buffer.from('heic-image'), 'image/heic');
 
@@ -272,6 +285,26 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
 
     expect(blobBackend.store.get(`photos/${hash}.png`)).toEqual({ content: image, contentType: 'image/png' });
     expect(photo(hash)).toMatchObject({ blobName: `${hash}.png`, contentType: 'image/png' });
+  });
+
+  it('読んだ後・作る前に同じ写真が送られたら、飛ばして一覧に出し、先の写真を変えない', async () => {
+    // 先にあるかを確かめた後に、旅行アルバムへ同じ写真が送られた（作るときに 409。04 §7.1）
+    const image = Buffer.from('sakura-image');
+    const hash = sha256(image);
+    const existing = photoDocument(hash, { tripId: '123e4567-e89b-42d3-a456-426614174000' });
+    albumBackend.beforeCreate = () => {
+      albumBackend.documents.set(hash, existing as unknown as FakeCosmosDocument);
+    };
+    putPlant(plant('p1'), image);
+
+    const result = await migratePlants({ apply: true, log });
+
+    expect(result).toEqual({
+      found: 1,
+      migrated: 0,
+      skipped: [{ plantId: 'p1', name: 'ソメイヨシノ', reason: `同じ写真が先にある（写真 ID=${hash}）` }]
+    });
+    expect(photo(hash)).toEqual(existing);
   });
 
   it('同じ画像の写真が先にあれば飛ばして一覧に出し、先の写真を変えない', async () => {
@@ -312,8 +345,9 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
   it('画像の保存に失敗したら止め、それまでに移した植物はそのまま残す', async () => {
     // Blob → 写真の文書の順に書くので、文書の無い Blob だけが残る（もう一度回すと上書きされる）
     const first = Buffer.from('first-image');
-    putPlant(plant('p1', { createdAt: '2026-04-01T03:00:00.000Z' }), first);
+    // 後に保存した植物を先に入れる。植物は保存した順に処理するので、p1 を移してから p2 で止まる
     putPlant(plant('p2', { createdAt: '2026-04-02T03:00:00.000Z' }), Buffer.from('second-image'));
+    putPlant(plant('p1', { createdAt: '2026-04-01T03:00:00.000Z' }), first);
     blobBackend.forcedUploadErrorByKey = { [`photos/${sha256(Buffer.from('second-image'))}.jpg`]: new Error('upload failed') };
 
     await expect(migratePlants({ apply: true, log })).rejects.toThrow('upload failed');
@@ -344,8 +378,9 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
       code: 'AuthorizationFailure'
     });
     const first = Buffer.from('first-image');
-    putPlant(plant('p1', { createdAt: '2026-04-01T03:00:00.000Z' }), first);
+    // 後に保存した植物を先に入れる。植物は保存した順に処理するので、p1 を移してから p2 で止まる
     putPlant(plant('p2', { createdAt: '2026-04-02T03:00:00.000Z' }), Buffer.from('second-image'));
+    putPlant(plant('p1', { createdAt: '2026-04-01T03:00:00.000Z' }), first);
     blobBackend.store.get('images/p2.jpg')!.failWith = failure;
 
     await expect(migratePlants({ apply: true, log })).rejects.toBe(failure);
