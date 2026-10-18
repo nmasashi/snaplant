@@ -394,14 +394,15 @@ describe('写真の解析のワーカー', () => {
       // 名前以下は持たず、AI のコメントを理由として残す（06 §3.2）。画面は「分類と合わない」と出す。
       // 写っているのに名前が無い応答は拒む（下の「応答の検証に通らなければ」の表）
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      // 写っていないのに説明や項目を返してきても、図鑑に出ない形なので持たない
       aiReturns({
         matchesKind: false,
         name: null,
         confidence: 30,
-        description: null,
-        characteristics: null,
+        description: '布の柄',
+        characteristics: '花の模様',
         comment: '植物ではなく、植物の柄の布が写っている',
-        attributes: { scientificName: null, familyName: null }
+        attributes: { scientificName: 'Prunus', familyName: 'バラ科' }
       });
 
       await runWorker();
