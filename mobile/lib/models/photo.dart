@@ -93,8 +93,8 @@ class PhotoIdentification {
   /// 写真が分類のカテゴリに合っていたか。false なら図鑑の項目には入らない
   final bool matchesKind;
 
-  /// 項目の名前（図鑑の項目を開く鍵）
-  final String name;
+  /// 項目の名前（図鑑の項目を開く鍵）。分類と合わない写真（[matchesKind] が false）では null
+  final String? name;
 
   const PhotoIdentification(
       {required this.kind, required this.matchesKind, required this.name});
@@ -103,7 +103,7 @@ class PhotoIdentification {
       PhotoIdentification(
         kind: json['kind'] as String,
         matchesKind: json['matchesKind'] as bool,
-        name: json['name'] as String,
+        name: json['name'] as String?,
       );
 }
 

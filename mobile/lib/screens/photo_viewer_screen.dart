@@ -179,8 +179,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(updated);
   }
 
-  /// [identification] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
-  Future<void> _openEntry(PhotoIdentification identification) async {
+  /// 種類 [kindKey]・名前 [name] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
+  Future<void> _openEntry(String kindKey, String name) async {
     final List<CatalogKind> kinds;
     try {
       kinds = await widget.apiService.getCatalogKinds();
@@ -193,12 +193,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     }
     if (!mounted) return;
     // 種類の一覧に無い種類（種類を減らした後の古い識別）は、欄の無い見出しで開く
-    final kind =
-        kinds.where((k) => k.kind == identification.kind).firstOrNull ??
-            CatalogKind(
-                kind: identification.kind,
-                label: identification.kind,
-                fields: const []);
+    final kind = kinds.where((k) => k.kind == kindKey).firstOrNull ??
+        CatalogKind(kind: kindKey, label: kindKey, fields: const []);
     await Navigator.push(
         context,
         MaterialPageRoute(
@@ -206,7 +202,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 apiService: widget.apiService,
                 uploadQueue: widget.uploadQueue,
                 kind: kind,
-                name: identification.name)));
+                name: name)));
   }
 
   @override
@@ -292,8 +288,8 @@ class _PhotoPage extends StatefulWidget {
   /// 「コメントを編集」
   final VoidCallback onEditComment;
 
-  /// 図鑑の項目へのリンク
-  final void Function(PhotoIdentification identification) onOpenEntry;
+  /// 図鑑の項目へのリンク（種類と名前で開く）
+  final void Function(String kind, String name) onOpenEntry;
 
   /// 拡大したか・等倍に戻ったかを知らせる（拡大中は前後の写真へのスワイプを止める）
   final ValueChanged<bool> onZoomChanged;
@@ -335,6 +331,10 @@ class _PhotoPageState extends State<_PhotoPage> {
     // 識別の段（step が identify）なら、状態を「識別中...」「識別に失敗しました」と出す（03 §5.1）
     final identifying = photo.processingStep == 'identify';
     final identification = photo.identification;
+    // 項目へのリンクの名前（分類と合わない写真は名前が null なので、リンクを出さない）
+    final entryName = identification != null && identification.matchesKind
+        ? identification.name
+        : null;
     final comment = photo.comment;
     return Column(
       children: [
@@ -397,11 +397,12 @@ class _PhotoPageState extends State<_PhotoPage> {
                       child: const Text('やり直す'),
                     ),
                   ]),
-                if (identification != null && identification.matchesKind)
+                if (entryName != null)
                   TextButton(
-                    onPressed: () => widget.onOpenEntry(identification),
+                    onPressed: () =>
+                        widget.onOpenEntry(identification!.kind, entryName),
                     style: _infoLinkStyle,
-                    child: Text('${identification.name} >'),
+                    child: Text('$entryName >'),
                   ),
                 if (identification != null && !identification.matchesKind)
                   Row(children: [
