@@ -172,19 +172,35 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     expect(blobBackend.store.get(`photos/${sha256(image)}.jpg`)?.contentType).toBe('image/jpeg');
   });
 
-  it('書き込みを指定しないと、移す植物と飛ばす植物を数えるだけで、何も書かない', async () => {
+  it('書き込みを指定しないと、書き込んだときと同じく移す植物を数え、飛ばす植物を一覧にするだけで、何も書かない', async () => {
+    // 人間が --apply の前に一覧（06 §7 の手順 3）を見られるように、先にある写真の確かめも書き込むときと同じに行う
+    const duplicated = Buffer.from('already-in-album');
+    const existing = photoDocument(sha256(duplicated));
+    albumBackend.documents.set(existing.id, existing as unknown as FakeCosmosDocument);
     putPlant(plant('p1'), Buffer.from('sakura-image'));
     plantsBackend.documents.set('p2', plant('p2') as unknown as FakeCosmosDocument);
+    putPlant(plant('p3'), duplicated);
 
     const result = await migratePlants({ apply: false, log });
 
     expect(result).toEqual({
-      found: 2,
-      migrated: 0,
-      skipped: [{ plantId: 'p2', name: 'ソメイヨシノ', reason: '画像が見つからない' }]
+      found: 3,
+      migrated: 1,
+      skipped: [
+        { plantId: 'p2', name: 'ソメイヨシノ', reason: '画像が見つからない' },
+        { plantId: 'p3', name: 'ソメイヨシノ', reason: `同じ写真が先にある（写真 ID=${existing.id}）` }
+      ]
     });
-    expect(albumBackend.documents.size).toBe(0);
-    expect([...blobBackend.store.keys()]).toEqual(['images/p1.jpg']);
+    expect([...albumBackend.documents.keys()]).toEqual([existing.id]);
+    expect([...blobBackend.store.keys()].sort()).toEqual(['images/p1.jpg', 'images/p3.jpg']);
+  });
+
+  it('書き込みを指定しなくても、書く先の設定が足りなければ止める', async () => {
+    // 読むだけの実行が通ったのに、--apply で植物を読み終えてから止まる、ということにしない
+    putPlant(plant('p1'), Buffer.from('sakura-image'));
+    delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
+
+    await expect(migratePlants({ apply: false, log })).rejects.toThrow('写真の保存先の設定');
   });
 
   it('画像の Blob が無い植物は飛ばして一覧に出し、ほかの植物は移す', async () => {
