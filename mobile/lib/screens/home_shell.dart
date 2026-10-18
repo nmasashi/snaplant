@@ -22,7 +22,7 @@ class HomeShell extends StatefulWidget {
   /// 写真の送信の列（AppRoot が持つ）
   final UploadQueue uploadQueue;
 
-  /// 設定画面を開く（両方のタブの設定ボタンから）
+  /// 設定画面を開く（各タブの設定ボタンから）
   final Future<void> Function() onOpenSettings;
 
   @override
@@ -30,6 +30,9 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  /// 図鑑（新）のタブの位置（IndexedStack の子と NavigationBar の行の並びで同じ）
+  static const _catalogTabIndex = 2;
+
   int _selectedIndex = 0;
 
   /// 図鑑（新）のタブを開いたか。開くまでは画面を作らない（アプリの起動時に図鑑の API を呼ばない。03 §6.1）
@@ -60,7 +63,7 @@ class _HomeShellState extends State<HomeShell> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) => setState(() {
           _selectedIndex = index;
-          if (index == 2) _catalogOpened = true;
+          if (index == _catalogTabIndex) _catalogOpened = true;
         }),
         destinations: const [
           NavigationDestination(
