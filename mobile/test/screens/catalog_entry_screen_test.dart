@@ -115,7 +115,39 @@ void main() {
     expect(find.text('—'), findsNWidgets(3));
   });
 
-  testWidgets('その項目の写真を旅行をまたいで並べ、名前や種類の違う写真・分類と合わない写真は並べない', (tester) async {
+  testWidgets('配列の欄が空なら「—」を出す', (tester) async {
+    final backend = FakeTripBackend(
+      functionKey: 'test-key',
+      catalogEntriesByKind: {
+        'food': [catalogEntryJson('food', '塩ラーメン')],
+      },
+      photosByTripId: {
+        hokkaidoTripId: [
+          identifiedPhotoJson(
+            number: 1,
+            kind: 'food',
+            name: '塩ラーメン',
+            tripId: hokkaidoTripId,
+            description: '塩味のスープのラーメン',
+            characteristics: '透き通ったスープ',
+            attributes: {'genre': 'ラーメン', 'mainIngredients': <String>[]},
+          ),
+        ],
+      },
+    );
+    await openCatalogTab(tester, backend);
+    await tester.tap(find.widgetWithText(Tab, '食べ物'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('塩ラーメン'));
+    await letFramesRun(tester);
+
+    expect(find.text('ラーメン'), findsOneWidget);
+    // 主な食材（空の配列）だけ
+    expect(find.text('—'), findsOneWidget);
+  });
+
+  testWidgets('その項目の写真を旅行をまたいで撮影の順に並べ、名前や種類の違う写真・分類と合わない写真は並べない',
+      (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend(hokkaidoPhotos: [
       _sakura(1, '10:00'),
@@ -148,6 +180,14 @@ void main() {
     for (final time in ['13:00', '14:00', '15:00']) {
       expect(photoThumbnail(_label(time)), findsNothing, reason: time);
     }
+    // 3列のグリッドの1行目に、サーバが返す順（sortAt の順）に左から並ぶ（クライアントは並べ替えない）
+    final first = tester.getTopLeft(photoThumbnail(_label('10:00')));
+    final second = tester.getTopLeft(photoThumbnail(_label('12:00')));
+    final third = tester.getTopLeft(photoThumbnail(_label('16:00')));
+    expect(second.dy, first.dy);
+    expect(third.dy, first.dy);
+    expect(first.dx, lessThan(second.dx));
+    expect(second.dx, lessThan(third.dx));
     semantics.dispose();
   });
 
@@ -245,9 +285,23 @@ void main() {
     await _openEntry(tester, backend);
 
     expect(find.text('この項目には写真がありません'), findsOneWidget);
+    expect(find.text('写真が削除されたか、解析のやり直しで名前が変わりました'), findsOneWidget);
     backend.catalogEntriesByKind['plant']!.clear();
 
     await tester.tap(find.text('戻る'));
+    await letFramesRun(tester);
+
+    expect(find.text('植物の項目はまだありません'), findsOneWidget);
+    expect(backend.catalogOffsetsReceived, [0, 0]);
+  });
+
+  testWidgets('その名前の写真が無いとき、端末の戻る操作で戻っても図鑑の一覧を読み直す', (tester) async {
+    final backend = _backend(hokkaidoPhotos: [], kyotoPhotos: []);
+    await _openEntry(tester, backend);
+    expect(find.text('この項目には写真がありません'), findsOneWidget);
+    backend.catalogEntriesByKind['plant']!.clear();
+
+    await tester.binding.handlePopRoute();
     await letFramesRun(tester);
 
     expect(find.text('植物の項目はまだありません'), findsOneWidget);
@@ -306,7 +360,9 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('読み直したときに写真が無くなっていたら「この項目には写真がありません」を出す', (tester) async {
+    testWidgets('読み直したときに写真が無くなっていたら、見出しを消して「この項目には写真がありません」と「戻る」を出す',
+        (tester) async {
+      // 写真が0枚のグリッドも同じ見出しの文言を出すので、項目が無いときの説明と「戻る」、見出しが消えたことで見分ける
       final backend = _backend();
       await _openEntry(tester, backend);
       backend.photosByTripId[hokkaidoTripId]!.clear();
@@ -316,6 +372,9 @@ void main() {
       await letFramesRun(tester);
 
       expect(find.text('この項目には写真がありません'), findsOneWidget);
+      expect(find.text('写真が削除されたか、解析のやり直しで名前が変わりました'), findsOneWidget);
+      expect(find.text('戻る'), findsOneWidget);
+      expect(find.text('3枚'), findsNothing);
     });
   });
 
@@ -329,6 +388,24 @@ void main() {
     expect(find.text('1枚を選択中'), findsOneWidget);
     expect(find.text('削除'), findsOneWidget);
     expect(find.text('旅行に入れる'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('複数選択で写真を削除すると、見出しと写真を1ページ目から読み直す', (tester) async {
+    // 信頼度の最も高い写真（92）を消すので、見出しは残った写真の識別（80）に変わる
+    final semantics = tester.ensureSemantics();
+    final backend = _backend();
+    await _openEntry(tester, backend);
+    await tester.longPress(photoThumbnail(_label('11:00')));
+    await letFramesRun(tester);
+    await tester.tap(find.text('削除'));
+    await letFramesRun(tester);
+
+    await tapInDialog(tester, '削除');
+
+    expect(photoThumbnail(_label('11:00')), findsNothing);
+    expect(find.text('2枚'), findsOneWidget);
+    expect(find.text('80%'), findsOneWidget);
     semantics.dispose();
   });
 }
