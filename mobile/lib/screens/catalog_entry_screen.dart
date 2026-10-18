@@ -47,6 +47,9 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
   bool _vanished = false;
   // 見出しと写真を1ページ目から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
+  // 1ページ目の要求の番号。読み直しが重なったら（引っ張った読み直しの間にグリッドを作り直したなど）、最後に始めたものの応答だけで見出しを置き換える。
+  // 古い応答の写真はグリッドが捨てるが、見出しはこの画面が持つので、ここで捨てないと古い内容に戻る
+  int _firstPageRequest = 0;
 
   @override
   void dispose() {
@@ -58,19 +61,21 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
 
   /// グリッドが読むページ。1ページ目の応答で見出しを置き換える
   Future<PhotoPage> _loadPage(String? continuationToken) async {
+    final request = continuationToken == null ? ++_firstPageRequest : null;
     final detail = await widget.apiService.getCatalogEntry(
         widget.kind.kind, widget.name,
         continuationToken: continuationToken);
     final entry = detail.entry;
+    final isLatestFirstPage = request == _firstPageRequest && mounted;
     if (entry == null) {
       // 続きのページで無くなっていたら、続きは無いものとして読み終える（出している写真と見出しはそのまま）
-      if (continuationToken == null && mounted) {
+      if (isLatestFirstPage) {
         setState(() => _vanished = true);
         widget.onEntryVanished?.call();
       }
       return const PhotoPage(photos: []);
     }
-    if (continuationToken == null && mounted) {
+    if (isLatestFirstPage) {
       setState(() => _entry = entry);
     }
     return detail.photos;
