@@ -219,7 +219,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 |---|---|
 | 名前 | `identification.name`。`matchesKind: true` の写真だけを数える |
 | 説明・特徴・属性・信頼度 | その名前の写真のうち **`identification.confidence` が最も高いもの**の値（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #8）。同点なら `identification.at` が新しい方（新しいモデルの結果を優先）。名前ごとに `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む |
-| 枚数 | `GROUP BY c.identification.name` の `COUNT(1)`（写真を読まずに数える） |
+| 枚数 | 項目一覧は `GROUP BY c.identification.name` の `COUNT(1)`、項目の詳細は `SELECT VALUE COUNT(1)`（どちらも写真を読まずに数える） |
 | 表紙 | 見出しに使った写真のサムネイル（無ければ原寸） |
 | 項目の中の写真の並び | §5.3 と同じ（`sortAt` 昇順、継続トークンでページング） |
 
@@ -378,7 +378,7 @@ export const CATALOG_KINDS = {
 | 5.4 | カテゴリ横断（段階3。実装済み） | `WHERE c.type = @type AND c.category = @category ORDER BY c.sortAt ASC`。旅行も指定されたら 5.3 の `AND c.tripId = @tripId` を `category` の前に足す（`AlbumService.listPhotos()` が指定された条件だけをつなぐ）。ページは 5.3 と同じ | `@category` で絞る（旅行をまたぐ・旅行と AND） | `c.category = @category` の絞り込みと、`tripId` との AND・並び |
 | 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
 | 5.6 | 図鑑の項目一覧（段階4。4-2a で実装済み。`services/catalogQueries.ts`） | 枚数: `SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前順に並べてページに切る所は○（`services/catalogEntries.ts` の純粋な関数に行を直接渡す。偽物は集計を作れない） | `@kind`・`matchesKind` の絞り込み、`GROUP BY`（`null` の鍵）、複合インデックスの `ORDER BY` で選ばれる見出し |
-| 5.7 | 項目の写真（段階4。4-2b） | `WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.name = @entryName ORDER BY c.sortAt ASC`。ページは 5.3 と同じ。枚数は `SELECT VALUE COUNT(1) FROM c WHERE …` | `@kind`・`@entryName` で絞る | `COUNT` |
+| 5.7 | 項目の詳細と写真（段階4。4-2b で実装済み。見出しは 5.6 の 3 と同じ `queryCatalogHead()`、枚数は `catalogQueries.ts` の `queryCatalogPhotoCount()`、写真は `AlbumService.listPhotos()` の `entry`） | 写真: `SELECT * FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName ORDER BY c.sortAt ASC`。ページは 5.3 と同じ。枚数: `SELECT VALUE COUNT(1) FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName` | 写真を `@kind`・`@entryName` で絞る（偽物は `matchesKind` を見ない）。ページの切れ目と継続トークンの受け渡し | `matchesKind` の絞り込み・`ORDER BY c.sortAt` の並び・`COUNT`・見出しの選び方 |
 | 5.8 | 再投入のタイマー（段階3。実装済み） | `SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before`（`@before` は今の 10 分前の ISO 文字列。**`failed` は含めない**。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。タイマーは同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
 | 5.9 | 掃除のタイマー（段階3。実装済み） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（`@type = 'photo'`。全写真の薄い射影）と、旅行の id の一覧 `SELECT c.id FROM c WHERE c.type = @type`（`@type = 'trip'`）。どちらも `fetchAll()` で読む | 突き合わせは○ | 射影 |
 | 5.10 | 旅行の削除（段階2） | `SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId`（ページで読み、1枚ずつ消す、または `tripId` を `null` に patch する。§5.7） | `@tripId` で絞る。消える・未所属になる結果は○ | 射影 |
@@ -485,7 +485,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 `@type = 'photo'`。1 と 3 は実装済み（4-2a。`services/catalogQueries.ts` の `queryCatalogNameCounts()`・`queryCatalogHead()`。2 と組み立ては `services/catalogEntries.ts`）。
 項目の名前のパラメータは `@name` ではなく `@entryName`（テスト用の Cosmos の偽物は `@name` を植物図鑑の文書の `name` の絞り込みに使うので、`@name` で渡すと偽物が写真をすべて外す。5.7 も同じ名前にする）。
 1 の行と 3 の写真から、§3.1 の表のとおり `CatalogEntry`（名前・説明・特徴・属性・信頼度・枚数・表紙）を組み立てる。
-項目の詳細（§5 の 5.7）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、`@kind`・`@entryName` で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。
+項目の詳細（§5 の 5.7。4-2b で実装済み）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、3 と同じ条件（`@kind`・`matchesKind = true`・`@entryName`）で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。`AlbumService.getCatalogEntry()` は3本を並列に読み（項目があるふつうの場合に往復を1回で済ませる）、見出しが無いか枚数が 0 なら項目なし（`entry: null`・`photos: []`）とする（読む間に写真が消された・名前が変わったときに、見出しだけ残った食い違った項目を返さない）。
 
 識別結果の書き込みは**写真1枚への patch 1回**（[06 §3.2](./06_processing_design.md#32-書き込み)）。項目の文書が無いので、`create` の 409 も、
 信頼度を比べて項目を書き換える処理も、写真の付け替えも無い。

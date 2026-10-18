@@ -51,7 +51,7 @@
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの `DISTINCT` | 未定（タグを付ける画面と一緒） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表から（表の順） | 4（4-2a。実装済み） | `catalogKinds.ts` |
 | `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。`offset` / `limit` でページ。各項目に `photoCount`・`coverThumbnailUrl`（`urlExpiresAt` は付けない） | 4（4-2a。実装済み） | `catalogEntries.ts` |
-| `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング | 4（4-2b） | `catalogEntry.ts` |
+| `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング（ページごとに `entry` も読み直す） | 4（4-2b。実装済み） | `catalogEntry.ts` |
 
 図鑑の項目は文書として持たず、写真の `identification` からまとめる（[04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)）。
 そのため項目の id は無く、項目は `kind` と `name` で指定する。項目を削除する API は置かない。項目は写真の集まりに過ぎず、
@@ -60,7 +60,7 @@
 - `plants/{id}` と同じく、同じルートを複数ファイルが別々のメソッドで登録してよいが、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
   実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）・`deleteTrip`（DELETE）、
-  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）。
+  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）、`catalogEntry.ts` が `getCatalogEntry`（GET。4-2b）。
   `plantDetail.ts` のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
@@ -154,7 +154,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 }
 ```
 
-`confidence` 以下 `attributes` までは、その名前の写真のうち信頼度が最も高いもの（同点なら `identification.at` が新しいもの）の `identification` から取る。`coverThumbnailUrl` はその写真のサムネイル（無ければ原寸）の SAS 付き URL（期限は §6。旅行の表紙と同じく、応答に `urlExpiresAt` は付けない）。
+`confidence` 以下 `attributes` までは、その名前の写真のうち信頼度が最も高いもの（同点なら `identification.at` が新しいもの）の `identification` から取る。`coverThumbnailUrl` はその写真のサムネイル（無ければ原寸）の SAS 付き URL（期限は §6。項目一覧では旅行の表紙と同じく、応答に `urlExpiresAt` は付けない。項目の詳細の `urlExpiresAt` は、表紙と `photos` の URL の共通の期限。§5.14）。
 
 | 項目 | 型 | 説明 |
 |---|---|---|
@@ -163,10 +163,10 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `confidence` | number | 見出しの写真の信頼度（0〜100） |
 | `description` / `characteristics` | string \| null | 見出しの写真の説明・特徴。AI が返さなければ `null`（識別の応答では検査しない。[06 §3.1](./06_processing_design.md#31-契約)） |
 | `attributes` | object | 見出しの写真の種類ごとの項目。キーは定義表の `fields[].key`、値は `string` / `string[]` / `null` |
-| `photoCount` | integer | その名前の写真の枚数（`GROUP BY` の `COUNT(1)`） |
+| `photoCount` | integer | その名前の写真の枚数（項目一覧は `GROUP BY` の `COUNT(1)`、項目の詳細は `SELECT VALUE COUNT(1)`。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)） |
 | `coverThumbnailUrl` | string | 見出しの写真のサムネイル（無ければ原寸）の SAS 付き URL。`null` にはならない |
 
-`GET /api/catalog/entries` が実装済み（4-2a。型は `api/src/types/album.ts` の `CatalogEntry`）。ページに項目が1つも無ければ、写真の保存先の設定を読まない（表紙の URL を作らないため。旅行の表紙と同じ）。
+`GET /api/catalog/entries`（4-2a）と `GET /api/catalog/entry`（4-2b）が実装済み（型は `api/src/types/album.ts` の `CatalogEntry`）。項目一覧は、ページに項目が1つも無ければ写真の保存先の設定を読まない（表紙の URL を作らないため。旅行の表紙と同じ）。項目の詳細は `photos` の URL を作るので、該当する写真が無くても設定を読む（§5.14）。
 
 ### 3.4 Error
 
@@ -602,7 +602,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 |---|---|---|
 | `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。定義表（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）の種類と項目を表の順に返す。AI に渡す指示（`prompt`・`namingRule`）は返さない。DB にも Blob にも触らない。**実装済み（4-2a）** | なし（定義表を返すだけで、失敗する経路が無い。例外を捕まえて封筒の 500 にする処理も置いていない） |
 | `GET /api/catalog/entries?kind=&offset=&limit=` | `{ entries: CatalogEntry[], total }`（§3.3.1）。`kind` 必須、定義表に無ければ 400 `図鑑の種類が無効です`。`name` の文字列順に並べ、`offset`（既定 0）から `limit`（既定 50、上限 100。`CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE`）件。`total` は項目の総数（ページに依らない）。0 件なら `[]`・`0`。`offset` が項目の数以上なら `[]` で `total` はそのまま。検証は下の表。**実装済み（4-2a）** | 503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の一覧の取得に失敗しました`（それ以外。表紙の URL を作れない（写真の保存先の設定が足りない）ときも） |
-| `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null` | 500 `図鑑の項目の取得に失敗しました` |
+| `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null`。検証は下の表。**実装済み（4-2b）** | 400（下の表）、503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の項目の取得に失敗しました`（それ以外。写真の保存先の設定が足りないときも） |
 
 項目一覧のページを `offset` / `limit` にするのは、`GROUP BY` の結果（項目の行）をサーバで名前順に並べてから切るためで、Cosmos の継続トークンが使えない。
 名前順は文字列の符号単位の順（JavaScript の `<` の比べ方。ロケールに依らず、どの環境でも同じ並びになる）。
@@ -622,14 +622,24 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - `offset` と `limit` は同じ `message` で、どちらが悪いかは言わない。`kind` もページも不正なら `kind` の指摘を返す
 - `kind` は前後の空白を除かずに定義表のキーと比べる（大文字小文字も区別する）
 
-`GET /api/catalog/entry` の検証（順に。最初に失敗した1件だけ返す）:
+`GET /api/catalog/entry` の検証（順に。最初に失敗した1件だけ返す。1〜5 は Cosmos に触る前に弾く。`utils/catalogInput.ts` の `readCatalogEntryQuery`）:
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
-| 1 | `kind` が無い、または定義表に無い | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
+| 1 | `kind` が無い、または定義表に無い（`other` や、`constructor` などの継承したキーも。項目一覧と同じ） | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
 | 2 | `name` が無い、または前後の空白を除いて空 | 400 `INVALID_REQUEST` | `図鑑の項目の名前が指定されていません` |
-| 3 | `name` が前後の空白を除いて 100 文字を超える | 400 `INVALID_REQUEST` | `図鑑の項目の名前は100文字以内で指定してください` |
+| 3 | `name` が前後の空白を除いて 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超える | 400 `INVALID_REQUEST` | `図鑑の項目の名前は100文字以内で指定してください` |
+| 4 | `limit` があり、1〜200 の整数でない（§5.2 の 4 と同じ規則と文言） | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |
+| 5 | `continuationToken` があり、空か JSON として読めない（§5.2 の 5 と同じ） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
+| 6 | `continuationToken` が JSON だが Cosmos が受け付けない（別の項目のトークンなど。サーバが 400 で拒む。推測） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 
+- 2 と 3 の `message` は上限値を埋め込まない固定の文言（`CATALOG_VALIDATION.ERROR_MESSAGES` の `NAME_REQUIRED`・`NAME_TOO_LONG`）。`name` もページも不正なら `name` の指摘を返す
+- 6 は、トークンを渡した写真のページのクエリが Cosmos から `code` 400 で失敗したときだけ返す（写真の一覧と同じ。`AlbumService.listPhotos()` が `InvalidContinuationTokenError` にする）。見出しや枚数のクエリの 400（複合インデックスが無いときなど）は 500。
+  トークンを渡していない要求の 400 も 500。3本は並列に読むので、項目が無い（`entry: null`）ときも写真のページはトークン付きで読み、Cosmos が受け付けないトークンなら 6 になる
+- `limit` の既定は 100（`PHOTO_PAGE_SIZE`）、上限 200（`PHOTO_MAX_PAGE_SIZE`）。トークンの大きさの上限（2KB）、空のページを読み進める扱い、最後のページが空のことがあるのも §5.2 と同じ（`AlbumService.listPhotos()` を同じ設定で使う）
+- 続きのページの要求でも、見出しの写真と枚数をそのつど読み直して `entry` に入れる。続きを読む間に写真が0枚になれば、その応答は `entry: null`・`photos: []`・`continuationToken: null`
+- `urlExpiresAt` は、表紙（`entry.coverThumbnailUrl`）と `photos` の URL の共通の期限（§6 の 60 分。要求を受けたときに1回決める）
+- 写真の保存先の設定（`STORAGE_CONNECTION_STRING`・`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ 500。保存先は URL を作るときに初めて作るので、項目が無い（`entry: null`）ときは保存先の設定を読まない（項目一覧と同じ）
 - **名前はクエリ文字列に URL エンコードして載せる**（Dart は `Uri.encodeQueryComponent()`、Functions の `request.query.get('name')` が復号する）。
   パスのセグメント（`/entries/{kind}/{name}`）にしないのは、名前に `/`・`?`・`#` が入りうる（例: 「サーモン/イクラ丼」）ためで、
   `%2F` をルーティングの前に復号するかどうかが Functions の実装に依存する（推測）。クエリ文字列ならその不確かさが無い。100 文字の名前でもエンコード後 1 KB 弱で、URL の長さの上限には届かない
@@ -645,7 +655,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 権限 | 読み取りのみ | |
 | 有効期限 | 発行から 60 分（`PHOTO_SAS_EXPIRY_MINUTES`。読めない値・0・負なら 60） | 旅行詳細を開いて眺める時間として十分で、ログに残っても長期間は読めない |
 | `startsOn` | 発行の 5 分前（`PHOTO_SAS_START_SKEW_MINUTES`。`constants/album.ts`） | サーバと Blob の時計のずれで「まだ有効でない」になるのを防ぐ |
-| 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC。期限は SAS の `se` に合わせて秒に切り捨てるので、ミリ秒の桁は常に `.000`）。旅行の表紙（§3.2）と図鑑の項目一覧の表紙（§3.3.1）には `urlExpiresAt` を付けない | クライアントが期限を知って取り直せる。秒を切り捨てないと `urlExpiresAt` が実際の期限より最大1秒遅れる |
+| 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC。期限は SAS の `se` に合わせて秒に切り捨てるので、ミリ秒の桁は常に `.000`）。旅行の表紙（§3.2）と図鑑の項目一覧の表紙（§3.3.1）には `urlExpiresAt` を付けない（図鑑の項目の詳細の `urlExpiresAt` は、`entry` の表紙と `photos` の共通の期限。§5.14） | クライアントが期限を知って取り直せる。秒を切り捨てないと `urlExpiresAt` が実際の期限より最大1秒遅れる |
 
 - 署名は `utils/blobSas.ts` の `generateReadSasUrl()`（`storageService.ts` から切り出したもの）。写真の URL は `PhotoStorageService.readUrl()` が `startsOn` を付けて呼び、
   期限は `photoUrlExpiresOn()`（`services/photoStorageService.ts`）が応答ごとに1回決めて、その応答のすべての URL と `urlExpiresAt` に同じ値を使う。
@@ -724,5 +734,5 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - `placeName`: 地名（[06 §4.2](./06_processing_design.md#42-段階2端末)）があり、緯度・経度も送るときだけ（§5.1 の 16）。無ければパートごと省く（空・空白のみは §5.1 の 17 で 400）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
-段階4で足すもの（4-3。サーバ側は `kinds`・`entries` が 4-2a で実装済み、`entry` は 4-2b）: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`。`entries` の件数は続きがあっても `limit` より少ないことがある。§5.14）、
+段階4で足すもの（4-3。サーバ側は `kinds`・`entries` が 4-2a、`entry` が 4-2b で実装済み）: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`。`entries` の件数は続きがあっても `limit` より少ないことがある。§5.14）、
 `getCatalogEntry(kind, name, {limit, continuationToken})`（`data['entry']`（null 可）・`data['photos']`・`data['continuationToken']`・`data['urlExpiresAt']`。`name` は `Uri.encodeQueryComponent()`）。
