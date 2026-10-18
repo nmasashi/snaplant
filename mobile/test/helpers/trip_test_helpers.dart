@@ -107,6 +107,12 @@ enum TripRoute {
 
   /// POST /api/photos/{photoId}/process（解析のやり直し。段階3）
   process,
+
+  /// GET /api/catalog/kinds（図鑑の種類の一覧。段階4）
+  catalogKinds,
+
+  /// GET /api/catalog/entries?kind=...&offset=...&limit=...（図鑑の項目の一覧。段階4）
+  catalogEntries,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
@@ -141,6 +147,11 @@ enum TripRoute {
 ///   `step` が `classify` でなければ 400「やり直す処理の種類が無効です」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
+/// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は名前順）に
+///   `offset`（既定 0）から `limit`（既定 50）件返し、`total` は項目の総数。種類が [catalogKinds] に無ければ 400「図鑑の種類が無効です」、
+///   `offset` が 0 以上の整数・`limit` が 1〜100 の整数でなければ 400「ページの指定が無効です」（本物と同じ）。
+///   [catalogVanishedNames] の名前は、ページからは外すが `total` には数える（本物が、数えてから見出しを読むまでに写真が無くなった項目を外すのと同じ）。
+///   受け取った `offset` は [catalogOffsetsReceived] に残す（続きの読み方は 03 §6.1 の決まり）
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
@@ -157,7 +168,11 @@ class FakeTripBackend {
     this.pageSize = 100,
     this.leadingEmptyPages = 0,
     Map<String, List<Map<String, Object?>>> photosByTripId = const {},
+    Map<String, List<Map<String, Object?>>> catalogEntriesByKind = const {},
   })  : trips = [...trips],
+        catalogEntriesByKind = {
+          for (final entry in catalogEntriesByKind.entries) entry.key: [...entry.value],
+        },
         photosByTripId = {
           for (final entry in photosByTripId.entries) entry.key: [...entry.value],
         };
@@ -172,6 +187,47 @@ class FakeTripBackend {
   /// 実際のサーバは、空のページを何度か読み直してもまだ空のとき、空のページをトークン付きで返すことがある（写真があっても起きる）。
   /// トークンを渡して読み進めると、この数だけ空のページを返したあと、写真の先頭から返す
   final int leadingEmptyPages;
+
+  /// 図鑑の種類（`GET /api/catalog/kinds` の `kinds`。既定は本物の定義表と同じ3つ）
+  List<Map<String, Object?>> catalogKinds = [
+    {
+      'kind': 'plant',
+      'label': '植物',
+      'fields': [
+        {'key': 'scientificName', 'label': '学名', 'type': 'string'},
+        {'key': 'familyName', 'label': '科名', 'type': 'string'},
+      ],
+    },
+    {
+      'kind': 'food',
+      'label': '食べ物',
+      'fields': [
+        {'key': 'genre', 'label': '料理のジャンル', 'type': 'string'},
+        {'key': 'mainIngredients', 'label': '主な食材', 'type': 'string[]'},
+      ],
+    },
+    {
+      'kind': 'landscape',
+      'label': '風景',
+      'fields': [
+        {'key': 'placeType', 'label': '場所の種類', 'type': 'string'},
+        {'key': 'placeName', 'label': '場所の名前', 'type': 'string'},
+        {'key': 'region', 'label': '地域', 'type': 'string'},
+      ],
+    },
+  ];
+
+  /// 図鑑の項目（キーは種類。`GET /api/catalog/entries` はこの並びのまま返す。本物は名前順なので、名前順に並べて渡す）
+  final Map<String, List<Map<String, Object?>>> catalogEntriesByKind;
+
+  /// ページからは外すが総数には数える項目の名前（数えてから見出しを読むまでに写真が無くなった項目）
+  final Set<String> catalogVanishedNames = {};
+
+  /// `GET /api/catalog/entries` で受け取った `offset`（届いた順）
+  final List<int> catalogOffsetsReceived = [];
+
+  /// 図鑑の API（種類の一覧と項目の一覧）の要求が届いた回数（応答を保留する前に数える）
+  int catalogRequestsReceived = 0;
 
   /// 旅行に属さない写真の枚数。写真を残す削除で、その旅行の枚数だけ増える
   int unassignedPhotoCount;
@@ -263,6 +319,7 @@ class FakeTripBackend {
     if (route == TripRoute.upload) uploadsReceived++;
     if (route == TripRoute.detail) tripFetchesReceived++;
     if (route == TripRoute.photos) photoPagesReceived++;
+    if (route == TripRoute.catalogKinds || route == TripRoute.catalogEntries) catalogRequestsReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -302,7 +359,34 @@ class FakeTripBackend {
         return _deletePhoto(request);
       case TripRoute.process:
         return _processPhoto(request);
+      case TripRoute.catalogKinds:
+        return _ok(200, {'kinds': catalogKinds});
+      case TripRoute.catalogEntries:
+        return _listCatalogEntries(request);
     }
+  }
+
+  http.Response _listCatalogEntries(http.Request request) {
+    final query = request.url.queryParameters;
+    final kind = query['kind'];
+    if (!catalogKinds.any((k) => k['kind'] == kind)) {
+      return _error(400, 'INVALID_REQUEST', '図鑑の種類が無効です');
+    }
+    final offsetParam = query['offset'];
+    final limitParam = query['limit'];
+    final offset = offsetParam == null ? 0 : (RegExp(r'^(0|[1-9][0-9]*)$').hasMatch(offsetParam) ? int.parse(offsetParam) : -1);
+    final limit = limitParam == null ? 50 : (RegExp(r'^[1-9][0-9]*$').hasMatch(limitParam) ? int.parse(limitParam) : -1);
+    if (offset < 0 || limit < 1 || limit > 100) {
+      return _error(400, 'INVALID_REQUEST', 'ページの指定が無効です');
+    }
+    catalogOffsetsReceived.add(offset);
+    final all = catalogEntriesByKind[kind] ?? const [];
+    final page = all
+        .skip(offset)
+        .take(limit)
+        .where((entry) => !catalogVanishedNames.contains(entry['name']))
+        .toList();
+    return _ok(200, {'entries': page, 'total': all.length});
   }
 
   TripRoute? _routeOf(http.Request request) {
@@ -322,6 +406,8 @@ class FakeTripBackend {
         _ => null,
       };
     }
+    if (path == '/api/catalog/kinds' && request.method == 'GET') return TripRoute.catalogKinds;
+    if (path == '/api/catalog/entries' && request.method == 'GET') return TripRoute.catalogEntries;
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
     if (path == '/api/photos' && request.method == 'POST') return TripRoute.upload;
     if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
@@ -786,6 +872,28 @@ Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   await tester.tap(find.text('旅行'));
   await letFramesRun(tester);
 }
+
+/// アプリを開いて、下のタブの「図鑑（新）」を開く（図鑑の種類の一覧と、最初の種類の項目の一覧を読み込むまで進める）
+Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async {
+  useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
+  SharedPreferences.setMockInitialValues({});
+  await saveTestEndpoint(tester);
+  await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
+  await tester.tap(find.text('図鑑（新）'));
+  await letFramesRun(tester);
+}
+
+/// 図鑑の項目（`GET /api/catalog/entries` の1件）。表紙の URL は Blob の場所に署名を付けた形
+Map<String, Object?> catalogEntryJson(String kind, String name, {int confidence = 90, int photoCount = 1}) => {
+      'kind': kind,
+      'name': name,
+      'confidence': confidence,
+      'description': '$nameの説明',
+      'characteristics': '$nameの特徴',
+      'attributes': <String, Object?>{},
+      'photoCount': photoCount,
+      'coverThumbnailUrl': 'https://test.blob.core.windows.net/photos/${name.hashCode}.thumb.jpg?sv=2024&sig=test',
+    };
 
 /// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が [count] 枚届くまで、実時間で少しずつ待つ（最長 10 秒）。
 /// 写真の準備（ファイルの読み込み・ハッシュ・EXIF）は別の isolate で実時間で進むので、`tester.runAsync` の中で待つ。
