@@ -51,6 +51,25 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 | `requeueStalePhotos` | `src/functions/requeueStalePhotos.ts` | `0 */10 * * * *`（10 分ごと） | 解析待ち・処理中のまま 10 分以上止まった写真を解析待ちに戻してキューに積む。回数が上限なら失敗にする |
 | `sweepAlbum` | `src/functions/sweepAlbum.ts` | `0 0 18 * * *`（毎日 UTC 18 時 = 日本時間の午前3時） | 文書の無い古い Blob を消し、消えた旅行を指す写真を未所属に戻し、原寸の Blob の無い写真をログに出す |
 
+## 手で回すスクリプト
+
+`src/scripts/` にあり、`app.ts` からは import しない（関数としては登録されない）。ビルドしてから手元で回す。
+環境変数が無ければ `local.settings.json` の `Values` を読む（中身はログに出さない）。**本番のデータを書くので、回すのは人間。**
+
+| スクリプト | 内容 | 設計 |
+|---|---|---|
+| `src/scripts/enqueueUnidentified.ts` | 段階3で分類まで済んだ写真（`done`・図鑑の種類・識別なし）を識別の待ちにする。キューには積まず、再投入のタイマーが 10〜20 分後に積む | `docs/travel-album/06_processing_design.md` §1 |
+
+```bash
+cd api
+npm run build
+node dist/src/scripts/enqueueUnidentified.js          # 対象の枚数を数えるだけ（何も書かない）
+node dist/src/scripts/enqueueUnidentified.js --apply  # 識別の待ちにする
+```
+
+要る設定は `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_ALBUM_CONTAINER`（キューの設定は要らない）。
+`--apply` の後、20 分ほどで識別が進む。進み具合は写真の `processing`（`pending` → `identifying` → `done`）で見る。
+
 ## テスト
 
 - `tests/` は `src/` をミラーする。守り続けるテストは入口（エンドポイント）の `tests/functions/` に置く
