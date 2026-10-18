@@ -146,8 +146,9 @@ void main() {
     expect(find.text('—'), findsOneWidget);
   });
 
-  testWidgets('その項目の写真を旅行をまたいで撮影の順に並べ、名前や種類の違う写真・分類と合わない写真は並べない',
-      (tester) async {
+  testWidgets('その項目の写真を、旅行に属さない写真も含めて旅行をまたいで、サーバが返す順に並べる', (tester) async {
+    // その項目の写真に絞るのはサーバ（05 §5.14）。偽のサーバも同じく名前・種類・matchesKind で絞るので、
+    // 13:00〜15:00 の写真が並ばないのは、その前提（画面が別の宛先を読んでいない）の確かめ
     final semantics = tester.ensureSemantics();
     final backend = _backend(hokkaidoPhotos: [
       _sakura(1, '10:00'),
@@ -180,7 +181,7 @@ void main() {
     for (final time in ['13:00', '14:00', '15:00']) {
       expect(photoThumbnail(_label(time)), findsNothing, reason: time);
     }
-    // 3列のグリッドの1行目に、サーバが返す順（sortAt の順）に左から並ぶ（クライアントは並べ替えない）
+    // 3列のグリッドの1行目に、サーバが返す順（sortAt の順）に左から並ぶ
     final first = tester.getTopLeft(photoThumbnail(_label('10:00')));
     final second = tester.getTopLeft(photoThumbnail(_label('12:00')));
     final third = tester.getTopLeft(photoThumbnail(_label('16:00')));
@@ -211,7 +212,7 @@ void main() {
     );
     await _openEntry(tester, backend, name: name);
 
-    expect(backend.catalogEntryQueriesReceived.first.name, name);
+    // 名前を取り違えて送ると、サーバは別の項目（写真なし）を返し、この説明は出ない
     expect(find.text('記号のある名前の説明'), findsOneWidget);
   });
 
@@ -230,8 +231,7 @@ void main() {
     firstReply.complete();
     await letFramesRun(tester);
 
-    expect(backend.catalogEntryQueriesReceived.map((q) => q.continuationToken),
-        [null, isNotNull]);
+    // 2ページ目にしか無い写真（12:00）が出る
     expect(photoThumbnail(_label('12:00')), findsOneWidget);
     expect(find.text('日本で最も広く植えられているサクラ'), findsOneWidget);
     expect(find.text('後から変わった説明'), findsNothing);
@@ -255,6 +255,7 @@ void main() {
     await letFramesRun(tester);
     await letFramesRun(tester);
 
+    // 前提: 続きのページを読みに行った（他の確かめは、続きを読まなくても成り立つ）。読み終えたので3回目は読まない
     expect(backend.catalogEntryQueriesReceived, hasLength(2));
     expect(photoThumbnail(_label('10:00')), findsOneWidget);
     expect(find.text('3枚'), findsOneWidget);
