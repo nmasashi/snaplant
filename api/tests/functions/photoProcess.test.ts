@@ -147,6 +147,36 @@ describe('写真の解析のやり直しAPI', () => {
     expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
   });
 
+  it('識別のやり直しを頼むと、202で受け付け、写真を識別の待ちにして手がかりを書き、コメントを消してキューに積む', async () => {
+    // 分類はやり直さず、今のカテゴリ（food）のまま名前だけを識別し直す（03 §5.4「名前だけ」）。前回の識別の結果は、やり直しの結果が出るまで残す
+    cosmosBackend.documents.set(
+      PHOTO_ID,
+      classifiedPhoto({
+        identification: { kind: 'food', matchesKind: true, name: '醤油ラーメン' },
+        processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: '2026-10-17T01:00:00.000Z' }
+      })
+    );
+
+    const response = await processPhotoRequestHandler(
+      createRequest(PHOTO_ID, { step: 'identify', hint: '味噌ラーメンだった' }),
+      mockContext
+    );
+
+    expect(response.status).toBe(202);
+    expect(storedPhoto()).toEqual(
+      classifiedPhoto({
+        identification: { kind: 'food', matchesKind: true, name: '醤油ラーメン' },
+        hint: '味噌ラーメンだった',
+        comment: null,
+        commentSource: null,
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW },
+        updatedAt: NOW
+      })
+    );
+    expect(response.jsonBody).toMatchObject({ success: true, data: { photo: { processing: { step: 'identify' } } } });
+    expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+  });
+
   it('上限まで失敗した（failed）写真も、回数を0に戻して、もう一度試せる', async () => {
     // failed から出る経路はこの操作だけ（06 §1.3）
     cosmosBackend.documents.set(
@@ -222,14 +252,13 @@ describe('写真の解析のやり直しAPI', () => {
       ['写真IDの形式が無効', 'not-a-photo-id', { step: 'classify' }, '写真IDの形式が無効です'],
       ['ボディがnull', PHOTO_ID, null, 'リクエストボディが指定されていません'],
       ['やり直す処理が無い', PHOTO_ID, {}, 'やり直す処理の種類が無効です'],
-      // 識別は段階4。段階3では受け付けない
-      ['やり直す処理が識別（段階3）', PHOTO_ID, { step: 'identify' }, 'やり直す処理の種類が無効です'],
+      ['やり直す処理が分類でも識別でもない', PHOTO_ID, { step: 'name' }, 'やり直す処理の種類が無効です'],
       ['やり直す処理が文字列でない', PHOTO_ID, { step: 1 }, 'やり直す処理の種類が無効です'],
       ['手がかりが文字列でない', PHOTO_ID, { step: 'classify', hint: 123 }, '補足情報は文字列で指定してください'],
       ['手がかりが500文字を超える', PHOTO_ID, { step: 'classify', hint: 'あ'.repeat(501) }, '補足情報は500文字以内で指定してください'],
       // 検証の順序: 写真ID → ボディ → 処理の種類 → 手がかり
-      ['写真IDも処理の種類も不正（写真IDの指摘が先）', 'bad', { step: 'identify' }, '写真IDの形式が無効です'],
-      ['処理の種類も手がかりも不正（処理の種類の指摘が先）', PHOTO_ID, { step: 'identify', hint: 123 }, 'やり直す処理の種類が無効です']
+      ['写真IDも処理の種類も不正（写真IDの指摘が先）', 'bad', { step: 'name' }, '写真IDの形式が無効です'],
+      ['処理の種類も手がかりも不正（処理の種類の指摘が先）', PHOTO_ID, { step: 'name', hint: 123 }, 'やり直す処理の種類が無効です']
     ];
 
     it.each(invalidCases)('%sなら、400で理由を返し、写真も変えずキューにも積まない', async (_case, photoId, body, message) => {
@@ -240,6 +269,35 @@ describe('写真の解析のやり直しAPI', () => {
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
       expect(storedPhoto()).toEqual(classifiedPhoto());
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it.each([
+      ['どの種類にも当てはまらない（other）', 'other'],
+      ['まだ分類されていない（null）', null]
+    ])('写真のカテゴリが%sなら、識別のやり直しは400で理由を返し、写真も変えずキューにも積まない', async (_case, category) => {
+      // 識別は図鑑の種類（植物・食べ物・風景）の写真だけ（05 §5.7 の 8）。分類のやり直しなら受け付ける
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ category }));
+
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify' }), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: 'この写真は識別の対象ではありません' }
+      });
+      expect(storedPhoto()).toEqual(classifiedPhoto({ category }));
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('識別のやり直しでも、写真が無ければ（カテゴリを見る前に）404で理由を返す', async () => {
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify' }), mockContext);
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'PHOTO_NOT_FOUND', message: '指定された写真が見つかりません' }
+      });
       expect(queuedMessages()).toEqual([]);
     });
 
