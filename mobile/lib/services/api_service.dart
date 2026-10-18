@@ -701,11 +701,12 @@ class ApiService {
     }
   }
 
-  /// 写真の解析（分類）のやり直しを頼む（受け付けるだけで、分類はサーバが後で行う）
+  /// 写真の解析のやり直しを頼む（受け付けるだけで、解析はサーバが後で行う）
   /// POST /api/photos/{photoId}/process
   ///
-  /// [hint] は利用者からの手がかり。空白だけなら送らない。受け付けた写真（分類の待ち）を返す
-  Future<Photo> requestPhotoProcessing(String photoId, {String? hint}) async {
+  /// [step] は `classify`（カテゴリから）か `identify`（カテゴリはそのままで名前だけ。図鑑の種類の写真だけ）。
+  /// [hint] は利用者からの手がかり。空白だけなら送らない。受け付けた写真（解析の待ち）を返す
+  Future<Photo> requestPhotoProcessing(String photoId, {String? hint, String step = 'classify'}) async {
     try {
       final url = _buildUrl('/api/photos/$photoId/process');
       final trimmed = hint?.trim() ?? '';
@@ -713,9 +714,30 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
         body: json.encode({
-          'step': 'classify',
+          'step': step,
           if (trimmed.isNotEmpty) 'hint': trimmed,
         }),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 写真のコメントを直す（利用者のコメントになる）
+  /// PATCH /api/photos/{photoId}
+  ///
+  /// 空・空白だけならコメントを消す（サーバが null と同じに扱う）。直した写真を返す
+  Future<Photo> updatePhotoComment(String photoId, String comment) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _client.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'comment': comment}),
       );
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;

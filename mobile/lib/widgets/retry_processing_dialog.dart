@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/photo.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/photo_category.dart';
 
 /// 解析のやり直しダイアログ（docs/travel-album/03_screen_design.md §5.4）
 ///
@@ -24,6 +25,9 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       text: widget.photo.commentSource == 'user'
           ? widget.photo.comment
           : widget.photo.hint);
+  // やり直す範囲（classify: カテゴリから、identify: 名前だけ）。名前だけを選べるのは、カテゴリが図鑑の種類の写真だけ
+  // （識別の対象でない写真の identify はサーバが断る。05 §5.7 の 8）
+  String _step = 'classify';
   bool _busy = false;
   String? _error;
 
@@ -39,8 +43,10 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       _error = null;
     });
     try {
-      final photo = await widget.apiService
-          .requestPhotoProcessing(widget.photo.id, hint: _hint.text);
+      final photo = await widget.apiService.requestPhotoProcessing(
+          widget.photo.id,
+          hint: _hint.text,
+          step: _step);
       if (mounted) Navigator.pop(context, photo);
     } catch (e) {
       // ApiException 以外でも留まって押し直せるようにする（受け止めないと、押せないまま閉じられなくなる。
@@ -73,6 +79,21 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isCatalogCategory(widget.photo.category)) ...[
+            const Text('やり直す範囲'),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'classify', label: Text('カテゴリから')),
+                ButtonSegment(value: 'identify', label: Text('名前だけ')),
+              ],
+              selected: {_step},
+              onSelectionChanged: _busy
+                  ? null
+                  : (selected) => setState(() => _step = selected.single),
+            ),
+            const SizedBox(height: 8),
+          ],
           TextField(
             controller: _hint,
             enabled: !_busy,

@@ -26,6 +26,12 @@ class Photo {
   /// 解析の進み具合（`processing.state`。`none` / `pending` / `classifying` / `identifying` / `done` / `failed`）
   final String processingState;
 
+  /// 解析のどの段か（`processing.step`。`classify` / `identify`）。段階2・3の写真には無い（null）
+  final String? processingStep;
+
+  /// AI の識別の結果（段階4）。識別の前と、図鑑の種類でない写真は null
+  final PhotoIdentification? identification;
+
   /// コメント。無ければ null
   final String? comment;
 
@@ -46,6 +52,8 @@ class Photo {
     this.placeName,
     this.category,
     this.processingState = 'none',
+    this.processingStep,
+    this.identification,
     this.comment,
     this.commentSource,
     this.hint,
@@ -53,6 +61,8 @@ class Photo {
 
   factory Photo.fromJson(Map<String, dynamic> json) {
     final location = json['location'] as Map<String, dynamic>?;
+    final processing = json['processing'] as Map<String, dynamic>?;
+    final identification = json['identification'] as Map<String, dynamic>?;
     return Photo(
       id: json['id'] as String,
       tripId: json['tripId'] as String?,
@@ -63,14 +73,38 @@ class Photo {
       longitude: (location?['longitude'] as num?)?.toDouble(),
       placeName: location?['placeName'] as String?,
       category: json['category'] as String?,
-      processingState:
-          (json['processing'] as Map<String, dynamic>?)?['state'] as String? ??
-              'none',
+      processingState: processing?['state'] as String? ?? 'none',
+      processingStep: processing?['step'] as String?,
+      identification: identification == null
+          ? null
+          : PhotoIdentification.fromJson(identification),
       comment: json['comment'] as String?,
       commentSource: json['commentSource'] as String?,
       hint: json['hint'] as String?,
     );
   }
+}
+
+/// AI の識別の結果（写真の `identification`。docs/travel-album/04_data_design.md §2.1）のうち、画面が使う項目
+class PhotoIdentification {
+  /// 図鑑の種類（`plant` など）
+  final String kind;
+
+  /// 写真が分類のカテゴリに合っていたか。false なら図鑑の項目には入らない
+  final bool matchesKind;
+
+  /// 項目の名前（図鑑の項目を開く鍵）
+  final String name;
+
+  const PhotoIdentification(
+      {required this.kind, required this.matchesKind, required this.name});
+
+  factory PhotoIdentification.fromJson(Map<String, dynamic> json) =>
+      PhotoIdentification(
+        kind: json['kind'] as String,
+        matchesKind: json['matchesKind'] as bool,
+        name: json['name'] as String,
+      );
 }
 
 /// 写真の一覧の1ページ（`GET /api/photos`）

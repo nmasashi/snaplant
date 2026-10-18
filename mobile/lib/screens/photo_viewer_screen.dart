@@ -1,14 +1,18 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/catalog.dart';
 import '../models/photo.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
+import '../widgets/comment_edit_dialog.dart';
 import '../widgets/confirm_action_dialog.dart';
 import '../widgets/retry_processing_dialog.dart';
+import 'catalog_entry_screen.dart';
 
 /// 写真ビューア（docs/travel-album/03_screen_design.md §4.6）
 ///
@@ -17,6 +21,7 @@ class PhotoViewerScreen extends StatefulWidget {
   const PhotoViewerScreen(
       {super.key,
       required this.apiService,
+      required this.uploadQueue,
       required this.photos,
       required this.initialIndex,
       required this.onReachEnd,
@@ -25,6 +30,9 @@ class PhotoViewerScreen extends StatefulWidget {
       required this.onUpdated});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（図鑑の項目詳細を開くときに渡す。項目詳細の写真のグリッドが要る）
+  final UploadQueue uploadQueue;
 
   /// 一覧の読み込み済みの写真（一覧と共有する。一覧が続きのページを読むと伸びる）
   final ValueListenable<List<Photo>> photos;
@@ -41,7 +49,7 @@ class PhotoViewerScreen extends StatefulWidget {
   /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
   final void Function(String photoId) onDeleted;
 
-  /// 写真が変わったとき（解析のやり直しを受け付けた）に呼ぶ
+  /// 写真が変わったとき（解析のやり直しを受け付けた・コメントを直した）に呼ぶ
   /// （一覧の読み込み済みの写真を置き換える。ビューアの表示もそれで変わる）
   final void Function(Photo photo) onUpdated;
 
@@ -158,6 +166,49 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(accepted);
   }
 
+  /// [photo] のコメントを、ダイアログで直す
+  Future<void> _editComment(Photo photo) async {
+    final updated = await showDialog<Photo>(
+      context: context,
+      builder: (context) =>
+          CommentEditDialog(apiService: widget.apiService, photo: photo),
+    );
+    if (updated == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('コメントを保存しました')));
+    widget.onUpdated(updated);
+  }
+
+  /// [identification] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
+  Future<void> _openEntry(PhotoIdentification identification) async {
+    final List<CatalogKind> kinds;
+    try {
+      kinds = await widget.apiService.getCatalogKinds();
+    } catch (e) {
+      debugPrint('PhotoViewerScreen: 図鑑の種類の一覧の読み込みエラー: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '図鑑の読み込みに失敗しました')));
+      return;
+    }
+    if (!mounted) return;
+    // 種類の一覧に無い種類（種類を減らした後の古い識別）は、欄の無い見出しで開く
+    final kind =
+        kinds.where((k) => k.kind == identification.kind).firstOrNull ??
+            CatalogKind(
+                kind: identification.kind,
+                label: identification.kind,
+                fields: const []);
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => CatalogEntryScreen(
+                apiService: widget.apiService,
+                uploadQueue: widget.uploadQueue,
+                kind: kind,
+                name: identification.name)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -197,6 +248,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 photo: photos[index],
                 showInfo: _showChrome,
                 onRetry: () => _retry(photos[index]),
+                onEditComment: () => _editComment(photos[index]),
+                onOpenEntry: _openEntry,
                 onZoomChanged: (zoomed) {
                   if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
                 }),
@@ -224,6 +277,8 @@ class _PhotoPage extends StatefulWidget {
       required this.photo,
       required this.showInfo,
       required this.onRetry,
+      required this.onEditComment,
+      required this.onOpenEntry,
       required this.onZoomChanged});
 
   final Photo photo;
@@ -231,8 +286,14 @@ class _PhotoPage extends StatefulWidget {
   /// 下の情報を出すか
   final bool showInfo;
 
-  /// 下の情報の「やり直す」（分類に失敗したときに出す）
+  /// 下の情報の「やり直す」（解析に失敗したとき・分類と合わない写真に出す）
   final VoidCallback onRetry;
+
+  /// 「コメントを編集」
+  final VoidCallback onEditComment;
+
+  /// 図鑑の項目へのリンク
+  final void Function(PhotoIdentification identification) onOpenEntry;
 
   /// 拡大したか・等倍に戻ったかを知らせる（拡大中は前後の写真へのスワイプを止める）
   final ValueChanged<bool> onZoomChanged;
@@ -263,6 +324,11 @@ class _PhotoPageState extends State<_PhotoPage> {
   Widget build(BuildContext context) {
     final photo = widget.photo;
     final thumbnailUrl = photo.thumbnailUrl;
+    // 識別の段（step が identify）なら、状態を「識別中...」「識別に失敗しました」と出す（03 §5.1）
+    final identifying = photo.processingStep == 'identify';
+    final identification = photo.identification;
+    final comment = photo.comment;
+    const infoStyle = TextStyle(color: Colors.white);
     return Column(
       children: [
         Expanded(
@@ -310,12 +376,12 @@ class _PhotoPageState extends State<_PhotoPage> {
                   Text(categoryLabel(photo.category!),
                       style: AppTextStyles.body1.copyWith(color: Colors.white)),
                 if (isProcessingInProgress(photo.processingState))
-                  Text('分類中...',
+                  Text(identifying ? '識別中...' : '分類中...',
                       style:
                           AppTextStyles.body1.copyWith(color: Colors.white70)),
                 if (isProcessingFailed(photo.processingState))
                   Row(children: [
-                    Text('分類に失敗しました',
+                    Text(identifying ? '識別に失敗しました' : '分類に失敗しました',
                         style: AppTextStyles.body1
                             .copyWith(color: Colors.white70)),
                     TextButton(
@@ -326,6 +392,41 @@ class _PhotoPageState extends State<_PhotoPage> {
                       child: const Text('やり直す'),
                     ),
                   ]),
+                if (identification != null && identification.matchesKind)
+                  TextButton(
+                    onPressed: () => widget.onOpenEntry(identification),
+                    style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero),
+                    child: Text('${identification.name} >'),
+                  ),
+                if (identification != null && !identification.matchesKind)
+                  Row(children: [
+                    Expanded(
+                      child: Text('分類と合わない写真です。やり直しで手がかりを付けてください',
+                          style: AppTextStyles.body1
+                              .copyWith(color: Colors.white70)),
+                    ),
+                    TextButton(
+                      onPressed: widget.onRetry,
+                      style:
+                          TextButton.styleFrom(foregroundColor: Colors.white),
+                      child: const Text('やり直す'),
+                    ),
+                  ]),
+                if (comment != null)
+                  Text(
+                      photo.commentSource == 'user'
+                          ? '$comment（編集済み）'
+                          : comment,
+                      style:
+                          AppTextStyles.body1.copyWith(color: infoStyle.color)),
+                TextButton(
+                  onPressed: widget.onEditComment,
+                  style: TextButton.styleFrom(
+                      foregroundColor: Colors.white, padding: EdgeInsets.zero),
+                  child: const Text('コメントを編集'),
+                ),
               ],
             ),
           ),

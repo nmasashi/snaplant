@@ -311,6 +311,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         MaterialPageRoute(
             builder: (_) => PhotoViewerScreen(
                 apiService: widget.apiService,
+                uploadQueue: widget.uploadQueue,
                 photos: _loaded,
                 initialIndex: index,
                 onReachEnd: _loadMore,
