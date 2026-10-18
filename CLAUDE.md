@@ -538,6 +538,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 
 | テスト | 例外 | 理由 |
 |---|---|---|
+| `api/tests/services/catalogEntries.test.ts`（`catalogPageOf()` のテストだけ） | 入口から入力を作れない | 偽物は `GROUP BY` と `ORDER BY` を解釈しないので、名前ごとの枚数の行と、項目ごとの見出しの写真（信頼度の高い1枚）を入口（`GET /api/catalog/entries`）から作れない |
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
 
 **複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
@@ -714,7 +715,7 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 ### Cosmos のクエリを変更したら手で確認する
 
 SQL の絞り込み・並び順・射影を検証しているテストは無い（偽物は SQL を解釈せず、エミュレータも E2E も無い）。
-`cosmosService.ts`・`albumQueries.ts`・`albumService.ts` のクエリを変えたら、デプロイ後に手で確かめる。
+`cosmosService.ts`・`albumQueries.ts`・`albumService.ts`・`catalogQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
 項目は `docs/06_api_design.md` §8（植物図鑑）と `docs/travel-album/08_test_plan.md` §5.2・§5.3（旅行アルバム。§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件）。
 
 ### クライアント実装で踏みやすい罠

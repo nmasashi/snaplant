@@ -1,10 +1,15 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
-import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { CatalogEntriesQuery, CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
+import { queryCatalogHead, queryCatalogNameCounts } from './catalogQueries';
+import { catalogPageOf } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
+
+/** album コンテナにつなぐのに要る設定（Terraform が Function App に入れる。手で回すスクリプトは local.settings.json から） */
+const COSMOS_SETTINGS = ['COSMOS_DB_ENDPOINT', 'COSMOS_DB_KEY', 'COSMOS_DB_DATABASE', 'COSMOS_DB_ALBUM_CONTAINER'] as const;
 
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
@@ -26,13 +31,19 @@ export class AlbumService {
   private container: Container;
 
   constructor() {
+    // 足りない設定の名前を言って止める。SDK に任せると、エンドポイントが無いときは TypeError（Invalid URL）になり、
+    // 何が足りないか分からない（手で回すスクリプトを、手元の設定が無いまま回したときに起きた）
+    // 確かめた値（前後の空白を除いたもの）で使う。空白の付いた値が確かめを通って SDK で分かりにくく落ちないように
+    const setting = (name: (typeof COSMOS_SETTINGS)[number]) => process.env[name]?.trim() ?? '';
+    const missing = COSMOS_SETTINGS.filter((name) => setting(name) === '');
+    if (missing.length > 0) {
+      throw new Error(`Cosmos の設定がありません: ${missing.join(', ')}`);
+    }
     const client = new CosmosClient({
-      endpoint: process.env.COSMOS_DB_ENDPOINT!,
-      key: process.env.COSMOS_DB_KEY!,
+      endpoint: setting('COSMOS_DB_ENDPOINT'),
+      key: setting('COSMOS_DB_KEY'),
     });
-    this.container = client
-      .database(process.env.COSMOS_DB_DATABASE!)
-      .container(process.env.COSMOS_DB_ALBUM_CONTAINER!);
+    this.container = client.database(setting('COSMOS_DB_DATABASE')).container(setting('COSMOS_DB_ALBUM_CONTAINER'));
   }
 
   /**
@@ -112,6 +123,27 @@ export class AlbumService {
       }
     });
     return urls;
+  }
+
+  /**
+   * 図鑑の項目の一覧の1ページを作る（docs/travel-album/04_data_design.md §3.1 の3段）
+   * @param query 検証済みのクエリ（種類・何件目から・何件まで）。offset と limit はどちらも数なので、位置で渡すと取り違えても型が止めない
+   * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
+   * @returns ページの項目と、項目の総数
+   */
+  async listCatalogEntries(
+    { kind, offset, limit }: CatalogEntriesQuery,
+    coverUrlOf: CoverUrlOf
+  ): Promise<{ entries: CatalogEntry[]; total: number }> {
+    // 1. 名前ごとの枚数 → 2・3 はページを作る関数（切ってから、ページの項目の分だけ見出しを読む）
+    return catalogPageOf(
+      kind,
+      await queryCatalogNameCounts(this.container, kind),
+      offset,
+      limit,
+      (name) => queryCatalogHead(this.container, kind, name),
+      coverUrlOf
+    );
   }
 
   /**

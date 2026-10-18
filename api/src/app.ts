@@ -2,6 +2,8 @@
 // すべての関数をここでimportして登録
 
 // 関数をimportすることで、app.http・app.storageQueue の登録が実行される
+import './functions/catalogEntries';
+import './functions/catalogKinds';
 import './functions/checkDuplicate';
 import './functions/identify';
 import './functions/photoDetail';

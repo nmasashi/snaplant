@@ -129,6 +129,39 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     expect(stored(photoId('b')).processing).toEqual(waitingForIdentify);
   });
 
+  it.each(['COSMOS_DB_ENDPOINT', 'COSMOS_DB_KEY', 'COSMOS_DB_DATABASE', 'COSMOS_DB_ALBUM_CONTAINER'])(
+    'Cosmos の設定（%s）が無ければ、どの設定が無いかを言って止まる',
+    async (name) => {
+      // 手元に local.settings.json が無いと、どれも無いまま回る。SDK の TypeError（Invalid URL）では何が足りないか分からない
+      delete process.env[name];
+
+      await expect(enqueueUnidentifiedPhotos({ apply: false, log })).rejects.toThrow(name);
+    }
+  );
+
+  it('足りない設定だけを、全部言う', async () => {
+    // 有る設定まで「無い」と言うと、手元の設定を直す人が迷う（文言は契約外なので、名前を含むかだけを見る）
+    delete process.env.COSMOS_DB_KEY;
+    delete process.env.COSMOS_DB_ALBUM_CONTAINER;
+
+    const message = await enqueueUnidentifiedPhotos({ apply: false, log }).then(
+      () => '',
+      (error: Error) => error.message
+    );
+
+    expect(message).toContain('COSMOS_DB_KEY');
+    expect(message).toContain('COSMOS_DB_ALBUM_CONTAINER');
+    expect(message).not.toContain('COSMOS_DB_ENDPOINT');
+    expect(message).not.toContain('COSMOS_DB_DATABASE');
+  });
+
+  it('Cosmos の設定が空白だけでも、無いのと同じに止まる', async () => {
+    // local.settings.json の値を空のまま残したとき
+    process.env.COSMOS_DB_DATABASE = '  ';
+
+    await expect(enqueueUnidentifiedPhotos({ apply: false, log })).rejects.toThrow('COSMOS_DB_DATABASE');
+  });
+
   it('読んだ後に消された写真は飛ばして、ほかの写真は書く', async () => {
     // 消された写真への patch は 404。止めずに次の写真へ進む（04 §7.1）
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a')));

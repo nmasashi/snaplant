@@ -68,6 +68,7 @@ node dist/src/scripts/enqueueUnidentified.js --apply  # 識別の待ちにする
 ```
 
 要る設定は `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_ALBUM_CONTAINER`（キューの設定は要らない）。
+どれかが無い・空白だけなら、何も読まずに `Cosmos の設定がありません: <足りない設定の名前>` を出して止まる（終了コード 1）。
 最初に宛先（Cosmos のホスト・データベース・コンテナ）を出すので、`--apply` の前に本番を指しているかを確かめる。`--apply` の後、20 分ほどで識別が進む。進み具合は写真の `processing`（`pending` → `identifying` → `done`）で見る。
 
 ## テスト

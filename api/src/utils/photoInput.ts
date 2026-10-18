@@ -5,6 +5,7 @@ import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { CONTEXT_INFO_VALIDATION, FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
 import { PHOTO_KINDS } from '../catalog/kinds';
+import { readPageLimit } from './pageLimit';
 
 /** 検証を通った写真の保存の入力 */
 export interface PhotoInput {
@@ -248,14 +249,9 @@ export function readPhotoListQuery(
     return { error: createValidationError('カテゴリが無効です') };
   }
 
-  const limitParam = query.get('limit');
-  // 既定の枚数も上限を超えない（環境変数の設定の誤りで上限が破られないように）
-  let limit: number = Math.min(PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
-  if (limitParam !== null) {
-    limit = /^[1-9][0-9]*$/.test(limitParam) ? Number(limitParam) : NaN;
-    if (!(limit <= PHOTO_VALIDATION.MAX_PAGE_SIZE)) {
-      return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
-    }
+  const limit = readPageLimit(query.get('limit'), PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
+  if (limit === null) {
+    return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
   }
 
   const continuationToken = query.get('continuationToken');

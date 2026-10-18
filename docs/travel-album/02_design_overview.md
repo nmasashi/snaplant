@@ -111,7 +111,7 @@ Azure Functions で動くものは3種類あり、どれも同じ Function App�
 | `OpenAIVisionService`（`services/openAIVisionService.ts`） | 段階3で小さく一般化（実装済み）。送り先のデプロイはコンストラクタの引数で決め、`analyze()` はスキーマ・プロンプト・画像だけを受ける（[06 §2.1](./06_processing_design.md#21-モデルとサービス)）。`identifyPlant()` と `PLANT_IDENTIFICATION_SCHEMA`（15〜84行）は段階4で定義表から生成するスキーマに置き換え、廃止と同時に消す | strict モードの罠（同ファイル 5〜14行）を踏み直さない |
 | `contextInfo` の検証（`identify.ts` 40〜48行、`upload.ts` 76〜85行）と埋め込み（`openAIVisionService.ts` の `plantIdentificationPrompt()` の `contextSection`）、`CONTEXT_INFO_VALIDATION`（`constants/validation.ts` 95〜102行） | やり直しの `hint` にそのまま流用（同じ定数・同じ `message`） | 要件 5.5.1 |
 | バリデーション定数（`positiveIntFromEnv()`、`UUID_REGEX`） | 流用。`TRIP_VALIDATION` / `PHOTO_VALIDATION` / `MOVE_VALIDATION` / `TAG_VALIDATION` を同じ形で追加 | [05 §4](./05_api_design.md#4-入力検証の定数) |
-| テスト用の Cosmos・Blob の差し替え部品（`api/tests/fakes/`） | 流用・拡張（`@type`・`@tripId`・`@category`・`@kind`・`@name` の絞り込み、`maxItemCount` と継続トークンのページ、同じ id の `create` で 409、`item().patch()` と `condition` 付き patch の 412）。集計（`GROUP BY`・`COUNT`・`TOP 1`）は解釈できないので、集計のクエリは差し替えられる層に分ける | [08 §2](./08_test_plan.md#2-テスト用の差し替え部品の拡張) |
+| テスト用の Cosmos・Blob の差し替え部品（`api/tests/fakes/`） | 流用・拡張（`@type`・`@tripId`・`@category`・`@name`（植物の名前）の絞り込み。図鑑の `@kind`・`@entryName` では絞らない、`maxItemCount` と継続トークンのページ、同じ id の `create` で 409、`item().patch()` と `condition` 付き patch の 412）。集計（`GROUP BY`・`COUNT`・`TOP 1`）は解釈できないので、集計のクエリは差し替えられる層に分ける | [08 §2](./08_test_plan.md#2-テスト用の差し替え部品の拡張) |
 | Flutter の `ApiService` + `MockClient`、`detectImageMimeType()`、`cached_network_image`、`SettingsService`、`setState` | 流用。`ApiService` は根（`AppRoot`）で1つ作って各画面に渡す | CLAUDE.md「実装の慣習」の Flutter の構成方針 |
 | Terraform の書き方、CI/CD | 流用 | [07](./07_infrastructure_design.md) |
 
