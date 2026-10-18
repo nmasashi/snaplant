@@ -99,6 +99,7 @@ class _CategoryPhotosScreenState extends State<CategoryPhotosScreen> {
         emptyTitle: '$labelの写真はありません',
         emptyMessage: '分類が済んだ写真が、ここに並びます',
         onViewerClosed: _reloadPhotos,
+        hasFloatingButton: false,
       ),
       onPhotosChanged: _reloadPhotos,
     );

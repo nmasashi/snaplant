@@ -516,6 +516,8 @@ class ApiService {
   /// 続きがあるかは枚数ではなく、返る継続トークンが null かどうかで判断する（最後のページが空のこともある）
   Future<PhotoPage> getPhotos(
       {String? tripId, String? category, String? continuationToken}) async {
+    // どちらも無い要求はサーバが 400 で断る（絞り込み条件が無い）。呼び出しの誤りなので、送る前に止める
+    assert(tripId != null || category != null, 'tripId か category のどちらかを指定する');
     try {
       // 旅行（tripId。旅行に属さない写真は none）とカテゴリのどちらか（両方なら AND）で絞る。旅行を指定しなければ旅行をまたぐ
       final query = {

@@ -16,7 +16,7 @@ import 'photo_selection.dart';
 
 /// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
 ///
-/// 写真の一覧を自分で読む。旅行詳細と旅行に属さない写真の画面で使う
+/// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面（旅行をまたぐ）で使う
 class PhotoGrid extends StatefulWidget {
   const PhotoGrid(
       {super.key,
@@ -28,7 +28,8 @@ class PhotoGrid extends StatefulWidget {
       required this.selection,
       this.onTripNotFound,
       this.onViewerClosed,
-      required this.uploadQueue});
+      required this.uploadQueue,
+      this.hasFloatingButton = true});
 
   final ApiService apiService;
 
@@ -52,6 +53,9 @@ class PhotoGrid extends StatefulWidget {
 
   /// 写真の送信の列。この一覧の宛先に送っている写真を、サーバの写真の後ろに端末の画像で並べる
   final UploadQueue uploadQueue;
+
+  /// 画面の右下に「写真を追加」が浮かぶか。浮かぶなら、一覧と末尾の表示をその分だけ上に空ける（カテゴリの写真の画面には無い）
+  final bool hasFloatingButton;
 
   /// 複数選択（長押しで始める）
   final PhotoSelection selection;
@@ -210,8 +214,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     final generation = _generation;
     setState(() => _isLoadingMore = true);
     try {
-      final page = await widget.apiService
-          .getPhotos(
+      final page = await widget.apiService.getPhotos(
           tripId: widget.tripId,
           category: widget.category,
           continuationToken: token);
@@ -247,6 +250,10 @@ class _PhotoGridState extends State<PhotoGrid> {
     });
     _loadMore();
   }
+
+  /// 一覧と末尾の表示の下に空ける高さ（「写真を追加」が浮かぶ画面だけボタンの分を空ける）
+  double get _bottomClearance =>
+      widget.hasFloatingButton ? _floatingButtonClearance : 2;
 
   /// 写真ビューアで消した写真を、読み込み済みの写真から除く
   void _removeLoaded(String photoId) {
@@ -384,7 +391,7 @@ class _PhotoGridState extends State<PhotoGrid> {
               // 写真が少なく画面に収まっていても、下に引っ張って読み直せるように
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.fromLTRB(
-                  2, 2, 2, hasFooter ? 2 : _floatingButtonClearance),
+                  2, 2, 2, hasFooter ? 2 : _bottomClearance),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 mainAxisSpacing: 2,
@@ -449,7 +456,7 @@ class _PhotoGridState extends State<PhotoGrid> {
               ],
             ),
           ),
-        if (hasFooter) const SizedBox(height: _floatingButtonClearance),
+        if (hasFooter) SizedBox(height: _bottomClearance),
       ],
     );
   }

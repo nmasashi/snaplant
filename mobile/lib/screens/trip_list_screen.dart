@@ -85,7 +85,6 @@ class _TripListScreenState extends State<TripListScreen> {
     }
   }
 
-  /// 旅行に属さない写真の画面を開く
   /// カテゴリの一覧を開く（旅行をまたいでカテゴリの写真を見る。§5.2）
   Future<void> _openCategories() async {
     await Navigator.push(
@@ -100,6 +99,7 @@ class _TripListScreenState extends State<TripListScreen> {
     await _loadTrips();
   }
 
+  /// 旅行に属さない写真の画面を開く
   Future<void> _openUnassignedPhotos(int photoCount) async {
     await Navigator.push(
       context,

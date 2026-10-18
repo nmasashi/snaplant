@@ -8,8 +8,8 @@ const _categoryLabels = {
   'other': 'その他',
 };
 
-/// 画面に並べるカテゴリの順（旅行詳細のチップと、カテゴリの一覧の画面）
-const photoCategories = ['plant', 'food', 'landscape', 'other'];
+/// 画面に並べるカテゴリの順（旅行詳細のチップと、カテゴリの一覧の画面）。表示名の表の順で、キーを二重に持たない
+final photoCategories = _categoryLabels.keys.toList();
 
 /// カテゴリの表示名。知らないキー（後の段階で足された種類など）はキーのまま返す
 String categoryLabel(String category) => _categoryLabels[category] ?? category;
