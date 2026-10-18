@@ -346,6 +346,7 @@ void main() {
 
   testWidgets('説明が長くても見出しが画面からあふれず、写真を出す（小さな端末）', (tester) async {
     // 説明は AI が返す文で、長さは決まっていない。見出しが画面を占めると写真のグリッドの高さが無くなる
+    final semantics = tester.ensureSemantics();
     final backend = _backend(hokkaidoPhotos: [
       _sakura(1, '10:00', confidence: 95, description: 'とても長い説明。' * 60),
     ], kyotoPhotos: []);
@@ -358,6 +359,10 @@ void main() {
 
     // 写真の1行（3列のマス）が収まる高さがある
     expect(tester.getSize(find.byType(GridView)).height, greaterThan(360 / 3));
+    // 写真のマスが画面の中に収まっている
+    expect(tester.getRect(photoThumbnail(_label('10:00'))).bottom,
+        lessThanOrEqualTo(640));
+    semantics.dispose();
   });
 
   testWidgets('古い読み直しの応答が後から届いても、見出しを古い内容に戻さない', (tester) async {
