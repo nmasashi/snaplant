@@ -5,11 +5,11 @@ import { CatalogHeadPhoto, CatalogNameCountRow } from './catalogQueries';
  * 図鑑の項目のページを、名前ごとの枚数の行と見出しの写真から組み立てる純粋な関数
  * （docs/travel-album/04_data_design.md §3.1 の「規模の注意」の 2 段と 3 段）
  *
- * 集計とその並びは偽物では作れないので、入口ではなくここを単体で確かめる（CLAUDE.md の名簿）
+ * 集計とその並びは偽物では作れないので、入口ではなく catalogPageOf() を単体で確かめる（CLAUDE.md の名簿）
  */
 
 /** 名前の決まった、名前ごとの枚数の行 */
-export interface CatalogNameCount {
+interface CatalogNameCount {
   name: string;
   photoCount: number;
 }
@@ -24,7 +24,7 @@ export interface CatalogNameCount {
  * @param limit 何件まで
  * @returns ページの行と、項目の総数（ページに依らない）
  */
-export function pageOfCatalogNames(
+function pageOfCatalogNames(
   rows: CatalogNameCountRow[],
   offset: number,
   limit: number
@@ -43,7 +43,7 @@ export function pageOfCatalogNames(
  * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
  * @returns 項目。見出しの写真が無ければ null（そのページから外す）
  */
-export function catalogEntryOf(
+function catalogEntryOf(
   kind: string,
   row: CatalogNameCount,
   head: CatalogHeadPhoto | null,
