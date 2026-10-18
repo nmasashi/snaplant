@@ -322,6 +322,21 @@ class _PhotoPageState extends State<_PhotoPage> {
     super.dispose();
   }
 
+  /// 下の情報の、文言と「やり直す」の行（解析に失敗した・分類と合わない写真）。文言が長ければ折り返す
+  Widget _withRetry(String message) {
+    return Row(children: [
+      Expanded(
+        child: Text(message,
+            style: AppTextStyles.body1.copyWith(color: Colors.white70)),
+      ),
+      TextButton(
+        onPressed: widget.onRetry,
+        style: _infoButtonStyle,
+        child: const Text('やり直す'),
+      ),
+    ]);
+  }
+
   /// 指を離したときの倍率で、拡大中かを決める
   void _onInteractionEnd(ScaleEndDetails details) {
     final zoomed = _transformation.value.getMaxScaleOnAxis() > 1.01;
@@ -408,16 +423,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                               style: AppTextStyles.body1
                                   .copyWith(color: Colors.white70)),
                         if (isProcessingFailed(photo.processingState))
-                          Row(children: [
-                            Text(identifying ? '識別に失敗しました' : '分類に失敗しました',
-                                style: AppTextStyles.body1
-                                    .copyWith(color: Colors.white70)),
-                            TextButton(
-                              onPressed: widget.onRetry,
-                              style: _infoButtonStyle,
-                              child: const Text('やり直す'),
-                            ),
-                          ]),
+                          _withRetry(identifying ? '識別に失敗しました' : '分類に失敗しました'),
                         if (entryName != null)
                           TextButton(
                             onPressed: () => widget.onOpenEntry(
@@ -427,18 +433,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                           ),
                         if (identification != null &&
                             !identification.matchesKind)
-                          Row(children: [
-                            Expanded(
-                              child: Text('分類と合わない写真です。やり直しで手がかりを付けてください',
-                                  style: AppTextStyles.body1
-                                      .copyWith(color: Colors.white70)),
-                            ),
-                            TextButton(
-                              onPressed: widget.onRetry,
-                              style: _infoButtonStyle,
-                              child: const Text('やり直す'),
-                            ),
-                          ]),
+                          _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
                         if (comment != null)
                           Text(
                               photo.commentSource == 'user'
