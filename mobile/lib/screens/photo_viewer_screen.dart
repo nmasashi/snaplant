@@ -352,108 +352,117 @@ class _PhotoPageState extends State<_PhotoPage> {
     // 識別の段（step が identify）なら、状態を「識別中...」「識別に失敗しました」と出す（03 §5.1）
     final identifying = photo.processingStep == 'identify';
     final identification = photo.identification;
-    // 項目へのリンクの名前（分類と合わない写真は名前が null なので、リンクを出さない）
-    final entryName = identification != null && identification.matchesKind
-        ? identification.name
-        : null;
+    // 項目へのリンクの種類と名前（分類と合わない写真は名前が null なので、リンクを出さない）
+    final entry = switch (identification) {
+      PhotoIdentification(
+        matchesKind: true,
+        :final kind,
+        name: final String name
+      ) =>
+        (kind: kind, name: name),
+      _ => null,
+    };
     final comment = photo.comment;
-    return Column(
-      children: [
-        Expanded(
-          child: InteractiveViewer(
-            transformationController: _transformation,
-            maxScale: 4,
-            // 等倍の間は1本指の動きを前後の写真へのスワイプに譲る
-            panEnabled: _zoomed,
-            onInteractionEnd: _onInteractionEnd,
-            child: CachedNetworkImage(
-              imageUrl: photo.imageUrl,
-              cacheKey: imageCacheKey(photo.id),
-              cacheManager: PhotoCacheManager.images,
-              fit: BoxFit.contain,
-              // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す
-              placeholder: (context, url) => thumbnailUrl == null
-                  ? const SizedBox.shrink()
-                  : CachedNetworkImage(
-                      imageUrl: thumbnailUrl,
-                      cacheKey: thumbnailCacheKey(photo.id),
-                      cacheManager: PhotoCacheManager.thumbnails,
-                      fit: BoxFit.contain,
-                    ),
-              // SAS の期限切れ（403）などで読めないときは、グリッドと同じ文言を出す。戻って一覧を読み直せば新しい URL になる
-              errorWidget: (context, url, error) => const Center(
-                child:
-                    Text('画像を読み込めません', style: TextStyle(color: Colors.white70)),
+    // 下の情報の高さの上限は、この写真の画面が使える高さ（上のバーの下）から決める
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        children: [
+          Expanded(
+            child: InteractiveViewer(
+              transformationController: _transformation,
+              maxScale: 4,
+              // 等倍の間は1本指の動きを前後の写真へのスワイプに譲る
+              panEnabled: _zoomed,
+              onInteractionEnd: _onInteractionEnd,
+              child: CachedNetworkImage(
+                imageUrl: photo.imageUrl,
+                cacheKey: imageCacheKey(photo.id),
+                cacheManager: PhotoCacheManager.images,
+                fit: BoxFit.contain,
+                // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す
+                placeholder: (context, url) => thumbnailUrl == null
+                    ? const SizedBox.shrink()
+                    : CachedNetworkImage(
+                        imageUrl: thumbnailUrl,
+                        cacheKey: thumbnailCacheKey(photo.id),
+                        cacheManager: PhotoCacheManager.thumbnails,
+                        fit: BoxFit.contain,
+                      ),
+                // SAS の期限切れ（403）などで読めないときは、グリッドと同じ文言を出す。戻って一覧を読み直せば新しい URL になる
+                errorWidget: (context, url, error) => const Center(
+                  child: Text('画像を読み込めません',
+                      style: TextStyle(color: Colors.white70)),
+                ),
               ),
             ),
           ),
-        ),
-        if (widget.showInfo)
-          Container(
-            width: double.infinity,
-            // コメントの長さは AI が返す文で決まる。下の情報は画面の高さの半分までにし、超える分は下の情報の中でスクロールする。
-            // 「コメントを編集」はスクロールの外に置き、いつも押せるようにする
-            // （固定の高さのまま置くと、小さな端末で写真と「コメントを編集」が画面の外に出る）
-            constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.5),
-            color: Colors.black54,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(formatTakenAt(photo.takenAt),
-                            style: AppTextStyles.body1
-                                .copyWith(color: Colors.white)),
-                        Text(_placeText(photo),
-                            style: AppTextStyles.body1
-                                .copyWith(color: Colors.white)),
-                        if (photo.category != null &&
-                            photo.category != otherCategory)
-                          Text(categoryLabel(photo.category!),
+          if (widget.showInfo)
+            Container(
+              width: double.infinity,
+              // コメントの長さは AI が返す文で決まる。下の情報は画面の高さの半分までにし、超える分は下の情報の中でスクロールする。
+              // 「コメントを編集」はスクロールの外に置き、いつも押せるようにする
+              // （固定の高さのまま置くと、小さな端末で写真と「コメントを編集」が画面の外に出る）
+              constraints:
+                  BoxConstraints(maxHeight: constraints.maxHeight * 0.5),
+              color: Colors.black54,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(formatTakenAt(photo.takenAt),
                               style: AppTextStyles.body1
                                   .copyWith(color: Colors.white)),
-                        if (isProcessingInProgress(photo.processingState))
-                          Text(identifying ? '識別中...' : '分類中...',
-                              style: AppTextStyles.body1
-                                  .copyWith(color: Colors.white70)),
-                        if (isProcessingFailed(photo.processingState))
-                          _withRetry(identifying ? '識別に失敗しました' : '分類に失敗しました'),
-                        if (entryName != null)
-                          TextButton(
-                            onPressed: () => widget.onOpenEntry(
-                                identification!.kind, entryName),
-                            style: _infoLinkStyle,
-                            child: Text('$entryName >'),
-                          ),
-                        if (identification != null &&
-                            !identification.matchesKind)
-                          _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
-                        if (comment != null)
-                          Text(
-                              photo.commentSource == 'user'
-                                  ? '$comment（編集済み）'
-                                  : comment,
+                          Text(_placeText(photo),
                               style: AppTextStyles.body1
                                   .copyWith(color: Colors.white)),
-                      ],
+                          if (photo.category != null &&
+                              photo.category != otherCategory)
+                            Text(categoryLabel(photo.category!),
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white)),
+                          if (isProcessingInProgress(photo.processingState))
+                            Text(identifying ? '識別中...' : '分類中...',
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white70)),
+                          if (isProcessingFailed(photo.processingState))
+                            _withRetry(identifying ? '識別に失敗しました' : '分類に失敗しました'),
+                          if (entry != null)
+                            TextButton(
+                              onPressed: () =>
+                                  widget.onOpenEntry(entry.kind, entry.name),
+                              style: _infoLinkStyle,
+                              child: Text('${entry.name} >'),
+                            ),
+                          if (identification != null &&
+                              !identification.matchesKind)
+                            _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
+                          if (comment != null)
+                            Text(
+                                photo.commentSource == 'user'
+                                    ? '$comment（編集済み）'
+                                    : comment,
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white)),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                TextButton(
-                  onPressed: widget.onEditComment,
-                  style: _infoLinkStyle,
-                  child: const Text('コメントを編集'),
-                ),
-              ],
+                  TextButton(
+                    onPressed: widget.onEditComment,
+                    style: _infoLinkStyle,
+                    child: const Text('コメントを編集'),
+                  ),
+                ],
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
