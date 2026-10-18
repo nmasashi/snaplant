@@ -31,7 +31,7 @@ export async function requeueStalePhotosHandler(_timer: Timer, context: Invocati
     }
     const giveUp = read.attempts >= maxAttempts;
     // ワーカーは解析待ち（pending）の写真しか担当しないので、処理中の写真は解析待ちに戻してから積む
-    const written = await album.resetStalePhotoProcessing(photo.id, read, {
+    const written = await album.writeProcessing(photo.id, read, {
       ...read,
       state: giveUp ? 'failed' : 'pending',
       updatedAt: now.toISOString(),

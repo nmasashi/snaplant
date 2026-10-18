@@ -33,7 +33,7 @@
 
 - 識別の待ち（`step: "identify"`）の写真も同じく拾う。ワーカーが `identify` を担当する（4-1a）ので、積んだ写真は識別に進む。
   キューに 10 分以上溜まっている写真も解析待ちとして拾い、もう一通積む（`updatedAt` を今にするので 1枚につき 10 分に 1通まで。重複したメッセージは担当の条件で何もせずに終わり、AI は呼ばない。2026-10-18 に許容）
-- 写真ごとに、`processing` を `FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き patch で書き換える。
+- 写真ごとに、`processing` を `FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き patch で書き換える（`AlbumService.writeProcessing()`。条件は `processingCondition()`）。
   412（読んだ後にワーカーが担当した・やり直しの受付が入ったなど）か 404（消えた）なら、その写真には触らず（積まず）次へ進む
 - 上限（`attempts >= PHOTO_PROCESSING_MAX_ATTEMPTS`）の写真は `failed` にして積まない。それ以外は `pending` にしてから積む。
   投入に失敗した写真はログだけ出して残りを続ける（写真は `pending` のまま残り、次の回に拾う）
@@ -78,9 +78,16 @@ sequenceDiagram
 
 - 段階2の `POST /api/photos` は `processing.state: "none"`・`step: null` で保存し、キューには投入しない。段階3で `pending`・`step: "classify"` + 投入に変える
 - 段階3で、段階2に送った既存の写真（`state: "none"`）を分類するには、`POST /api/photos/{photoId}/process` を1枚ずつ呼ぶか、
-  一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnclassified.ts`）で投入する。タイマーには `none` を拾わせない（意図せず全件に課金しないため）
+  一度だけ走らせる手動のスクリプトで投入する。タイマーには `none` を拾わせない（意図せず全件に課金しないため）。
+  **スクリプトはまだ作っていない**（段階3では使わなかった）。作るなら手で回すスクリプトの置き場（`api/README.md`「手で回すスクリプト」）に合わせて `api/src/scripts/enqueueUnclassified.ts` にする
 - 段階4で、段階3で分類まで済んだ写真（`state: "done"`、種類が識別対象で `identification` が無いもの）を識別するには、`POST /api/photos/{photoId}/process` を1枚ずつ呼ぶか、
-  一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnidentified.ts`。人間が実行する）で `pending`・`step: "identify"` にして投入する。タイマーには拾わせない（上と同じ理由。2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）
+  一度だけ走らせる手動のスクリプト（`api/src/scripts/enqueueUnidentified.ts`。人間が実行する）で識別の待ち（`pending`・`step: "identify"`・回数 0）にする。対象でない写真をタイマーが自分から識別に回すことはしない（上と同じ理由。2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）
+  - 対象は「`state: "done"`・`category` が `CATALOG_KINDS` のどれか・`identification` が `null`」の写真。クエリで絞り、同じ条件をコードでも見る（クエリの絞り込みはテストで確かめられない）
+  - 書き込みは読んだときの `processing` の条件付き patch（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり) と同じ `processingCondition()`）。読んだ後にやり直しの受付やワーカーが書き換えた写真は飛ばす
+  - **キューには積まない。** 識別の待ちにした写真は、再投入のタイマーが 10〜20 分後に積む（待ちのまま 10 分たった写真を拾う。§1.1）。スクリプトを手元で回すときに、本番のキューへの接続を要らなくするため（手元の設定の `AzureWebJobsStorage` はローカルの偽物を指していることがある）
+  - **既定は数えるだけで、何も書かない。** `--apply` を付けたときだけ書く（本番のデータを書くので、先に件数を見てから回す）。手順は `api/README.md`
+  - 対象の枚数と、識別の待ちにした枚数をログに出す（飛ばした写真は ID も）。途中で止まっても回し直してよい（待ちにした写真は `done` でなくなるので、次の回の対象から外れる）
+  - 読むクエリは `AlbumService.listUnidentifiedPhotos()`（[04 §5](./04_data_design.md#5-クエリ) の 5.11）、書くのは `writeProcessing()`
 - `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。
   分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
 - ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch、コメント（識別だけ）は同じ条件に `commentSource` の条件を足した patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
@@ -104,7 +111,7 @@ sequenceDiagram
 - 写真の `processing.step` を見て、`classify` なら分類、`identify` なら識別を担当する（`identify` は 4-1a で実装済み）。それ以外（`step: null` の `none` の写真）なら何もしない（AI を呼ばず、写真も変えない）。
   処理中の `state` は `classify` なら `classifying`、`identify` なら `identifying`。失敗の書き込みも `step` はそのまま（識別の失敗は識別の待ちに戻り、分類からやり直さない）
 - 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。読んでから担当するまでに写真が消されていた（404）ときも何もしない。
-  `step` も条件に入れるのは、読んでから担当するまでに別の処理が `step` を変えていた（分類を済ませて識別の待ちにした。段階4）ときに、識別を捨てて分類し直さないため。`processing.updatedAt` も条件に入れるのは、やり直しの受付が回数を 0 に戻すため（受付の後に取り直された担当は、古い担当と state・step・回数が同じ値になる。`updatedAt` は processing を書くたびに変わるので担当ごとの印になる）。担当・結果と失敗の書き込み・再投入のタイマーのリセットが、どれも同じ形の条件を使う（`albumService.ts` の `processingCondition()`）。`attempts` も条件に入れるのは、読んでから担当するまでの間に別のインスタンスが担当して失敗し `pending` に戻していた場合を見分けるため（`state` だけでは同じに見え、古い回数から数え直して上限で止まらなくなる）。
+  `step` も条件に入れるのは、読んでから担当するまでに別の処理が `step` を変えていた（分類を済ませて識別の待ちにした。段階4）ときに、識別を捨てて分類し直さないため。`processing.updatedAt` も条件に入れるのは、やり直しの受付が回数を 0 に戻すため（受付の後に取り直された担当は、古い担当と state・step・回数が同じ値になる。`updatedAt` は processing を書くたびに変わるので担当ごとの印になる）。担当・結果と失敗の書き込み・再投入のタイマーのリセット・識別に回すスクリプト（§1.2）が、どれも同じ形の条件を使う（`albumService.ts` の `processingCondition()`。担当以外は `writeProcessing()` などの `patchIfStillClaimed()` を通る）。`attempts` も条件に入れるのは、読んでから担当するまでの間に別のインスタンスが担当して失敗し `pending` に戻していた場合を見分けるため（`state` だけでは同じに見え、古い回数から数え直して上限で止まらなくなる）。
   読んだ写真の `state` が `done` / `failed` / `none` / 処理中でも何もしない（どれも担当の条件付き patch が 412 になる。読んだ値で先に判断しない）
 - 結果の書き込みと失敗の書き込み（`pending` に戻す・`failed` にする）は、`FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き patch（3-3b）。
   412 か 404 なら何も書かずに終える（失敗でも例外を投げない）。分類・識別の間にやり直しの受付（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。`pending`・`attempts: 0`）が入ったとき、
@@ -216,7 +223,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 | 項目 | 内容 |
 |---|---|
 | デプロイ | 今のデプロイ（`AZURE_OPENAI_DEPLOYMENT_NAME`）。識別用の環境変数は置かない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17。分けるときに足す）。設定の誤り（デプロイ名が無い、クライアントを作れない）は分類と同じく AI の失敗にしない（§2.1） |
-| 種類 | 写真の `category`。ワーカーは識別の待ちを担当した後、`category` が `CATALOG_KINDS` に無ければ AI を呼ばずに内部の失敗（`lastError: "internal"`）として数える（分類を経ずに識別の待ちになった写真。ふつうは起きない） |
+| 種類 | 写真の `category`。ワーカーは識別の待ちを担当した後、`category` が `CATALOG_KINDS` に無ければ AI を呼ばずに内部の失敗（`lastError: "internal"`）として数える（分類を経ずに識別の待ちになった写真。ふつうは起きない。`process` の `identify` はカテゴリを見てから受け付けるが、読んでから書くまでに分類がカテゴリを `other` に変えたときに起きうる。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)） |
 | 画像・要求の形 | 分類と同じ（原寸の 15 分の SAS、`detail: "low"`、`max_completion_tokens: 4000`、`temperature` を送らない）。`response_format` の名前は `photo_identification`、`strict: true` |
 | スキーマ | 共通項目（`matchesKind` は boolean、`name`・`description`・`characteristics` は `["string","null"]`、`comment` は string、`confidence` は number）と `attributes`（object。`fields` の各 `key` を `required` に入れ、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` は string、`additionalProperties: false`）。`fields` の `prompt` は各項目の `description` に入れる。`description` の文言は契約外 |
 | サービス | `api/src/services/photoIdentifierService.ts` の `identify(imageUrl, kind, { placeName, takenAt, hint })` |
@@ -349,7 +356,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 | 手順 | 内容 | 担当 |
 |---|---|---|
 | 1. 退避 | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md` に書く） | 人間 |
-| 2. 移行 | `api/scripts/migratePlants.ts`（ローカルで実行。冪等）: `plants` を全件読み → `imagePath` の Blob を読んで SHA-256 → `photos/<hash>.jpg` に上げる（上書き）→ `photo` を `create`（既にあれば飛ばして一覧に出す）。写真の中身: `tripId: null`、`category: "plant"`、`tags: []`、`takenAt: null`・`takenAtSource: "none"`、`uploadedAt = plant.createdAt`、`sortAt` は `uploadedAt` を日本時間に直したもの（[04 §1.3](./04_data_design.md#13-写真type-photo)）、`comment = plant.characteristics`・`commentSource: "ai"`、`classification: { kind: "plant", confidence: null, model: "migration", at: plant.createdAt }`（分類 AI は通していないので `confidence` は `null`）、`identification: { kind: "plant", matchesKind: true, name: plant.name, confidence: plant.confidence, description: plant.description, characteristics: plant.characteristics, attributes: { scientificName, familyName }, reason: null, model: "migration", at: plant.createdAt }`、`processing: { state: "done", step: "identify", ... }`、`legacyPlantId`。Blob → `create` の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）。`imagePath` の Blob が無い植物は飛ばして一覧に出す | メインセッション（スクリプト）、人間（実行） |
+| 2. 移行 | `api/src/scripts/migratePlants.ts`（ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` を全件読み → `imagePath` の Blob を読んで SHA-256 → `photos/<hash>.jpg` に上げる（上書き）→ `photo` を `create`（既にあれば飛ばして一覧に出す）。写真の中身: `tripId: null`、`category: "plant"`、`tags: []`、`takenAt: null`・`takenAtSource: "none"`、`uploadedAt = plant.createdAt`、`sortAt` は `uploadedAt` を日本時間に直したもの（[04 §1.3](./04_data_design.md#13-写真type-photo)）、`comment = plant.characteristics`・`commentSource: "ai"`、`classification: { kind: "plant", confidence: null, model: "migration", at: plant.createdAt }`（分類 AI は通していないので `confidence` は `null`）、`identification: { kind: "plant", matchesKind: true, name: plant.name, confidence: plant.confidence, description: plant.description, characteristics: plant.characteristics, attributes: { scientificName, familyName }, reason: null, model: "migration", at: plant.createdAt }`、`processing: { state: "done", step: "identify", ... }`、`legacyPlantId`。Blob → `create` の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）。`imagePath` の Blob が無い植物は飛ばして一覧に出す | メインセッション（スクリプト）、人間（実行） |
 | 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の一覧（Blob が無い・同じ写真が先にあった）を人間が見て、捨てるか手で入れるかを決める | 人間 |
 | 4. アプリ | 図鑑タブを新しい図鑑画面に差し替え、`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除 | PR |
 | 5. API | `upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |

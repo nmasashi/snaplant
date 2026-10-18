@@ -1,9 +1,13 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
+import { CATALOG_KINDS } from '../catalog/kinds';
 import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
+
+/** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
+export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
 /** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
 export interface PhotoBlobNames {
@@ -364,27 +368,23 @@ export class AlbumService {
   }
 
   /**
-   * 止まった写真の processing を書き換える（解析待ちに戻すか、失敗にする）。読んだときのままのときだけ書く条件付きの patch
+   * 分類まで済んで識別の無い、図鑑の種類の写真を読む（段階3に送った写真を識別に回すスクリプト用。06 §1）
    *
-   * 読んでから書くまでにワーカーが担当していたら（state か回数が変わる）書かない
-   * @param id 写真 ID
-   * @param read 読んだときの processing
-   * @param next 書く processing
-   * @returns 書けたら true。読んだときと変わっていた（412）か、写真が消えていた（404）なら false
+   * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
+   * @returns 写真ごとの id・category・identification・processing
    */
-  async resetStalePhotoProcessing(id: string, read: PhotoProcessing, next: PhotoProcessing): Promise<boolean> {
-    try {
-      await this.container.item(id, id).patch({
-        condition: processingCondition(read),
-        operations: [{ op: 'set', path: '/processing', value: next }],
-      });
-      return true;
-    } catch (error: any) {
-      if (error.code === 412 || error.code === 404) {
-        return false;
-      }
-      throw error;
-    }
+  async listUnidentifiedPhotos(): Promise<UnidentifiedPhotoRow[]> {
+    const { resources } = await this.container.items
+      .query<UnidentifiedPhotoRow>({
+        query:
+          "SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)",
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@kinds', value: Object.keys(CATALOG_KINDS) },
+        ],
+      })
+      .fetchAll();
+    return resources;
   }
 
   /**
@@ -433,29 +433,21 @@ export class AlbumService {
    * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
    */
   async claimPhotoProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
-    try {
-      await this.container.item(id, id).patch({
-        condition: processingCondition(expected),
-        operations: [{ op: 'set', path: '/processing', value: processing }],
-      });
-      return true;
-    } catch (error: any) {
-      if (error.code === 412 || error.code === 404) {
-        return false;
-      }
-      throw error;
-    }
+    return this.writeProcessing(id, expected, processing);
   }
 
   /**
-   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）。担当したときのままのときだけ書く
+   * 写真の解析の進み具合だけを書く（結果の欄には触らない）。processing が expected のままのときだけ書く
+   *
+   * ワーカーの失敗の記録（expected は担当したときに書いたもの）、再投入のタイマーと識別に回すスクリプト（expected は読んだもの）が使う。
+   * 読んで（担当して）から書くまでに、ワーカーの担当ややり直しの受付が入っていたら書かない
    * @param id 写真 ID
-   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
+   * @param expected 読んだ、または担当したときに書いた processing
    * @param processing 書く processing
-   * @returns 書けたら true。担当したときと変わっていたら false
+   * @returns 書けたら true。expected と変わっていた（412）か、写真が消えていた（404）なら false
    */
-  async writeProcessing(id: string, claimed: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
-    return this.patchIfStillClaimed(id, claimed, [{ op: 'set', path: '/processing', value: processing }]);
+  async writeProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
+    return this.patchIfStillClaimed(id, expected, [{ op: 'set', path: '/processing', value: processing }]);
   }
 
   /**

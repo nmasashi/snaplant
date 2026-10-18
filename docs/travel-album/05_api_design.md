@@ -432,7 +432,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 ### 5.7 `POST /api/photos/{photoId}/process`（段階3）
 
-**実装済み（`step: "classify"` だけ）**（3-3b。`photoProcess.ts`、検証は `utils/photoInput.ts` の `readProcessRequestInput`）。`identify` と 8 は段階4。
+**実装済み**（3-3b で `step: "classify"`、4-1b で `step: "identify"` と 8。`photoProcess.ts`、検証は `utils/photoInput.ts` の `readProcessRequestInput`）。
 
 AI の解析をやり直す（要件 5.5.1）。
 
@@ -443,16 +443,18 @@ AI の解析をやり直す（要件 5.5.1）。
 | 1 | `photoId` の形式が無効 | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 2 | ボディが JSON としてパースできない | 400 `INVALID_REQUEST` | `リクエストボディの形式が無効です` |
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
-| 4 | `step` が `classify` / `identify` でない（段階3では `identify` も不可） | 400 `INVALID_REQUEST` | `やり直す処理の種類が無効です` |
+| 4 | `step` が `classify` / `identify` でない | 400 `INVALID_REQUEST` | `やり直す処理の種類が無効です` |
 | 5 | `hint` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `補足情報は文字列で指定してください`（既存） |
 | 6 | `hint` が前後の空白を除いて 500 文字を超える | 400 `INVALID_REQUEST` | `補足情報は500文字以内で指定してください`（既存） |
 | 7 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
-| 8 | `step: "identify"` だが写真のカテゴリが識別対象でない（`category` が `other` か `null`）（段階4） | 400 `INVALID_REQUEST` | `この写真は識別の対象ではありません` |
+| 8 | `step: "identify"` だが写真のカテゴリが識別対象でない（`category` が `CATALOG_KINDS` のどれでもない。`other` か `null`） | 400 `INVALID_REQUEST` | `この写真は識別の対象ではありません` |
 
-段階3では 4 の `step` は `"classify"` だけを受け付ける（`identify`・未指定・文字列でないものは 4）。
+4 は `step` が文字列の `"classify"` か `"identify"` のときだけ通す（未指定・ほかの文字列・文字列でないものは 4）。
 ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `step` が無いものとして扱い、4 になる。`step`・`hint` 以外のキーは無視する。
 6 の上限（`CONTEXT_INFO_MAX_LENGTH`）と 5・6 の `message` は植物図鑑の補足情報（`contextInfo`）と共用で、上限の値は `message` に埋め込まれる。
 写真があるか（7）はボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
+`step: "identify"` のときは、書く前に写真を読んで 7 と 8 をこの順に見る（無い写真は 8 ではなく 404）。`step: "classify"` は読まずに下の patch を当て、404 なら 7。
+どちらも写真を読む・書く前に写真の保存先の設定を確かめる（下の 500）。読んでから書くまでに分類のワーカーがカテゴリを `other` に変えることはまれにありえ、そのときは受け付けた識別の待ちをワーカーが AI を呼ばずに内部の失敗として数える（[06 §3.1](./06_processing_design.md#31-契約)）。
 
 処理の順:
 
@@ -461,7 +463,7 @@ AI の解析をやり直す（要件 5.5.1）。
    **`comment: null`・`commentSource: null`**（やり直しの結果で置き換えるため、受付の時点で消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9。
    利用者が書いたコメントは、アプリが `hint` に事前入力してから頼む設計なので失われない）、`updatedAt: now`。
    それ以外の項目（`category`・`classification`・`identification`・`tags`・`tripId`）は変えない（前回の結果はやり直しの結果が出るまで残る）。
-   解析中（`pending` / `classifying` / `identifying`）の写真にも受け付ける（最新の依頼で上書きされる。走っている分類の結果と失敗は、担当したときの `state`・`attempts` の条件付き patch で書かれずに捨てられる。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
+   解析中（`pending` / `classifying` / `identifying`）の写真にも受け付ける（最新の依頼で上書きされる。走っている分類・識別の結果と失敗は、担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch で書かれずに捨てられる。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
    やり直しの回数に上限は置かない（費用は AI のデプロイの容量で抑える。[06 §6](./06_processing_design.md#6-費用の抑え方)）
 2. キューに `{ photoId }` を投入する（`step`・`hint` はワーカーが写真から読む）
 3. **202** `{ photo, urlExpiresAt }`（§5.3 と同じ形。受け付けた後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
