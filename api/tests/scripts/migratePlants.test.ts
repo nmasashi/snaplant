@@ -234,6 +234,9 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     // 以下は、パースした結果では正当に見える URL。生の文字列が正規形と完全一致しなければ読まない（StorageService.isValidImagePath と同じ考え方）
     ['クエリの付いた URL', 'https://test.blob.core.windows.net/images/p1.jpg?sv=2024'],
     ['ホストが大文字の URL', 'https://TEST.blob.core.windows.net/images/p1.jpg'],
+    // 解くと別のコンテナを指す名前（..%2F）。SDK は名前の .. を正規化するので、読めば images 以外の Blob になる
+    ['解くと上の階層を指す Blob 名の URL', 'https://test.blob.core.windows.net/images/..%2Fphotos%2Fp1.jpg'],
+    ['解くとスラッシュを含む Blob 名の URL', 'https://test.blob.core.windows.net/images/sub%2Fp1.jpg'],
     // 1つの植物の URL が壊れていても、移行全体を止めない
     ['パーセントエンコードが壊れた URL', 'https://test.blob.core.windows.net/images/p1%E0.jpg']
   ])('画像の URL が images コンテナの Blob を指していない植物（%s）は飛ばして一覧に出し、ほかの植物は移す', async (_, imagePath) => {
