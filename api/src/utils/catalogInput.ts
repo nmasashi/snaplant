@@ -2,6 +2,7 @@ import { HttpResponseInit } from '@azure/functions';
 import { createValidationError } from './response';
 import { CATALOG_VALIDATION } from '../constants/validation';
 import { CatalogKind, isCatalogKind } from '../catalog/kinds';
+import { readPageLimit } from './pageLimit';
 
 /** 検証を通った図鑑の項目の一覧のクエリ */
 export interface CatalogEntriesQuery {
@@ -28,16 +29,9 @@ export function readCatalogEntriesQuery(
 
   const offsetParam = query.get('offset');
   const offset = offsetParam === null ? 0 : /^(0|[1-9][0-9]*)$/.test(offsetParam) ? Number(offsetParam) : NaN;
-  const limitParam = query.get('limit');
-  // 既定の件数も上限を超えない（環境変数の設定の誤りで上限が破られないように）
-  const limit =
-    limitParam === null
-      ? Math.min(CATALOG_VALIDATION.PAGE_SIZE, CATALOG_VALIDATION.MAX_PAGE_SIZE)
-      : /^[1-9][0-9]*$/.test(limitParam)
-        ? Number(limitParam)
-        : NaN;
+  const limit = readPageLimit(query.get('limit'), CATALOG_VALIDATION.PAGE_SIZE, CATALOG_VALIDATION.MAX_PAGE_SIZE);
   // NaN は比較がすべて偽になるので、「範囲内」を肯定で書いて否定する
-  if (!(offset >= 0 && Number.isSafeInteger(offset)) || !(limit >= 1 && limit <= CATALOG_VALIDATION.MAX_PAGE_SIZE)) {
+  if (!(offset >= 0 && Number.isSafeInteger(offset)) || limit === null) {
     return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.PAGE_INVALID) };
   }
   return { query: { kind, offset, limit } };
