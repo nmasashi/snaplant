@@ -272,8 +272,12 @@ void main() {
       await tester.pageBack();
       await letFramesRun(tester);
 
-      expect(find.textContaining('京都 2026冬'), findsOneWidget);
-      expect(find.textContaining('0枚'), findsOneWidget);
+      final kyotoRow = find.ancestor(
+          of: find.text('京都 2026冬'), matching: find.byType(ListTile));
+      expect(
+          find.descendant(
+              of: kyotoRow, matching: find.textContaining(RegExp('^0枚'))),
+          findsOneWidget);
     });
 
     testWidgets('選んだ写真を削除できる', (tester) async {
