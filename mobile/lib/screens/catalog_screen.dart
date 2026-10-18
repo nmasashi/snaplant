@@ -2,19 +2,27 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/catalog.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../widgets/message_view.dart';
+import 'catalog_entry_screen.dart';
 
 /// 図鑑のタブ（種類のタブ → 項目の一覧。docs/travel-album/03_screen_design.md §6.1）
 ///
 /// 種類のタブは種類の一覧（`GET /api/catalog/kinds`）から作る。植物図鑑から移す（4-5）までは、下のタブの3つ目「図鑑（新）」に置く
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen(
-      {super.key, required this.apiService, required this.onOpenSettings});
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.onOpenSettings});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（項目詳細の写真のグリッドが要る）
+  final UploadQueue uploadQueue;
 
   /// 設定画面を開く
   final Future<void> Function() onOpenSettings;
@@ -89,7 +97,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
         body: TabBarView(
           children: [
             for (final kind in kinds)
-              _CatalogEntryList(apiService: widget.apiService, kind: kind),
+              _CatalogEntryList(
+                  apiService: widget.apiService,
+                  uploadQueue: widget.uploadQueue,
+                  kind: kind),
           ],
         ),
       ),
@@ -125,9 +136,13 @@ class _Loading extends StatelessWidget {
 
 /// 1つの種類の項目の一覧（名前順。下端に近づいたら続きを読む）
 class _CatalogEntryList extends StatefulWidget {
-  const _CatalogEntryList({required this.apiService, required this.kind});
+  const _CatalogEntryList(
+      {required this.apiService,
+      required this.uploadQueue,
+      required this.kind});
 
   final ApiService apiService;
+  final UploadQueue uploadQueue;
   final CatalogKind kind;
 
   @override
@@ -225,6 +240,21 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
     }
   }
 
+  /// 項目詳細を開く。項目が無くなっていた（写真が0枚）なら、戻ったときに一覧を読み直す（03 §6.2）
+  Future<void> _openEntry(CatalogEntry entry) async {
+    var vanished = false;
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => CatalogEntryScreen(
+                apiService: widget.apiService,
+                uploadQueue: widget.uploadQueue,
+                kind: widget.kind,
+                name: entry.name,
+                onEntryVanished: () => vanished = true)));
+    if (vanished && mounted) await _refresh();
+  }
+
   void _retryLoadMore() {
     setState(() => _loadMoreFailed = false);
     _loadMore();
@@ -311,7 +341,9 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
                     if (mounted) _loadMore();
                   });
                 }
-                return _CatalogEntryTile(entry: entries[index]);
+                final entry = entries[index];
+                return _CatalogEntryTile(
+                    entry: entry, onTap: () => _openEntry(entry));
               },
             ),
           ),
@@ -357,9 +389,12 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
 
 /// 項目の行（表紙・名前・枚数・信頼度）
 class _CatalogEntryTile extends StatelessWidget {
-  const _CatalogEntryTile({required this.entry});
+  const _CatalogEntryTile({required this.entry, required this.onTap});
 
   final CatalogEntry entry;
+
+  /// タップで項目詳細を開く
+  final VoidCallback onTap;
 
   Widget _cover() {
     const fallback = Icon(Icons.menu_book, size: 40, color: AppColors.primary);
@@ -403,6 +438,7 @@ class _CatalogEntryTile extends StatelessWidget {
         title: Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text('${entry.photoCount}枚'),
         trailing: _confidenceBadge(),
+        onTap: onTap,
       ),
     );
   }

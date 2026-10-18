@@ -54,6 +54,7 @@ class _HomeShellState extends State<HomeShell> {
           if (_catalogOpened)
             CatalogScreen(
                 apiService: widget.apiService,
+                uploadQueue: widget.uploadQueue,
                 onOpenSettings: widget.onOpenSettings)
           else
             const SizedBox.shrink(),

@@ -583,6 +583,38 @@ class ApiService {
     }
   }
 
+  /// 図鑑の項目の詳細（見出しと、その項目の写真の1ページ）
+  /// GET /api/catalog/entry
+  ///
+  /// その種類と名前の写真が無ければ `entry` は null（写真も空）。続きのページは [continuationToken] で読む
+  Future<CatalogEntryDetail> getCatalogEntry(String kind, String name, {String? continuationToken}) async {
+    try {
+      // 名前は利用者が付けたものではなく AI が返したもので、記号や空白も入りうる。クエリの値としてエンコードする
+      final query = {
+        'kind': kind,
+        'name': name,
+        if (continuationToken != null) 'continuationToken': continuationToken,
+      };
+      final url = _buildUrl('/api/catalog/entry?${Uri(queryParameters: query).query}');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        final entry = data['entry'] as Map<String, dynamic>?;
+        return CatalogEntryDetail(
+          entry: entry == null ? null : CatalogEntry.fromJson(entry),
+          photos: PhotoPage(
+            photos: (data['photos'] as List<dynamic>)
+                .map((e) => Photo.fromJson(e as Map<String, dynamic>))
+                .toList(),
+            continuationToken: data['continuationToken'] as String?,
+          ),
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 写真をまとめて旅行に入れる（[tripId] が null なら旅行から外す）
   /// POST /api/photos/move
   ///
