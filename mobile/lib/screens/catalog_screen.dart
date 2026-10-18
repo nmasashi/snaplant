@@ -410,6 +410,9 @@ class _CatalogEntryTile extends StatelessWidget {
           cacheKey: coverCacheKey(entry.coverThumbnailUrl),
           cacheManager: PhotoCacheManager.thumbnails,
           fit: BoxFit.cover,
+          // 読めないとき（SAS の期限切れなど）は本のアイコンを出す。失敗は想定のうちなので、未処理のエラーとして報告せずログだけに残す
+          errorListener: (error) =>
+              debugPrint('CatalogScreen: 表紙の読み込みエラー: $error'),
           errorWidget: (context, url, error) => fallback,
         ),
       ),
