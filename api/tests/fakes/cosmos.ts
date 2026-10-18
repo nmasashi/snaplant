@@ -104,7 +104,10 @@ import { TripDocument } from '../../src/types/album';
  * - 集計（GROUP BY / COUNT / MIN / MAX）の値。偽物は `@type` で絞ったドキュメントをそのまま行として返す
  *   だけなので、写真を置いても集計の行にはならず、枚数は0・期間は null に見える。集計の値は
  *   tripSummaries.test.ts（行から値を組み立てる関数）で確かめる。サービスやハンドラのテストでは、
- *   写真を置いて集計の値を主張しない
+ *   写真を置いて集計の値を主張しない。`SELECT VALUE COUNT(1)` も数ではなく文書を返すので、
+ *   図鑑の項目の詳細の枚数（photoCount）と「枚数が 0 なら項目は無い」は確かめられない
+ * - パラメータでない条件（SQL に書いた値）。例えば図鑑のクエリの `c.identification.matchesKind = true` は
+ *   偽物が見ないので、`matchesKind: false` で名前の残った文書を置いても絞られない（テストの写真は、写っていなければ名前を null にする）
  * - Cosmos のシステム項目（_rid・_self・_etag・_attachments・_ts）。偽物は付けない。応答への漏れを見るテストは、
  *   偽物に置くドキュメントに自分で足す（tests/helpers/albumDocuments.ts の COSMOS_SYSTEM_FIELDS）
  */
