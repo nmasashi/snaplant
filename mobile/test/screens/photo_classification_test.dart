@@ -93,7 +93,6 @@ void main() {
       ('plant', '植物'),
       ('food', '食べ物'),
       ('landscape', '風景'),
-      ('other', 'その他'),
       // 知らないキー（後の段階で足された種類など）はキーのまま出す
       ('insect', 'insect')
     ]) {
@@ -103,6 +102,14 @@ void main() {
         expect(find.text(label), findsOneWidget);
       });
     }
+
+    testWidgets('どれにも当てはまらない（other）写真には、カテゴリを出さない', (tester) async {
+      // 図鑑に載らない写真の寄せ集めで、出しても見分けの役に立たない（03 §5.1。02 §5 #33）
+      await _openViewer(tester, _photo(category: 'other'));
+
+      expect(find.text('その他'), findsNothing);
+      expect(find.text('other'), findsNothing);
+    });
 
     testWidgets('分類の前の写真（カテゴリが無い）には、カテゴリを出さない', (tester) async {
       await _openViewer(tester, _photo(category: null, state: 'none'));
