@@ -9,10 +9,10 @@ import '../helpers/trip_test_helpers.dart';
 // 写真の分類の表示と、解析のやり直し（docs/travel-album/03_screen_design.md §5.1・§5.4・§5.5。段階3）。
 // 入口は旅行詳細の写真のグリッドと、そこから開く写真ビューア
 
-/// 解析の進み具合（processing）
-Map<String, Object?> _processing(String state) => {
+/// 解析の進み具合（processing）。[step] は分類（classify）か識別（identify）
+Map<String, Object?> _processing(String state, {String step = 'classify'}) => {
       'state': state,
-      'step': 'classify',
+      'step': step,
       'attempts': state == 'failed' ? 3 : 0,
       'lastError': state == 'failed' ? 'ai' : null,
       'updatedAt': '2026-10-18T03:00:00.000Z'
@@ -22,12 +22,13 @@ Map<String, Object?> _processing(String state) => {
 Map<String, Object?> _photo(
         {String? category,
         String state = 'done',
+        String step = 'classify',
         String? hint,
         String? comment,
         String? commentSource}) =>
     photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00')
       ..['category'] = category
-      ..['processing'] = _processing(state)
+      ..['processing'] = _processing(state, step: step)
       ..['hint'] = hint
       ..['comment'] = comment
       ..['commentSource'] = commentSource;
@@ -144,6 +145,26 @@ void main() {
       expect(_infoRetry, findsOneWidget);
     });
 
+    for (final state in ['pending', 'identifying']) {
+      testWidgets('識別を待っている・している写真（$state）は「識別中...」と出す', (tester) async {
+        // 分類の後の識別の待ちは、step が identify の pending（03 §5.1）
+        await _openViewer(
+            tester, _photo(category: 'plant', state: state, step: 'identify'));
+
+        expect(find.text('識別中...'), findsOneWidget);
+        expect(find.text('分類中...'), findsNothing);
+      });
+    }
+
+    testWidgets('上限まで識別に失敗した写真は「識別に失敗しました」と、下の情報にも「やり直す」を出す', (tester) async {
+      await _openViewer(
+          tester, _photo(category: 'plant', state: 'failed', step: 'identify'));
+
+      expect(find.text('識別に失敗しました'), findsOneWidget);
+      expect(find.text('分類に失敗しました'), findsNothing);
+      expect(_infoRetry, findsOneWidget);
+    });
+
     // 済んだ写真はカテゴリを持ち、解析の対象でない写真（段階2）は持たない
     for (final (state, category) in [('done', 'food'), ('none', null)]) {
       testWidgets('分類が済んだ写真・解析の対象でない写真（$state）には、分類の状態を出さない', (tester) async {
@@ -183,6 +204,52 @@ void main() {
       expect(_stored(backend)['hint'], 'これはサクラではなくウメ');
       expect((_stored(backend)['processing'] as Map)['state'], 'pending');
     });
+
+    testWidgets('カテゴリが図鑑の種類の写真は「カテゴリから」「名前だけ」を選べ、「名前だけ」で頼むとカテゴリはそのままで識別だけをやり直す',
+        (tester) async {
+      final backend = await _openViewer(tester, _photo(category: 'plant'));
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      expect(find.text('カテゴリから'), findsOneWidget);
+      await tester.tap(find.text('名前だけ'));
+      await tester.pump();
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      expect(find.text('識別中...'), findsOneWidget);
+      expect((_stored(backend)['processing'] as Map)['step'], 'identify');
+      expect(find.text('植物'), findsOneWidget);
+    });
+
+    testWidgets('やり直す範囲を選ばずに頼むと、カテゴリから（分類から）やり直す', (tester) async {
+      final backend = await _openViewer(tester, _photo(category: 'plant'));
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      expect(find.text('分類中...'), findsOneWidget);
+      expect((_stored(backend)['processing'] as Map)['step'], 'classify');
+    });
+
+    for (final (category, label) in [
+      (null, '分類の前'),
+      ('other', 'どれにも当てはまらない')
+    ]) {
+      testWidgets('カテゴリが図鑑の種類でない写真（$label）では、やり直す範囲を選ばせない', (tester) async {
+        // 識別の対象でない写真の「名前だけ」はサーバが断る（05 §5.7 の 8）
+        await _openViewer(tester, _photo(category: category));
+
+        await tester.tap(_barRetry);
+        await letFramesRun(tester);
+
+        expect(find.text('解析をやり直す'), findsOneWidget);
+        expect(find.text('カテゴリから'), findsNothing);
+        expect(find.text('名前だけ'), findsNothing);
+      });
+    }
 
     testWidgets('失敗した写真の下の「やり直す」からも頼める', (tester) async {
       final backend = await _openViewer(tester, _photo(state: 'failed'));

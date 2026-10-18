@@ -108,6 +108,9 @@ enum TripRoute {
   /// POST /api/photos/{photoId}/process（解析のやり直し。段階3）
   process,
 
+  /// PATCH /api/photos/{photoId}（コメントの編集。段階4）
+  updatePhoto,
+
   /// GET /api/catalog/kinds（図鑑の種類の一覧。段階4）
   catalogKinds,
 
@@ -147,7 +150,9 @@ enum TripRoute {
 ///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `POST /api/photos/{photoId}/process` は、写真を分類の待ち（`pending`・`classify`・回数 0・時刻は [processAcceptedAt]）にし、
 ///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/travel-album/05_api_design.md §5.7）。
-///   `step` が `classify` でなければ 400「やり直す処理の種類が無効です」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
+///   `step` は `processing.step` に書く。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
+/// - `PATCH /api/photos/{photoId}` はコメントだけを書き換える（前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`）。
+///   200 で `{ photo, urlExpiresAt }`。`comment` のキーが無い・文字列でも null でもない・500 文字を超えるなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は名前順）に
@@ -371,6 +376,8 @@ class FakeTripBackend {
         return _deletePhoto(request);
       case TripRoute.process:
         return _processPhoto(request);
+      case TripRoute.updatePhoto:
+        return _updatePhoto(request);
       case TripRoute.catalogKinds:
         return _ok(200, {'kinds': catalogKinds});
       case TripRoute.catalogEntries:
@@ -487,6 +494,9 @@ class FakeTripBackend {
     }
     if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'DELETE') {
       return TripRoute.deletePhoto;
+    }
+    if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'PATCH') {
+      return TripRoute.updatePhoto;
     }
     return null;
   }
@@ -753,7 +763,8 @@ class FakeTripBackend {
     }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
     // オブジェクトでないボディ（配列・数値など）は、本物と同じく処理の種類が無いものとして断る
-    if (body is! Map<String, dynamic> || body['step'] != 'classify') {
+    final step = body is Map<String, dynamic> ? body['step'] : null;
+    if (body is! Map<String, dynamic> || (step != 'classify' && step != 'identify')) {
       return _error(400, 'INVALID_REQUEST', 'やり直す処理の種類が無効です');
     }
     final hint = body['hint'];
@@ -761,9 +772,13 @@ class FakeTripBackend {
     final trimmed = (hint as String?)?.trim() ?? '';
     if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', '補足情報は500文字以内で指定してください');
     if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+    // 識別のやり直しは、カテゴリが図鑑の種類の写真だけ（本物の 8）
+    if (step == 'identify' && !catalogKinds.any((k) => k['kind'] == photo['category'])) {
+      return _error(400, 'INVALID_REQUEST', 'この写真は識別の対象ではありません');
+    }
     photo['processing'] = {
       'state': 'pending',
-      'step': 'classify',
+      'step': step,
       'attempts': 0,
       'lastError': null,
       'updatedAt': processAcceptedAt,
@@ -773,6 +788,32 @@ class FakeTripBackend {
     photo['commentSource'] = null;
     photo['updatedAt'] = processAcceptedAt;
     return _ok(202, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
+  }
+
+  http.Response _updatePhoto(http.Request request) {
+    final photoId = request.url.pathSegments[2];
+    final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
+    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.6 の 1〜6・10。タグは送らないので検証しない）
+    if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
+    final Object? body;
+    try {
+      body = json.decode(request.body);
+    } on FormatException {
+      return _error(400, 'INVALID_REQUEST', 'リクエストボディの形式が無効です');
+    }
+    if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
+    if (body is! Map<String, dynamic> || !body.containsKey('comment')) {
+      return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
+    }
+    final comment = body['comment'];
+    if (comment != null && comment is! String) return _error(400, 'INVALID_REQUEST', 'コメントは文字列で指定してください');
+    final trimmed = (comment as String?)?.trim() ?? '';
+    if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', 'コメントは500文字以内で指定してください');
+    if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+    photo['comment'] = trimmed.isEmpty ? null : trimmed;
+    photo['commentSource'] = trimmed.isEmpty ? null : 'user';
+    photo['updatedAt'] = processAcceptedAt;
+    return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
   }
 
   http.Response _movePhotos(http.Request request) {
