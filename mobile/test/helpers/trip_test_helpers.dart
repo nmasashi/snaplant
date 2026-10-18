@@ -574,8 +574,14 @@ class FakeTripBackend {
   http.Response _processPhoto(http.Request request) {
     final photoId = request.url.pathSegments[2];
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
-    final body = json.decode(request.body);
-    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.7）。写真の有無は検証の後に見る
+    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.7 の 1〜6）。写真の有無は検証の後に見る
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
+    final Object? body;
+    try {
+      body = json.decode(request.body);
+    } on FormatException {
+      return _error(400, 'INVALID_REQUEST', 'リクエストボディの形式が無効です');
+    }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
     // オブジェクトでないボディ（配列・数値など）は、本物と同じく処理の種類が無いものとして断る
     if (body is! Map<String, dynamic> || body['step'] != 'classify') {

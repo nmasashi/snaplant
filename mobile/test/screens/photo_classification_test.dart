@@ -10,9 +10,9 @@ import '../helpers/trip_test_helpers.dart';
 // 入口は旅行詳細の写真のグリッドと、そこから開く写真ビューア
 
 /// 解析の進み具合（processing）
-Map<String, Object?> _processing(String state, {String? step = 'classify'}) => {
+Map<String, Object?> _processing(String state) => {
       'state': state,
-      'step': step,
+      'step': 'classify',
       'attempts': state == 'failed' ? 3 : 0,
       'lastError': state == 'failed' ? 'ai' : null,
       'updatedAt': '2026-10-18T03:00:00.000Z'
@@ -63,6 +63,22 @@ Future<FakeTripBackend> _openViewer(
 Finder get _barRetry =>
     find.descendant(of: find.byType(AppBar), matching: find.text('やり直す'));
 
+/// 下の情報の「やり直す」（分類に失敗したときに出る。上のバーのものを除く）
+Finder get _infoRetry => find.byElementPredicate((element) =>
+    element.widget is Text &&
+    (element.widget as Text).data == 'やり直す' &&
+    element.findAncestorWidgetOfExactType<AppBar>() == null);
+
+/// [text] がビューアの画面の中（横位置が画面の幅の内側）にあるか。PageView は隣のページも組み立てておくので、出ている写真のものだけを数える
+bool _isOnScreen(WidgetTester tester, String text) {
+  final screenWidth =
+      tester.view.physicalSize.width / tester.view.devicePixelRatio;
+  return find.text(text).evaluate().any((element) {
+    final x = tester.getCenter(find.byElementPredicate((e) => e == element)).dx;
+    return x >= 0 && x <= screenWidth;
+  });
+}
+
 /// やり直しダイアログの「やり直す」
 Finder get _dialogRetry =>
     find.descendant(of: find.byType(AlertDialog), matching: find.text('やり直す'));
@@ -77,7 +93,9 @@ void main() {
       ('plant', '植物'),
       ('food', '食べ物'),
       ('landscape', '風景'),
-      ('other', 'その他')
+      ('other', 'その他'),
+      // 知らないキー（後の段階で足された種類など）はキーのまま出す
+      ('insect', 'insect')
     ]) {
       testWidgets('分類の結果が $category の写真は、カテゴリを「$label」と出す', (tester) async {
         await _openViewer(tester, _photo(category: category));
@@ -93,6 +111,14 @@ void main() {
         expect(find.text(label), findsNothing);
       }
     });
+
+    testWidgets('やり直しで分類を待っている間も、前回のカテゴリを出し続ける', (tester) async {
+      // 前回の結果は、やり直しの結果が出るまで残る（05 §5.7）
+      await _openViewer(tester, _photo(category: 'food', state: 'pending'));
+
+      expect(find.text('食べ物'), findsOneWidget);
+      expect(find.text('分類中...'), findsOneWidget);
+    });
   });
 
   group('写真ビューアの分類の状態', () {
@@ -104,15 +130,11 @@ void main() {
       });
     }
 
-    testWidgets('上限まで分類に失敗した写真は「分類に失敗しました」と、その場で押せる「やり直す」を出す', (tester) async {
+    testWidgets('上限まで分類に失敗した写真は「分類に失敗しました」と、下の情報にも「やり直す」を出す', (tester) async {
       await _openViewer(tester, _photo(state: 'failed'));
 
       expect(find.text('分類に失敗しました'), findsOneWidget);
-      // 上のバーの「やり直す」は1つ。全体で2つあるので、もう1つが下の情報の「やり直す」
-      expect(
-          find.descendant(of: find.byType(AppBar), matching: find.text('やり直す')),
-          findsOneWidget);
-      expect(find.text('やり直す'), findsNWidgets(2));
+      expect(_infoRetry, findsOneWidget);
     });
 
     // 済んだ写真はカテゴリを持ち、解析の対象でない写真（段階2）は持たない
@@ -127,15 +149,23 @@ void main() {
   });
 
   group('解析のやり直し', () {
-    testWidgets('「やり直す」で開くダイアログに手がかりを書いて頼むと、受け付けられ、ビューアの表示が「分類中...」になる',
-        (tester) async {
+    testWidgets('上のバーの「やり直す」で、手がかりの欄とコメントが置き換わる旨を出すダイアログを開く', (tester) async {
+      await _openViewer(tester, _photo(category: 'food'));
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+
+      expect(find.text('解析をやり直す'), findsOneWidget);
+      expect(find.text('手がかり（任意）'), findsOneWidget);
+      expect(find.text('今のコメントは AI の結果で置き換わります'), findsOneWidget);
+      expect(find.text('0/500'), findsOneWidget);
+    });
+
+    testWidgets('ダイアログに手がかりを書いて頼むと、受け付けられ、ビューアの表示が「分類中...」になる', (tester) async {
       final backend = await _openViewer(tester, _photo(category: 'food'));
 
       await tester.tap(_barRetry);
       await letFramesRun(tester);
-      expect(find.text('解析をやり直す'), findsOneWidget);
-      expect(find.text('今のコメントは AI の結果で置き換わります'), findsOneWidget);
-      expect(find.text('0/500'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'これはサクラではなくウメ');
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
@@ -150,9 +180,7 @@ void main() {
     testWidgets('失敗した写真の下の「やり直す」からも頼める', (tester) async {
       final backend = await _openViewer(tester, _photo(state: 'failed'));
 
-      await tester.tap(find
-          .descendant(of: find.byType(Container), matching: find.text('やり直す'))
-          .last);
+      await tester.tap(_infoRetry);
       await letFramesRun(tester);
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
@@ -206,7 +234,8 @@ void main() {
       expect((_stored(backend)['processing'] as Map)['state'], 'done');
     });
 
-    testWidgets('受け付けを待っている間は、端末の戻る操作でもダイアログを閉じず、受け付けたら閉じて「分類中...」になる', (tester) async {
+    testWidgets('受け付けを待っている間は、端末の戻る操作でもダイアログを閉じず、受け付けたら閉じて「分類中...」になる',
+        (tester) async {
       // 待っている間に閉じると、受け付けられたのに表示が古いまま残り、もう一度頼むことになる
       final backend = await _openViewer(tester, _photo(category: 'food'));
       final release = Completer<void>();
@@ -235,7 +264,10 @@ void main() {
         photosByTripId: {
           hokkaidoTripId: [
             _photo(category: 'food'),
-            photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-07T10:15:00'),
+            photoJson(
+                number: 2,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-07T10:15:00'),
           ]
         },
       );
@@ -251,9 +283,11 @@ void main() {
       await letFramesRun(tester);
       await tester.tap(photoThumbnail(_takenAt));
       await letFramesRun(tester);
-      await tester.tap(find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+      await tester.tap(
+          find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
       await letFramesRun(tester);
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('削除')));
+      await tester.tap(find.descendant(
+          of: find.byType(AlertDialog), matching: find.text('削除')));
       await letFramesRun(tester);
 
       await tester.tap(_barRetry);
@@ -279,6 +313,65 @@ void main() {
       expect((_stored(backend)['processing'] as Map)['state'], 'done');
     });
 
+    testWidgets('受け付けられなかった後、ダイアログからそのままもう一度頼める', (tester) async {
+      // 失敗は1回分だけ。留まったダイアログで押し直すと受け付けられる（§5.4 の「留まる」は、その場で頼み直すため）
+      final backend = await _openViewer(tester, _photo(category: 'food'));
+      backend.failNext(TripRoute.process);
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('やり直しを受け付けました'), findsOneWidget);
+      expect((_stored(backend)['processing'] as Map)['state'], 'pending');
+    });
+
+    testWidgets('2枚目を見ているときに頼むと、2枚目だけがやり直しになり、1枚目に戻っても1枚目の表示は変わらない',
+        (tester) async {
+      // 宛先の写真の取り違えと、一覧の別の写真を受け付けた写真で置き換える誤りを見分けるため、写真を2枚にする
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: 2)],
+        functionKey: 'test-key',
+        photosByTripId: {
+          hokkaidoTripId: [
+            _photo(category: 'food'),
+            photoJson(
+                number: 2,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-07T10:15:00')
+              ..['category'] = 'landscape'
+              ..['processing'] = _processing('done'),
+          ]
+        },
+      );
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      await tester.tap(photoThumbnail(_takenAt));
+      await letFramesRun(tester);
+      await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
+      await letFramesRun(tester);
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      final states = [
+        for (final photo in backend.photosByTripId[hokkaidoTripId]!)
+          (photo['processing'] as Map)['state']
+      ];
+      expect(states, ['done', 'pending']);
+      await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
+      await letFramesRun(tester);
+      expect(_isOnScreen(tester, '食べ物'), isTrue);
+      expect(_isOnScreen(tester, '分類中...'), isFalse);
+    });
+
     testWidgets('やり直しを頼んでから一覧に戻ると、その写真のサムネイルに分類中の印が付いている', (tester) async {
       final semantics = tester.ensureSemantics();
       await _openViewer(tester, _photo(category: 'food'));
@@ -299,6 +392,8 @@ void main() {
     for (final (state, suffix) in [
       ('pending', '、分類中'),
       ('classifying', '、分類中'),
+      // 識別中（段階4）も、分類が済んでいない写真として印を付ける（§5.5）
+      ('identifying', '、分類中'),
       ('failed', '、分類に失敗しました')
     ]) {
       testWidgets('$state の写真のサムネイルは、読み上げで「$suffix」を足す', (tester) async {
