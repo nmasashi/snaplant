@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
 import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
+import { queryCatalogNameCounts } from './catalogQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
@@ -112,6 +113,18 @@ export class AlbumService {
       }
     });
     return urls;
+  }
+
+  /**
+   * 図鑑の項目の一覧の1ページを作る（docs/travel-album/04_data_design.md §3.1 の3段）
+   * @param kind 図鑑の種類
+   * @param offset 何件目から（0 始まり）
+   * @param limit 何件まで
+   * @returns ページの項目と、項目の総数
+   */
+  async listCatalogEntries(kind: string, offset: number, limit: number): Promise<{ entries: unknown[]; total: number }> {
+    const rows = await queryCatalogNameCounts(this.container, kind);
+    return { entries: [], total: rows.length };
   }
 
   /**

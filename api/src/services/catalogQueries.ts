@@ -1,0 +1,43 @@
+import { Container } from '@azure/cosmos';
+import { PhotoDocument } from '../types/album';
+
+/**
+ * 図鑑のまとめに使う Cosmos SQL（docs/travel-album/04_data_design.md §5.6）
+ *
+ * SQL 文字列とパラメータの組み立てだけの薄い層。集計（GROUP BY）と2項目の ORDER BY は
+ * テスト用の偽物では解釈できないため、ここはテストせず、デプロイ後に手で確かめる
+ * （docs/travel-album/08_test_plan.md §5.3）。行と見出しの写真からページを組み立てる所は
+ * catalogEntries.ts に分けてあり、そちらを単体で確かめる（旅行の albumQueries.ts と tripSummaries.ts と同じ分け方）
+ */
+
+/** 図鑑の項目（名前）ごとの写真の枚数の行 */
+export interface CatalogNameCountRow {
+  name: string | null;
+  photoCount: number;
+}
+
+/** 項目の見出しに使う写真（信頼度が最も高い1枚）の項目 */
+export type CatalogHeadPhoto = Pick<PhotoDocument, 'id' | 'identification' | 'thumbnailBlobName' | 'blobName'>;
+
+/**
+ * 種類ごとに、名前ごとの写真の枚数を数える（分類どおりの種類が写っている写真だけ）
+ *
+ * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けないので、名前順に並べるのは呼び出し側
+ * @param container album コンテナ
+ * @param kind 図鑑の種類
+ */
+export async function queryCatalogNameCounts(container: Container, kind: string): Promise<CatalogNameCountRow[]> {
+  const { resources } = await container.items
+    .query<CatalogNameCountRow>({
+      query:
+        'SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c' +
+        ' WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true' +
+        ' GROUP BY c.identification.name',
+      parameters: [
+        { name: '@type', value: 'photo' },
+        { name: '@kind', value: kind },
+      ],
+    })
+    .fetchAll();
+  return resources;
+}
