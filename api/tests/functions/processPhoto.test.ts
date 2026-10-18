@@ -572,6 +572,79 @@ describe('写真の解析のワーカー', () => {
 
       expect(promptText()).not.toContain('null');
     });
+
+    it.each([
+      ['写っているかが真偽値でない', { matchesKind: 'true' }],
+      ['信頼度が0より小さい', { confidence: -1 }],
+      ['信頼度が100より大きい', { confidence: 101 }],
+      ['信頼度が数値でない', { confidence: '92' }],
+      ['写っているのに名前が無い', { name: null }],
+      ['写っているのに名前が空白だけ', { name: '   ' }],
+      ['写っているのに名前が100文字を超える', { name: 'あ'.repeat(101) }],
+      ['種類ごとの項目の文字列が文字列でない', { attributes: { scientificName: 123, familyName: 'バラ科' } }]
+    ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻し、結果を書かない', async (_label, broken) => {
+      // strict のスキーマでも範囲や空は強制できない。通らない応答を書くと、図鑑に名前の無い項目や範囲外の信頼度が出る（06 §3.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, ...broken });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto()).toEqual(
+        waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW } })
+      );
+    });
+
+    it.each([
+      ['文字列の配列の項目が配列でない', { genre: 'ラーメン', mainIngredients: '中華麺' }],
+      ['文字列の配列の項目に文字列でない値がある', { genre: 'ラーメン', mainIngredients: ['中華麺', 1] }]
+    ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻す', async (_label, attributes) => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
+      aiReturns({ ...plantAnswer, attributes });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto().identification).toBeNull();
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW });
+    });
+
+    it.each([0, 100])('信頼度が%sでも受け付けて、識別の結果に書く', async (confidence) => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, confidence });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ confidence, name: 'ソメイヨシノ' });
+    });
+
+    it('写っていなければ（matchesKind: false）、名前が無くても受け付ける', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, matchesKind: false, name: null, comment: '植物が写っていない' });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ matchesKind: false, reason: '植物が写っていない' });
+    });
+
+    it('種類ごとの項目は定義表の項目だけを書く（定義に無いキーは捨てる）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科', nickname: 'サクラ' } });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({
+        attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' }
+      });
+      expect((storedPhoto().identification as any).attributes).not.toHaveProperty('nickname');
+    });
+
+    it('AIのコメントが空白だけなら、コメントを書かずに識別の結果を書く', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, comment: '   ' });
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({ comment: null, commentSource: null, identification: { name: 'ソメイヨシノ' } });
+    });
   });
 
   describe('分類に使うAIのデプロイ', () => {
