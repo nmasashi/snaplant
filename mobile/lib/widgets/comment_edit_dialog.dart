@@ -29,6 +29,12 @@ class _CommentEditDialogState extends State<CommentEditDialog> {
   }
 
   Future<void> _submit() async {
+    // 変えていなければ何も送らずに閉じる（送ると AI のコメントが利用者のコメントになり、「（編集済み）」が付く）。
+    // サーバは前後の空白を除いて保存するので、同じ比べ方をする
+    if (_comment.text.trim() == (widget.photo.comment ?? '').trim()) {
+      Navigator.pop(context);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
