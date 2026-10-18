@@ -69,3 +69,32 @@ export function catalogEntryOf(
     coverThumbnailUrl: coverUrlOf(head.thumbnailBlobName ?? head.blobName),
   };
 }
+
+/**
+ * 項目の一覧の1ページを作る（2 段: 名前順に切る → 3 段: ページの項目ごとに見出しの写真を読む → 項目にする）
+ *
+ * 見出しの写真はページの項目の分だけを並列に読む（写真を全部は読まない。04 §3.1 の「規模の注意」）。
+ * 見出しが無くなっていた項目はページから外し、総数は数えたときのまま
+ * @param kind 図鑑の種類
+ * @param rows 名前ごとの枚数の行（順不同）
+ * @param offset 何件目から（0 始まり）
+ * @param limit 何件まで
+ * @param headOf 名前から見出しの写真を読む。無ければ null
+ * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
+ * @returns ページの項目と、項目の総数
+ */
+export async function catalogPageOf(
+  kind: string,
+  rows: CatalogNameCountRow[],
+  offset: number,
+  limit: number,
+  headOf: (name: string) => Promise<CatalogHeadPhoto | null>,
+  coverUrlOf: (blobName: string) => string
+): Promise<{ entries: CatalogEntry[]; total: number }> {
+  const { page, total } = pageOfCatalogNames(rows, offset, limit);
+  const heads = await Promise.all(page.map((row) => headOf(row.name)));
+  const entries = page
+    .map((row, i) => catalogEntryOf(kind, row, heads[i], coverUrlOf))
+    .filter((entry): entry is CatalogEntry => entry !== null);
+  return { entries, total };
+}

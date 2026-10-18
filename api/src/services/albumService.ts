@@ -4,7 +4,7 @@ import { CATALOG_KINDS } from '../catalog/kinds';
 import { CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts } from './catalogQueries';
-import { catalogEntryOf, pageOfCatalogNames } from './catalogEntries';
+import { catalogPageOf } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
@@ -139,13 +139,15 @@ export class AlbumService {
     limit: number,
     coverUrlOf: (blobName: string) => string
   ): Promise<{ entries: CatalogEntry[]; total: number }> {
-    // 1. 名前ごとの枚数 → 2. 名前順に並べて切る → 3. ページの項目ごとに見出しの写真を1枚（並列）。写真を全部は読まない
-    const { page, total } = pageOfCatalogNames(await queryCatalogNameCounts(this.container, kind), offset, limit);
-    const heads = await Promise.all(page.map((row) => queryCatalogHead(this.container, kind, row.name)));
-    const entries = page
-      .map((row, i) => catalogEntryOf(kind, row, heads[i], coverUrlOf))
-      .filter((entry): entry is CatalogEntry => entry !== null);
-    return { entries, total };
+    // 1. 名前ごとの枚数 → 2・3 はページを作る関数（切ってから、ページの項目の分だけ見出しを読む）
+    return catalogPageOf(
+      kind,
+      await queryCatalogNameCounts(this.container, kind),
+      offset,
+      limit,
+      (name) => queryCatalogHead(this.container, kind, name),
+      coverUrlOf
+    );
   }
 
   /**
