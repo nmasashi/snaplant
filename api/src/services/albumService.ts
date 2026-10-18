@@ -5,6 +5,7 @@ import { CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripI
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts } from './catalogQueries';
 import { catalogPageOf } from './catalogEntries';
+import { CatalogEntriesQuery } from '../utils/catalogInput';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
@@ -127,16 +128,12 @@ export class AlbumService {
 
   /**
    * 図鑑の項目の一覧の1ページを作る（docs/travel-album/04_data_design.md §3.1 の3段）
-   * @param kind 図鑑の種類
-   * @param offset 何件目から（0 始まり）
-   * @param limit 何件まで
+   * @param query 検証済みのクエリ（種類・何件目から・何件まで）。offset と limit はどちらも数なので、位置で渡すと取り違えても型が止めない
    * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
    * @returns ページの項目と、項目の総数
    */
   async listCatalogEntries(
-    kind: string,
-    offset: number,
-    limit: number,
+    { kind, offset, limit }: CatalogEntriesQuery,
     coverUrlOf: CoverUrlOf
   ): Promise<{ entries: CatalogEntry[]; total: number }> {
     // 1. 名前ごとの枚数 → 2・3 はページを作る関数（切ってから、ページの項目の分だけ見出しを読む）

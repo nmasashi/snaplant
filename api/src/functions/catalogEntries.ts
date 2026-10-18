@@ -20,8 +20,7 @@ export async function listCatalogEntriesHandler(
     return validated.error;
   }
   try {
-    const { kind, offset, limit } = validated.query;
-    const page = await new AlbumService().listCatalogEntries(kind, offset, limit, coverUrlMaker());
+    const page = await new AlbumService().listCatalogEntries(validated.query, coverUrlMaker());
     return createSuccessResponse(page);
   } catch (error: any) {
     context.log('図鑑の項目の一覧の取得エラー:', error);
