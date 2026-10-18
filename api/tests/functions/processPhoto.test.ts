@@ -645,6 +645,64 @@ describe('写真の解析のワーカー', () => {
 
       expect(storedPhoto()).toMatchObject({ comment: null, commentSource: null, identification: { name: 'ソメイヨシノ' } });
     });
+
+    it('識別のAIが失敗したら、識別の待ちに戻してどこで失敗したかを書き、例外を投げてキューの再試行に任せる', async () => {
+      // 分類と同じ扱い（06 §1.3）。やる処理は識別のまま（分類からやり直さない）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      reply = async () => {
+        throw Object.assign(new Error('500 The server had an error while processing your request.'), {
+          name: 'InternalServerError',
+          status: 500
+        });
+      };
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto()).toEqual(
+        waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW } })
+      );
+    });
+
+    it('上限（3回）目の識別の失敗なら、失敗（failed）にして例外を投げない。やる処理は識別のまま残す', async () => {
+      // 画面は step で「識別に失敗しました」と出す（03 §5.1）
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 2, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' } })
+      );
+      aiReturns({ ...plantAnswer, confidence: 101 });
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto().processing).toEqual({ state: 'failed', step: 'identify', attempts: 3, lastError: 'ai', updatedAt: NOW });
+      expect(storedPhoto().identification).toBeNull();
+    });
+
+    it('識別の間にやり直しの受付が入ったら、古い識別の結果もAIのコメントも書かず、やり直しを残す', async () => {
+      // 捨てる結果のコメントを、やり直しの写真に残さない（06 §3.2）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      const redoRequested = waitingPhoto({
+        hint: '梅かもしれない',
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T03:00:00.000Z' }
+      });
+      reply = async () => {
+        cosmosBackend.documents.set(PHOTO_ID, redoRequested);
+        return { choices: [{ message: { content: JSON.stringify(plantAnswer) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto()).toEqual(redoRequested);
+    });
+
+    it('写真の種類が図鑑の種類でない識別の待ちは、AIを呼ばずに内部の失敗として数える', async () => {
+      // 分類を経ずに識別の待ちになった写真（ふつうは起きない）。識別の対象にできないので AI の費用をかけない（06 §3.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'other' }));
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'internal', updatedAt: NOW });
+    });
   });
 
   describe('分類に使うAIのデプロイ', () => {
