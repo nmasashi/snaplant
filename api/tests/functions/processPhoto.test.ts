@@ -491,6 +491,7 @@ describe('写真の解析のワーカー', () => {
 
       expect(body.response_format.type).toBe('json_schema');
       expect(body.response_format.json_schema.strict).toBe(true);
+      expect(body.response_format.json_schema.name).toBe('photo_identification');
       const schema = body.response_format.json_schema.schema;
       // 共通項目。strict ではすべてを required に入れ、無いことは null で表す
       expect(Object.keys(schema.properties).sort()).toEqual(
@@ -524,6 +525,8 @@ describe('写真の解析のワーカー', () => {
 
       await runWorker();
 
+      // 命名規則も写真の種類のもの（06 §3.1）
+      expect(promptText()).toContain(CATALOG_KINDS.food.namingRule);
       const attributes = sent[0].body.response_format.json_schema.schema.properties.attributes;
       expect(Object.keys(attributes.properties).sort()).toEqual(['genre', 'mainIngredients']);
       expect(attributes.properties.genre.type).toEqual(['string', 'null']);
@@ -552,7 +555,8 @@ describe('写真の解析のワーカー', () => {
       expect(promptText()).toContain(CATALOG_KINDS.plant.namingRule);
       expect(promptText()).toContain('旭川の公園');
       expect(promptText()).toContain('北海道旭川市');
-      expect(promptText()).toContain('2026-10-05 12:30');
+      // 撮影日時は分まで（YYYY-MM-DD HH:mm。06 §3.1）
+      expect(promptText()).toMatch(/2026-10-05 12:30(?!:)/);
     });
 
     it('手がかりが無ければ、無い値（null）を手がかりとしてAIに渡さない', async () => {
@@ -571,6 +575,7 @@ describe('写真の解析のワーカー', () => {
       ['写っているのに名前が無い', { name: null }],
       ['写っているのに名前が空白だけ', { name: '   ' }],
       ['写っているのに名前が100文字を超える', { name: 'あ'.repeat(101) }],
+      ['写っていないのに信頼度が100より大きい', { matchesKind: false, name: null, confidence: 101 }],
       ['種類ごとの項目の文字列が文字列でない', { attributes: { scientificName: 123, familyName: 'バラ科' } }]
     ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻し、結果を書かない', async (_label, broken) => {
       // strict のスキーマでも範囲や空は強制できない。通らない応答を書くと、図鑑に名前の無い項目や範囲外の信頼度が出る（06 §3.1）
@@ -595,6 +600,41 @@ describe('写真の解析のワーカー', () => {
 
       expect(storedPhoto().identification).toBeNull();
       expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW });
+    });
+
+    it.each([
+      ['植物の学名（文字列の項目）', 'plant', { scientificName: null, familyName: 'バラ科' }],
+      ['食べ物の主な食材（文字列の配列の項目）', 'food', { genre: 'ラーメン', mainIngredients: null }]
+    ] as const)('種類ごとの項目が特定できず null（%s）でも受け付けて、null のまま書く', async (_label, category, attributes) => {
+      // 定義表の prompt は「特定できない場合は null」と頼むので、null はふつうに来る（06 §3.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category }));
+      aiReturns({ ...plantAnswer, attributes });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ matchesKind: true, attributes });
+      expect(storedPhoto().processing.state).toBe('done');
+    });
+
+    it('写っていて名前がちょうど100文字なら受け付けて、そのまま書く', async () => {
+      // 上限の境界（04 §3.1 の 1〜100 文字）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, name: 'あ'.repeat(100) });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ name: 'あ'.repeat(100) });
+    });
+
+    it('識別のAIの設定の誤り（デプロイ名が無い）は、AIの失敗とは分けて、内部の失敗として数える', async () => {
+      // AI の失敗にすると、一時的な障害として送り直し続ける（06 §3.1 のデプロイの行。分類とは別のサービスを通る）
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'internal', updatedAt: NOW });
     });
 
     it.each([0, 100])('信頼度が%sでも受け付けて、識別の結果に書く', async (confidence) => {
