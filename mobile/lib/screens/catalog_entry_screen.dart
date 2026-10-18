@@ -47,10 +47,6 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
   bool _vanished = false;
   // 見出しと写真を1ページ目から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
-  // 読んだページごとの、同じ応答の見出し（項目が無い応答のページには入れない）。見出しはグリッドがそのページを当てたときに出す。
-  // 読み込みが重なったとき（引っ張った読み直しと「再試行」、読み直しの間のグリッドの作り直し）に、どの応答を採るかをグリッドの規則にそろえ、
-  // 写真と見出しが別の応答から出ないようにする
-  final _headOf = Expando<CatalogEntry>();
 
   @override
   void dispose() {
@@ -60,24 +56,24 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
 
   Future<void> _reload() async => setState(() => _gridVersion++);
 
-  /// グリッドが読むページ。応答の見出しはページに結び付けておき、グリッドが1ページ目として当てたときに出す（[_onFirstPageApplied]）
+  /// グリッドが読むページ。見出しはページに持たせ、グリッドが1ページ目として当てたときに出す（[_onFirstPageApplied]）。
+  /// 読み込みが重なったとき（引っ張った読み直しと「再試行」、読み直しの間のグリッドの作り直し）に、どの応答を採るかをグリッドの決まりにそろえ、
+  /// 写真と見出しが別の応答から出ないようにする
   Future<PhotoPage> _loadPage(String? continuationToken) async {
     final detail = await widget.apiService.getCatalogEntry(
         widget.kind.kind, widget.name,
         continuationToken: continuationToken);
-    final entry = detail.entry;
-    if (entry == null) {
-      // 続きのページで無くなっていたら、続きは無いものとして読み終える（出している写真と見出しはそのまま）。
-      // 1ページ目なら、グリッドが当てたときに項目が無い表示にする（見出しを結び付けないページなので、定数を使い回してよい）
-      return const PhotoPage(photos: []);
-    }
-    _headOf[detail.photos] = entry;
-    return detail.photos;
+    // 続きのページで項目が無くなっていたら、写真が空で続きの無いページになり、読み終える（出している写真と見出しはそのまま）。
+    // 1ページ目なら、グリッドが当てたときに項目が無い表示にする
+    return _EntryPhotoPage(
+        detail.entry, detail.entry == null ? null : detail.photos);
   }
 
   /// グリッドが1ページ目を当てたとき。そのページの応答の見出しを出し、項目が無い応答なら項目が無い表示にする
   void _onFirstPageApplied(PhotoPage page) {
-    final entry = _headOf[page];
+    // グリッドは loadPage が返したページをそのまま渡す。違う形のページなら、今の表示を変えない
+    if (page is! _EntryPhotoPage) return;
+    final entry = page.entry;
     if (entry == null) {
       setState(() => _vanished = true);
       widget.onEntryVanished?.call();
@@ -205,4 +201,14 @@ class _EntryHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 項目の詳細の1ページ（写真のページと、同じ応答の見出し）。見出しが null なら、その種類と名前の写真が無い（写真も空で続きも無い）
+class _EntryPhotoPage extends PhotoPage {
+  _EntryPhotoPage(this.entry, PhotoPage? photos)
+      : super(
+            photos: photos?.photos ?? const [],
+            continuationToken: photos?.continuationToken);
+
+  final CatalogEntry? entry;
 }

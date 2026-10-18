@@ -76,7 +76,7 @@ class PhotoGrid extends StatefulWidget {
   /// 読み込みの失敗が `ApiException` でないときの文言
   final String errorFallbackMessage;
 
-  /// 先頭のページで一覧を置き換えたときに、そのページを渡して呼ぶ（[loadPage] が返したもの）。
+  /// 先頭のページで一覧を置き換えたときに、そのページを渡して呼ぶ（[loadPage] が返したものを、写し直さずにそのまま渡す）。
   /// 読み込みが重なったときにグリッドが採ったページだけで呼ぶので、同じ応答の他の部分（図鑑の項目の見出し）を写真とそろえて出せる
   final void Function(PhotoPage page)? onFirstPageApplied;
 
