@@ -129,6 +129,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 ドキュメントとの違い: `blobName` / `thumbnailBlobName` の代わりに `imageUrl` / `thumbnailUrl`（SAS 付き。§6）。`thumbnailUrl` はサムネイルが無ければ `null`。
 `location` は位置情報が無ければ `null`。あれば `latitude`・`longitude` は必ず数値で、`placeName`・`placeSource` は `null` になりうる（緯度・経度だけを送ったとき。§5.1）。
 クライアントは `latitude`・`longitude`・`placeName` を読み、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
+段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。`processing` のほかの項目と `classification` は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
 `category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
@@ -676,6 +677,7 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhoto(photoId, {comment, tags})` | `PATCH /api/photos/{photoId}` | `data['photo']` |
+| `requestPhotoProcessing(photoId, {hint})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a）。ボディは `{ step: 'classify', hint }` で、`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
 
 `_parseResponse()` はボディ全体をコールバックに渡すので、各メソッドが `json['data']` を剥がす（CLAUDE.md「クライアント実装で踏みやすい罠」）。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）と `isPhotoNotFound`（`code == 'PHOTO_NOT_FOUND'`。複数選択の削除で既に無い写真を消せたと数える。ステータスだけで見ると宛先の誤りの 404 まで含むのでコードで見る）を足す。
@@ -689,6 +691,6 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 - `placeName`: 地名（[06 §4.2](./06_processing_design.md#42-段階2端末)）があり、緯度・経度も送るときだけ（§5.1 の 16）。無ければパートごと省く（空・空白のみは §5.1 の 17 で 400）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
-段階3（3-4）で足すもの: `getPhotos` の `category`（今のクライアントは送らない）、やり直しの `POST /api/photos/{photoId}/process`（`{ step, hint }` を送り、202 の `data['photo']`（と `data['urlExpiresAt']`）を読む）。
+段階3（3-4b）で足すもの: `getPhotos` の `category`（今のクライアントは送らない）。
 段階4で足すもの: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`）、
 `getCatalogEntry(kind, name, {limit, continuationToken})`（`data['entry']`（null 可）・`data['photos']`・`data['continuationToken']`・`data['urlExpiresAt']`。`name` は `Uri.encodeQueryComponent()`）。

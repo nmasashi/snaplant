@@ -375,6 +375,16 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **判断が要ること**: ビューアの末尾で失敗を知らせて「再試行」を出すか、ビューアからもう一度払ったら読み直すか、今のまま（戻って一覧で再試行）とするか。
 `docs/travel-album/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
 
+### アプリの API の呼び出しに時間切れが無く、ダイアログの処理中に通信が返らないと閉じられない（Dart）
+
+`mobile/lib/services/api_service.dart` の呼び出しは、写真の送信（`upload_queue.dart` の 60 秒）を除いて時間切れを付けていない。
+処理中のダイアログ（削除の確認・旅行の作成と編集・旅行の削除・旅行の選択・解析のやり直し）は、どれも `PopScope(canPop: !処理中)` で、
+処理中は戻る操作でも閉じない（閉じると、サーバが受け付けたのに画面が古いまま残るため）。通信が返らないまま止まると、ダイアログから出られず、アプリを閉じるしかない
+（2026-10-18、3-4a の `/code-review` で指摘。コードを読んでの判断）。
+
+**判断が要ること**: `ApiService` の呼び出しに一律の時間切れ（例: 30 秒）を付けて、時間切れを `ApiException`（ステータス 0）にするか。
+付けるなら、時間切れの後にサーバが受け付けていた場合の画面の扱い（読み直しで直る）も `docs/05_technology_selection.md` §4.2 に書く。
+
 ### `EndpointSuffix` の無い接続文字列の既定値の分岐が使われない
 
 `StorageService` の `resolveBlobEndpointHost()` は、接続文字列に `EndpointSuffix` が無ければ `core.windows.net` として
@@ -632,6 +642,7 @@ test-reviewer が指摘した、原則違反ではないが締められる点。
 旅行アルバムの旅行の作成・編集ダイアログ（`mobile/lib/widgets/trip_edit_dialog.dart` の旅行名 100・メモ 1000）も同じ差がある
 （2026-10-13 の `/code-review` で指摘）。上限の値もサーバの環境変数（`TRIP_NAME_MAX_LENGTH` など）と連動しない。
 越えた場合はサーバの 400 の文言がダイアログにそのまま出て、入力は残るので、直して送り直せる。同じ判断で許容する。
+解析のやり直しダイアログ（`mobile/lib/widgets/retry_processing_dialog.dart` の手がかり 500）も同じ差があり、同じ判断で許容する（2026-10-18 の `/code-review` で指摘）。
 
 ---
 

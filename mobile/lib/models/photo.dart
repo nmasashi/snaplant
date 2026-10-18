@@ -1,6 +1,6 @@
 /// 旅行アルバムの写真（docs/travel-album/05_api_design.md §3.3）
 ///
-/// 段階2で画面が使う項目だけを読む。URL は SAS 付きで、応答のたびに変わる
+/// 画面が使う項目だけを読む（段階3で分類の項目を足した）。URL は SAS 付きで、応答のたびに変わる
 class Photo {
   /// 画像のバイト列の SHA-256（16進・小文字 64 文字）
   final String id;
@@ -20,6 +20,21 @@ class Photo {
   /// 地名（`location.placeName`）。位置情報か地名が無ければ null
   final String? placeName;
 
+  /// AI の分類のカテゴリ（`plant` / `food` / `landscape` / `other`）。分類の前は null
+  final String? category;
+
+  /// 解析の進み具合（`processing.state`。`none` / `pending` / `classifying` / `identifying` / `done` / `failed`）
+  final String processingState;
+
+  /// コメント。無ければ null
+  final String? comment;
+
+  /// コメントを書いた主体（`user` / `ai`）。コメントが無ければ null
+  final String? commentSource;
+
+  /// 前回の解析のやり直しで利用者が書いた手がかり。無ければ null
+  final String? hint;
+
   const Photo({
     required this.id,
     this.tripId,
@@ -29,6 +44,11 @@ class Photo {
     this.latitude,
     this.longitude,
     this.placeName,
+    this.category,
+    this.processingState = 'none',
+    this.comment,
+    this.commentSource,
+    this.hint,
   });
 
   factory Photo.fromJson(Map<String, dynamic> json) {
@@ -42,6 +62,13 @@ class Photo {
       latitude: (location?['latitude'] as num?)?.toDouble(),
       longitude: (location?['longitude'] as num?)?.toDouble(),
       placeName: location?['placeName'] as String?,
+      category: json['category'] as String?,
+      processingState:
+          (json['processing'] as Map<String, dynamic>?)?['state'] as String? ??
+              'none',
+      comment: json['comment'] as String?,
+      commentSource: json['commentSource'] as String?,
+      hint: json['hint'] as String?,
     );
   }
 }
