@@ -672,7 +672,7 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 | `updateTrip(tripId, name, description)` | `PUT /api/trips/{tripId}` | `data['trip']` |
 | `deleteTrip(tripId, {required bool deletePhotos})` | `DELETE /api/trips/{tripId}?deletePhotos=` | `data['deletedPhotoCount']`・`data['detachedPhotoCount']` |
 | `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`（`urlExpiresAt` と 201 / 200 の区別は読まない。200（別の場所）は、呼び出し側の `UploadQueue` が応答の `photo.tripId` と送った `tripId` を比べて判断する。区別が要らないので、201 / 200 を返す目標は 2026-10-15 に外した） |
-| `getPhotos({tripId, category, limit, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）・`data['urlExpiresAt']`。`continuationToken` は `Uri.encodeQueryComponent()` で載せる |
+| `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。3つとも省略でき、渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`、省くと旅行をまたぐ（カテゴリの写真の画面。`category` だけで取る）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b）。呼び出し側（`PhotoGrid`）は `tripId`・`category` の少なくとも一方を必ず渡す（両方無いとサーバは 400） |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
@@ -691,6 +691,5 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 - `placeName`: 地名（[06 §4.2](./06_processing_design.md#42-段階2端末)）があり、緯度・経度も送るときだけ（§5.1 の 16）。無ければパートごと省く（空・空白のみは §5.1 の 17 で 400）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
-段階3（3-4b）で足すもの: `getPhotos` の `category`（今のクライアントは送らない）。
 段階4で足すもの: `getCatalogKinds()`（`data['kinds']`）、`getCatalogEntries(kind, {offset, limit})`（`data['entries']`・`data['total']`）、
 `getCatalogEntry(kind, name, {limit, continuationToken})`（`data['entry']`（null 可）・`data['photos']`・`data['continuationToken']`・`data['urlExpiresAt']`。`name` は `Uri.encodeQueryComponent()`）。
