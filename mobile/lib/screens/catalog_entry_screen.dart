@@ -116,6 +116,8 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
                       constraints: BoxConstraints(
                           maxHeight: constraints.maxHeight * 0.4),
                       child: SingleChildScrollView(
+                          // グリッドの一覧を画面の主なスクロールにする（ステータスバーのタップで先頭へ戻る先が2つにならないように）
+                          primary: false,
                           child: _EntryHeader(entry: entry, kind: widget.kind)),
                     ),
                   Expanded(
