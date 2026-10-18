@@ -342,5 +342,21 @@ describe('写真の解析のやり直しAPI', () => {
         expect(queuedMessages()).toEqual([]);
       }
     );
+
+    it.each(databaseFailureCases('解析のやり直しの受付に失敗しました'))(
+      '識別のやり直しで、カテゴリを見るための写真の読み取りで%s',
+      async (_case, error, status, code, message) => {
+        // 識別だけが書く前に写真を読む。読めないのを「写真が無い」（404）と取り違えない
+        cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+        cosmosBackend.forcedReadError = error;
+
+        const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify' }), mockContext);
+
+        expect(response.status).toBe(status);
+        expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+        expect(storedPhoto()).toEqual(classifiedPhoto());
+        expect(queuedMessages()).toEqual([]);
+      }
+    );
   });
 });

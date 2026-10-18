@@ -2,7 +2,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { enqueueUnidentifiedPhotos } from '../../src/scripts/enqueueUnidentified';
 import { PhotoDocument, PhotoProcessing } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
-import { photoDocument } from '../helpers/albumDocuments';
+import { photoDocument, tripDocument } from '../helpers/albumDocuments';
 
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物。スクリプトはキューに積まない（積むのは再投入のタイマー。06 §1）
 jest.mock('@azure/cosmos');
@@ -11,6 +11,7 @@ const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>
 
 const NOW = '2026-10-18T03:00:00.000Z';
 const CLASSIFIED_AT = '2026-10-17T01:00:00.000Z';
+const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 // 写真の id（SHA-256 の16進）。取り違えを見分けられるよう、先頭の文字だけ変える
 const photoId = (head: string): string => head.repeat(64);
@@ -63,6 +64,8 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a'), { tags: ['公園'], tripId: null }));
     cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b'), { category: 'food' }));
     cosmosBackend.documents.set(photoId('c'), classifiedPhoto(photoId('c'), { category: 'landscape' }));
+    // 同じコンテナには旅行も入っている（写真だけを読む）
+    cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '京都'));
 
     const result = await enqueueUnidentifiedPhotos({ apply: true, log });
 
@@ -123,6 +126,23 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
 
     expect(result).toEqual({ found: 2, marked: 1 });
     expect(stored(photoId('a'))).toEqual(redoRequested);
+    expect(stored(photoId('b')).processing).toEqual(waitingForIdentify);
+  });
+
+  it('読んだ後に消された写真は飛ばして、ほかの写真は書く', async () => {
+    // 消された写真への patch は 404。止めずに次の写真へ進む（04 §7.1）
+    cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a')));
+    cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b')));
+    cosmosBackend.beforePatch = (id) => {
+      if (id === photoId('a')) {
+        cosmosBackend.documents.delete(photoId('a'));
+      }
+    };
+
+    const result = await enqueueUnidentifiedPhotos({ apply: true, log });
+
+    expect(result).toEqual({ found: 2, marked: 1 });
+    expect(cosmosBackend.documents.has(photoId('a'))).toBe(false);
     expect(stored(photoId('b')).processing).toEqual(waitingForIdentify);
   });
 });
