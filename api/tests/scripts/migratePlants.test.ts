@@ -214,7 +214,12 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     ['https でない URL', 'http://test.blob.core.windows.net/images/p1.jpg'],
     ['コンテナの下の階層を指す URL', 'https://test.blob.core.windows.net/images/sub/p1.jpg'],
     ['Blob の名前が無い URL', 'https://test.blob.core.windows.net/images/'],
-    ['URL として読めない文字列', 'images/p1.jpg']
+    ['URL として読めない文字列', 'images/p1.jpg'],
+    // 以下は、パースした結果では正当に見える URL。生の文字列が正規形と完全一致しなければ読まない（StorageService.isValidImagePath と同じ考え方）
+    ['クエリの付いた URL', 'https://test.blob.core.windows.net/images/p1.jpg?sv=2024'],
+    ['ホストが大文字の URL', 'https://TEST.blob.core.windows.net/images/p1.jpg'],
+    // 1つの植物の URL が壊れていても、移行全体を止めない
+    ['パーセントエンコードが壊れた URL', 'https://test.blob.core.windows.net/images/p1%E0.jpg']
   ])('画像の URL が images コンテナの Blob を指していない植物（%s）は飛ばして一覧に出し、ほかの植物は移す', async (_, imagePath) => {
     const image = Buffer.from('sakura-image');
     putPlant(plant('p1', { imagePath, createdAt: '2026-03-01T03:00:00.000Z' }), Buffer.from('other-image'));
