@@ -390,8 +390,9 @@ describe('写真の解析のワーカー', () => {
       expect(duringAi).toEqual({ state: 'identifying', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
-    it('分類どおりの種類が写っていなければ（matchesKind: false）、図鑑に出ない形の結果を書いて済みにし、コメントは変えない', async () => {
-      // 名前以下は持たず、AI のコメントを理由として残す（06 §3.2）。画面は「分類と合わない」と出す
+    it('分類どおりの種類が写っていなければ（matchesKind: false）、名前が無くても受け付けて、図鑑に出ない形の結果を書いて済みにし、コメントは変えない', async () => {
+      // 名前以下は持たず、AI のコメントを理由として残す（06 §3.2）。画面は「分類と合わない」と出す。
+      // 写っているのに名前が無い応答は拒む（下の「応答の検証に通らなければ」の表）
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
       aiReturns({
         matchesKind: false,
@@ -424,21 +425,9 @@ describe('写真の解析のワーカー', () => {
       });
     });
 
-    it('利用者がコメントを書いている写真では、識別の結果は書くが、AIのコメントで上書きしない', async () => {
-      // 送信の後、識別の前に利用者がコメントを書いた。自動の解析は利用者の文を消さない（06 §3.2）
-      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ comment: '公園の入口の木', commentSource: 'user' }));
-
-      await runWorker();
-
-      expect(storedPhoto()).toMatchObject({
-        comment: '公園の入口の木',
-        commentSource: 'user',
-        identification: { name: 'ソメイヨシノ' },
-        processing: { state: 'done' }
-      });
-    });
-
-    it('識別の間（担当の後）に利用者がコメントを書いたら、AIのコメントで上書きしない', async () => {
+    it('利用者がコメントを書いていたら、識別の間（担当の後）に書いたものでも、識別の結果は書くが、AIのコメントで上書きしない', async () => {
+      // 自動の解析は利用者の文を消さない（06 §3.2）。書くときの条件（Cosmos が原子的に評価する）で守るので、
+      // 送信の後・識別の前に書いたコメントも、この読んだ後に書いたコメントと同じ条件で残る
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
       // 1回目の patch は担当。2回目（コメントの書き込み）の直前に、利用者の PATCH が入る
       cosmosBackend.beforePatch = () => {
@@ -614,15 +603,6 @@ describe('写真の解析のワーカー', () => {
       await runWorker();
 
       expect(storedPhoto().identification).toMatchObject({ confidence, name: 'ソメイヨシノ' });
-    });
-
-    it('写っていなければ（matchesKind: false）、名前が無くても受け付ける', async () => {
-      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
-      aiReturns({ ...plantAnswer, matchesKind: false, name: null, comment: '植物が写っていない' });
-
-      await runWorker();
-
-      expect(storedPhoto().identification).toMatchObject({ matchesKind: false, reason: '植物が写っていない' });
     });
 
     it('種類ごとの項目は定義表の項目だけを書く（定義に無いキーは捨てる）', async () => {
