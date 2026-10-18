@@ -313,13 +313,16 @@ class _PhotoPageState extends State<_PhotoPage> {
                   Text('分類中...',
                       style:
                           AppTextStyles.body1.copyWith(color: Colors.white70)),
-                if (photo.processingState == 'failed')
+                if (isProcessingFailed(photo.processingState))
                   Row(children: [
                     Text('分類に失敗しました',
                         style: AppTextStyles.body1
                             .copyWith(color: Colors.white70)),
                     TextButton(
                       onPressed: widget.onRetry,
+                      // 暗い下の情報の上でも読めるよう、上のバーの「やり直す」と同じ白にする
+                      style:
+                          TextButton.styleFrom(foregroundColor: Colors.white),
                       child: const Text('やり直す'),
                     ),
                   ]),

@@ -64,7 +64,9 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
   Widget _buildDialog() {
     return AlertDialog(
       title: const Text('解析をやり直す'),
-      content: Column(
+      // キーボードが出て高さが足りなくなっても、はみ出さずにスクロールする（旅行の編集ダイアログと同じ）
+      content: SingleChildScrollView(
+          child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -86,7 +88,7 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
                   Text(_error!, style: const TextStyle(color: AppColors.error)),
             ),
         ],
-      ),
+      )),
       actions: [
         TextButton(
           onPressed: _busy ? null : () => Navigator.pop(context),

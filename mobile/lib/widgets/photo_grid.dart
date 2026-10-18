@@ -475,7 +475,7 @@ class _PhotoTile extends StatelessWidget {
   /// [selected] は選択モードでなければ null
   Widget _buildImage({required bool? selected}) {
     final inProgress = isProcessingInProgress(photo.processingState);
-    final failed = photo.processingState == 'failed';
+    final failed = isProcessingFailed(photo.processingState);
     return Semantics(
       // 分類の印は読み上げにも足す（docs/travel-album/03_screen_design.md §5.5）
       label: formatTakenAt(photo.takenAt) +

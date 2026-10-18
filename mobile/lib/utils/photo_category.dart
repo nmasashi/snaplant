@@ -14,3 +14,6 @@ String categoryLabel(String category) => _categoryLabels[category] ?? category;
 /// 分類を待っている・している（`pending` / `classifying` / `identifying`）か
 bool isProcessingInProgress(String state) =>
     state == 'pending' || state == 'classifying' || state == 'identifying';
+
+/// 上限まで分類に失敗した（`failed`。自動では再試行されず、「やり直す」を待つ）か
+bool isProcessingFailed(String state) => state == 'failed';
