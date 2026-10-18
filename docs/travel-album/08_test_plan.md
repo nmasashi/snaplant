@@ -245,7 +245,16 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   順の例: 種類も名前も不正なら種類、名前もページも不正なら名前。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の項目の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の2行）。
   偽物は `ORDER BY`・`COUNT`・`matchesKind` を解釈しないので、見出しの選び方・写真の並び・`photoCount`・`matchesKind: false` で名前の残った写真の除外は入口では見ない（§5.3 で手で確かめる）
 - Cosmos の設定の不足（4-2a で実装済み。`tests/scripts/enqueueUnidentified.test.ts`）: `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_ALBUM_CONTAINER` のどれかが無い・空白だけなら、識別に回すスクリプトはその設定の名前を含む例外で止まる（`AlbumService` を作るときに確かめる）
-- 移行スクリプト: 2 回流して `documents` の件数が変わらない。`imagePath` の Blob が無い植物は飛ばして一覧に出る。写真の `category` が `"plant"`、`tags` が `[]`、`identification.kind` が `"plant"` で `model: "migration"`、`sortAt` が `uploadedAt` を日本時間に直したもの
+- 移行スクリプト（4-4 で実装済み。`tests/scripts/migratePlants.test.ts`。[06 §7.1](./06_processing_design.md#71-移行スクリプト手順-2)）: `--apply` で、植物の画像が `photos/<SHA-256>.jpg` に同じ Content-Type で上がり、写真の文書が 06 §7.1 の表の全項目のとおりにできる（`legacyPlantId` は植物の id）。
+  PNG は `.png` で上がる。Content-Type が大文字（`image/JPEG`）でも移し、写真の `contentType` と Blob の Content-Type を小文字にそろえる。
+  説明・特徴・学名・科名の無い（空の）植物は、`identification` の `description`・`characteristics` と `attributes` の `scientificName`・`familyName` を `null` にし（キーは欠かさない）、`comment`・`commentSource` も `null`。
+  `--apply` が無ければ、書き込むときと同じく移す植物を数え（画像のある植物を `migrated` に数える）、画像の Blob が無い植物と、同じ画像の写真が先にある植物を飛ばす一覧に出し、写真の文書も Blob も書かない。
+  `--apply` が無くても、書く先の設定（`PHOTO_STORAGE_CONTAINER_NAME`）が無ければ `写真の保存先の設定` を含む例外で止まる。
+  画像の Blob が無い植物、`imagePath` が `images` の Blob を指していない植物（別のホスト・別のコンテナ・`https` でない・下の階層・Blob 名が無い・URL として読めない・クエリが付いている・ホストが大文字・パーセントエンコードが壊れている。1行に条件を1つだけ外す）、
+  Content-Type が受け付けないもの（`image/heic`）・Content-Type の無いもの（`画像の形式（）が写真として受け付けないもの`）の植物は、06 §7.1 の理由の文言で飛ばして一覧に出し、続く植物を移す。同じ画像の写真が先にあれば飛ばして先の写真を変えない。先にあるかを確かめた後・作る前に同じ写真が作られた（`create` が 409）ときも、同じ理由で飛ばして先の写真を変えない。2 回流すと2回目は全部を「同じ写真が先にある」として飛ばし、写真を変えない（冪等）。
+  `photos` への保存の失敗と、画像の読み込みの 404 以外の失敗（403 `AuthorizationFailure`）では止まり、それまでに移した写真は残る。
+  設定（`COSMOS_DB_CONTAINER` が無い・`STORAGE_CONTAINER_NAME` が空白だけ）が足りなければ `設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME` で何も書かずに止まる。
+  偽物は SQL を解釈しないので、`plants` の全件読み（`SELECT * FROM c`）は実行のときに件数（`植物図鑑の記録: <件数> 件`）で確かめる
 
 ## 4. 段階2のシナリオ一覧（mobile）
 

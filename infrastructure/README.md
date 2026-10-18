@@ -213,6 +213,44 @@ terraform {
 - セキュリティパッチの適用
 - 不要なリソースのクリーンアップ
 
+### 植物図鑑の退避（旅行アルバムへの移行の前）
+
+`docs/travel-album/06_processing_design.md` §7 の手順 1。移行スクリプト（手順 2。`api/README.md`「手で回すスクリプト」）を回す前に、
+`images` コンテナの画像と `plants` コンテナの全ドキュメントを作業マシンに落とす。移行スクリプトは `images`・`plants` を読むだけで消さないが、
+手順 6 で両方を消すので、それまでに退避が済んでいる必要がある。人間が Git Bash で回す。
+
+退避先はリポジトリの外のフォルダにする（`.work/` は作業単位ごとに掃除するので置かない）。植物の名前や画像を含むので、共有しない。
+
+```bash
+BACKUP="<退避先>"   # 例: リポジトリの外の、日付の入ったフォルダ
+mkdir -p "$BACKUP/images"
+
+# 1. images の画像を全部落とす。ストレージアカウント名は infrastructure/ で `terraform output -raw storage_account_name`、またはポータルで確かめる。
+#    鍵を指定しないと、az login の権限で CLI がアカウントの鍵を取りに行く（その旨の警告が出る）。鍵や接続文字列をコマンドに書かない
+az storage blob download-batch --account-name <ストレージアカウント名> --source images --destination "$BACKUP/images"
+
+# 2. plants の全ドキュメントを JSON で書き出す（api/ で。api/node_modules の @azure/cosmos を使う）。
+#    接続先は api/local.settings.json の Values から読む（中身は表示しない）。最初に出る「読む元」が本番の plants かを確かめる
+cd api
+node -e "
+const { CosmosClient } = require('@azure/cosmos');
+const fs = require('fs');
+const v = require('./local.settings.json').Values;
+const out = process.argv[1];
+console.log('読む元:', new URL(v.COSMOS_DB_ENDPOINT).host, '/', v.COSMOS_DB_DATABASE, '/', v.COSMOS_DB_CONTAINER);
+new CosmosClient({ endpoint: v.COSMOS_DB_ENDPOINT, key: v.COSMOS_DB_KEY })
+  .database(v.COSMOS_DB_DATABASE).container(v.COSMOS_DB_CONTAINER)
+  .items.query('SELECT * FROM c').fetchAll()
+  .then(({ resources }) => { fs.writeFileSync(out, JSON.stringify(resources, null, 2)); console.log(resources.length + ' 件を書きました'); });
+" "$BACKUP/plants.json"
+```
+
+確かめること。
+
+- `plants.json` の件数が、移行スクリプトの最初に出る `植物図鑑の記録: <件数> 件` と一致する
+- `$BACKUP/images` のファイルの数（`ls "$BACKUP/images" | wc -l`）が、ポータルで見た `images` の Blob の数と一致する。
+  `images` には植物から指されていない画像が残っていることがあるので、植物の件数とは一致しなくてよい
+
 ### OpenAIモデル移行（gpt-5.6-luna → gpt-6-luna、2026-10-17）
 
 リソース名を `azurerm_cognitive_deployment.gpt5_luna` から `gpt6_luna` に替え、`moved` ブロックで state の上でも続きとして扱う。
