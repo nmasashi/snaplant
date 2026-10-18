@@ -109,7 +109,7 @@ enum TripRoute {
   process,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`）の偽のサーバ。
+/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
 /// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
@@ -576,8 +576,11 @@ class FakeTripBackend {
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
     final body = json.decode(request.body);
     // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.7）。写真の有無は検証の後に見る
-    if (body is! Map<String, dynamic>) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
-    if (body['step'] != 'classify') return _error(400, 'INVALID_REQUEST', 'やり直す処理の種類が無効です');
+    if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
+    // オブジェクトでないボディ（配列・数値など）は、本物と同じく処理の種類が無いものとして断る
+    if (body is! Map<String, dynamic> || body['step'] != 'classify') {
+      return _error(400, 'INVALID_REQUEST', 'やり直す処理の種類が無効です');
+    }
     final hint = body['hint'];
     if (hint != null && hint is! String) return _error(400, 'INVALID_REQUEST', '補足情報は文字列で指定してください');
     final trimmed = (hint as String?)?.trim() ?? '';
