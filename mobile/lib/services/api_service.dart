@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/plant.dart';
 import '../models/api_response.dart';
+import '../models/catalog.dart';
 import '../models/photo.dart';
 import '../models/trip.dart';
 import '../utils/image_mime_type.dart';
@@ -535,6 +536,46 @@ class ApiService {
               .map((e) => Photo.fromJson(e as Map<String, dynamic>))
               .toList(),
           continuationToken: data['continuationToken'] as String?,
+        );
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 図鑑の種類の一覧（定義表の順）
+  /// GET /api/catalog/kinds
+  Future<List<CatalogKind>> getCatalogKinds() async {
+    try {
+      final response = await _client.get(Uri.parse(_buildUrl('/api/catalog/kinds')), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return (data['kinds'] as List<dynamic>)
+            .map((e) => CatalogKind.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 図鑑の項目の一覧の1ページ（名前順。[offset] 件目から [limit] 件）
+  /// GET /api/catalog/entries?kind=<種類>&offset=<何件目から>&limit=<何件まで>
+  ///
+  /// サーバは数えてから見出しを読むまでに写真が無くなった項目をページから外すので、件数が [limit] より少なくても続きがあることがある。
+  /// 次のページは [offset] を [limit] だけ進めて読み、[CatalogEntryPage.total] 以上になったら読み切り（docs/travel-album/03_screen_design.md §6.1）
+  Future<CatalogEntryPage> getCatalogEntries(String kind, {required int offset, required int limit}) async {
+    try {
+      final query = {'kind': kind, 'offset': '$offset', 'limit': '$limit'};
+      final url = _buildUrl('/api/catalog/entries?${Uri(queryParameters: query).query}');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return CatalogEntryPage(
+          entries: (data['entries'] as List<dynamic>)
+              .map((e) => CatalogEntry.fromJson(e as Map<String, dynamic>))
+              .toList(),
+          total: data['total'] as int,
         );
       });
     } catch (error) {

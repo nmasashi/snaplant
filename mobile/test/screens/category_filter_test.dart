@@ -58,9 +58,11 @@ void main() {
       final semantics = tester.ensureSemantics();
       await _openTripDetail(tester);
 
-      for (final label in ['すべて', '植物', '食べ物', '風景', 'その他']) {
+      for (final label in ['すべて', '植物', '食べ物', '風景']) {
         expect(_chip(label), findsOneWidget);
       }
+      // 「その他」のチップは置かない（その写真は「すべて」で見える。02 §5 #33）
+      expect(_chip('その他'), findsNothing);
       expect(tester.widget<ChoiceChip>(_chip('すべて')).selected, isTrue);
       expect(_shown(['10:00', '11:00', '12:00']), [true, true, true]);
       semantics.dispose();
@@ -201,15 +203,16 @@ void main() {
       await letFramesRun(tester);
     }
 
-    testWidgets('旅行一覧の「カテゴリ」から開く一覧に、植物・食べ物・風景・その他を並べる', (tester) async {
+    testWidgets('旅行一覧の「カテゴリ」から開く一覧に、植物・食べ物・風景を並べ、その他は並べない', (tester) async {
       await openTripsTab(tester, acrossTrips());
 
       await tester.tap(find.byTooltip('カテゴリ'));
       await letFramesRun(tester);
 
-      for (final label in ['植物', '食べ物', '風景', 'その他']) {
+      for (final label in ['植物', '食べ物', '風景']) {
         expect(find.text(label), findsOneWidget);
       }
+      expect(find.text('その他'), findsNothing);
     });
 
     testWidgets('「食べ物」を選ぶと、旅行をまたいで（旅行に属さない写真も）食べ物の写真だけを並べる', (tester) async {

@@ -1,12 +1,15 @@
 /// 写真のカテゴリ（AI の分類の `category`）の表示名（docs/travel-album/03_screen_design.md §5.1）
 ///
-/// 段階3ではアプリが持つ。段階4で種類の一覧の API（`GET /api/catalog/kinds` の `label`）から取る形に移す
+/// アプリが持つ（図鑑のタブは種類の一覧の API から作るが、カテゴリの表示名はこの表のまま。docs/travel-album/02_design_overview.md §5 #33）。
+/// どれにも当てはまらない分類（[otherCategory]）は画面に出さないので、表に入れない
 const _categoryLabels = {
   'plant': '植物',
   'food': '食べ物',
   'landscape': '風景',
-  'other': 'その他',
 };
+
+/// どれにも当てはまらない分類（図鑑に載らない写真の寄せ集め）。チップ・カテゴリの一覧・写真ビューアに出さない（03 §5.1〜§5.3）
+const otherCategory = 'other';
 
 /// 画面に並べるカテゴリの順（旅行詳細のチップと、カテゴリの一覧の画面）。表示名の表の順で、キーを二重に持たない
 final photoCategories = List<String>.unmodifiable(_categoryLabels.keys);
