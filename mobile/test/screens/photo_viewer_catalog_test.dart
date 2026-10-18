@@ -203,6 +203,22 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets('コメントを変えずに保存したら、何も送らずに閉じ、AI のコメントのままにする', (tester) async {
+      // 送ると AI のコメントが利用者のコメント（commentSource: user）になり、「（編集済み）」が付いてしまう
+      final backend = await _openViewer(
+          tester, _photo(comment: '満開のサクラ', commentSource: 'ai'));
+
+      await tester.tap(find.text('コメントを編集'));
+      await letFramesRun(tester);
+      await tester.tap(_save);
+      await letFramesRun(tester);
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(_stored(backend)['commentSource'], 'ai');
+      expect(find.text('満開のサクラ'), findsOneWidget);
+      expect(find.textContaining('（編集済み）'), findsNothing);
+    });
+
     testWidgets('空のまま保存すると、コメントを消す', (tester) async {
       final backend = await _openViewer(
           tester, _photo(comment: '満開のサクラ', commentSource: 'ai'));
