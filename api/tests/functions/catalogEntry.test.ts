@@ -120,6 +120,7 @@ describe('図鑑の項目の詳細API', () => {
 
     expect(response.status).toBe(200);
     const data = (response.jsonBody as any).data;
+    // photoCount は見ない（偽物は COUNT の代わりに文書を返す）。toEqual にしない
     expect(data.entry).toMatchObject({
       kind: 'plant',
       name: 'メロン',
@@ -175,8 +176,12 @@ describe('図鑑の項目の詳細API', () => {
     expect((second.jsonBody as any).data.continuationToken).toBeNull();
   });
 
-  it('名前が100文字ちょうどなら受け付ける', async () => {
-    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'あ'.repeat(100) }), mockContext);
+  it.each([
+    ['名前が前後の空白を除いて100文字ちょうど', { kind: 'plant', name: ` ${'あ'.repeat(100)} ` }],
+    ['写真の枚数が上限の200', { kind: 'plant', name: 'メロン', limit: '200' }]
+  ])('境界（%s）は受け付ける', async (_label, query) => {
+    // 名前の長さは前後の空白を除いてから数える（05 §5.14 の検証の表の 3）
+    const response = await getCatalogEntryHandler(createRequest(query), mockContext);
 
     expect(response.status).toBe(200);
   });
@@ -185,6 +190,8 @@ describe('図鑑の項目の詳細API', () => {
     it.each([
       ['種類が無い', { name: 'メロン' }, '図鑑の種類が無効です'],
       ['種類が定義表に無い（other）', { kind: 'other', name: 'メロン' }, '図鑑の種類が無効です'],
+      // 種類は空白を除かずに比べる（項目の一覧と同じ）
+      ['種類の前後に空白がある', { kind: ' plant', name: 'メロン' }, '図鑑の種類が無効です'],
       ['名前が無い', { kind: 'plant' }, '図鑑の項目の名前が指定されていません'],
       ['名前が空白だけ', { kind: 'plant', name: '   ' }, '図鑑の項目の名前が指定されていません'],
       ['名前が前後の空白を除いて100文字を超える', { kind: 'plant', name: ` ${'あ'.repeat(101)} ` }, '図鑑の項目の名前は100文字以内で指定してください'],
@@ -214,4 +221,31 @@ describe('図鑑の項目の詳細API', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
     }
   );
+
+  it.each([
+    [
+      '継続トークンを渡していないのに Cosmos DB が 400 を返したときは、内部エラー（500）を返す',
+      Object.assign(new Error('Bad Request'), { name: 'RestError', code: 400 }),
+      {},
+      500,
+      'INTERNAL_ERROR',
+      '図鑑の項目の取得に失敗しました'
+    ],
+    [
+      '継続トークンを渡していても、接続できない障害は 400 にせず、接続できないエラー（503）を返す',
+      Object.assign(new Error('getaddrinfo ENOTFOUND test.documents.azure.com'), { name: 'RestError', code: 'ENOTFOUND' }),
+      { continuationToken: '{"fakePosition":1}' },
+      503,
+      'DATABASE_ERROR',
+      'データベースに接続できません'
+    ]
+  ])('データベースの読み取りで%s', async (_case, error, extra, status, code, message) => {
+    // 「継続トークンの形式が無効です」にするのは、トークンを渡した写真のページの 400 だけ（05 §5.14 の 6）
+    cosmosBackend.forcedQueryError = error;
+
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'メロン', ...extra }), mockContext);
+
+    expect(response.status).toBe(status);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+  });
 });

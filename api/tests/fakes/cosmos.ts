@@ -102,7 +102,7 @@ import { TripDocument } from '../../src/types/album';
  * - WHERE 句が `type` でも絞り込む条件になっているか（偽物は `@type` パラメータの値で絞るだけで、
  *   WHERE 句から type の条件を削除しても気づかない）
  * - 集計（GROUP BY / COUNT / MIN / MAX）の値。偽物は `@type` で絞ったドキュメントをそのまま行として返す
- *   だけなので、写真を置いても集計の行にはならず、枚数は0・期間は null に見える。集計の値は
+ *   だけなので、写真を置いても集計の行にはならず、GROUP BY の枚数は0・期間は null に見える（`VALUE` の集計は、絞り込んだ先頭の文書がそのまま値に見える）。集計の値は
  *   tripSummaries.test.ts（行から値を組み立てる関数）で確かめる。サービスやハンドラのテストでは、
  *   写真を置いて集計の値を主張しない。`SELECT VALUE COUNT(1)` も数ではなく文書を返すので、
  *   図鑑の項目の詳細の枚数（photoCount）と「枚数が 0 なら項目は無い」は確かめられない
@@ -363,7 +363,8 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         // @tripId は null を値として渡せる（旅行に属さない写真）ので、値ではなくパラメータがあるかで判断する
         const tripIdParam = parameters.find((p: any) => p.name === '@tripId');
         const categoryParam = parameters.find((p: any) => p.name === '@category')?.value;
-        // 図鑑の項目（識別の種類と名前）。名前は植物の @name と分けて @entryName で受ける
+        // 図鑑の項目（識別の種類と名前）。名前は植物の @name と分けて @entryName で受ける。
+        // @kind・@entryName は図鑑の識別の絞り込み専用（別の意味で同じ名前のパラメータを使うと、偽物が識別で絞ってしまう）
         const kindParam = parameters.find((p: any) => p.name === '@kind')?.value;
         const entryNameParam = parameters.find((p: any) => p.name === '@entryName')?.value;
         let docs = Array.from(backend.documents.values());
