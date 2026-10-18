@@ -387,30 +387,6 @@ export class AlbumService {
   }
 
   /**
-   * 止まった写真の processing を書き換える（解析待ちに戻すか、失敗にする）。読んだときのままのときだけ書く条件付きの patch
-   *
-   * 読んでから書くまでにワーカーが担当していたら（state か回数が変わる）書かない
-   * @param id 写真 ID
-   * @param read 読んだときの processing
-   * @param next 書く processing
-   * @returns 書けたら true。読んだときと変わっていた（412）か、写真が消えていた（404）なら false
-   */
-  async resetStalePhotoProcessing(id: string, read: PhotoProcessing, next: PhotoProcessing): Promise<boolean> {
-    try {
-      await this.container.item(id, id).patch({
-        condition: processingCondition(read),
-        operations: [{ op: 'set', path: '/processing', value: next }],
-      });
-      return true;
-    } catch (error: any) {
-      if (error.code === 412 || error.code === 404) {
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  /**
    * 写真の解析のやり直しを受け付ける（分類の待ちにし、回数を 0 に戻し、手がかりを書き、コメントを消す）
    *
    * コメントは、やり直しの結果で置き換えるために消す（利用者の文は、アプリが手がかりに事前入力してから頼む。
@@ -471,14 +447,17 @@ export class AlbumService {
   }
 
   /**
-   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）。担当したときのままのときだけ書く
+   * 写真の解析の進み具合だけを書く（結果の欄には触らない）。processing が expected のままのときだけ書く
+   *
+   * ワーカーの失敗の記録（expected は担当したときに書いたもの）、再投入のタイマーと識別に回すスクリプト（expected は読んだもの）が使う。
+   * 読んで（担当して）から書くまでに、ワーカーの担当ややり直しの受付が入っていたら書かない
    * @param id 写真 ID
-   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
+   * @param expected 読んだ、または担当したときに書いた processing
    * @param processing 書く processing
-   * @returns 書けたら true。担当したときと変わっていたら false
+   * @returns 書けたら true。expected と変わっていた（412）か、写真が消えていた（404）なら false
    */
-  async writeProcessing(id: string, claimed: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
-    return this.patchIfStillClaimed(id, claimed, [{ op: 'set', path: '/processing', value: processing }]);
+  async writeProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
+    return this.patchIfStillClaimed(id, expected, [{ op: 'set', path: '/processing', value: processing }]);
   }
 
   /**

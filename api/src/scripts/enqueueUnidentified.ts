@@ -31,7 +31,7 @@ export async function enqueueUnidentifiedPhotos(options: {
   let marked = 0;
   for (const photo of targets) {
     // 読んだときのままのときだけ書く。読んだ後にやり直しの受付やワーカーが書いた写真は飛ばす
-    const written = await album.resetStalePhotoProcessing(photo.id, photo.processing, {
+    const written = await album.writeProcessing(photo.id, photo.processing, {
       state: 'pending',
       step: 'identify',
       attempts: 0,
