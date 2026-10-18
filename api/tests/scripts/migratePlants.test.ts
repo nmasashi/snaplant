@@ -167,34 +167,47 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
   });
 
   it('画像の Blob が無い植物は飛ばして一覧に出し、ほかの植物は移す', async () => {
+    // 画像の無い植物を先に保存していた（飛ばした後も、続く植物を移す）
     const image = Buffer.from('sakura-image');
-    putPlant(plant('p1'), image);
-    plantsBackend.documents.set('p2', plant('p2', { name: 'ウメ' }) as unknown as FakeCosmosDocument);
+    plantsBackend.documents.set(
+      'p1',
+      plant('p1', { name: 'ウメ', createdAt: '2026-03-01T03:00:00.000Z' }) as unknown as FakeCosmosDocument
+    );
+    putPlant(plant('p2'), image);
 
     const result = await migratePlants({ apply: true, log });
 
     expect(result).toEqual({
       found: 2,
       migrated: 1,
-      skipped: [{ plantId: 'p2', name: 'ウメ', reason: '画像が見つからない' }]
+      skipped: [{ plantId: 'p1', name: 'ウメ', reason: '画像が見つからない' }]
     });
-    expect(photo(sha256(image))?.legacyPlantId).toBe('p1');
+    expect(photo(sha256(image))?.legacyPlantId).toBe('p2');
   });
 
-  it('画像の URL が images コンテナの Blob を指していない植物は飛ばして一覧に出す', async () => {
-    // 植物図鑑の API は保存のときに imagePath を検証しているが、移す前にもう一度確かめる（別のホスト・別のコンテナの Blob を読まない）
+  // 植物図鑑の API は保存のときに imagePath を検証しているが、移す前にもう一度確かめる（別のホスト・別のコンテナの Blob を読まない）。
+  // 行ごとに条件を1つだけ外す。p1 の画像は images コンテナに置いてあるので、条件が緩むと読んで移してしまう
+  it.each([
+    ['別のホストの URL', 'https://evil.example.com/images/p1.jpg'],
+    ['別のコンテナの URL', 'https://test.blob.core.windows.net/photos/p1.jpg'],
+    ['https でない URL', 'http://test.blob.core.windows.net/images/p1.jpg'],
+    ['コンテナの下の階層を指す URL', 'https://test.blob.core.windows.net/images/sub/p1.jpg'],
+    ['Blob の名前が無い URL', 'https://test.blob.core.windows.net/images/'],
+    ['URL として読めない文字列', 'images/p1.jpg']
+  ])('画像の URL が images コンテナの Blob を指していない植物（%s）は飛ばして一覧に出し、ほかの植物は移す', async (_, imagePath) => {
     const image = Buffer.from('sakura-image');
-    putPlant(plant('p1', { imagePath: 'https://evil.example.com/images/p1.jpg' }), image);
-    putPlant(plant('p2', { imagePath: 'https://test.blob.core.windows.net/photos/p2.jpg' }), image);
+    putPlant(plant('p1', { imagePath, createdAt: '2026-03-01T03:00:00.000Z' }), Buffer.from('other-image'));
+    putPlant(plant('p2'), image);
 
     const result = await migratePlants({ apply: true, log });
 
-    expect(result.migrated).toBe(0);
-    expect(result.skipped).toEqual([
-      { plantId: 'p1', name: 'ソメイヨシノ', reason: '画像の URL が images コンテナの Blob ではない' },
-      { plantId: 'p2', name: 'ソメイヨシノ', reason: '画像の URL が images コンテナの Blob ではない' }
-    ]);
-    expect(albumBackend.documents.size).toBe(0);
+    expect(result).toEqual({
+      found: 2,
+      migrated: 1,
+      skipped: [{ plantId: 'p1', name: 'ソメイヨシノ', reason: '画像の URL が images コンテナの Blob ではない' }]
+    });
+    expect(albumBackend.documents.size).toBe(1);
+    expect(photo(sha256(image))?.legacyPlantId).toBe('p2');
   });
 
   it('画像の形式が写真として受け付けないもの（HEIC など）の植物は飛ばして一覧に出す', async () => {
@@ -206,6 +219,17 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
       { plantId: 'p1', name: 'ソメイヨシノ', reason: '画像の形式（image/heic）が写真として受け付けないもの' }
     ]);
     expect(albumBackend.documents.size).toBe(0);
+  });
+
+  it('PNG の画像は、拡張子を .png にして写真の保存先に上げる', async () => {
+    const image = Buffer.from('png-image');
+    const hash = sha256(image);
+    putPlant(plant('p1'), image, 'image/png');
+
+    await migratePlants({ apply: true, log });
+
+    expect(blobBackend.store.get(`photos/${hash}.png`)).toEqual({ content: image, contentType: 'image/png' });
+    expect(photo(hash)).toMatchObject({ blobName: `${hash}.png`, contentType: 'image/png' });
   });
 
   it('同じ画像の写真が先にあれば飛ばして一覧に出し、先の写真を変えない', async () => {
@@ -250,7 +274,39 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     putPlant(plant('p2', { createdAt: '2026-04-02T03:00:00.000Z' }), Buffer.from('second-image'));
     blobBackend.forcedUploadErrorByKey = { [`photos/${sha256(Buffer.from('second-image'))}.jpg`]: new Error('upload failed') };
 
-    await expect(migratePlants({ apply: true, log })).rejects.toThrow();
+    await expect(migratePlants({ apply: true, log })).rejects.toThrow('upload failed');
+
+    expect(photo(sha256(first))?.legacyPlantId).toBe('p1');
+    expect(albumBackend.documents.size).toBe(1);
+  });
+
+  it('設定が足りなければ、足りない設定の名前をすべて言って、何も書かずに止める', async () => {
+    // 空白だけの値も、無いものとして扱う
+    putPlant(plant('p1'), Buffer.from('sakura-image'));
+    delete process.env.COSMOS_DB_CONTAINER;
+    process.env.STORAGE_CONTAINER_NAME = '  ';
+
+    await expect(migratePlants({ apply: true, log })).rejects.toThrow(
+      new Error('設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME')
+    );
+
+    expect(albumBackend.documents.size).toBe(0);
+    expect([...blobBackend.store.keys()]).toEqual(['images/p1.jpg']);
+  });
+
+  it('画像の読み込みが「見つからない」以外の理由で失敗したら、飛ばさずに止める', async () => {
+    // 権限やネットワークの失敗で飛ばすと、画像がある植物を「画像が見つからない」として一覧に出してしまう
+    const failure = Object.assign(new Error('This request is not authorized to perform this operation.'), {
+      name: 'RestError',
+      statusCode: 403,
+      code: 'AuthorizationFailure'
+    });
+    const first = Buffer.from('first-image');
+    putPlant(plant('p1', { createdAt: '2026-04-01T03:00:00.000Z' }), first);
+    putPlant(plant('p2', { createdAt: '2026-04-02T03:00:00.000Z' }), Buffer.from('second-image'));
+    blobBackend.store.get('images/p2.jpg')!.failWith = failure;
+
+    await expect(migratePlants({ apply: true, log })).rejects.toBe(failure);
 
     expect(photo(sha256(first))?.legacyPlantId).toBe('p1');
     expect(albumBackend.documents.size).toBe(1);
