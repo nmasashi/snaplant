@@ -175,7 +175,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 - `category = kind`（`other` を含む）。専用の欄なので、利用者のタグと選り分ける処理は無い（[04 §2](./04_data_design.md#2-カテゴリとタグ)）
 - `classification = { kind, confidence, model: <デプロイ名>, at: <ISO> }`
 - `identification = null`（やり直しで種類が変わったとき、古い識別が図鑑の別の種類に残らないように）
-- `kind` が `CATALOG_KINDS` にあれば（段階4）`processing = { state: "pending", step: "identify", attempts: 0, ... }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもタイマーが拾う。`other` なら `done`
+- `kind` が `CATALOG_KINDS` にあれば（段階4）`processing = { state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもログだけ出して例外にしない（タイマーが拾う）。`other` なら `done`
 
 ## 3. 識別（段階4）
 
@@ -208,12 +208,23 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
   この情報を参考にして、識別の精度を向上させてください。
   ```
 
-  `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない
+  `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない。撮影日時は写真の `takenAt`（TZ 無し）を `YYYY-MM-DD HH:mm` で出す
+
+| 項目 | 内容 |
+|---|---|
+| デプロイ | 今のデプロイ（`AZURE_OPENAI_DEPLOYMENT_NAME`）。識別用の環境変数は置かない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17。分けるときに足す）。設定の誤り（デプロイ名が無い、クライアントを作れない）は分類と同じく AI の失敗にしない（§2.1） |
+| 種類 | 写真の `category`。ワーカーは識別の待ちを担当した後、`category` が `CATALOG_KINDS` に無ければ AI を呼ばずに内部の失敗（`lastError: "internal"`）として数える（分類を経ずに識別の待ちになった写真。ふつうは起きない） |
+| 画像・要求の形 | 分類と同じ（原寸の 15 分の SAS、`detail: "low"`、`max_completion_tokens: 4000`、`temperature` を送らない）。`response_format` の名前は `photo_identification`、`strict: true` |
+| スキーマ | 共通項目（`matchesKind` は boolean、`name`・`description`・`characteristics` は `["string","null"]`、`comment` は string、`confidence` は number）と `attributes`（object。`fields` の各 `key` を `required` に入れ、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` は string、`additionalProperties: false`）。`fields` の `prompt` は各項目の `description` に入れる。`description` の文言は契約外 |
+| サービス | `api/src/services/photoIdentifierService.ts` の `identify(imageUrl, kind, { placeName, takenAt, hint })` |
+| 返すもの | `{ matchesKind, name, confidence, description, characteristics, comment, attributes, model }`。`name`・`comment` は前後の空白を除いたもの |
+| 応答の検証 | どれも AI の失敗（`UpstreamError('ai')`。分類と同じ扱い）: `matchesKind` が boolean でない、`confidence` が数値でないか 0〜100 の外（0 と 100 は受け付ける）、`matchesKind: true` なのに `name` が前後の空白を除いて空か 100 文字を超える、`attributes` の値が型（`string` は文字列か `null`、`string[]` は文字列の配列か `null`）に合わない。`attributes` は `fields` のキーだけを残す。`comment` は前後の空白を除いて空なら書かない（`null` にしない） |
 
 ### 3.2 書き込み
 
 項目の文書は無い（[04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)）ので、書くのは**写真1枚だけ**（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
 コメントの条件付き patch と、結果（`identification`・`processing`）の patch の2回で、`_etag` の条件も読み直しも無い。
+どちらも担当したときのまま（`processingCondition()`）を条件にする。識別の間にやり直しの受付が入っていたら、コメントも結果も書かない（捨てる結果のコメントを、やり直しの写真に残さない）。
 項目を探す・作る・併合する処理も、写真を付け替える処理も無い。図鑑はこの `identification` を読んでまとめる。
 
 | 結果 | `identification` | `comment` / `commentSource` | `processing` |
@@ -223,7 +234,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 
 `comment` の決まり:
 
-- `comment`・`commentSource: "ai"` の patch に `FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"` の条件を付ける。412（利用者がその間にコメントを書いた）なら書かずに結果の patch へ進む
+- `comment`・`commentSource: "ai"` の patch に、担当したときのままの条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件を付ける。412（利用者がその間にコメントを書いた、またはやり直しの受付が入った）なら書かずに結果の patch へ進む（やり直しなら結果の patch も 412 で書かれない）
   （送信直後の自動の解析が、利用者がその間に書いたコメントを消さないように）。Cosmos が条件を原子的に評価するので、読んでから書くまでの間を気にしなくてよい
 - やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる
   （[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9「やり直しは利用者のコメントを上書きする」）。

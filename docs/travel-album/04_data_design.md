@@ -628,7 +628,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 分類の後、識別の投入に失敗 | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
 | **同じ画像で AI が毎回失敗する**（応答の検証違反・内容による拒否など、再試行しても直らない失敗） | `attempts: 3`・`failed`・`lastError` | 「分類に失敗しました」と「やり直す」 | **自動では直らず、永遠に回り続けもしない。** ワーカーは上限未満の失敗では `pending` に戻して例外を投げ（キューの再試行）、上限（3 回目）の失敗で `failed` にして例外を投げずに終える（poison には落ちない）。タイマーは `attempts` が上限なら `failed` にし、**`failed` は再投入のクエリ（§5 の 5.8）に含めない**。利用者が `process` を頼んだときだけ `attempts` を 0 に戻してもう一度試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（[06 §6](./06_processing_design.md#6-費用の抑え方)） |
 | 分類で種類が変わったのに、識別が上限まで失敗 | `identification: null`（分類が先に消す）・`failed` | 「失敗」。図鑑に出ない | 利用者がやり直す。**古い種類・名前の下に残り続けることは無い** |
-| コメントの条件付き patch が 412（AI の処理中に利用者がコメントを書いた） | 利用者のコメントが残る。AI のコメントは書かれない | 利用者の文 | 意図どおり（§7.4）。結果の patch には進む |
+| コメントの条件付き patch が 412（AI の処理中に利用者がコメントを書いた、またはやり直しの受付が入った） | 利用者のコメント（やり直しなら受付が消した `null`）が残る。AI のコメントは書かれない | 利用者の文 | 意図どおり（§7.4）。結果の patch には進む（やり直しなら結果も 412 で書かれない） |
 | AI の処理中に利用者が `tags`・`tripId` を変えた（解析中に写真を編集した） | 利用者の変更と AI の結果の両方が残る | 両方 | 書く欄が分かれているので衝突しない。ロックも読み直しも要らない |
 | コメントの patch の後、結果の patch の前に落ちる | AI のコメントだけ書かれ、`state` は処理中のまま | 「分類中...」 | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される） |
 | 写真の読み取り（担当の前）に失敗 | 何も変わらない（`attempts` も増えない） | 「分類中...」 | 自動（キューの再試行。3 回とも失敗すれば poison に落ち、写真は `pending` のままなのでタイマーが再投入） |
@@ -704,7 +704,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 - メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。段階3のワーカーは `step` が `classify` のときだけ担当し、それ以外なら何もしない
 - 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
-- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を `FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"` の条件付きで `set`。
+- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（識別だけ。分類はコメントを書かない）。
   412 なら利用者がその間にコメントを書いたので、書かずに進む（送信直後の自動の解析が、利用者のコメントを消さないように）。
   **(2) 結果**: `category`・`classification`（分類）または `identification`（識別）と `processing`・`updatedAt` を `set`。
   条件は `FROM c WHERE c.processing.state = "classifying" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）。失敗の書き込み（`pending` に戻す・`failed` にする）も同じ条件。
