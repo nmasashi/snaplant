@@ -359,6 +359,33 @@ void main() {
     expect(tester.getSize(find.byType(GridView)).height, greaterThan(360 / 3));
   });
 
+  testWidgets('古い読み直しの応答が後から届いても、見出しを古い内容に戻さない', (tester) async {
+    // 下に引っ張った読み直しの間に写真ビューアから戻ると、読み直しが重なる。後から届いた古い応答で見出しを上書きしない
+    final semantics = tester.ensureSemantics();
+    final backend = _backend();
+    await _openEntry(tester, backend);
+    final staleReply = backend.holdNextReply(TripRoute.catalogEntry);
+    final before = backend.catalogEntryQueriesReceived.length;
+    await tester.drag(find.byType(GridView), const Offset(0, 300));
+    await letFramesRun(tester);
+    expect(backend.catalogEntryQueriesReceived, hasLength(before + 1));
+    // 古い読み直しの要求が届いた後に、信頼度のより高い写真が増えた
+    backend.photosByTripId[kyotoTripId]!.add(_sakura(9, '13:00',
+        tripId: kyotoTripId, confidence: 99, description: '新しい説明'));
+    await tester.tap(photoThumbnail(_label('10:00')));
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    expect(find.text('新しい説明'), findsOneWidget);
+
+    staleReply.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('新しい説明'), findsOneWidget);
+    expect(find.text('4枚'), findsOneWidget);
+    semantics.dispose();
+  });
+
   group('下に引っ張ったとき', () {
     testWidgets('見出しと写真を1ページ目から読み直す', (tester) async {
       final semantics = tester.ensureSemantics();
