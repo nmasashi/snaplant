@@ -140,15 +140,36 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     });
   });
 
-  it('説明・学名・科名の無い植物は、識別の説明を null にし、欄からその項目を除いて移す', async () => {
+  it('説明・特徴・学名・科名の無い（空の）植物は、識別の値と欄とコメントを null にして移す', async () => {
+    // 識別のワーカーと同じ形にする（欄は植物の定義表の項目をすべて持ち、値が無ければ null。04 §3.1）。
+    // 「無い」がキーの欠けと null の2通りになると、Cosmos SQL の振る舞いが分かれる
     const image = Buffer.from('unknown-plant');
-    putPlant(plant('p1', { description: undefined, scientificName: undefined, familyName: '' }), image);
+    putPlant(
+      plant('p1', { description: undefined, characteristics: '', scientificName: undefined, familyName: '' }),
+      image
+    );
 
     await migratePlants({ apply: true, log });
 
-    const identification = photo(sha256(image))!.identification as Record<string, unknown>;
+    const migrated = photo(sha256(image))!;
+    const identification = migrated.identification as Record<string, unknown>;
     expect(identification.description).toBeNull();
-    expect(identification.attributes).toEqual({});
+    expect(identification.characteristics).toBeNull();
+    expect(identification.attributes).toStrictEqual({ scientificName: null, familyName: null });
+    expect(migrated.comment).toBeNull();
+    expect(migrated.commentSource).toBeNull();
+  });
+
+  it('画像の Content-Type の大文字小文字は問わず、小文字にそろえて移す', async () => {
+    // 植物図鑑は送られた Content-Type をそのまま Blob に付けていた（検証は大文字小文字を問わない）
+    const image = Buffer.from('upper-case-type');
+    putPlant(plant('p1'), image, 'image/JPEG');
+
+    const result = await migratePlants({ apply: true, log });
+
+    expect(result.migrated).toBe(1);
+    expect(photo(sha256(image))!.contentType).toBe('image/jpeg');
+    expect(blobBackend.store.get(`photos/${sha256(image)}.jpg`)?.contentType).toBe('image/jpeg');
   });
 
   it('書き込みを指定しないと、移す植物と飛ばす植物を数えるだけで、何も書かない', async () => {
