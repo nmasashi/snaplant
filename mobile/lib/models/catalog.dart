@@ -1,3 +1,5 @@
+import 'photo.dart';
+
 /// 図鑑の種類の項目の欄（種類の一覧の `fields` の1つ。docs/travel-album/05_api_design.md §5.14）
 class CatalogField {
   /// 項目の `attributes` のキー
@@ -86,4 +88,15 @@ class CatalogEntryPage {
   final int total;
 
   const CatalogEntryPage({required this.entries, required this.total});
+}
+
+/// 図鑑の項目の詳細の1ページ（`GET /api/catalog/entry`）
+class CatalogEntryDetail {
+  /// 項目（見出し）。その種類と名前の写真が無ければ null
+  final CatalogEntry? entry;
+
+  /// その項目の写真の1ページ
+  final PhotoPage photos;
+
+  const CatalogEntryDetail({required this.entry, required this.photos});
 }

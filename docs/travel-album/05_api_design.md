@@ -640,7 +640,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 続きのページの要求でも、見出しの写真と枚数をそのつど読み直して `entry` に入れる。続きを読む間に写真が0枚になれば、その応答は `entry: null`・`photos: []`・`continuationToken: null`
 - `urlExpiresAt` は、表紙（`entry.coverThumbnailUrl`）と `photos` の URL の共通の期限（§6 の 60 分。要求を受けたときに1回決める）
 - 写真の保存先の設定（`STORAGE_CONNECTION_STRING`・`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ 500。保存先は URL を作るときに初めて作るので、項目が無い（`entry: null`）ときは保存先の設定を読まない（項目一覧と同じ）
-- **名前はクエリ文字列に URL エンコードして載せる**（Dart は `Uri.encodeQueryComponent()`、Functions の `request.query.get('name')` が復号する）。
+- **名前はクエリ文字列に URL エンコードして載せる**（アプリは `Uri(queryParameters:)` で組み立てる。§8。Functions の `request.query.get('name')` が復号する）。
   パスのセグメント（`/entries/{kind}/{name}`）にしないのは、名前に `/`・`?`・`#` が入りうる（例: 「サーモン/イクラ丼」）ためで、
   `%2F` をルーティングの前に復号するかどうかが Functions の実装に依存する（推測）。クエリ文字列ならその不確かさが無い。100 文字の名前でもエンコード後 1 KB 弱で、URL の長さの上限には届かない
 - 名前は `trim()` してから `identification.name` と完全一致で比べる（NFKC は当面入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #7）
@@ -723,6 +723,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `requestPhotoProcessing(photoId, {hint})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a）。ボディは `{ step: 'classify', hint }` で、`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
 | `getCatalogKinds()` | `GET /api/catalog/kinds` | `data['kinds']`（各要素の `kind`・`label`・`fields`（`key`・`label`・`type`）。`models/catalog.dart` の `CatalogKind`・`CatalogField`）。**実装済み**（4-3a） |
 | `getCatalogEntries(kind, {required offset, required limit})` | `GET /api/catalog/entries?kind=&offset=&limit=` | `data['entries']`・`data['total']`（`CatalogEntryPage`。項目は `CatalogEntry`）。**実装済み**（4-3a）。`kind`・`offset`・`limit` を毎回クエリに載せる（`Uri(queryParameters:)`。図鑑の画面は `limit` に 50 を渡す）。`entries` の件数は続きがあっても `limit` より少ないことがある（§5.14）ので、次の `offset` は呼び出し側が `limit` だけ進め、`total` 以上なら読み切り（[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。`CatalogEntry` は `description`・`characteristics` を null 可、`attributes` が無ければ空、それ以外の欄は必須として読む |
+| `getCatalogEntry(kind, name, {continuationToken})` | `GET /api/catalog/entry?kind=&name=&continuationToken=` | `data['entry']`（null 可。`CatalogEntry`）・`data['photos']`・`data['continuationToken']`（null 可）（`models/catalog.dart` の `CatalogEntryDetail`。写真は `PhotoPage`）。**実装済み**（4-3b）。`kind`・`name` を毎回、`continuationToken` は渡したときだけクエリに載せる（`Uri(queryParameters:)` で組み立てるので、記号や空白を含む名前も URL エンコードされる）。`limit` は送らない（サーバの既定 100）。`urlExpiresAt` は読まない（`getPhotos` と同じ）。`photos` は `entry` が null でも必須として読む（サーバは `[]` を返す）。`CatalogEntry` の読み方は `getCatalogEntries` と同じ |
 
 `_parseResponse()` はボディ全体をコールバックに渡すので、各メソッドが `json['data']` を剥がす（CLAUDE.md「クライアント実装で踏みやすい罠」）。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）と `isPhotoNotFound`（`code == 'PHOTO_NOT_FOUND'`。複数選択の削除で既に無い写真を消せたと数える。ステータスだけで見ると宛先の誤りの 404 まで含むのでコードで見る）を足す。
@@ -736,5 +737,3 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - `placeName`: 地名（[06 §4.2](./06_processing_design.md#42-段階2端末)）があり、緯度・経度も送るときだけ（§5.1 の 16）。無ければパートごと省く（空・空白のみは §5.1 の 17 で 400）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
-段階4で足すもの（4-3b。サーバ側は 4-2b で実装済み。`getCatalogKinds()`・`getCatalogEntries()` は 4-3a で実装済みで、上の表にある）:
-`getCatalogEntry(kind, name, {limit, continuationToken})`（`data['entry']`（null 可）・`data['photos']`・`data['continuationToken']`・`data['urlExpiresAt']`。`name` は `Uri.encodeQueryComponent()`）。

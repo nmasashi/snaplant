@@ -16,7 +16,7 @@ import 'photo_selection.dart';
 
 /// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
 ///
-/// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面（旅行をまたぐ）で使う
+/// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面（旅行をまたぐ）・図鑑の項目詳細で使う
 class PhotoGrid extends StatefulWidget {
   const PhotoGrid(
       {super.key,
@@ -29,10 +29,14 @@ class PhotoGrid extends StatefulWidget {
       this.onTripNotFound,
       this.onViewerClosed,
       required this.uploadQueue,
-      this.hasFloatingButton = true})
+      this.hasFloatingButton = true,
+      this.loadPage,
+      this.loadingMessage = '写真を読み込み中...',
+      this.errorFallbackMessage = '写真の読み込みに失敗しました',
+      this.onFirstPageApplied})
       // 旅行もカテゴリも無い一覧はサーバが 400 で断る。置く画面の誤りなので、組み立てたところで止める
-      : assert(tripId != null || category != null,
-            'tripId か category のどちらかを指定する');
+      : assert(tripId != null || category != null || loadPage != null,
+            'tripId か category か loadPage のどれかを指定する');
 
   final ApiService apiService;
 
@@ -62,6 +66,19 @@ class PhotoGrid extends StatefulWidget {
 
   /// 複数選択（長押しで始める）
   final PhotoSelection selection;
+
+  /// ページを読む先（引数は続きのトークン。1ページ目は null）。無ければ写真の一覧（`GET /api/photos`）を [tripId] と [category] で読む
+  final Future<PhotoPage> Function(String? continuationToken)? loadPage;
+
+  /// 1ページ目を読み込んでいる間の文言
+  final String loadingMessage;
+
+  /// 読み込みの失敗が `ApiException` でないときの文言
+  final String errorFallbackMessage;
+
+  /// 先頭のページで一覧を置き換えたときに、そのページを渡して呼ぶ（[loadPage] が返したものを、写し直さずにそのまま渡す）。
+  /// 読み込みが重なったときにグリッドが採ったページだけで呼ぶので、同じ応答の他の部分（図鑑の項目の見出し）を写真とそろえて出せる
+  final void Function(PhotoPage page)? onFirstPageApplied;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -104,7 +121,9 @@ class _PhotoGridState extends State<PhotoGrid> {
     // 送信中の写真はまだ分類されていないので、カテゴリで絞っているときは並べない（§5.3）
     if (widget.category != null) return const [];
     // 一覧を読み直して既にサーバの写真として並んでいるもの（送れた写真）は、端末の画像では並べない（二重にしない）
-    final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
+    final loadedIds = {
+      for (final photo in _photos ?? const <Photo>[]) photo.id
+    };
     return [
       for (final item in widget.uploadQueue.items)
         // 旅行を指定せずに送ったものは none の一覧の宛先。項目の側を none に読み替えるので、
@@ -157,6 +176,16 @@ class _PhotoGridState extends State<PhotoGrid> {
     return true;
   }
 
+  /// [continuationToken] のページを読む（null なら先頭のページ）
+  Future<PhotoPage> _readPage(String? continuationToken) {
+    final loadPage = widget.loadPage;
+    if (loadPage != null) return loadPage(continuationToken);
+    return widget.apiService.getPhotos(
+        tripId: widget.tripId,
+        category: widget.category,
+        continuationToken: continuationToken);
+  }
+
   /// 先頭のページを読む
   Future<void> _loadFirstPage() async {
     final generation = _generation;
@@ -165,16 +194,15 @@ class _PhotoGridState extends State<PhotoGrid> {
       _errorMessage = null;
     });
     try {
-      final page = await widget.apiService
-          .getPhotos(tripId: widget.tripId, category: widget.category);
+      final page = await _readPage(null);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
       debugPrint('PhotoGrid: 写真の一覧の読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
       if (_notifyIfTripNotFound(e)) return;
-      setState(() =>
-          _errorMessage = e is ApiException ? e.userMessage : '写真の読み込みに失敗しました');
+      setState(() => _errorMessage =
+          e is ApiException ? e.userMessage : widget.errorFallbackMessage);
     }
   }
 
@@ -191,6 +219,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _loadMoreFailed = false;
       _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
     });
+    widget.onFirstPageApplied?.call(page);
   }
 
   /// 下に引っ張ったとき、先頭のページから読み直す（続きのトークンと2ページ目以降は捨てる）。
@@ -198,8 +227,7 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
-      final page = await widget.apiService
-          .getPhotos(tripId: widget.tripId, category: widget.category);
+      final page = await _readPage(null);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
@@ -207,7 +235,9 @@ class _PhotoGridState extends State<PhotoGrid> {
       if (!mounted || generation != _generation) return;
       if (_notifyIfTripNotFound(e)) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
+          content: Text(e is ApiException
+              ? e.userMessage
+              : widget.errorFallbackMessage)));
     }
   }
 
@@ -218,10 +248,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     final generation = _generation;
     setState(() => _isLoadingMore = true);
     try {
-      final page = await widget.apiService.getPhotos(
-          tripId: widget.tripId,
-          category: widget.category,
-          continuationToken: token);
+      final page = await _readPage(token);
       if (!mounted || generation != _generation) return;
       setState(() {
         _photos = [...?_photos, ...page.photos];
@@ -282,8 +309,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     await Navigator.push(
         context,
         MaterialPageRoute(
-            builder: (_) =>
-                PhotoViewerScreen(
+            builder: (_) => PhotoViewerScreen(
                 apiService: widget.apiService,
                 photos: _loaded,
                 initialIndex: index,
@@ -341,7 +367,7 @@ class _PhotoGridState extends State<PhotoGrid> {
             const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation(AppColors.primary)),
             const SizedBox(height: 16),
-            Text('写真を読み込み中...',
+            Text(widget.loadingMessage,
                 style: AppTextStyles.body1
                     .copyWith(color: AppColors.textSecondary)),
           ],
@@ -487,9 +513,7 @@ class _PhotoTile extends StatelessWidget {
             selection.isActive ? selection.isSelected(photo.id) : null;
         return GestureDetector(
           onLongPress: () => selection.start(photo.id),
-          onTap: selection.isActive
-              ? () => selection.toggle(photo.id)
-              : onOpen,
+          onTap: selection.isActive ? () => selection.toggle(photo.id) : onOpen,
           child: _buildImage(selected: selected),
         );
       },

@@ -610,4 +610,61 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+
+  testWidgets('図鑑の項目詳細には、旅行を指定せずに送れなかった写真の端末の画像のマスを並べない', (tester) async {
+    // 送信中の写真はまだ識別されていないので、項目詳細には並べない（docs/travel-album/03_screen_design.md §6.2）
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('unassigned.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 0)],
+      functionKey: _apiKey,
+      unassignedPhotoCount: 1,
+      catalogEntriesByKind: {
+        'plant': [catalogEntryJson('plant', 'ソメイヨシノ')],
+      },
+      photosByTripId: {
+        hokkaidoTripId: [],
+        'none': [
+          identifiedPhotoJson(
+              number: 1,
+              kind: 'plant',
+              name: 'ソメイヨシノ',
+              takenAt: '2026-10-05T12:30:15')
+        ],
+      },
+    );
+    backend.failNext(TripRoute.upload,
+        status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    final markInGrid =
+        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
+    await letFramesRun(tester);
+    expect(markInGrid, findsOneWidget);
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    await tester.tap(find.text('図鑑（新）'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('ソメイヨシノ'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(markInGrid, findsNothing);
+    // 後始末: 旅行のタブの一覧に戻り、失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }
