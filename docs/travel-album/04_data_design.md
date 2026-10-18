@@ -308,7 +308,7 @@ export const CATALOG_KINDS = {
 | 識別 AI のスキーマ | 共通項目（`matchesKind`・`name`・`description`・`characteristics`・`comment`・`confidence`）+ `attributes` を `fields` から組み立てる。strict の制約により全部 `required`、任意は `["string","null"]`（`string[]` は `["array","null"]`）。`prompt` は `description` に、`namingRule` はプロンプト本文に | 4 |
 | 識別結果の検証 | `confidence` の 0〜100 と、`attributes` のキーが `fields` にあるものだけか | 4 |
 | `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`prompt`・`namingRule` は返さない | 4 |
-| 図鑑の API | `kind` が表に無ければ 400。API の形は案で、段階4の詳しい設計で決める（[05 §5.14](./05_api_design.md#514-図鑑段階4)） | 4 |
+| 図鑑の API | `kind` が表に無ければ 400。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4) | 4 |
 | Flutter | 起動時に取得して保持。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」）。種類タブも `kinds` から作る | 4 |
 | `PATCH` の検証 | 段階4では `attributes` を利用者が直す機能は入れない。入れるときは `fields` の `type` で検証 | — |
 
