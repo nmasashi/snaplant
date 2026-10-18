@@ -150,8 +150,9 @@ export class AlbumService {
   /**
    * 図鑑の項目の詳細と、その写真の1ページを読む（docs/travel-album/04_data_design.md §5.6 の詳細の3本）
    *
-   * 見出しの写真（TOP 1）・枚数・写真のページを並列に読む（項目があるふつうの場合に往復を1回で済ませる）。
-   * 見出しが無いか枚数が 0 なら、項目は無い（その種類と名前の写真が0枚。読む間に消された・名前が変わったときも、
+   * 見出しの写真（TOP 1）を先に読み、無ければ項目は無い（その種類と名前の写真が0枚）。写真のページを読まないので、
+   * 項目が消えた後に古い継続トークンで続きを頼まれても、トークンの不正ではなく entry: null を返す。
+   * 見出しがあれば枚数と写真のページを並列に読み、枚数が 0 なら項目は無い（読む間に消された・名前が変わったときに、
    * 見出しだけ残った食い違った項目を返さない）
    * @param query 検証済みのクエリ（種類・名前・写真のページ）
    * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
@@ -161,12 +162,15 @@ export class AlbumService {
     { kind, name, limit, continuationToken }: CatalogEntryQuery,
     coverUrlOf: CoverUrlOf
   ): Promise<{ entry: CatalogEntry | null; photos: PhotoDocument[]; continuationToken: string | null }> {
-    const [head, photoCount, page] = await Promise.all([
-      queryCatalogHead(this.container, kind, name),
+    const head = await queryCatalogHead(this.container, kind, name);
+    if (head === null) {
+      return { entry: null, photos: [], continuationToken: null };
+    }
+    const [photoCount, page] = await Promise.all([
       queryCatalogPhotoCount(this.container, kind, name),
       this.listPhotos({ tripId: undefined, category: undefined, entry: { kind, name } }, limit, continuationToken),
     ]);
-    if (head === null || photoCount === 0) {
+    if (photoCount === 0) {
       return { entry: null, photos: [], continuationToken: null };
     }
     return { entry: catalogEntryOf(kind, { name, photoCount }, head, coverUrlOf), ...page };
