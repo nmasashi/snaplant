@@ -1024,15 +1024,16 @@ Map<String, Object?> identifiedPhotoJson({
     {
       ...photoJson(number: number, tripId: tripId, takenAt: takenAt),
       'category': kind,
+      // 分類と合わない写真は、本物と同じく名前・説明・特徴を null、欄を空にし、理由を reason に書く（04 §3.1）。[name] などは使わない
       'identification': {
         'kind': kind,
         'matchesKind': matchesKind,
-        'name': name,
+        'name': matchesKind ? name : null,
         'confidence': confidence,
-        'description': description,
-        'characteristics': characteristics,
-        'attributes': attributes,
-        'reason': null,
+        'description': matchesKind ? description : null,
+        'characteristics': matchesKind ? characteristics : null,
+        'attributes': matchesKind ? attributes : <String, Object?>{},
+        'reason': matchesKind ? null : '写真に$kindが写っていない',
         'model': 'gpt-6-luna',
         'at': '2026-10-10T03:20:00.000Z',
       },
