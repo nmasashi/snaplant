@@ -379,9 +379,10 @@ export const CATALOG_KINDS = {
 | 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
 | 5.6 | 図鑑の項目一覧（段階4） | 枚数: `SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE … AND c.identification.name = @name ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前順に並べてページに切る所は○ | `GROUP BY`・複合インデックスの `ORDER BY` |
 | 5.7 | 項目の写真（段階4） | `WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.name = @name ORDER BY c.sortAt ASC`。ページは 5.3 と同じ。枚数は `SELECT VALUE COUNT(1) FROM c WHERE …` | `@kind`・`@name` で絞る | `COUNT` |
-| 5.8 | 再投入のタイマー（段階3。実装済み） | `SELECT * FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before`（`@before` は今の 10 分前の ISO 文字列。**`failed` は含めない**。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。タイマーは同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
+| 5.8 | 再投入のタイマー（段階3。実装済み） | `SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before`（`@before` は今の 10 分前の ISO 文字列。**`failed` は含めない**。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。タイマーは同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
 | 5.9 | 掃除のタイマー（段階3。実装済み） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（`@type = 'photo'`。全写真の薄い射影）と、旅行の id の一覧 `SELECT c.id FROM c WHERE c.type = @type`（`@type = 'trip'`）。どちらも `fetchAll()` で読む | 突き合わせは○ | 射影 |
 | 5.10 | 旅行の削除（段階2） | `SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId`（ページで読み、1枚ずつ消す、または `tripId` を `null` に patch する。§5.7） | `@tripId` で絞る。消える・未所属になる結果は○ | 射影 |
+| 5.11 | 分類まで済んだ写真を識別に回すスクリプト（段階4。4-1b で実装済み。`AlbumService.listUnidentifiedPhotos()`。[06 §1.2](./06_processing_design.md#12-流れ)） | `SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)`（`@type = 'photo'`、`@kinds` は `CATALOG_KINDS` のキーの配列）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。スクリプトが同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
 
 ### 5.1 旅行一覧
 
@@ -498,7 +499,8 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
 | コメント・タグの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])` |
 | やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`。条件は付けない（解析中でも最新の依頼で上書きする）。404 なら写真が無い |
-| 再投入のタイマーが止まった写真を戻す（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412・404 なら触らずに次へ |
+| 再投入のタイマーが止まった写真を戻す（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`（`AlbumService.writeProcessing()`）。412・404 なら触らずに次へ |
+| 分類まで済んだ写真を識別の待ちにする（段階4。手で回すスクリプト。[06 §1.2](./06_processing_design.md#12-流れ)） | 上と同じ `writeProcessing()`（読んだときの `processing` の条件付き patch）で `processing` を `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` に。412・404 なら飛ばして次へ。キューには積まない（再投入のタイマーが積む） |
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
 | ワーカーの結果・失敗の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。`processingCondition()`。3-3b）で、412・404 なら書かずに終える。`_etag` の条件は付けない（§7.4）。コメント（識別だけ）は `comment`・`commentSource` の `set` に、同じ担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ**条件付き patch**（`patchIfStillClaimed()` に条件を足す形）で、412（利用者のコメントがある、またはやり直しの受付が入った）・404 なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `AlbumService.detachPhotoFromMissingTrip()`。`tripId` を `null`・`updatedAt` を今に、`FROM c WHERE c.tripId = "<読んだ旅行 ID>"` の条件付き patch（読んだ後に利用者が別の旅行へ移していたら 412 で戻さない）。404 は飛ばす |
@@ -636,8 +638,16 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | 担当の patch を `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付きにする（§7.4）。412 なら別のインスタンスが担当済みなので何もしない。読んだ `state` が `done` / `failed` / `none` でも何もしない |
 | 読んだ後・担当の前に、別のインスタンスが担当して失敗し `pending` に戻した | — | — | 担当の条件の `attempts` が合わず 412。何もしない（古い回数から数え直さない） |
 | 分類・識別の間（担当の後、結果・失敗を書く前）に、利用者がやり直しを頼んだ（受付が `pending`・`attempts: 0` を書いた） | やり直しの受付の状態（`hint` と `pending`） | 「分類中...」 | 結果・失敗の patch（識別ならコメントの patch も）を担当したときの `processing` の条件付きにする（§7.4）。412 で古い結果も失敗もコメントも書かず、例外も投げずに終える。受付で積んだメッセージが改めて担当する |
-| 再投入のタイマーが読んだ後・戻す前に、ワーカーが担当した（またはやり直しの受付が入った） | — | — | タイマーの patch を読んだときの `state`・`attempts` の条件付きにする。412 ならその写真には触らず、積まない |
+| 再投入のタイマーが読んだ後・戻す前に、ワーカーが担当した（またはやり直しの受付が入った） | — | — | タイマーの patch を読んだときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付きにする。412 ならその写真には触らず、積まない |
 | 地名のキャッシュ（`geocache`）の `create` が 409 | 既に同じ座標の地名がある | — | 無視する |
+
+**分類まで済んだ写真を識別に回すスクリプト**（段階4。4-1b。[06 §1.2](./06_processing_design.md#12-流れ)。順: 対象を読む（§5 の 5.11）→ `--apply` なら1枚ずつ識別の待ちに（読んだときの `processing` の条件付き patch）。キューには積まない）
+
+| 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
+|---|---|---|---|
+| 対象の読み取り | 何も変わらない | — | 回し直す |
+| 途中の写真の patch（412・404 以外）で止まる | それまでの写真は識別の待ち、残りは `done` のまま | 待ちにした写真は「分類中...」（段階4のアプリで「識別中...」） | 回し直す（待ちにした写真は `done` でないので対象から外れる）。待ちにした写真は再投入のタイマーが 10〜20 分後に積む |
+| 読んだ後・書く前に、やり直しの受付やワーカーが `processing` を書いた | その写真は受付・ワーカーが書いた状態 | — | 条件付き patch が 412 で、その写真は飛ばす（ログに ID） |
 
 **移行スクリプト**（[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) 手順 2。植物1件ずつ: 旧 Blob を読む → `photos` に上げる → 写真の `create`）
 
@@ -698,7 +708,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 | 欄 | 書く主体 |
 |---|---|
-| `category`・`classification`・`identification`・`processing` | AI（ワーカー）と、やり直しの受付（`processing`・`hint`）と、再投入のタイマー（`processing`） |
+| `category`・`classification`・`identification`・`processing` | AI（ワーカー）と、やり直しの受付（`processing`・`hint`）と、再投入のタイマー（`processing`）と、識別に回す手で回すスクリプト（`processing`。段階4） |
 | `comment`・`commentSource` | **両方**（利用者の `PATCH` と AI）。衝突はここだけ |
 | `tags`・`tripId`・`updatedAt` | 利用者（`PATCH`・move・旅行の削除）。`updatedAt` はワーカーも書く |
 
