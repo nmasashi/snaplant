@@ -513,4 +513,101 @@ void main() {
     await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
+  testWidgets('旅行詳細でカテゴリを絞り込んでいる間は、送れなかった写真の端末の画像のマスを並べず、「すべて」に戻すと並べる',
+      (tester) async {
+    // 送れなかった写真はまだ分類されていないので、「すべて」のときだけ並べる（docs/travel-album/03_screen_design.md §5.3）。
+    // 失敗は、自動では送り直さない 500。「すべて」に戻すと並ぶことで、「並べない」が項目の無いせいではないことも確かめる
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: _apiKey,
+      photosByTripId: {
+        hokkaidoTripId: [
+          photoJson(
+              number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
+            ..['category'] = 'food'
+        ],
+      },
+    );
+    backend.failNext(TripRoute.upload,
+        status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final markInGrid =
+        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
+    await letFramesRun(tester);
+    expect(markInGrid, findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '食べ物'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(markInGrid, findsNothing);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'すべて'));
+    await letFramesRun(tester);
+    expect(markInGrid, findsOneWidget);
+    // 後始末: 失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
+
+  testWidgets('カテゴリの写真の画面には、旅行を指定せずに送れなかった写真の端末の画像のマスを並べない', (tester) async {
+    // 旅行をまたぐ画面は、どの宛先の送信中の写真も並べない（§5.2）。「旅行に属さない写真」の画面から送った分が混ざらないことを見る
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('unassigned.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 0)],
+      functionKey: _apiKey,
+      unassignedPhotoCount: 1,
+      photosByTripId: {
+        hokkaidoTripId: [],
+        'none': [
+          photoJson(number: 1, takenAt: '2026-10-05T12:30:15')
+            ..['category'] = 'food'
+        ],
+      },
+    );
+    backend.failNext(TripRoute.upload,
+        status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    final markInGrid =
+        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
+    await letFramesRun(tester);
+    expect(markInGrid, findsOneWidget);
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    await tester.tap(find.byTooltip('カテゴリ'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('食べ物'));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
+    expect(markInGrid, findsNothing);
+    // 後始末: 旅行一覧に戻り、失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await tester.pageBack();
+    await letFramesRun(tester);
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
+    semantics.dispose();
+  });
 }

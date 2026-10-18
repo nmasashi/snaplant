@@ -74,6 +74,9 @@ void main() {
       await tester.tap(_chip('食べ物'));
       await letFramesRun(tester);
       expect(_shown(['10:00', '11:00', '12:00']), [true, false, false]);
+      // 選べるのは1つだけ（§5.3）
+      expect(tester.widget<ChoiceChip>(_chip('食べ物')).selected, isTrue);
+      expect(tester.widget<ChoiceChip>(_chip('すべて')).selected, isFalse);
 
       await tester.tap(_chip('すべて'));
       await letFramesRun(tester);
@@ -96,7 +99,44 @@ void main() {
       await tester.tap(_chip('食べ物'));
       await letFramesRun(tester);
 
-      expect(find.textContaining('3枚'), findsOneWidget);
+      // 枚数も期間も旅行全体のまま（§5.3）
+      expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+    });
+
+    testWidgets('絞り込んでいる間は、続きのページも下に引っ張っての読み直しも、同じカテゴリで読む', (tester) async {
+      // 継続トークンは同じ絞り込みにだけ有効（05 §5.2）。1ページ目は食べ物 30 枚、続きに食べ物 1 枚。
+      // 風景を前後に置き、絞り込みを落とした読み方ならどちらかが並ぶようにする
+      final semantics = tester.ensureSemantics();
+      final photos = [
+        _photo(39, hokkaidoTripId, 'landscape', '09:00'),
+        for (var n = 1; n <= 31; n++)
+          _photo(
+              n, hokkaidoTripId, 'food', '10:${n.toString().padLeft(2, '0')}'),
+        _photo(40, hokkaidoTripId, 'landscape', '11:00'),
+      ]..sort(
+          (a, b) => (a['sortAt'] as String).compareTo(b['sortAt'] as String));
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: 33)],
+        functionKey: 'test-key',
+        pageSize: 30,
+        photosByTripId: {hokkaidoTripId: photos},
+      );
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      await tester.tap(_chip('食べ物'));
+      await letFramesRun(tester);
+
+      await tester.drag(find.byType(GridView), const Offset(0, -5000));
+      await letFramesRun(tester);
+      expect(_shown(['10:31', '09:00', '11:00']), [true, false, false]);
+
+      await tester.drag(find.byType(GridView), const Offset(0, 5000));
+      await letFramesRun(tester);
+      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await letFramesRun(tester);
+      expect(_shown(['10:01', '09:00']), [true, false]);
+      semantics.dispose();
     });
 
     testWidgets('旅行詳細を開き直すと「すべて」に戻る', (tester) async {
@@ -116,6 +156,7 @@ void main() {
     });
 
     testWidgets('絞り込んだまま複数選択でき、選択モードの間はチップを出さない', (tester) async {
+      final semantics = tester.ensureSemantics();
       await _openTripDetail(tester);
       await tester.tap(_chip('食べ物'));
       await letFramesRun(tester);
@@ -125,6 +166,9 @@ void main() {
 
       expect(find.text('1枚を選択中'), findsOneWidget);
       expect(_chip('すべて'), findsNothing);
+      // 選択モードに入っても、絞り込んだまま（全部の写真に戻らない）
+      expect(_shown(['10:00', '11:00', '12:00']), [true, false, false]);
+      semantics.dispose();
     });
   });
 
@@ -175,6 +219,22 @@ void main() {
       expect(find.widgetWithText(AppBar, '食べ物'), findsOneWidget);
       expect(_shown(['10:00', '11:00', '12:00', '13:00']),
           [true, false, true, true]);
+      semantics.dispose();
+    });
+
+    testWidgets('写真ビューアから戻ると、一覧を読み直す（開いている間に増えた写真も出る）', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = acrossTrips();
+      await openCategory(tester, backend, '食べ物');
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      backend.photosByTripId[kyotoTripId]!
+          .add(_photo(5, kyotoTripId, 'food', '14:00'));
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(photoThumbnail(_label('14:00')), findsOneWidget);
       semantics.dispose();
     });
 
