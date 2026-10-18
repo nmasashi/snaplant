@@ -592,6 +592,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null` | 500 `図鑑の項目の取得に失敗しました` |
 
 項目一覧のページを `offset` / `limit` にするのは、`GROUP BY` の結果（項目の行）をサーバで名前順に並べてから切るためで、Cosmos の継続トークンが使えない。
+名前順は文字列の符号単位の順（JavaScript の `<` の比べ方。ロケールに依らず、どの環境でも同じ並びになる）。
+数えてから見出しの写真を読むまでの間に、その名前の写真が無くなった（消された・やり直しで名前が変わった）項目は、そのページから外す（`total` は数えたときのまま）。まれで、次に開けば数え直される。
 項目の行は小さいので、ページごとに `GROUP BY` をやり直しても読む量は写真の枚数に依らない（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「規模の注意」）。
 
 `GET /api/catalog/entry` の検証（順に。最初に失敗した1件だけ返す）:

@@ -538,6 +538,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 
 | テスト | 例外 | 理由 |
 |---|---|---|
+| `api/tests/services/catalogEntries.test.ts` | 入口から入力を作れない | 偽物は `GROUP BY` と `ORDER BY` を解釈しないので、名前ごとの枚数の行と、項目ごとの見出しの写真（信頼度の高い1枚）を入口（`GET /api/catalog/entries`）から作れない |
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
 
 **複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
