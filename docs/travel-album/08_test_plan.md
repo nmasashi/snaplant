@@ -27,8 +27,8 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | 環境変数を消すときは `delete` | `process.env.X = undefined` は文字列 `"undefined"` になる |
 | テスト名は日本語の文 | 既存と同じ |
 
-ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`processPhoto.test.ts`（解析のワーカー。3-3a）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`・`photoProcess.test.ts`（やり直しの受付。3-3b）・`requeueStalePhotos.test.ts`・`sweepAlbum.test.ts`（タイマー。3-3b）、手で回すスクリプトの `tests/scripts/enqueueUnidentified.test.ts`（4-1b。スクリプトの関数が入口。CLAUDE.md の「テストの入口」）、
-`tests/services/tripSummaries.test.ts`（入口から入力を作れないので残す。CLAUDE.md の名簿）。3-2 で期限付きで置いた `tests/services/photoClassifier.test.ts` は、3-3a で入口のワーカーのテスト（`processPhoto.test.ts`）へ寄せて消した。ほかのサービスと `utils/` は単体のテストを持たず、入口（ハンドラ）のテストが通す（#44 で決めた「テストの入口」。#46 で入口へ寄せた）。
+ディレクトリは `src/` をミラーする: `tests/functions/trips.test.ts`・`tripDetail.test.ts`・`photos.test.ts`（`photos.ts` の POST）・`processPhoto.test.ts`（解析のワーカー。3-3a）・`photoList.test.ts`（`photos.ts` の GET。PR 4a-2 で分けた）・`photoDetail.test.ts`（`photoDetail.ts` の GET・DELETE）・`photoUpdate.test.ts`（`photoDetail.ts` の PATCH。PR 4b で分けた）・`photoMove.test.ts`・`photoProcess.test.ts`（やり直しの受付。3-3b）・`requeueStalePhotos.test.ts`・`sweepAlbum.test.ts`（タイマー。3-3b）・`catalogKinds.test.ts`・`catalogEntries.test.ts`（図鑑の種類と項目一覧。4-2a）、手で回すスクリプトの `tests/scripts/enqueueUnidentified.test.ts`（4-1b。スクリプトの関数が入口。CLAUDE.md の「テストの入口」）、
+`tests/services/tripSummaries.test.ts`・`tests/services/catalogEntries.test.ts`（4-2a）（入口から入力を作れないので残す。CLAUDE.md の名簿）。3-2 で期限付きで置いた `tests/services/photoClassifier.test.ts` は、3-3a で入口のワーカーのテスト（`processPhoto.test.ts`）へ寄せて消した。ほかのサービスと `utils/` は単体のテストを持たず、入口（ハンドラ）のテストが通す（#44 で決めた「テストの入口」。#46 で入口へ寄せた）。
 
 ## 2. テスト用の差し替え部品の拡張
 
@@ -36,9 +36,9 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 拡張 | 中身 | 理由 |
 |---|---|---|
-| `query` の絞り込み | `@type`・`@tripId`（`tripId` が値と厳密に等しいものだけ。未所属は `@tripId = null` で、`tripId` が `null` のものだけ。項目が無いものは含めない。SQL の null の比較自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@name`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る）のパラメータで絞る。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
+| `query` の絞り込み | `@type`・`@tripId`（`tripId` が値と厳密に等しいものだけ。未所属は `@tripId = null` で、`tripId` が `null` のものだけ。項目が無いものは含めない。SQL の null の比較自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@entryName`（`identification.kind` / `identification.name`。`@kind` だけなら `matchesKind: true` のものに絞る。項目の写真（4-2b）で使う。4-2a の時点では偽物はこの2つで絞らない。項目一覧は集計なので、絞っても偽物では行を作れない）のパラメータで絞る。項目の名前を `@name` にしないのは、偽物が `@name` を下の `plants` の名前の絞り込みに使うため（[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
 | `query` のページ | `fetchNext()` が `maxItemCount` 件ずつ返し、続きがあれば `continuationToken`（偽物では挿入順の位置を表す文字列）を返す。同じトークンを渡すと続きから返す。`fetchAll()` も残す | 写真一覧のページの切れ目とトークンの受け渡し（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。`ORDER BY` は解釈しないので、**並び順は挿入順になる**（並びそのものは手で確かめる。§5.2） |
-| 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts` に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、集計の行から `TripSummary` / `CatalogEntry` を組み立てる所は純粋関数（`services/tripSummaries.ts` など）に分け、行を直接渡して単体で確かめる（`albumQueries` を差し替えない。PR 3 で決めた）。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
+| 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない。集計の SQL は `services/albumQueries.ts`（図鑑は `services/catalogQueries.ts`。4-2a）に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、集計の行から `TripSummary` / `CatalogEntry` を組み立てる所は純粋関数（`services/tripSummaries.ts`・`services/catalogEntries.ts`）に分け、行を直接渡して単体で確かめる（`albumQueries` を差し替えない。PR 3 で決めた）。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
 | `item().patch(body, options)` | `body` が配列か `{ operations, condition }` の両方を受け、`set` / `replace` / `remove` を `path`（`/tripId` のような1段と `/processing/state` のような2段）に適用する。`id !== partitionKey` か無ければ `{ code: 404 }`。`condition` はこの設計で使う2つの形（担当の `FROM c WHERE c.processing.state = "<文字列>" AND c.processing.step = "<文字列>" AND c.processing.attempts = <整数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` と、コメントの「担当の条件 AND `(IS_NULL(c.<path>) OR c.<path> = "<値>")`」）だけを解釈し、満たさなければ `{ code: 412 }`（3-3a で1つ目の形（`c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだもの）を足した。2つ目は担当の条件と `AND` でつないだ `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` の形で、コメントを書く 4-1a で足す）。「読んだ後・patch の直前に他の操作が書き換えた」は `beforePatch` で作る。**それ以外の形は例外にする**（知らない条件を黙って通さない） | move・PATCH・旅行の削除（未所属へ戻す）・やり直しの受付・掃除のタイマー（未所属へ戻す）・ワーカー（担当の条件付き patch、結果と失敗の条件付き patch（3-3b）、コメントの条件付き patch。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）・再投入のタイマー（読んだときの `processing` の条件付き patch。3-3b）・識別に回すスクリプト（同じ。4-1b）が使う。条件が実環境で意図どおりかは手で確かめる（§5.3） |
 | `FakeCosmosDocument` の緩和 | `name` / `imagePath` を必須にしない（`{ id: string; type?: string; … }`）。`FakeCosmosBackend<TDoc>` の既定の型に `Trip | Photo` を足す | 旅行・写真は `name` / `imagePath` を持たない |
@@ -227,11 +227,19 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 掃除のタイマー（3-3b。`sweepAlbum.test.ts`）: 文書の無い Blob のうち最終更新から1日より古いものだけが `store` から消え（原寸もサムネイルも）、ちょうど1日・新しいもの・文書のある Blob・別のコンテナの Blob は残る。
   名前が写真 ID（小文字16進 64 文字）+ `.` で始まらない Blob（大文字、65 文字、`readme.txt`）は古くても残る。存在しない旅行を指す写真が `tripId: null`・`updatedAt` が今になる（消えない。ある旅行の写真と未所属の写真は変わらない）。Blob の無い文書は消えない。
   写真の文書を読めなければ、Blob を消さずに例外を投げる
-- 図鑑のまとめ（組み立ての純粋関数に行を直接渡して）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並ぶ
+- 図鑑のまとめ（4-2a で実装済み。組み立ての純粋関数に行を直接渡して。`tests/services/catalogEntries.test.ts`）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられる
+  （`confidence`・`description`・`characteristics`・`attributes` は見出しの写真の識別から、`photoCount` は行から、`kind` は渡した種類、表紙はサムネイルの URL で、サムネイルが無ければ原寸の URL）。
+  名前の文字列順（符号単位）に並べて `offset` から `limit` 件を切り、`total` はページに依らない。`offset` が項目の数を超えれば空のページで `total` はそのまま。名前が `null` の行は項目にも `total` にも数えない。
+  見出しの写真が無くなっていた項目はページから外し、`total` はそのまま
 - 図鑑の API の置き場（4-2a で決めた）: 偽物は `GROUP BY` も `ORDER BY` も解釈しないので、名前ごとの枚数の行と見出しの写真（信頼度の高い1枚）を入口から作れない。
   旅行一覧と同じく、行と見出しの写真から項目のページを組み立てる所を純粋な関数（`catalogEntries.ts`）に分けて `tests/services/catalogEntries.test.ts` で確かめ（CLAUDE.md の名簿）、
   入口のテストは検証・0件・データベースの障害を見る。SQL の絞り込み・並び・集計は §5.3 で手で確かめる
-- 図鑑の API（[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400、`name` の検証（空・100 文字超）、`offset` / `limit` の検証、該当する写真が無い項目は 200 で `entry: null`、項目一覧は名前順で `total` は項目の総数
+- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表の種類が表の順に、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。`prompt`・`namingRule` は返さない
+- 図鑑の項目一覧（4-2a で実装済み。`catalogEntries.test.ts`。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: 識別された写真が無ければ 200 で `{ entries: [], total: 0 }`。
+  `offset=0`・`limit=100`（上限）・`limit=1` は受け付ける。`kind` が無い・`other`・`constructor` で 400 `図鑑の種類が無効です`、`offset` が負・小数・空、`limit` が `0`・`101`・数でない・小数・空で 400 `ページの指定が無効です`。
+  `kind` もページも不正なら `kind` の指摘。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の一覧の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の表）
+- 図鑑の項目の詳細（4-2b。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400、`name` の検証（空・100 文字超）、`limit` / `continuationToken` の検証（§5.2 と同じ）、該当する写真が無い項目は 200 で `entry: null`
+- Cosmos の設定の不足（4-2a で実装済み。`tests/scripts/enqueueUnidentified.test.ts`）: `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_ALBUM_CONTAINER` のどれかが無い・空白だけなら、識別に回すスクリプトはその設定の名前を含む例外で止まる（`AlbumService` を作るときに確かめる）
 - 移行スクリプト: 2 回流して `documents` の件数が変わらない。`imagePath` の Blob が無い植物は飛ばして一覧に出る。写真の `category` が `"plant"`、`tags` が `[]`、`identification.kind` が `"plant"` で `model: "migration"`、`sortAt` が `uploadedAt` を日本時間に直したもの
 
 ## 4. 段階2のシナリオ一覧（mobile）
@@ -317,7 +325,15 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - タイマーの登録とスケジュール（3-3b）: ポータルの「関数」に `requeueStalePhotos`・`sweepAlbum`（`app.timer` の第1引数）がある。`requeueStalePhotos` が 10 分ごとに、`sweepAlbum` が日本時間の午前3時（UTC 18 時）に走ったことを実行の履歴（ログの件数の行）で確かめる
 - やり直しの受付のルート（3-3b）: ポータルの「関数」に `requestPhotoProcessing` があり、`POST /api/photos/{photoId}/process` が 202 を返し、写真の `processing.state` が `pending` → `done` に進む
 - 識別に回すスクリプトのクエリ（4-1b。[04 §5](./04_data_design.md#5-クエリ) の 5.11）: デプロイ後、`--apply` を付けずに回し（`api/README.md`「手で回すスクリプト」）、出た対象の枚数が、ポータルのデータエクスプローラーで数えた「`done`・`category` が `plant` / `food` / `landscape`・`identification` が `null`」の写真の枚数と合う（`IS_NULL(c.identification)` と `ARRAY_CONTAINS(@kinds, c.category)`。コードでも同じ条件を見直すので、SQL が崩れても書き換える写真は変わらないが、多く拾えば読む RU が、少なく拾えば識別の漏れが出る）。`--apply` の後 10〜20 分で、待ちにした写真が `identifying` → `done`（`step: "identify"`）に進む
-- 図鑑の `GROUP BY c.identification.name` と `c.identification.kind` の絞り込み、複合インデックスでの `TOP 1 … ORDER BY confidence DESC, at DESC`（段階4。[04 §5](./04_data_design.md#5-クエリ)）
+- 図鑑の項目一覧のつなぎ目（4-2a。[04 §5](./04_data_design.md#5-クエリ) の 5.6・[05 §5.14](./05_api_design.md#514-図鑑段階4)）。偽物は SQL の絞り込み・集計・並びを解釈せず、純粋な関数のテストには行を直接渡しているので、次はデプロイ後にしか確かめられない
+  - 関数の登録: ポータルの「関数」に `listCatalogKinds`・`listCatalogEntries`（`app.http` の第1引数）があり、`GET /api/catalog/kinds` が定義表の3種類を返す
+  - 種類での絞り込み（`c.identification.kind = @kind`・`matchesKind = true`）: `GET /api/catalog/entries?kind=plant` に食べ物・風景の写真の名前が混ざらない。`kind=food`・`kind=landscape` も同じ。
+    同じ名前が別の種類にもあれば、それぞれの種類で別の項目になり枚数も分かれる。識別で「分類と合わない」（`matchesKind: false`）になった写真は、どの項目にも数えられない
+  - 枚数の集計（`GROUP BY c.identification.name`・`COUNT(1)`）: 各項目の `photoCount` が、ポータルのデータエクスプローラーで数えたその種類・その名前の写真の枚数と合い、`total` が名前の数と合う。`null` の鍵の行が項目に出ない
+  - 名前順とページの切り方: `limit` を省くと `min(50, total)` 件（既定 50 件）。項目が少ないうちは `limit=2` で `offset` を 0・2・4…とめくり、名前の符号単位の順で重複・欠落が無く、最後のページの先は `[]` で `total` が変わらない
+  - 表紙の URL: `coverThumbnailUrl`（SAS 付き）をブラウザで開いて画像が出る（サムネイルの無い写真が見出しなら原寸）。期限（60 分）を過ぎると 403
+  - 見出しの選び方（複合インデックスでの `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC`）: 同じ名前の写真が2枚以上ある項目で、`confidence`・`description` と表紙が、
+    データエクスプローラーで見たその名前の写真のうち `identification.confidence` が最も高いもの（同点なら `identification.at` が新しいもの）と一致する。複合インデックスが無いと 400 になる（推測）ので、500 `図鑑の一覧の取得に失敗しました` が出たら 4-0 の apply を確かめる
 - Patch の `condition`（コメントは担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` の `AND`。4-1a。偽物は条件を自前で評価している）: 写真にコメントを書いてからやり直しを頼み、結果でコメントが置き換わる（受付で消しているため）。写真を送った直後（自動の解析中）にコメントを書き、解析が終わっても利用者のコメントが残る。解析中にタグ・旅行を変えても結果と両方残る
 - 永遠に回り続けないこと: AI が必ず失敗する入力（例: 分類のスキーマ検証に通らない応答を返すモック、または壊れた画像）で 3 回失敗した写真が `failed` になり、タイマーが 10 分×数回走っても再投入されない。「やり直す」でもう一度 3 回だけ試す
 - キューの直列化（`batchSize: 1`）と poison の挙動（AI が 3 回失敗した写真は、3 回目でワーカーが `failed` にして例外を投げないので poison には落ちず、アプリに「やり直す」が出る。担当の前に 3 回失敗したメッセージ（写真の読み取りの失敗など）だけが `photo-processing-poison` に落ちる。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
@@ -326,7 +342,12 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   結果・失敗の `condition`（`state = "classifying"`（識別は `"identifying"`）`AND step = <step> AND attempts = <担当した回数> AND updatedAt = <担当したときの時刻>`）と再投入のタイマー・識別に回すスクリプトの `condition`（`state = "<読んだ state>" AND step = <読んだ step> AND attempts = <読んだ回数> AND updatedAt = <読んだ時刻>`）も同じ形なので、担当の確認で併せて確かめたことにしてよい。
   分類の間にやり直しを頼んだ写真が、やり直しの手がかり付きの結果になる（古い結果で上書きされない）
 - 10 枚のトークン使用量の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）。容量は今のまま（150）でよく、下げるかの判断材料にする
-- 図鑑の1種類の1ページを開く RU と時間の実測（識別済みの枚数・項目の数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）
+- 図鑑の1種類の1ページを開く RU と時間の実測（4-2a のデプロイ後。識別済みの枚数・項目の数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）。
+  API は RU をログにも応答にも出さないので、次の手順で測る
+  1. 時間: `GET /api/catalog/entries?kind=<一番写真の多い種類>`（`limit` は省いて既定の 50 件）を続けて数回呼び、2回目以降の応答時間（`curl` の `-w '%{time_total}'` など）を記録する（1回目はコールドスタートを含むので分けて書く）
+  2. RU（クエリごと）: ポータルのデータエクスプローラーで [04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4) の 1（`GROUP BY`）と 3（`TOP 1`。パラメータを実際の値に置き換え、1項目分）を回し、「Query Stats」の Request Charge を読む。1ページの RU ≒ 1 の RU + 3 の RU × ページの項目数
+  3. RU（全体の確かめ）: 他の処理が動いていない時間（再投入のタイマーは 10 分ごとに走る）に `GET /api/catalog/entries` を1回だけ呼び、Cosmos のメトリック「Total Request Units」（1 分粒度）の増分が 2 の見積もりと大きく違わないかを見る
+  4. 目安（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）: 1ページの体感が 3 秒以上なら「まとめの控え」を考える
 - 掃除のタイマー: `photos` に文書の無い Blob（名前は小文字16進 64 文字 + `.jpg`）を手で置き、置いてから1日たった後の最初の午前3時の回で消えている（それより前の回では、1日たっていないので残す）。文書のある Blob と、置いたばかりの Blob は残る
 - 旅行の削除中に送信: 数百枚の旅行の削除を押した直後に同じ旅行へ送信し、残った写真が消えておらず（ポータルで文書と Blob を確認）、掃除のタイマーの翌日に未所属に出る（[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）
 - 移行スクリプトの冪等性（2 回流して件数が変わらない）。実環境でしか分からない「`imagePath` の Blob が無い植物」の一覧
