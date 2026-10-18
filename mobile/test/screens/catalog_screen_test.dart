@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -92,9 +94,85 @@ void main() {
     expect(backend.catalogOffsetsReceived, [0, 50]);
     expect(find.text('植物059'), findsOneWidget);
     // 1ページ目の最後（植物049）と2ページ目の先頭（植物050）が1つずつ（重なっていない）
-    await tester.dragUntilVisible(find.text('植物049'), find.byType(ListView), const Offset(0, 100));
+    await tester.dragUntilVisible(
+        find.text('植物049'), find.byType(ListView), const Offset(0, 100));
     expect(find.text('植物049'), findsOneWidget);
     expect(find.text('植物050'), findsOneWidget);
+  });
+
+  testWidgets('2ページ目で外れた項目があっても、3ページ目の offset は 100（limit だけ進める）',
+      (tester) async {
+    final backend = FakeTripBackend(
+        functionKey: 'test-key',
+        catalogEntriesByKind: {'plant': _manyPlants(110)});
+    backend.catalogVanishedNames.add('植物060');
+    await openCatalogTab(tester, backend);
+
+    for (var i = 0; i < 4; i++) {
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await letFramesRun(tester);
+    }
+
+    expect(backend.catalogOffsetsReceived, [0, 50, 100]);
+    expect(find.text('植物109'), findsOneWidget);
+  });
+
+  testWidgets('1ページ目の項目がすべて外れていても、続きを読んで並べる', (tester) async {
+    // 行が無いので下端に近づくきっかけが来ない。それでも続きを読む（03 §6.1）
+    final backend = FakeTripBackend(
+        functionKey: 'test-key',
+        catalogEntriesByKind: {'plant': _manyPlants(60)});
+    backend.catalogVanishedNames.addAll(
+        [for (var i = 0; i < 50; i++) '植物${i.toString().padLeft(3, '0')}']);
+    await openCatalogTab(tester, backend);
+
+    expect(find.text('植物050'), findsOneWidget);
+    expect(find.text('植物の項目はまだありません'), findsNothing);
+  });
+
+  testWidgets('別の種類のタブへ移ってから戻ると、先頭から読み直す', (tester) async {
+    // 種類タブを切り替えるたびに先頭から読み込み直す（03 §6.1）
+    final backend = _backend();
+    await openCatalogTab(tester, backend);
+    backend.catalogEntriesByKind['plant']!
+        .insert(0, catalogEntryJson('plant', 'アジサイ'));
+
+    await tester.tap(_kindTab('食べ物'));
+    await letFramesRun(tester);
+    await tester.tap(_kindTab('植物'));
+    await letFramesRun(tester);
+
+    expect(find.text('アジサイ'), findsOneWidget);
+  });
+
+  testWidgets('読み込んでいる間は「図鑑を読み込み中...」を出す', (tester) async {
+    final backend = _backend();
+    final release = Completer<void>();
+    backend.holds[TripRoute.catalogKinds] = release.future;
+    await openCatalogTab(tester, backend);
+
+    expect(find.text('図鑑を読み込み中...'), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+    expect(find.text('ソメイヨシノ'), findsOneWidget);
+  });
+
+  testWidgets('一覧を出したまま下に引っ張った読み直しに失敗したら、一覧はそのままにしてエラーをスナックバーに出す',
+      (tester) async {
+    final backend = _backend();
+    await openCatalogTab(tester, backend);
+    backend.failNext(TripRoute.catalogEntries);
+
+    await tester.drag(find.byType(ListView), const Offset(0, 300));
+    await letFramesRun(tester);
+
+    expect(find.text('ソメイヨシノ'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。')),
+        findsOneWidget);
   });
 
   testWidgets('総数まで読んだら、それ以上は続きを読まない', (tester) async {
@@ -147,6 +225,8 @@ void main() {
       await openCatalogTab(tester, backend);
 
       expect(find.text('エラーが発生しました'), findsOneWidget);
+      // 500 はアプリが言い換える（ApiException.userMessage）
+      expect(find.text('サーバーで問題が発生しています。しばらく待ってから再試行してください。'), findsOneWidget);
 
       await tester.tap(find.text('再試行'));
       await letFramesRun(tester);
