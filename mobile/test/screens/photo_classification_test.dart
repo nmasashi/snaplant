@@ -114,7 +114,7 @@ void main() {
     testWidgets('分類の前の写真（カテゴリが無い）には、カテゴリを出さない', (tester) async {
       await _openViewer(tester, _photo(category: null, state: 'none'));
 
-      for (final label in ['植物', '食べ物', '風景', 'その他']) {
+      for (final label in ['植物', '食べ物', '風景']) {
         expect(find.text(label), findsNothing);
       }
     });

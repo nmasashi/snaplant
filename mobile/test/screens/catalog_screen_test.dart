@@ -49,6 +49,39 @@ void main() {
     expect(find.text('味噌ラーメン'), findsNothing);
   });
 
+  testWidgets('種類のタブの表示名と順は、アプリの表ではなく種類の一覧の応答に従う', (tester) async {
+    // 種類はサーバの定義表が決める（05 §5.14）。応答に無い種類のタブは出さない
+    final backend = _backend()
+      ..catalogKinds = [
+        {'kind': 'food', 'label': 'ごはん', 'fields': <Object?>[]},
+        {'kind': 'plant', 'label': '植物', 'fields': <Object?>[]},
+      ];
+    await openCatalogTab(tester, backend);
+
+    expect(_kindTab('風景'), findsNothing);
+    expect(_kindTab('食べ物'), findsNothing);
+    expect(tester.getTopLeft(_kindTab('ごはん')).dx,
+        lessThan(tester.getTopLeft(_kindTab('植物')).dx));
+    // 最初の種類（食べ物）の項目を並べる
+    expect(find.text('味噌ラーメン'), findsOneWidget);
+    expect(find.text('ソメイヨシノ'), findsNothing);
+  });
+
+  testWidgets('信頼度が小数でも四捨五入して出し、説明と特徴が無い項目も並べる', (tester) async {
+    // 信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）
+    final backend =
+        FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+      'plant': [
+        catalogEntryJson('plant', 'ユキノシタ',
+            confidence: 87.6, description: null, characteristics: null),
+      ],
+    });
+    await openCatalogTab(tester, backend);
+
+    expect(find.text('ユキノシタ'), findsOneWidget);
+    expect(find.text('88%'), findsOneWidget);
+  });
+
   testWidgets('種類のタブを切り替えると、その種類の項目を並べる', (tester) async {
     await openCatalogTab(tester, _backend());
 
@@ -68,6 +101,21 @@ void main() {
 
     expect(find.text('風景の項目はまだありません'), findsOneWidget);
     expect(find.text('識別が済んだ写真が、ここにまとまります'), findsOneWidget);
+  });
+
+  testWidgets('項目が無い種類でも、下に引っ張ると読み直す', (tester) async {
+    final backend = _backend();
+    await openCatalogTab(tester, backend);
+    await tester.tap(_kindTab('風景'));
+    await letFramesRun(tester);
+    backend.catalogEntriesByKind['landscape'] = [
+      catalogEntryJson('landscape', '函館山')
+    ];
+
+    await tester.drag(find.text('風景の項目はまだありません'), const Offset(0, 300));
+    await letFramesRun(tester);
+
+    expect(find.text('函館山'), findsOneWidget);
   });
 
   testWidgets('アプリを開いても、図鑑のタブを開くまで図鑑の API を呼ばない', (tester) async {
@@ -158,6 +206,20 @@ void main() {
     expect(find.text('ソメイヨシノ'), findsOneWidget);
   });
 
+  testWidgets('種類のタブを出した後も、項目を読み込んでいる間は「図鑑を読み込み中...」を出す', (tester) async {
+    final backend = _backend();
+    final release = Completer<void>();
+    backend.holds[TripRoute.catalogEntries] = release.future;
+    await openCatalogTab(tester, backend);
+
+    expect(_kindTab('植物'), findsOneWidget);
+    expect(find.text('図鑑を読み込み中...'), findsOneWidget);
+
+    release.complete();
+    await letFramesRun(tester);
+    expect(find.text('ソメイヨシノ'), findsOneWidget);
+  });
+
   testWidgets('一覧を出したまま下に引っ張った読み直しに失敗したら、一覧はそのままにしてエラーをスナックバーに出す',
       (tester) async {
     final backend = _backend();
@@ -216,6 +278,14 @@ void main() {
 
       expect(_kindTab('植物'), findsOneWidget);
       expect(find.text('ソメイヨシノ'), findsOneWidget);
+    });
+
+    testWidgets('サーバに接続できなければ、接続を確かめるよう案内する', (tester) async {
+      final backend = _backend();
+      backend.failNextWithConnectionError(TripRoute.catalogKinds);
+      await openCatalogTab(tester, backend);
+
+      expect(find.text('ネットワークに接続できません。インターネット接続を確認してください。'), findsOneWidget);
     });
 
     testWidgets('項目の一覧を読めなければ、エラーと「再試行」を出し、再試行で読み直す', (tester) async {

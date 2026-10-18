@@ -115,7 +115,7 @@ enum TripRoute {
   catalogEntries,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
+/// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
 /// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
@@ -883,13 +883,15 @@ Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async 
   await letFramesRun(tester);
 }
 
-/// 図鑑の項目（`GET /api/catalog/entries` の1件）。表紙の URL は Blob の場所に署名を付けた形
-Map<String, Object?> catalogEntryJson(String kind, String name, {int confidence = 90, int photoCount = 1}) => {
+/// 図鑑の項目（`GET /api/catalog/entries` の1件）。表紙の URL は Blob の場所に署名を付けた形。
+/// 本物の信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）
+Map<String, Object?> catalogEntryJson(String kind, String name,
+        {num confidence = 90, int photoCount = 1, String? description = '', String? characteristics = ''}) => {
       'kind': kind,
       'name': name,
       'confidence': confidence,
-      'description': '$nameの説明',
-      'characteristics': '$nameの特徴',
+      'description': description == '' ? '$nameの説明' : description,
+      'characteristics': characteristics == '' ? '$nameの特徴' : characteristics,
       'attributes': <String, Object?>{},
       'photoCount': photoCount,
       'coverThumbnailUrl': 'https://test.blob.core.windows.net/photos/${name.hashCode}.thumb.jpg?sv=2024&sig=test',
