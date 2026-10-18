@@ -1,10 +1,12 @@
 import { InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
+import { QueueClient } from '@azure/storage-queue';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { processPhotoHandler } from '../../src/functions/processPhoto';
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import { photoDocument } from '../helpers/albumDocuments';
 
 // 外部依存のみモック。Cosmos DB と Blob Storage は状態持ちの偽物、AI（管理外）は送った要求を残すモック。
@@ -14,6 +16,7 @@ jest.mock('@azure/storage-blob', () => ({
   ...jest.requireActual('@azure/storage-blob'),
   BlobServiceClient: { fromConnectionString: jest.fn() }
 }));
+jest.mock('@azure/storage-queue', () => ({ QueueClient: jest.fn() }));
 jest.mock('openai', () => {
   const MockOpenAI = jest.fn();
   return Object.assign(MockOpenAI, { default: MockOpenAI });
@@ -21,6 +24,7 @@ jest.mock('openai', () => {
 const MockedOpenAI = jest.requireMock('openai');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
+const MockedQueueClient = QueueClient as jest.MockedClass<typeof QueueClient>;
 
 const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1';
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -37,7 +41,9 @@ const ENV_KEYS = [
   'AZURE_OPENAI_API_KEY',
   'AZURE_OPENAI_DEPLOYMENT_NAME',
   'AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME',
-  'PHOTO_PROCESSING_MAX_ATTEMPTS'
+  'PHOTO_PROCESSING_MAX_ATTEMPTS',
+  'PHOTO_QUEUE_NAME',
+  'AzureWebJobsStorage'
 ] as const;
 
 /** 分類の待ちの写真（送信が作った直後の形）。利用者が付けたタグ・コメント・旅行を持たせ、変わらないことを見る */
@@ -56,6 +62,7 @@ describe('写真の解析のワーカー', () => {
   let mockContext: InvocationContext;
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let blobBackend: FakeBlobBackend;
+  let queueBackend: FakeQueueBackend;
   let savedEnv: Record<string, string | undefined>;
   // AI に送った要求。どの接続先（クライアントの設定）から送ったかと一緒に残す
   let sent: Array<{ options: any; body: any }>;
@@ -69,6 +76,10 @@ describe('写真の解析のワーカー', () => {
   const runWorker = (message: unknown = { photoId: PHOTO_ID }) => processPhotoHandler(message, mockContext);
 
   const storedPhoto = () => cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
+
+  /** キューの名前ごとの、積まれたメッセージ（読み戻した本文） */
+  const queuedMessages = (): Array<[string, unknown[]]> =>
+    [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
 
   beforeEach(() => {
     savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -86,6 +97,10 @@ describe('写真の解析のワーカー', () => {
 
     blobBackend = { store: new Map() };
     MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
+
+    queueBackend = { queues: new Map(), forcedSendError: null };
+    MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
+      createFakeQueueClient(queueBackend, queueName)) as any);
 
     sent = [];
     MockedOpenAI.mockImplementation((options: any) => ({
@@ -112,6 +127,8 @@ describe('写真の解析のワーカー', () => {
     process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'main-deployment';
     delete process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME;
     delete process.env.PHOTO_PROCESSING_MAX_ATTEMPTS;
+    process.env.PHOTO_QUEUE_NAME = 'photo-processing';
+    process.env.AzureWebJobsStorage = 'UseDevelopmentStorage=true';
   });
 
   afterEach(() => {
@@ -128,6 +145,7 @@ describe('写真の解析のワーカー', () => {
 
   describe('分類', () => {
     it('分類の待ちの写真を分類すると、種類と分類の結果が書かれて済みになり、利用者の書いた欄は変わらない', async () => {
+      // 図鑑の種類でない（other）ので、分類で済みになる（図鑑の種類なら識別の待ちになる。下のテスト）。
       // 前に1回失敗している（attempts 1・lastError あり）。成功で lastError が消え、attempts は数え続ける。
       // 前回の解析の識別が残っている（やり直し）。分類で種類が変わりうるので、識別は消す（06 §2.3）
       cosmosBackend.documents.set(
@@ -137,17 +155,19 @@ describe('写真の解析のワーカー', () => {
           processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
         })
       );
+      aiReturns({ kind: 'other', confidence: 82.5, reason: '人が写っている' });
 
       await runWorker();
 
       expect(storedPhoto()).toEqual({
         ...pendingPhoto(),
-        category: 'food',
-        classification: { kind: 'food', confidence: 82.5, model: 'main-deployment', at: NOW },
+        category: 'other',
+        classification: { kind: 'other', confidence: 82.5, model: 'main-deployment', at: NOW },
         identification: null,
         processing: { state: 'done', step: 'classify', attempts: 2, lastError: null, updatedAt: NOW },
         updatedAt: NOW
       });
+      expect(queuedMessages()).toEqual([]);
     });
 
     it('分類している間、写真は処理中（classifying）で、回数と時刻が更新されている', async () => {
@@ -164,18 +184,43 @@ describe('写真の解析のワーカー', () => {
       expect(duringAi).toEqual({ state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
-    it.each(['plant', 'landscape', 'other'])(
-      '種類が%sでも、段階3では分類の後に済みになる（識別は段階4）',
+    it.each(['plant', 'food', 'landscape'])(
+      '種類が図鑑の種類（%s）なら、識別の待ち（回数は0から）にして、その写真を解析のキューに積む',
       async (kind) => {
-        cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+        // 識別は別の回のワーカーが担当する（06 §2.3）。分類の失敗の回数は識別に持ち越さない
+        cosmosBackend.documents.set(
+          PHOTO_ID,
+          pendingPhoto({
+            processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
+          })
+        );
         aiReturns({ kind, confidence: 70, reason: 'テスト' });
 
         await runWorker();
 
         expect(storedPhoto().category).toBe(kind);
-        expect(storedPhoto().processing).toEqual({ state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+        expect(storedPhoto().classification).toEqual({ kind, confidence: 70, model: 'main-deployment', at: NOW });
+        expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
+        expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
       }
     );
+
+    it('識別の待ちを積むのに失敗しても、分類の結果と識別の待ちは書いたまま、例外を投げない（タイマーが積み直す）', async () => {
+      // 例外にするとキューが分類をやり直すが、写真はもう分類の待ちではないので担当されず、AI の費用もかからない。
+      // 識別の待ちのまま残れば、再投入のタイマーが 10 分後に積む（04 §7.1）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      queueBackend.forcedSendError = Object.assign(new Error('The specified queue does not exist.'), {
+        name: 'RestError',
+        statusCode: 404,
+        code: 'QueueNotFound'
+      });
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto().category).toBe('food');
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([]);
+    });
 
     it('AIに送る画像は、その写真の原寸を読み取りだけで開ける、15分で切れる署名付きのURL', async () => {
       // サムネイルではなく原寸（detail: low でも、縮める前の画像の方が分類しやすい）。06 §2.1
@@ -266,11 +311,11 @@ describe('写真の解析のワーカー', () => {
     it.each([0, 100])('信頼度が%sでも受け付けて、分類の結果に書く', async (confidence) => {
       // 0〜100 の両端は範囲内（06 §2.1）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
-      aiReturns({ kind: 'landscape', confidence, reason: 'テスト' });
+      aiReturns({ kind: 'other', confidence, reason: 'テスト' });
 
       await runWorker();
 
-      expect(storedPhoto().classification).toEqual({ kind: 'landscape', confidence, model: 'main-deployment', at: NOW });
+      expect(storedPhoto().classification).toEqual({ kind: 'other', confidence, model: 'main-deployment', at: NOW });
       expect(storedPhoto().processing.state).toBe('done');
     });
   });
@@ -314,7 +359,7 @@ describe('写真の解析のワーカー', () => {
       await runWorker();
 
       expectDeployment('classify-deployment');
-      expect(storedPhoto().processing.state).toBe('done');
+      expect(storedPhoto().classification).toEqual({ kind: 'food', confidence: 82.5, model: 'classify-deployment', at: NOW });
     });
   });
 
@@ -659,7 +704,7 @@ describe('写真の解析のワーカー', () => {
         tags: ['朝食', '札幌'],
         tripId: null,
         category: 'food',
-        processing: { state: 'done' }
+        classification: { kind: 'food' }
       });
     });
   });
