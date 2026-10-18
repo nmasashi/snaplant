@@ -249,11 +249,13 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   PNG は `.png` で上がる。Content-Type が大文字（`image/JPEG`）でも移し、写真の `contentType` と Blob の Content-Type を小文字にそろえる。
   説明・特徴・学名・科名の無い（空の）植物は、`identification` の `description`・`characteristics` と `attributes` の `scientificName`・`familyName` を `null` にし（キーは欠かさない）、`comment`・`commentSource` も `null`。
   `--apply` が無ければ、書き込むときと同じく移す植物を数え（画像のある植物を `migrated` に数える）、画像の Blob が無い植物と、同じ画像の写真が先にある植物を飛ばす一覧に出し、写真の文書も Blob も書かない。
-  `--apply` が無くても、書く先の設定（`PHOTO_STORAGE_CONTAINER_NAME`）が無ければ `写真の保存先の設定` を含む例外で止まる。
-  画像の Blob が無い植物、`imagePath` が `images` の Blob を指していない植物（別のホスト・別のコンテナ・`https` でない・下の階層・Blob 名が無い・URL として読めない・クエリが付いている・ホストが大文字・パーセントエンコードが壊れている。1行に条件を1つだけ外す）、
+  同じ画像の植物が2つあれば、`--apply` の有無によらず2つ目を「同じ写真が先にある」として飛ばす（一覧が同じになる）。
+  `--apply` が無くても、書く先の設定（`PHOTO_STORAGE_CONTAINER_NAME`）が無ければ `設定が足りません: PHOTO_STORAGE_CONTAINER_NAME` で止まる。
+  名前・説明・特徴は前後の空白を除き、空白だけなら `null`。名前が空白だけ・101 文字の植物は `名前が空か、100文字を超える` で飛ばし、ちょうど100文字は移す。
+  画像の Blob が無い植物、`imagePath` が `images` の Blob を指していない植物（別のホスト・別のコンテナ・`https` でない・下の階層・Blob 名が無い・URL として読めない・クエリが付いている・ホストが大文字・パーセントエンコードが壊れている・戻すと上の階層を指す（`..%2F`）・戻すとスラッシュを含む。1行に条件を1つだけ外す）、
   Content-Type が受け付けないもの（`image/heic`）・Content-Type の無いもの（`画像の形式（）が写真として受け付けないもの`）の植物は、06 §7.1 の理由の文言で飛ばして一覧に出し、続く植物を移す。同じ画像の写真が先にあれば飛ばして先の写真を変えない。先にあるかを確かめた後・作る前に同じ写真が作られた（`create` が 409）ときも、同じ理由で飛ばして先の写真を変えない。2 回流すと2回目は全部を「同じ写真が先にある」として飛ばし、写真を変えない（冪等）。
   `photos` への保存の失敗と、画像の読み込みの 404 以外の失敗（403 `AuthorizationFailure`）では止まり、それまでに移した写真は残る。
-  設定（`COSMOS_DB_CONTAINER` が無い・`STORAGE_CONTAINER_NAME` が空白だけ）が足りなければ `設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME` で何も書かずに止まる。
+  設定（`COSMOS_DB_CONTAINER` が無い・`STORAGE_CONTAINER_NAME` が空白だけ・`PHOTO_STORAGE_CONTAINER_NAME` が無い）が足りなければ `設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME, PHOTO_STORAGE_CONTAINER_NAME` で何も書かずに止まる。
   偽物は SQL を解釈しないので、`plants` の全件読み（`SELECT * FROM c`）は実行のときに件数（`植物図鑑の記録: <件数> 件`）で確かめる
 
 ## 4. 段階2のシナリオ一覧（mobile）
