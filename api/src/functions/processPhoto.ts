@@ -4,7 +4,7 @@ import { PhotoClassifierService } from '../services/photoClassifierService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../constants/album';
 import { UpstreamError } from '../utils/errors';
-import { PhotoProcessing } from '../types/album';
+import { PhotoDocument, PhotoProcessing } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
 import { CATALOG_KINDS, CatalogKind } from '../catalog/kinds';
 import { PhotoIdentifierService } from '../services/photoIdentifierService';
@@ -56,78 +56,9 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     const storage = new PhotoStorageService();
     const imageUrl = storage.readUrl(photo.blobName, new Date(Date.now() + CLASSIFY_IMAGE_SAS_MINUTES * 60 * 1000));
     if (step === 'classify') {
-      const result = await new PhotoClassifierService().classify(imageUrl, {
-        placeName: photo.location?.placeName ?? null,
-        hint: photo.hint,
-      });
-
-      const now = new Date().toISOString();
-      const identifies = result.kind in CATALOG_KINDS;
-      const written = await album.writeClassification(photo.id, claimedProcessing, {
-        category: result.kind,
-        classification: { kind: result.kind, confidence: result.confidence, model: result.model, at: now },
-        processing: identifies
-          ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
-          : { state: 'done', step: 'classify', attempts, lastError: null, updatedAt: now },
-        updatedAt: now,
-      });
-      if (!written) {
-        context.log(`分類の間にやり直しの受付が入ったので、この結果は書きません: ID=${photo.id}`);
-        return;
-      }
-      context.log(`写真の分類が済みました: ID=${photo.id}, 種類=${result.kind}`);
-      if (identifies) {
-        await enqueuePhotoOrLog(photo.id, context.log.bind(context));
-      }
+      await classifyPhoto(album, photo, claimedProcessing, imageUrl, context);
     } else {
-      const kind = photo.category as CatalogKind;
-      const result = await new PhotoIdentifierService().identify(imageUrl, kind, {
-        placeName: photo.location?.placeName ?? null,
-        takenAt: photo.takenAt,
-        hint: photo.hint,
-      });
-
-      const now = new Date().toISOString();
-      if (result.matchesKind) {
-        // 利用者がコメントを書いていたら書かない（false が返る）。それでも結果は書く
-        await album.writeAiComment(photo.id, claimedProcessing, result.comment);
-      }
-      const identification = result.matchesKind
-        ? {
-            kind,
-            matchesKind: true,
-            name: result.name,
-            confidence: result.confidence,
-            description: result.description,
-            characteristics: result.characteristics,
-            attributes: result.attributes,
-            reason: null,
-            model: result.model,
-            at: now,
-          }
-        : {
-            // 図鑑に出ない形。AI のコメントは理由として残し、写真のコメントには書かない（06 §3.2）
-            kind,
-            matchesKind: false,
-            name: null,
-            confidence: result.confidence,
-            description: null,
-            characteristics: null,
-            attributes: {},
-            reason: result.comment,
-            model: result.model,
-            at: now,
-          };
-      const written = await album.writeIdentification(photo.id, claimedProcessing, {
-        identification,
-        processing: { state: 'done', step: 'identify', attempts, lastError: null, updatedAt: now },
-        updatedAt: now,
-      });
-      if (!written) {
-        context.log(`識別の間にやり直しの受付が入ったので、この結果は書きません: ID=${photo.id}`);
-        return;
-      }
-      context.log(`写真の識別が済みました: ID=${photo.id}, 種類=${kind}, 名前=${identification.name}`);
+      await identifyPhoto(album, photo, claimedProcessing, imageUrl, context);
     }
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が写真に残り続ける）
@@ -153,6 +84,107 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
       throw error;
     }
   }
+}
+
+/**
+ * 担当した写真を分類し、結果を書く。種類が図鑑の種類なら識別の待ちにして積む（06 §2.3）
+ *
+ * 失敗は投げる（呼び出し側が待ちに戻すか failed にする）
+ */
+async function classifyPhoto(
+  album: AlbumService,
+  photo: PhotoDocument,
+  claimedProcessing: PhotoProcessing,
+  imageUrl: string,
+  context: InvocationContext
+): Promise<void> {
+  const attempts = claimedProcessing.attempts;
+    const result = await new PhotoClassifierService().classify(imageUrl, {
+      placeName: photo.location?.placeName ?? null,
+      hint: photo.hint,
+    });
+
+    const now = new Date().toISOString();
+    const identifies = result.kind in CATALOG_KINDS;
+    const written = await album.writeClassification(photo.id, claimedProcessing, {
+      category: result.kind,
+      classification: { kind: result.kind, confidence: result.confidence, model: result.model, at: now },
+      processing: identifies
+        ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
+        : { state: 'done', step: 'classify', attempts, lastError: null, updatedAt: now },
+      updatedAt: now,
+    });
+    if (!written) {
+      context.log(`分類の間にやり直しの受付が入ったので、この結果は書きません: ID=${photo.id}`);
+      return;
+    }
+    context.log(`写真の分類が済みました: ID=${photo.id}, 種類=${result.kind}`);
+    if (identifies) {
+      await enqueuePhotoOrLog(photo.id, context.log.bind(context));
+    }
+}
+
+/**
+ * 担当した写真を識別し、AI のコメントと結果を書く（06 §3.2）
+ *
+ * 失敗は投げる（呼び出し側が待ちに戻すか failed にする）
+ */
+async function identifyPhoto(
+  album: AlbumService,
+  photo: PhotoDocument,
+  claimedProcessing: PhotoProcessing,
+  imageUrl: string,
+  context: InvocationContext
+): Promise<void> {
+  const attempts = claimedProcessing.attempts;
+    const kind = photo.category as CatalogKind;
+    const result = await new PhotoIdentifierService().identify(imageUrl, kind, {
+      placeName: photo.location?.placeName ?? null,
+      takenAt: photo.takenAt,
+      hint: photo.hint,
+    });
+
+    const now = new Date().toISOString();
+    if (result.matchesKind) {
+      // 利用者がコメントを書いていたら書かない（false が返る）。それでも結果は書く
+      await album.writeAiComment(photo.id, claimedProcessing, result.comment);
+    }
+    const identification = result.matchesKind
+      ? {
+          kind,
+          matchesKind: true,
+          name: result.name,
+          confidence: result.confidence,
+          description: result.description,
+          characteristics: result.characteristics,
+          attributes: result.attributes,
+          reason: null,
+          model: result.model,
+          at: now,
+        }
+      : {
+          // 図鑑に出ない形。AI のコメントは理由として残し、写真のコメントには書かない（06 §3.2）
+          kind,
+          matchesKind: false,
+          name: null,
+          confidence: result.confidence,
+          description: null,
+          characteristics: null,
+          attributes: {},
+          reason: result.comment,
+          model: result.model,
+          at: now,
+        };
+    const written = await album.writeIdentification(photo.id, claimedProcessing, {
+      identification,
+      processing: { state: 'done', step: 'identify', attempts, lastError: null, updatedAt: now },
+      updatedAt: now,
+    });
+    if (!written) {
+      context.log(`識別の間にやり直しの受付が入ったので、この結果は書きません: ID=${photo.id}`);
+      return;
+    }
+    context.log(`写真の識別が済みました: ID=${photo.id}, 種類=${kind}, 名前=${identification.name}`);
 }
 
 /**
