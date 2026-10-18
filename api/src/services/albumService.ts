@@ -518,7 +518,7 @@ export class AlbumService {
         { op: 'set', path: '/commentSource', value: 'ai' },
       ],
       // null は != で比べられない（null != "user" は未定義になる）ので、IS_NULL と = でつなぐ
-      '(IS_NULL(c.commentSource) OR c.commentSource = "ai")'
+      'IS_NULL(c.commentSource) OR c.commentSource = "ai"'
     );
   }
 
@@ -527,7 +527,7 @@ export class AlbumService {
    *
    * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
    * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
-   * @param extraCondition 担当したときのままに加えて満たすべき条件（`AND` でつなぐ）。無ければ担当したときのままだけ
+   * @param extraCondition 担当したときのままに加えて満たすべき条件（括弧で包んで `AND` でつなぐ）。無ければ担当したときのままだけ
    * @returns 書けたら true。担当したときと変わっていた・extraCondition を満たさない（412）か、写真が消えていた（404）なら false
    */
   private async patchIfStillClaimed(
@@ -538,7 +538,8 @@ export class AlbumService {
   ): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: processingCondition(claimed) + (extraCondition ? ` AND ${extraCondition}` : ''),
+        // 括弧で包む（条件に OR があっても、担当したときのままの条件と AND で結び付くように）
+        condition: processingCondition(claimed) + (extraCondition ? ` AND (${extraCondition})` : ''),
         operations,
       });
       return true;
