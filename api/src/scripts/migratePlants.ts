@@ -2,7 +2,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, ContainerClient } from '@azure/storage-blob';
 import { createHash } from 'crypto';
 import { CATALOG_KINDS } from '../catalog/kinds';
-import { FILE_UPLOAD } from '../constants/validation';
+import { CATALOG_VALIDATION, FILE_UPLOAD } from '../constants/validation';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { PhotoDocument } from '../types/album';
@@ -51,6 +51,12 @@ export async function migratePlants(options: {
       skipped.push({ plantId: plant.id, name: plant.name, reason });
       options.log(`飛ばしました: ${plant.name}（植物 ID=${plant.id}）: ${reason}`);
     };
+    // 名前は図鑑の項目の鍵。識別のワーカーと同じく前後の空白を除いて 1〜100 文字だけを認める（04 §3.1）
+    const name = plant.name?.trim() ?? '';
+    if (name === '' || name.length > CATALOG_VALIDATION.NAME_MAX_LENGTH) {
+      skip(`名前が空か、${CATALOG_VALIDATION.NAME_MAX_LENGTH}文字を超える`);
+      continue;
+    }
     const blobName = imageBlobName(plant.imagePath, config);
     if (blobName === null) {
       skip('画像の URL が images コンテナの Blob ではない');
@@ -210,9 +216,9 @@ function photoDocumentOf(
   blobName: string,
   now: string
 ): PhotoDocument {
-  // 識別のワーカーと同じ形にする: 欄は植物の定義表の項目をすべて持ち、空の値は null（04 §3.1）。
+  // 識別のワーカーと同じ形にする: 欄は植物の定義表の項目をすべて持ち、値は前後の空白を除いて空なら null（04 §3.1）。
   // 「無い」がキーの欠けと null の2通りになると、Cosmos SQL での振る舞いが分かれる
-  const orNull = (value: string | undefined): string | null => (value ? value : null);
+  const orNull = (value: string | undefined): string | null => value?.trim() || null;
   const legacy = plant as unknown as Record<string, string | undefined>;
   const attributes = Object.fromEntries(
     CATALOG_KINDS.plant.fields.map((field) => [field.key, orNull(legacy[field.key])])
@@ -240,7 +246,7 @@ function photoDocumentOf(
     identification: {
       kind: 'plant',
       matchesKind: true,
-      name: plant.name,
+      name: plant.name.trim(),
       confidence: plant.confidence,
       description: orNull(plant.description),
       characteristics,
