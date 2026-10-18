@@ -257,4 +257,68 @@ void main() {
       expect(find.text('植物059'), findsOneWidget);
     });
   });
+
+  group('読み直しと続きの読み込みが重なったとき', () {
+    /// 一覧を先頭まで戻してから下に引っ張る
+    Future<void> pullToRefresh(WidgetTester tester) async {
+      await tester.drag(find.byType(ListView), const Offset(0, 20000));
+      await tester.pump();
+      await tester.drag(find.byType(ListView), const Offset(0, 300));
+      await letFramesRun(tester);
+    }
+
+    Future<void> dragToBottom(WidgetTester tester) async {
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await letFramesRun(tester);
+    }
+
+    testWidgets('続きを読んでいる間の読み直しが失敗しても、続きの結果を並べ、「読み込み中...」のまま止まらない',
+        (tester) async {
+      final backend = FakeTripBackend(
+          functionKey: 'test-key',
+          catalogEntriesByKind: {'plant': _manyPlants(60)});
+      await openCatalogTab(tester, backend);
+      final moreReply = backend.holdNextReply(TripRoute.catalogEntries);
+      await dragToBottom(tester);
+      backend.failNext(TripRoute.catalogEntries);
+
+      await pullToRefresh(tester);
+      moreReply.complete();
+      await letFramesRun(tester);
+      await dragToBottom(tester);
+
+      expect(find.text('読み込み中...'), findsNothing);
+      expect(find.text('植物059'), findsOneWidget);
+    });
+
+    testWidgets('読み直しの間に始めた続きは、読み直しの結果が先に出たら捨て、読み直した1ページ目の続きから読む',
+        (tester) async {
+      // 読み直しは1ページ目（50件）に戻る。その前の位置（100件目）からの続きを、戻った一覧の後ろにつながない
+      final backend = FakeTripBackend(
+          functionKey: 'test-key',
+          catalogEntriesByKind: {'plant': _manyPlants(160)});
+      await openCatalogTab(tester, backend);
+      await dragToBottom(tester);
+      await dragToBottom(tester);
+      final before = [...backend.catalogOffsetsReceived];
+      expect(before.last, greaterThan(0));
+      final refreshReply = backend.holdNextReply(TripRoute.catalogEntries);
+      final moreReply = backend.holdNextReply(TripRoute.catalogEntries);
+
+      await pullToRefresh(tester);
+      await dragToBottom(tester);
+      refreshReply.complete();
+      await letFramesRun(tester);
+      moreReply.complete();
+      await letFramesRun(tester);
+      await dragToBottom(tester);
+
+      await dragToBottom(tester);
+
+      // 読み直し（0）・重なった続き（前の位置の次。捨てる）・読み直した1ページ目の続き（50）・その次（100）。
+      // 重なった続きを捨てずにつなぐと、その分だけ位置が進み、次は 100 ではなくなる
+      expect(backend.catalogOffsetsReceived.take(before.length + 4),
+          [...before, 0, before.last + 50, 50, 100]);
+    });
+  });
 }
