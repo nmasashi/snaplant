@@ -130,17 +130,20 @@ void main() {
       expect(find.text('解析をやり直す'), findsOneWidget);
     });
 
-    testWidgets('種類の一覧に無い種類の写真は、その種類の欄の無い項目の詳細を開く', (tester) async {
-      // 種類を減らした後の古い識別など。開けないままにせず、名前で項目の詳細を開く
+    testWidgets('種類の一覧に無い種類の写真は、項目の詳細を開かずに「図鑑にこの種類がありません」と知らせる',
+        (tester) async {
+      // 種類を減らした後の古い識別など。サーバは定義表に無い種類の項目の詳細を 400 で断るので、開いてもエラーの表示になる
       final backend = await _openViewer(tester, _photo());
       backend.catalogKinds.removeWhere((kind) => kind['kind'] == 'plant');
 
       await tester.tap(find.text('ソメイヨシノ >'));
       await letFramesRun(tester);
 
-      expect(find.byType(CatalogEntryScreen), findsOneWidget);
-      expect(find.widgetWithText(AppBar, 'ソメイヨシノ'), findsOneWidget);
-      expect(find.text('学名'), findsNothing);
+      expect(find.byType(CatalogEntryScreen), findsNothing);
+      expect(
+          find.descendant(
+              of: find.byType(SnackBar), matching: find.text('図鑑にこの種類がありません')),
+          findsOneWidget);
     });
 
     // 前回の識別は、やり直しの結果が出るまで残る（05 §5.7）
