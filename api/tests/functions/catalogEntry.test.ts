@@ -162,6 +162,17 @@ describe('図鑑の項目の詳細API', () => {
     expect((response.jsonBody as any).data).toMatchObject({ entry: null, photos: [], continuationToken: null });
   });
 
+  it('続きを読む間に項目の写真が無くなったら、古い継続トークンでも 200 で entry: null を返す（読み終える）', async () => {
+    // 03 §6.2。見出しが無ければ写真のページを読まないので、トークンを Cosmos に渡さない
+    const response = await getCatalogEntryHandler(
+      createRequest({ kind: 'food', name: 'スイカ', continuationToken: '{}' }),
+      mockContext
+    );
+
+    expect(response.status).toBe(200);
+    expect((response.jsonBody as any).data).toMatchObject({ entry: null, photos: [], continuationToken: null });
+  });
+
   it('写真は limit 枚ずつのページで、継続トークンで続きを読む', async () => {
     // ページの受け渡しは GET /api/photos と同じ（05 §5.14）
     const first = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'メロン', limit: '1' }), mockContext);
