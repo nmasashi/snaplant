@@ -385,6 +385,14 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 表示は変わらない。PR 7e の実機確認（SC-03K、数枚〜10枚）では重さを感じなかった。
 **判断**: 当面このまま（細かい UI は完成後に見直す。2026-10-17 に人間が決定）。重く感じたら、この宛先の項目と状態が変わったときだけ作り直す形にする。
 
+### 図鑑の項目の一覧で、見出しの写真のクエリを最大 100 本同時に投げる（api、旅行アルバム）
+
+`GET /api/catalog/entries` は、ページの項目ごとに見出しの写真を `TOP 1 … ORDER BY confidence DESC, at DESC` で読み、ページの件数だけ並列に投げる
+（`api/src/services/catalogEntries.ts` の `catalogPageOf()`。既定 50 件、上限 100 件。設計どおり。`docs/travel-album/04_data_design.md` §3.1）。
+`album` の RU/s（無料枠の 400）を一度に超えると 429 になり、SDK が自動で再試行するので遅くなる（2026-10-18、4-2a の `/code-review` の指摘。コードを読んでの判断。実測していない）。
+**判断**: 4-2a のデプロイ後の実測（1種類の1ページを開く RU と時間。`docs/travel-album/09_implementation_plan.md` §4）を見てから決める。
+遅ければ、同時に投げる本数を抑える（例 10 本ずつ）か、04 §3.1 の「まとめの控え」を足す。
+
 ### 写真ビューアで続きのページの読み込みに失敗すると、ビューアからは読み直せない（Dart、旅行アルバム）
 
 写真ビューア（`mobile/lib/screens/photo_viewer_screen.dart`）は、読み込み済みの末尾まで来ると一覧（`PhotoGrid`）に続きを読ませる。
