@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../widgets/confidence_badge.dart';
 import '../widgets/message_view.dart';
 import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
@@ -161,7 +162,6 @@ class _EntryHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = AppColors.getConfidenceColor(entry.confidence.toDouble());
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Column(
@@ -169,17 +169,7 @@ class _EntryHeader extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: color.withValues(alpha: 0.3)),
-                ),
-                child: Text('${entry.confidence.round()}%',
-                    style: AppTextStyles.body2.copyWith(color: color)),
-              ),
+              ConfidenceBadge(confidence: entry.confidence),
               const SizedBox(width: 12),
               Text('${entry.photoCount}枚', style: AppTextStyles.body2),
             ],

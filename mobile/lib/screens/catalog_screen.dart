@@ -6,6 +6,7 @@ import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
+import '../widgets/confidence_badge.dart';
 import '../widgets/message_view.dart';
 import 'catalog_entry_screen.dart';
 
@@ -415,20 +416,6 @@ class _CatalogEntryTile extends StatelessWidget {
     );
   }
 
-  Widget _confidenceBadge() {
-    final color = AppColors.getConfidenceColor(entry.confidence.toDouble());
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text('${entry.confidence.round()}%',
-          style: AppTextStyles.body2.copyWith(color: color)),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -437,7 +424,7 @@ class _CatalogEntryTile extends StatelessWidget {
         leading: _cover(),
         title: Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text('${entry.photoCount}枚'),
-        trailing: _confidenceBadge(),
+        trailing: ConfidenceBadge(confidence: entry.confidence),
         onTap: onTap,
       ),
     );
