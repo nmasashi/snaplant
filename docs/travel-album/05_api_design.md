@@ -672,7 +672,7 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 | `updateTrip(tripId, name, description)` | `PUT /api/trips/{tripId}` | `data['trip']` |
 | `deleteTrip(tripId, {required bool deletePhotos})` | `DELETE /api/trips/{tripId}?deletePhotos=` | `data['deletedPhotoCount']`・`data['detachedPhotoCount']` |
 | `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`（`urlExpiresAt` と 201 / 200 の区別は読まない。200（別の場所）は、呼び出し側の `UploadQueue` が応答の `photo.tripId` と送った `tripId` を比べて判断する。区別が要らないので、201 / 200 を返す目標は 2026-10-15 に外した） |
-| `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。3つとも省略でき、渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`、省くと旅行をまたぐ（カテゴリの写真の画面。`category` だけで取る）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b）。呼び出し側（`PhotoGrid`）は `tripId`・`category` の少なくとも一方を必ず渡す（両方無いとサーバは 400） |
+| `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。`continuationToken` は省略でき、`tripId`・`category` は少なくとも一方が要る（両方無いとサーバは 400。デバッグ版では `assert` が送る前に止める）。渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`、省くと旅行をまたぐ（カテゴリの写真の画面。`category` だけで取る）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b） |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
