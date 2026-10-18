@@ -9,7 +9,7 @@ const _categoryLabels = {
 };
 
 /// 画面に並べるカテゴリの順（旅行詳細のチップと、カテゴリの一覧の画面）。表示名の表の順で、キーを二重に持たない
-final photoCategories = _categoryLabels.keys.toList();
+final photoCategories = List<String>.unmodifiable(_categoryLabels.keys);
 
 /// カテゴリの表示名。知らないキー（後の段階で足された種類など）はキーのまま返す
 String categoryLabel(String category) => _categoryLabels[category] ?? category;
