@@ -485,7 +485,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 `@type = 'photo'`。1 と 3 は実装済み（4-2a。`services/catalogQueries.ts` の `queryCatalogNameCounts()`・`queryCatalogHead()`。2 と組み立ては `services/catalogEntries.ts`）。
 項目の名前のパラメータは `@name` ではなく `@entryName`（テスト用の Cosmos の偽物は `@name` を植物図鑑の文書の `name` の絞り込みに使うので、`@name` で渡すと偽物が写真をすべて外す。5.7 も同じ名前にする）。
 1 の行と 3 の写真から、§3.1 の表のとおり `CatalogEntry`（名前・説明・特徴・属性・信頼度・枚数・表紙）を組み立てる。
-項目の詳細（§5 の 5.7。4-2b で実装済み）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、3 と同じ条件（`@kind`・`matchesKind = true`・`@entryName`）で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。`AlbumService.getCatalogEntry()` は3本を並列に読み（項目があるふつうの場合に往復を1回で済ませる）、見出しが無いか枚数が 0 なら項目なし（`entry: null`・`photos: []`）とする（読む間に写真が消された・名前が変わったときに、見出しだけ残った食い違った項目を返さない）。
+項目の詳細（§5 の 5.7。4-2b で実装済み）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、3 と同じ条件（`@kind`・`matchesKind = true`・`@entryName`）で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。`AlbumService.getCatalogEntry()` は先に見出しを読み、無ければ（その種類と名前の写真が0枚）残りの2本を投げずに項目なし（`entry: null`・`photos: []`）とする。あれば枚数と写真のページを並列に読み、枚数が 0 なら項目なしとする（読む間に写真が消された・名前が変わったときに、見出しだけ残った食い違った項目を返さない）。
 
 識別結果の書き込みは**写真1枚への patch 1回**（[06 §3.2](./06_processing_design.md#32-書き込み)）。項目の文書が無いので、`create` の 409 も、
 信頼度を比べて項目を書き換える処理も、写真の付け替えも無い。

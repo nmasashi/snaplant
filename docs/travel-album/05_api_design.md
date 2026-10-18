@@ -166,7 +166,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `photoCount` | integer | その名前の写真の枚数（項目一覧は `GROUP BY` の `COUNT(1)`、項目の詳細は `SELECT VALUE COUNT(1)`。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)） |
 | `coverThumbnailUrl` | string | 見出しの写真のサムネイル（無ければ原寸）の SAS 付き URL。`null` にはならない |
 
-`GET /api/catalog/entries`（4-2a）と `GET /api/catalog/entry`（4-2b）が実装済み（型は `api/src/types/album.ts` の `CatalogEntry`）。項目一覧は、ページに項目が1つも無ければ写真の保存先の設定を読まない（表紙の URL を作らないため。旅行の表紙と同じ）。項目の詳細は `photos` の URL を作るので、該当する写真が無くても設定を読む（§5.14）。
+`GET /api/catalog/entries`（4-2a）と `GET /api/catalog/entry`（4-2b）が実装済み（型は `api/src/types/album.ts` の `CatalogEntry`）。項目一覧は、ページに項目が1つも無ければ写真の保存先の設定を読まない（表紙の URL を作らないため。旅行の表紙と同じ）。項目の詳細も、該当する写真が無い（`entry: null`）ときは設定を読まない（§5.14）。
 
 ### 3.4 Error
 
@@ -633,9 +633,9 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 5 | `continuationToken` があり、空か JSON として読めない（§5.2 の 5 と同じ） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 | 6 | `continuationToken` が JSON だが Cosmos が受け付けない（別の項目のトークンなど。サーバが 400 で拒む。推測） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 
-- 2 と 3 の `message` は上限値を埋め込まない固定の文言（`CATALOG_VALIDATION.ERROR_MESSAGES` の `NAME_REQUIRED`・`NAME_TOO_LONG`）。`name` もページも不正なら `name` の指摘を返す
+- 2 と 3 の `message` は `CATALOG_VALIDATION.ERROR_MESSAGES` の `NAME_REQUIRED`・`NAME_TOO_LONG`（3 は上限値 `NAME_MAX_LENGTH` を埋め込む）。`name` もページも不正なら `name` の指摘を返す
 - 6 は、トークンを渡した写真のページのクエリが Cosmos から `code` 400 で失敗したときだけ返す（写真の一覧と同じ。`AlbumService.listPhotos()` が `InvalidContinuationTokenError` にする）。見出しや枚数のクエリの 400（複合インデックスが無いときなど）は 500。
-  トークンを渡していない要求の 400 も 500。3本は並列に読むので、項目が無い（`entry: null`）ときも写真のページはトークン付きで読み、Cosmos が受け付けないトークンなら 6 になる
+  トークンを渡していない要求の 400 も 500。見出しの写真が無い（`entry: null`）ときは写真のページを読まないので、項目が消えた後の古いトークンでも 6 にならず 200 で `entry: null` を返す
 - `limit` の既定は 100（`PHOTO_PAGE_SIZE`）、上限 200（`PHOTO_MAX_PAGE_SIZE`）。トークンの大きさの上限（2KB）、空のページを読み進める扱い、最後のページが空のことがあるのも §5.2 と同じ（`AlbumService.listPhotos()` を同じ設定で使う）
 - 続きのページの要求でも、見出しの写真と枚数をそのつど読み直して `entry` に入れる。続きを読む間に写真が0枚になれば、その応答は `entry: null`・`photos: []`・`continuationToken: null`
 - `urlExpiresAt` は、表紙（`entry.coverThumbnailUrl`）と `photos` の URL の共通の期限（§6 の 60 分。要求を受けたときに1回決める）
