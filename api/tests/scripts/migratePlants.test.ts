@@ -250,7 +250,9 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     putPlant(plant('p1'), Buffer.from('sakura-image'));
     delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
 
-    await expect(migratePlants({ apply: false, log })).rejects.toThrow('写真の保存先の設定');
+    await expect(migratePlants({ apply: false, log })).rejects.toThrow(
+      new Error('設定が足りません: PHOTO_STORAGE_CONTAINER_NAME')
+    );
   });
 
   it('画像の Blob が無い植物は飛ばして一覧に出し、ほかの植物は移す', async () => {
@@ -412,11 +414,13 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
   it('設定が足りなければ、足りない設定の名前をすべて言って、何も書かずに止める', async () => {
     // 空白だけの値も、無いものとして扱う
     putPlant(plant('p1'), Buffer.from('sakura-image'));
+    // 読む元（植物）と書く先（写真）の設定を、一度にまとめて言う（直して回すたびに次の不足が1つずつ出ないように）
     delete process.env.COSMOS_DB_CONTAINER;
     process.env.STORAGE_CONTAINER_NAME = '  ';
+    delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
 
     await expect(migratePlants({ apply: true, log })).rejects.toThrow(
-      new Error('設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME')
+      new Error('設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME, PHOTO_STORAGE_CONTAINER_NAME')
     );
 
     expect(albumBackend.documents.size).toBe(0);
