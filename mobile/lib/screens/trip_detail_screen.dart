@@ -240,13 +240,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              for (final category in const [
-                null,
-                'plant',
-                'food',
-                'landscape',
-                'other'
-              ])
+              for (final category in [null, ...photoCategories])
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(

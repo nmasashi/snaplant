@@ -17,9 +17,6 @@ class CategoryListScreen extends StatelessWidget {
   final ApiService apiService;
   final UploadQueue uploadQueue;
 
-  /// 並べるカテゴリ（段階3の表示名はアプリが持つ。段階4で種類の一覧の API から取る）
-  static const _categories = ['plant', 'food', 'landscape', 'other'];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -27,7 +24,7 @@ class CategoryListScreen extends StatelessWidget {
           AppBar(title: const Text('カテゴリ', style: AppTextStyles.appBarTitle)),
       body: ListView(
         children: [
-          for (final category in _categories)
+          for (final category in photoCategories)
             ListTile(
               title: Text(categoryLabel(category)),
               trailing: const Icon(Icons.chevron_right),
