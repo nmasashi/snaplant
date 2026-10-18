@@ -1,8 +1,9 @@
 import { HttpResponseInit } from '@azure/functions';
 import { createValidationError } from './response';
-import { CATALOG_VALIDATION } from '../constants/validation';
+import { CATALOG_VALIDATION, PHOTO_VALIDATION } from '../constants/validation';
 import { isCatalogKind } from '../catalog/kinds';
-import { CatalogEntriesQuery } from '../types/album';
+import { CatalogEntriesQuery, CatalogEntryQuery } from '../types/album';
+import { isJson } from './photoInput';
 import { readPageLimit } from './pageLimit';
 
 /**
@@ -29,4 +30,38 @@ export function readCatalogEntriesQuery(
     return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.PAGE_INVALID) };
   }
   return { query: { kind, offset, limit } };
+}
+
+/**
+ * 図鑑の項目の詳細（GET /api/catalog/entry）のクエリを検証する
+ *
+ * 順は種類 → 名前 → 名前の長さ → 写真のページ（docs/travel-album/05_api_design.md §5.14）。
+ * 写真のページ（limit・継続トークン）は写真の一覧（GET /api/photos）と同じ規則と文言
+ * @param query リクエストのクエリ（名前は URL エンコードされて届き、get が復号する）
+ * @returns 検証を通ったクエリ（名前は前後の空白を除いたもの）、または 400 の応答
+ */
+export function readCatalogEntryQuery(
+  query: URLSearchParams
+): { query: CatalogEntryQuery } | { error: HttpResponseInit } {
+  const kind = query.get('kind');
+  if (!isCatalogKind(kind)) {
+    return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.KIND_INVALID) };
+  }
+  const name = query.get('name')?.trim() ?? '';
+  if (name === '') {
+    return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.NAME_REQUIRED) };
+  }
+  if (name.length > CATALOG_VALIDATION.NAME_MAX_LENGTH) {
+    return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.NAME_TOO_LONG) };
+  }
+  const limit = readPageLimit(query.get('limit'), PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
+  if (limit === null) {
+    return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
+  }
+  const continuationToken = query.get('continuationToken');
+  // Cosmos の継続トークンは JSON。読めないものを SDK に渡すと code の無い Error になり 500 と区別できないので、ここで弾く
+  if (continuationToken !== null && !isJson(continuationToken)) {
+    return { error: createValidationError('継続トークンの形式が無効です') };
+  }
+  return { query: { kind, name, limit, continuationToken: continuationToken ?? undefined } };
 }

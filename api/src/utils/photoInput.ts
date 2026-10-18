@@ -274,7 +274,7 @@ export function readPhotoListQuery(
  * 文字列が JSON として読めるか（空文字は読めない）
  * @param value 文字列
  */
-function isJson(value: string): boolean {
+export function isJson(value: string): boolean {
   try {
     JSON.parse(value);
     return true;

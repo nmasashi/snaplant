@@ -187,6 +187,8 @@ export const CATALOG_VALIDATION = {
 
   ERROR_MESSAGES: {
     KIND_INVALID: '図鑑の種類が無効です',
-    PAGE_INVALID: 'ページの指定が無効です'
+    PAGE_INVALID: 'ページの指定が無効です',
+    NAME_REQUIRED: '図鑑の項目の名前が指定されていません',
+    NAME_TOO_LONG: '図鑑の項目の名前は100文字以内で指定してください'
   }
 } as const;

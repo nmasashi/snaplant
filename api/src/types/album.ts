@@ -133,3 +133,14 @@ export interface CatalogEntriesQuery {
   /** 何件まで */
   limit: number;
 }
+
+/** 検証を通った図鑑の項目の詳細のクエリ（GET /api/catalog/entry） */
+export interface CatalogEntryQuery {
+  kind: CatalogKind;
+  /** 項目の名前（前後の空白を除いたもの） */
+  name: string;
+  /** 写真の1ページの最大枚数 */
+  limit: number;
+  /** 前のページの継続トークン。先頭からなら undefined */
+  continuationToken: string | undefined;
+}
