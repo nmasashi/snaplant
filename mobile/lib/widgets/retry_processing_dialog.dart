@@ -54,6 +54,14 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 受け付けを待っている間は閉じない（閉じると、受け付けられたのに表示が古いまま残る。他のダイアログと同じ）
+    return PopScope(
+      canPop: !_busy,
+      child: _buildDialog(),
+    );
+  }
+
+  Widget _buildDialog() {
     return AlertDialog(
       title: const Text('解析をやり直す'),
       content: Column(
