@@ -31,13 +31,20 @@ export async function enqueueUnidentifiedPhotos(options: {
   let marked = 0;
   for (const photo of targets) {
     // 読んだときのままのときだけ書く。読んだ後にやり直しの受付やワーカーが書いた写真は飛ばす
-    const written = await album.writeProcessing(photo.id, photo.processing, {
-      state: 'pending',
-      step: 'identify',
-      attempts: 0,
-      lastError: null,
-      updatedAt: now,
-    });
+    let written: boolean;
+    try {
+      written = await album.writeProcessing(photo.id, photo.processing, {
+        state: 'pending',
+        step: 'identify',
+        attempts: 0,
+        lastError: null,
+        updatedAt: now,
+      });
+    } catch (error) {
+      // もう一度回しても、識別の待ちにした写真は対象から外れる（done ではなくなる）ので、続きからになる
+      options.log(`書き込みに失敗したので止めます（ここまでに ${marked} 枚を識別の待ちにしました）: ID=${photo.id}`);
+      throw error;
+    }
     if (written) {
       marked += 1;
     } else {
@@ -49,15 +56,17 @@ export async function enqueueUnidentifiedPhotos(options: {
 }
 
 /**
- * 手元の local.settings.json の Values を、まだ設定されていない環境変数に入れる（無ければ何もしない）
+ * 回した場所（api/）の local.settings.json の Values を、まだ設定されていない環境変数に入れる
  *
- * 秘密の値を含むファイルなので、中身はログに出さない
+ * 秘密の値を含むファイルなので、中身はログに出さない。読めなければその旨だけを出し、環境変数だけで続ける
  */
 function loadLocalSettings(): void {
+  const path = join(process.cwd(), 'local.settings.json');
   let values: Record<string, string>;
   try {
-    values = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'local.settings.json'), 'utf8')).Values ?? {};
+    values = JSON.parse(readFileSync(path, 'utf8')).Values ?? {};
   } catch {
+    console.log(`${path} を読めないので、環境変数だけを使います`);
     return;
   }
   for (const [key, value] of Object.entries(values)) {

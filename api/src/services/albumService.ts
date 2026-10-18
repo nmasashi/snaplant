@@ -1,10 +1,13 @@
-import { CATALOG_KINDS } from '../catalog/kinds';
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
+import { CATALOG_KINDS } from '../catalog/kinds';
 import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
+
+/** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
+export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
 /** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
 export interface PhotoBlobNames {
@@ -370,11 +373,9 @@ export class AlbumService {
    * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
    * @returns 写真ごとの id・category・identification・processing
    */
-  async listUnidentifiedPhotos(): Promise<
-    { id: string; category: string | null; identification: unknown | null; processing: PhotoProcessing }[]
-  > {
+  async listUnidentifiedPhotos(): Promise<UnidentifiedPhotoRow[]> {
     const { resources } = await this.container.items
-      .query<{ id: string; category: string | null; identification: unknown | null; processing: PhotoProcessing }>({
+      .query<UnidentifiedPhotoRow>({
         query:
           "SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)",
         parameters: [
@@ -432,18 +433,7 @@ export class AlbumService {
    * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
    */
   async claimPhotoProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
-    try {
-      await this.container.item(id, id).patch({
-        condition: processingCondition(expected),
-        operations: [{ op: 'set', path: '/processing', value: processing }],
-      });
-      return true;
-    } catch (error: any) {
-      if (error.code === 412 || error.code === 404) {
-        return false;
-      }
-      throw error;
-    }
+    return this.writeProcessing(id, expected, processing);
   }
 
   /**
