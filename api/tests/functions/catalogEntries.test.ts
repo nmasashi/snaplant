@@ -81,9 +81,9 @@ describe('図鑑の項目の一覧API', () => {
       ['offset が空', { kind: 'plant', offset: '' }, 'ページの指定が無効です'],
       ['offset の先頭がゼロ', { kind: 'plant', offset: '01' }, 'ページの指定が無効です'],
       ['offset が安全な整数（2^53 − 1）を超える', { kind: 'plant', offset: '9007199254740992' }, 'ページの指定が無効です'],
-      // limit の書式の全ケース（先頭のゼロ・指数表記など）は、同じ readPageLimit() を通る写真の一覧（photoList.test.ts）で通している。
-      // ここは上限（100）が違うので、上限の前後と主な崩れ方だけを置く
       ['limit が 0', { kind: 'plant', limit: '0' }, 'ページの指定が無効です'],
+      ['limit の先頭がゼロ', { kind: 'plant', limit: '01' }, 'ページの指定が無効です'],
+      ['limit が指数表記', { kind: 'plant', limit: '1e2' }, 'ページの指定が無効です'],
       ['limit が上限の 100 を超える', { kind: 'plant', limit: '101' }, 'ページの指定が無効です'],
       ['limit が数でない', { kind: 'plant', limit: 'ten' }, 'ページの指定が無効です'],
       ['limit が整数でない', { kind: 'plant', limit: '1.5' }, 'ページの指定が無効です'],
