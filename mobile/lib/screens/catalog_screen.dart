@@ -44,7 +44,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       setState(() => _kinds = kinds);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorMessage = catalogErrorMessage(e));
+      setState(() => _errorMessage = _catalogErrorMessage(e));
     }
   }
 
@@ -98,7 +98,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 }
 
 /// 図鑑の読み込みの失敗の文言（`ApiException` ならその言い換え。03 §6.1）
-String catalogErrorMessage(Object error) =>
+String _catalogErrorMessage(Object error) =>
     error is ApiException ? error.userMessage : '図鑑の読み込みに失敗しました';
 
 /// 読み込み中の表示
@@ -194,10 +194,10 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
     } catch (e) {
       if (!mounted || request != _firstPageRequest) return;
       if (_entries == null) {
-        setState(() => _errorMessage = catalogErrorMessage(e));
+        setState(() => _errorMessage = _catalogErrorMessage(e));
       } else {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(catalogErrorMessage(e))));
+            .showSnackBar(SnackBar(content: Text(_catalogErrorMessage(e))));
       }
     }
   }
