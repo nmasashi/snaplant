@@ -306,7 +306,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                     style: AppTextStyles.body1.copyWith(color: Colors.white)),
                 Text(_placeText(photo),
                     style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                if (photo.category != null)
+                if (photo.category != null && photo.category != otherCategory)
                   Text(categoryLabel(photo.category!),
                       style: AppTextStyles.body1.copyWith(color: Colors.white)),
                 if (isProcessingInProgress(photo.processingState))
