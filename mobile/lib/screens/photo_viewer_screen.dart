@@ -65,6 +65,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   bool _zoomed = false;
   // 削除で読み込み済みの写真を使い切ったときの位置。続きのページが届いたらここへ移る
   int? _pendingIndex;
+  // 項目へのリンクで種類の一覧を読んでいる。読む間の押し直しで、項目詳細を重ねて開かない
+  bool _openingEntry = false;
 
   @override
   void initState() {
@@ -181,16 +183,20 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   /// 種類 [kindKey]・名前 [name] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
   Future<void> _openEntry(String kindKey, String name) async {
+    if (_openingEntry) return;
+    _openingEntry = true;
     final List<CatalogKind> kinds;
     try {
       kinds = await widget.apiService.getCatalogKinds();
     } catch (e) {
+      _openingEntry = false;
       debugPrint('PhotoViewerScreen: 図鑑の種類の一覧の読み込みエラー: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.userMessage : '図鑑の読み込みに失敗しました')));
       return;
     }
+    _openingEntry = false;
     if (!mounted) return;
     // 種類の一覧に無い種類（種類を減らした後の古い識別）は、欄の無い見出しで開く
     final kind = kinds.where((k) => k.kind == kindKey).firstOrNull ??
