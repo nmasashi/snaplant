@@ -198,9 +198,14 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     }
     _openingEntry = false;
     if (!mounted) return;
-    // 種類の一覧に無い種類（種類を減らした後の古い識別）は、欄の無い見出しで開く
-    final kind = kinds.where((k) => k.kind == kindKey).firstOrNull ??
-        CatalogKind(kind: kindKey, label: kindKey, fields: const []);
+    // 種類の一覧に無い種類（種類を減らした後の古い識別）は開かない。サーバは項目の詳細の種類を同じ定義表で断るので、
+    // 開いてもエラーの表示になる
+    final kind = kinds.where((k) => k.kind == kindKey).firstOrNull;
+    if (kind == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('図鑑にこの種類がありません')));
+      return;
+    }
     await Navigator.push(
         context,
         MaterialPageRoute(
