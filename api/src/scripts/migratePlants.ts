@@ -25,19 +25,20 @@ export interface SkippedPlant {
  * 冪等: 写真の id は画像の SHA-256 なので、もう一度回すと移した植物は「同じ写真が先にある」として飛ばす。
  * Blob → 写真の文書の順に書く（04 §7.1）。途中で止まっても、文書の無い Blob が残るだけで、回し直すと上書きされる
  * @param options apply が false なら読むだけで書かない。log はログの出し先
- * @returns 植物の件数（found）・移した件数（migrated）・飛ばした植物（skipped）
+ * @returns 植物の件数（found）・移した件数（migrated。読むだけなら移す件数）・飛ばした植物（skipped）
  */
 export async function migratePlants(options: {
   apply: boolean;
   log: (...args: unknown[]) => void;
 }): Promise<{ found: number; migrated: number; skipped: SkippedPlant[] }> {
   const config = readConfig();
+  // 読むだけの実行でも作る: 先にある写真を書き込むときと同じに確かめ、書く先の設定が足りなければ植物を読む前に止める
+  const album = new AlbumService();
+  const photoStorage = new PhotoStorageService();
   const plants = await readPlants(config);
   const images = BlobServiceClient.fromConnectionString(config.storageConnectionString).getContainerClient(
     config.imagesContainer
   );
-  const album = options.apply ? new AlbumService() : null;
-  const photoStorage = options.apply ? new PhotoStorageService() : null;
   const now = new Date().toISOString();
   const skipped: SkippedPlant[] = [];
   let migrated = 0;
@@ -64,11 +65,13 @@ export async function migratePlants(options: {
       continue;
     }
     const doc = photoDocumentOf(plant, image.data, image.contentType, `${sha256(image.data)}${extension}`, now);
-    if (album === null || photoStorage === null) {
-      continue;
-    }
     if (await album.getPhoto(doc.id)) {
       skip(`同じ写真が先にある（写真 ID=${doc.id}）`);
+      continue;
+    }
+    if (!options.apply) {
+      // 読むだけなら、移す植物として数えるだけ
+      migrated += 1;
       continue;
     }
     await photoStorage.upload(doc.blobName, image.data, image.contentType);
@@ -80,7 +83,11 @@ export async function migratePlants(options: {
     }
     migrated += 1;
   }
-  options.log(`移した植物: ${migrated} 件、飛ばした植物: ${skipped.length} 件${options.apply ? '' : '（--apply が無いので、何も書いていません）'}`);
+  options.log(
+    options.apply
+      ? `移した植物: ${migrated} 件、飛ばした植物: ${skipped.length} 件`
+      : `移す植物: ${migrated} 件、飛ばす植物: ${skipped.length} 件（--apply が無いので、何も書いていません）`
+  );
   return { found: plants.length, migrated, skipped };
 }
 
