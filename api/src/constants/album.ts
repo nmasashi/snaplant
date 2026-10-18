@@ -49,7 +49,7 @@ export function photoProcessingMaxAttempts(): number {
 }
 
 /**
- * 分類の AI に渡す原寸の SAS の有効期限（分）
+ * 分類・識別の AI に渡す原寸の SAS の有効期限（分）
  *
  * AI が画像を取りに来るまでの間だけ開ける（一時画像と同じ理由。docs/travel-album/06_processing_design.md §2.1）
  */
@@ -70,10 +70,3 @@ export const PHOTO_REQUEUE_AFTER_MINUTES = 10;
  * 一時画像のライフサイクル管理（最終更新から1日）と同じ根拠（04 §7.2）
  */
 export const ORPHAN_BLOB_MIN_AGE_HOURS = 24;
-
-/**
- * 図鑑の項目の名前（識別の `identification.name`）の最大文字数
- *
- * 識別の応答の検証と、図鑑の項目を名前で開く API の検証（段階4）で同じ値を使う（docs/travel-album/04_data_design.md §3.1）
- */
-export const CATALOG_NAME_MAX_LENGTH = 100;

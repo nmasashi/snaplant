@@ -175,3 +175,10 @@ export const TAG_VALIDATION = {
     TOO_MANY: `タグは${positiveIntFromEnv(process.env.TAG_MAX_COUNT, 20)}個までです`
   }
 } as const;
+
+// 旅行アルバムの図鑑の項目（段階4）
+export const CATALOG_VALIDATION = {
+  // 項目の名前（識別の identification.name）の最大文字数。識別の応答の検証と、図鑑の項目を名前で開く API の検証で同じ値を使う
+  // （docs/travel-album/04_data_design.md §3.1）。AI が返す値なので環境変数では変えない
+  NAME_MAX_LENGTH: 100
+} as const;

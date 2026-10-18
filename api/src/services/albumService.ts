@@ -510,22 +510,16 @@ export class AlbumService {
    * @returns 書けたら true。利用者のコメントがある・担当したときと変わっていた（412）か、写真が消えていた（404）なら false
    */
   async writeAiComment(id: string, claimed: PhotoProcessing, comment: string): Promise<boolean> {
-    try {
-      await this.container.item(id, id).patch({
-        // null は != で比べられない（null != "user" は未定義になる）ので、IS_NULL と = でつなぐ
-        condition: `${processingCondition(claimed)} AND (IS_NULL(c.commentSource) OR c.commentSource = "ai")`,
-        operations: [
-          { op: 'set', path: '/comment', value: comment },
-          { op: 'set', path: '/commentSource', value: 'ai' },
-        ],
-      });
-      return true;
-    } catch (error: any) {
-      if (error.code === 412 || error.code === 404) {
-        return false;
-      }
-      throw error;
-    }
+    return this.patchIfStillClaimed(
+      id,
+      claimed,
+      [
+        { op: 'set', path: '/comment', value: comment },
+        { op: 'set', path: '/commentSource', value: 'ai' },
+      ],
+      // null は != で比べられない（null != "user" は未定義になる）ので、IS_NULL と = でつなぐ
+      '(IS_NULL(c.commentSource) OR c.commentSource = "ai")'
+    );
   }
 
   /**
@@ -533,16 +527,18 @@ export class AlbumService {
    *
    * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
    * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
-   * @returns 書けたら true。担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   * @param extraCondition 担当したときのままに加えて満たすべき条件（`AND` でつなぐ）。無ければ担当したときのままだけ
+   * @returns 書けたら true。担当したときと変わっていた・extraCondition を満たさない（412）か、写真が消えていた（404）なら false
    */
   private async patchIfStillClaimed(
     id: string,
     claimed: PhotoProcessing,
-    operations: { op: 'set'; path: string; value: unknown }[]
+    operations: { op: 'set'; path: string; value: unknown }[],
+    extraCondition?: string
   ): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: processingCondition(claimed),
+        condition: processingCondition(claimed) + (extraCondition ? ` AND ${extraCondition}` : ''),
         operations,
       });
       return true;

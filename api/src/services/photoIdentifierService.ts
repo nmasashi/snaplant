@@ -1,7 +1,7 @@
 import { CATALOG_KINDS, CatalogKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
-import { CATALOG_NAME_MAX_LENGTH } from '../constants/album';
+import { CATALOG_VALIDATION } from '../constants/validation';
 
 /**
  * 識別の応答の形（Structured Outputs。docs/travel-album/06_processing_design.md §3.1）
@@ -120,8 +120,8 @@ ${clueSection}`;
         throw new Error('confidenceが0-100の範囲の数値ではありません');
       }
       const name = typeof result.name === 'string' ? result.name.trim() : null;
-      if (result.matchesKind && (!name || name.length > CATALOG_NAME_MAX_LENGTH)) {
-        throw new Error(`nameが空か、${CATALOG_NAME_MAX_LENGTH}文字を超えています`);
+      if (result.matchesKind && (!name || name.length > CATALOG_VALIDATION.NAME_MAX_LENGTH)) {
+        throw new Error(`nameが空か、${CATALOG_VALIDATION.NAME_MAX_LENGTH}文字を超えています`);
       }
       const attributes = Object.fromEntries(
         CATALOG_KINDS[kind].fields.map((field) => {
