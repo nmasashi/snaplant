@@ -33,17 +33,17 @@ export class AlbumService {
   constructor() {
     // 足りない設定の名前を言って止める。SDK に任せると、エンドポイントが無いときは TypeError（Invalid URL）になり、
     // 何が足りないか分からない（手で回すスクリプトを、手元の設定が無いまま回したときに起きた）
-    const missing = COSMOS_SETTINGS.filter((name) => !process.env[name]?.trim());
+    // 確かめた値（前後の空白を除いたもの）で使う。空白の付いた値が確かめを通って SDK で分かりにくく落ちないように
+    const setting = (name: (typeof COSMOS_SETTINGS)[number]) => process.env[name]?.trim() ?? '';
+    const missing = COSMOS_SETTINGS.filter((name) => setting(name) === '');
     if (missing.length > 0) {
       throw new Error(`Cosmos の設定がありません: ${missing.join(', ')}`);
     }
     const client = new CosmosClient({
-      endpoint: process.env.COSMOS_DB_ENDPOINT!,
-      key: process.env.COSMOS_DB_KEY!,
+      endpoint: setting('COSMOS_DB_ENDPOINT'),
+      key: setting('COSMOS_DB_KEY'),
     });
-    this.container = client
-      .database(process.env.COSMOS_DB_DATABASE!)
-      .container(process.env.COSMOS_DB_ALBUM_CONTAINER!);
+    this.container = client.database(setting('COSMOS_DB_DATABASE')).container(setting('COSMOS_DB_ALBUM_CONTAINER'));
   }
 
   /**
@@ -137,7 +137,7 @@ export class AlbumService {
     kind: string,
     offset: number,
     limit: number,
-    coverUrlOf: (blobName: string) => string
+    coverUrlOf: CoverUrlOf
   ): Promise<{ entries: CatalogEntry[]; total: number }> {
     // 1. 名前ごとの枚数 → 2・3 はページを作る関数（切ってから、ページの項目の分だけ見出しを読む）
     return catalogPageOf(

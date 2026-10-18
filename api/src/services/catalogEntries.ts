@@ -52,19 +52,20 @@ export function catalogEntryOf(
   if (head === null) {
     return null;
   }
+  // 識別に欄が欠けていても（移行で入れた写真など）、応答のキーを消さずに null / {} にそろえる
   const identification = head.identification as {
     confidence: number;
-    description: string | null;
-    characteristics: string | null;
-    attributes: Record<string, unknown>;
+    description?: string | null;
+    characteristics?: string | null;
+    attributes?: Record<string, unknown> | null;
   };
   return {
     kind,
     name: row.name,
     confidence: identification.confidence,
-    description: identification.description,
-    characteristics: identification.characteristics,
-    attributes: identification.attributes,
+    description: identification.description ?? null,
+    characteristics: identification.characteristics ?? null,
+    attributes: identification.attributes ?? {},
     photoCount: row.photoCount,
     coverThumbnailUrl: coverUrlOf(head.thumbnailBlobName ?? head.blobName),
   };
