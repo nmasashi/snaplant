@@ -22,8 +22,9 @@ class PhotoGrid extends StatefulWidget {
       {super.key,
       required this.apiService,
       required this.tripId,
+      this.category,
       required this.emptyTitle,
-      required this.emptyMessage,
+      this.emptyMessage,
       required this.selection,
       this.onTripNotFound,
       this.onViewerClosed,
@@ -31,12 +32,15 @@ class PhotoGrid extends StatefulWidget {
 
   final ApiService apiService;
 
-  /// 旅行の id。旅行に属さない写真なら `none`
-  final String tripId;
+  /// 旅行の id。旅行に属さない写真なら `none`、旅行をまたぐ（カテゴリの写真の画面）なら null
+  final String? tripId;
 
-  /// 写真が0枚のときの案内（画面ごとに文言が違う）
+  /// カテゴリ（`plant` / `food` / `landscape` / `other`）で絞るならそのキー。絞らないなら null
+  final String? category;
+
+  /// 写真が0枚のときの案内（画面ごとに文言が違う）。[emptyMessage] は無ければ出さない
   final String emptyTitle;
-  final String emptyMessage;
+  final String? emptyMessage;
 
   /// 写真の一覧が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）と分かったときに呼ぶ。
   /// 画面全体を「この旅行は削除されています」にするのは画面の役目なので、グリッドは失敗として出さずに知らせるだけにする。
@@ -90,6 +94,8 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
   List<UploadItem> get _pendingItems {
+    // 送信中の写真はまだ分類されていないので、カテゴリで絞っているとき（と旅行をまたぐとき）は並べない（§5.3）
+    if (widget.category != null || widget.tripId == null) return const [];
     final tripId = widget.tripId == 'none' ? null : widget.tripId;
     // 一覧を読み直して既にサーバの写真として並んでいるもの（送れた写真）は、端末の画像では並べない（二重にしない）
     final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
@@ -151,7 +157,8 @@ class _PhotoGridState extends State<PhotoGrid> {
       _errorMessage = null;
     });
     try {
-      final page = await widget.apiService.getPhotos(widget.tripId);
+      final page = await widget.apiService
+          .getPhotos(tripId: widget.tripId, category: widget.category);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
@@ -183,7 +190,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
-      final page = await widget.apiService.getPhotos(widget.tripId);
+      final page = await widget.apiService
+          .getPhotos(tripId: widget.tripId, category: widget.category);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
@@ -203,7 +211,10 @@ class _PhotoGridState extends State<PhotoGrid> {
     setState(() => _isLoadingMore = true);
     try {
       final page = await widget.apiService
-          .getPhotos(widget.tripId, continuationToken: token);
+          .getPhotos(
+          tripId: widget.tripId,
+          category: widget.category,
+          continuationToken: token);
       if (!mounted || generation != _generation) return;
       setState(() {
         _photos = [...?_photos, ...page.photos];
@@ -350,11 +361,13 @@ class _PhotoGridState extends State<PhotoGrid> {
               Text(widget.emptyTitle,
                   style: AppTextStyles.headline2
                       .copyWith(color: AppColors.textSecondary)),
-              const SizedBox(height: 12),
-              Text(widget.emptyMessage,
-                  style: AppTextStyles.body1
-                      .copyWith(color: AppColors.textSecondary),
-                  textAlign: TextAlign.center),
+              if (widget.emptyMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(widget.emptyMessage!,
+                    style: AppTextStyles.body1
+                        .copyWith(color: AppColors.textSecondary),
+                    textAlign: TextAlign.center),
+              ],
             ],
           ),
         ),

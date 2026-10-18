@@ -5,6 +5,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
+import '../utils/photo_category.dart';
 import '../utils/trip_period.dart';
 import '../widgets/add_photos_button.dart';
 import '../widgets/message_view.dart';
@@ -47,6 +48,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _selection = PhotoSelection();
   // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
+  // チップで選んだカテゴリ。「すべて」なら null。画面を開き直すと「すべて」に戻る（§5.3）
+  String? _category;
   StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
@@ -225,6 +228,47 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       uploadQueue: widget.uploadQueue,
       includes: (tripId) => tripId == widget.tripId);
 
+  /// カテゴリのチップ（すべて・植物・食べ物・風景・その他。§5.3）。1つだけ選べ、選ぶと一覧を先頭から取り直す。
+  /// 選択モードの間は出さない（チップを変えると一覧が変わり、選んだ写真が見えなくなるため）
+  Widget _buildCategoryChips() {
+    return ListenableBuilder(
+      listenable: _selection,
+      builder: (context, _) {
+        if (_selection.isActive) return const SizedBox.shrink();
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              for (final category in const [
+                null,
+                'plant',
+                'food',
+                'landscape',
+                'other'
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(
+                        category == null ? 'すべて' : categoryLabel(category)),
+                    selected: _category == category,
+                    onSelected: (_) {
+                      if (_category == category) return;
+                      setState(() {
+                        _category = category;
+                        _gridVersion++;
+                      });
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildBody(TripSummary? trip) {
     if (_tripDeleted) {
       // この旅行宛ての送信の失敗は「閉じる」で片付けられるように、バナーは出したままにする
@@ -263,15 +307,19 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           ),
         ),
         _uploadBanner(),
+        _buildCategoryChips(),
         Expanded(
           child: PhotoGrid(
             key: ValueKey(_gridVersion),
             apiService: widget.apiService,
             uploadQueue: widget.uploadQueue,
             tripId: trip.id,
+            category: _category,
             selection: _selection,
-            emptyTitle: 'まだ写真がありません',
-            emptyMessage: '「写真を追加」からギャラリーの写真を送りましょう',
+            emptyTitle: _category == null
+                ? 'まだ写真がありません'
+                : 'この旅行に${categoryLabel(_category!)}の写真はありません',
+            emptyMessage: _category == null ? '「写真を追加」からギャラリーの写真を送りましょう' : null,
             onTripNotFound: _markTripDeleted,
             onViewerClosed: _reloadPhotos,
           ),

@@ -20,10 +20,14 @@ class PhotoSelectionScaffold extends StatelessWidget {
       required this.appBar,
       required this.body,
       required this.onPhotosChanged,
-      this.floatingActionButton});
+      this.floatingActionButton,
+      this.allowMove = true});
 
   final ApiService apiService;
   final PhotoSelection selection;
+
+  /// 旅行への出し入れ（「旅行に入れる」「旅行から外す」）を出すか。カテゴリの写真の画面は「削除」だけにする（§5.2）
+  final bool allowMove;
 
   /// 今いる旅行の id。旅行に属さない写真の画面なら null（「旅行から外す」を出さず、入れる先にすべての旅行を出す）
   final String? currentTripId;
@@ -96,11 +100,12 @@ class PhotoSelectionScaffold extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          TextButton.icon(
-              onPressed: enabled ? () => _moveToTrip(context) : null,
-              icon: const Icon(Icons.drive_file_move_outline),
-              label: const Text('旅行に入れる')),
-          if (currentTripId != null)
+          if (allowMove)
+            TextButton.icon(
+                onPressed: enabled ? () => _moveToTrip(context) : null,
+                icon: const Icon(Icons.drive_file_move_outline),
+                label: const Text('旅行に入れる')),
+          if (allowMove && currentTripId != null)
             TextButton.icon(
                 onPressed: enabled ? () => _removeFromTrip(context) : null,
                 icon: const Icon(Icons.remove_circle_outline),
