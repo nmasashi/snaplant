@@ -155,8 +155,8 @@ enum TripRoute {
 ///   `offset` が 0 以上の整数・`limit` が 1〜100 の整数でなければ 400「ページの指定が無効です」（本物と同じ）。
 ///   [catalogVanishedNames] の名前は、ページからは外すが `total` には数える（本物が、数えてから見出しを読むまでに写真が無くなった項目を外すのと同じ）。
 ///   受け取った `offset` は [catalogOffsetsReceived] に残す（続きの読み方は 03 §6.1 の決まり）
-/// - `GET /api/catalog/entry` は、[photosByTripId] の全部の写真のうち `identification` の種類と名前（前後の空白を除いて比べる）が合い `matchesKind` が true のものを、
-///   `sortAt` の昇順に `limit`（無ければ [pageSize]）枚ずつ返す。`entry` は信頼度が最も高い写真の識別から作り、`photoCount` は合う写真の枚数（本物と同じ。05 §5.14）。
+/// - `GET /api/catalog/entry` は、[photosByTripId] の全部の写真のうち `identification` の種類と名前（受け取った名前は前後の空白を除いてから比べる）が合い `matchesKind` が true のものを、
+///   `sortAt` の昇順に `limit`（無ければ [pageSize]）枚ずつ返す。`entry` は信頼度が最も高い写真（同じなら識別の新しい写真）の識別から作り、`photoCount` は合う写真の枚数（本物と同じ。05 §5.14）。
 ///   合う写真が無ければ `entry: null`・`photos: []`・`continuationToken: null`。続きのトークンは次の位置（`entry:<位置>`）。
 ///   種類が無効・名前が無い（空白だけ）・トークンの形が違うときは 400（文言は本物と同じ）。受け取った名前とトークンは [catalogEntryQueriesReceived] に残す
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -406,8 +406,13 @@ class FakeTripBackend {
     if (matching.isEmpty) {
       return _ok(200, {'entry': null, 'photos': <Object?>[], 'continuationToken': null, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
     }
-    double confidenceOf(Map<String, Object?> photo) => ((photo['identification'] as Map)['confidence'] as num).toDouble();
-    final head = matching.reduce((a, b) => confidenceOf(b) > confidenceOf(a) ? b : a);
+    // 本物と同じく、信頼度の高い順、同じなら識別の新しい順（04 §5.6）
+    int headOrder(Map<String, Object?> a, Map<String, Object?> b) {
+      final x = a['identification'] as Map, y = b['identification'] as Map;
+      final byConfidence = (y['confidence'] as num).compareTo(x['confidence'] as num);
+      return byConfidence != 0 ? byConfidence : (y['at'] as String).compareTo(x['at'] as String);
+    }
+    final head = ([...matching]..sort(headOrder)).first;
     final identification = head['identification'] as Map<String, Object?>;
     final limit = int.tryParse(query['limit'] ?? '') ?? pageSize;
     final next = start + limit;
