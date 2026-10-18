@@ -8,6 +8,7 @@ import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../f
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import { photoDocument } from '../helpers/albumDocuments';
+import { CATALOG_KINDS } from '../../src/catalog/kinds';
 
 // 外部依存のみモック。Cosmos DB と Blob Storage は状態持ちの偽物、AI（管理外）は送った要求を残すモック。
 // SAS の署名は実 SDK のまま（ローカルの計算だけで、Blob Storage へは通信しない）
@@ -320,6 +321,259 @@ describe('写真の解析のワーカー', () => {
     });
   });
 
+  describe('識別', () => {
+    /** 植物の識別の応答。名前とコメントの前後の空白は、書くときに除く */
+    const plantAnswer = {
+      matchesKind: true,
+      name: ' ソメイヨシノ ',
+      confidence: 92,
+      description: '日本で最も広く植えられているサクラの栽培品種',
+      characteristics: '淡い桃色の花を葉より先に咲かせる',
+      comment: ' 満開のソメイヨシノ。エドヒガンの可能性もある ',
+      attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' }
+    };
+
+    /** 識別の待ちの写真（分類が植物と決めた直後の形）。利用者のコメントはまだ無い */
+    const waitingPhoto = (overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
+      pendingPhoto({
+        category: 'plant',
+        classification: { kind: 'plant', confidence: 88, model: 'main-deployment', at: '2026-10-18T02:58:00.000Z' },
+        comment: null,
+        commentSource: null,
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' },
+        ...overrides
+      });
+
+    const promptText = () => sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
+
+    beforeEach(() => aiReturns(plantAnswer));
+
+    it('識別の待ちの写真を識別すると、識別の結果とAIのコメントが書かれて済みになり、利用者の書いた欄は変わらない', async () => {
+      // 図鑑はこの identification からまとめる（04 §3.1）。名前とコメントは前後の空白を除いて書く
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+
+      await runWorker();
+
+      expect(storedPhoto()).toEqual({
+        ...waitingPhoto(),
+        identification: {
+          kind: 'plant',
+          matchesKind: true,
+          name: 'ソメイヨシノ',
+          confidence: 92,
+          description: '日本で最も広く植えられているサクラの栽培品種',
+          characteristics: '淡い桃色の花を葉より先に咲かせる',
+          attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' },
+          reason: null,
+          model: 'main-deployment',
+          at: NOW
+        },
+        comment: '満開のソメイヨシノ。エドヒガンの可能性もある',
+        commentSource: 'ai',
+        processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW },
+        updatedAt: NOW
+      });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('識別している間、写真は処理中（identifying）で、回数と時刻が更新されている', async () => {
+      // 処理中は画面に「識別中...」と出る（03 §5.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      let duringAi: unknown;
+      reply = async () => {
+        duringAi = storedPhoto().processing;
+        return { choices: [{ message: { content: JSON.stringify(plantAnswer) } }] };
+      };
+
+      await runWorker();
+
+      expect(duringAi).toEqual({ state: 'identifying', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW });
+    });
+
+    it('分類どおりの種類が写っていなければ（matchesKind: false）、図鑑に出ない形の結果を書いて済みにし、コメントは変えない', async () => {
+      // 名前以下は持たず、AI のコメントを理由として残す（06 §3.2）。画面は「分類と合わない」と出す
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({
+        matchesKind: false,
+        name: null,
+        confidence: 30,
+        description: null,
+        characteristics: null,
+        comment: '植物ではなく、植物の柄の布が写っている',
+        attributes: { scientificName: null, familyName: null }
+      });
+
+      await runWorker();
+
+      expect(storedPhoto()).toEqual({
+        ...waitingPhoto(),
+        identification: {
+          kind: 'plant',
+          matchesKind: false,
+          name: null,
+          confidence: 30,
+          description: null,
+          characteristics: null,
+          attributes: {},
+          reason: '植物ではなく、植物の柄の布が写っている',
+          model: 'main-deployment',
+          at: NOW
+        },
+        processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW },
+        updatedAt: NOW
+      });
+    });
+
+    it('利用者がコメントを書いている写真では、識別の結果は書くが、AIのコメントで上書きしない', async () => {
+      // 送信の後、識別の前に利用者がコメントを書いた。自動の解析は利用者の文を消さない（06 §3.2）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ comment: '公園の入口の木', commentSource: 'user' }));
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({
+        comment: '公園の入口の木',
+        commentSource: 'user',
+        identification: { name: 'ソメイヨシノ' },
+        processing: { state: 'done' }
+      });
+    });
+
+    it('識別の間（担当の後）に利用者がコメントを書いたら、AIのコメントで上書きしない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      // 1回目の patch は担当。2回目（コメントの書き込み）の直前に、利用者の PATCH が入る
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = () => {
+          cosmosBackend.beforePatch = undefined;
+          const edited: PhotoDocument = { ...storedPhoto(), comment: '公園の入口の木', commentSource: 'user' };
+          cosmosBackend.documents.set(PHOTO_ID, edited);
+        };
+      };
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({
+        comment: '公園の入口の木',
+        commentSource: 'user',
+        identification: { name: 'ソメイヨシノ' },
+        processing: { state: 'done' }
+      });
+    });
+
+    it('前回のAIのコメントがある写真（自動の解析の再試行）では、新しいAIのコメントで書き直す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ comment: '前回のコメント', commentSource: 'ai' }));
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({ comment: '満開のソメイヨシノ。エドヒガンの可能性もある', commentSource: 'ai' });
+    });
+
+    it('識別には、分類用のデプロイ名があっても今のデプロイを使う（識別用のデプロイ名は無い）', async () => {
+      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].options.baseURL).toBe('https://test.openai.azure.com/openai/deployments/main-deployment');
+      expect(sent[0].body.model).toBe('main-deployment');
+      expect(storedPhoto().identification).toMatchObject({ model: 'main-deployment' });
+    });
+
+    it('AIに送る要求は、原寸の画像と、種類ごとの項目（定義表のfields）を持つstrictな応答の形（06 §3.1）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ blobName: `${PHOTO_ID}.png`, contentType: 'image/png' }));
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      const body = sent[0].body;
+      expect(body.messages).toHaveLength(1);
+      expect(body.messages[0].role).toBe('user');
+      expect(body.messages[0].content).toHaveLength(2);
+      expect(body.messages[0].content).toEqual(expect.arrayContaining([
+        { type: 'text', text: expect.any(String) },
+        { type: 'image_url', image_url: { url: expect.any(String), detail: 'low' } }
+      ]));
+      // 画像は分類と同じく、原寸を読み取りだけで開ける 15 分の署名付き URL
+      const url = new URL(body.messages[0].content.find((part: any) => part.type === 'image_url').image_url.url);
+      expect(`${url.origin}${url.pathname}`).toBe(`https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.png`);
+      expect(url.searchParams.get('sp')).toBe('r');
+      expect(url.searchParams.get('se')).toBe('2026-10-18T03:15:00Z');
+
+      expect(body.response_format.type).toBe('json_schema');
+      expect(body.response_format.json_schema.strict).toBe(true);
+      const schema = body.response_format.json_schema.schema;
+      // 共通項目。strict ではすべてを required に入れ、無いことは null で表す
+      expect(Object.keys(schema.properties).sort()).toEqual(
+        ['attributes', 'characteristics', 'comment', 'confidence', 'description', 'matchesKind', 'name'].sort()
+      );
+      expect([...schema.required].sort()).toEqual(Object.keys(schema.properties).sort());
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.properties.matchesKind.type).toBe('boolean');
+      expect(schema.properties.name.type).toEqual(['string', 'null']);
+      expect(schema.properties.description.type).toEqual(['string', 'null']);
+      expect(schema.properties.characteristics.type).toEqual(['string', 'null']);
+      expect(schema.properties.comment.type).toBe('string');
+      expect(schema.properties.confidence.type).toBe('number');
+      // 種類ごとの項目（植物は学名・科名）
+      const attributes = schema.properties.attributes;
+      expect(attributes.type).toBe('object');
+      expect(Object.keys(attributes.properties).sort()).toEqual(['familyName', 'scientificName']);
+      expect([...attributes.required].sort()).toEqual(['familyName', 'scientificName']);
+      expect(attributes.additionalProperties).toBe(false);
+      expect(attributes.properties.scientificName.type).toEqual(['string', 'null']);
+
+      expect(typeof body.max_completion_tokens).toBe('number');
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('種類ごとの項目は写真の種類の定義から作り、文字列の配列の項目は配列（null 可）で受ける', async () => {
+      // 食べ物は料理のジャンル（文字列）と主な食材（文字列の配列）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
+      aiReturns({ ...plantAnswer, name: '札幌味噌ラーメン', attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] } });
+
+      await runWorker();
+
+      const attributes = sent[0].body.response_format.json_schema.schema.properties.attributes;
+      expect(Object.keys(attributes.properties).sort()).toEqual(['genre', 'mainIngredients']);
+      expect(attributes.properties.genre.type).toEqual(['string', 'null']);
+      expect(attributes.properties.mainIngredients.type).toEqual(['array', 'null']);
+      expect(attributes.properties.mainIngredients.items).toEqual({ type: 'string' });
+      expect(storedPhoto().identification).toMatchObject({
+        kind: 'food',
+        name: '札幌味噌ラーメン',
+        attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] }
+      });
+    });
+
+    it('プロンプトには、種類の命名規則と、ある手がかり（やり直しの手がかり・撮影地・撮影日時）を含める', async () => {
+      // 文言は契約外。何を渡したか（06 §3.1 の要素）だけを見る
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        waitingPhoto({
+          hint: '旭川の公園',
+          takenAt: '2026-10-05T12:30:15',
+          location: { latitude: 43.77, longitude: 142.36, placeName: '北海道旭川市', placeSource: 'device' }
+        })
+      );
+
+      await runWorker();
+
+      expect(promptText()).toContain(CATALOG_KINDS.plant.namingRule);
+      expect(promptText()).toContain('旭川の公園');
+      expect(promptText()).toContain('北海道旭川市');
+      expect(promptText()).toContain('2026-10-05 12:30');
+    });
+
+    it('手がかりが無ければ、無い値（null）を手がかりとしてAIに渡さない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ hint: null, takenAt: null, location: null }));
+
+      await runWorker();
+
+      expect(promptText()).not.toContain('null');
+    });
+  });
+
   describe('分類に使うAIのデプロイ', () => {
     // 選んだデプロイ名は、接続先の URL・要求の model・写真に書く classification.model のすべてに入る（06 §2.1）
     const expectDeployment = (deployment: string) => {
@@ -416,18 +670,6 @@ describe('写真の解析のワーカー', () => {
 
       expect(sent).toHaveLength(0);
       expect(storedPhoto()).toEqual(waitingForIdentify);
-    });
-
-    it('やる処理（step）が分類でなければ（識別は段階4）、AIを呼ばず、写真も変えない', async () => {
-      const photo = pendingPhoto({
-        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' }
-      });
-      cosmosBackend.documents.set(PHOTO_ID, photo);
-
-      await runWorker();
-
-      expect(sent).toHaveLength(0);
-      expect(storedPhoto()).toEqual(photo);
     });
 
     it('読んだ後に別のインスタンスが先に担当していたら、AIを呼ばず、その担当を邪魔しない', async () => {
