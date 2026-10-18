@@ -109,6 +109,33 @@ void main() {
 
       expect(find.text('解析をやり直す'), findsOneWidget);
     });
+
+    testWidgets('種類の一覧に無い種類の写真は、その種類の欄の無い項目の詳細を開く', (tester) async {
+      // 種類を減らした後の古い識別など。開けないままにせず、名前で項目の詳細を開く
+      final backend = await _openViewer(tester, _photo());
+      backend.catalogKinds.removeWhere((kind) => kind['kind'] == 'plant');
+
+      await tester.tap(find.text('ソメイヨシノ >'));
+      await letFramesRun(tester);
+
+      expect(find.byType(CatalogEntryScreen), findsOneWidget);
+      expect(find.widgetWithText(AppBar, 'ソメイヨシノ'), findsOneWidget);
+      expect(find.text('学名'), findsNothing);
+    });
+
+    // 前回の識別は、やり直しの結果が出るまで残る（05 §5.7）
+    for (final (matchesKind, label, text) in [
+      (true, '項目へのリンク', 'ソメイヨシノ >'),
+      (false, '分類と合わない写真の案内', '分類と合わない写真です。やり直しで手がかりを付けてください')
+    ]) {
+      testWidgets('やり直しを待っている間も、前回の識別から$labelを出す', (tester) async {
+        await _openViewer(
+            tester, _photo(matchesKind: matchesKind, state: 'pending'));
+
+        expect(find.text('分類中...'), findsOneWidget);
+        expect(find.text(text), findsOneWidget);
+      });
+    }
   });
 
   group('コメント', () {
@@ -138,6 +165,7 @@ void main() {
           find.descendant(
               of: find.byType(AlertDialog), matching: find.text('満開のサクラ')),
           findsOneWidget);
+      expect(find.text('6/500'), findsOneWidget); // 最大500文字（03 §6.3）
       await tester.enterText(
           find.descendant(
               of: find.byType(AlertDialog), matching: find.byType(TextField)),
@@ -192,7 +220,8 @@ void main() {
       expect(_stored(backend)['comment'], '満開のサクラ');
     });
 
-    testWidgets('保存を待っている間は、端末の戻る操作でもダイアログを閉じず、保存できたら閉じてコメントを出す',
+    testWidgets(
+        '保存を待っている間は、入力欄と「保存」を押せず、端末の戻る操作でも「キャンセル」でもダイアログを閉じず、保存できたら閉じてコメントを出す',
         (tester) async {
       // 待っている間に閉じると、保存されたのに表示が古いまま残る（やり直しダイアログと同じ）
       final backend = await _openViewer(
@@ -213,8 +242,26 @@ void main() {
       await letFramesRun(tester);
       await tester.binding.handlePopRoute();
       await letFramesRun(tester);
+      await tester.tap(find.descendant(
+          of: find.byType(AlertDialog), matching: find.text('キャンセル')));
+      await letFramesRun(tester);
 
       expect(find.byType(AlertDialog), findsOneWidget);
+      expect(
+          tester
+              .widget<TextField>(find.descendant(
+                  of: find.byType(AlertDialog),
+                  matching: find.byType(TextField)))
+              .enabled,
+          isFalse);
+      expect(
+          tester
+              .widget<ButtonStyleButton>(find.ancestor(
+                  of: _save,
+                  matching: find.byWidgetPredicate(
+                      (widget) => widget is ButtonStyleButton)))
+              .enabled,
+          isFalse);
       release.complete();
       await letFramesRun(tester);
       expect(find.byType(AlertDialog), findsNothing);
