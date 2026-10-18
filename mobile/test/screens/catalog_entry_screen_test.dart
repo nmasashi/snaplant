@@ -343,6 +343,22 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('説明が長くても見出しが画面からあふれず、写真を出す（小さな端末）', (tester) async {
+    // 説明は AI が返す文で、長さは決まっていない。見出しが画面を占めると写真のグリッドの高さが無くなる
+    final backend = _backend(hokkaidoPhotos: [
+      _sakura(1, '10:00', confidence: 95, description: 'とても長い説明。' * 60),
+    ], kyotoPhotos: []);
+    await openCatalogTab(tester, backend);
+    // アプリを開くときに画面の大きさを決め直すので、その後で小さな端末（360×640）にする
+    tester.view.physicalSize = const Size(360 * 3, 640 * 3);
+    tester.view.devicePixelRatio = 3;
+    await tester.tap(find.text('ソメイヨシノ'));
+    await letFramesRun(tester);
+
+    // 写真の1行（3列のマス）が収まる高さがある
+    expect(tester.getSize(find.byType(GridView)).height, greaterThan(360 / 3));
+  });
+
   group('下に引っ張ったとき', () {
     testWidgets('見出しと写真を1ページ目から読み直す', (tester) async {
       final semantics = tester.ensureSemantics();
