@@ -47,9 +47,10 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
   bool _vanished = false;
   // 見出しと写真を1ページ目から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
-  // 1ページ目の要求の番号。読み直しが重なったら（引っ張った読み直しの間にグリッドを作り直したなど）、最後に始めたものの応答だけで見出しを置き換える。
-  // 古い応答の写真はグリッドが捨てるが、見出しはこの画面が持つので、ここで捨てないと古い内容に戻る
-  int _firstPageRequest = 0;
+  // 読んだページごとの、同じ応答の見出し（項目が無い応答のページには入れない）。見出しはグリッドがそのページを当てたときに出す。
+  // 読み込みが重なったとき（引っ張った読み直しと「再試行」、読み直しの間のグリッドの作り直し）に、どの応答を採るかをグリッドの規則にそろえ、
+  // 写真と見出しが別の応答から出ないようにする
+  final _headOf = Expando<CatalogEntry>();
 
   @override
   void dispose() {
@@ -59,26 +60,30 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
 
   Future<void> _reload() async => setState(() => _gridVersion++);
 
-  /// グリッドが読むページ。1ページ目の応答で見出しを置き換える
+  /// グリッドが読むページ。応答の見出しはページに結び付けておき、グリッドが1ページ目として当てたときに出す（[_onFirstPageApplied]）
   Future<PhotoPage> _loadPage(String? continuationToken) async {
-    final request = continuationToken == null ? ++_firstPageRequest : null;
     final detail = await widget.apiService.getCatalogEntry(
         widget.kind.kind, widget.name,
         continuationToken: continuationToken);
     final entry = detail.entry;
-    final isLatestFirstPage = request == _firstPageRequest && mounted;
     if (entry == null) {
-      // 続きのページで無くなっていたら、続きは無いものとして読み終える（出している写真と見出しはそのまま）
-      if (isLatestFirstPage) {
-        setState(() => _vanished = true);
-        widget.onEntryVanished?.call();
-      }
+      // 続きのページで無くなっていたら、続きは無いものとして読み終える（出している写真と見出しはそのまま）。
+      // 1ページ目なら、グリッドが当てたときに項目が無い表示にする（見出しを結び付けないページなので、定数を使い回してよい）
       return const PhotoPage(photos: []);
     }
-    if (isLatestFirstPage) {
-      setState(() => _entry = entry);
-    }
+    _headOf[detail.photos] = entry;
     return detail.photos;
+  }
+
+  /// グリッドが1ページ目を当てたとき。そのページの応答の見出しを出し、項目が無い応答なら項目が無い表示にする
+  void _onFirstPageApplied(PhotoPage page) {
+    final entry = _headOf[page];
+    if (entry == null) {
+      setState(() => _vanished = true);
+      widget.onEntryVanished?.call();
+      return;
+    }
+    setState(() => _entry = entry);
   }
 
   @override
@@ -120,6 +125,7 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
                       uploadQueue: widget.uploadQueue,
                       tripId: null,
                       loadPage: _loadPage,
+                      onFirstPageApplied: _onFirstPageApplied,
                       loadingMessage: '項目を読み込み中...',
                       errorFallbackMessage: '項目の読み込みに失敗しました',
                       selection: _selection,

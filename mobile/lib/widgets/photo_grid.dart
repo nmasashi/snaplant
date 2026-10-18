@@ -32,7 +32,8 @@ class PhotoGrid extends StatefulWidget {
       this.hasFloatingButton = true,
       this.loadPage,
       this.loadingMessage = '写真を読み込み中...',
-      this.errorFallbackMessage = '写真の読み込みに失敗しました'})
+      this.errorFallbackMessage = '写真の読み込みに失敗しました',
+      this.onFirstPageApplied})
       // 旅行もカテゴリも無い一覧はサーバが 400 で断る。置く画面の誤りなので、組み立てたところで止める
       : assert(tripId != null || category != null || loadPage != null,
             'tripId か category か loadPage のどれかを指定する');
@@ -74,6 +75,10 @@ class PhotoGrid extends StatefulWidget {
 
   /// 読み込みの失敗が `ApiException` でないときの文言
   final String errorFallbackMessage;
+
+  /// 先頭のページで一覧を置き換えたときに、そのページを渡して呼ぶ（[loadPage] が返したもの）。
+  /// 読み込みが重なったときにグリッドが採ったページだけで呼ぶので、同じ応答の他の部分（図鑑の項目の見出し）を写真とそろえて出せる
+  final void Function(PhotoPage page)? onFirstPageApplied;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -214,6 +219,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       _loadMoreFailed = false;
       _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
     });
+    widget.onFirstPageApplied?.call(page);
   }
 
   /// 下に引っ張ったとき、先頭のページから読み直す（続きのトークンと2ページ目以降は捨てる）。
