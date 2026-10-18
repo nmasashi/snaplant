@@ -98,8 +98,10 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
   List<UploadItem> get _pendingItems {
-    // 送信中の写真はまだ分類されていないので、カテゴリで絞っているとき（と旅行をまたぐとき）は並べない（§5.3）
-    if (widget.category != null || widget.tripId == null) return const [];
+    // 送信中の写真はまだ分類されていないので、カテゴリで絞っているときは並べない（§5.3）。
+    // 旅行をまたぐ（tripId が null）ときは必ずカテゴリで絞っているので、ここで並べなくなる
+    // （どちらも無い一覧は ApiService.getPhotos の assert が止める）
+    if (widget.category != null) return const [];
     final tripId = widget.tripId == 'none' ? null : widget.tripId;
     // 一覧を読み直して既にサーバの写真として並んでいるもの（送れた写真）は、端末の画像では並べない（二重にしない）
     final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
