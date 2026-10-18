@@ -83,7 +83,7 @@ sequenceDiagram
   一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnidentified.ts`。人間が実行する）で `pending`・`step: "identify"` にして投入する。タイマーには拾わせない（上と同じ理由。2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）
 - `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。
   分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
-- ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `state`・`attempts` の条件付き patch、コメントは条件付き patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
+- ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch、コメント（識別だけ）は同じ条件に `commentSource` の条件を足した patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
   利用者は解析中でもコメント・タグ・旅行を変えられる
 
 ### 1.3 状態と失敗
@@ -171,7 +171,7 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 
 ### 2.3 書き込み
 
-AI の担当の欄だけを1回の patch で `set` する。条件は担当したときのままか（`state = "classifying"` かつ `attempts` が担当した回数）だけで、`_etag` の条件は付けない（§1.3・[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`tags`・`comment`・`tripId` には触らない。
+AI の担当の欄だけを1回の patch で `set` する。条件は担当したときのままか（`state = "classifying"`・`step = "classify"`・`attempts` が担当した回数・`processing.updatedAt` が担当したときの時刻。`processingCondition()`）だけで、`_etag` の条件は付けない（§1.3・[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`tags`・`comment`・`tripId` には触らない。
 
 - `category = kind`（`other` を含む）。専用の欄なので、利用者のタグと選り分ける処理は無い（[04 §2](./04_data_design.md#2-カテゴリとタグ)）
 - `classification = { kind, confidence, model: <デプロイ名>, at: <ISO> }`

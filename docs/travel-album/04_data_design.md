@@ -500,7 +500,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`。条件は付けない（解析中でも最新の依頼で上書きする）。404 なら写真が無い |
 | 再投入のタイマーが止まった写真を戻す（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412・404 なら触らずに次へ |
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
-| ワーカーの結果・失敗の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。条件は `FROM c WHERE c.processing.state = "classifying" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）で、412・404 なら書かずに終える。`_etag` の条件は付けない（§7.4）。コメントだけは `item(id, id).patch({ operations: [comment・commentSource の set], condition: 'FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"' })` の**条件付き patch** で、412（利用者のコメントがある）なら書かずに進む |
+| ワーカーの結果・失敗の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。`processingCondition()`。3-3b）で、412・404 なら書かずに終える。`_etag` の条件は付けない（§7.4）。コメント（識別だけ）は `comment`・`commentSource` の `set` に、同じ担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ**条件付き patch**（`patchIfStillClaimed()` に条件を足す形）で、412（利用者のコメントがある、またはやり直しの受付が入った）・404 なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `AlbumService.detachPhotoFromMissingTrip()`。`tripId` を `null`・`updatedAt` を今に、`FROM c WHERE c.tripId = "<読んだ旅行 ID>"` の条件付き patch（読んだ後に利用者が別の旅行へ移していたら 412 で戻さない）。404 は飛ばす |
 
 ## 6. 無料枠と RU の見積もり
@@ -710,7 +710,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
   条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）。失敗の書き込み（`pending` に戻す・`failed` にする）も同じ条件。
   412 か 404 なら書かずに終える（失敗でも例外を投げない）。分類・識別の間にやり直しの受付が `pending`・`attempts: 0` を書いていたとき、古い処理の結果や失敗で上書きすると、やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消えるため。
   項目の文書が無いので、これで図鑑も同時に更新される
-- **`_etag` の条件と「412 なら読み直し」は置かない。** 結果の条件は `processing` の `state`・`attempts` だけを見る。欄が分かれているので、読んでから書くまでに利用者が `tags`・`tripId` を変えても（解析中に写真を編集しても）、Patch は互いの欄を上書きしない。
+- **`_etag` の条件と「412 なら読み直し」は置かない。** 結果の条件は `processing`（`state`・`step`・`attempts`・`updatedAt`）だけを見る。欄が分かれているので、読んでから書くまでに利用者が `tags`・`tripId` を変えても（解析中に写真を編集しても）、Patch は互いの欄を上書きしない。
   唯一の衝突である `comment` は、上の条件付き patch を Cosmos が原子的に評価するので、読み直しが要らない
 - `condition` の比較は `null` を `!=` で扱えない（`null != "user"` は未定義になる。推測）ので、`IS_NULL(...) OR ... = "ai"` の形で書く
 - やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果のコメントは必ず書かれる
