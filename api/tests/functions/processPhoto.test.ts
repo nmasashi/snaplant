@@ -627,7 +627,8 @@ describe('写真の解析のワーカー', () => {
     });
 
     it('識別のAIの設定の誤り（デプロイ名が無い）は、AIの失敗とは分けて、内部の失敗として数える', async () => {
-      // AI の失敗にすると、一時的な障害として送り直し続ける（06 §3.1 のデプロイの行。分類とは別のサービスを通る）
+      // どちらも上限まで送り直すが、lastError で AI の障害と設定の誤りを見分けられるようにする
+      // （06 §3.1 のデプロイの行。分類とは別のサービスを通るので、分類のテストでは守れない）
       delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
 
