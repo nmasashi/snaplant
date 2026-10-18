@@ -182,6 +182,20 @@ resource "azurerm_cosmosdb_sql_container" "album" {
     included_path {
       path = "/*"
     }
+
+    # 図鑑の見出しの写真（信頼度が最も高く、同点なら識別の日時が新しいもの）を TOP 1 で引くため。
+    # 2項目の ORDER BY は複合インデックスが無いと失敗するので、図鑑の API より先に apply する
+    # （docs/travel-album/07_infrastructure_design.md §3.1）
+    composite_index {
+      index {
+        path  = "/identification/confidence"
+        order = "Descending"
+      }
+      index {
+        path  = "/identification/at"
+        order = "Descending"
+      }
+    }
   }
 }
 
