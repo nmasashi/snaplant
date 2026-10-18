@@ -83,7 +83,7 @@ export async function migratePlants(options: {
       migrated += 1;
       continue;
     }
-    const doc = photoDocumentOf(plant, photoId, image, `${photoId}${extension}`, now);
+    const doc = photoDocumentOf(plant, name, photoId, image, `${photoId}${extension}`, now);
     await photoStorage.upload(doc.blobName, image.data, image.contentType);
     const { created } = await album.createPhoto(doc);
     if (!created) {
@@ -108,10 +108,10 @@ interface MigrationConfig {
   plantsContainer: string;
   storageConnectionString: string;
   imagesContainer: string;
-  /** 書く先（AlbumService・PhotoStorageService が読む）。足りないことを読む元と一緒に言うために確かめる */
-  albumContainer: string;
-  photoContainer: string;
 }
+
+/** 書く先の設定。読むのは AlbumService・PhotoStorageService で、ここでは足りないことを読む元と一緒に言うためだけに確かめる */
+const WRITE_SETTINGS = ['COSMOS_DB_ALBUM_CONTAINER', 'PHOTO_STORAGE_CONTAINER_NAME'];
 
 /** 読む元（植物・images）と書く先（写真）の設定を読む。足りなければ、足りない設定の名前をまとめて言って止める */
 function readConfig(): MigrationConfig {
@@ -122,15 +122,16 @@ function readConfig(): MigrationConfig {
     plantsContainer: 'COSMOS_DB_CONTAINER',
     storageConnectionString: 'STORAGE_CONNECTION_STRING',
     imagesContainer: 'STORAGE_CONTAINER_NAME',
-    albumContainer: 'COSMOS_DB_ALBUM_CONTAINER',
-    photoContainer: 'PHOTO_STORAGE_CONTAINER_NAME',
   } as const;
   const values = Object.fromEntries(
     Object.entries(names).map(([key, name]) => [key, process.env[name]?.trim() ?? ''])
   ) as Record<keyof MigrationConfig, string>;
-  const missing = Object.entries(names)
-    .filter(([key]) => values[key as keyof MigrationConfig] === '')
-    .map(([, name]) => name);
+  const missing = [
+    ...Object.entries(names)
+      .filter(([key]) => values[key as keyof MigrationConfig] === '')
+      .map(([, name]) => name),
+    ...WRITE_SETTINGS.filter((name) => (process.env[name]?.trim() ?? '') === ''),
+  ];
   if (missing.length > 0) {
     throw new Error(`設定が足りません: ${missing.join(', ')}`);
   }
@@ -213,16 +214,17 @@ async function readImage(
 
 const sha256 = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 
-/** 植物の記録から、識別の済んだ旅行に属さない写真の文書を作る（項目は 06 §7 の手順 2） */
+/** 植物の記録から、識別の済んだ旅行に属さない写真の文書を作る（項目は 06 §7.1）。[name] は前後の空白を除いて確かめた名前 */
 function photoDocumentOf(
   plant: Plant,
+  name: string,
   photoId: string,
   image: { data: Buffer; contentType: string },
   blobName: string,
   now: string
 ): PhotoDocument {
-  // 識別のワーカーと同じ形にする: 欄は植物の定義表の項目をすべて持ち、値は前後の空白を除いて空なら null（04 §3.1）。
-  // 「無い」がキーの欠けと null の2通りになると、Cosmos SQL での振る舞いが分かれる
+  // 欄は識別のワーカーと同じく植物の定義表の項目をすべて持つ（04 §3.1。「無い」がキーの欠けと null の2通りになると、Cosmos SQL での振る舞いが分かれる）。
+  // 値は前後の空白を除いて空なら null にする（古い記録の空白だけの値を、AI が返さなかった値と同じに扱う）
   const orNull = (value: string | undefined): string | null => value?.trim() || null;
   const legacy = plant as unknown as Record<string, string | undefined>;
   const attributes = Object.fromEntries(
@@ -251,7 +253,7 @@ function photoDocumentOf(
     identification: {
       kind: 'plant',
       matchesKind: true,
-      name: plant.name.trim(),
+      name,
       confidence: plant.confidence,
       description: orNull(plant.description),
       characteristics,
