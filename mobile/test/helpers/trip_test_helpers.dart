@@ -115,6 +115,8 @@ enum TripRoute {
 ///
 /// - 写真は旅行ごとに [photosByTripId] に持つ（キーは旅行の id。旅行に属さない写真は `none`）。
 ///   `GET /api/photos` は `tripId` で絞り込み、入れた順（サーバが返す順）に `limit`（クライアントが送らなければ [pageSize]）枚ずつ返す。
+///   `category` があれば写真の `category` でも絞る（段階3）。`tripId` が無ければ旅行をまたぎ、全部の写真を `sortAt` の昇順に並べて返す。
+///   どちらも無ければ 400「絞り込み条件を指定してください」、定義表に無いカテゴリは 400「カテゴリが無効です」（本物と同じ）。
 ///   前提: 本物の API は `sortAt` の昇順で返すので、[photosByTripId] の各リストも `sortAt` の昇順に並べて渡すこと。
 ///   偽のサーバは並べ替えず、続きの位置を「並びの位置」と `sortAt` の両方で決めるため、昇順でないと続きがずれる。
 ///   続きがあるときの `continuationToken` は最後に返した写真の目印（`<sortAt>|<id>|<位置>`）で、受け取ったものをそのまま次の要求に載せると続きが返る。
@@ -388,9 +390,19 @@ class FakeTripBackend {
   http.Response _listPhotos(http.Request request) {
     final query = request.url.queryParameters;
     final tripId = query['tripId'];
-    if (tripId == null) return _error(400, 'INVALID_REQUEST', '旅行を指定してください');
-    if (tripId != 'none' && _find(tripId) == null) return _notFound();
-    final photos = photosByTripId[tripId] ?? const <Map<String, Object?>>[];
+    final category = query['category'];
+    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.2 の 1・3・6）
+    if (tripId == null && category == null) return _error(400, 'INVALID_REQUEST', '絞り込み条件を指定してください');
+    if (category != null && !const ['plant', 'food', 'landscape', 'other'].contains(category)) {
+      return _error(400, 'INVALID_REQUEST', 'カテゴリが無効です');
+    }
+    if (tripId != null && tripId != 'none' && _find(tripId) == null) return _notFound();
+    // 旅行を指定しなければ旅行をまたぐ（本物と同じく sortAt の昇順に並べる）
+    final source = tripId != null
+        ? photosByTripId[tripId] ?? const <Map<String, Object?>>[]
+        : ([for (final photos in photosByTripId.values) ...photos]
+          ..sort((a, b) => (a['sortAt'] as String).compareTo(b['sortAt'] as String)));
+    final photos = category == null ? source : source.where((photo) => photo['category'] == category).toList();
     final limit = int.parse(query['limit'] ?? '$pageSize');
     final token = query['continuationToken'];
     const emptyTokenPrefix = 'empty-';
