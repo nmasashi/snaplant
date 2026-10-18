@@ -72,7 +72,7 @@ node dist/src/scripts/enqueueUnidentified.js --apply  # 識別の待ちにする
 
 ## テスト
 
-- `tests/` は `src/` をミラーする。守り続けるテストは入口（エンドポイント）の `tests/functions/` に置く
+- `tests/` は `src/` をミラーする。守り続けるテストは入口に置く（エンドポイントは `tests/functions/`、手で回すスクリプトは `tests/scripts/`）
 - Cosmos DB / Blob Storage / Storage Queue の偽物は `tests/fakes/`、複数のテストが使うケースの表は `tests/helpers/`
 - `tests/setup.ts` が環境変数と `openai` のモックをグローバルに設定する
 - 変異テストは `scripts/mutate.js`（使い方は先頭のコメント）
