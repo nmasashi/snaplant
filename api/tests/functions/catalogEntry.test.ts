@@ -138,6 +138,14 @@ describe('図鑑の項目の詳細API', () => {
     expect(data.urlExpiresAt).toBe('2026-10-18T13:00:00.000Z');
   });
 
+  it('同じ名前でも種類を替えれば、その種類の項目と写真になる', async () => {
+    // 畑のメロンは植物、皿のメロンは食べ物（04 §3.1。まとめる鍵に種類を含める理由）
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'food', name: 'メロン' }), mockContext);
+
+    expect((response.jsonBody as any).data.entry).toMatchObject({ kind: 'food', name: 'メロン', confidence: 95 });
+    expect(photoIdsOf(response)).toEqual(['c'.repeat(64)]);
+  });
+
   it('名前は前後の空白を除いてから比べる', async () => {
     const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: '  メロン ' }), mockContext);
 
@@ -182,6 +190,8 @@ describe('図鑑の項目の詳細API', () => {
       ['名前が前後の空白を除いて100文字を超える', { kind: 'plant', name: ` ${'あ'.repeat(101)} ` }, '図鑑の項目の名前は100文字以内で指定してください'],
       ['写真の枚数が上限を超える', { kind: 'plant', name: 'メロン', limit: '201' }, '1ページの枚数は1〜200で指定してください'],
       ['継続トークンが JSON でない', { kind: 'plant', name: 'メロン', continuationToken: 'not-json' }, '継続トークンの形式が無効です'],
+      // JSON としては読めるが Cosmos が受け付けない（偽物は、自分が作った形でないトークンに code 400 を投げる。実環境の 400 は推測）
+      ['継続トークンが Cosmos の受け付けない JSON', { kind: 'plant', name: 'メロン', continuationToken: '{}' }, '継続トークンの形式が無効です'],
       // 検証の順: 種類 → 名前 → 名前の長さ → ページ
       ['種類も名前も不正（種類の指摘が先）', { kind: 'other' }, '図鑑の種類が無効です'],
       ['名前もページも不正（名前の指摘が先）', { kind: 'plant', name: '', limit: '0' }, '図鑑の項目の名前が指定されていません']
