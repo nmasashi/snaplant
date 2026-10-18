@@ -44,8 +44,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       setState(() => _kinds = kinds);
     } catch (e) {
       if (!mounted) return;
-      setState(() =>
-          _errorMessage = e is ApiException ? e.userMessage : '図鑑の読み込みに失敗しました');
+      setState(() => _errorMessage = catalogErrorMessage(e));
     }
   }
 
@@ -98,6 +97,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 }
 
+/// 図鑑の読み込みの失敗の文言（`ApiException` ならその言い換え。03 §6.1）
+String catalogErrorMessage(Object error) =>
+    error is ApiException ? error.userMessage : '図鑑の読み込みに失敗しました';
+
 /// 読み込み中の表示
 class _Loading extends StatelessWidget {
   const _Loading();
@@ -145,8 +148,13 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
   bool _isLoadingMore = false;
   bool _loadMoreFailed = false;
 
-  // 引っ張る読み直しと続きの読み込みが重なっても、古い結果で上書きしない
+  // 一覧の世代。1ページ目の結果を当てたときに進め、それより前に始めた続きの結果は捨てる。
+  // 読み直しを始めた時点で進めると、読み直しが失敗したときに続きの結果まで捨てて「読み込み中...」のまま止まり、
+  // 読み直しの間に始めた続きが、読み直した1ページ目の後ろにつながる（写真の一覧の PhotoGrid と同じ進め方）
   int _generation = 0;
+
+  // 1ページ目の要求の番号。読み直しが重なったら、最後に始めたものだけを採る
+  int _firstPageRequest = 0;
 
   @override
   void initState() {
@@ -154,30 +162,28 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
     _loadFirstPage();
   }
 
-  String _messageOf(Object e) =>
-      e is ApiException ? e.userMessage : '図鑑の読み込みに失敗しました';
-
   Future<void> _loadFirstPage() async {
-    final generation = ++_generation;
     setState(() {
       _errorMessage = null;
       _entries = null;
       _loadMoreFailed = false;
     });
-    await _readFirstPage(generation);
+    await _readFirstPage();
   }
 
   /// 下に引っ張ったとき。読み直しの間は今の一覧を出したままにする
   Future<void> _refresh() async {
-    await _readFirstPage(++_generation);
+    await _readFirstPage();
   }
 
-  Future<void> _readFirstPage(int generation) async {
+  Future<void> _readFirstPage() async {
+    final request = ++_firstPageRequest;
     try {
       final page = await widget.apiService
           .getCatalogEntries(widget.kind.kind, offset: 0, limit: _pageSize);
-      if (!mounted || generation != _generation) return;
+      if (!mounted || request != _firstPageRequest) return;
       setState(() {
+        _generation++;
         _entries = page.entries;
         _total = page.total;
         _nextOffset = _pageSize;
@@ -186,12 +192,12 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
         _isLoadingMore = false;
       });
     } catch (e) {
-      if (!mounted || generation != _generation) return;
+      if (!mounted || request != _firstPageRequest) return;
       if (_entries == null) {
-        setState(() => _errorMessage = _messageOf(e));
+        setState(() => _errorMessage = catalogErrorMessage(e));
       } else {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(_messageOf(e))));
+            .showSnackBar(SnackBar(content: Text(catalogErrorMessage(e))));
       }
     }
   }
