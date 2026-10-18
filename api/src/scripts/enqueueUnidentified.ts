@@ -101,8 +101,8 @@ async function run(): Promise<void> {
   loadLocalSettings();
   // 書く前に宛先を人間が確かめられるように出す（鍵は出さない）。手元の設定が別の DB を指していることがある
   console.log(
-    `宛先: ${endpointHost(process.env.COSMOS_DB_ENDPOINT)} / ` +
-      `${process.env.COSMOS_DB_DATABASE || '（データベース名が無い）'} / ${process.env.COSMOS_DB_ALBUM_CONTAINER || '（コンテナ名が無い）'}`
+    `宛先: ${endpointHost(process.env.COSMOS_DB_ENDPOINT?.trim())} / ` +
+      `${process.env.COSMOS_DB_DATABASE?.trim() || '（データベース名が無い）'} / ${process.env.COSMOS_DB_ALBUM_CONTAINER?.trim() || '（コンテナ名が無い）'}`
   );
   await enqueueUnidentifiedPhotos({ apply: process.argv.includes('--apply'), log: console.log });
 }

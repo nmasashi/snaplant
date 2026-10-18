@@ -1,11 +1,10 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
-import { CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { CatalogEntriesQuery, CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts } from './catalogQueries';
 import { catalogPageOf } from './catalogEntries';
-import { CatalogEntriesQuery } from '../utils/catalogInput';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 

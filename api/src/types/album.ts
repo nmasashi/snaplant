@@ -1,3 +1,5 @@
+import { CatalogKind } from '../catalog/kinds';
+
 /**
  * 旅行アルバムの型定義
  *
@@ -121,4 +123,13 @@ export interface CatalogEntry {
   photoCount: number;
   /** 見出しの写真のサムネイル（無ければ原寸）の SAS 付き URL */
   coverThumbnailUrl: string;
+}
+
+/** 検証を通った図鑑の項目の一覧のクエリ（GET /api/catalog/entries） */
+export interface CatalogEntriesQuery {
+  kind: CatalogKind;
+  /** 何件目から（0 始まり） */
+  offset: number;
+  /** 何件まで */
+  limit: number;
 }

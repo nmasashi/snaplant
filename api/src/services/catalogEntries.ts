@@ -1,4 +1,5 @@
 import { CatalogEntry } from '../types/album';
+import type { CoverUrlOf } from './albumService';
 import { CatalogHeadPhoto, CatalogNameCountRow } from './catalogQueries';
 
 /**
@@ -47,7 +48,7 @@ function catalogEntryOf(
   kind: string,
   row: CatalogNameCount,
   head: CatalogHeadPhoto | null,
-  coverUrlOf: (blobName: string) => string
+  coverUrlOf: CoverUrlOf
 ): CatalogEntry | null {
   if (head === null) {
     return null;
@@ -90,7 +91,7 @@ export async function catalogPageOf(
   offset: number,
   limit: number,
   headOf: (name: string) => Promise<CatalogHeadPhoto | null>,
-  coverUrlOf: (blobName: string) => string
+  coverUrlOf: CoverUrlOf
 ): Promise<{ entries: CatalogEntry[]; total: number }> {
   const { page, total } = pageOfCatalogNames(rows, offset, limit);
   const heads = await Promise.all(page.map((row) => headOf(row.name)));

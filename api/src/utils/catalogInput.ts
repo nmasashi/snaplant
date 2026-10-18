@@ -1,15 +1,9 @@
 import { HttpResponseInit } from '@azure/functions';
 import { createValidationError } from './response';
 import { CATALOG_VALIDATION } from '../constants/validation';
-import { CatalogKind, isCatalogKind } from '../catalog/kinds';
+import { isCatalogKind } from '../catalog/kinds';
+import { CatalogEntriesQuery } from '../types/album';
 import { readPageLimit } from './pageLimit';
-
-/** 検証を通った図鑑の項目の一覧のクエリ */
-export interface CatalogEntriesQuery {
-  kind: CatalogKind;
-  offset: number;
-  limit: number;
-}
 
 /**
  * 図鑑の項目の一覧（GET /api/catalog/entries）のクエリを検証する
