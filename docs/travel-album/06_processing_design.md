@@ -31,7 +31,7 @@
 
 再投入のタイマーの細部（3-3b）:
 
-- 段階3で識別の待ち（`step: "identify"`）を書く経路は無いので、`identify` の写真を積み続けることは無い（段階4で識別のワーカーが入る）。
+- 識別の待ち（`step: "identify"`）の写真も同じく拾う。ワーカーが `identify` を担当する（4-1a）ので、積んだ写真は識別に進む。
   キューに 10 分以上溜まっている写真も解析待ちとして拾い、もう一通積む（`updatedAt` を今にするので 1枚につき 10 分に 1通まで。重複したメッセージは担当の条件で何もせずに終わり、AI は呼ばない。2026-10-18 に許容）
 - 写真ごとに、`processing` を `FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き patch で書き換える。
   412（読んだ後にワーカーが担当した・やり直しの受付が入ったなど）か 404（消えた）なら、その写真には触らず（積まず）次へ進む
@@ -83,7 +83,7 @@ sequenceDiagram
   一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnidentified.ts`。人間が実行する）で `pending`・`step: "identify"` にして投入する。タイマーには拾わせない（上と同じ理由。2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）
 - `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。
   分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
-- ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `state`・`attempts` の条件付き patch、コメントは条件付き patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
+- ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch、コメント（識別だけ）は同じ条件に `commentSource` の条件を足した patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
   利用者は解析中でもコメント・タグ・旅行を変えられる
 
 ### 1.3 状態と失敗
@@ -98,15 +98,16 @@ sequenceDiagram
 | `done` | 済み | 最後にやった処理 | `process` で `pending` |
 | `failed` | 上限まで失敗した。**自動では再試行しない** | 失敗した処理 | `process` で `pending`（`attempts` を 0 に戻す）。これ以外に `failed` から出る経路は無い |
 
-- ワーカーは担当するたびに（担当の条件付き patch で）`attempts` を +1 し、`updatedAt` を更新する。成功しても `attempts` は 0 に戻さない（戻すのは `process` だけ）。失敗したら `lastError` にどこで失敗したかだけを書く（`UpstreamError` の `service`（分類では `"ai"`）か、それ以外（設定の誤りを含む）なら `"internal"`）。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
+- ワーカーは担当するたびに（担当の条件付き patch で）`attempts` を +1 し、`updatedAt` を更新する。成功しても `attempts` は 0 に戻さない（戻すのは `process` だけ）。失敗したら `lastError` にどこで失敗したかだけを書く（`UpstreamError` の `service`（分類・識別では `"ai"`）か、それ以外（設定の誤りを含む）なら `"internal"`）。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
 - 失敗したとき、`attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数。`constants/album.ts` の `photoProcessingMaxAttempts()` が呼ぶたびに読む。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）なら `failed` にして**例外を投げずに終える**（メッセージは消え、poison には落ちない）。それ未満は `state` を `pending` に戻して（`step` はそのまま）例外を投げ、キューの再試行（可視性タイムアウトの後）で担当し直す。結果の欄（`category`・`classification`・`identification`）には書かない
 - `PHOTO_PROCESSING_MAX_ATTEMPTS` は `host.json` の `maxDequeueCount`（3）以下にする。大きくすると、上限に達する前にメッセージが poison に落ち、残りの回は再投入のタイマー（10 分ごと）だけで進む
-- 写真の `processing.step` を見て、段階3は `classify` のときだけ担当する。それ以外（`identify` などの段階4の処理）なら何もしない（AI を呼ばず、写真も変えない）
+- 写真の `processing.step` を見て、`classify` なら分類、`identify` なら識別を担当する（`identify` は 4-1a で実装済み）。それ以外（`step: null` の `none` の写真）なら何もしない（AI を呼ばず、写真も変えない）。
+  処理中の `state` は `classify` なら `classifying`、`identify` なら `identifying`。失敗の書き込みも `step` はそのまま（識別の失敗は識別の待ちに戻り、分類からやり直さない）
 - 担当するときの `state` を処理中にする patch は `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き。412 なら別のインスタンスが担当済み（古いメッセージの重複配信）で、何もしない。読んでから担当するまでに写真が消されていた（404）ときも何もしない。
   `step` も条件に入れるのは、読んでから担当するまでに別の処理が `step` を変えていた（分類を済ませて識別の待ちにした。段階4）ときに、識別を捨てて分類し直さないため。`processing.updatedAt` も条件に入れるのは、やり直しの受付が回数を 0 に戻すため（受付の後に取り直された担当は、古い担当と state・step・回数が同じ値になる。`updatedAt` は processing を書くたびに変わるので担当ごとの印になる）。担当・結果と失敗の書き込み・再投入のタイマーのリセットが、どれも同じ形の条件を使う（`albumService.ts` の `processingCondition()`）。`attempts` も条件に入れるのは、読んでから担当するまでの間に別のインスタンスが担当して失敗し `pending` に戻していた場合を見分けるため（`state` だけでは同じに見え、古い回数から数え直して上限で止まらなくなる）。
   読んだ写真の `state` が `done` / `failed` / `none` / 処理中でも何もしない（どれも担当の条件付き patch が 412 になる。読んだ値で先に判断しない）
-- 結果の書き込みと失敗の書き込み（`pending` に戻す・`failed` にする）は、`FROM c WHERE c.processing.state = "classifying" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き patch（3-3b）。
-  412 か 404 なら何も書かずに終える（失敗でも例外を投げない）。分類の間にやり直しの受付（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。`pending`・`attempts: 0`）が入ったとき、
+- 結果の書き込みと失敗の書き込み（`pending` に戻す・`failed` にする）は、`FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付き patch（3-3b）。
+  412 か 404 なら何も書かずに終える（失敗でも例外を投げない）。分類・識別の間にやり直しの受付（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。`pending`・`attempts: 0`）が入ったとき、
   古い処理の結果や失敗でやり直しを上書きすると、やり直しで積んだメッセージが担当できずに捨てられ、やり直しが黙って消えるため。やり直しは、受付で積んだメッセージが改めて担当する
 - メッセージに写真 ID（文字列の `photoId`）が無いとき・写真が無いとき（消された後のメッセージ）は、何もせずに終える（例外にしない。何度送り直しても結果は同じで、poison に落ちるだけなので）。写真 ID が写真 ID の形式（SHA-256 の16進・小文字 64 文字）でないときも同じ（Cosmos の SDK は `/` `` `#` を含む id や空の id で通信の前に投げるので、形式を見ないと例外になって poison に落ちる）
 - 写真の読み取り（担当の前）に失敗したら、写真を変えずに例外を投げる（`attempts` は増えない）。キューの再試行が 3 回とも失敗すれば poison に落ち、写真は `pending` のまま残って再投入のタイマーが拾う
@@ -170,16 +171,18 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 
 ### 2.3 書き込み
 
-AI の担当の欄だけを1回の patch で `set` する。条件は担当したときのままか（`state = "classifying"` かつ `attempts` が担当した回数）だけで、`_etag` の条件は付けない（§1.3・[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`tags`・`comment`・`tripId` には触らない。
+AI の担当の欄だけを1回の patch で `set` する。条件は担当したときのままか（`state = "classifying"`・`step = "classify"`・`attempts` が担当した回数・`processing.updatedAt` が担当したときの時刻。`processingCondition()`）だけで、`_etag` の条件は付けない（§1.3・[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`tags`・`comment`・`tripId` には触らない。
 
 - `category = kind`（`other` を含む）。専用の欄なので、利用者のタグと選り分ける処理は無い（[04 §2](./04_data_design.md#2-カテゴリとタグ)）
 - `classification = { kind, confidence, model: <デプロイ名>, at: <ISO> }`
 - `identification = null`（やり直しで種類が変わったとき、古い識別が図鑑の別の種類に残らないように）
-- `kind` が `CATALOG_KINDS` にあれば（段階4）`processing = { state: "pending", step: "identify", attempts: 0, ... }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもタイマーが拾う。`other` なら `done`
+- `kind` が `CATALOG_KINDS` にあれば（段階4。4-1a で実装済み）`processing = { state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもログだけ出して例外にしない（タイマーが拾う）。`other` なら `done`
 
 ## 3. 識別（段階4）
 
 ### 3.1 契約
+
+**実装済み**（4-1a。`api/src/services/photoIdentifierService.ts`、ワーカーは `api/src/functions/processPhoto.ts`）。
 
 名前は AI が確定し、第2候補以降は残さない（要件 5.5）。
 
@@ -208,22 +211,37 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
   この情報を参考にして、識別の精度を向上させてください。
   ```
 
-  `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない
+  `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない。撮影日時は写真の `takenAt`（TZ 無し）を `YYYY-MM-DD HH:mm` で出す
+
+| 項目 | 内容 |
+|---|---|
+| デプロイ | 今のデプロイ（`AZURE_OPENAI_DEPLOYMENT_NAME`）。識別用の環境変数は置かない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17。分けるときに足す）。設定の誤り（デプロイ名が無い、クライアントを作れない）は分類と同じく AI の失敗にしない（§2.1） |
+| 種類 | 写真の `category`。ワーカーは識別の待ちを担当した後、`category` が `CATALOG_KINDS` に無ければ AI を呼ばずに内部の失敗（`lastError: "internal"`）として数える（分類を経ずに識別の待ちになった写真。ふつうは起きない） |
+| 画像・要求の形 | 分類と同じ（原寸の 15 分の SAS、`detail: "low"`、`max_completion_tokens: 4000`、`temperature` を送らない）。`response_format` の名前は `photo_identification`、`strict: true` |
+| スキーマ | 共通項目（`matchesKind` は boolean、`name`・`description`・`characteristics` は `["string","null"]`、`comment` は string、`confidence` は number）と `attributes`（object。`fields` の各 `key` を `required` に入れ、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` は string、`additionalProperties: false`）。`fields` の `prompt` は各項目の `description` に入れる。`description` の文言は契約外 |
+| サービス | `api/src/services/photoIdentifierService.ts` の `identify(imageUrl, kind, { placeName, takenAt, hint })` |
+| 返すもの | `{ matchesKind, name, confidence, description, characteristics, comment, attributes, model }`。`name`・`comment` は前後の空白を除いたもの。`matchesKind: false` なら `name` は応答によらず `null`。`comment` は前後の空白を除いて空なら `null`。`model` は要求を送ったデプロイ名 |
+| 応答の検証 | どれも AI の失敗（`UpstreamError('ai')`。分類と同じ扱い）: AI の呼び出しの失敗、応答が空・JSON として読めない、`matchesKind` が boolean でない、`confidence` が数値でないか 0〜100 の外（0 と 100 は受け付ける。`matchesKind: false` でも検証する）、`matchesKind: true` なのに `name` が前後の空白を除いて空か 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超える、`attributes` の値が型（`string` は文字列か `null`、`string[]` は文字列の配列か `null`）に合わない。`attributes` は `fields` のキーだけを残し（定義に無いキーは捨てる）、応答に無いキーは `null` にする。`description`・`characteristics` は検査しない。`comment` が前後の空白を除いて空なら、写真のコメントは書かない（`null` で上書きしない） |
 
 ### 3.2 書き込み
 
+**実装済み**（4-1a。`AlbumService.writeAiComment()`・`writeIdentification()`）。
+
 項目の文書は無い（[04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)）ので、書くのは**写真1枚だけ**（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
 コメントの条件付き patch と、結果（`identification`・`processing`）の patch の2回で、`_etag` の条件も読み直しも無い。
+どちらも担当したときのまま（`processingCondition()`）を条件にする。識別の間にやり直しの受付が入っていたら、コメントも結果も書かない（捨てる結果のコメントを、やり直しの写真に残さない）。
 項目を探す・作る・併合する処理も、写真を付け替える処理も無い。図鑑はこの `identification` を読んでまとめる。
 
 | 結果 | `identification` | `comment` / `commentSource` | `processing` |
 |---|---|---|---|
-| `matchesKind: true` | `{ kind, matchesKind: true, name: name.trim(), confidence, description, characteristics, attributes, reason: null, model, at }` | `comment`・`"ai"`（下の決まり） | `state: "done"` |
-| `matchesKind: false` | `{ kind, matchesKind: false, name: null, confidence, description: null, characteristics: null, attributes: {}, reason: comment, model, at }`。図鑑には出ない | 触らない | `state: "done"`。画面は「分類と合わない」と出す |
+| `matchesKind: true` | `{ kind, matchesKind: true, name: name.trim(), confidence, description, characteristics, attributes, reason: null, model, at }` | `comment`（前後の空白を除いたもの）・`"ai"`（下の決まり）。空白だけなら触らない | `{ state: "done", step: "identify", attempts: <担当した回数>, lastError: null, updatedAt: <今> }` |
+| `matchesKind: false` | `{ kind, matchesKind: false, name: null, confidence, description: null, characteristics: null, attributes: {}, reason: comment, model, at }`（応答が説明・特徴・項目を返していても持たない。`comment` が空白だけなら `reason: null`）。図鑑には出ない | 触らない | 同上。画面は「分類と合わない」と出す |
+
+`kind` は写真の `category`、`at` と `updatedAt` は書いた時刻。`tags`・`tripId`・`category`・`classification`・`hint` には触らない。
 
 `comment` の決まり:
 
-- `comment`・`commentSource: "ai"` の patch に `FROM c WHERE IS_NULL(c.commentSource) OR c.commentSource = "ai"` の条件を付ける。412（利用者がその間にコメントを書いた）なら書かずに結果の patch へ進む
+- `comment`・`commentSource: "ai"` の patch に、担当したときのままの条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件を付ける。412（利用者がその間にコメントを書いた、またはやり直しの受付が入った）なら書かずに結果の patch へ進む（やり直しなら結果の patch も 412 で書かれない）
   （送信直後の自動の解析が、利用者がその間に書いたコメントを消さないように）。Cosmos が条件を原子的に評価するので、読んでから書くまでの間を気にしなくてよい
 - やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる
   （[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9「やり直しは利用者のコメントを上書きする」）。
@@ -294,9 +312,9 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 | AI の応答の検証違反 | ワーカー | 同上（内容が変わる可能性があるので再試行する価値がある）。毎回失敗する画像でも 3 回で `failed` になり、以後は利用者が頼んだときだけ試す（§1.3） |
 | Blob の SAS 生成の失敗 | ワーカー | 同上 |
 | 担当の patch が 412（`state` が `pending` でない） | ワーカー | 別のインスタンスが担当済み。何もしない |
-| 結果・失敗の patch が 412（分類の間にやり直しの受付が入った） | ワーカー | 何も書かずに終える（例外を投げない）。やり直しで積んだメッセージが改めて担当する（§1.3） |
+| 結果・失敗の patch が 412（分類・識別の間にやり直しの受付が入った） | ワーカー | 何も書かずに終える（例外を投げない）。やり直しで積んだメッセージが改めて担当する（§1.3） |
 | 再投入の patch が 412（読んだ後にワーカーが担当した・やり直しの受付が入った） | タイマー | その写真には触らず、積まない |
-| コメントの patch が 412（利用者がコメントを書いた） | ワーカー | コメントは書かず、結果の patch に進む（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
+| コメントの patch が 412（利用者がコメントを書いた、または識別の間にやり直しの受付が入った）・404（写真が消された） | ワーカー（識別） | コメントは書かず、結果の patch に進む（やり直し・削除なら結果の patch も 412 / 404 で書かれない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
 | 同じメッセージの重複配信 | ワーカー | 担当の条件付き patch と写真の `state` で飛ばす（§1.3） |
 | 地名変換の失敗 | ワーカー | ログだけ。分類は続ける |
 | 10 分以上 `pending` / `classifying` / `identifying` のまま | タイマー | 再投入（`attempts` が上限未満）か `failed`。`failed` は拾わない。投入の失敗はログだけで、次の回に拾う |

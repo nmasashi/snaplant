@@ -49,7 +49,7 @@ export function photoProcessingMaxAttempts(): number {
 }
 
 /**
- * 分類の AI に渡す原寸の SAS の有効期限（分）
+ * 分類・識別の AI に渡す原寸の SAS の有効期限（分）
  *
  * AI が画像を取りに来るまでの間だけ開ける（一時画像と同じ理由。docs/travel-album/06_processing_design.md §2.1）
  */

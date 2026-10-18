@@ -71,7 +71,8 @@ import { TripDocument } from '../../src/types/album';
  * `path`（`/tripId` の1段、`/processing/state` の2段）に適用する。`id !== partitionKey` か、ドキュメントが無ければ
  * 実 SDK と同じ数値 `code` 404 を投げる。存在しない path への `replace` / `remove` は `code` 400（実 SDK も拒む）。
  * 適用は複製に対して行い、途中で失敗してもドキュメントは変わらない。
- * `condition` は `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形（ワーカーの担当の条件）だけを解釈し、
+ * `condition` は `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形（ワーカーの担当の条件）と、
+ * その項に `(IS_NULL(c.<path>) OR c.<path> = "<文字列>")` を置いた形（識別のコメントの条件）だけを解釈し、
  * 満たさなければ実 SDK と同じ数値 `code` 412 を投げる（ドキュメントは変わらない）。**それ以外の形は例外にする**（知らない条件を黙って通さない）。
  * 失敗の注入は `forcedPatchError`。「読んだ後・patch の直前に他の操作が書き換えた」は `beforePatch` で作る。
  *
@@ -172,8 +173,9 @@ export function cosmosPreconditionFailedError(): any {
 /**
  * patch の condition を評価する
  *
- * 解釈できるのは `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形だけ
- * （ワーカーの担当の条件 `c.processing.state = "pending" AND c.processing.attempts = <読んだ回数>`）
+ * 解釈できるのは `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形
+ * （ワーカーの担当の条件 `c.processing.state = "pending" AND c.processing.attempts = <読んだ回数>`）と、
+ * その `AND` の項に `(IS_NULL(c.<path>) OR c.<path> = "<文字列>")` を置いた形（識別のコメントの条件）だけ
  * @returns 条件を満たすか
  */
 function satisfiesCondition(doc: unknown, condition: string): boolean {
@@ -181,13 +183,23 @@ function satisfiesCondition(doc: unknown, condition: string): boolean {
   if (!where) {
     throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
   }
-  return where[1].split(' AND ').every((term) => {
+  const valueAt = (path: string) =>
+    path.split('.').reduce<any>((current, key) => (current == null ? undefined : current[key]), doc);
+  const equals = (term: string): boolean => {
     const match = /^c\.([A-Za-z_][\w.]*) = (?:"([^"]*)"|(-?\d+))$/.exec(term.trim());
     if (!match) {
       throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
     }
-    const value = match[1].split('.').reduce<any>((current, key) => (current == null ? undefined : current[key]), doc);
+    const value = valueAt(match[1]);
     return match[2] !== undefined ? value === match[2] : value === Number(match[3]);
+  };
+  return where[1].split(' AND ').every((term) => {
+    const either = /^\(IS_NULL\(c\.([A-Za-z_][\w.]*)\) OR (c\.[A-Za-z_][\w.]* = "[^"]*")\)$/.exec(term.trim());
+    if (either) {
+      // Cosmos の IS_NULL は項目が無いと偽（null のときだけ真）
+      return valueAt(either[1]) === null || equals(either[2]);
+    }
+    return equals(term);
   });
 }
 

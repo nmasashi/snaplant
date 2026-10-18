@@ -44,3 +44,12 @@ export type PhotoKind = CatalogKind | typeof OTHER_KIND;
 
 /** 写真の `category` に入りうる値の一覧（定義表の種類と other） */
 export const PHOTO_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OTHER_KIND];
+
+/**
+ * 図鑑の種類（定義表のキー）か
+ *
+ * `in` は継承したキー（constructor など）にも真になるので、自分のキーだけを見る
+ */
+export function isCatalogKind(value: unknown): value is CatalogKind {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(CATALOG_KINDS, value);
+}

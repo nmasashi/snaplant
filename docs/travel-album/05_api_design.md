@@ -170,6 +170,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 |---|---|---|---|
 | `PHOTO_VALIDATION.PAGE_SIZE` / `MAX_PAGE_SIZE` | `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | 100 / 200 | `GET /api/photos`・`GET /api/catalog/entry` の `limit` |
 | `CATALOG_VALIDATION.PAGE_SIZE` / `MAX_PAGE_SIZE` | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | 50 / 100 | `GET /api/catalog/entries` の `limit` |
+| `CATALOG_VALIDATION.NAME_MAX_LENGTH` | —（AI が返す値の上限なので環境変数では変えない） | 100 | `GET /api/catalog/entry` の `name` と、識別の応答の検証（ワーカー。[06 §3.1](./06_processing_design.md#31-契約)） |
 | `TRIP_VALIDATION.MAX_LENGTH.NAME` | `TRIP_NAME_MAX_LENGTH` | 100 | `POST` / `PUT /api/trips` |
 | `TRIP_VALIDATION.MAX_LENGTH.DESCRIPTION` | `TRIP_DESCRIPTION_MAX_LENGTH` | 1000 | 同上 |
 | `PHOTO_VALIDATION.ID_REGEX` | — | `/^[0-9a-f]{64}$/`（小文字のみ） | 写真 id を受けるすべて |
@@ -186,7 +187,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
 
 実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`MAX_LENGTH.COMMENT`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`MOVE_VALIDATION.MAX_IDS`、`TAG_VALIDATION.MAX_LENGTH`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4b 時点）。
-`CATALOG_VALIDATION` は、使うエンドポイント（段階4）と一緒に足す。
+`CATALOG_VALIDATION` は、使うエンドポイント（段階4）と一緒に足す。ただし `NAME_MAX_LENGTH` は識別の応答の検証で使うので 4-1a で足した（実装済み）。
 コメント・タグ・move の上限も `message` に値を埋め込む（`コメントは500文字以内で指定してください`・`タグは1〜30文字で指定してください`・`一度に移動できる写真は200枚までです`）。
 `PHOTO_SAS_EXPIRY_MINUTES` は定数にせず、`photoUrlExpiresOn()` が応答を作るたびに `positiveIntFromEnv()` で読む（正の整数として読めない値（数字でない・0・負）は 60）。
 `limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。

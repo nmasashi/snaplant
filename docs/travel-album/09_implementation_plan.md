@@ -78,7 +78,9 @@ API と mobile の列は並行できるが、**同時に進めるなら別のブ
 | # | 内容 | 依存 |
 |---|---|---|
 | 4-0 | （定義済み。apply は人間）infra: `album` に複合インデックス（`/identification/confidence`, `/identification/at` の降順。[07 §3.1](./07_infrastructure_design.md#31-図鑑の前に足すもの複合インデックス)）。人間が apply。**4-2 より先** | 段階3完了 |
-| 4-1 | api: 定義表からの識別スキーマ生成、`PhotoIdentifierService`、ワーカーの `identify` ステップ（写真の `identification` への patch だけ。項目の文書は無い。[06 §3.2](./06_processing_design.md#32-書き込み)）、分類の後の `identification` のクリアと `step: "identify"` の投入、段階3で分類まで済んだ写真を識別に回す一度だけのスクリプト `api/scripts/enqueueUnidentified.ts`（人間が実行。[06 §1](./06_processing_design.md#1-キューとワーカー段階3)・[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30） | 段階3完了 |
+| 4-1 | 2,000 行に収めるため 4-1a・4-1b に分ける（2026-10-18） | 段階3完了 |
+| 4-1a | （実装済み）api: 定義表からの識別スキーマ生成、`PhotoIdentifierService`、ワーカーの `identify` ステップ（写真の `identification` への patch だけ。項目の文書は無い。[06 §3.2](./06_processing_design.md#32-書き込み)）、分類の後の `identification` のクリアと `step: "identify"` の投入、Cosmos の偽物のコメントの条件 | 段階3完了 |
+| 4-1b | api: `POST /api/photos/{photoId}/process` の `step: "identify"`（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3) の 8）、段階3で分類まで済んだ写真を識別に回す一度だけのスクリプト `api/scripts/enqueueUnidentified.ts`（人間が実行。[06 §1](./06_processing_design.md#1-キューとワーカー段階3)・[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）。デプロイ後に識別の実測を記録 | 4-1a |
 | 4-2 | api: 図鑑の API（まとめ方は `GROUP BY` + 項目ごとの `TOP 1`。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4)（2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #20））。デプロイ後に1種類の1ページを開く RU と時間を実測して記録（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる） | 4-0・4-1 |
 | 4-3 | mobile: 図鑑画面（一時的な3つ目のタブ「図鑑（新）」に置く。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)。種類タブ・項目一覧（`offset` でページ）・項目詳細（写真はページ）。項目は `kind` と `name` で開く）、写真ビューアのコメント編集と項目へのリンク、`PATCH` の呼び出し | 4-2 |
 | 4-4 | api: 移行スクリプト `scripts/migratePlants.ts`（[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) 手順 2。`plants` の記録を写真の `identification` に移すだけ）。人間が退避（手順 1）→ 実行 → 確認（手順 3。飛ばした植物の一覧を見る） | 4-3 |

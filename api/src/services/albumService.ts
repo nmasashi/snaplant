@@ -480,20 +480,66 @@ export class AlbumService {
   }
 
   /**
+   * 識別の結果を写真に書く（AI が書く欄だけ。docs/travel-album/04_data_design.md §7.4）。担当したときのままのときだけ書く
+   * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
+   * @param result 書く値
+   * @returns 書けたら true。担当したときと変わっていたら false
+   */
+  async writeIdentification(
+    id: string,
+    claimed: PhotoProcessing,
+    result: { identification: unknown; processing: PhotoProcessing; updatedAt: string }
+  ): Promise<boolean> {
+    return this.patchIfStillClaimed(id, claimed, [
+      { op: 'set', path: '/identification', value: result.identification },
+      { op: 'set', path: '/processing', value: result.processing },
+      { op: 'set', path: '/updatedAt', value: result.updatedAt },
+    ]);
+  }
+
+  /**
+   * AI のコメントを写真に書く。担当したときのままで、利用者がコメントを書いていない（commentSource が null か ai）ときだけ書く
+   *
+   * コメントは利用者の PATCH と AI の両方が書く唯一の欄（04 §7.4）。条件を Cosmos が原子的に評価するので、
+   * 読んでから書くまでの間に利用者が書いたコメントも消さない。担当したときのままも条件にするのは、識別の間に
+   * やり直しの受付が入ったとき、捨てる結果のコメントをやり直しの写真に残さないため
+   * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
+   * @param comment AI のコメント
+   * @returns 書けたら true。利用者のコメントがある・担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async writeAiComment(id: string, claimed: PhotoProcessing, comment: string): Promise<boolean> {
+    return this.patchIfStillClaimed(
+      id,
+      claimed,
+      [
+        { op: 'set', path: '/comment', value: comment },
+        { op: 'set', path: '/commentSource', value: 'ai' },
+      ],
+      // null は != で比べられない（null != "user" は未定義になる）ので、IS_NULL と = でつなぐ
+      'IS_NULL(c.commentSource) OR c.commentSource = "ai"'
+    );
+  }
+
+  /**
    * 担当したときのまま（processing が担当したときに書いたもののまま）のときだけ書く条件付きの patch
    *
    * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
    * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
-   * @returns 書けたら true。担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   * @param extraCondition 担当したときのままに加えて満たすべき条件（括弧で包んで `AND` でつなぐ）。無ければ担当したときのままだけ
+   * @returns 書けたら true。担当したときと変わっていた・extraCondition を満たさない（412）か、写真が消えていた（404）なら false
    */
   private async patchIfStillClaimed(
     id: string,
     claimed: PhotoProcessing,
-    operations: { op: 'set'; path: string; value: unknown }[]
+    operations: { op: 'set'; path: string; value: unknown }[],
+    extraCondition?: string
   ): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: processingCondition(claimed),
+        // 括弧で包む（条件に OR があっても、担当したときのままの条件と AND で結び付くように）
+        condition: processingCondition(claimed) + (extraCondition ? ` AND (${extraCondition})` : ''),
         operations,
       });
       return true;

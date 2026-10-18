@@ -1,11 +1,14 @@
 import { InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
+import { QueueClient } from '@azure/storage-queue';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { processPhotoHandler } from '../../src/functions/processPhoto';
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import { photoDocument } from '../helpers/albumDocuments';
+import { CATALOG_KINDS } from '../../src/catalog/kinds';
 
 // 外部依存のみモック。Cosmos DB と Blob Storage は状態持ちの偽物、AI（管理外）は送った要求を残すモック。
 // SAS の署名は実 SDK のまま（ローカルの計算だけで、Blob Storage へは通信しない）
@@ -14,6 +17,7 @@ jest.mock('@azure/storage-blob', () => ({
   ...jest.requireActual('@azure/storage-blob'),
   BlobServiceClient: { fromConnectionString: jest.fn() }
 }));
+jest.mock('@azure/storage-queue', () => ({ QueueClient: jest.fn() }));
 jest.mock('openai', () => {
   const MockOpenAI = jest.fn();
   return Object.assign(MockOpenAI, { default: MockOpenAI });
@@ -21,6 +25,7 @@ jest.mock('openai', () => {
 const MockedOpenAI = jest.requireMock('openai');
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
+const MockedQueueClient = QueueClient as jest.MockedClass<typeof QueueClient>;
 
 const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1';
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -37,7 +42,9 @@ const ENV_KEYS = [
   'AZURE_OPENAI_API_KEY',
   'AZURE_OPENAI_DEPLOYMENT_NAME',
   'AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME',
-  'PHOTO_PROCESSING_MAX_ATTEMPTS'
+  'PHOTO_PROCESSING_MAX_ATTEMPTS',
+  'PHOTO_QUEUE_NAME',
+  'AzureWebJobsStorage'
 ] as const;
 
 /** 分類の待ちの写真（送信が作った直後の形）。利用者が付けたタグ・コメント・旅行を持たせ、変わらないことを見る */
@@ -56,6 +63,7 @@ describe('写真の解析のワーカー', () => {
   let mockContext: InvocationContext;
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let blobBackend: FakeBlobBackend;
+  let queueBackend: FakeQueueBackend;
   let savedEnv: Record<string, string | undefined>;
   // AI に送った要求。どの接続先（クライアントの設定）から送ったかと一緒に残す
   let sent: Array<{ options: any; body: any }>;
@@ -69,6 +77,10 @@ describe('写真の解析のワーカー', () => {
   const runWorker = (message: unknown = { photoId: PHOTO_ID }) => processPhotoHandler(message, mockContext);
 
   const storedPhoto = () => cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
+
+  /** キューの名前ごとの、積まれたメッセージ（読み戻した本文） */
+  const queuedMessages = (): Array<[string, unknown[]]> =>
+    [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
 
   beforeEach(() => {
     savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -86,6 +98,10 @@ describe('写真の解析のワーカー', () => {
 
     blobBackend = { store: new Map() };
     MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
+
+    queueBackend = { queues: new Map(), forcedSendError: null };
+    MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
+      createFakeQueueClient(queueBackend, queueName)) as any);
 
     sent = [];
     MockedOpenAI.mockImplementation((options: any) => ({
@@ -112,6 +128,8 @@ describe('写真の解析のワーカー', () => {
     process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'main-deployment';
     delete process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME;
     delete process.env.PHOTO_PROCESSING_MAX_ATTEMPTS;
+    process.env.PHOTO_QUEUE_NAME = 'photo-processing';
+    process.env.AzureWebJobsStorage = 'UseDevelopmentStorage=true';
   });
 
   afterEach(() => {
@@ -128,6 +146,7 @@ describe('写真の解析のワーカー', () => {
 
   describe('分類', () => {
     it('分類の待ちの写真を分類すると、種類と分類の結果が書かれて済みになり、利用者の書いた欄は変わらない', async () => {
+      // 図鑑の種類でない（other）ので、分類で済みになる（図鑑の種類なら識別の待ちになる。下のテスト）。
       // 前に1回失敗している（attempts 1・lastError あり）。成功で lastError が消え、attempts は数え続ける。
       // 前回の解析の識別が残っている（やり直し）。分類で種類が変わりうるので、識別は消す（06 §2.3）
       cosmosBackend.documents.set(
@@ -137,17 +156,19 @@ describe('写真の解析のワーカー', () => {
           processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
         })
       );
+      aiReturns({ kind: 'other', confidence: 82.5, reason: '人が写っている' });
 
       await runWorker();
 
       expect(storedPhoto()).toEqual({
         ...pendingPhoto(),
-        category: 'food',
-        classification: { kind: 'food', confidence: 82.5, model: 'main-deployment', at: NOW },
+        category: 'other',
+        classification: { kind: 'other', confidence: 82.5, model: 'main-deployment', at: NOW },
         identification: null,
         processing: { state: 'done', step: 'classify', attempts: 2, lastError: null, updatedAt: NOW },
         updatedAt: NOW
       });
+      expect(queuedMessages()).toEqual([]);
     });
 
     it('分類している間、写真は処理中（classifying）で、回数と時刻が更新されている', async () => {
@@ -164,18 +185,43 @@ describe('写真の解析のワーカー', () => {
       expect(duringAi).toEqual({ state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
-    it.each(['plant', 'landscape', 'other'])(
-      '種類が%sでも、段階3では分類の後に済みになる（識別は段階4）',
+    it.each(['plant', 'food', 'landscape'])(
+      '種類が図鑑の種類（%s）なら、識別の待ち（回数は0から）にして、その写真を解析のキューに積む',
       async (kind) => {
-        cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+        // 識別は別の回のワーカーが担当する（06 §2.3）。分類の失敗の回数は識別に持ち越さない
+        cosmosBackend.documents.set(
+          PHOTO_ID,
+          pendingPhoto({
+            processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
+          })
+        );
         aiReturns({ kind, confidence: 70, reason: 'テスト' });
 
         await runWorker();
 
         expect(storedPhoto().category).toBe(kind);
-        expect(storedPhoto().processing).toEqual({ state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+        expect(storedPhoto().classification).toEqual({ kind, confidence: 70, model: 'main-deployment', at: NOW });
+        expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
+        expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
       }
     );
+
+    it('識別の待ちを積むのに失敗しても、分類の結果と識別の待ちは書いたまま、例外を投げない（タイマーが積み直す）', async () => {
+      // 例外にするとキューが分類をやり直すが、写真はもう分類の待ちではないので担当されず、AI の費用もかからない。
+      // 識別の待ちのまま残れば、再投入のタイマーが 10 分後に積む（04 §7.1）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      queueBackend.forcedSendError = Object.assign(new Error('The specified queue does not exist.'), {
+        name: 'RestError',
+        statusCode: 404,
+        code: 'QueueNotFound'
+      });
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto().category).toBe('food');
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([]);
+    });
 
     it('AIに送る画像は、その写真の原寸を読み取りだけで開ける、15分で切れる署名付きのURL', async () => {
       // サムネイルではなく原寸（detail: low でも、縮める前の画像の方が分類しやすい）。06 §2.1
@@ -266,12 +312,418 @@ describe('写真の解析のワーカー', () => {
     it.each([0, 100])('信頼度が%sでも受け付けて、分類の結果に書く', async (confidence) => {
       // 0〜100 の両端は範囲内（06 §2.1）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
-      aiReturns({ kind: 'landscape', confidence, reason: 'テスト' });
+      aiReturns({ kind: 'other', confidence, reason: 'テスト' });
 
       await runWorker();
 
-      expect(storedPhoto().classification).toEqual({ kind: 'landscape', confidence, model: 'main-deployment', at: NOW });
+      expect(storedPhoto().classification).toEqual({ kind: 'other', confidence, model: 'main-deployment', at: NOW });
       expect(storedPhoto().processing.state).toBe('done');
+    });
+  });
+
+  describe('識別', () => {
+    /** 植物の識別の応答。名前とコメントの前後の空白は、書くときに除く */
+    const plantAnswer = {
+      matchesKind: true,
+      name: ' ソメイヨシノ ',
+      confidence: 92,
+      description: '日本で最も広く植えられているサクラの栽培品種',
+      characteristics: '淡い桃色の花を葉より先に咲かせる',
+      comment: ' 満開のソメイヨシノ。エドヒガンの可能性もある ',
+      attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' }
+    };
+
+    /** 識別の待ちの写真（分類が植物と決めた直後の形）。利用者のコメントはまだ無い */
+    const waitingPhoto = (overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
+      pendingPhoto({
+        category: 'plant',
+        classification: { kind: 'plant', confidence: 88, model: 'main-deployment', at: '2026-10-18T02:58:00.000Z' },
+        comment: null,
+        commentSource: null,
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' },
+        ...overrides
+      });
+
+    const promptText = () => sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
+
+    beforeEach(() => aiReturns(plantAnswer));
+
+    it('識別の待ちの写真を識別すると、識別の結果とAIのコメントが書かれて済みになり、利用者の書いた欄は変わらない', async () => {
+      // 図鑑はこの identification からまとめる（04 §3.1）。名前とコメントは前後の空白を除いて書く
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+
+      await runWorker();
+
+      expect(storedPhoto()).toEqual({
+        ...waitingPhoto(),
+        identification: {
+          kind: 'plant',
+          matchesKind: true,
+          name: 'ソメイヨシノ',
+          confidence: 92,
+          description: '日本で最も広く植えられているサクラの栽培品種',
+          characteristics: '淡い桃色の花を葉より先に咲かせる',
+          attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' },
+          reason: null,
+          model: 'main-deployment',
+          at: NOW
+        },
+        comment: '満開のソメイヨシノ。エドヒガンの可能性もある',
+        commentSource: 'ai',
+        processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW },
+        updatedAt: NOW
+      });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('識別している間、写真は処理中（identifying）で、回数と時刻が更新されている', async () => {
+      // 処理中は画面に「識別中...」と出る（03 §5.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      let duringAi: unknown;
+      reply = async () => {
+        duringAi = storedPhoto().processing;
+        return { choices: [{ message: { content: JSON.stringify(plantAnswer) } }] };
+      };
+
+      await runWorker();
+
+      expect(duringAi).toEqual({ state: 'identifying', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW });
+    });
+
+    it('分類どおりの種類が写っていなければ（matchesKind: false）、名前が無くても受け付けて、図鑑に出ない形の結果を書いて済みにし、コメントは変えない', async () => {
+      // 名前以下は持たず、AI のコメントを理由として残す（06 §3.2）。画面は「分類と合わない」と出す。
+      // 写っているのに名前が無い応答は拒む（下の「応答の検証に通らなければ」の表）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      // 写っていないのに説明や項目を返してきても、図鑑に出ない形なので持たない
+      aiReturns({
+        matchesKind: false,
+        name: null,
+        confidence: 30,
+        description: '布の柄',
+        characteristics: '花の模様',
+        comment: '植物ではなく、植物の柄の布が写っている',
+        attributes: { scientificName: 'Prunus', familyName: 'バラ科' }
+      });
+
+      await runWorker();
+
+      expect(storedPhoto()).toEqual({
+        ...waitingPhoto(),
+        identification: {
+          kind: 'plant',
+          matchesKind: false,
+          name: null,
+          confidence: 30,
+          description: null,
+          characteristics: null,
+          attributes: {},
+          reason: '植物ではなく、植物の柄の布が写っている',
+          model: 'main-deployment',
+          at: NOW
+        },
+        processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: NOW },
+        updatedAt: NOW
+      });
+    });
+
+    it('利用者がコメントを書いていたら、識別の間（担当の後）に書いたものでも、識別の結果は書くが、AIのコメントで上書きしない', async () => {
+      // 自動の解析は利用者の文を消さない（06 §3.2）。書くときの条件（Cosmos が原子的に評価する）で守るので、
+      // 送信の後・識別の前に書いたコメントも、この読んだ後に書いたコメントと同じ条件で残る
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      // 1回目の patch は担当。2回目（コメントの書き込み）の直前に、利用者の PATCH が入る
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = () => {
+          cosmosBackend.beforePatch = undefined;
+          const edited: PhotoDocument = { ...storedPhoto(), comment: '公園の入口の木', commentSource: 'user' };
+          cosmosBackend.documents.set(PHOTO_ID, edited);
+        };
+      };
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({
+        comment: '公園の入口の木',
+        commentSource: 'user',
+        identification: { name: 'ソメイヨシノ' },
+        processing: { state: 'done' }
+      });
+    });
+
+    it('前回のAIのコメントがある写真（自動の解析の再試行）では、新しいAIのコメントで書き直す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ comment: '前回のコメント', commentSource: 'ai' }));
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({ comment: '満開のソメイヨシノ。エドヒガンの可能性もある', commentSource: 'ai' });
+    });
+
+    it('識別には、分類用のデプロイ名があっても今のデプロイを使う（識別用のデプロイ名は無い）', async () => {
+      process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].options.baseURL).toBe('https://test.openai.azure.com/openai/deployments/main-deployment');
+      expect(sent[0].body.model).toBe('main-deployment');
+      expect(storedPhoto().identification).toMatchObject({ model: 'main-deployment' });
+    });
+
+    it('AIに送る要求は、原寸の画像と、種類ごとの項目（定義表のfields）を持つstrictな応答の形（06 §3.1）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ blobName: `${PHOTO_ID}.png`, contentType: 'image/png' }));
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      const body = sent[0].body;
+      expect(body.messages).toHaveLength(1);
+      expect(body.messages[0].role).toBe('user');
+      expect(body.messages[0].content).toHaveLength(2);
+      expect(body.messages[0].content).toEqual(expect.arrayContaining([
+        { type: 'text', text: expect.any(String) },
+        { type: 'image_url', image_url: { url: expect.any(String), detail: 'low' } }
+      ]));
+      // 画像は分類と同じく、原寸を読み取りだけで開ける 15 分の署名付き URL
+      const url = new URL(body.messages[0].content.find((part: any) => part.type === 'image_url').image_url.url);
+      expect(`${url.origin}${url.pathname}`).toBe(`https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.png`);
+      expect(url.searchParams.get('sp')).toBe('r');
+      expect(url.searchParams.get('se')).toBe('2026-10-18T03:15:00Z');
+
+      expect(body.response_format.type).toBe('json_schema');
+      expect(body.response_format.json_schema.strict).toBe(true);
+      expect(body.response_format.json_schema.name).toBe('photo_identification');
+      const schema = body.response_format.json_schema.schema;
+      // 共通項目。strict ではすべてを required に入れ、無いことは null で表す
+      expect(Object.keys(schema.properties).sort()).toEqual(
+        ['attributes', 'characteristics', 'comment', 'confidence', 'description', 'matchesKind', 'name'].sort()
+      );
+      expect([...schema.required].sort()).toEqual(Object.keys(schema.properties).sort());
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.properties.matchesKind.type).toBe('boolean');
+      expect(schema.properties.name.type).toEqual(['string', 'null']);
+      expect(schema.properties.description.type).toEqual(['string', 'null']);
+      expect(schema.properties.characteristics.type).toEqual(['string', 'null']);
+      expect(schema.properties.comment.type).toBe('string');
+      expect(schema.properties.confidence.type).toBe('number');
+      // 種類ごとの項目（植物は学名・科名）
+      const attributes = schema.properties.attributes;
+      expect(attributes.type).toBe('object');
+      expect(Object.keys(attributes.properties).sort()).toEqual(['familyName', 'scientificName']);
+      expect([...attributes.required].sort()).toEqual(['familyName', 'scientificName']);
+      expect(attributes.additionalProperties).toBe(false);
+      expect(attributes.properties.scientificName.type).toEqual(['string', 'null']);
+
+      expect(typeof body.max_completion_tokens).toBe('number');
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(body).not.toHaveProperty('temperature');
+    });
+
+    it('種類ごとの項目は写真の種類の定義から作り、文字列の配列の項目は配列（null 可）で受ける', async () => {
+      // 食べ物は料理のジャンル（文字列）と主な食材（文字列の配列）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
+      aiReturns({ ...plantAnswer, name: '札幌味噌ラーメン', attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] } });
+
+      await runWorker();
+
+      // 命名規則も写真の種類のもの（06 §3.1）
+      expect(promptText()).toContain(CATALOG_KINDS.food.namingRule);
+      const attributes = sent[0].body.response_format.json_schema.schema.properties.attributes;
+      expect(Object.keys(attributes.properties).sort()).toEqual(['genre', 'mainIngredients']);
+      expect(attributes.properties.genre.type).toEqual(['string', 'null']);
+      expect(attributes.properties.mainIngredients.type).toEqual(['array', 'null']);
+      expect(attributes.properties.mainIngredients.items).toEqual({ type: 'string' });
+      expect(storedPhoto().identification).toMatchObject({
+        kind: 'food',
+        name: '札幌味噌ラーメン',
+        attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] }
+      });
+    });
+
+    it('プロンプトには、種類の命名規則と、ある手がかり（やり直しの手がかり・撮影地・撮影日時）を含める', async () => {
+      // 文言は契約外。何を渡したか（06 §3.1 の要素）だけを見る
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        waitingPhoto({
+          hint: '旭川の公園',
+          takenAt: '2026-10-05T12:30:15',
+          location: { latitude: 43.77, longitude: 142.36, placeName: '北海道旭川市', placeSource: 'device' }
+        })
+      );
+
+      await runWorker();
+
+      expect(promptText()).toContain(CATALOG_KINDS.plant.namingRule);
+      expect(promptText()).toContain('旭川の公園');
+      expect(promptText()).toContain('北海道旭川市');
+      // 撮影日時は分まで（YYYY-MM-DD HH:mm。06 §3.1）
+      expect(promptText()).toMatch(/2026-10-05 12:30(?!:)/);
+    });
+
+    it('手がかりが無ければ、無い値（null）を手がかりとしてAIに渡さない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ hint: null, takenAt: null, location: null }));
+
+      await runWorker();
+
+      expect(promptText()).not.toContain('null');
+    });
+
+    it.each([
+      ['写っているかが真偽値でない', { matchesKind: 'true' }],
+      ['信頼度が0より小さい', { confidence: -1 }],
+      ['信頼度が100より大きい', { confidence: 101 }],
+      ['信頼度が数値でない', { confidence: '92' }],
+      ['写っているのに名前が無い', { name: null }],
+      ['写っているのに名前が空白だけ', { name: '   ' }],
+      ['写っているのに名前が100文字を超える', { name: 'あ'.repeat(101) }],
+      ['写っていないのに信頼度が100より大きい', { matchesKind: false, name: null, confidence: 101 }],
+      ['種類ごとの項目の文字列が文字列でない', { attributes: { scientificName: 123, familyName: 'バラ科' } }]
+    ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻し、結果を書かない', async (_label, broken) => {
+      // strict のスキーマでも範囲や空は強制できない。通らない応答を書くと、図鑑に名前の無い項目や範囲外の信頼度が出る（06 §3.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, ...broken });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto()).toEqual(
+        waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW } })
+      );
+    });
+
+    it.each([
+      ['文字列の配列の項目が配列でない', { genre: 'ラーメン', mainIngredients: '中華麺' }],
+      ['文字列の配列の項目に文字列でない値がある', { genre: 'ラーメン', mainIngredients: ['中華麺', 1] }]
+    ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻す', async (_label, attributes) => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
+      aiReturns({ ...plantAnswer, attributes });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto().identification).toBeNull();
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW });
+    });
+
+    it.each([
+      ['植物の学名（文字列の項目）', 'plant', { scientificName: null, familyName: 'バラ科' }],
+      ['食べ物の主な食材（文字列の配列の項目）', 'food', { genre: 'ラーメン', mainIngredients: null }]
+    ] as const)('種類ごとの項目が特定できず null（%s）でも受け付けて、null のまま書く', async (_label, category, attributes) => {
+      // 定義表の prompt は「特定できない場合は null」と頼むので、null はふつうに来る（06 §3.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category }));
+      aiReturns({ ...plantAnswer, attributes });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ matchesKind: true, attributes });
+      expect(storedPhoto().processing.state).toBe('done');
+    });
+
+    it('写っていて名前がちょうど100文字なら受け付けて、そのまま書く', async () => {
+      // 上限の境界（04 §3.1 の 1〜100 文字）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, name: 'あ'.repeat(100) });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ name: 'あ'.repeat(100) });
+    });
+
+    it('識別のAIの設定の誤り（デプロイ名が無い）は、AIの失敗とは分けて、内部の失敗として数える', async () => {
+      // どちらも上限まで送り直すが、lastError で AI の障害と設定の誤りを見分けられるようにする
+      // （06 §3.1 のデプロイの行。分類とは別のサービスを通るので、分類のテストでは守れない）
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'internal', updatedAt: NOW });
+    });
+
+    it.each([0, 100])('信頼度が%sでも受け付けて、識別の結果に書く', async (confidence) => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, confidence });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({ confidence, name: 'ソメイヨシノ' });
+    });
+
+    it('種類ごとの項目は定義表の項目だけを書く（定義に無いキーは捨てる）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科', nickname: 'サクラ' } });
+
+      await runWorker();
+
+      expect(storedPhoto().identification).toMatchObject({
+        attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' }
+      });
+      expect((storedPhoto().identification as any).attributes).not.toHaveProperty('nickname');
+    });
+
+    it('AIのコメントが空白だけなら、コメントを書かずに識別の結果を書く', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ ...plantAnswer, comment: '   ' });
+
+      await runWorker();
+
+      expect(storedPhoto()).toMatchObject({ comment: null, commentSource: null, identification: { name: 'ソメイヨシノ' } });
+    });
+
+    it('識別のAIが失敗したら、識別の待ちに戻してどこで失敗したかを書き、例外を投げてキューの再試行に任せる', async () => {
+      // 分類と同じ扱い（06 §1.3）。やる処理は識別のまま（分類からやり直さない）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      reply = async () => {
+        throw Object.assign(new Error('500 The server had an error while processing your request.'), {
+          name: 'InternalServerError',
+          status: 500
+        });
+      };
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto()).toEqual(
+        waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW } })
+      );
+    });
+
+    it('上限（3回）目の識別の失敗なら、失敗（failed）にして例外を投げない。やる処理は識別のまま残す', async () => {
+      // 画面は step で「識別に失敗しました」と出す（03 §5.1）
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 2, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' } })
+      );
+      aiReturns({ ...plantAnswer, confidence: 101 });
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto().processing).toEqual({ state: 'failed', step: 'identify', attempts: 3, lastError: 'ai', updatedAt: NOW });
+      expect(storedPhoto().identification).toBeNull();
+    });
+
+    it('識別の間にやり直しの受付が入ったら、古い識別の結果もAIのコメントも書かず、やり直しを残す', async () => {
+      // 捨てる結果のコメントを、やり直しの写真に残さない（06 §3.2）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      const redoRequested = waitingPhoto({
+        hint: '梅かもしれない',
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T03:00:00.000Z' }
+      });
+      reply = async () => {
+        cosmosBackend.documents.set(PHOTO_ID, redoRequested);
+        return { choices: [{ message: { content: JSON.stringify(plantAnswer) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto()).toEqual(redoRequested);
+    });
+
+    it('写真の種類が図鑑の種類でない識別の待ちは、AIを呼ばずに内部の失敗として数える', async () => {
+      // 分類を経ずに識別の待ちになった写真（ふつうは起きない）。識別の対象にできないので AI の費用をかけない（06 §3.1）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'other' }));
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'internal', updatedAt: NOW });
     });
   });
 
@@ -314,7 +766,7 @@ describe('写真の解析のワーカー', () => {
       await runWorker();
 
       expectDeployment('classify-deployment');
-      expect(storedPhoto().processing.state).toBe('done');
+      expect(storedPhoto().classification).toEqual({ kind: 'food', confidence: 82.5, model: 'classify-deployment', at: NOW });
     });
   });
 
@@ -371,18 +823,6 @@ describe('写真の解析のワーカー', () => {
 
       expect(sent).toHaveLength(0);
       expect(storedPhoto()).toEqual(waitingForIdentify);
-    });
-
-    it('やる処理（step）が分類でなければ（識別は段階4）、AIを呼ばず、写真も変えない', async () => {
-      const photo = pendingPhoto({
-        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' }
-      });
-      cosmosBackend.documents.set(PHOTO_ID, photo);
-
-      await runWorker();
-
-      expect(sent).toHaveLength(0);
-      expect(storedPhoto()).toEqual(photo);
     });
 
     it('読んだ後に別のインスタンスが先に担当していたら、AIを呼ばず、その担当を邪魔しない', async () => {
@@ -659,7 +1099,7 @@ describe('写真の解析のワーカー', () => {
         tags: ['朝食', '札幌'],
         tripId: null,
         category: 'food',
-        processing: { state: 'done' }
+        classification: { kind: 'food' }
       });
     });
   });
