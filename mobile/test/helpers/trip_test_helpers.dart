@@ -113,9 +113,12 @@ enum TripRoute {
 
   /// GET /api/catalog/entries?kind=...&offset=...&limit=...（図鑑の項目の一覧。段階4）
   catalogEntries,
+
+  /// GET /api/catalog/entry?kind=...&name=...&continuationToken=...（図鑑の項目の詳細。段階4）
+  catalogEntry,
 }
 
-/// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
+/// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`・項目の詳細 `GET /api/catalog/entry`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
 /// 状態は [trips]・[unassignedPhotoCount]・[photosByTripId] の3つだけで、
 /// 一覧も詳細も作成・更新・削除も、この同じ旅行のリストを読み書きする。
 ///
@@ -152,6 +155,10 @@ enum TripRoute {
 ///   `offset` が 0 以上の整数・`limit` が 1〜100 の整数でなければ 400「ページの指定が無効です」（本物と同じ）。
 ///   [catalogVanishedNames] の名前は、ページからは外すが `total` には数える（本物が、数えてから見出しを読むまでに写真が無くなった項目を外すのと同じ）。
 ///   受け取った `offset` は [catalogOffsetsReceived] に残す（続きの読み方は 03 §6.1 の決まり）
+/// - `GET /api/catalog/entry` は、[photosByTripId] の全部の写真のうち `identification` の種類と名前（前後の空白を除いて比べる）が合い `matchesKind` が true のものを、
+///   `sortAt` の昇順に `limit`（無ければ [pageSize]）枚ずつ返す。`entry` は信頼度が最も高い写真の識別から作り、`photoCount` は合う写真の枚数（本物と同じ。05 §5.14）。
+///   合う写真が無ければ `entry: null`・`photos: []`・`continuationToken: null`。続きのトークンは次の位置（`entry:<位置>`）。
+///   種類が無効・名前が無い（空白だけ）・トークンの形が違うときは 400（文言は本物と同じ）。受け取った名前とトークンは [catalogEntryQueriesReceived] に残す
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
@@ -226,8 +233,11 @@ class FakeTripBackend {
   /// `GET /api/catalog/entries` で受け取った `offset`（届いた順）
   final List<int> catalogOffsetsReceived = [];
 
-  /// 図鑑の API（種類の一覧と項目の一覧）の要求が届いた回数（応答を保留する前に数える）
+  /// 図鑑の API（種類の一覧・項目の一覧・項目の詳細）の要求が届いた回数（応答を保留する前に数える）
   int catalogRequestsReceived = 0;
+
+  /// `GET /api/catalog/entry` で受け取った名前と継続トークン（届いた順。トークンが無ければ null）
+  final List<({String? name, String? continuationToken})> catalogEntryQueriesReceived = [];
 
   /// 旅行に属さない写真の枚数。写真を残す削除で、その旅行の枚数だけ増える
   int unassignedPhotoCount;
@@ -319,7 +329,9 @@ class FakeTripBackend {
     if (route == TripRoute.upload) uploadsReceived++;
     if (route == TripRoute.detail) tripFetchesReceived++;
     if (route == TripRoute.photos) photoPagesReceived++;
-    if (route == TripRoute.catalogKinds || route == TripRoute.catalogEntries) catalogRequestsReceived++;
+    if (route == TripRoute.catalogKinds || route == TripRoute.catalogEntries || route == TripRoute.catalogEntry) {
+      catalogRequestsReceived++;
+    }
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -363,7 +375,57 @@ class FakeTripBackend {
         return _ok(200, {'kinds': catalogKinds});
       case TripRoute.catalogEntries:
         return _listCatalogEntries(request);
+      case TripRoute.catalogEntry:
+        return _catalogEntry(request);
     }
+  }
+
+  http.Response _catalogEntry(http.Request request) {
+    final query = request.url.queryParameters;
+    final kind = query['kind'];
+    final token = query['continuationToken'];
+    catalogEntryQueriesReceived.add((name: query['name'], continuationToken: token));
+    if (!catalogKinds.any((k) => k['kind'] == kind)) {
+      return _error(400, 'INVALID_REQUEST', '図鑑の種類が無効です');
+    }
+    final name = query['name']?.trim() ?? '';
+    if (name.isEmpty) {
+      return _error(400, 'INVALID_REQUEST', '図鑑の項目の名前が指定されていません');
+    }
+    final start = token == null ? 0 : (token.startsWith('entry:') ? int.tryParse(token.substring(6)) : null);
+    if (start == null) {
+      return _error(400, 'INVALID_REQUEST', '継続トークンの形式が無効です');
+    }
+    final matching = [
+      for (final photos in photosByTripId.values)
+        for (final photo in photos)
+          if (photo['identification'] case {'kind': final String k, 'matchesKind': true, 'name': final String n}
+              when k == kind && n == name)
+            photo
+    ]..sort((a, b) => (a['sortAt'] as String).compareTo(b['sortAt'] as String));
+    if (matching.isEmpty) {
+      return _ok(200, {'entry': null, 'photos': <Object?>[], 'continuationToken': null, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+    }
+    double confidenceOf(Map<String, Object?> photo) => ((photo['identification'] as Map)['confidence'] as num).toDouble();
+    final head = matching.reduce((a, b) => confidenceOf(b) > confidenceOf(a) ? b : a);
+    final identification = head['identification'] as Map<String, Object?>;
+    final limit = int.tryParse(query['limit'] ?? '') ?? pageSize;
+    final next = start + limit;
+    return _ok(200, {
+      'entry': {
+        'kind': kind,
+        'name': name,
+        'confidence': identification['confidence'],
+        'description': identification['description'],
+        'characteristics': identification['characteristics'],
+        'attributes': identification['attributes'] ?? <String, Object?>{},
+        'photoCount': matching.length,
+        'coverThumbnailUrl': head['thumbnailUrl'] ?? head['imageUrl'],
+      },
+      'photos': matching.skip(start).take(limit).toList(),
+      'continuationToken': next < matching.length ? 'entry:$next' : null,
+      'urlExpiresAt': '2026-10-10T04:12:45.000Z',
+    });
   }
 
   http.Response _listCatalogEntries(http.Request request) {
@@ -408,6 +470,7 @@ class FakeTripBackend {
     }
     if (path == '/api/catalog/kinds' && request.method == 'GET') return TripRoute.catalogKinds;
     if (path == '/api/catalog/entries' && request.method == 'GET') return TripRoute.catalogEntries;
+    if (path == '/api/catalog/entry' && request.method == 'GET') return TripRoute.catalogEntry;
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
     if (path == '/api/photos' && request.method == 'POST') return TripRoute.upload;
     if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
@@ -896,6 +959,38 @@ Map<String, Object?> catalogEntryJson(String kind, String name,
       'attributes': <String, Object?>{},
       'photoCount': photoCount,
       'coverThumbnailUrl': 'https://test.blob.core.windows.net/photos/${name.hashCode}.thumb.jpg?sv=2024&sig=test',
+    };
+
+/// 識別が済んだ写真（[photoJson] に分類と識別を足したもの。04 §2.1 の `identification`）。
+/// [matchesKind] が false なら、分類と識別が合わなかった写真（図鑑の項目には入らない）
+Map<String, Object?> identifiedPhotoJson({
+  required int number,
+  required String kind,
+  required String name,
+  String? tripId,
+  String? takenAt,
+  num confidence = 90,
+  bool matchesKind = true,
+  String? description,
+  String? characteristics,
+  Map<String, Object?> attributes = const {},
+}) =>
+    {
+      ...photoJson(number: number, tripId: tripId, takenAt: takenAt),
+      'category': kind,
+      'identification': {
+        'kind': kind,
+        'matchesKind': matchesKind,
+        'name': name,
+        'confidence': confidence,
+        'description': description,
+        'characteristics': characteristics,
+        'attributes': attributes,
+        'reason': null,
+        'model': 'gpt-6-luna',
+        'at': '2026-10-10T03:20:00.000Z',
+      },
+      'processing': {'state': 'done', 'step': null, 'attempts': 0, 'lastError': null, 'updatedAt': '2026-10-10T03:20:00.000Z'},
     };
 
 /// 偽のサーバの [tripKey]（旅行の id。旅行に属さない写真は `none`）に写真が [count] 枚届くまで、実時間で少しずつ待つ（最長 10 秒）。
