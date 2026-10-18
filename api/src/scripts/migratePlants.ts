@@ -1,6 +1,7 @@
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, ContainerClient } from '@azure/storage-blob';
 import { createHash } from 'crypto';
+import { CATALOG_KINDS } from '../catalog/kinds';
 import { FILE_UPLOAD } from '../constants/validation';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService } from '../services/photoStorageService';
@@ -162,7 +163,8 @@ async function readImage(
     for await (const chunk of response.readableStreamBody!) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
-    return { data: Buffer.concat(chunks), contentType: properties.contentType ?? '' };
+    // 植物図鑑は送られた Content-Type をそのまま付けていた（大文字のこともある）。写真の送信と同じく小文字にそろえる
+    return { data: Buffer.concat(chunks), contentType: (properties.contentType ?? '').toLowerCase() };
   } catch (error: any) {
     if (error.statusCode === 404) {
       return null;
@@ -175,10 +177,14 @@ const sha256 = (data: Buffer): string => createHash('sha256').update(data).diges
 
 /** 植物の記録から、識別の済んだ旅行に属さない写真の文書を作る（項目は 06 §7 の手順 2） */
 function photoDocumentOf(plant: Plant, image: Buffer, contentType: string, blobName: string, now: string): PhotoDocument {
-  // 欄（植物の定義表の fields）は、値のあるものだけを入れる
-  const attributes: Record<string, string> = {};
-  if (plant.scientificName) attributes.scientificName = plant.scientificName;
-  if (plant.familyName) attributes.familyName = plant.familyName;
+  // 識別のワーカーと同じ形にする: 欄は植物の定義表の項目をすべて持ち、空の値は null（04 §3.1）。
+  // 「無い」がキーの欠けと null の2通りになると、Cosmos SQL での振る舞いが分かれる
+  const orNull = (value: string | undefined): string | null => (value ? value : null);
+  const legacy = plant as unknown as Record<string, string | undefined>;
+  const attributes = Object.fromEntries(
+    CATALOG_KINDS.plant.fields.map((field) => [field.key, orNull(legacy[field.key])])
+  );
+  const characteristics = orNull(plant.characteristics);
   return {
     id: sha256(image),
     type: 'photo',
@@ -193,8 +199,8 @@ function photoDocumentOf(plant: Plant, image: Buffer, contentType: string, blobN
     location: null,
     category: 'plant',
     tags: [],
-    comment: plant.characteristics,
-    commentSource: 'ai',
+    comment: characteristics,
+    commentSource: characteristics === null ? null : 'ai',
     hint: null,
     // 分類 AI は通していないので、分類の信頼度は無い
     classification: { kind: 'plant', confidence: null, model: 'migration', at: plant.createdAt },
@@ -203,8 +209,8 @@ function photoDocumentOf(plant: Plant, image: Buffer, contentType: string, blobN
       matchesKind: true,
       name: plant.name,
       confidence: plant.confidence,
-      description: plant.description ?? null,
-      characteristics: plant.characteristics,
+      description: orNull(plant.description),
+      characteristics,
       attributes,
       reason: null,
       model: 'migration',
