@@ -239,13 +239,18 @@ void main() {
           ]
         },
       );
+      // 一覧は1ページ目が届くとすぐ続きを読むので、1ページ目は返し、続き（2ページ目）の応答だけを止める
+      final firstPage = Completer<void>();
+      final release = Completer<void>();
+      backend.holds[TripRoute.photos] = firstPage.future;
       await openTripsTab(tester, backend);
       await tester.tap(find.text('北海道 2026秋'));
       await letFramesRun(tester);
+      backend.holds[TripRoute.photos] = release.future;
+      firstPage.complete();
+      await letFramesRun(tester);
       await tester.tap(photoThumbnail(_takenAt));
       await letFramesRun(tester);
-      final release = Completer<void>();
-      backend.holds[TripRoute.photos] = release.future;
       await tester.tap(find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
       await letFramesRun(tester);
       await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('削除')));
