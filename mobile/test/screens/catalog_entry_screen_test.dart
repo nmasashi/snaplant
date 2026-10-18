@@ -387,6 +387,30 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('取得の失敗の表示で、下に引っ張った読み直しと「再試行」が重なっても、出した写真の見出しを出す', (tester) async {
+    // 引っ張った読み直しが成功し、後から始めた「再試行」が失敗したとき。写真は先に届いた読み直しの結果で出るので、見出しも同じ応答から出す
+    final semantics = tester.ensureSemantics();
+    final backend = _backend();
+    backend.failNext(TripRoute.catalogEntry);
+    await _openEntry(tester, backend);
+    expect(find.text('エラーが発生しました'), findsOneWidget);
+    final pullReply = backend.holdNextReply(TripRoute.catalogEntry);
+    final before = backend.catalogEntryQueriesReceived.length;
+    await tester.drag(find.text('エラーが発生しました'), const Offset(0, 300));
+    await letFramesRun(tester);
+    expect(backend.catalogEntryQueriesReceived, hasLength(before + 1));
+    backend.failNext(TripRoute.catalogEntry);
+    await tester.tap(find.text('再試行'));
+    await letFramesRun(tester);
+
+    pullReply.complete();
+    await letFramesRun(tester);
+
+    expect(photoThumbnail(_label('10:00')), findsOneWidget);
+    expect(find.text('3枚'), findsOneWidget);
+    semantics.dispose();
+  });
+
   group('下に引っ張ったとき', () {
     testWidgets('見出しと写真を1ページ目から読み直す', (tester) async {
       final semantics = tester.ensureSemantics();
