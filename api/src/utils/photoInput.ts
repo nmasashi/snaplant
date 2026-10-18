@@ -397,8 +397,8 @@ export async function readPhotoUpdateInput(
 
 /** 検証を通った解析のやり直しの入力 */
 export interface ProcessRequestInput {
-  /** やり直す処理（段階3は分類だけ） */
-  step: 'classify';
+  /** やり直す処理（分類からか、名前の識別だけか） */
+  step: 'classify' | 'identify';
   /** 利用者からの手がかり（前後の空白を除いたもの）。無ければ null */
   hint: string | null;
 }
@@ -420,8 +420,7 @@ export async function readProcessRequestInput(
     return { error: createValidationError('リクエストボディが指定されていません') };
   }
   const { step, hint } = body as { step?: unknown; hint?: unknown };
-  // 識別（identify）は段階4。段階3では受け付けない
-  if (step !== 'classify') {
+  if (step !== 'classify' && step !== 'identify') {
     return { error: createValidationError('やり直す処理の種類が無効です') };
   }
   if (hint !== undefined && hint !== null && typeof hint !== 'string') {

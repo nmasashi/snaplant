@@ -7,6 +7,7 @@ import { createDatabaseErrorResponse, createNotFoundError, createSuccessResponse
 import { readProcessRequestInput } from '../utils/photoInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { PHOTO_VALIDATION } from '../constants/validation';
+import { isCatalogKind } from '../catalog/kinds';
 
 /**
  * 写真の解析のやり直し API（受け付けて、キューに積む。解析はワーカーが後で行う）
@@ -27,7 +28,19 @@ export async function processPhotoRequestHandler(request: HttpRequest, context: 
   try {
     // 保存先の設定が足りなければ、写真を書き換える前に失敗させる
     storage = new PhotoStorageService();
-    photo = await new AlbumService().requestPhotoProcessing(
+    const album = new AlbumService();
+    if (validated.input.step === 'identify') {
+      // 識別は図鑑の種類の写真だけ（05 §5.7 の 8）。写真があるか（7）を先に見る。
+      // 読んでから書くまでに分類がカテゴリを other に変えることはまれで、そのときもワーカーが AI を呼ばずに内部の失敗として数える
+      const current = await album.getPhoto(photoId);
+      if (!current) {
+        return createNotFoundError('指定された写真が見つかりません', ErrorCode.PHOTO_NOT_FOUND);
+      }
+      if (!isCatalogKind(current.category)) {
+        return createValidationError('この写真は識別の対象ではありません');
+      }
+    }
+    photo = await album.requestPhotoProcessing(
       photoId,
       validated.input.step,
       validated.input.hint,
