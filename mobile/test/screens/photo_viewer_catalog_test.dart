@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplant_mobile/screens/catalog_entry_screen.dart';
@@ -188,6 +190,35 @@ void main() {
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('サーバーで問題が発生しています。しばらく待ってから再試行してください。'), findsOneWidget);
       expect(_stored(backend)['comment'], '満開のサクラ');
+    });
+
+    testWidgets('保存を待っている間は、端末の戻る操作でもダイアログを閉じず、保存できたら閉じてコメントを出す',
+        (tester) async {
+      // 待っている間に閉じると、保存されたのに表示が古いまま残る（やり直しダイアログと同じ）
+      final backend = await _openViewer(
+          tester, _photo(comment: '満開のサクラ', commentSource: 'ai'));
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      backend.holds[TripRoute.updatePhoto] = release.future;
+
+      await tester.tap(find.text('コメントを編集'));
+      await letFramesRun(tester);
+      await tester.enterText(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          '北海道で見た桜');
+      await tester.tap(_save);
+      await letFramesRun(tester);
+      await tester.binding.handlePopRoute();
+      await letFramesRun(tester);
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      release.complete();
+      await letFramesRun(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('北海道で見た桜（編集済み）'), findsOneWidget);
     });
 
     testWidgets('解析中の写真でも、コメントを編集できる', (tester) async {
