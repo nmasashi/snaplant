@@ -29,7 +29,10 @@ class PhotoGrid extends StatefulWidget {
       this.onTripNotFound,
       this.onViewerClosed,
       required this.uploadQueue,
-      this.hasFloatingButton = true});
+      this.hasFloatingButton = true})
+      // 旅行もカテゴリも無い一覧はサーバが 400 で断る。置く画面の誤りなので、組み立てたところで止める
+      : assert(tripId != null || category != null,
+            'tripId か category のどちらかを指定する');
 
   final ApiService apiService;
 
