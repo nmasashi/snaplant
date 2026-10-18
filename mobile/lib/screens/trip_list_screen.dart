@@ -86,6 +86,20 @@ class _TripListScreenState extends State<TripListScreen> {
   }
 
   /// 旅行に属さない写真の画面を開く
+  /// カテゴリの一覧を開く（旅行をまたいでカテゴリの写真を見る。§5.2）
+  Future<void> _openCategories() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CategoryListScreen(
+            apiService: widget.apiService, uploadQueue: widget.uploadQueue),
+      ),
+    );
+    // カテゴリの写真の画面で写真を消すと旅行の枚数が変わるので、戻ったら読み直す（旅行詳細と同じ）
+    if (!mounted) return;
+    await _loadTrips();
+  }
+
   Future<void> _openUnassignedPhotos(int photoCount) async {
     await Navigator.push(
       context,
@@ -141,14 +155,7 @@ class _TripListScreenState extends State<TripListScreen> {
           // 旅行をまたいでカテゴリの写真を見る（§5.2）
           IconButton(
               icon: const Icon(Icons.category_outlined),
-              onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CategoryListScreen(
-                          apiService: widget.apiService,
-                          uploadQueue: widget.uploadQueue),
-                    ),
-                  ),
+              onPressed: _openCategories,
               tooltip: 'カテゴリ'),
           IconButton(
               icon: const Icon(Icons.settings),
