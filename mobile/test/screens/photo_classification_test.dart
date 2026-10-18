@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -202,6 +204,60 @@ void main() {
 
       expect(find.byType(AlertDialog), findsNothing);
       expect((_stored(backend)['processing'] as Map)['state'], 'done');
+    });
+
+    testWidgets('受け付けを待っている間は、端末の戻る操作でもダイアログを閉じず、受け付けたら閉じて「分類中...」になる', (tester) async {
+      // 待っている間に閉じると、受け付けられたのに表示が古いまま残り、もう一度頼むことになる
+      final backend = await _openViewer(tester, _photo(category: 'food'));
+      final release = Completer<void>();
+      backend.holds[TripRoute.process] = release.future;
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+      await tester.binding.handlePopRoute();
+      await letFramesRun(tester);
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      release.complete();
+      await letFramesRun(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('分類中...'), findsOneWidget);
+    });
+
+    testWidgets('最後の写真を消して続きのページを待っている間に「やり直す」を押しても、何も起きない', (tester) async {
+      // 読み込み済みの写真が無い間は、やり直す写真が無い（1ページ目が1枚、続きがある旅行）
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: 2)],
+        functionKey: 'test-key',
+        pageSize: 1,
+        photosByTripId: {
+          hokkaidoTripId: [
+            _photo(category: 'food'),
+            photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-07T10:15:00'),
+          ]
+        },
+      );
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      await tester.tap(photoThumbnail(_takenAt));
+      await letFramesRun(tester);
+      final release = Completer<void>();
+      backend.holds[TripRoute.photos] = release.future;
+      await tester.tap(find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+      await letFramesRun(tester);
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('削除')));
+      await letFramesRun(tester);
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(AlertDialog), findsNothing);
+      release.complete();
+      await letFramesRun(tester);
     });
 
     testWidgets('受け付けられなかったら、ダイアログに留まって理由を出す', (tester) async {
