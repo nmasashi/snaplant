@@ -139,6 +139,13 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     }
   );
 
+  it('Cosmos の設定が空白だけでも、無いのと同じに止まる', async () => {
+    // local.settings.json の値を空のまま残したとき
+    process.env.COSMOS_DB_DATABASE = '  ';
+
+    await expect(enqueueUnidentifiedPhotos({ apply: false, log })).rejects.toThrow('COSMOS_DB_DATABASE');
+  });
+
   it('読んだ後に消された写真は飛ばして、ほかの写真は書く', async () => {
     // 消された写真への patch は 404。止めずに次の写真へ進む（04 §7.1）
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a')));

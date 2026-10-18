@@ -1,4 +1,4 @@
-import { catalogEntryOf, pageOfCatalogNames } from '../../src/services/catalogEntries';
+import { catalogEntryOf, catalogPageOf, pageOfCatalogNames } from '../../src/services/catalogEntries';
 import { CatalogHeadPhoto } from '../../src/services/catalogQueries';
 
 // 入口（GET /api/catalog/entries）から入力を作れないので、ここで確かめる（CLAUDE.md の名簿）。
@@ -22,11 +22,6 @@ describe('pageOfCatalogNames', () => {
       ],
       total: 4
     });
-  });
-
-  it('先頭から切れば最初の項目から、最後のページは残りだけ', () => {
-    expect(pageOfCatalogNames(rows, 0, 3).page.map((row) => row.name)).toEqual(['アジサイ', 'イチョウ', 'ソメイヨシノ']);
-    expect(pageOfCatalogNames(rows, 3, 3).page.map((row) => row.name)).toEqual(['ヤマザクラ']);
   });
 
   it('offset が項目の数を超えれば、空のページで総数はそのまま', () => {
@@ -80,9 +75,78 @@ describe('catalogEntryOf', () => {
 
     expect(entry?.coverThumbnailUrl).toBe(`https://test.blob.core.windows.net/photos/${'a'.repeat(64)}.jpg?sas`);
   });
+});
 
-  it('数えてから見出しを読むまでにその名前の写真が無くなっていたら（見出しが無い）、項目にしない', () => {
-    // 消された・やり直しで名前が変わった直後（05 §5.14）。total は数えたときのまま
-    expect(catalogEntryOf('plant', { name: 'ソメイヨシノ', photoCount: 3 }, null, coverUrlOf)).toBeNull();
+describe('catalogPageOf', () => {
+  /** 名前ごとに信頼度と Blob 名を変えた見出しの写真（取り違えを見分けるため） */
+  const headFor = (name: string, confidence: number, head: string): CatalogHeadPhoto => ({
+    id: head.repeat(64),
+    blobName: `${head.repeat(64)}.jpg`,
+    thumbnailBlobName: `${head.repeat(64)}.thumb.jpg`,
+    identification: {
+      kind: 'food',
+      matchesKind: true,
+      name,
+      confidence,
+      description: `${name}の説明`,
+      characteristics: `${name}の特徴`,
+      attributes: { genre: 'ラーメン', mainIngredients: ['中華麺'] },
+      reason: null,
+      model: 'gpt-6-luna',
+      at: '2026-10-18T09:40:00.000Z'
+    }
+  });
+  const heads = new Map<string, CatalogHeadPhoto | null>([
+    ['塩ラーメン', headFor('塩ラーメン', 70, 'a')],
+    ['醤油ラーメン', headFor('醤油ラーメン', 80, 'b')],
+    ['味噌ラーメン', headFor('味噌ラーメン', 90, 'c')],
+    ['豚骨ラーメン', headFor('豚骨ラーメン', 60, 'd')]
+  ]);
+  const headOf = async (name: string) => heads.get(name) ?? null;
+  const coverUrlOf = (blobName: string) => `https://test.blob.core.windows.net/photos/${blobName}?sas`;
+  // 文字列の符号単位の順は、味噌（U+5473）・塩（U+5869）・豚骨（U+8C5A）・醤油（U+91A4）
+  const rows = [
+    { name: '醤油ラーメン', photoCount: 2 },
+    { name: '塩ラーメン', photoCount: 1 },
+    { name: '豚骨ラーメン', photoCount: 4 },
+    { name: '味噌ラーメン', photoCount: 3 }
+  ];
+
+  it('ページの項目ごとに、その名前の見出しの写真から項目を作る（種類は渡したもの）', async () => {
+    const result = await catalogPageOf('food', rows, 1, 2, headOf, coverUrlOf);
+
+    expect(result.total).toBe(4);
+    expect(result.entries.map(({ kind, name, confidence, photoCount, coverThumbnailUrl }) => ({
+      kind,
+      name,
+      confidence,
+      photoCount,
+      coverThumbnailUrl
+    }))).toEqual([
+      {
+        kind: 'food',
+        name: '塩ラーメン',
+        confidence: 70,
+        photoCount: 1,
+        coverThumbnailUrl: `https://test.blob.core.windows.net/photos/${'a'.repeat(64)}.thumb.jpg?sas`
+      },
+      {
+        kind: 'food',
+        name: '豚骨ラーメン',
+        confidence: 60,
+        photoCount: 4,
+        coverThumbnailUrl: `https://test.blob.core.windows.net/photos/${'d'.repeat(64)}.thumb.jpg?sas`
+      }
+    ]);
+  });
+
+  it('数えてから見出しを読むまでにその名前の写真が無くなっていたら（見出しが無い）、その項目を外し、総数はそのまま', async () => {
+    // 消された・やり直しで名前が変わった直後（05 §5.14）。次に開けば数え直される
+    const withoutShio = async (name: string) => (name === '塩ラーメン' ? null : headOf(name));
+
+    const result = await catalogPageOf('food', rows, 0, 3, withoutShio, coverUrlOf);
+
+    expect(result.total).toBe(4);
+    expect(result.entries.map((entry) => entry.name)).toEqual(['味噌ラーメン', '豚骨ラーメン']);
   });
 });

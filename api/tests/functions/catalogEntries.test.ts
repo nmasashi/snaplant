@@ -79,6 +79,7 @@ describe('図鑑の項目の一覧API', () => {
       ['limit が 0', { kind: 'plant', limit: '0' }, 'ページの指定が無効です'],
       ['limit が上限の 100 を超える', { kind: 'plant', limit: '101' }, 'ページの指定が無効です'],
       ['limit が数でない', { kind: 'plant', limit: 'ten' }, 'ページの指定が無効です'],
+      ['limit が整数でない', { kind: 'plant', limit: '1.5' }, 'ページの指定が無効です'],
       ['limit が空', { kind: 'plant', limit: '' }, 'ページの指定が無効です'],
       // 検証の順: 種類 → ページ
       ['種類もページも不正（種類の指摘が先）', { kind: 'other', limit: '0' }, '図鑑の種類が無効です']
