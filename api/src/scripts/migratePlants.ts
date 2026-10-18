@@ -42,6 +42,8 @@ export async function migratePlants(options: {
   const now = new Date().toISOString();
   const skipped: SkippedPlant[] = [];
   let migrated = 0;
+  // 読むだけの実行で移すと数えた写真の id。写真を作らないので、同じ画像の2つ目の植物を --apply と同じく先にあるとして飛ばすために覚える
+  const countedPhotoIds = new Set<string>();
   options.log(`植物図鑑の記録: ${plants.length} 件`);
 
   for (const plant of plants) {
@@ -65,12 +67,13 @@ export async function migratePlants(options: {
       continue;
     }
     const photoId = sha256(image.data);
-    if (await album.getPhoto(photoId)) {
+    if (countedPhotoIds.has(photoId) || (await album.getPhoto(photoId))) {
       skip(`同じ写真が先にある（写真 ID=${photoId}）`);
       continue;
     }
     if (!options.apply) {
       // 読むだけなら、移す植物として数えるだけ
+      countedPhotoIds.add(photoId);
       migrated += 1;
       continue;
     }
