@@ -511,14 +511,19 @@ class ApiService {
   }
 
   /// 写真の一覧の1ページ取得（撮影日時順）
-  /// GET /api/photos?tripId=<旅行 id か none>&continuationToken=<前のページのトークン>
+  /// GET /api/photos?tripId=<旅行 id か none>&category=<カテゴリ>&continuationToken=<前のページのトークン>
   ///
   /// 続きがあるかは枚数ではなく、返る継続トークンが null かどうかで判断する（最後のページが空のこともある）
-  Future<PhotoPage> getPhotos(String tripId,
-      {String? continuationToken}) async {
+  Future<PhotoPage> getPhotos(
+      {String? tripId, String? category, String? continuationToken}) async {
+    // どちらも無い要求はサーバが 400 で断る（絞り込み条件が無い）。呼び出しの誤りなので、デバッグ版では送る前に止める
+    // （リリース版では assert が外れ、サーバの 400 が読み込みの失敗として出る）
+    assert(tripId != null || category != null, 'tripId か category のどちらかを指定する');
     try {
+      // 旅行（tripId。旅行に属さない写真は none）とカテゴリのどちらか（両方なら AND）で絞る。旅行を指定しなければ旅行をまたぐ
       final query = {
-        'tripId': tripId,
+        if (tripId != null) 'tripId': tripId,
+        if (category != null) 'category': category,
         if (continuationToken != null) 'continuationToken': continuationToken,
       };
       final url = _buildUrl('/api/photos?${Uri(queryParameters: query).query}');

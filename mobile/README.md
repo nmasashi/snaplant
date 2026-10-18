@@ -53,12 +53,13 @@ flutter build apk --release
 | `screens/photo_viewer_screen_test.dart` | 写真ビューア（旅行詳細・旅行に属さない写真から開く。スワイプ、位置情報の表示、続きのページ、表示の切り替え、削除、戻ったときの読み直し）（旅行アルバム）。スワイプは画面の幅より短く払う（`_swipe`。幅を超えて引くと2枚分進む） |
 | `screens/pending_photo_tiles_test.dart` | 送信中・失敗の写真をグリッドの後ろに端末の画像で並べること（旅行詳細・旅行に属さない写真。宛先、一区切りまでの扱い、0枚の旅行、続きのページ）（旅行アルバム）。サーバの写真の画像を出したまま送信の実時間を進めるので、`path_provider` をファイル全体で1回だけ差し替え、各テストの終わりに画像のキャッシュの掃除のタイマー（10 秒）を過ぎるまで進める |
 | `screens/photo_classification_test.dart` | 写真の分類の表示（ビューアのカテゴリと状態、サムネイルの印と読み上げ）と、解析のやり直し（ダイアログの事前入力・空白だけの手がかり・キャンセル・失敗・受け付けた後のビューアと一覧の表示）（旅行アルバム。段階3） |
+| `screens/category_filter_test.dart` | カテゴリでの絞り込み（旅行詳細のチップ・0枚の案内・見出しの枚数・開き直すと「すべて」・選択モードの間はチップを出さない、旅行一覧の「カテゴリ」から開くカテゴリの一覧と、旅行をまたぐカテゴリの写真の画面（0枚の案内・「写真を追加」が無い・複数選択は削除だけ））（旅行アルバム。段階3） |
 | `screens/photo_thumbnail_test.dart` | 写真のサムネイルの画像を読み込めないときの表示（画像の取得まで実時間で待つので、他の画面のテストと分けている） |
 | `screens/plant_detail_screen_test.dart` | 保存日時を端末の時刻で表示すること |
 | `helpers/app_test_helpers.dart` | （テストではない）アプリ全体を開く `openApp`・セキュアストレージの偽物・ホストとキーを見分ける偽のサーバ `plantServer`・設定のリセットの手順 |
 | `helpers/gallery_test_helpers.dart` | （テストではない）OS のギャラリーの偽物 `FakeMultiGallery`（`pickMultiImage`。返すのを止める `hold`、開かれた回数 `openCount`）・テストの画像を書き出す `writeTestImage`・1x1 の PNG とその SHA-256・EXIF（撮影日時・GPS）付きの JPEG を組み立てる `exifJpegBytes` |
 | `helpers/image_compress_test_helpers.dart` | （テストではない）画像の圧縮の偽物 `FakeImageCompress`（`FlutterImageCompressPlatform.instance` を差し替える。Android の縮め方を再現し、EXIF の回転は再現しない）と、寸法を指定した PNG `pngBytesOfSize` |
 | `helpers/geocoding_test_helpers.dart` | （テストではない）端末の Geocoder の偽物 `FakeGeocoding`（`GeocodingPlatformFactory.instance` を差し替える。引いた座標を `lookups` に残し、失敗・応答なしも作れる） |
-| `helpers/trip_test_helpers.dart` | （テストではない）旅行の API の偽のサーバ `FakeTripBackend`（旅行を1つのリストで持ち、別の端末での変化はテストが書き換えて表す。1回だけの失敗は `failNext`、応答の保留は `holds`（放した時点の状態で中身が決まる）と `holdNextReply`（届いた時点で決まる）。写真の移動 `POST /api/photos/move` は本物と同じく 200 件の上限・空の配列・`tripId` のキーの省略を 400 で断り、写真の削除は無い写真に 404 `PHOTO_NOT_FOUND` を返す。解析のやり直し `POST /api/photos/{photoId}/process` は写真を分類の待ち（`pending`）にして手がかりを `hint` に書き、コメントを消して 202 を返す（`step` と手がかりの検証、無い写真の 404 も本物と同じ）。写真の一覧の続きは、最後に返した写真の後から） |
+| `helpers/trip_test_helpers.dart` | （テストではない）旅行の API の偽のサーバ `FakeTripBackend`（旅行を1つのリストで持ち、別の端末での変化はテストが書き換えて表す。1回だけの失敗は `failNext`、応答の保留は `holds`（放した時点の状態で中身が決まる）と `holdNextReply`（届いた時点で決まる）。写真の移動 `POST /api/photos/move` は本物と同じく 200 件の上限・空の配列・`tripId` のキーの省略を 400 で断り、写真の削除は無い写真に 404 `PHOTO_NOT_FOUND` を返す。解析のやり直し `POST /api/photos/{photoId}/process` は写真を分類の待ち（`pending`）にして手がかりを `hint` に書き、コメントを消して 202 を返す（`step` と手がかりの検証、無い写真の 404 も本物と同じ）。写真の一覧 `GET /api/photos` は `tripId` に加えて `category` でも絞り、`tripId` が無ければ旅行をまたいで `sortAt` の順に返す（どちらも無い・定義表に無いカテゴリは本物と同じ 400）。写真の一覧の続きは、最後に返した写真の後から） |
 
 テストの原則は `.claude/test-principles.md`。テスト環境で踏みやすい点（画面の大きさ、実時間とフェイクの時間、`path_provider` など）は、各テストファイルのコメントと `CLAUDE.md` の mobile の節にある。

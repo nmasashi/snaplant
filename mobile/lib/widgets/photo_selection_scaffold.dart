@@ -9,8 +9,8 @@ import 'trip_picker_dialog.dart';
 
 /// 写真のグリッドを持つ画面の骨組み。複数選択のモード（docs/travel-album/03_screen_design.md §4.8）を受け持つ
 ///
-/// 選択モード中は、見出しを選んだ枚数に、下に操作バー（旅行に入れる・旅行から外す・削除）を出し、
-/// 端末の戻る操作では画面を閉じずに選択モードを抜ける。旅行詳細と旅行に属さない写真の画面が使う
+/// 選択モード中は、見出しを選んだ枚数に、下に操作バー（旅行に入れる・旅行から外す・削除。[allowMove] が false なら削除だけ）を出し、
+/// 端末の戻る操作では画面を閉じずに選択モードを抜ける。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面が使う
 class PhotoSelectionScaffold extends StatelessWidget {
   const PhotoSelectionScaffold(
       {super.key,
@@ -20,10 +20,14 @@ class PhotoSelectionScaffold extends StatelessWidget {
       required this.appBar,
       required this.body,
       required this.onPhotosChanged,
-      this.floatingActionButton});
+      this.floatingActionButton,
+      this.allowMove = true});
 
   final ApiService apiService;
   final PhotoSelection selection;
+
+  /// 旅行への出し入れ（「旅行に入れる」「旅行から外す」）を出すか。カテゴリの写真の画面は「削除」だけにする（§5.2）
+  final bool allowMove;
 
   /// 今いる旅行の id。旅行に属さない写真の画面なら null（「旅行から外す」を出さず、入れる先にすべての旅行を出す）
   final String? currentTripId;
@@ -96,11 +100,12 @@ class PhotoSelectionScaffold extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          TextButton.icon(
-              onPressed: enabled ? () => _moveToTrip(context) : null,
-              icon: const Icon(Icons.drive_file_move_outline),
-              label: const Text('旅行に入れる')),
-          if (currentTripId != null)
+          if (allowMove)
+            TextButton.icon(
+                onPressed: enabled ? () => _moveToTrip(context) : null,
+                icon: const Icon(Icons.drive_file_move_outline),
+                label: const Text('旅行に入れる')),
+          if (allowMove && currentTripId != null)
             TextButton.icon(
                 onPressed: enabled ? () => _removeFromTrip(context) : null,
                 icon: const Icon(Icons.remove_circle_outline),

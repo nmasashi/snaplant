@@ -16,27 +16,35 @@ import 'photo_selection.dart';
 
 /// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
 ///
-/// 写真の一覧を自分で読む。旅行詳細と旅行に属さない写真の画面で使う
+/// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面（旅行をまたぐ）で使う
 class PhotoGrid extends StatefulWidget {
   const PhotoGrid(
       {super.key,
       required this.apiService,
       required this.tripId,
+      this.category,
       required this.emptyTitle,
-      required this.emptyMessage,
+      this.emptyMessage,
       required this.selection,
       this.onTripNotFound,
       this.onViewerClosed,
-      required this.uploadQueue});
+      required this.uploadQueue,
+      this.hasFloatingButton = true})
+      // 旅行もカテゴリも無い一覧はサーバが 400 で断る。置く画面の誤りなので、組み立てたところで止める
+      : assert(tripId != null || category != null,
+            'tripId か category のどちらかを指定する');
 
   final ApiService apiService;
 
-  /// 旅行の id。旅行に属さない写真なら `none`
-  final String tripId;
+  /// 旅行の id。旅行に属さない写真なら `none`、旅行をまたぐ（カテゴリの写真の画面）なら null
+  final String? tripId;
 
-  /// 写真が0枚のときの案内（画面ごとに文言が違う）
+  /// カテゴリ（`plant` / `food` / `landscape` / `other`）で絞るならそのキー。絞らないなら null
+  final String? category;
+
+  /// 写真が0枚のときの案内（画面ごとに文言が違う）。[emptyMessage] は無ければ出さない
   final String emptyTitle;
-  final String emptyMessage;
+  final String? emptyMessage;
 
   /// 写真の一覧が 404 `TRIP_NOT_FOUND`（別の端末で旅行が消された）と分かったときに呼ぶ。
   /// 画面全体を「この旅行は削除されています」にするのは画面の役目なので、グリッドは失敗として出さずに知らせるだけにする。
@@ -48,6 +56,9 @@ class PhotoGrid extends StatefulWidget {
 
   /// 写真の送信の列。この一覧の宛先に送っている写真を、サーバの写真の後ろに端末の画像で並べる
   final UploadQueue uploadQueue;
+
+  /// 画面の右下に「写真を追加」が浮かぶか。浮かぶなら、一覧と末尾の表示をその分だけ上に空ける（カテゴリの写真の画面には無い）
+  final bool hasFloatingButton;
 
   /// 複数選択（長押しで始める）
   final PhotoSelection selection;
@@ -90,12 +101,15 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
   List<UploadItem> get _pendingItems {
-    final tripId = widget.tripId == 'none' ? null : widget.tripId;
+    // 送信中の写真はまだ分類されていないので、カテゴリで絞っているときは並べない（§5.3）
+    if (widget.category != null) return const [];
     // 一覧を読み直して既にサーバの写真として並んでいるもの（送れた写真）は、端末の画像では並べない（二重にしない）
     final loadedIds = {for (final photo in _photos ?? const <Photo>[]) photo.id};
     return [
       for (final item in widget.uploadQueue.items)
-        if (item.tripId == tripId &&
+        // 旅行を指定せずに送ったものは none の一覧の宛先。項目の側を none に読み替えるので、
+        // 旅行をまたぐ一覧（tripId が null）の宛先になる項目は無い
+        if ((item.tripId ?? 'none') == widget.tripId &&
             !loadedIds.contains(item.photoId) &&
             !widget.uploadQueue.hasLanded(item))
           item
@@ -151,7 +165,8 @@ class _PhotoGridState extends State<PhotoGrid> {
       _errorMessage = null;
     });
     try {
-      final page = await widget.apiService.getPhotos(widget.tripId);
+      final page = await widget.apiService
+          .getPhotos(tripId: widget.tripId, category: widget.category);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
@@ -183,7 +198,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
-      final page = await widget.apiService.getPhotos(widget.tripId);
+      final page = await widget.apiService
+          .getPhotos(tripId: widget.tripId, category: widget.category);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
@@ -202,8 +218,10 @@ class _PhotoGridState extends State<PhotoGrid> {
     final generation = _generation;
     setState(() => _isLoadingMore = true);
     try {
-      final page = await widget.apiService
-          .getPhotos(widget.tripId, continuationToken: token);
+      final page = await widget.apiService.getPhotos(
+          tripId: widget.tripId,
+          category: widget.category,
+          continuationToken: token);
       if (!mounted || generation != _generation) return;
       setState(() {
         _photos = [...?_photos, ...page.photos];
@@ -236,6 +254,10 @@ class _PhotoGridState extends State<PhotoGrid> {
     });
     _loadMore();
   }
+
+  /// 一覧と末尾の表示の下に空ける高さ（「写真を追加」が浮かぶ画面だけボタンの分を空ける）
+  double get _bottomClearance =>
+      widget.hasFloatingButton ? _floatingButtonClearance : 2;
 
   /// 写真ビューアで消した写真を、読み込み済みの写真から除く
   void _removeLoaded(String photoId) {
@@ -350,11 +372,13 @@ class _PhotoGridState extends State<PhotoGrid> {
               Text(widget.emptyTitle,
                   style: AppTextStyles.headline2
                       .copyWith(color: AppColors.textSecondary)),
-              const SizedBox(height: 12),
-              Text(widget.emptyMessage,
-                  style: AppTextStyles.body1
-                      .copyWith(color: AppColors.textSecondary),
-                  textAlign: TextAlign.center),
+              if (widget.emptyMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(widget.emptyMessage!,
+                    style: AppTextStyles.body1
+                        .copyWith(color: AppColors.textSecondary),
+                    textAlign: TextAlign.center),
+              ],
             ],
           ),
         ),
@@ -371,7 +395,7 @@ class _PhotoGridState extends State<PhotoGrid> {
               // 写真が少なく画面に収まっていても、下に引っ張って読み直せるように
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.fromLTRB(
-                  2, 2, 2, hasFooter ? 2 : _floatingButtonClearance),
+                  2, 2, 2, hasFooter ? 2 : _bottomClearance),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 mainAxisSpacing: 2,
@@ -436,7 +460,7 @@ class _PhotoGridState extends State<PhotoGrid> {
               ],
             ),
           ),
-        if (hasFooter) const SizedBox(height: _floatingButtonClearance),
+        if (hasFooter) SizedBox(height: _bottomClearance),
       ],
     );
   }
