@@ -242,11 +242,11 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 
 ### 6.1 api の環境変数
 
-`positiveIntFromEnv()` で読むものは、正の整数として読めない値なら既定値にフォールバックする（CLAUDE.md「バリデーション定数」）。
+`positiveIntFromEnv()` で読むものは、正の整数として読めない値なら既定値にフォールバックする（CLAUDE.md「入力検証」）。
 
 | 名前 | 既定値 | 意味 | どこで使うか | 段階 |
 |---|---|---|---|---|
-| `COSMOS_DB_ALBUM_CONTAINER` | （必須。Terraform が `album` を入れる） | 旅行・写真のコンテナ名 | `AlbumService` | 2 |
+| `COSMOS_DB_ALBUM_CONTAINER` | （必須。Terraform が `album` を入れる） | 旅行・写真のコンテナ名。これと `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE` のどれかが無い（空白だけを含む）と、`AlbumService` は足りない設定の名前を言って止まる（4-2a） | `AlbumService` | 2 |
 | `PHOTO_STORAGE_CONTAINER_NAME` | （必須。コードにフォールバックは無い。Terraform が `photos` を入れる） | 写真の Blob コンテナ名 | `PhotoStorageService` | 2 |
 | `PHOTO_SAS_EXPIRY_MINUTES` | `60` | 写真の表示用 SAS の有効期限（分）。定数にせず、応答を作るたびに `positiveIntFromEnv()` で読む（読めない値・0・負なら 60）。旅行の表紙の URL も同じ期限 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
 | `TRIP_NAME_MAX_LENGTH` | `100` | 旅行名の上限（文字） | `POST` / `PUT /api/trips` | 2 |
