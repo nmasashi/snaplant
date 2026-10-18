@@ -359,9 +359,9 @@ void main() {
 
     // 写真の1行（3列のマス）が収まる高さがある
     expect(tester.getSize(find.byType(GridView)).height, greaterThan(360 / 3));
-    // 写真のマスが画面の中に収まっている
+    // 写真のマスがグリッドの見える範囲に収まっている
     expect(tester.getRect(photoThumbnail(_label('10:00'))).bottom,
-        lessThanOrEqualTo(640));
+        lessThanOrEqualTo(tester.getRect(find.byType(GridView)).bottom));
     semantics.dispose();
   });
 
