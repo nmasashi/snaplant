@@ -1,9 +1,6 @@
-import { CATALOG_KINDS, OTHER_KIND, PhotoKind } from '../catalog/kinds';
+import { CATALOG_KINDS, PHOTO_KINDS, PhotoKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
-
-/** 分類 AI が選べる種類 */
-const CLASSIFICATION_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OTHER_KIND];
 
 /** 選択肢のキーの意味（例: `plant（植物）・food（食べ物）`）。キーだけでは AI が種類の境目を判断できないので、定義表の名前を添える */
 const KIND_LABELS = Object.entries(CATALOG_KINDS)
@@ -21,7 +18,7 @@ const PHOTO_CLASSIFICATION_SCHEMA = {
   properties: {
     kind: {
       type: 'string',
-      enum: CLASSIFICATION_KINDS,
+      enum: PHOTO_KINDS,
       description: `写真の主題のカテゴリ。${KIND_LABELS} のどれでもなければ other`,
     },
     confidence: { type: 'number', description: '分類の信頼度（0-100）' },
@@ -58,13 +55,19 @@ export class PhotoClassifierService {
    * 写真を分類する
    *
    * @param imageUrl 原寸の Blob の読み取り SAS 付き URL
-   * @param placeName 撮影地（あれば手がかりとして AI に渡す）
+   * @param clues 手がかり。撮影地（placeName）と、やり直しで利用者が書いた手がかり（hint）。あれば AI に渡す
    */
-  async classify(imageUrl: string, placeName: string | null): Promise<PhotoClassification> {
-    const placeSection = placeName ? `\n撮影地: ${placeName}（手がかりとして使ってください）\n` : '';
+  async classify(
+    imageUrl: string,
+    clues: { placeName: string | null; hint: string | null }
+  ): Promise<PhotoClassification> {
+    const clueSection =
+      (clues.hint ? `\n利用者からの手がかり: ${clues.hint}` : '') +
+      (clues.placeName ? `\n撮影地: ${clues.placeName}（手がかりとして使ってください）` : '') +
+      (clues.hint || clues.placeName ? '\n' : '');
     const prompt = `
 この写真の主題を、${KIND_LABELS} から1つ選んでください。
-${placeSection}
+${clueSection}
 人や動物、建物の内装など、当てはまるものが無ければ other を選んでください。
 `;
 
@@ -78,7 +81,7 @@ ${placeSection}
 
       // strict のスキーマでも、範囲は強制できず、選択肢の外の値が来ないことも検査しないと保証できない。
       // 検査を通らない応答を書き込むと、写真の category が図鑑の種類と食い違う
-      if (typeof result.kind !== 'string' || !CLASSIFICATION_KINDS.includes(result.kind)) {
+      if (typeof result.kind !== 'string' || !PHOTO_KINDS.includes(result.kind)) {
         throw new Error('kindが選択肢にありません');
       }
       if (typeof result.confidence !== 'number' || result.confidence < 0 || result.confidence > 100) {

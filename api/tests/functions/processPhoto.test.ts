@@ -193,6 +193,16 @@ describe('写真の解析のワーカー', () => {
       expect(url.searchParams.get('se')).toBe('2026-10-18T03:15:00Z');
     });
 
+    it('やり直しの手がかり（hint）があれば、AIに渡す', async () => {
+      // やり直しの受付（POST /api/photos/{photoId}/process）が写真に書いたもの。メッセージには載せず、写真から読む
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ hint: '屋台のラーメン' }));
+
+      await runWorker();
+
+      const text = sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
+      expect(text).toContain('屋台のラーメン');
+    });
+
     it('撮影地があれば、手がかりとしてAIに渡す', async () => {
       cosmosBackend.documents.set(
         PHOTO_ID,
@@ -393,6 +403,27 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(claimedByOther);
     });
 
+    it('読んだ後・担当する前にやり直しの受付が入ったら（state・処理・回数が同じに戻る）、担当せず、新しい手がかりを捨てない', async () => {
+      // 送った直後の写真（回数 0）を読んだ後に、利用者が手がかり付きでやり直しを頼むと、state・step・回数は同じ値に戻る。
+      // 担当すると読んだ古い写真（手がかり無し）で分類して済みにし、やり直しのメッセージは担当できずに捨てられる
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const redo = pendingPhoto({
+        hint: '富士山',
+        comment: null,
+        commentSource: null,
+        processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:59.000Z' }
+      });
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = undefined;
+        cosmosBackend.documents.set(PHOTO_ID, redo);
+      };
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto()).toEqual(redo);
+    });
+
     it('読んだ後・担当する前に写真が消されたら、AIを呼ばずに何もせず終える', async () => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
       cosmosBackend.beforePatch = () => {
@@ -542,6 +573,74 @@ describe('写真の解析のワーカー', () => {
   });
 
   describe('解析中に利用者が写真を変えたとき', () => {
+    // やり直しの受付が写真に書く形（05 §5.7）。回数を 0 に戻し、分類の待ちにする
+    const redoRequested = () =>
+      pendingPhoto({
+        hint: '屋台のラーメン',
+        comment: null,
+        commentSource: null,
+        processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-18T03:00:00.000Z' }
+      });
+
+    it('分類の間にやり直しの受付が入ったら、古い分類の結果を書かず、やり直しを残す', async () => {
+      // 古い処理の結果でやり直しを上書きすると、やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      reply = async () => {
+        cosmosBackend.documents.set(PHOTO_ID, redoRequested());
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto()).toEqual(redoRequested());
+    });
+
+    it('分類の間にやり直しが受け付けられ、別のインスタンスが担当し直していたら（回数が同じ）、古い分類の結果を書かない', async () => {
+      // やり直しで回数が 0 に戻り、新しい担当でまた 1 になる。state と回数だけでは古い担当と見分けられない
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      const reclaimed = pendingPhoto({
+        hint: '富士山',
+        comment: null,
+        commentSource: null,
+        processing: { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T03:00:30.000Z' }
+      });
+      reply = async () => {
+        cosmosBackend.documents.set(PHOTO_ID, reclaimed);
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto()).toEqual(reclaimed);
+    });
+
+    it('分類の間に写真が消されたら、何も書かず、例外も投げない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      reply = async () => {
+        cosmosBackend.documents.delete(PHOTO_ID);
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(cosmosBackend.documents.size).toBe(0);
+    });
+
+    it('分類の間にやり直しの受付が入ったら、古い分類の失敗も書かず、例外も投げない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+      reply = async () => {
+        cosmosBackend.documents.set(PHOTO_ID, redoRequested());
+        throw Object.assign(new Error('500 The server had an error while processing your request.'), {
+          name: 'InternalServerError',
+          status: 500
+        });
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedPhoto()).toEqual(redoRequested());
+    });
+
     it('担当の後、結果を書く前に利用者がタグと旅行を変えても、結果を書いた後に残る', async () => {
       // ロックは置かず、AI は自分の欄だけを書く（04 §7.4）。解析中でも利用者は写真を編集できる
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());

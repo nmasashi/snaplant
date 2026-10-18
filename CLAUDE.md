@@ -102,7 +102,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 
 ### 関数の登録
 
-- **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)`（キューのワーカーは `app.storageQueue(...)`）で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる（ワーカーならメッセージが誰にも拾われずに溜まる）
+- **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)`（キューのワーカーは `app.storageQueue(...)`、タイマーは `app.timer(...)`）で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる（ワーカーならメッセージが誰にも拾われずに溜まる）
 - `plants/{id}` は `plantDetail.ts`（GET・DELETE）と `updatePlant.ts`（PUT）の2ファイルが別々に登録している。片方だけ見て全体を判断しない
 - `photos/move` は `photos/{photoId}` と同じ階層のリテラルのルート（`photoMove.ts`）。デプロイ後に `{photoId}` に取られていないことを確かめる
 - 呼び出しに要る `?code=` は、Flutter の `ApiService._buildUrl()` が付ける
@@ -703,7 +703,7 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 
 SQL の絞り込み・並び順・射影を検証しているテストは無い（偽物は SQL を解釈せず、エミュレータも E2E も無い）。
 `cosmosService.ts` や `albumQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
-項目は `docs/06_api_design.md` §8（植物図鑑）と `docs/travel-album/08_test_plan.md` §5.2（旅行アルバム）。
+項目は `docs/06_api_design.md` §8（植物図鑑）と `docs/travel-album/08_test_plan.md` §5.2・§5.3（旅行アルバム。§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件）。
 
 ### クライアント実装で踏みやすい罠
 

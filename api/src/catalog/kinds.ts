@@ -41,3 +41,6 @@ export const OTHER_KIND = 'other';
 
 /** 分類 AI が選ぶ種類（写真の `category` に入る値） */
 export type PhotoKind = CatalogKind | typeof OTHER_KIND;
+
+/** 写真の `category` に入りうる値の一覧（定義表の種類と other） */
+export const PHOTO_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OTHER_KIND];

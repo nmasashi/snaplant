@@ -26,6 +26,11 @@ export interface BlobEntry {
   /** この Blob への操作を失敗させる（取得・削除の失敗経路の検証用） */
   failWith?: Error;
   /**
+   * 一覧（listBlobsFlat）が返す最終更新の時刻。省略すると一覧を取った時点（新しい Blob）として返す。
+   * アップロードでは付けない（既存のテストの store の比較に影響させない）
+   */
+  lastModified?: Date;
+  /**
    * ダウンロードは成功するが、ストリームの読み出し中に失敗させる。
    * 「レスポンスが返った後に壊れる」経路は failWith では再現できない
    */
@@ -139,7 +144,19 @@ export function createFakeBlockBlobClient(
 export function createFakeBlobServiceClient(backend: FakeBlobBackend): BlobServiceClient {
   return {
     getContainerClient: (containerName: string) => ({
-      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName)
+      getBlockBlobClient: (blobName: string) => createFakeBlockBlobClient(backend, containerName, blobName),
+      // 実 SDK と同じく、そのコンテナの Blob の名前と最終更新の時刻を順に返す（ページは分けない）
+      listBlobsFlat: () =>
+        (async function* () {
+          for (const [key, entry] of [...backend.store]) {
+            if (key.startsWith(`${containerName}/`)) {
+              yield {
+                name: key.slice(containerName.length + 1),
+                properties: { lastModified: entry.lastModified ?? new Date() }
+              };
+            }
+          }
+        })()
     })
   } as unknown as BlobServiceClient;
 }

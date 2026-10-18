@@ -54,3 +54,19 @@ export function photoProcessingMaxAttempts(): number {
  * AI が画像を取りに来るまでの間だけ開ける（一時画像と同じ理由。docs/travel-album/06_processing_design.md §2.1）
  */
 export const CLASSIFY_IMAGE_SAS_MINUTES = 15;
+
+/**
+ * 解析待ち・処理中のまま止まった写真を、再投入のタイマーが拾うまでの時間（分）
+ *
+ * キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの 1 回の処理（5 分以内）より長くとる。
+ * 短いと、キューに残っているだけの写真まで積み直して、メッセージが増える（06 §1.1）
+ */
+export const PHOTO_REQUEUE_AFTER_MINUTES = 10;
+
+/**
+ * 掃除のタイマーが、写真の文書の無い Blob を消すまでの時間（時間）
+ *
+ * 新しい Blob は送信の途中（Blob を書いた後、文書を作る前）かもしれないので消さない。
+ * 一時画像のライフサイクル管理（最終更新から1日）と同じ根拠（04 §7.2）
+ */
+export const ORPHAN_BLOB_MIN_AGE_HOURS = 24;

@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { PhotoQueueService } from '../services/photoQueueService';
+import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { photoListResponseData, photoResponseData } from '../services/photoView';
 import {
@@ -84,12 +84,7 @@ export async function createPhotoHandler(request: HttpRequest, context: Invocati
     context.log(`写真保存成功: ID=${photo.id}`);
 
     if (created) {
-      try {
-        await new PhotoQueueService().enqueue(photo.id);
-      } catch (error: any) {
-        // 写真は解析待ちのまま残り、再投入のタイマーが拾う。送信は保存できているので失敗にしない
-        context.log(`解析のキューへの投入に失敗しました（タイマーが再投入します）: ID=${photo.id}`, error);
-      }
+      await enqueuePhotoOrLog(photo.id, (...args) => context.log(...args));
     }
 
     return createSuccessResponse(photoResponseData(photo, storage), created ? HttpStatusCode.CREATED : HttpStatusCode.OK);
@@ -114,15 +109,15 @@ export async function listPhotosHandler(request: HttpRequest, context: Invocatio
   if ('error' in validated) {
     return validated.error;
   }
-  const { tripId, limit, continuationToken } = validated.query;
+  const { tripId, category, limit, continuationToken } = validated.query;
   try {
     const album = new AlbumService();
-    if (tripId !== null && !(await album.tripExists(tripId))) {
+    if (typeof tripId === 'string' && !(await album.tripExists(tripId))) {
       return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
     }
     let page;
     try {
-      page = await album.listPhotos(tripId, limit, continuationToken);
+      page = await album.listPhotos({ tripId, category }, limit, continuationToken);
     } catch (error: any) {
       // JSON としては読めるが Cosmos が受け付けない継続トークン（別の絞り込みのものなど）は、サーバが 400 で拒む
       // （推測。実環境で確かめる）。一覧のクエリでトークンを渡したときの 400 だけをトークンの不正とみなす

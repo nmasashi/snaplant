@@ -163,13 +163,14 @@ export class AlbumService {
    *
    * どの旅行にも属さない写真は tripId に null を渡す（c.tripId = null は値が null のものだけに一致し、
    * 項目が無いドキュメントには一致しない。写真は必ず tripId を書くので漏れない）
-   * @param tripId 旅行 ID。どの旅行にも属さない写真なら null
+   * @param filter 絞り込み。tripId は旅行 ID（どの旅行にも属さない写真なら null、旅行で絞らないなら undefined）、
+   *   category はカテゴリ（絞らないなら undefined）。両方あれば AND
    * @param limit 1ページの最大枚数
    * @param continuationToken 前のページの継続トークン。先頭からなら undefined
    * @returns 写真と、次のページの継続トークン（最後のページなら null）
    */
   async listPhotos(
-    tripId: string | null,
+    filter: { tripId: string | null | undefined; category: string | undefined },
     limit: number,
     continuationToken: string | undefined
   ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
@@ -178,10 +179,15 @@ export class AlbumService {
     // enableQueryControl では、結果が揃っていないと空のページをトークン付きで返すので、写真が取れるまで読み進める
     const iterator = this.container.items.query<PhotoDocument>(
       {
-        query: 'SELECT * FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC',
+        query:
+          'SELECT * FROM c WHERE c.type = @type' +
+          (filter.tripId !== undefined ? ' AND c.tripId = @tripId' : '') +
+          (filter.category !== undefined ? ' AND c.category = @category' : '') +
+          ' ORDER BY c.sortAt ASC',
         parameters: [
           { name: '@type', value: 'photo' },
-          { name: '@tripId', value: tripId },
+          ...(filter.tripId !== undefined ? [{ name: '@tripId', value: filter.tripId }] : []),
+          ...(filter.category !== undefined ? [{ name: '@category', value: filter.category }] : []),
         ],
       },
       {
@@ -284,26 +290,152 @@ export class AlbumService {
   }
 
   /**
-   * 写真の解析を担当する（processing を処理中にする）。読んだときのまま分類の待ち（pending）のときだけ書く条件付きの patch
+   * 全写真の id・旅行・原寸の Blob 名だけを読む（掃除のタイマー。04 §5 の 5.9）
    *
-   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。
-   * 回数も条件に入れる。読んでから担当するまでに、別のインスタンスが担当して失敗し分類の待ちに戻していると、
-   * state だけでは見分けられず、回数を数え直して上限で止まらなくなる
-   * @param id 写真 ID
-   * @param step 担当する処理。読んでから担当するまでに別の処理が step を変えていたら担当しない
-   * @param readAttempts 読んだときの失敗の回数（processing.attempts）
-   * @param processing 処理中の processing
-   * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
+   * 全件を読むのはこのタイマーだけ（1日1回。1万枚でも 1 MB 程度の射影）。画面から呼ぶ API には置かない
    */
-  async claimPhotoProcessing(
-    id: string,
-    step: 'classify' | 'identify',
-    readAttempts: number,
-    processing: PhotoProcessing
-  ): Promise<boolean> {
+  async listPhotoRefs(): Promise<{ id: string; tripId: string | null; blobName: string }[]> {
+    const { resources } = await this.container.items
+      .query<{ id: string; tripId: string | null; blobName: string }>({
+        query: 'SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type',
+        parameters: [{ name: '@type', value: 'photo' }],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
+   * 消えた旅行を指す写真を、どの旅行にも属さない写真に戻す（掃除のタイマー）。読んだ旅行のままのときだけ書く条件付きの patch
+   *
+   * 読んだ後に利用者が別の旅行へ移していたら戻さない
+   * @param id 写真 ID
+   * @param missingTripId 読んだときに写真が指していた（消えた）旅行の ID
+   * @returns 戻したら true。旅行が変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async detachPhotoFromMissingTrip(id: string, missingTripId: string): Promise<boolean> {
     try {
       await this.container.item(id, id).patch({
-        condition: `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "${step}" AND c.processing.attempts = ${readAttempts}`,
+        condition: `FROM c WHERE c.tripId = ${sqlString(missingTripId)}`,
+        operations: [
+          { op: 'set', path: '/tripId', value: null },
+          { op: 'set', path: '/updatedAt', value: new Date().toISOString() },
+        ],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 全旅行の id を読む（掃除のタイマー）
+   */
+  async listTripIds(): Promise<string[]> {
+    const { resources } = await this.container.items
+      .query<{ id: string }>({
+        query: 'SELECT c.id FROM c WHERE c.type = @type',
+        parameters: [{ name: '@type', value: 'trip' }],
+      })
+      .fetchAll();
+    return resources.map((trip) => trip.id);
+  }
+
+  /**
+   * 解析待ち・処理中のまま、指定した時刻より前から止まっている写真を読む（再投入のタイマー。04 §5 の 5.8）
+   *
+   * failed と none は含めない（failed を拾うと同じ画像で永遠に失敗し続け、none を拾うと段階2の写真すべてに課金する）
+   * @param before この時刻（ISO）より前に processing が更新された写真を読む
+   */
+  async listStalePhotos(before: string): Promise<{ id: string; processing: PhotoProcessing }[]> {
+    const { resources } = await this.container.items
+      .query<{ id: string; processing: PhotoProcessing }>({
+        query:
+          "SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before",
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@before', value: before },
+        ],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
+   * 止まった写真の processing を書き換える（解析待ちに戻すか、失敗にする）。読んだときのままのときだけ書く条件付きの patch
+   *
+   * 読んでから書くまでにワーカーが担当していたら（state か回数が変わる）書かない
+   * @param id 写真 ID
+   * @param read 読んだときの processing
+   * @param next 書く processing
+   * @returns 書けたら true。読んだときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async resetStalePhotoProcessing(id: string, read: PhotoProcessing, next: PhotoProcessing): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: processingCondition(read),
+        operations: [{ op: 'set', path: '/processing', value: next }],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 写真の解析のやり直しを受け付ける（分類の待ちにし、回数を 0 に戻し、手がかりを書き、コメントを消す）
+   *
+   * コメントは、やり直しの結果で置き換えるために消す（利用者の文は、アプリが手がかりに事前入力してから頼む。
+   * docs/travel-album/05_api_design.md §5.7）。前回の結果の欄（category など）は、やり直しの結果が出るまで残す
+   * @param id 写真 ID
+   * @param step やり直す処理
+   * @param hint 利用者からの手がかり。無ければ null
+   * @param now 受け付けた時刻（ISO）
+   * @returns 更新後の写真のドキュメント。無ければ null
+   */
+  async requestPhotoProcessing(
+    id: string,
+    step: 'classify' | 'identify',
+    hint: string | null,
+    now: string
+  ): Promise<PhotoDocument | null> {
+    try {
+      const { resource } = await this.container.item(id, id).patch<PhotoDocument>([
+        { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
+        { op: 'set', path: '/hint', value: hint },
+        { op: 'set', path: '/comment', value: null },
+        { op: 'set', path: '/commentSource', value: null },
+        { op: 'set', path: '/updatedAt', value: now },
+      ]);
+      return resource ?? null;
+    } catch (error: any) {
+      if (error.code === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 写真の解析を担当する（processing を処理中にする）。processing が expected のままのときだけ書く条件付きの patch
+   *
+   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。
+   * 条件は processingCondition()（state・step・回数・updatedAt）。読んでから担当するまでに、別のインスタンスの担当と失敗や、
+   * やり直しの受付が入っていたら担当しない
+   * @param id 写真 ID
+   * @param expected 担当してよい processing。読んだ値に、担当する state（pending）と step を入れたもの
+   * @param processing 処理中の processing（updatedAt は今。結果を書くときの条件になる）
+   * @returns 担当できたら true。別のインスタンスが先に担当していた（412）か、写真が消えていた（404）なら false
+   */
+  async claimPhotoProcessing(id: string, expected: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: processingCondition(expected),
         operations: [{ op: 'set', path: '/processing', value: processing }],
       });
       return true;
@@ -316,30 +448,61 @@ export class AlbumService {
   }
 
   /**
-   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）
+   * 写真の解析の進み具合だけを書く（失敗したとき。結果の欄には触らない）。担当したときのままのときだけ書く
    * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
    * @param processing 書く processing
+   * @returns 書けたら true。担当したときと変わっていたら false
    */
-  async writeProcessing(id: string, processing: PhotoProcessing): Promise<void> {
-    await this.container.item(id, id).patch([{ op: 'set', path: '/processing', value: processing }]);
+  async writeProcessing(id: string, claimed: PhotoProcessing, processing: PhotoProcessing): Promise<boolean> {
+    return this.patchIfStillClaimed(id, claimed, [{ op: 'set', path: '/processing', value: processing }]);
   }
 
   /**
-   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）
+   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）。担当したときのままのときだけ書く
    * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
    * @param result 書く値
+   * @returns 書けたら true。担当したときと変わっていたら false
    */
   async writeClassification(
     id: string,
+    claimed: PhotoProcessing,
     result: { category: string; classification: unknown; processing: PhotoProcessing; updatedAt: string }
-  ): Promise<void> {
-    await this.container.item(id, id).patch([
+  ): Promise<boolean> {
+    return this.patchIfStillClaimed(id, claimed, [
       { op: 'set', path: '/category', value: result.category },
       { op: 'set', path: '/classification', value: result.classification },
       { op: 'set', path: '/identification', value: null },
       { op: 'set', path: '/processing', value: result.processing },
       { op: 'set', path: '/updatedAt', value: result.updatedAt },
     ]);
+  }
+
+  /**
+   * 担当したときのまま（processing が担当したときに書いたもののまま）のときだけ書く条件付きの patch
+   *
+   * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
+   * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
+   * @returns 書けたら true。担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  private async patchIfStillClaimed(
+    id: string,
+    claimed: PhotoProcessing,
+    operations: { op: 'set'; path: string; value: unknown }[]
+  ): Promise<boolean> {
+    try {
+      await this.container.item(id, id).patch({
+        condition: processingCondition(claimed),
+        operations,
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -486,4 +649,32 @@ function toTrip(doc: TripDocument): Trip {
 function tripsWithPhotos(tripIds: string[], counts: PhotoCountRow[]): string[] {
   const withPhotos = new Set(counts.map((row) => row.tripId));
   return tripIds.filter((id) => withPhotos.has(id));
+}
+
+/**
+ * 写真の processing が、読んだ（または書いた）ときのままのときだけ書く patch の条件
+ *
+ * state・step・回数に加えて processing.updatedAt も見る。やり直しの受付は回数を 0 に戻すので、
+ * state と回数だけでは「やり直しの後に取り直された担当」と古い担当が同じ値に見える（ABA）。
+ * updatedAt は processing を書くたびに今の時刻になるので、担当ごとの印になる
+ * @param expected 読んだ（または書いた）ときの processing
+ */
+function processingCondition(expected: PhotoProcessing): string {
+  // 解析の待ち・処理中の写真は必ず updatedAt を持つ（送信・やり直し・担当・タイマーが今の時刻を書く）。null は段階2の none の写真だけ
+  return (
+    `FROM c WHERE c.processing.state = ${sqlString(expected.state)}` +
+    (expected.step !== null ? ` AND c.processing.step = ${sqlString(expected.step)}` : '') +
+    ` AND c.processing.attempts = ${Number(expected.attempts)}` +
+    (expected.updatedAt !== null ? ` AND c.processing.updatedAt = ${sqlString(expected.updatedAt)}` : '')
+  );
+}
+
+/**
+ * patch の condition に埋める文字列のリテラル
+ *
+ * condition はパラメータを取れないので値を埋め込む。埋める値はどれもサーバが書いた列挙・時刻・UUID だが、
+ * 引用符が混ざっても条件が壊れないよう、JSON の文字列としてエスケープする（Cosmos SQL の文字列リテラルと同じ書き方）
+ */
+function sqlString(value: string): string {
+  return JSON.stringify(value);
 }

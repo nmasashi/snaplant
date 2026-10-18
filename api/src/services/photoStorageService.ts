@@ -45,6 +45,15 @@ export class PhotoStorageService {
   }
 
   /**
+   * コンテナの Blob の名前と最終更新の時刻を順に返す（掃除のタイマー）
+   */
+  async *listBlobs(): AsyncGenerator<{ name: string; lastModified: Date }> {
+    for await (const item of this.containerClient.listBlobsFlat()) {
+      yield { name: item.name, lastModified: item.properties.lastModified };
+    }
+  }
+
+  /**
    * Blob を消す。既に無ければ成功とみなす
    * @param blobName Blob 名
    */
