@@ -197,6 +197,25 @@ void main() {
       expect(find.text('旅行から外す'), findsNothing);
     });
 
+    testWidgets('カテゴリの画面で写真を消してから旅行一覧へ戻ると、旅行の枚数を読み直している', (tester) async {
+      // 旅行詳細・旅行に属さない写真の画面から戻ったときと同じ（消すと旅行の枚数・期間・表紙が変わる）
+      final backend = acrossTrips();
+      await openCategory(tester, backend, '食べ物');
+      await tester.longPress(photoThumbnail(_label('12:00')));
+      await letFramesRun(tester);
+      await tester.tap(find.text('削除'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '削除');
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(find.textContaining('京都 2026冬'), findsOneWidget);
+      expect(find.textContaining('0枚'), findsOneWidget);
+    });
+
     testWidgets('選んだ写真を削除できる', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = acrossTrips();
