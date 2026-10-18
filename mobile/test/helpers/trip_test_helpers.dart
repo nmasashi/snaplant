@@ -884,7 +884,8 @@ Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async 
 }
 
 /// 図鑑の項目（`GET /api/catalog/entries` の1件）。表紙の URL は Blob の場所に署名を付けた形。
-/// 本物の信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）
+/// 本物の信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）。
+/// [description]・[characteristics] を省く（既定の ''）と「{名前}の説明」「{名前}の特徴」になる（空文字の説明は作れない）
 Map<String, Object?> catalogEntryJson(String kind, String name,
         {num confidence = 90, int photoCount = 1, String? description = '', String? characteristics = ''}) => {
       'kind': kind,
