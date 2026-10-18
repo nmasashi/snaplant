@@ -108,9 +108,12 @@ interface MigrationConfig {
   plantsContainer: string;
   storageConnectionString: string;
   imagesContainer: string;
+  /** 書く先（AlbumService・PhotoStorageService が読む）。足りないことを読む元と一緒に言うために確かめる */
+  albumContainer: string;
+  photoContainer: string;
 }
 
-/** 植物のコンテナと images コンテナの設定を読む。足りなければ、足りない設定の名前を言って止める */
+/** 読む元（植物・images）と書く先（写真）の設定を読む。足りなければ、足りない設定の名前をまとめて言って止める */
 function readConfig(): MigrationConfig {
   const names = {
     cosmosEndpoint: 'COSMOS_DB_ENDPOINT',
@@ -119,6 +122,8 @@ function readConfig(): MigrationConfig {
     plantsContainer: 'COSMOS_DB_CONTAINER',
     storageConnectionString: 'STORAGE_CONNECTION_STRING',
     imagesContainer: 'STORAGE_CONTAINER_NAME',
+    albumContainer: 'COSMOS_DB_ALBUM_CONTAINER',
+    photoContainer: 'PHOTO_STORAGE_CONTAINER_NAME',
   } as const;
   const values = Object.fromEntries(
     Object.entries(names).map(([key, name]) => [key, process.env[name]?.trim() ?? ''])
