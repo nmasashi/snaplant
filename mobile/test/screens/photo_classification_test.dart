@@ -9,8 +9,8 @@ import '../helpers/trip_test_helpers.dart';
 // 写真の分類の表示と、解析のやり直し（docs/travel-album/03_screen_design.md §5.1・§5.4・§5.5。段階3）。
 // 入口は旅行詳細の写真のグリッドと、そこから開く写真ビューア
 
-/// 解析の進み具合（processing）。[step] は分類（classify）か識別（identify）
-Map<String, Object?> _processing(String state, {String step = 'classify'}) => {
+/// 解析の進み具合（processing）。[step] は分類（classify）か識別（identify）。段階2・3の写真は null のこともある
+Map<String, Object?> _processing(String state, {String? step = 'classify'}) => {
       'state': state,
       'step': step,
       'attempts': state == 'failed' ? 3 : 0,
@@ -22,7 +22,7 @@ Map<String, Object?> _processing(String state, {String step = 'classify'}) => {
 Map<String, Object?> _photo(
         {String? category,
         String state = 'done',
-        String step = 'classify',
+        String? step = 'classify',
         String? hint,
         String? comment,
         String? commentSource}) =>
@@ -130,9 +130,15 @@ void main() {
   });
 
   group('写真ビューアの分類の状態', () {
-    for (final state in ['pending', 'classifying']) {
-      testWidgets('分類を待っている・している写真（$state）は「分類中...」と出す', (tester) async {
-        await _openViewer(tester, _photo(state: state));
+    for (final (state, step) in [
+      ('pending', 'classify'),
+      ('classifying', 'classify'),
+      // step が無い（段階2・3の写真）なら、今までどおり「分類中...」（03 §5.1）
+      ('pending', null),
+    ]) {
+      testWidgets('分類を待っている・している写真（$state、step: $step）は「分類中...」と出す',
+          (tester) async {
+        await _openViewer(tester, _photo(state: state, step: step));
 
         expect(find.text('分類中...'), findsOneWidget);
       });
@@ -311,6 +317,7 @@ void main() {
     testWidgets('受け付けを待っている間は、端末の戻る操作でもダイアログを閉じず、受け付けたら閉じて「分類中...」になる',
         (tester) async {
       // 待っている間に閉じると、受け付けられたのに表示が古いまま残り、もう一度頼むことになる
+      // カテゴリが図鑑の種類の写真にして、やり直す範囲も押せないことを確かめる
       final backend = await _openViewer(tester, _photo(category: 'food'));
       final release = Completer<void>();
       // 途中の確かめで落ちても、止めた応答を残さない（後のテストに保留中の要求を持ち越さない）
@@ -323,6 +330,12 @@ void main() {
       await letFramesRun(tester);
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
+      expect(
+          tester
+              .widget<SegmentedButton<String>>(
+                  find.byType(SegmentedButton<String>))
+              .onSelectionChanged,
+          isNull);
       await tester.binding.handlePopRoute();
       await letFramesRun(tester);
 

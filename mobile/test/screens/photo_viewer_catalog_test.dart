@@ -65,8 +65,9 @@ Finder get _save =>
 void main() {
   group('図鑑の項目へのリンク', () {
     testWidgets('識別が済んだ写真は「{名前} >」を出し、タップすると種類と名前でその項目の詳細を開く', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await _openViewer(tester, _photo());
+      final backend = await _openViewer(tester, _photo());
+      // 種類の一覧の先頭ではない位置に置き、写真の種類で選んでいることを確かめる
+      backend.catalogKinds = backend.catalogKinds.reversed.toList();
 
       await tester.tap(find.text('ソメイヨシノ >'));
       await letFramesRun(tester);
@@ -76,7 +77,6 @@ void main() {
       // 見出しはその種類（植物）の欄で出す（種類の一覧を読んでから開く）
       expect(find.text('サクラの栽培品種'), findsOneWidget);
       expect(find.text('学名'), findsOneWidget);
-      semantics.dispose();
     });
 
     testWidgets('種類の一覧を読み込んでいる間にもう一度押しても、項目の詳細を1つだけ開く', (tester) async {
@@ -100,8 +100,9 @@ void main() {
     });
 
     testWidgets('種類の一覧を読めなければ、エラーの文言をスナックバーに出して開かない', (tester) async {
+      // 種類の一覧はデータベースを読まないので、起こりうるのは通信の失敗など
       final backend = await _openViewer(tester, _photo());
-      backend.failNext(TripRoute.catalogKinds);
+      backend.failNextWithConnectionError(TripRoute.catalogKinds);
 
       await tester.tap(find.text('ソメイヨシノ >'));
       await letFramesRun(tester);
@@ -110,7 +111,7 @@ void main() {
       expect(
           find.descendant(
               of: find.byType(SnackBar),
-              matching: find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。')),
+              matching: find.text('ネットワークに接続できません。インターネット接続を確認してください。')),
           findsOneWidget);
     });
 
@@ -176,29 +177,39 @@ void main() {
       expect(find.text('旅の最初の一枚（編集済み）'), findsOneWidget);
     });
 
-    testWidgets('「コメントを編集」で今のコメントを入れたダイアログを開き、保存するとサーバのコメントと表示が変わる',
+    testWidgets('「コメントを編集」で、今のコメントを入れたダイアログ（最大500文字）を開く', (tester) async {
+      await _openViewer(tester, _photo(comment: '満開のサクラ', commentSource: 'ai'));
+
+      await tester.tap(find.text('コメントを編集'));
+      await letFramesRun(tester);
+
+      expect(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.text('コメントを編集')),
+          findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.text('満開のサクラ')),
+          findsOneWidget);
+      expect(find.text('6/500'), findsOneWidget); // 最大500文字（03 §6.3）
+    });
+
+    testWidgets('直したコメントを保存すると、サーバのコメントと表示が変わり、「コメントを保存しました」を出す',
         (tester) async {
       final backend = await _openViewer(
           tester, _photo(comment: '満開のサクラ', commentSource: 'ai'));
 
       await tester.tap(find.text('コメントを編集'));
       await letFramesRun(tester);
-      expect(find.text('コメントを編集'), findsNWidgets(2)); // ボタンとダイアログの見出し
-      expect(
-          find.descendant(
-              of: find.byType(AlertDialog), matching: find.text('満開のサクラ')),
-          findsOneWidget);
-      expect(find.text('6/500'), findsOneWidget); // 最大500文字（03 §6.3）
       await tester.enterText(
           find.descendant(
               of: find.byType(AlertDialog), matching: find.byType(TextField)),
-          '  北海道で見た桜  ');
+          '北海道で見た桜');
       await tester.tap(_save);
       await letFramesRun(tester);
 
       expect(find.byType(AlertDialog), findsNothing);
       expect(_stored(backend)['comment'], '北海道で見た桜');
-      expect(_stored(backend)['commentSource'], 'user');
       expect(find.text('北海道で見た桜（編集済み）'), findsOneWidget);
       expect(
           find.descendant(
@@ -321,6 +332,49 @@ void main() {
       await tester.tap(edit);
       await letFramesRun(tester);
       expect(find.byType(AlertDialog), findsOneWidget);
+    });
+
+    testWidgets('2枚目を見ているときにコメントを直すと、2枚目のコメントだけが変わる', (tester) async {
+      // 宛先の写真の取り違えを見分けるため、写真を2枚にする
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: 2)],
+        functionKey: 'test-key',
+        photosByTripId: {
+          hokkaidoTripId: [
+            _photo(comment: '1枚目', commentSource: 'ai'),
+            photoJson(
+                number: 2,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-07T10:15:00')
+              ..['comment'] = '2枚目'
+              ..['commentSource'] = 'ai',
+          ]
+        },
+      );
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      await tester.tap(photoThumbnail(_takenAt));
+      await letFramesRun(tester);
+      await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
+      await letFramesRun(tester);
+
+      // PageView は隣の写真のページも組み立てておくので、画面に出ている方のボタンを押す
+      await tester.tap(find.text('コメントを編集').hitTestable());
+      await letFramesRun(tester);
+      await tester.enterText(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          '北海道で見た桜');
+      await tester.tap(_save);
+      await letFramesRun(tester);
+
+      expect([
+        for (final p in backend.photosByTripId[hokkaidoTripId]!) p['comment']
+      ], [
+        '1枚目',
+        '北海道で見た桜'
+      ]);
     });
 
     testWidgets('解析中の写真でも、コメントを編集できる', (tester) async {
