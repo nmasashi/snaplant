@@ -8,6 +8,9 @@ import { catalogEntryOf, pageOfCatalogNames } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
+/** album コンテナにつなぐのに要る設定（Terraform が Function App に入れる。手で回すスクリプトは local.settings.json から） */
+const COSMOS_SETTINGS = ['COSMOS_DB_ENDPOINT', 'COSMOS_DB_KEY', 'COSMOS_DB_DATABASE', 'COSMOS_DB_ALBUM_CONTAINER'] as const;
+
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
@@ -28,6 +31,12 @@ export class AlbumService {
   private container: Container;
 
   constructor() {
+    // 足りない設定の名前を言って止める。SDK に任せると、エンドポイントが無いときは TypeError（Invalid URL）になり、
+    // 何が足りないか分からない（手で回すスクリプトを、手元の設定が無いまま回したときに起きた）
+    const missing = COSMOS_SETTINGS.filter((name) => !process.env[name]?.trim());
+    if (missing.length > 0) {
+      throw new Error(`Cosmos の設定がありません: ${missing.join(', ')}`);
+    }
     const client = new CosmosClient({
       endpoint: process.env.COSMOS_DB_ENDPOINT!,
       key: process.env.COSMOS_DB_KEY!,
