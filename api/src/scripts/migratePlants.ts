@@ -64,9 +64,9 @@ export async function migratePlants(options: {
       skip(`画像の形式（${image.contentType}）が写真として受け付けないもの`);
       continue;
     }
-    const doc = photoDocumentOf(plant, image.data, image.contentType, `${sha256(image.data)}${extension}`, now);
-    if (await album.getPhoto(doc.id)) {
-      skip(`同じ写真が先にある（写真 ID=${doc.id}）`);
+    const photoId = sha256(image.data);
+    if (await album.getPhoto(photoId)) {
+      skip(`同じ写真が先にある（写真 ID=${photoId}）`);
       continue;
     }
     if (!options.apply) {
@@ -74,6 +74,7 @@ export async function migratePlants(options: {
       migrated += 1;
       continue;
     }
+    const doc = photoDocumentOf(plant, photoId, image, `${photoId}${extension}`, now);
     await photoStorage.upload(doc.blobName, image.data, image.contentType);
     const { created } = await album.createPhoto(doc);
     if (!created) {
@@ -173,14 +174,14 @@ async function readImage(
 ): Promise<{ data: Buffer; contentType: string } | null> {
   const blob = images.getBlockBlobClient(blobName);
   try {
-    const properties = await blob.getProperties();
+    // 中身と Content-Type を1回の要求で読む（2回に分けると、間に上書きされたとき別の版の中身と型を組み合わせうる）
     const response = await blob.download();
     const chunks: Buffer[] = [];
     for await (const chunk of response.readableStreamBody!) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
     // 植物図鑑は送られた Content-Type をそのまま付けていた（大文字のこともある）。写真の送信と同じく小文字にそろえる
-    return { data: Buffer.concat(chunks), contentType: (properties.contentType ?? '').toLowerCase() };
+    return { data: Buffer.concat(chunks), contentType: (response.contentType ?? '').toLowerCase() };
   } catch (error: any) {
     if (error.statusCode === 404) {
       return null;
@@ -192,7 +193,13 @@ async function readImage(
 const sha256 = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 
 /** 植物の記録から、識別の済んだ旅行に属さない写真の文書を作る（項目は 06 §7 の手順 2） */
-function photoDocumentOf(plant: Plant, image: Buffer, contentType: string, blobName: string, now: string): PhotoDocument {
+function photoDocumentOf(
+  plant: Plant,
+  photoId: string,
+  image: { data: Buffer; contentType: string },
+  blobName: string,
+  now: string
+): PhotoDocument {
   // 識別のワーカーと同じ形にする: 欄は植物の定義表の項目をすべて持ち、空の値は null（04 §3.1）。
   // 「無い」がキーの欠けと null の2通りになると、Cosmos SQL での振る舞いが分かれる
   const orNull = (value: string | undefined): string | null => (value ? value : null);
@@ -202,13 +209,13 @@ function photoDocumentOf(plant: Plant, image: Buffer, contentType: string, blobN
   );
   const characteristics = orNull(plant.characteristics);
   return {
-    id: sha256(image),
+    id: photoId,
     type: 'photo',
     tripId: null,
     blobName,
     thumbnailBlobName: null,
-    contentType,
-    fileSize: image.length,
+    contentType: image.contentType,
+    fileSize: image.data.length,
     takenAt: null,
     takenAtSource: 'none',
     sortAt: computeSortAt(null, plant.createdAt),
