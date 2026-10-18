@@ -139,6 +139,22 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     }
   );
 
+  it('足りない設定だけを、全部言う', async () => {
+    // 有る設定まで「無い」と言うと、手元の設定を直す人が迷う（文言は契約外なので、名前を含むかだけを見る）
+    delete process.env.COSMOS_DB_KEY;
+    delete process.env.COSMOS_DB_ALBUM_CONTAINER;
+
+    const message = await enqueueUnidentifiedPhotos({ apply: false, log }).then(
+      () => '',
+      (error: Error) => error.message
+    );
+
+    expect(message).toContain('COSMOS_DB_KEY');
+    expect(message).toContain('COSMOS_DB_ALBUM_CONTAINER');
+    expect(message).not.toContain('COSMOS_DB_ENDPOINT');
+    expect(message).not.toContain('COSMOS_DB_DATABASE');
+  });
+
   it('Cosmos の設定が空白だけでも、無いのと同じに止まる', async () => {
     // local.settings.json の値を空のまま残したとき
     process.env.COSMOS_DB_DATABASE = '  ';

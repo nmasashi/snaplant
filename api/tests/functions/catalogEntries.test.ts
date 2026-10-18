@@ -73,9 +73,16 @@ describe('図鑑の項目の一覧API', () => {
       ['種類が無い', {}, '図鑑の種類が無効です'],
       ['種類が定義表に無い（other）', { kind: 'other' }, '図鑑の種類が無効です'],
       ['種類が継承したキー（constructor）', { kind: 'constructor' }, '図鑑の種類が無効です'],
+      // 種類は空白を除かず、大文字小文字も区別して比べる（05 §5.14 の検証の表）
+      ['種類の大文字小文字が違う（Plant）', { kind: 'Plant' }, '図鑑の種類が無効です'],
+      ['種類の前後に空白がある', { kind: ' plant' }, '図鑑の種類が無効です'],
       ['offset が負', { kind: 'plant', offset: '-1' }, 'ページの指定が無効です'],
       ['offset が整数でない', { kind: 'plant', offset: '1.5' }, 'ページの指定が無効です'],
       ['offset が空', { kind: 'plant', offset: '' }, 'ページの指定が無効です'],
+      ['offset の先頭がゼロ', { kind: 'plant', offset: '01' }, 'ページの指定が無効です'],
+      ['offset が安全な整数（2^53 − 1）を超える', { kind: 'plant', offset: '9007199254740992' }, 'ページの指定が無効です'],
+      // limit の書式の全ケース（先頭のゼロ・指数表記など）は、同じ readPageLimit() を通る写真の一覧（photoList.test.ts）で通している。
+      // ここは上限（100）が違うので、上限の前後と主な崩れ方だけを置く
       ['limit が 0', { kind: 'plant', limit: '0' }, 'ページの指定が無効です'],
       ['limit が上限の 100 を超える', { kind: 'plant', limit: '101' }, 'ページの指定が無効です'],
       ['limit が数でない', { kind: 'plant', limit: 'ten' }, 'ページの指定が無効です'],
@@ -89,17 +96,17 @@ describe('図鑑の項目の一覧API', () => {
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
     });
-
-    it.each(databaseFailureCases('図鑑の一覧の取得に失敗しました'))(
-      'データベースの読み取りで%s',
-      async (_case, error, status, code, message) => {
-        cosmosBackend.forcedQueryError = error;
-
-        const response = await listCatalogEntriesHandler(createRequest({ kind: 'plant' }), mockContext);
-
-        expect(response.status).toBe(status);
-        expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-      }
-    );
   });
+
+  it.each(databaseFailureCases('図鑑の一覧の取得に失敗しました'))(
+    'データベースの読み取りで%s',
+    async (_case, error, status, code, message) => {
+      cosmosBackend.forcedQueryError = error;
+
+      const response = await listCatalogEntriesHandler(createRequest({ kind: 'plant' }), mockContext);
+
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+    }
+  );
 });
