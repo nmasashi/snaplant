@@ -42,11 +42,14 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       final photo = await widget.apiService
           .requestPhotoProcessing(widget.photo.id, hint: _hint.text);
       if (mounted) Navigator.pop(context, photo);
-    } on ApiException catch (e) {
+    } catch (e) {
+      // ApiException 以外でも留まって押し直せるようにする（受け止めないと、押せないまま閉じられなくなる。
+      // 削除の確認ダイアログと同じ）
+      debugPrint('RetryProcessingDialog: 解析のやり直しの受付エラー: $e');
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = e.userMessage;
+          _error = e is ApiException ? e.userMessage : '解析のやり直しの受付に失敗しました';
         });
       }
     }

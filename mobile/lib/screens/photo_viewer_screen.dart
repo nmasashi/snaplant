@@ -84,9 +84,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   /// 今出している写真を、確かめてから削除する
   Future<void> _deleteCurrent() async {
-    final photo = _currentPhoto();
-    if (photo == null) return;
-    final index = _pageController.page!.round();
+    final current = _current();
+    if (current == null) return;
+    final (index, photo) = current;
     final deleted = await showDialog<bool>(
       context: context,
       builder: (context) => ConfirmActionDialog<bool>(
@@ -133,16 +133,16 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   /// 今出している写真の解析のやり直しを頼む
   Future<void> _retryCurrent() async {
-    final photo = _currentPhoto();
-    if (photo != null) await _retry(photo);
+    final current = _current();
+    if (current != null) await _retry(current.$2);
   }
 
-  /// 今出している写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
-  /// （そのときの位置は読み込み済みの写真の外にある）
-  Photo? _currentPhoto() {
+  /// 今出している写真の位置と写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
+  /// （そのときの位置は読み込み済みの写真の外にある）。位置と写真を一度に読み、両者がずれないようにする
+  (int, Photo)? _current() {
     final photos = widget.photos.value;
     final index = _pageController.page!.round();
-    return index < photos.length ? photos[index] : null;
+    return index < photos.length ? (index, photos[index]) : null;
   }
 
   /// [photo] の解析のやり直しを、ダイアログで手がかりを聞いてから頼む
