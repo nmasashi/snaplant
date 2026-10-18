@@ -123,7 +123,8 @@ export function createFakeBlockBlobClient(
           this.push(null);
         }
       });
-      return { readableStreamBody: stream };
+      // 実 SDK の download の応答も、Blob の Content-Type を持つ
+      return { readableStreamBody: stream, contentType: entry.contentType };
     },
     getProperties: async () => {
       const entry = backend.store.get(key);
