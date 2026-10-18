@@ -70,3 +70,10 @@ export const PHOTO_REQUEUE_AFTER_MINUTES = 10;
  * 一時画像のライフサイクル管理（最終更新から1日）と同じ根拠（04 §7.2）
  */
 export const ORPHAN_BLOB_MIN_AGE_HOURS = 24;
+
+/**
+ * 図鑑の項目の名前（識別の `identification.name`）の最大文字数
+ *
+ * 識別の応答の検証と、図鑑の項目を名前で開く API の検証（段階4）で同じ値を使う（docs/travel-album/04_data_design.md §3.1）
+ */
+export const CATALOG_NAME_MAX_LENGTH = 100;

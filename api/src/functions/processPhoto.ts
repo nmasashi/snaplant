@@ -145,7 +145,7 @@ async function identifyPhoto(
     });
 
     const now = new Date().toISOString();
-    if (result.matchesKind) {
+    if (result.matchesKind && result.comment !== null) {
       // 利用者がコメントを書いていたら書かない（false が返る）。それでも結果は書く
       await album.writeAiComment(photo.id, claimedProcessing, result.comment);
     }

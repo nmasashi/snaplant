@@ -1,6 +1,7 @@
 import { CATALOG_KINDS, CatalogKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
+import { CATALOG_NAME_MAX_LENGTH } from '../constants/album';
 
 /**
  * 識別の応答の形（Structured Outputs。docs/travel-album/06_processing_design.md §3.1）
@@ -48,8 +49,8 @@ export interface PhotoIdentification {
   confidence: number;
   description: string | null;
   characteristics: string | null;
-  /** この写真への一言（前後の空白を除いたもの）。写っていなければ、そう判断した理由 */
-  comment: string;
+  /** この写真への一言（前後の空白を除いたもの）。写っていなければ、そう判断した理由。空なら null */
+  comment: string | null;
   /** 種類ごとの項目（キーは定義表の fields の key） */
   attributes: Record<string, unknown>;
   /** 識別に使ったデプロイ名 */
@@ -102,23 +103,50 @@ ${clueSection}`;
         prompt,
         imageUrl,
       })) as {
-        matchesKind: boolean;
-        name: string | null;
-        confidence: number;
+        matchesKind: unknown;
+        name: unknown;
+        confidence: unknown;
         description: string | null;
         characteristics: string | null;
         comment: string;
         attributes: Record<string, unknown>;
       };
 
+      // strict のスキーマでも、範囲・空・長さは強制できない。通らない応答を書くと、図鑑に名前の無い項目や範囲外の信頼度が出る
+      if (typeof result.matchesKind !== 'boolean') {
+        throw new Error('matchesKindが真偽値ではありません');
+      }
+      if (typeof result.confidence !== 'number' || result.confidence < 0 || result.confidence > 100) {
+        throw new Error('confidenceが0-100の範囲の数値ではありません');
+      }
+      const name = typeof result.name === 'string' ? result.name.trim() : null;
+      if (result.matchesKind && (!name || name.length > CATALOG_NAME_MAX_LENGTH)) {
+        throw new Error(`nameが空か、${CATALOG_NAME_MAX_LENGTH}文字を超えています`);
+      }
+      const attributes = Object.fromEntries(
+        CATALOG_KINDS[kind].fields.map((field) => {
+          const value = result.attributes?.[field.key] ?? null;
+          const valid =
+            value === null ||
+            (field.type === 'string[]'
+              ? Array.isArray(value) && value.every((item) => typeof item === 'string')
+              : typeof value === 'string');
+          if (!valid) {
+            throw new Error(`attributesの${field.key}が型（${field.type}）に合いません`);
+          }
+          return [field.key, value];
+        })
+      );
+      const comment = typeof result.comment === 'string' ? result.comment.trim() : '';
+
       return {
         matchesKind: result.matchesKind,
-        name: result.name?.trim() ?? null,
+        name: result.matchesKind ? name : null,
         confidence: result.confidence,
         description: result.description,
         characteristics: result.characteristics,
-        comment: result.comment.trim(),
-        attributes: result.attributes,
+        comment: comment || null,
+        attributes,
         model: this.vision.deployment,
       };
     } catch (error: any) {
