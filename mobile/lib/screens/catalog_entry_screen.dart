@@ -63,15 +63,13 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
     final detail = await widget.apiService.getCatalogEntry(
         widget.kind.kind, widget.name,
         continuationToken: continuationToken);
-    // 続きのページで項目が無くなっていたら、写真が空で続きの無いページになり、読み終える（出している写真と見出しはそのまま）。
-    // 1ページ目なら、グリッドが当てたときに項目が無い表示にする
-    return _EntryPhotoPage(
-        detail.entry, detail.entry == null ? null : detail.photos);
+    return _EntryPhotoPage.of(detail);
   }
 
   /// グリッドが1ページ目を当てたとき。そのページの応答の見出しを出し、項目が無い応答なら項目が無い表示にする
   void _onFirstPageApplied(PhotoPage page) {
-    // グリッドは loadPage が返したページをそのまま渡す。違う形のページなら、今の表示を変えない
+    // グリッドは loadPage が返したページをそのまま渡す。違う形のページなら、今の表示を変えない（デバッグ版では止めて気づけるようにする）
+    assert(page is _EntryPhotoPage, 'PhotoGrid は loadPage が返したページをそのまま渡す');
     if (page is! _EntryPhotoPage) return;
     final entry = page.entry;
     if (entry == null) {
@@ -205,10 +203,18 @@ class _EntryHeader extends StatelessWidget {
 
 /// 項目の詳細の1ページ（写真のページと、同じ応答の見出し）。見出しが null なら、その種類と名前の写真が無い（写真も空で続きも無い）
 class _EntryPhotoPage extends PhotoPage {
-  _EntryPhotoPage(this.entry, PhotoPage? photos)
-      : super(
-            photos: photos?.photos ?? const [],
-            continuationToken: photos?.continuationToken);
+  const _EntryPhotoPage._(
+      this.entry, List<Photo> photos, String? continuationToken)
+      : super(photos: photos, continuationToken: continuationToken);
+
+  /// 項目の詳細の応答から作る。項目が無くなっていたら写真が空で続きの無いページにする:
+  /// 続きのページなら読み終え（出している写真と見出しはそのまま）、1ページ目なら、グリッドが当てたときに項目が無い表示にする
+  factory _EntryPhotoPage.of(CatalogEntryDetail detail) {
+    final entry = detail.entry;
+    if (entry == null) return const _EntryPhotoPage._(null, [], null);
+    return _EntryPhotoPage._(
+        entry, detail.photos.photos, detail.photos.continuationToken);
+  }
 
   final CatalogEntry? entry;
 }
