@@ -137,17 +137,26 @@ function imageBlobName(imagePath: string, config: MigrationConfig): string | nul
   } catch {
     return null;
   }
+  const host = `${account}.blob.${suffix}`;
   const segments = url.pathname.split('/');
   if (
     url.protocol !== 'https:' ||
-    url.host !== `${account}.blob.${suffix}` ||
+    url.host !== host ||
     segments.length !== 3 ||
     segments[1] !== config.imagesContainer ||
-    segments[2] === ''
+    segments[2] === '' ||
+    // new URL() はクエリ・ホストの大文字小文字などを吸収するので、最後に生の文字列が正規形と完全一致することを求める
+    // （StorageService.isValidImagePath と同じ考え方。パースした結果だけを見ると、同じ Blob を指す別の文字列が通る）
+    imagePath !== `https://${host}/${config.imagesContainer}/${segments[2]}`
   ) {
     return null;
   }
-  return decodeURIComponent(segments[2]);
+  try {
+    return decodeURIComponent(segments[2]);
+  } catch {
+    // 壊れたパーセントエンコード。この植物だけを飛ばし、移行全体は止めない
+    return null;
+  }
 }
 
 /** images コンテナの画像を読む。無ければ null */
