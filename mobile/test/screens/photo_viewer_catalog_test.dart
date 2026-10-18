@@ -268,6 +268,22 @@ void main() {
       expect(find.text('北海道で見た桜（編集済み）'), findsOneWidget);
     });
 
+    testWidgets('コメントが長くても下の情報が画面からあふれず、「コメントを編集」を押せる（小さな端末）', (tester) async {
+      // AI のコメントの長さはサーバで決めていない。下の情報が画面を占めると、写真と「コメントを編集」が見えなくなる
+      await _openViewer(
+          tester, _photo(comment: 'とても長いコメント。' * 80, commentSource: 'ai'));
+      // アプリを開くときに画面の大きさを決め直すので、その後で小さな端末（360×640）にする
+      tester.view.physicalSize = const Size(360 * 3, 640 * 3);
+      tester.view.devicePixelRatio = 3;
+      await letFramesRun(tester);
+
+      final edit = find.text('コメントを編集');
+      expect(tester.getRect(edit).bottom, lessThanOrEqualTo(640));
+      await tester.tap(edit);
+      await letFramesRun(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+    });
+
     testWidgets('解析中の写真でも、コメントを編集できる', (tester) async {
       // 自動の解析は利用者のコメントを消さない（06 §3.2）。解析中で操作を止めるロックは無い
       final backend = await _openViewer(tester, _photo(state: 'pending'));
