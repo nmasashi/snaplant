@@ -41,3 +41,30 @@ export async function queryCatalogNameCounts(container: Container, kind: string)
     .fetchAll();
   return resources;
 }
+
+/**
+ * 項目の見出しの写真を1枚読む（その名前の写真のうち信頼度が最も高く、同点なら識別の日時が新しいもの）
+ *
+ * 2項目の ORDER BY は複合インデックス（/identification/confidence, /identification/at の降順）が要る（07 §3.1。4-0 で apply 済み）
+ * @param container album コンテナ
+ * @param kind 図鑑の種類
+ * @param name 項目の名前
+ * @returns 見出しの写真。その名前の写真が無ければ null
+ */
+export async function queryCatalogHead(container: Container, kind: string, name: string): Promise<CatalogHeadPhoto | null> {
+  const { resources } = await container.items
+    .query<CatalogHeadPhoto>({
+      query:
+        'SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c' +
+        ' WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true' +
+        ' AND c.identification.name = @entryName' +
+        ' ORDER BY c.identification.confidence DESC, c.identification.at DESC',
+      parameters: [
+        { name: '@type', value: 'photo' },
+        { name: '@kind', value: kind },
+        { name: '@entryName', value: name },
+      ],
+    })
+    .fetchAll();
+  return resources[0] ?? null;
+}

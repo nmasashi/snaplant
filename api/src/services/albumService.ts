@@ -1,9 +1,10 @@
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
-import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
-import { queryCatalogNameCounts } from './catalogQueries';
+import { queryCatalogHead, queryCatalogNameCounts } from './catalogQueries';
+import { catalogEntryOf, pageOfCatalogNames } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
@@ -120,11 +121,22 @@ export class AlbumService {
    * @param kind 図鑑の種類
    * @param offset 何件目から（0 始まり）
    * @param limit 何件まで
+   * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
    * @returns ページの項目と、項目の総数
    */
-  async listCatalogEntries(kind: string, offset: number, limit: number): Promise<{ entries: unknown[]; total: number }> {
-    const rows = await queryCatalogNameCounts(this.container, kind);
-    return { entries: [], total: rows.length };
+  async listCatalogEntries(
+    kind: string,
+    offset: number,
+    limit: number,
+    coverUrlOf: (blobName: string) => string
+  ): Promise<{ entries: CatalogEntry[]; total: number }> {
+    // 1. 名前ごとの枚数 → 2. 名前順に並べて切る → 3. ページの項目ごとに見出しの写真を1枚（並列）。写真を全部は読まない
+    const { page, total } = pageOfCatalogNames(await queryCatalogNameCounts(this.container, kind), offset, limit);
+    const heads = await Promise.all(page.map((row) => queryCatalogHead(this.container, kind, row.name)));
+    const entries = page
+      .map((row, i) => catalogEntryOf(kind, row, heads[i], coverUrlOf))
+      .filter((entry): entry is CatalogEntry => entry !== null);
+    return { entries, total };
   }
 
   /**

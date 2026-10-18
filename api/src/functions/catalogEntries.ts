@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
+import { coverUrlMaker } from '../services/photoView';
 import { createDatabaseErrorResponse, createSuccessResponse } from '../utils/response';
 import { readCatalogEntriesQuery } from '../utils/catalogInput';
 
@@ -20,7 +21,7 @@ export async function listCatalogEntriesHandler(
   }
   try {
     const { kind, offset, limit } = validated.query;
-    const page = await new AlbumService().listCatalogEntries(kind, offset, limit);
+    const page = await new AlbumService().listCatalogEntries(kind, offset, limit, coverUrlMaker());
     return createSuccessResponse(page);
   } catch (error: any) {
     context.log('図鑑の項目の一覧の取得エラー:', error);

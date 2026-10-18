@@ -107,3 +107,18 @@ export interface Photo extends PhotoFields {
   imageUrl: string;
   thumbnailUrl: string | null;
 }
+
+/** 図鑑の項目（識別済みの写真を種類と名前でまとめたもの。docs/travel-album/05_api_design.md §3.3.1） */
+export interface CatalogEntry {
+  kind: string;
+  name: string;
+  /** 以下 attributes までは、その名前の写真のうち信頼度が最も高いものの識別から取る */
+  confidence: number;
+  description: string | null;
+  characteristics: string | null;
+  attributes: Record<string, unknown>;
+  /** その名前の写真の枚数 */
+  photoCount: number;
+  /** 見出しの写真のサムネイル（無ければ原寸）の SAS 付き URL */
+  coverThumbnailUrl: string;
+}
