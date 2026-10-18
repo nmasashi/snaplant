@@ -79,6 +79,26 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('種類の一覧を読み込んでいる間にもう一度押しても、項目の詳細を1つだけ開く', (tester) async {
+      // 通信が遅いと、押しても何も起きないように見えて押し直される。戻る操作が2回要る重なった画面にしない
+      final backend = await _openViewer(tester, _photo());
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      backend.holds[TripRoute.catalogKinds] = release.future;
+
+      await tester.tap(find.text('ソメイヨシノ >'));
+      await tester.pump();
+      await tester.tap(find.text('ソメイヨシノ >'));
+      await tester.pump();
+      release.complete();
+      await letFramesRun(tester);
+
+      expect(
+          find.byType(CatalogEntryScreen, skipOffstage: false), findsOneWidget);
+    });
+
     testWidgets('種類の一覧を読めなければ、エラーの文言をスナックバーに出して開かない', (tester) async {
       final backend = await _openViewer(tester, _photo());
       backend.failNext(TripRoute.catalogKinds);
