@@ -129,6 +129,16 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     expect(stored(photoId('b')).processing).toEqual(waitingForIdentify);
   });
 
+  it.each(['COSMOS_DB_ENDPOINT', 'COSMOS_DB_KEY', 'COSMOS_DB_DATABASE', 'COSMOS_DB_ALBUM_CONTAINER'])(
+    'Cosmos の設定（%s）が無ければ、どの設定が無いかを言って止まる',
+    async (name) => {
+      // 手元に local.settings.json が無いと、どれも無いまま回る。SDK の TypeError（Invalid URL）では何が足りないか分からない
+      delete process.env[name];
+
+      await expect(enqueueUnidentifiedPhotos({ apply: false, log })).rejects.toThrow(name);
+    }
+  );
+
   it('読んだ後に消された写真は飛ばして、ほかの写真は書く', async () => {
     // 消された写真への patch は 404。止めずに次の写真へ進む（04 §7.1）
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a')));
