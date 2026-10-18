@@ -177,6 +177,9 @@ class FakeTripBackend {
   /// 旅行ごとの写真（キーは旅行の id、旅行に属さない写真は `none`）。`GET /api/photos` はこの並びのまま返す
   final Map<String, List<Map<String, Object?>>> photosByTripId;
 
+  /// 写真 ID の形式（画像のバイト列の SHA-256。小文字16進 64 文字。本物の `PHOTO_VALIDATION.ID_REGEX` と同じ）
+  static final _photoIdPattern = RegExp(r'^[0-9a-f]{64}$');
+
   /// 受け付ける API キー
   final String functionKey;
 
@@ -448,7 +451,7 @@ class FakeTripBackend {
     // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.1）のうち、クライアントが取り違えうるもの。
     // 値が無いときはパートごと省く。空文字のパートは「指定あり」として検証され、400 になる
     if (photoId == null || photoId.isEmpty) return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
-    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
+    if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
     if (image == null || image.filename == null) return _error(400, 'INVALID_REQUEST', '画像ファイルが指定されていません');
     // 画像の形式は、パートの Content-Type で判定する（クライアントが付け忘れると、既定の application/octet-stream になる）
     const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
@@ -575,7 +578,7 @@ class FakeTripBackend {
     final photoId = request.url.pathSegments[2];
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
     // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.7 の 1〜6）。写真の有無は検証の後に見る
-    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
+    if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
     final Object? body;
     try {
       body = json.decode(request.body);

@@ -239,6 +239,10 @@ void main() {
       // 待っている間に閉じると、受け付けられたのに表示が古いまま残り、もう一度頼むことになる
       final backend = await _openViewer(tester, _photo(category: 'food'));
       final release = Completer<void>();
+      // 途中の確かめで落ちても、止めた応答を残さない（後のテストに保留中の要求を持ち越さない）
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
       backend.holds[TripRoute.process] = release.future;
 
       await tester.tap(_barRetry);
@@ -274,6 +278,11 @@ void main() {
       // 一覧は1ページ目が届くとすぐ続きを読むので、1ページ目は返し、続き（2ページ目）の応答だけを止める
       final firstPage = Completer<void>();
       final release = Completer<void>();
+      // 途中の確かめで落ちても、止めた応答を残さない（後のテストに保留中の要求を持ち越さない）
+      addTearDown(() {
+        if (!firstPage.isCompleted) firstPage.complete();
+        if (!release.isCompleted) release.complete();
+      });
       backend.holds[TripRoute.photos] = firstPage.future;
       await openTripsTab(tester, backend);
       await tester.tap(find.text('北海道 2026秋'));
@@ -295,8 +304,15 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(AlertDialog), findsNothing);
+      // どの写真のやり直しも頼んでいない
+      expect(
+          backend.photosByTripId[hokkaidoTripId]!
+              .map((photo) => (photo['processing'] as Map)['state']),
+          isNot(contains('pending')));
+      // 続きのページが届いたら、次の写真が出る
       release.complete();
       await letFramesRun(tester);
+      expect(_isOnScreen(tester, '2026年10月7日 10:15'), isTrue);
     });
 
     testWidgets('受け付けられなかったら、ダイアログに留まって理由を出す', (tester) async {
