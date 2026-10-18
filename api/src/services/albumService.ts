@@ -1,3 +1,4 @@
+import { CATALOG_KINDS } from '../catalog/kinds';
 import { CosmosClient, Container } from '@azure/cosmos';
 import { v4 as uuidv4 } from 'uuid';
 import { PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
@@ -357,6 +358,28 @@ export class AlbumService {
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@before', value: before },
+        ],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
+   * 分類まで済んで識別の無い、図鑑の種類の写真を読む（段階3に送った写真を識別に回すスクリプト用。06 §1）
+   *
+   * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
+   * @returns 写真ごとの id・category・identification・processing
+   */
+  async listUnidentifiedPhotos(): Promise<
+    { id: string; category: string | null; identification: unknown | null; processing: PhotoProcessing }[]
+  > {
+    const { resources } = await this.container.items
+      .query<{ id: string; category: string | null; identification: unknown | null; processing: PhotoProcessing }>({
+        query:
+          "SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)",
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@kinds', value: Object.keys(CATALOG_KINDS) },
         ],
       })
       .fetchAll();
