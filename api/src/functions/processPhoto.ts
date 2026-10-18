@@ -6,6 +6,8 @@ import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../const
 import { UpstreamError } from '../utils/errors';
 import { PhotoProcessing } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
+import { CATALOG_KINDS } from '../catalog/kinds';
+import { enqueuePhotoOrLog } from '../services/photoQueueService';
 
 /**
  * 写真の解析のワーカー（キュー photo-processing のメッセージ `{ photoId }` で動く）
@@ -57,10 +59,13 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     });
 
     const now = new Date().toISOString();
+    const identifies = result.kind in CATALOG_KINDS;
     const written = await album.writeClassification(photo.id, claimedProcessing, {
       category: result.kind,
       classification: { kind: result.kind, confidence: result.confidence, model: result.model, at: now },
-      processing: { state: 'done', step: 'classify', attempts, lastError: null, updatedAt: now },
+      processing: identifies
+        ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
+        : { state: 'done', step: 'classify', attempts, lastError: null, updatedAt: now },
       updatedAt: now,
     });
     if (!written) {
@@ -68,6 +73,9 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
       return;
     }
     context.log(`写真の分類が済みました: ID=${photo.id}, 種類=${result.kind}`);
+    if (identifies) {
+      await enqueuePhotoOrLog(photo.id, context.log.bind(context));
+    }
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が写真に残り続ける）
     const lastError = error instanceof UpstreamError ? error.service : 'internal';
