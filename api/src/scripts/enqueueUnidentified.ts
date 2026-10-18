@@ -79,6 +79,12 @@ function loadLocalSettings(): void {
 // 使い方（api/ で）: npm run build && node dist/src/scripts/enqueueUnidentified.js [--apply]
 if (require.main === module) {
   loadLocalSettings();
+  // 書く前に宛先を人間が確かめられるように出す（鍵は出さない）。手元の設定が別の DB を指していることがある
+  const endpoint = process.env.COSMOS_DB_ENDPOINT;
+  console.log(
+    `宛先: ${endpoint ? new URL(endpoint).host : '（COSMOS_DB_ENDPOINT が無い）'} / ` +
+      `${process.env.COSMOS_DB_DATABASE ?? '（データベース名が無い）'} / ${process.env.COSMOS_DB_ALBUM_CONTAINER ?? '（コンテナ名が無い）'}`
+  );
   enqueueUnidentifiedPhotos({ apply: process.argv.includes('--apply'), log: console.log }).catch((error) => {
     console.error('識別の待ちにするスクリプトが失敗しました:', error);
     process.exitCode = 1;
