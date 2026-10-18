@@ -104,6 +104,9 @@ enum TripRoute {
 
   /// POST /api/photos（multipart）
   upload,
+
+  /// POST /api/photos/{photoId}/process（解析のやり直し。段階3）
+  process,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`）の偽のサーバ。
@@ -131,6 +134,9 @@ enum TripRoute {
 ///   `placeName` パートは `location.placeName` に入れ、`placeSource` を `device` にする（無ければ両方 null）。地名の検証（緯度・経度が無い・空・空白のみ・ファイル・100 文字超え）も実際のサーバと同じ。
 ///   `thumbnail` パートがあれば `thumbnailUrl` を入れ（無ければ null）、バイト列は [thumbnailsByPhotoId] に残す。サムネイルの検証（ファイルでない・形式・空・[thumbnailMaxSize] 超え）も実際のサーバと同じ。
 ///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
+/// - `POST /api/photos/{photoId}/process` は、写真を分類の待ち（`pending`・`classify`・回数 0・時刻は [processAcceptedAt]）にし、
+///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/travel-album/05_api_design.md §5.7）。
+///   `step` が `classify` でなければ 400「やり直す処理の種類が無効です」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
@@ -234,6 +240,9 @@ class FakeTripBackend {
     return completer;
   }
 
+  /// やり直しを受け付けたときに、写真の `processing.updatedAt` に書く時刻
+  static const processAcceptedAt = '2026-10-18T05:30:00.000Z';
+
   /// この偽のサーバにつなぐ HTTP クライアント
   late final MockClient client = MockClient(_handle);
 
@@ -286,6 +295,8 @@ class FakeTripBackend {
         return _uploadPhoto(request);
       case TripRoute.deletePhoto:
         return _deletePhoto(request);
+      case TripRoute.process:
+        return _processPhoto(request);
     }
   }
 
@@ -309,6 +320,12 @@ class FakeTripBackend {
     if (path == '/api/photos' && request.method == 'GET') return TripRoute.photos;
     if (path == '/api/photos' && request.method == 'POST') return TripRoute.upload;
     if (path == '/api/photos/move' && request.method == 'POST') return TripRoute.move;
+    if (path.startsWith('/api/photos/') &&
+        request.url.pathSegments.length == 4 &&
+        request.url.pathSegments.last == 'process' &&
+        request.method == 'POST') {
+      return TripRoute.process;
+    }
     if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'DELETE') {
       return TripRoute.deletePhoto;
     }
@@ -552,6 +569,32 @@ class FakeTripBackend {
     photosByTripId[sourceKey]!.removeWhere((photo) => photo['id'] == photoId);
     _addToPhotoCount(sourceKey, -1);
     return _ok(200, {'message': '写真が正常に削除されました'});
+  }
+
+  http.Response _processPhoto(http.Request request) {
+    final photoId = request.url.pathSegments[2];
+    final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
+    final body = json.decode(request.body);
+    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.7）。写真の有無は検証の後に見る
+    if (body is! Map<String, dynamic>) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
+    if (body['step'] != 'classify') return _error(400, 'INVALID_REQUEST', 'やり直す処理の種類が無効です');
+    final hint = body['hint'];
+    if (hint != null && hint is! String) return _error(400, 'INVALID_REQUEST', '補足情報は文字列で指定してください');
+    final trimmed = (hint as String?)?.trim() ?? '';
+    if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', '補足情報は500文字以内で指定してください');
+    if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+    photo['processing'] = {
+      'state': 'pending',
+      'step': 'classify',
+      'attempts': 0,
+      'lastError': null,
+      'updatedAt': processAcceptedAt,
+    };
+    photo['hint'] = trimmed.isEmpty ? null : trimmed;
+    photo['comment'] = null;
+    photo['commentSource'] = null;
+    photo['updatedAt'] = processAcceptedAt;
+    return _ok(202, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
   }
 
   http.Response _movePhotos(http.Request request) {
