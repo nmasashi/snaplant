@@ -195,6 +195,19 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     expect([...blobBackend.store.keys()].sort()).toEqual(['images/p1.jpg', 'images/p3.jpg']);
   });
 
+  it('書き込みを指定しないときも、同じ画像の植物が2つあれば2つ目を飛ばす（書き込んだときと同じ一覧になる）', async () => {
+    const image = Buffer.from('same-image');
+    putPlant(plant('p1', { createdAt: '2026-04-01T03:00:00.000Z' }), image);
+    putPlant(plant('p2', { name: 'ヤエザクラ', createdAt: '2026-04-02T03:00:00.000Z' }), image);
+
+    const dryRun = await migratePlants({ apply: false, log });
+    const applied = await migratePlants({ apply: true, log });
+
+    const expected = [{ plantId: 'p2', name: 'ヤエザクラ', reason: `同じ写真が先にある（写真 ID=${sha256(image)}）` }];
+    expect(dryRun).toEqual({ found: 2, migrated: 1, skipped: expected });
+    expect(applied).toEqual({ found: 2, migrated: 1, skipped: expected });
+  });
+
   it('書き込みを指定しなくても、書く先の設定が足りなければ止める', async () => {
     // 読むだけの実行が通ったのに、--apply で植物を読み終えてから止まる、ということにしない
     putPlant(plant('p1'), Buffer.from('sakura-image'));
