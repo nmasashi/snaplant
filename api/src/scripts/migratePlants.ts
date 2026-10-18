@@ -1,14 +1,13 @@
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, ContainerClient } from '@azure/storage-blob';
 import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { FILE_UPLOAD } from '../constants/validation';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { PhotoDocument } from '../types/album';
 import { Plant } from '../types/plant';
 import { computeSortAt } from '../utils/sortAt';
+import { endpointHost, loadLocalSettings } from './scriptSettings';
 
 /** 移さずに飛ばした植物（人間が一覧を見て、捨てるか手で入れるかを決める。06 §7 の手順 3） */
 export interface SkippedPlant {
@@ -218,37 +217,6 @@ function photoDocumentOf(plant: Plant, image: Buffer, contentType: string, blobN
   };
 }
 
-/**
- * api/ の local.settings.json の Values を、まだ設定されていない環境変数に入れる（enqueueUnidentified.ts と同じ）
- *
- * 秘密の値を含むファイルなので、中身はログに出さない
- */
-function loadLocalSettings(): void {
-  const path = join(__dirname, '..', '..', '..', 'local.settings.json');
-  let text: string;
-  try {
-    text = readFileSync(path, 'utf8');
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-    console.log(`${path} が無いので、環境変数だけを使います`);
-    return;
-  }
-  let values: Record<string, string>;
-  try {
-    values = JSON.parse(text).Values ?? {};
-  } catch {
-    // JSON.parse のエラーは壊れた箇所の前後の文字列を含むので、そのまま投げない（秘密の値が出うる）
-    throw new Error(`${path} を JSON として読めません`);
-  }
-  for (const [key, value] of Object.entries(values)) {
-    if (process.env[key] === undefined) {
-      process.env[key] = value;
-    }
-  }
-}
-
 // 使い方（api/ で）: npm run build && node dist/src/scripts/migratePlants.js [--apply]
 if (require.main === module) {
   run().catch((error) => {
@@ -271,16 +239,4 @@ async function run(): Promise<void> {
       `${process.env.PHOTO_STORAGE_CONTAINER_NAME?.trim() || '（写真の保存先のコンテナ名が無い）'}`
   );
   await migratePlants({ apply: process.argv.includes('--apply'), log: console.log });
-}
-
-/** Cosmos のエンドポイントのホスト（宛先の表示用）。無い・URL として読めないときはそう出す */
-function endpointHost(endpoint: string | undefined): string {
-  if (!endpoint) {
-    return '（COSMOS_DB_ENDPOINT が無い）';
-  }
-  try {
-    return new URL(endpoint).host;
-  } catch {
-    return '（COSMOS_DB_ENDPOINT が URL として読めない）';
-  }
 }
