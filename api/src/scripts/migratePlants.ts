@@ -159,12 +159,19 @@ function imageBlobName(imagePath: string, config: MigrationConfig): string | nul
   ) {
     return null;
   }
+  let name: string;
   try {
-    return decodeURIComponent(segments[2]);
+    name = decodeURIComponent(segments[2]);
   } catch {
     // 壊れたパーセントエンコード。この植物だけを飛ばし、移行全体は止めない
     return null;
   }
+  // 解いた名前が階層を持つ（/・\ を含む）か、. / .. なら読まない。ここまでの条件は解く前のセグメントを見ているので、
+  // ..%2Fphotos%2Fx.jpg は通る。SDK は名前を / で分けて URL に入れ .. を正規化するので、読めば別のコンテナの Blob になる
+  if (/[/\\]/.test(name) || name === '.' || name === '..') {
+    return null;
+  }
+  return name;
 }
 
 /** images コンテナの画像を読む。無ければ null */
