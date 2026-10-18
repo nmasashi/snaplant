@@ -121,7 +121,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `tags` | string[] | ○ | 2 | 利用者が付けるタグだけ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる（段階2はタグを付ける画面が無い）。AI は書かない |
 | `comment` | string \| null | ○（null 可） | 2（値は4） | 一言コメント。前後の空白を除いて 500 文字まで（`PHOTO_COMMENT_MAX_LENGTH`）。除いた値を保存する |
 | `commentSource` | `"ai"` \| `"user"` \| null | ○（null 可） | 2（値は4） | コメントの出どころ |
-| `hint` | string \| null | ○（null 可） | 2（値は3） | 最後のやり直しで利用者が渡した手がかり。前後の空白を除いて保存し、500 文字まで（`CONTEXT_INFO_VALIDATION`）。やり直しで渡さなければ（空白だけも）`null` に戻る。分類の AI に手がかりとして渡す（[06 §2.2](./06_processing_design.md#22-契約structured-outputs)） |
+| `hint` | string \| null | ○（null 可） | 2（値は3） | 最後のやり直しで利用者が渡した手がかり。前後の空白を除いて保存し、500 文字まで（`CONTEXT_INFO_VALIDATION`）。やり直しで渡さなければ（空白だけも）`null` に戻る。分類と識別の AI に手がかりとして渡す（[06 §2.2](./06_processing_design.md#22-契約structured-outputs)・[§3.1](./06_processing_design.md#31-契約)） |
 | `classification` | object \| null | ○（null 可） | 3 | `{ kind, confidence, model, at }`。[06 §2](./06_processing_design.md#2-分類段階3) |
 | `identification` | object \| null | ○（null 可） | 4 | `{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`（§3.1）。**図鑑はこの項目からまとめる**。「種類ごとの1件に写真が複数」（要件 5.5）は `identification.kind` と `identification.name` が同じ写真の集まりとして表す。[06 §3](./06_processing_design.md#3-識別段階4) |
 | `processing` | object | ○ | 2（値は3） | `{ state, step, attempts, lastError, updatedAt }`。`state` は `none` / `pending` / `classifying` / `identifying` / `done` / `failed`、`step` は `null` / `classify` / `identify`（次にやる、またはやっている処理。タイマーが再投入するときに見る。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`lastError` は `null` か、どこで失敗したか（`"ai"` / `"internal"`。例外の文言は入れない）。段階2は `state: "none"`・`step: null` 固定。段階3から、送信（`POST /api/photos`）は `state: "pending"`・`step: "classify"`・`updatedAt` に保存した時刻で作る |
@@ -205,12 +205,12 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | 項目 | 型 | 説明 |
 |---|---|---|
 | `kind` | string | 識別したときの種類（`CATALOG_KINDS` のキー）。写真の `category` と同じ値になるはずだが、分類のやり直しの途中では食い違いうるので、図鑑はこちらを見る |
-| `matchesKind` | boolean | 分類どおりの種類が写っているか。`false` なら図鑑には出さない（`name` 以下は `null`、`reason` に理由） |
-| `name` | string \| null | 名前。ワーカーが `trim()` して保存（NFKC は当面入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #7）。1〜100 文字 |
+| `matchesKind` | boolean | 分類どおりの種類が写っているか。`false` なら図鑑には出さない（`name`・`description`・`characteristics` は `null`、`attributes` は `{}`、`reason` に理由。`confidence` は AI の値を残す） |
+| `name` | string \| null | 名前。ワーカーが `trim()` して保存（NFKC は当面入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #7）。1〜100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`。外れる応答はワーカーが AI の失敗として書かない。[06 §3.1](./06_processing_design.md#31-契約)） |
 | `confidence` | number | 0〜100（要件 5.5） |
 | `description` / `characteristics` | string \| null | 種類の説明と、見た目の特徴（一言。要件 5.5 の共通項目）。写真ごとの一言は写真の `comment` |
-| `attributes` | object | 種類ごとの項目の「名前と値の組の入れ物」。キーは定義表の `fields[].key`。無い項目はアプリが「—」で出す |
-| `reason` | string \| null | `matchesKind: false` のときの理由。`true` なら `null` |
+| `attributes` | object | 種類ごとの項目の「名前と値の組の入れ物」。キーは定義表の `fields[].key`。`matchesKind: true` ならワーカーは `fields` の全キーを書き、AI が答えなかった項目は `null`（値は `string` か `string[]`）。無い項目（`null`）はアプリが「—」で出す |
+| `reason` | string \| null | `matchesKind: false` のときの理由（AI の `comment`。空白だけなら `null`）。`true` なら `null` |
 | `model` / `at` | string | 使ったデプロイ名と日時 |
 
 図鑑の項目は、この `identification` を持つ写真を `kind` と `name` でまとめたもの（要件 5.5「同じ種類で同じ名前のものは1件。当面は名前の完全一致」）。
@@ -306,7 +306,7 @@ export const CATALOG_KINDS = {
 |---|---|---|
 | 分類 AI の選択肢 | `Object.keys(CATALOG_KINDS)` + `'other'` を Structured Outputs の `enum` にする | 3 |
 | 識別 AI のスキーマ | 共通項目（`matchesKind`・`name`・`description`・`characteristics`・`comment`・`confidence`）+ `attributes` を `fields` から組み立てる。strict の制約により全部 `required`、任意は `["string","null"]`（`string[]` は `["array","null"]`）。`prompt` は `description` に、`namingRule` はプロンプト本文に | 4 |
-| 識別結果の検証 | `confidence` の 0〜100 と、`attributes` のキーが `fields` にあるものだけか | 4 |
+| 識別結果の検証 | `confidence` の 0〜100、`attributes` の値が `fields` の `type` に合うか（合わなければ AI の失敗）。`fields` に無いキーは捨てる（[06 §3.1](./06_processing_design.md#31-契約)。4-1a で実装済み） | 4 |
 | `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`prompt`・`namingRule` は返さない | 4 |
 | 図鑑の API | `kind` が表に無ければ 400。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4) | 4 |
 | Flutter | 起動時に取得して保持。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」）。種類タブも `kinds` から作る | 4 |
@@ -623,19 +623,19 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| `state` を `classifying` / `identifying` にした後に落ちる | 処理中のまま | 「分類中...」 | 自動（10 分後にタイマーが `pending` に戻してから（`step`・`attempts` はそのまま）再投入。ワーカーは `pending` しか担当しないので、戻さずに投入しても担当されない。`attempts` が上限（3 回）なら `failed`） |
+| `state` を `classifying` / `identifying` にした後に落ちる | 処理中のまま | 「分類中...」（識別なら段階4のアプリで「識別中...」） | 自動（10 分後にタイマーが `pending` に戻してから（`step`・`attempts` はそのまま）再投入。ワーカーは `pending` しか担当しないので、戻さずに投入しても担当されない。`attempts` が上限（3 回）なら `failed`） |
 | AI の呼び出しが成功した後、結果の patch の前に落ちる | 結果が無い | 同上 | 自動（再実行。AI の費用が1回分無駄になる） |
 | 分類の後、識別の投入に失敗 | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
 | **同じ画像で AI が毎回失敗する**（応答の検証違反・内容による拒否など、再試行しても直らない失敗） | `attempts: 3`・`failed`・`lastError` | 「分類に失敗しました」と「やり直す」 | **自動では直らず、永遠に回り続けもしない。** ワーカーは上限未満の失敗では `pending` に戻して例外を投げ（キューの再試行）、上限（3 回目）の失敗で `failed` にして例外を投げずに終える（poison には落ちない）。タイマーは `attempts` が上限なら `failed` にし、**`failed` は再投入のクエリ（§5 の 5.8）に含めない**。利用者が `process` を頼んだときだけ `attempts` を 0 に戻してもう一度試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（[06 §6](./06_processing_design.md#6-費用の抑え方)） |
 | 分類で種類が変わったのに、識別が上限まで失敗 | `identification: null`（分類が先に消す）・`failed` | 「失敗」。図鑑に出ない | 利用者がやり直す。**古い種類・名前の下に残り続けることは無い** |
 | コメントの条件付き patch が 412（AI の処理中に利用者がコメントを書いた、またはやり直しの受付が入った） | 利用者のコメント（やり直しなら受付が消した `null`）が残る。AI のコメントは書かれない | 利用者の文 | 意図どおり（§7.4）。結果の patch には進む（やり直しなら結果も 412 で書かれない） |
 | AI の処理中に利用者が `tags`・`tripId` を変えた（解析中に写真を編集した） | 利用者の変更と AI の結果の両方が残る | 両方 | 書く欄が分かれているので衝突しない。ロックも読み直しも要らない |
-| コメントの patch の後、結果の patch の前に落ちる | AI のコメントだけ書かれ、`state` は処理中のまま | 「分類中...」 | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される） |
+| コメントの patch の後、結果の patch の前に落ちる（識別だけ） | AI のコメントだけ書かれ、`state` は処理中（`identifying`）のまま | 「分類中...」（段階4のアプリで「識別中...」） | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される）。ただし再試行の結果が `matchesKind: false` か、上限まで失敗した（`failed`）ときはコメントを書かないので、前の回の AI のコメントが残る。まれな場合なので許容する（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #25。利用者のやり直しは受付でコメントを消す） |
 | 写真の読み取り（担当の前）に失敗 | 何も変わらない（`attempts` も増えない） | 「分類中...」 | 自動（キューの再試行。3 回とも失敗すれば poison に落ち、写真は `pending` のままなのでタイマーが再投入） |
 | 写真が無い（消された後のメッセージ）・メッセージに写真 ID が無い | — | — | 何もせずに終える（例外にしない） |
 | 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | 担当の patch を `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付きにする（§7.4）。412 なら別のインスタンスが担当済みなので何もしない。読んだ `state` が `done` / `failed` / `none` でも何もしない |
 | 読んだ後・担当の前に、別のインスタンスが担当して失敗し `pending` に戻した | — | — | 担当の条件の `attempts` が合わず 412。何もしない（古い回数から数え直さない） |
-| 分類の間（担当の後、結果・失敗を書く前）に、利用者がやり直しを頼んだ（受付が `pending`・`attempts: 0` を書いた） | やり直しの受付の状態（`hint` と `pending`） | 「分類中...」 | 結果・失敗の patch を担当したときの `state`・`attempts` の条件付きにする（§7.4）。412 で古い結果も失敗も書かず、例外も投げずに終える。受付で積んだメッセージが改めて担当する |
+| 分類・識別の間（担当の後、結果・失敗を書く前）に、利用者がやり直しを頼んだ（受付が `pending`・`attempts: 0` を書いた） | やり直しの受付の状態（`hint` と `pending`） | 「分類中...」 | 結果・失敗の patch（識別ならコメントの patch も）を担当したときの `processing` の条件付きにする（§7.4）。412 で古い結果も失敗もコメントも書かず、例外も投げずに終える。受付で積んだメッセージが改めて担当する |
 | 再投入のタイマーが読んだ後・戻す前に、ワーカーが担当した（またはやり直しの受付が入った） | — | — | タイマーの patch を読んだときの `state`・`attempts` の条件付きにする。412 ならその写真には触らず、積まない |
 | 地名のキャッシュ（`geocache`）の `create` が 409 | 既に同じ座標の地名がある | — | 無視する |
 
@@ -702,13 +702,13 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `comment`・`commentSource` | **両方**（利用者の `PATCH` と AI）。衝突はここだけ |
 | `tags`・`tripId`・`updatedAt` | 利用者（`PATCH`・move・旅行の削除）。`updatedAt` はワーカーも書く |
 
-- メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。段階3のワーカーは `step` が `classify` のときだけ担当し、それ以外なら何もしない
+- メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。ワーカーは `step` が `classify` なら分類、`identify` なら識別（4-1a で実装済み）を担当し、それ以外（`null`）なら何もしない
 - 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
-- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（識別だけ。分類はコメントを書かない）。
+- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（識別だけ。分類はコメントを書かない。識別でも `matchesKind: false` のときと、AI の一言が空白だけのときは書かない）。
   412 なら利用者がその間にコメントを書いたので、書かずに進む（送信直後の自動の解析が、利用者のコメントを消さないように）。
   **(2) 結果**: `category`・`classification`（分類）または `identification`（識別）と `processing`・`updatedAt` を `set`。
-  条件は `FROM c WHERE c.processing.state = "classifying" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）。失敗の書き込み（`pending` に戻す・`failed` にする）も同じ条件。
-  412 か 404 なら書かずに終える（失敗でも例外を投げない）。分類の間にやり直しの受付が `pending`・`attempts: 0` を書いていたとき、古い処理の結果や失敗で上書きすると、やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消えるため。
+  条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）。失敗の書き込み（`pending` に戻す・`failed` にする）も同じ条件。
+  412 か 404 なら書かずに終える（失敗でも例外を投げない）。分類・識別の間にやり直しの受付が `pending`・`attempts: 0` を書いていたとき、古い処理の結果や失敗で上書きすると、やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消えるため。
   項目の文書が無いので、これで図鑑も同時に更新される
 - **`_etag` の条件と「412 なら読み直し」は置かない。** 結果の条件は `processing` の `state`・`attempts` だけを見る。欄が分かれているので、読んでから書くまでに利用者が `tags`・`tripId` を変えても（解析中に写真を編集しても）、Patch は互いの欄を上書きしない。
   唯一の衝突である `comment` は、上の条件付き patch を Cosmos が原子的に評価するので、読み直しが要らない

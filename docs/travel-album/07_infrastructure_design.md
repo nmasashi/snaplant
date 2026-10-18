@@ -282,9 +282,10 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `PHOTO_SAS_START_SKEW_MINUTES`（`constants/album.ts`） | `5`（発行の 5 分前から有効） | SAS の `startsOn`。時計のずれの吸収 | `PhotoStorageService.readUrl()`（一時画像の SAS には付けない） | 2 |
 | `PHOTO_CONTINUATION_TOKEN_LIMIT_KB`（`constants/album.ts`） | `2` | 写真一覧の継続トークンの大きさの上限（KB）。クエリパラメータで受け渡すので URL の長さに収める | `AlbumService.listPhotos()`（`GET /api/photos`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)） | 2 |
 | `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |
-| `CLASSIFY_IMAGE_SAS_MINUTES`（`constants/album.ts`） | `15` | AI に渡す原寸の読み取り SAS の有効期限（分）。植物図鑑の一時画像の SAS（`services/storageService.ts` の `TEMP_SAS_EXPIRY_MINUTES`、同じく 15 分のコードの定数）と同じ理由。環境変数では変えられない | ワーカー（[06 §2.1](./06_processing_design.md#21-モデルとサービス)） | 3 |
+| `CLASSIFY_IMAGE_SAS_MINUTES`（`constants/album.ts`） | `15` | AI に渡す原寸の読み取り SAS の有効期限（分）。植物図鑑の一時画像の SAS（`services/storageService.ts` の `TEMP_SAS_EXPIRY_MINUTES`、同じく 15 分のコードの定数）と同じ理由。環境変数では変えられない | ワーカーの分類と識別（[06 §2.1](./06_processing_design.md#21-モデルとサービス)・[§3.1](./06_processing_design.md#31-契約)） | 3 |
 | `PHOTO_REQUEUE_AFTER_MINUTES`（`constants/album.ts`） | `10` | 解析待ち・処理中のまま、これより長く `processing.updatedAt` が更新されていない写真を再投入する（分）。キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの1回（5 分以内）より長くとる。環境変数では変えられない | 再投入のタイマー（[06 §1.1](./06_processing_design.md#11-構成)） | 3 |
 | `ORPHAN_BLOB_MIN_AGE_HOURS`（`constants/album.ts`） | `24` | 文書の無い Blob を消す前に待つ時間（最終更新から）。環境変数では変えられない | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
+| `CATALOG_VALIDATION.NAME_MAX_LENGTH`（`constants/validation.ts`） | `100` | 図鑑の項目の名前（`identification.name`）の最大文字数。環境変数では変えられない | 識別の応答の検証（ワーカー。[06 §3.1](./06_processing_design.md#31-契約)。4-1a）と、図鑑の項目を名前で開く API の `name` の検証（[05 §5.14](./05_api_design.md#514-図鑑段階4)。4-2） | 4 |
 | `OTHER_KIND`・`CATALOG_KINDS`・`PHOTO_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表・定義表のキー + `'other'` | カテゴリと図鑑の種類 | 分類の選択肢と `GET /api/photos` の `category` の検証（`PHOTO_KINDS`）・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
 | `geocache` の丸め | 小数3桁（≒ 100 m） | 地名のキャッシュの鍵 | `GeocodingService` | 3・任意 |
 | `host.json` の `extensions.queues` | `batchSize: 1`・`newBatchThreshold: 0`・`maxDequeueCount: 3`・`visibilityTimeout: 00:01:00`・`maxPollingInterval: 00:00:10` | キューの直列化・再試行・待ち時間 | ワーカー（§4） | 3 |
