@@ -160,6 +160,43 @@ describe('植物図鑑の記録を写真へ移すスクリプト', () => {
     expect(migrated.commentSource).toBeNull();
   });
 
+  it('名前・説明・特徴は前後の空白を除いて移し、空白だけなら null にする', async () => {
+    // 識別のワーカーと同じく前後の空白を除く。除かないと、図鑑で「 ソメイヨシノ」と「ソメイヨシノ」が別の項目になる
+    const image = Buffer.from('spaced');
+    putPlant(plant('p1', { name: ' ソメイヨシノ ', description: '  説明  ', characteristics: '   ' }), image);
+
+    await migratePlants({ apply: true, log });
+
+    const migrated = photo(sha256(image))!;
+    const identification = migrated.identification as Record<string, unknown>;
+    expect(identification.name).toBe('ソメイヨシノ');
+    expect(identification.description).toBe('説明');
+    expect(identification.characteristics).toBeNull();
+    expect(migrated.comment).toBeNull();
+  });
+
+  it.each([
+    ['空白だけ', '   '],
+    ['101 文字', 'あ'.repeat(101)]
+  ])('名前が%sの植物は、図鑑の項目にできないので飛ばして一覧に出す', async (_, name) => {
+    // 名前は図鑑の項目の鍵で、識別の結果と同じく1〜100文字（CATALOG_VALIDATION.NAME_MAX_LENGTH。04 §3.1）
+    putPlant(plant('p1', { name }), Buffer.from('bad-name'));
+
+    const result = await migratePlants({ apply: true, log });
+
+    expect(result.skipped).toEqual([{ plantId: 'p1', name, reason: '名前が空か、100文字を超える' }]);
+    expect(albumBackend.documents.size).toBe(0);
+  });
+
+  it('名前がちょうど100文字の植物は移す', async () => {
+    const image = Buffer.from('long-name');
+    putPlant(plant('p1', { name: 'あ'.repeat(100) }), image);
+
+    const result = await migratePlants({ apply: true, log });
+
+    expect(result.migrated).toBe(1);
+  });
+
   it('画像の Content-Type の大文字小文字は問わず、小文字にそろえて移す', async () => {
     // 植物図鑑は送られた Content-Type をそのまま Blob に付けていた（検証は大文字小文字を問わない）
     const image = Buffer.from('upper-case-type');
