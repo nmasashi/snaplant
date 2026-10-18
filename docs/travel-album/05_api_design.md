@@ -129,7 +129,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 ドキュメントとの違い: `blobName` / `thumbnailBlobName` の代わりに `imageUrl` / `thumbnailUrl`（SAS 付き。§6）。`thumbnailUrl` はサムネイルが無ければ `null`。
 `location` は位置情報が無ければ `null`。あれば `latitude`・`longitude` は必ず数値で、`placeName`・`placeSource` は `null` になりうる（緯度・経度だけを送ったとき。§5.1）。
 クライアントは `latitude`・`longitude`・`placeName` を読み、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
-段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。`processing` のほかの項目と `classification` は読まない。
+段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。段階4（4-3c）からは `processing.step`（無ければ `null`。状態の表示を「分類中...」「識別中...」に分ける）と `identification` の `kind`・`matchesKind`・`name`（図鑑の項目へのリンクと、分類と合わない写真の案内。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）も読む。`processing` のほかの項目、`classification`、`identification` のほかの項目は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
 `category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
@@ -413,7 +413,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 **実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
 
-利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント）・未定（タグ）。
+利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・未定（タグ）。
 
 **リクエスト:** `{ "comment"?: string | null, "tags"?: string[] }`
 
@@ -719,8 +719,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
-| `updatePhoto(photoId, {comment, tags})` | `PATCH /api/photos/{photoId}` | `data['photo']` |
-| `requestPhotoProcessing(photoId, {hint})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a）。ボディは `{ step: 'classify', hint }` で、`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
+| `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグを直すメソッドは、タグを付ける画面と一緒に足す |
+| `requestPhotoProcessing(photoId, {hint, step})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c）。ボディは `{ step, hint }` で、`step` は省くと `'classify'`（やり直しダイアログが「名前だけ」なら `'identify'` を渡す）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
 | `getCatalogKinds()` | `GET /api/catalog/kinds` | `data['kinds']`（各要素の `kind`・`label`・`fields`（`key`・`label`・`type`）。`models/catalog.dart` の `CatalogKind`・`CatalogField`）。**実装済み**（4-3a） |
 | `getCatalogEntries(kind, {required offset, required limit})` | `GET /api/catalog/entries?kind=&offset=&limit=` | `data['entries']`・`data['total']`（`CatalogEntryPage`。項目は `CatalogEntry`）。**実装済み**（4-3a）。`kind`・`offset`・`limit` を毎回クエリに載せる（`Uri(queryParameters:)`。図鑑の画面は `limit` に 50 を渡す）。`entries` の件数は続きがあっても `limit` より少ないことがある（§5.14）ので、次の `offset` は呼び出し側が `limit` だけ進め、`total` 以上なら読み切り（[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。`CatalogEntry` は `description`・`characteristics` を null 可、`attributes` が無ければ空、それ以外の欄は必須として読む |
 | `getCatalogEntry(kind, name, {continuationToken})` | `GET /api/catalog/entry?kind=&name=&continuationToken=` | `data['entry']`（null 可。`CatalogEntry`）・`data['photos']`・`data['continuationToken']`（null 可）（`models/catalog.dart` の `CatalogEntryDetail`。写真は `PhotoPage`）。**実装済み**（4-3b）。`kind`・`name` を毎回、`continuationToken` は渡したときだけクエリに載せる（`Uri(queryParameters:)` で組み立てるので、記号や空白を含む名前も URL エンコードされる）。`limit` は送らない（サーバの既定 100）。`urlExpiresAt` は読まない（`getPhotos` と同じ）。`photos` は `entry` が null でも必須として読む（サーバは `[]` を返す）。`CatalogEntry` の読み方は `getCatalogEntries` と同じ |
