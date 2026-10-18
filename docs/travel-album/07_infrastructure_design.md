@@ -158,17 +158,18 @@ resource "azurerm_cosmosdb_sql_container" "album" {
     composite_index {
       index {
         path  = "/identification/confidence"
-        order = "descending"
+        order = "Descending"
       }
       index {
         path  = "/identification/at"
-        order = "descending"
+        order = "Descending"
       }
     }
   }
 }
 ```
 
+**定義済み（4-0）。** `plan` は `album` の in-place の変更1件だけ（2026-10-18 に確かめた）。apply は人間が行う。
 インデックスの変更は既存のコンテナにそのまま適用され（replace にならない。`plan` で確かめる）、作り直しは裏で進む。既存の写真が少ない段階4の初めなら数分（推測）。
 
 ### 3.2 植物図鑑の廃止

@@ -217,7 +217,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   名前が写真 ID（小文字16進 64 文字）+ `.` で始まらない Blob（大文字、65 文字、`readme.txt`）は古くても残る。存在しない旅行を指す写真が `tripId: null`・`updatedAt` が今になる（消えない。ある旅行の写真と未所属の写真は変わらない）。Blob の無い文書は消えない。
   写真の文書を読めなければ、Blob を消さずに例外を投げる
 - 図鑑のまとめ（組み立ての純粋関数に行を直接渡して）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられ、名前の文字列順に並ぶ
-- 図鑑の API（形は案。段階4の詳しい設計で決める。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400。該当する写真が無いときの応答、`name` の渡し方、ページの方式は決まってから書く
+- 図鑑の API（[05 §5.14](./05_api_design.md#514-図鑑段階4)）: `kind` 無効で 400、`name` の検証（空・100 文字超）、`offset` / `limit` の検証、該当する写真が無い項目は 200 で `entry: null`、項目一覧は名前順で `total` は項目の総数
 - 移行スクリプト: 2 回流して `documents` の件数が変わらない。`imagePath` の Blob が無い植物は飛ばして一覧に出る。写真の `category` が `"plant"`、`tags` が `[]`、`identification.kind` が `"plant"` で `model: "migration"`、`sortAt` が `uploadedAt` を日本時間に直したもの
 
 ## 4. 段階2のシナリオ一覧（mobile）

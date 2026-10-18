@@ -79,6 +79,8 @@ sequenceDiagram
 - 段階2の `POST /api/photos` は `processing.state: "none"`・`step: null` で保存し、キューには投入しない。段階3で `pending`・`step: "classify"` + 投入に変える
 - 段階3で、段階2に送った既存の写真（`state: "none"`）を分類するには、`POST /api/photos/{photoId}/process` を1枚ずつ呼ぶか、
   一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnclassified.ts`）で投入する。タイマーには `none` を拾わせない（意図せず全件に課金しないため）
+- 段階4で、段階3で分類まで済んだ写真（`state: "done"`、種類が識別対象で `identification` が無いもの）を識別するには、`POST /api/photos/{photoId}/process` を1枚ずつ呼ぶか、
+  一度だけ走らせる手動のスクリプト（`api/scripts/enqueueUnidentified.ts`。人間が実行する）で `pending`・`step: "identify"` にして投入する。タイマーには拾わせない（上と同じ理由。2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）
 - `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。
   分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
 - ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `state`・`attempts` の条件付き patch、コメントは条件付き patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
