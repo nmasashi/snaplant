@@ -96,26 +96,35 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
               buttonLabel: '戻る',
               onPressed: () => Navigator.pop(context),
             )
-          : Column(
-              children: [
-                if (entry != null)
-                  _EntryHeader(entry: entry, kind: widget.kind),
-                Expanded(
-                  child: PhotoGrid(
-                    key: ValueKey(_gridVersion),
-                    apiService: widget.apiService,
-                    uploadQueue: widget.uploadQueue,
-                    tripId: null,
-                    loadPage: _loadPage,
-                    loadingMessage: '項目を読み込み中...',
-                    errorFallbackMessage: '項目の読み込みに失敗しました',
-                    selection: _selection,
-                    emptyTitle: 'この項目には写真がありません',
-                    onViewerClosed: _reload,
-                    hasFloatingButton: false,
+          : LayoutBuilder(
+              builder: (context, constraints) => Column(
+                children: [
+                  if (entry != null)
+                    // 説明の長さは AI が返す文で決まる。見出しは画面の高さの4割までにし、超える分は見出しの中でスクロールする
+                    // （固定の高さのまま置くと、小さな端末で写真のグリッドの高さが無くなる）
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                          maxHeight: constraints.maxHeight * 0.4),
+                      child: SingleChildScrollView(
+                          child: _EntryHeader(entry: entry, kind: widget.kind)),
+                    ),
+                  Expanded(
+                    child: PhotoGrid(
+                      key: ValueKey(_gridVersion),
+                      apiService: widget.apiService,
+                      uploadQueue: widget.uploadQueue,
+                      tripId: null,
+                      loadPage: _loadPage,
+                      loadingMessage: '項目を読み込み中...',
+                      errorFallbackMessage: '項目の読み込みに失敗しました',
+                      selection: _selection,
+                      emptyTitle: 'この項目には写真がありません',
+                      onViewerClosed: _reload,
+                      hasFloatingButton: false,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
       onPhotosChanged: _reload,
     );
