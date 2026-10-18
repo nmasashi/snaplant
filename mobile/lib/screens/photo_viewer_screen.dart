@@ -303,6 +303,14 @@ class _PhotoPage extends StatefulWidget {
 }
 
 class _PhotoPageState extends State<_PhotoPage> {
+  /// 下の情報のボタン。暗い下の情報の上でも読めるよう、上のバーのボタンと同じ白にする
+  static final _infoButtonStyle =
+      TextButton.styleFrom(foregroundColor: Colors.white);
+
+  /// 下の情報の行として置くボタン（項目へのリンク・「コメントを編集」）。左端を他の行の文字とそろえる
+  static final _infoLinkStyle = TextButton.styleFrom(
+      foregroundColor: Colors.white, padding: EdgeInsets.zero);
+
   final _transformation = TransformationController();
   bool _zoomed = false;
 
@@ -328,7 +336,6 @@ class _PhotoPageState extends State<_PhotoPage> {
     final identifying = photo.processingStep == 'identify';
     final identification = photo.identification;
     final comment = photo.comment;
-    const infoStyle = TextStyle(color: Colors.white);
     return Column(
       children: [
         Expanded(
@@ -386,18 +393,14 @@ class _PhotoPageState extends State<_PhotoPage> {
                             .copyWith(color: Colors.white70)),
                     TextButton(
                       onPressed: widget.onRetry,
-                      // 暗い下の情報の上でも読めるよう、上のバーの「やり直す」と同じ白にする
-                      style:
-                          TextButton.styleFrom(foregroundColor: Colors.white),
+                      style: _infoButtonStyle,
                       child: const Text('やり直す'),
                     ),
                   ]),
                 if (identification != null && identification.matchesKind)
                   TextButton(
                     onPressed: () => widget.onOpenEntry(identification),
-                    style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.zero),
+                    style: _infoLinkStyle,
                     child: Text('${identification.name} >'),
                   ),
                 if (identification != null && !identification.matchesKind)
@@ -409,8 +412,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                     ),
                     TextButton(
                       onPressed: widget.onRetry,
-                      style:
-                          TextButton.styleFrom(foregroundColor: Colors.white),
+                      style: _infoButtonStyle,
                       child: const Text('やり直す'),
                     ),
                   ]),
@@ -419,12 +421,10 @@ class _PhotoPageState extends State<_PhotoPage> {
                       photo.commentSource == 'user'
                           ? '$comment（編集済み）'
                           : comment,
-                      style:
-                          AppTextStyles.body1.copyWith(color: infoStyle.color)),
+                      style: AppTextStyles.body1.copyWith(color: Colors.white)),
                 TextButton(
                   onPressed: widget.onEditComment,
-                  style: TextButton.styleFrom(
-                      foregroundColor: Colors.white, padding: EdgeInsets.zero),
+                  style: _infoLinkStyle,
                   child: const Text('コメントを編集'),
                 ),
               ],
