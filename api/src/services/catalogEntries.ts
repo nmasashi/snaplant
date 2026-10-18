@@ -44,7 +44,7 @@ function pageOfCatalogNames(
  * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
  * @returns 項目。見出しの写真が無ければ null（そのページから外す）
  */
-function catalogEntryOf(
+export function catalogEntryOf(
   kind: string,
   row: CatalogNameCount,
   head: CatalogHeadPhoto | null,

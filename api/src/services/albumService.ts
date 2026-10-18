@@ -1,10 +1,11 @@
 import { CosmosClient, Container } from '@azure/cosmos';
+import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
-import { CatalogEntriesQuery, CatalogEntry, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
-import { queryCatalogHead, queryCatalogNameCounts } from './catalogQueries';
-import { catalogPageOf } from './catalogEntries';
+import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
+import { catalogEntryOf, catalogPageOf } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
 import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
 
@@ -147,6 +148,35 @@ export class AlbumService {
   }
 
   /**
+   * 図鑑の項目の詳細と、その写真の1ページを読む（docs/travel-album/04_data_design.md §5.6 の詳細の3本）
+   *
+   * 見出しの写真（TOP 1）を先に読み、無ければ項目は無い（その種類と名前の写真が0枚）。写真のページを読まないので、
+   * 項目が消えた後に古い継続トークンで続きを頼まれても、トークンの不正ではなく entry: null を返す。
+   * 見出しがあれば枚数と写真のページを並列に読み、枚数が 0 なら項目は無い（読む間に消された・名前が変わったときに、
+   * 見出しだけ残った食い違った項目を返さない）
+   * @param query 検証済みのクエリ（種類・名前・写真のページ）
+   * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
+   * @returns 項目（無ければ null）と、写真の1ページと次のページの継続トークン
+   */
+  async getCatalogEntry(
+    { kind, name, limit, continuationToken }: CatalogEntryQuery,
+    coverUrlOf: CoverUrlOf
+  ): Promise<{ entry: CatalogEntry | null; photos: PhotoDocument[]; continuationToken: string | null }> {
+    const head = await queryCatalogHead(this.container, kind, name);
+    if (head === null) {
+      return { entry: null, photos: [], continuationToken: null };
+    }
+    const [photoCount, page] = await Promise.all([
+      queryCatalogPhotoCount(this.container, kind, name),
+      this.listPhotos({ tripId: undefined, category: undefined, entry: { kind, name } }, limit, continuationToken),
+    ]);
+    if (photoCount === 0) {
+      return { entry: null, photos: [], continuationToken: null };
+    }
+    return { entry: catalogEntryOf(kind, { name, photoCount }, head, coverUrlOf), ...page };
+  }
+
+  /**
    * 旅行の名前と説明を置き換える（タグと作成日時は変えない）
    * @param id 旅行 ID
    * @param input 新しい旅行名と説明
@@ -200,13 +230,13 @@ export class AlbumService {
    * どの旅行にも属さない写真は tripId に null を渡す（c.tripId = null は値が null のものだけに一致し、
    * 項目が無いドキュメントには一致しない。写真は必ず tripId を書くので漏れない）
    * @param filter 絞り込み。tripId は旅行 ID（どの旅行にも属さない写真なら null、旅行で絞らないなら undefined）、
-   *   category はカテゴリ（絞らないなら undefined）。両方あれば AND
+   *   category はカテゴリ（絞らないなら undefined）、entry は図鑑の項目（種類と名前。分類どおりの種類が写っている写真だけ）。あれば AND
    * @param limit 1ページの最大枚数
    * @param continuationToken 前のページの継続トークン。先頭からなら undefined
    * @returns 写真と、次のページの継続トークン（最後のページなら null）
    */
   async listPhotos(
-    filter: { tripId: string | null | undefined; category: string | undefined },
+    filter: { tripId: string | null | undefined; category: string | undefined; entry?: { kind: string; name: string } },
     limit: number,
     continuationToken: string | undefined
   ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
@@ -219,11 +249,20 @@ export class AlbumService {
           'SELECT * FROM c WHERE c.type = @type' +
           (filter.tripId !== undefined ? ' AND c.tripId = @tripId' : '') +
           (filter.category !== undefined ? ' AND c.category = @category' : '') +
+          (filter.entry !== undefined
+            ? ' AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName'
+            : '') +
           ' ORDER BY c.sortAt ASC',
         parameters: [
           { name: '@type', value: 'photo' },
           ...(filter.tripId !== undefined ? [{ name: '@tripId', value: filter.tripId }] : []),
           ...(filter.category !== undefined ? [{ name: '@category', value: filter.category }] : []),
+          ...(filter.entry !== undefined
+            ? [
+                { name: '@kind', value: filter.entry.kind },
+                { name: '@entryName', value: filter.entry.name },
+              ]
+            : []),
         ],
       },
       {
@@ -233,11 +272,20 @@ export class AlbumService {
         enableQueryControl: true,
       }
     );
-    let page = await iterator.fetchNext();
-    for (let i = 0; i < PHOTO_EMPTY_PAGE_RETRIES && page.resources.length === 0 && page.continuationToken; i++) {
-      page = await iterator.fetchNext();
+    try {
+      let page = await iterator.fetchNext();
+      for (let i = 0; i < PHOTO_EMPTY_PAGE_RETRIES && page.resources.length === 0 && page.continuationToken; i++) {
+        page = await iterator.fetchNext();
+      }
+      return { photos: page.resources, continuationToken: page.continuationToken ?? null };
+    } catch (error: any) {
+      // JSON としては読めるが Cosmos が受け付けないトークンは、サーバが 400 で拒む（推測。実環境で確かめる）。
+      // トークンを渡したこのクエリの 400 だけを、トークンの不正とみなす
+      if (continuationToken !== undefined && error.code === 400) {
+        throw new InvalidContinuationTokenError(error);
+      }
+      throw error;
     }
-    return { photos: page.resources, continuationToken: page.continuationToken ?? null };
   }
 
   /**

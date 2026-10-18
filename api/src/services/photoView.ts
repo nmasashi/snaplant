@@ -58,9 +58,9 @@ export function coverUrlMaker(): (blobName: string) => string {
  */
 export function photoListResponseData(
   docs: PhotoDocument[],
-  storage: PhotoStorageService
+  storage: PhotoStorageService,
+  expiresOn: Date = photoUrlExpiresOn()
 ): { photos: Photo[]; urlExpiresAt: string } {
-  const expiresOn = photoUrlExpiresOn();
   return { photos: docs.map((doc) => toPhoto(doc, storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() };
 }
 

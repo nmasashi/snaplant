@@ -79,7 +79,7 @@ import { TripDocument } from '../../src/types/album';
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
- * （`@name` / `@imagePath` / `@type` / `@tripId` / `@category`）の値で絞り込むだけに留める。クエリ文字列自体への
+ * （`@name` / `@imagePath` / `@type` / `@tripId` / `@category`、図鑑の `@kind` / `@entryName`（写真の `identification.kind` / `.name`））の値で絞り込むだけに留める。クエリ文字列自体への
  * 依存はリファクタリング耐性を失うため見ない。この簡略化の結果、
  * 次の点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
  * もしくは E2E テストに委ねる）:
@@ -102,9 +102,12 @@ import { TripDocument } from '../../src/types/album';
  * - WHERE 句が `type` でも絞り込む条件になっているか（偽物は `@type` パラメータの値で絞るだけで、
  *   WHERE 句から type の条件を削除しても気づかない）
  * - 集計（GROUP BY / COUNT / MIN / MAX）の値。偽物は `@type` で絞ったドキュメントをそのまま行として返す
- *   だけなので、写真を置いても集計の行にはならず、枚数は0・期間は null に見える。集計の値は
+ *   だけなので、写真を置いても集計の行にはならず、GROUP BY の枚数は0・期間は null に見える（`VALUE` の集計は、絞り込んだ先頭の文書がそのまま値に見える）。集計の値は
  *   tripSummaries.test.ts（行から値を組み立てる関数）で確かめる。サービスやハンドラのテストでは、
- *   写真を置いて集計の値を主張しない
+ *   写真を置いて集計の値を主張しない。`SELECT VALUE COUNT(1)` も数ではなく文書を返すので、
+ *   図鑑の項目の詳細の枚数（photoCount）と「枚数が 0 なら項目は無い」は確かめられない
+ * - パラメータでない条件（SQL に書いた値）。例えば図鑑のクエリの `c.identification.matchesKind = true` は
+ *   偽物が見ないので、`matchesKind: false` で名前の残った文書を置いても絞られない（テストの写真は、写っていなければ名前を null にする）
  * - Cosmos のシステム項目（_rid・_self・_etag・_attachments・_ts）。偽物は付けない。応答への漏れを見るテストは、
  *   偽物に置くドキュメントに自分で足す（tests/helpers/albumDocuments.ts の COSMOS_SYSTEM_FIELDS）
  */
@@ -122,6 +125,8 @@ export interface FakeCosmosDocument {
   tripId?: string | null;
   /** 写真のカテゴリ（分類前は null） */
   category?: string | null;
+  /** 写真の識別の結果（図鑑の種類と名前で絞るのに使う） */
+  identification?: unknown;
 }
 
 export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | PlantSummary | TripDocument> {
@@ -358,6 +363,10 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         // @tripId は null を値として渡せる（旅行に属さない写真）ので、値ではなくパラメータがあるかで判断する
         const tripIdParam = parameters.find((p: any) => p.name === '@tripId');
         const categoryParam = parameters.find((p: any) => p.name === '@category')?.value;
+        // 図鑑の項目（識別の種類と名前）。名前は植物の @name と分けて @entryName で受ける。
+        // @kind・@entryName は図鑑の識別の絞り込み専用（別の意味で同じ名前のパラメータを使うと、偽物が識別で絞ってしまう）
+        const kindParam = parameters.find((p: any) => p.name === '@kind')?.value;
+        const entryNameParam = parameters.find((p: any) => p.name === '@entryName')?.value;
         let docs = Array.from(backend.documents.values());
         if (nameParam !== undefined) {
           docs = docs.filter((d) => d.name === nameParam);
@@ -374,6 +383,12 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         }
         if (categoryParam !== undefined) {
           docs = docs.filter((d) => d.category === categoryParam);
+        }
+        if (kindParam !== undefined) {
+          docs = docs.filter((d) => (d.identification as { kind?: unknown } | null | undefined)?.kind === kindParam);
+        }
+        if (entryNameParam !== undefined) {
+          docs = docs.filter((d) => (d.identification as { name?: unknown } | null | undefined)?.name === entryNameParam);
         }
         // 実 SDK の iterator と同じく、fetchNext を呼び直すと続きから読む。
         // 最初の fetchNext で（渡されたトークンがあればそれを読んで）決める。トークンの不正は、そのとき投げる

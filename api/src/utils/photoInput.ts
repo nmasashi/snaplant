@@ -249,25 +249,38 @@ export function readPhotoListQuery(
     return { error: createValidationError('カテゴリが無効です') };
   }
 
-  const limit = readPageLimit(query.get('limit'), PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
-  if (limit === null) {
-    return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
-  }
-
-  const continuationToken = query.get('continuationToken');
-  // Cosmos の継続トークンは JSON。読めないものを SDK に渡すと code の無い Error になり 500 と区別できないので、ここで弾く
-  if (continuationToken !== null && !isJson(continuationToken)) {
-    return { error: createValidationError('継続トークンの形式が無効です') };
+  const page = readPhotoPage(query);
+  if ('error' in page) {
+    return page;
   }
 
   return {
     query: {
       tripId: tripIdParam === null ? undefined : tripIdParam === 'none' ? null : tripIdParam,
       category: categoryParam ?? undefined,
-      limit,
-      continuationToken: continuationToken ?? undefined,
+      ...page.page,
     },
   };
+}
+
+/**
+ * 写真のページの指定（limit・continuationToken）を読む。写真の一覧と図鑑の項目の詳細で同じ規則と文言（05 §5.2・§5.14）
+ * @param query リクエストのクエリ
+ * @returns 1ページの枚数と前のページの継続トークン（先頭からなら undefined）、または 400 の応答
+ */
+export function readPhotoPage(
+  query: URLSearchParams
+): { page: { limit: number; continuationToken: string | undefined } } | { error: HttpResponseInit } {
+  const limit = readPageLimit(query.get('limit'), PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
+  if (limit === null) {
+    return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
+  }
+  const continuationToken = query.get('continuationToken');
+  // Cosmos の継続トークンは JSON。読めないものを SDK に渡すと code の無い Error になり 500 と区別できないので、ここで弾く
+  if (continuationToken !== null && !isJson(continuationToken)) {
+    return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.CONTINUATION_TOKEN_INVALID) };
+  }
+  return { page: { limit, continuationToken: continuationToken ?? undefined } };
 }
 
 /**

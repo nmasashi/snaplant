@@ -150,7 +150,8 @@ export const PHOTO_VALIDATION = {
   ERROR_MESSAGES: {
     PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
     COMMENT_TOO_LONG: `コメントは${positiveIntFromEnv(process.env.PHOTO_COMMENT_MAX_LENGTH, 500)}文字以内で指定してください`,
-    LIMIT_INVALID: `1ページの枚数は1〜${positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200)}で指定してください`
+    LIMIT_INVALID: `1ページの枚数は1〜${positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200)}で指定してください`,
+    CONTINUATION_TOKEN_INVALID: '継続トークンの形式が無効です'
   }
 } as const;
 
@@ -176,17 +177,22 @@ export const TAG_VALIDATION = {
   }
 } as const;
 
+// 図鑑の項目の名前の最大文字数（文言に埋め込むので、オブジェクトの外に置く）
+const CATALOG_NAME_MAX_LENGTH = 100;
+
 // 旅行アルバムの図鑑の項目（段階4）
 export const CATALOG_VALIDATION = {
   // 項目の名前（識別の identification.name）の最大文字数。識別の応答の検証と、図鑑の項目を名前で開く API の検証で同じ値を使う
   // （docs/travel-album/04_data_design.md §3.1）。AI が返す値なので環境変数では変えない
-  NAME_MAX_LENGTH: 100,
+  NAME_MAX_LENGTH: CATALOG_NAME_MAX_LENGTH,
   // 項目の一覧（GET /api/catalog/entries）の1ページの件数（既定と上限）
   PAGE_SIZE: positiveIntFromEnv(process.env.CATALOG_PAGE_SIZE, 50),
   MAX_PAGE_SIZE: positiveIntFromEnv(process.env.CATALOG_MAX_PAGE_SIZE, 100),
 
   ERROR_MESSAGES: {
     KIND_INVALID: '図鑑の種類が無効です',
-    PAGE_INVALID: 'ページの指定が無効です'
+    PAGE_INVALID: 'ページの指定が無効です',
+    NAME_REQUIRED: '図鑑の項目の名前が指定されていません',
+    NAME_TOO_LONG: `図鑑の項目の名前は${CATALOG_NAME_MAX_LENGTH}文字以内で指定してください`
   }
 } as const;

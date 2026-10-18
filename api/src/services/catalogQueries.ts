@@ -70,3 +70,26 @@ export async function queryCatalogHead(container: Container, kind: string, name:
     .fetchAll();
   return resources[0] ?? null;
 }
+
+/**
+ * 項目の写真の枚数を数える（分類どおりの種類が写っている、その名前の写真だけ）
+ * @param container album コンテナ
+ * @param kind 図鑑の種類
+ * @param name 項目の名前
+ */
+export async function queryCatalogPhotoCount(container: Container, kind: string, name: string): Promise<number> {
+  const { resources } = await container.items
+    .query<number>({
+      query:
+        'SELECT VALUE COUNT(1) FROM c' +
+        ' WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true' +
+        ' AND c.identification.name = @entryName',
+      parameters: [
+        { name: '@type', value: 'photo' },
+        { name: '@kind', value: kind },
+        { name: '@entryName', value: name },
+      ],
+    })
+    .fetchAll();
+  return resources[0] ?? 0;
+}
