@@ -1,9 +1,11 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { PhotoStorageService } from '../services/photoStorageService';
-import { coverUrlMaker, photoListResponseData } from '../services/photoView';
+import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
+import { photoListResponseData } from '../services/photoView';
 import { createDatabaseErrorResponse, createSuccessResponse, createValidationError } from '../utils/response';
 import { readCatalogEntryQuery } from '../utils/catalogInput';
+import { InvalidContinuationTokenError } from '../utils/errors';
+import { PHOTO_VALIDATION } from '../constants/validation';
 
 /**
  * 図鑑の項目の詳細 API（項目の見出しと、その写真の1ページ）
@@ -19,20 +21,27 @@ export async function getCatalogEntryHandler(request: HttpRequest, context: Invo
     return validated.error;
   }
   try {
-    const storage = new PhotoStorageService();
+    // 表紙と写真の URL の期限を1つにそろえる。保存先は URL を作るときに初めて作る（項目が無ければ保存先の設定を読まない）
+    const expiresOn = photoUrlExpiresOn();
+    let storage: PhotoStorageService | null = null;
+    const storageOf = () => (storage ??= new PhotoStorageService());
     let result;
     try {
-      result = await new AlbumService().getCatalogEntry(validated.query, coverUrlMaker());
+      result = await new AlbumService().getCatalogEntry(validated.query, (blobName) =>
+        storageOf().readUrl(blobName, expiresOn)
+      );
     } catch (error: any) {
-      // JSON としては読めるが Cosmos が受け付けない継続トークンは、サーバが 400 で拒む（写真の一覧と同じ扱い）
-      if (validated.query.continuationToken !== undefined && error.code === 400) {
-        return createValidationError('継続トークンの形式が無効です');
+      if (error instanceof InvalidContinuationTokenError) {
+        return createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.CONTINUATION_TOKEN_INVALID);
       }
       throw error;
     }
+    if (result.entry === null) {
+      return createSuccessResponse({ entry: null, photos: [], urlExpiresAt: expiresOn.toISOString(), continuationToken: null });
+    }
     return createSuccessResponse({
       entry: result.entry,
-      ...photoListResponseData(result.photos, storage),
+      ...photoListResponseData(result.photos, storageOf(), expiresOn),
       continuationToken: result.continuationToken,
     });
   } catch (error: any) {

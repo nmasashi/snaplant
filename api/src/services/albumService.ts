@@ -1,4 +1,5 @@
 import { CosmosClient, Container } from '@azure/cosmos';
+import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
@@ -149,7 +150,9 @@ export class AlbumService {
   /**
    * 図鑑の項目の詳細と、その写真の1ページを読む（docs/travel-album/04_data_design.md §5.6 の詳細の3本）
    *
-   * 見出しの写真（TOP 1）が無ければ、項目は無い（その種類と名前の写真が0枚）。枚数と写真のページは並列に読む
+   * 見出しの写真（TOP 1）・枚数・写真のページを並列に読む（項目があるふつうの場合に往復を1回で済ませる）。
+   * 見出しが無いか枚数が 0 なら、項目は無い（その種類と名前の写真が0枚。読む間に消された・名前が変わったときも、
+   * 見出しだけ残った食い違った項目を返さない）
    * @param query 検証済みのクエリ（種類・名前・写真のページ）
    * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
    * @returns 項目（無ければ null）と、写真の1ページと次のページの継続トークン
@@ -158,14 +161,14 @@ export class AlbumService {
     { kind, name, limit, continuationToken }: CatalogEntryQuery,
     coverUrlOf: CoverUrlOf
   ): Promise<{ entry: CatalogEntry | null; photos: PhotoDocument[]; continuationToken: string | null }> {
-    const head = await queryCatalogHead(this.container, kind, name);
-    if (head === null) {
-      return { entry: null, photos: [], continuationToken: null };
-    }
-    const [photoCount, page] = await Promise.all([
+    const [head, photoCount, page] = await Promise.all([
+      queryCatalogHead(this.container, kind, name),
       queryCatalogPhotoCount(this.container, kind, name),
       this.listPhotos({ tripId: undefined, category: undefined, entry: { kind, name } }, limit, continuationToken),
     ]);
+    if (head === null || photoCount === 0) {
+      return { entry: null, photos: [], continuationToken: null };
+    }
     return { entry: catalogEntryOf(kind, { name, photoCount }, head, coverUrlOf), ...page };
   }
 
@@ -265,11 +268,20 @@ export class AlbumService {
         enableQueryControl: true,
       }
     );
-    let page = await iterator.fetchNext();
-    for (let i = 0; i < PHOTO_EMPTY_PAGE_RETRIES && page.resources.length === 0 && page.continuationToken; i++) {
-      page = await iterator.fetchNext();
+    try {
+      let page = await iterator.fetchNext();
+      for (let i = 0; i < PHOTO_EMPTY_PAGE_RETRIES && page.resources.length === 0 && page.continuationToken; i++) {
+        page = await iterator.fetchNext();
+      }
+      return { photos: page.resources, continuationToken: page.continuationToken ?? null };
+    } catch (error: any) {
+      // JSON としては読めるが Cosmos が受け付けないトークンは、サーバが 400 で拒む（推測。実環境で確かめる）。
+      // トークンを渡したこのクエリの 400 だけを、トークンの不正とみなす
+      if (continuationToken !== undefined && error.code === 400) {
+        throw new InvalidContinuationTokenError(error);
+      }
+      throw error;
     }
-    return { photos: page.resources, continuationToken: page.continuationToken ?? null };
   }
 
   /**

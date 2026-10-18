@@ -67,3 +67,16 @@ export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED
 export function isConnectivityError(error: unknown): boolean {
   return hasCauseCode(error, UNREACHABLE_ERRNOS);
 }
+
+/**
+ * JSON としては読めるが、Cosmos が受け付けない継続トークン（別の絞り込みのものなど。Cosmos は 400 で拒む。推測）
+ *
+ * トークンを渡した写真のページのクエリ（AlbumService.listPhotos）の 400 だけをこれにする。同じ要求の別のクエリ
+ * （図鑑の見出しや枚数）の 400 は、複合インデックスが無いときなどのサーバの失敗で、トークンの不正ではない
+ */
+export class InvalidContinuationTokenError extends Error {
+  constructor(readonly cause: unknown) {
+    super('継続トークンを Cosmos が受け付けませんでした');
+    this.name = 'InvalidContinuationTokenError';
+  }
+}

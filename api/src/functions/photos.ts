@@ -10,12 +10,12 @@ import {
   createUpstreamErrorResponse,
   createValidationError
 } from '../utils/response';
-import { UpstreamError } from '../utils/errors';
+import { InvalidContinuationTokenError, UpstreamError } from '../utils/errors';
 import { readPhotoInput, readPhotoListQuery } from '../utils/photoInput';
 import { computeSortAt } from '../utils/sortAt';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { PhotoDocument } from '../types/album';
-import { FILE_UPLOAD } from '../constants/validation';
+import { FILE_UPLOAD, PHOTO_VALIDATION } from '../constants/validation';
 
 /**
  * 写真保存 API（冪等。同じ写真は何度送っても1枚）
@@ -119,10 +119,8 @@ export async function listPhotosHandler(request: HttpRequest, context: Invocatio
     try {
       page = await album.listPhotos({ tripId, category }, limit, continuationToken);
     } catch (error: any) {
-      // JSON としては読めるが Cosmos が受け付けない継続トークン（別の絞り込みのものなど）は、サーバが 400 で拒む
-      // （推測。実環境で確かめる）。一覧のクエリでトークンを渡したときの 400 だけをトークンの不正とみなす
-      if (continuationToken !== undefined && error.code === 400) {
-        return createValidationError('継続トークンの形式が無効です');
+      if (error instanceof InvalidContinuationTokenError) {
+        return createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.CONTINUATION_TOKEN_INVALID);
       }
       throw error;
     }

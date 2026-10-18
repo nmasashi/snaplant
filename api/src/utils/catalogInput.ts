@@ -1,9 +1,9 @@
 import { HttpResponseInit } from '@azure/functions';
 import { createValidationError } from './response';
-import { CATALOG_VALIDATION, PHOTO_VALIDATION } from '../constants/validation';
+import { CATALOG_VALIDATION } from '../constants/validation';
 import { isCatalogKind } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntryQuery } from '../types/album';
-import { isJson } from './photoInput';
+import { readPhotoPage } from './photoInput';
 import { readPageLimit } from './pageLimit';
 
 /**
@@ -54,14 +54,9 @@ export function readCatalogEntryQuery(
   if (name.length > CATALOG_VALIDATION.NAME_MAX_LENGTH) {
     return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.NAME_TOO_LONG) };
   }
-  const limit = readPageLimit(query.get('limit'), PHOTO_VALIDATION.PAGE_SIZE, PHOTO_VALIDATION.MAX_PAGE_SIZE);
-  if (limit === null) {
-    return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.LIMIT_INVALID) };
+  const page = readPhotoPage(query);
+  if ('error' in page) {
+    return page;
   }
-  const continuationToken = query.get('continuationToken');
-  // Cosmos の継続トークンは JSON。読めないものを SDK に渡すと code の無い Error になり 500 と区別できないので、ここで弾く
-  if (continuationToken !== null && !isJson(continuationToken)) {
-    return { error: createValidationError('継続トークンの形式が無効です') };
-  }
-  return { query: { kind, name, limit, continuationToken: continuationToken ?? undefined } };
+  return { query: { kind, name, ...page.page } };
 }
