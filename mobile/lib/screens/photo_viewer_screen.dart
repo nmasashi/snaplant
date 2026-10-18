@@ -370,59 +370,80 @@ class _PhotoPageState extends State<_PhotoPage> {
         if (widget.showInfo)
           Container(
             width: double.infinity,
+            // コメントの長さは AI が返す文で決まる。下の情報は画面の高さの半分までにし、超える分は下の情報の中でスクロールする。
+            // 「コメントを編集」はスクロールの外に置き、いつも押せるようにする
+            // （固定の高さのまま置くと、小さな端末で写真と「コメントを編集」が画面の外に出る）
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.5),
             color: Colors.black54,
             padding: const EdgeInsets.all(16),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(formatTakenAt(photo.takenAt),
-                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                Text(_placeText(photo),
-                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                if (photo.category != null && photo.category != otherCategory)
-                  Text(categoryLabel(photo.category!),
-                      style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                if (isProcessingInProgress(photo.processingState))
-                  Text(identifying ? '識別中...' : '分類中...',
-                      style:
-                          AppTextStyles.body1.copyWith(color: Colors.white70)),
-                if (isProcessingFailed(photo.processingState))
-                  Row(children: [
-                    Text(identifying ? '識別に失敗しました' : '分類に失敗しました',
-                        style: AppTextStyles.body1
-                            .copyWith(color: Colors.white70)),
-                    TextButton(
-                      onPressed: widget.onRetry,
-                      style: _infoButtonStyle,
-                      child: const Text('やり直す'),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(formatTakenAt(photo.takenAt),
+                            style: AppTextStyles.body1
+                                .copyWith(color: Colors.white)),
+                        Text(_placeText(photo),
+                            style: AppTextStyles.body1
+                                .copyWith(color: Colors.white)),
+                        if (photo.category != null &&
+                            photo.category != otherCategory)
+                          Text(categoryLabel(photo.category!),
+                              style: AppTextStyles.body1
+                                  .copyWith(color: Colors.white)),
+                        if (isProcessingInProgress(photo.processingState))
+                          Text(identifying ? '識別中...' : '分類中...',
+                              style: AppTextStyles.body1
+                                  .copyWith(color: Colors.white70)),
+                        if (isProcessingFailed(photo.processingState))
+                          Row(children: [
+                            Text(identifying ? '識別に失敗しました' : '分類に失敗しました',
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white70)),
+                            TextButton(
+                              onPressed: widget.onRetry,
+                              style: _infoButtonStyle,
+                              child: const Text('やり直す'),
+                            ),
+                          ]),
+                        if (entryName != null)
+                          TextButton(
+                            onPressed: () => widget.onOpenEntry(
+                                identification!.kind, entryName),
+                            style: _infoLinkStyle,
+                            child: Text('$entryName >'),
+                          ),
+                        if (identification != null &&
+                            !identification.matchesKind)
+                          Row(children: [
+                            Expanded(
+                              child: Text('分類と合わない写真です。やり直しで手がかりを付けてください',
+                                  style: AppTextStyles.body1
+                                      .copyWith(color: Colors.white70)),
+                            ),
+                            TextButton(
+                              onPressed: widget.onRetry,
+                              style: _infoButtonStyle,
+                              child: const Text('やり直す'),
+                            ),
+                          ]),
+                        if (comment != null)
+                          Text(
+                              photo.commentSource == 'user'
+                                  ? '$comment（編集済み）'
+                                  : comment,
+                              style: AppTextStyles.body1
+                                  .copyWith(color: Colors.white)),
+                      ],
                     ),
-                  ]),
-                if (entryName != null)
-                  TextButton(
-                    onPressed: () =>
-                        widget.onOpenEntry(identification!.kind, entryName),
-                    style: _infoLinkStyle,
-                    child: Text('$entryName >'),
                   ),
-                if (identification != null && !identification.matchesKind)
-                  Row(children: [
-                    Expanded(
-                      child: Text('分類と合わない写真です。やり直しで手がかりを付けてください',
-                          style: AppTextStyles.body1
-                              .copyWith(color: Colors.white70)),
-                    ),
-                    TextButton(
-                      onPressed: widget.onRetry,
-                      style: _infoButtonStyle,
-                      child: const Text('やり直す'),
-                    ),
-                  ]),
-                if (comment != null)
-                  Text(
-                      photo.commentSource == 'user'
-                          ? '$comment（編集済み）'
-                          : comment,
-                      style: AppTextStyles.body1.copyWith(color: Colors.white)),
+                ),
                 TextButton(
                   onPressed: widget.onEditComment,
                   style: _infoLinkStyle,
