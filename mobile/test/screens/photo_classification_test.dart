@@ -106,17 +106,17 @@ void main() {
       await _openViewer(tester, _photo(state: 'failed'));
 
       expect(find.text('分類に失敗しました'), findsOneWidget);
-      // 下の情報の「やり直す」（上のバーの分とは別）
+      // 上のバーの「やり直す」は1つ。全体で2つあるので、もう1つが下の情報の「やり直す」
       expect(
           find.descendant(of: find.byType(AppBar), matching: find.text('やり直す')),
           findsOneWidget);
       expect(find.text('やり直す'), findsNWidgets(2));
     });
 
-    for (final state in ['done', 'none']) {
+    // 済んだ写真はカテゴリを持ち、解析の対象でない写真（段階2）は持たない
+    for (final (state, category) in [('done', 'food'), ('none', null)]) {
       testWidgets('分類が済んだ写真・解析の対象でない写真（$state）には、分類の状態を出さない', (tester) async {
-        await _openViewer(tester,
-            _photo(category: state == 'done' ? 'food' : null, state: state));
+        await _openViewer(tester, _photo(category: category, state: state));
 
         expect(find.text('分類中...'), findsNothing);
         expect(find.text('分類に失敗しました'), findsNothing);
