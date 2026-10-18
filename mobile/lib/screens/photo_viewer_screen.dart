@@ -5,8 +5,10 @@ import '../models/photo.dart';
 import '../services/api_service.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
+import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
 import '../widgets/confirm_action_dialog.dart';
+import '../widgets/retry_processing_dialog.dart';
 
 /// 写真ビューア（docs/travel-album/03_screen_design.md §4.6）
 ///
@@ -19,7 +21,8 @@ class PhotoViewerScreen extends StatefulWidget {
       required this.initialIndex,
       required this.onReachEnd,
       required this.hasMore,
-      required this.onDeleted});
+      required this.onDeleted,
+      required this.onUpdated});
 
   final ApiService apiService;
 
@@ -37,6 +40,10 @@ class PhotoViewerScreen extends StatefulWidget {
 
   /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
   final void Function(String photoId) onDeleted;
+
+  /// 写真が変わったとき（解析のやり直しを受け付けた）に呼ぶ
+  /// （一覧の読み込み済みの写真を置き換える。ビューアの表示もそれで変わる）
+  final void Function(Photo photo) onUpdated;
 
   @override
   State<PhotoViewerScreen> createState() => _PhotoViewerScreenState();
@@ -124,6 +131,23 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     Navigator.pop(context);
   }
 
+  /// 今出している写真の解析のやり直しを頼む
+  Future<void> _retryCurrent() =>
+      _retry(widget.photos.value[_pageController.page!.round()]);
+
+  /// [photo] の解析のやり直しを、ダイアログで手がかりを聞いてから頼む
+  Future<void> _retry(Photo photo) async {
+    final accepted = await showDialog<Photo>(
+      context: context,
+      builder: (context) =>
+          RetryProcessingDialog(apiService: widget.apiService, photo: photo),
+    );
+    if (accepted == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('やり直しを受け付けました')));
+    widget.onUpdated(accepted);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -133,6 +157,11 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               backgroundColor: Colors.black54,
               foregroundColor: Colors.white,
               actions: [
+                TextButton(
+                  onPressed: _retryCurrent,
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: const Text('やり直す'),
+                ),
                 TextButton(
                   onPressed: _deleteCurrent,
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
@@ -157,6 +186,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 key: ValueKey(photos[index].id),
                 photo: photos[index],
                 showInfo: _showChrome,
+                onRetry: () => _retry(photos[index]),
                 onZoomChanged: (zoomed) {
                   if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
                 }),
@@ -183,12 +213,16 @@ class _PhotoPage extends StatefulWidget {
       {super.key,
       required this.photo,
       required this.showInfo,
+      required this.onRetry,
       required this.onZoomChanged});
 
   final Photo photo;
 
   /// 下の情報を出すか
   final bool showInfo;
+
+  /// 下の情報の「やり直す」（分類に失敗したときに出す）
+  final VoidCallback onRetry;
 
   /// 拡大したか・等倍に戻ったかを知らせる（拡大中は前後の写真へのスワイプを止める）
   final ValueChanged<bool> onZoomChanged;
@@ -262,6 +296,23 @@ class _PhotoPageState extends State<_PhotoPage> {
                     style: AppTextStyles.body1.copyWith(color: Colors.white)),
                 Text(_placeText(photo),
                     style: AppTextStyles.body1.copyWith(color: Colors.white)),
+                if (photo.category != null)
+                  Text(categoryLabel(photo.category!),
+                      style: AppTextStyles.body1.copyWith(color: Colors.white)),
+                if (isProcessingInProgress(photo.processingState))
+                  Text('分類中...',
+                      style:
+                          AppTextStyles.body1.copyWith(color: Colors.white70)),
+                if (photo.processingState == 'failed')
+                  Row(children: [
+                    Text('分類に失敗しました',
+                        style: AppTextStyles.body1
+                            .copyWith(color: Colors.white70)),
+                    TextButton(
+                      onPressed: widget.onRetry,
+                      child: const Text('やり直す'),
+                    ),
+                  ]),
               ],
             ),
           ),

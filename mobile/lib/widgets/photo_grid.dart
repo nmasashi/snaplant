@@ -9,6 +9,7 @@ import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
+import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
@@ -244,6 +245,16 @@ class _PhotoGridState extends State<PhotoGrid> {
     });
   }
 
+  /// 写真ビューアで変わった写真（解析のやり直しを受け付けた）で、読み込み済みの写真を置き換える
+  void _replaceLoaded(Photo photo) {
+    setState(() {
+      _photos = [
+        for (final p in _photos ?? const <Photo>[]) p.id == photo.id ? photo : p
+      ];
+      _loaded.value = _photos!;
+    });
+  }
+
   /// 写真ビューアを開く（一覧の写真を [index] の位置から）
   Future<void> _openViewer(int index) async {
     await Navigator.push(
@@ -256,7 +267,8 @@ class _PhotoGridState extends State<PhotoGrid> {
                 initialIndex: index,
                 onReachEnd: _loadMore,
                 hasMore: () => _continuationToken != null,
-                onDeleted: _removeLoaded)));
+                onDeleted: _removeLoaded,
+                onUpdated: _replaceLoaded)));
     await widget.onViewerClosed?.call();
   }
 
@@ -462,8 +474,16 @@ class _PhotoTile extends StatelessWidget {
 
   /// [selected] は選択モードでなければ null
   Widget _buildImage({required bool? selected}) {
+    final inProgress = isProcessingInProgress(photo.processingState);
+    final failed = photo.processingState == 'failed';
     return Semantics(
-      label: formatTakenAt(photo.takenAt),
+      // 分類の印は読み上げにも足す（docs/travel-album/03_screen_design.md §5.5）
+      label: formatTakenAt(photo.takenAt) +
+          (inProgress
+              ? '、分類中'
+              : failed
+                  ? '、分類に失敗しました'
+                  : ''),
       container: true,
       selected: selected,
       child: Stack(fit: StackFit.expand, children: [
@@ -495,6 +515,25 @@ class _PhotoTile extends StatelessWidget {
             ),
           ),
         ),
+        if (inProgress)
+          const Positioned(
+            right: 4,
+            bottom: 4,
+            child: Icon(Icons.hourglass_empty, size: 16, color: Colors.white),
+          ),
+        if (failed)
+          // 読み上げはラベルの「、分類に失敗しました」で伝えるので、印の「!」は読ませない
+          const Positioned(
+            right: 6,
+            bottom: 2,
+            child: ExcludeSemantics(
+              child: Text('!',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.error)),
+            ),
+          ),
         if (selected == true) ...[
           const ColoredBox(color: Color(0x553E7D32)),
           const Positioned(

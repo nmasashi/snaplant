@@ -623,6 +623,31 @@ class ApiService {
     }
   }
 
+  /// 写真の解析（分類）のやり直しを頼む（受け付けるだけで、分類はサーバが後で行う）
+  /// POST /api/photos/{photoId}/process
+  ///
+  /// [hint] は利用者からの手がかり。空白だけなら送らない。受け付けた写真（分類の待ち）を返す
+  Future<Photo> requestPhotoProcessing(String photoId, {String? hint}) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId/process');
+      final trimmed = hint?.trim() ?? '';
+      final response = await _client.post(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({
+          'step': 'classify',
+          if (trimmed.isNotEmpty) 'hint': trimmed,
+        }),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// `POST /api/photos/move` の上限（サーバの `MOVE_MAX_IDS` の既定値）
   static const _maxMovePhotoIds = 200;
 
