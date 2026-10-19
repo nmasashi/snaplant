@@ -470,19 +470,26 @@ class ApiService {
   /// 接続テスト
   Future<bool> testConnection() async {
     try {
-      // エンドポイント・キーに加えて、サーバがデータベースに届くかまで確かめるため、データベースを読む旅行の一覧で見る
-      // （図鑑の種類の一覧は定義表を返すだけで、データベースの設定が誤っていても成功する）
-      final url = _buildUrl('/api/trips');
+      // エンドポイント・キーに加えて、サーバがデータベースに届くかまで確かめる。図鑑の種類の一覧は定義表を返すだけで、
+      // データベースの設定が誤っていても成功する。旅行の一覧は全部の旅行と写真を集計して重いので、無い旅行の詳細を1件読み、
+      // 404 TRIP_NOT_FOUND（データベースを読んで無かった）なら届いたとみなす。キーが違えば 401、届かなければ 503
+      final url = _buildUrl('/api/trips/$_connectionProbeTripId');
       final response = await _client.get(
         Uri.parse(url),
         headers: _headers,
       );
-
-      return response.statusCode >= 200 && response.statusCode < 300;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return true;
+      }
+      return response.statusCode == 404 &&
+          ApiException.fromResponse(response).isTripNotFound;
     } catch (error) {
       return false;
     }
   }
+
+  /// 接続テストで読む旅行の id（UUID の形をした、作られることの無い値）
+  static const _connectionProbeTripId = '00000000-0000-4000-8000-000000000000';
 
   /// リソースのクリーンアップ
   void dispose() {

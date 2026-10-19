@@ -88,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       Navigator.pop(context, true);
       
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isSaving = false;
       });
@@ -108,15 +109,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _connectionStatus = null;
     });
 
+    final apiService = ApiService(
+      baseUrl: _endpointController.text.trim(),
+      functionKey: _apiKeyController.text.trim(),
+      client: widget.httpClient,
+    );
     try {
-      final apiService = ApiService(
-        baseUrl: _endpointController.text.trim(),
-        functionKey: _apiKeyController.text.trim(),
-        client: widget.httpClient,
-      );
-
       final isConnected = await apiService.testConnection();
-      apiService.dispose();
       // 待っている間に設定画面を閉じていたら、何もしない（保存と同じ）
       if (!mounted) return;
 
@@ -143,6 +142,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ? e.userMessage 
           : '接続テストでエラーが発生しました';
       _showErrorSnackBar(errorMessage);
+    } finally {
+      // 結果によらず閉じる（ApiService が自分で作った HTTP クライアントを閉じる。差し込んだものは閉じない）
+      apiService.dispose();
     }
   }
 
