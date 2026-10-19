@@ -408,7 +408,7 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 4-5（2026-10-20）でアプリの植物図鑑の画面（植物一覧・画像選択・識別結果・植物詳細）を消した。旅行アルバムの開発中はルートの仕様書（`docs/01`〜`07`）へ取り込まない方針なので、
 次の箇所が古いまま残っている（4-5 の contract-auditor の報告。文書を読んでの確認）。
 
-- `docs/03_screen_design.md`: 画面一覧と §1〜§4 の植物図鑑の画面、設定画面の保存後の「植物一覧画面へ戻る」、**接続テストの宛先 `GET /api/plants`**（今は無い旅行の詳細。`docs/travel-album/03_screen_design.md` §6.4）、画面遷移のパターン
+- `docs/03_screen_design.md`: 画面一覧と §1〜§4 の植物図鑑の画面、設定画面の保存後の「植物一覧画面へ戻る」、**接続テストの宛先 `GET /api/plants`**（今は写真の一覧の1件。`docs/travel-album/03_screen_design.md` §6.4）、画面遷移のパターン
 - `docs/05_technology_selection.md` §4.2・§4.3: フォルダ構造の植物の画面とモデル、識別結果確認画面の 409 `IMAGE_ALREADY_SAVED`、植物識別フロー
 - `docs/07_api_workflow.md`・`docs/06_api_design.md`: クライアントが 409 で植物一覧へ戻る・`CameraScreen` にエラーを出す、の記述（API 自体は 4-6 まで残る）
 - `docs/01_requirements.md`・`docs/02_feature_list.md`・ルートの `README.md`「主な機能」: 植物図鑑の画面の機能

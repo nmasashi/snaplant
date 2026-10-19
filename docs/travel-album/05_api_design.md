@@ -726,7 +726,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `getCatalogEntry(kind, name, {continuationToken})` | `GET /api/catalog/entry?kind=&name=&continuationToken=` | `data['entry']`（null 可。`CatalogEntry`）・`data['photos']`・`data['continuationToken']`（null 可）（`models/catalog.dart` の `CatalogEntryDetail`。写真は `PhotoPage`）。**実装済み**（4-3b）。`kind`・`name` を毎回、`continuationToken` は渡したときだけクエリに載せる（`Uri(queryParameters:)` で組み立てるので、記号や空白を含む名前も URL エンコードされる）。`limit` は送らない（サーバの既定 100）。`urlExpiresAt` は読まない（`getPhotos` と同じ）。`photos` は `entry` が null でも必須として読む（サーバは `[]` を返す）。`CatalogEntry` の読み方は `getCatalogEntries` と同じ |
 
 `_parseResponse()` はボディ全体をコールバックに渡すので、各メソッドが `json['data']` を剥がす（CLAUDE.md「クライアント実装で踏みやすい罠」）。
-既存の `testConnection()`（設定画面の接続テスト）は 4-5 で宛先を `GET /api/plants` から、作られることの無い旅行の詳細 `GET /api/trips/00000000-0000-4000-8000-000000000000` に変えた（2xx か 404 `TRIP_NOT_FOUND` なら届いた。データベースの設定の誤りは 503 で失敗として出る。[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)）。ステータスが 2xx かだけを見て、ボディは読まない（通信の失敗も含めて例外を投げず `false` を返す。[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)）。
+既存の `testConnection()`（設定画面の接続テスト）は 4-5 で宛先を `GET /api/plants` から、旅行をまたぐ写真の一覧を1件だけ読む `GET /api/photos?category=plant&limit=1` に変えた（データベースに届かなければ失敗として出る）。ステータスが 2xx かだけを見て、ボディは読まない（通信の失敗も含めて例外を投げず `false` を返す。[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)）。
 植物図鑑のメソッド（`uploadAndIdentifyImage`・`checkDuplicate`・`savePlant`・`getPlants`・`getPlant`・`updatePlant`・`deletePlant`）は 4-5 で削除した。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）と `isPhotoNotFound`（`code == 'PHOTO_NOT_FOUND'`。複数選択の削除で既に無い写真を消せたと数える。ステータスだけで見ると宛先の誤りの 404 まで含むのでコードで見る）を足す。
 `uploadPhoto` は **実装済み**（PR 7a。`thumbnail`・`placeName` は PR 7c）。`multipart/form-data` で次のパートを送る。
