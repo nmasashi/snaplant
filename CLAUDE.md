@@ -128,7 +128,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
   （`createSuccessResponse` / `createErrorResponse` / `createValidationError` / `createNotFoundError` / `createInternalError` / `createUpstreamErrorResponse`）
 - `code` は `types/api.ts` の `ErrorCode`、ステータスは `HttpStatusCode` から選ぶ。新しい種別は enum に足す
 - 上流（AI・Blob）の失敗は `UpstreamError` で投げ、ハンドラが `createUpstreamErrorResponse` に渡す。**メッセージの文字列で分類しない**（SDK のメッセージに `OpenAI` や `Storage` は入らない）。
-  Cosmos DB 側のハンドラはまだトップレベルの `code` で 503 を判定している（バックログ）
+  Cosmos DB の接続の失敗は `createDatabaseErrorResponse` が `cause` をたどって 503 に分類する
 - **エラー応答の契約はステータス・`code`・`message` まで。`details` は契約外**（2026-10-11 に人間が決定）。500 系の `details` には SDK 由来の例外の文言がそのまま入って更新で変わるので、
   入力検証の固定文言も含めて一律に契約外にした。テストで `details` の文言を `toEqual` で固定しない。`message` を変えたら仕様書も変える
 
