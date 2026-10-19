@@ -41,7 +41,7 @@ export const FILE_UPLOAD = {
   // Blob名の拡張子はクライアントが送るファイル名から取らない。
   // ファイル名に / が含まれていると拡張子に紛れ込み、Blob名と
   // SASの署名対象（URLの最後のセグメント）がずれて、
-  // SAS URLが無効になったうえ一時コンテナに孤児Blobが残る。
+  // SAS URLが無効になる（写真の Blob 名は <写真の id><拡張子>）。
   // SUPPORTED_IMAGE_TYPESと同じ場所に置き、許可リストを1箇所にまとめる
   EXTENSION_BY_CONTENT_TYPE: {
     'image/jpeg': '.jpg',
@@ -53,7 +53,6 @@ export const FILE_UPLOAD = {
 
   // エラーメッセージ
   ERROR_MESSAGES: {
-    SIZE_EXCEEDED: `ファイルサイズは${Math.floor(positiveIntFromEnv(process.env.MAX_FILE_SIZE, 10485760) / 1024 / 1024)}MB以下にしてください`,
     UNSUPPORTED_TYPE: 'JPEG、PNG、WebP、GIFファイルのみアップロード可能です'
   }
 } as const;
@@ -76,15 +75,7 @@ export const CONTEXT_INFO_VALIDATION = {
 // その他のバリデーション定数
 export const GENERAL_VALIDATION = {
   // UUID正規表現
-  UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  
-  // エラーメッセージ
-  ERROR_MESSAGES: {
-    INVALID_UUID: 'UUID形式で指定してください',
-    INVALID_URL: '有効なURL形式で指定してください',
-    // 期待するホストやコンテナ名は応答に含めない（構成情報を漏らさないため）
-    IMAGE_PATH_NOT_ALLOWED: '画像アップロードAPIが返したURLを指定してください'
-  }
+  UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 } as const;
 // 旅行アルバムの旅行の文字数制限
 export const TRIP_VALIDATION = {

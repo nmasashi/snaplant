@@ -21,8 +21,7 @@ export interface ReadSasParams {
 /**
  * Blob 1つに読み取り専用の SAS を付けた URL を作る
  *
- * 一時画像（AI 識別サービスが読む）と旅行アルバムの写真（非公開コンテナ）の両方で使うため、
- * StorageService から切り出した。有効期限の決め方と失敗の扱いは呼び出し側が持つ。
+ * 旅行アルバムの写真（非公開コンテナ）の URL に使う。有効期限の決め方と失敗の扱いは呼び出し側が持つ。
  * 署名はローカルの計算だけで、Blob Storage へは通信しない
  * @param params 署名に要るもの
  * @returns `<blobUrl>?<SAS>` の形の URL

@@ -58,10 +58,10 @@ export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED
 /**
  * Cosmos DB に接続できない障害（503 にするもの）かを判定する
  *
- * 旅行アルバムのハンドラが使う。Cosmos SDK 4.x は接続の失敗を RestError に包み、errno を
+ * すべてのハンドラが使う（createDatabaseErrorResponse）。Cosmos SDK 4.x は接続の失敗を RestError に包み、errno を
  * トップレベルの `code` に載せる（@typespec/ts-http-runtime の nodeHttpClient）。それでも
  * `hasCauseCode()` で `cause` までたどるのは、HTTP クライアントが fetch 系に変わると OpenAI SDK と
- * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（植物図鑑側と同じ）
+ * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージの判定と共有）
  * @param error 判定するエラー
  */
 export function isConnectivityError(error: unknown): boolean {
