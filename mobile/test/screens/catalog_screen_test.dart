@@ -7,7 +7,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 図鑑のタブ（docs/travel-album/03_screen_design.md §6.1。段階4の 4-3a）。
-// 入口は下のタブの「図鑑（新）」。図鑑の API は偽のサーバ（FakeTripBackend）が返す
+// 入口は下のタブの「図鑑」（起動時のタブ）。図鑑の API は偽のサーバ（FakeTripBackend）が返す
 
 /// 植物と食べ物の項目を持つ偽のサーバ
 FakeTripBackend _backend() => FakeTripBackend(
@@ -33,7 +33,7 @@ List<Map<String, Object?>> _manyPlants(int count) => [
 Finder _kindTab(String label) => find.widgetWithText(Tab, label);
 
 void main() {
-  testWidgets('下のタブの「図鑑（新）」を開くと、種類のタブを種類の一覧の順に出し、最初の種類（植物）の項目を並べる',
+  testWidgets('アプリを開くと図鑑のタブが開き、種類のタブを種類の一覧の順に出し、最初の種類（植物）の項目を並べる',
       (tester) async {
     await openCatalogTab(tester, _backend());
 
@@ -116,13 +116,6 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.text('函館山'), findsOneWidget);
-  });
-
-  testWidgets('アプリを開いても、図鑑のタブを開くまで図鑑の API を呼ばない', (tester) async {
-    final backend = _backend();
-    await openTripsTab(tester, backend);
-
-    expect(backend.catalogRequestsReceived, 0);
   });
 
   testWidgets('下端まで動かすと続きを読み、offset は読んだ件数ではなく limit（50）だけ進める', (tester) async {
