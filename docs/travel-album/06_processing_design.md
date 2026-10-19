@@ -361,7 +361,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 | 1. 退避（行わない） | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」） | 人間 |
 | 2. 移行（行わない。2026-10-19 に決定） | `api/src/scripts/migratePlants.ts`（4-4 で実装済み。ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` の記録を、植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す。流れ・写真の中身・飛ばす植物は §7.1 | メインセッション（スクリプト）、人間（実行） |
 | 3. 確認（行わない） | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の飛ばした植物の一覧（§7.1 の5つの理由）を人間が見て、捨てるか手で入れるかを決める | 人間 |
-| 4. アプリ（実装済み。4-5） | 図鑑タブを新しい図鑑画面に差し替え、`plant_list_screen`・`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除。設定画面の接続テストは `GET /api/trips` で確かめる（[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)） | PR |
+| 4. アプリ（実装済み。4-5） | 図鑑タブを新しい図鑑画面に差し替え、`plant_list_screen`・`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除。設定画面の接続テストは無い旅行の詳細（`GET /api/trips/{id}` の 404 `TRIP_NOT_FOUND`）で確かめる（[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)） | PR |
 | 5. API | 移行スクリプト（`scripts/migratePlants.ts` とテスト、`PhotoDocument.legacyPlantId`）・`upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |
 | 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |
 
