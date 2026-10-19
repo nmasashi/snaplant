@@ -536,14 +536,6 @@ class ApiException implements Exception {
   bool get isAuthError => statusCode == 401;
   bool get isNotFound => statusCode == 404;
 
-  /// 同じ画像が既に保存されている（409 `IMAGE_ALREADY_SAVED`）
-  ///
-  /// 保存は成功したがレスポンスが届かず、その後に別の候補（別の名前）で保存し直した場合に起きる。
-  /// 同じ候補で保存し直すと、名前の重複確認が既存の植物を見つけて更新（PUT）に進み、
-  /// PUT は自分自身を重複から除外するので 409 にはならない。
-  /// 同じ 409 でも `DATABASE_ERROR` は本当の失敗なので、ステータスではなくコードで判定する
-  bool get isImageAlreadySaved => code == 'IMAGE_ALREADY_SAVED';
-
   /// 旅行が無い（404 `TRIP_NOT_FOUND`）。別の端末で消された、送信中に消されたなど
   bool get isTripNotFound => code == 'TRIP_NOT_FOUND';
 
