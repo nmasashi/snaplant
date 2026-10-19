@@ -492,7 +492,7 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
 最重要の原則は、**テストダブルの検証可否を依存の種類で決める**こと。
 Cosmos DB / Blob Storage は管理下にある依存なので、モックは運用上の例外として許容するが
 **やり取りの検証はしない**。OpenAI API は管理外の依存なのでモックと検証の両方が正当。
-検証するのは `docs/06_api_design.md` §5.9「AI 識別サービスへ渡すもの」に書いた要素まで。
+検証するのは `docs/06_api_design.md` §5「AI 識別サービスへの接続」と `docs/travel-album/06_processing_design.md` §2.1・§3.1 に書いた要素まで。
 プロンプトの文言は `details` と同じ契約外で、完全一致で固定しない。
 
 **エラー応答で固定するのはステータス・`code`・`message` まで。** `details` の文言は契約外なので
@@ -524,7 +524,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | api（手で回すスクリプト） | スクリプトの関数（`api/tests/scripts/`。`src/scripts/` をミラー） | `docs/travel-album/06_processing_design.md` §1・§7 |
 | mobile | 画面（`mobile/test/screens/`） | `docs/03_screen_design.md` |
 | mobile | アプリ全体（`mobile/test/app_root_test.dart`。起動直後の設定の扱い） | `docs/03_screen_design.md` §1・`docs/travel-album/03_screen_design.md` §4.1 |
-| mobile | `ApiService`（封筒の契約。`mobile/test/services/`） | `docs/05_technology_selection.md` §4.2・`docs/07_api_workflow.md` |
+| mobile | `ApiService`（封筒の契約。`mobile/test/services/`） | `docs/05_technology_selection.md` §4.2・`docs/06_api_design.md` §4.1 |
 
 **入口以外に残してよいテストの名簿。** 原則4の2つの例外に当たるもの。ここに無いテストが入口以外に残っていたら、
 `test-consolidator` は理由を報告し、メインセッションが判断する。
@@ -699,7 +699,7 @@ API を変更したら、あわせて更新する対象：
 - `docs/06_api_design.md` / `docs/07_api_workflow.md`
 - `README.md` のエンドポイント表
 - `mobile/lib/services/api_service.dart` — クライアント側の呼び出し
-- `docs/06_api_design.md` §5.9 — AI 識別サービスへ渡すものを変えたとき。要素まで書き、プロンプトの文言は書かない
+- `docs/06_api_design.md` §5・`docs/travel-album/06_processing_design.md` §2.1・§3.1 — AI 識別サービスへ渡すものを変えたとき。要素まで書き、プロンプトの文言は書かない
 
 Flutter クライアントの振る舞いを変えたら、あわせて更新する対象：
 

@@ -6,7 +6,7 @@ import { UNREACHABLE_ERRNOS, UpstreamError, UpstreamService, hasCauseCode, isCon
 /**
  * 上流のサービスごとの、接続できない（到達していない）とみなす errno と応答
  *
- * ストレージだけ ETIMEDOUT を含む。AI 側のタイムアウトを 503 にするかは未決定（docs/09_backlog.md）
+ * ストレージだけ ETIMEDOUT を含む（AI の失敗は今は応答にならない。下の ai の行）
  */
 const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
   code: ErrorCode;

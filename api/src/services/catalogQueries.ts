@@ -62,8 +62,7 @@ export async function queryCatalogHead(container: Container, kind: string, name:
       parameters: [
         { name: '@type', value: 'photo' },
         { name: '@kind', value: kind },
-        // @name ではなく @entryName にする。テストの偽物は @name を文書の最上位の name（植物の名前）で絞るので、
-        // 同じ名前にすると、写真（name を持たない）が1枚も返らなくなる
+        // @entryName にする（テストの偽物は @entryName を写真の identification.name で絞る）
         { name: '@entryName', value: name },
       ],
     })
