@@ -294,7 +294,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     });
   }
 
-  /// 写真ビューアで変わった写真（解析のやり直しを受け付けた）で、読み込み済みの写真を置き換える
+  /// 写真ビューアで変わった写真（解析のやり直しを受け付けた・コメントを直した）で、読み込み済みの写真を置き換える
   void _replaceLoaded(Photo photo) {
     setState(() {
       _photos = [
@@ -311,6 +311,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         MaterialPageRoute(
             builder: (_) => PhotoViewerScreen(
                 apiService: widget.apiService,
+                uploadQueue: widget.uploadQueue,
                 photos: _loaded,
                 initialIndex: index,
                 onReachEnd: _loadMore,

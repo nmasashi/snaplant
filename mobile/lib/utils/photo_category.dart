@@ -17,6 +17,9 @@ final photoCategories = List<String>.unmodifiable(_categoryLabels.keys);
 /// カテゴリの表示名。知らないキー（後の段階で足された種類など）はキーのまま返す
 String categoryLabel(String category) => _categoryLabels[category] ?? category;
 
+/// カテゴリが図鑑の種類（識別の対象）か。分類の前（null）と [otherCategory] は違う
+bool isCatalogCategory(String? category) => photoCategories.contains(category);
+
 /// 分類を待っている・している（`pending` / `classifying` / `identifying`）か
 bool isProcessingInProgress(String state) =>
     state == 'pending' || state == 'classifying' || state == 'identifying';

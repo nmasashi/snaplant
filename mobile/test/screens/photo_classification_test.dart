@@ -9,10 +9,10 @@ import '../helpers/trip_test_helpers.dart';
 // 写真の分類の表示と、解析のやり直し（docs/travel-album/03_screen_design.md §5.1・§5.4・§5.5。段階3）。
 // 入口は旅行詳細の写真のグリッドと、そこから開く写真ビューア
 
-/// 解析の進み具合（processing）
-Map<String, Object?> _processing(String state) => {
+/// 解析の進み具合（processing）。[step] は分類（classify）か識別（identify）。段階2・3の写真は null のこともある
+Map<String, Object?> _processing(String state, {String? step = 'classify'}) => {
       'state': state,
-      'step': 'classify',
+      'step': step,
       'attempts': state == 'failed' ? 3 : 0,
       'lastError': state == 'failed' ? 'ai' : null,
       'updatedAt': '2026-10-18T03:00:00.000Z'
@@ -22,12 +22,13 @@ Map<String, Object?> _processing(String state) => {
 Map<String, Object?> _photo(
         {String? category,
         String state = 'done',
+        String? step = 'classify',
         String? hint,
         String? comment,
         String? commentSource}) =>
     photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00')
       ..['category'] = category
-      ..['processing'] = _processing(state)
+      ..['processing'] = _processing(state, step: step)
       ..['hint'] = hint
       ..['comment'] = comment
       ..['commentSource'] = commentSource;
@@ -129,9 +130,15 @@ void main() {
   });
 
   group('写真ビューアの分類の状態', () {
-    for (final state in ['pending', 'classifying']) {
-      testWidgets('分類を待っている・している写真（$state）は「分類中...」と出す', (tester) async {
-        await _openViewer(tester, _photo(state: state));
+    for (final (state, step) in [
+      ('pending', 'classify'),
+      ('classifying', 'classify'),
+      // step が無い（段階2・3の写真）なら、今までどおり「分類中...」（03 §5.1）
+      ('pending', null),
+    ]) {
+      testWidgets('分類を待っている・している写真（$state、step: $step）は「分類中...」と出す',
+          (tester) async {
+        await _openViewer(tester, _photo(state: state, step: step));
 
         expect(find.text('分類中...'), findsOneWidget);
       });
@@ -141,6 +148,26 @@ void main() {
       await _openViewer(tester, _photo(state: 'failed'));
 
       expect(find.text('分類に失敗しました'), findsOneWidget);
+      expect(_infoRetry, findsOneWidget);
+    });
+
+    for (final state in ['pending', 'identifying']) {
+      testWidgets('識別を待っている・している写真（$state）は「識別中...」と出す', (tester) async {
+        // 分類の後の識別の待ちは、step が identify の pending（03 §5.1）
+        await _openViewer(
+            tester, _photo(category: 'plant', state: state, step: 'identify'));
+
+        expect(find.text('識別中...'), findsOneWidget);
+        expect(find.text('分類中...'), findsNothing);
+      });
+    }
+
+    testWidgets('上限まで識別に失敗した写真は「識別に失敗しました」と、下の情報にも「やり直す」を出す', (tester) async {
+      await _openViewer(
+          tester, _photo(category: 'plant', state: 'failed', step: 'identify'));
+
+      expect(find.text('識別に失敗しました'), findsOneWidget);
+      expect(find.text('分類に失敗しました'), findsNothing);
       expect(_infoRetry, findsOneWidget);
     });
 
@@ -183,6 +210,52 @@ void main() {
       expect(_stored(backend)['hint'], 'これはサクラではなくウメ');
       expect((_stored(backend)['processing'] as Map)['state'], 'pending');
     });
+
+    testWidgets('カテゴリが図鑑の種類の写真は「カテゴリから」「名前だけ」を選べ、「名前だけ」で頼むとカテゴリはそのままで識別だけをやり直す',
+        (tester) async {
+      final backend = await _openViewer(tester, _photo(category: 'plant'));
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      expect(find.text('カテゴリから'), findsOneWidget);
+      await tester.tap(find.text('名前だけ'));
+      await tester.pump();
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      expect(find.text('識別中...'), findsOneWidget);
+      expect((_stored(backend)['processing'] as Map)['step'], 'identify');
+      expect(find.text('植物'), findsOneWidget);
+    });
+
+    testWidgets('やり直す範囲を選ばずに頼むと、カテゴリから（分類から）やり直す', (tester) async {
+      final backend = await _openViewer(tester, _photo(category: 'plant'));
+
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      expect(find.text('分類中...'), findsOneWidget);
+      expect((_stored(backend)['processing'] as Map)['step'], 'classify');
+    });
+
+    for (final (category, label) in [
+      (null, '分類の前'),
+      ('other', 'どれにも当てはまらない')
+    ]) {
+      testWidgets('カテゴリが図鑑の種類でない写真（$label）では、やり直す範囲を選ばせない', (tester) async {
+        // 識別の対象でない写真の「名前だけ」はサーバが断る（05 §5.7 の 8）
+        await _openViewer(tester, _photo(category: category));
+
+        await tester.tap(_barRetry);
+        await letFramesRun(tester);
+
+        expect(find.text('解析をやり直す'), findsOneWidget);
+        expect(find.text('カテゴリから'), findsNothing);
+        expect(find.text('名前だけ'), findsNothing);
+      });
+    }
 
     testWidgets('失敗した写真の下の「やり直す」からも頼める', (tester) async {
       final backend = await _openViewer(tester, _photo(state: 'failed'));
@@ -244,6 +317,7 @@ void main() {
     testWidgets('受け付けを待っている間は、端末の戻る操作でもダイアログを閉じず、受け付けたら閉じて「分類中...」になる',
         (tester) async {
       // 待っている間に閉じると、受け付けられたのに表示が古いまま残り、もう一度頼むことになる
+      // カテゴリが図鑑の種類の写真にして、やり直す範囲も押せないことを確かめる
       final backend = await _openViewer(tester, _photo(category: 'food'));
       final release = Completer<void>();
       // 途中の確かめで落ちても、止めた応答を残さない（後のテストに保留中の要求を持ち越さない）
@@ -256,6 +330,12 @@ void main() {
       await letFramesRun(tester);
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
+      expect(
+          tester
+              .widget<SegmentedButton<String>>(
+                  find.byType(SegmentedButton<String>))
+              .onSelectionChanged,
+          isNull);
       await tester.binding.handlePopRoute();
       await letFramesRun(tester);
 

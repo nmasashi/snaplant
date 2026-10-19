@@ -1,14 +1,18 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/catalog.dart';
 import '../models/photo.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
+import '../widgets/comment_edit_dialog.dart';
 import '../widgets/confirm_action_dialog.dart';
 import '../widgets/retry_processing_dialog.dart';
+import 'catalog_entry_screen.dart';
 
 /// 写真ビューア（docs/travel-album/03_screen_design.md §4.6）
 ///
@@ -17,6 +21,7 @@ class PhotoViewerScreen extends StatefulWidget {
   const PhotoViewerScreen(
       {super.key,
       required this.apiService,
+      required this.uploadQueue,
       required this.photos,
       required this.initialIndex,
       required this.onReachEnd,
@@ -25,6 +30,9 @@ class PhotoViewerScreen extends StatefulWidget {
       required this.onUpdated});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（図鑑の項目詳細を開くときに渡す。項目詳細の写真のグリッドが要る）
+  final UploadQueue uploadQueue;
 
   /// 一覧の読み込み済みの写真（一覧と共有する。一覧が続きのページを読むと伸びる）
   final ValueListenable<List<Photo>> photos;
@@ -41,7 +49,7 @@ class PhotoViewerScreen extends StatefulWidget {
   /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
   final void Function(String photoId) onDeleted;
 
-  /// 写真が変わったとき（解析のやり直しを受け付けた）に呼ぶ
+  /// 写真が変わったとき（解析のやり直しを受け付けた・コメントを直した）に呼ぶ
   /// （一覧の読み込み済みの写真を置き換える。ビューアの表示もそれで変わる）
   final void Function(Photo photo) onUpdated;
 
@@ -57,6 +65,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   bool _zoomed = false;
   // 削除で読み込み済みの写真を使い切ったときの位置。続きのページが届いたらここへ移る
   int? _pendingIndex;
+  // 項目へのリンクで種類の一覧を読んでいる。読む間の押し直しで、項目詳細を重ねて開かない
+  bool _openingEntry = false;
 
   @override
   void initState() {
@@ -158,6 +168,54 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(accepted);
   }
 
+  /// [photo] のコメントを、ダイアログで直す
+  Future<void> _editComment(Photo photo) async {
+    final updated = await showDialog<Photo>(
+      context: context,
+      builder: (context) =>
+          CommentEditDialog(apiService: widget.apiService, photo: photo),
+    );
+    if (updated == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('コメントを保存しました')));
+    widget.onUpdated(updated);
+  }
+
+  /// 種類 [kindKey]・名前 [name] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
+  Future<void> _openEntry(String kindKey, String name) async {
+    if (_openingEntry) return;
+    _openingEntry = true;
+    final List<CatalogKind> kinds;
+    try {
+      kinds = await widget.apiService.getCatalogKinds();
+    } catch (e) {
+      _openingEntry = false;
+      debugPrint('PhotoViewerScreen: 図鑑の種類の一覧の読み込みエラー: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '図鑑の読み込みに失敗しました')));
+      return;
+    }
+    _openingEntry = false;
+    if (!mounted) return;
+    // 種類の一覧に無い種類（種類を減らした後の古い識別）は開かない。サーバは項目の詳細の種類を同じ定義表で断るので、
+    // 開いてもエラーの表示になる
+    final kind = kinds.where((k) => k.kind == kindKey).firstOrNull;
+    if (kind == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('図鑑にこの種類がありません')));
+      return;
+    }
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => CatalogEntryScreen(
+                apiService: widget.apiService,
+                uploadQueue: widget.uploadQueue,
+                kind: kind,
+                name: name)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -197,6 +255,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 photo: photos[index],
                 showInfo: _showChrome,
                 onRetry: () => _retry(photos[index]),
+                onEditComment: () => _editComment(photos[index]),
+                onOpenEntry: _openEntry,
                 onZoomChanged: (zoomed) {
                   if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
                 }),
@@ -224,6 +284,8 @@ class _PhotoPage extends StatefulWidget {
       required this.photo,
       required this.showInfo,
       required this.onRetry,
+      required this.onEditComment,
+      required this.onOpenEntry,
       required this.onZoomChanged});
 
   final Photo photo;
@@ -231,8 +293,14 @@ class _PhotoPage extends StatefulWidget {
   /// 下の情報を出すか
   final bool showInfo;
 
-  /// 下の情報の「やり直す」（分類に失敗したときに出す）
+  /// 下の情報の「やり直す」（解析に失敗したとき・分類と合わない写真に出す）
   final VoidCallback onRetry;
+
+  /// 「コメントを編集」
+  final VoidCallback onEditComment;
+
+  /// 図鑑の項目へのリンク（種類と名前で開く）
+  final void Function(String kind, String name) onOpenEntry;
 
   /// 拡大したか・等倍に戻ったかを知らせる（拡大中は前後の写真へのスワイプを止める）
   final ValueChanged<bool> onZoomChanged;
@@ -242,6 +310,14 @@ class _PhotoPage extends StatefulWidget {
 }
 
 class _PhotoPageState extends State<_PhotoPage> {
+  /// 下の情報のボタン。暗い下の情報の上でも読めるよう、上のバーのボタンと同じ白にする
+  static final _infoButtonStyle =
+      TextButton.styleFrom(foregroundColor: Colors.white);
+
+  /// 下の情報の行として置くボタン（項目へのリンク・「コメントを編集」）。左端を他の行の文字とそろえる
+  static final _infoLinkStyle = TextButton.styleFrom(
+      foregroundColor: Colors.white, padding: EdgeInsets.zero);
+
   final _transformation = TransformationController();
   bool _zoomed = false;
 
@@ -249,6 +325,21 @@ class _PhotoPageState extends State<_PhotoPage> {
   void dispose() {
     _transformation.dispose();
     super.dispose();
+  }
+
+  /// 下の情報の、文言と「やり直す」の行（解析に失敗した・分類と合わない写真）。文言が長ければ折り返す
+  Widget _withRetry(String message) {
+    return Row(children: [
+      Expanded(
+        child: Text(message,
+            style: AppTextStyles.body1.copyWith(color: Colors.white70)),
+      ),
+      TextButton(
+        onPressed: widget.onRetry,
+        style: _infoButtonStyle,
+        child: const Text('やり直す'),
+      ),
+    ]);
   }
 
   /// 指を離したときの倍率で、拡大中かを決める
@@ -263,73 +354,120 @@ class _PhotoPageState extends State<_PhotoPage> {
   Widget build(BuildContext context) {
     final photo = widget.photo;
     final thumbnailUrl = photo.thumbnailUrl;
-    return Column(
-      children: [
-        Expanded(
-          child: InteractiveViewer(
-            transformationController: _transformation,
-            maxScale: 4,
-            // 等倍の間は1本指の動きを前後の写真へのスワイプに譲る
-            panEnabled: _zoomed,
-            onInteractionEnd: _onInteractionEnd,
-            child: CachedNetworkImage(
-              imageUrl: photo.imageUrl,
-              cacheKey: imageCacheKey(photo.id),
-              cacheManager: PhotoCacheManager.images,
-              fit: BoxFit.contain,
-              // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す
-              placeholder: (context, url) => thumbnailUrl == null
-                  ? const SizedBox.shrink()
-                  : CachedNetworkImage(
-                      imageUrl: thumbnailUrl,
-                      cacheKey: thumbnailCacheKey(photo.id),
-                      cacheManager: PhotoCacheManager.thumbnails,
-                      fit: BoxFit.contain,
-                    ),
-              // SAS の期限切れ（403）などで読めないときは、グリッドと同じ文言を出す。戻って一覧を読み直せば新しい URL になる
-              errorWidget: (context, url, error) => const Center(
-                child:
-                    Text('画像を読み込めません', style: TextStyle(color: Colors.white70)),
+    // 識別の段（step が identify）なら、状態を「識別中...」「識別に失敗しました」と出す（03 §5.1）
+    final identifying = photo.processingStep == 'identify';
+    final identification = photo.identification;
+    // 項目へのリンクの種類と名前（分類と合わない写真は名前が null なので、リンクを出さない）
+    final entry = switch (identification) {
+      PhotoIdentification(
+        matchesKind: true,
+        :final kind,
+        name: final String name
+      ) =>
+        (kind: kind, name: name),
+      _ => null,
+    };
+    final comment = photo.comment;
+    // 下の情報の高さの上限は、この写真の画面が使える高さ（上のバーの下）から決める
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        children: [
+          Expanded(
+            child: InteractiveViewer(
+              transformationController: _transformation,
+              maxScale: 4,
+              // 等倍の間は1本指の動きを前後の写真へのスワイプに譲る
+              panEnabled: _zoomed,
+              onInteractionEnd: _onInteractionEnd,
+              child: CachedNetworkImage(
+                imageUrl: photo.imageUrl,
+                cacheKey: imageCacheKey(photo.id),
+                cacheManager: PhotoCacheManager.images,
+                fit: BoxFit.contain,
+                // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す
+                placeholder: (context, url) => thumbnailUrl == null
+                    ? const SizedBox.shrink()
+                    : CachedNetworkImage(
+                        imageUrl: thumbnailUrl,
+                        cacheKey: thumbnailCacheKey(photo.id),
+                        cacheManager: PhotoCacheManager.thumbnails,
+                        fit: BoxFit.contain,
+                      ),
+                // SAS の期限切れ（403）などで読めないときは、グリッドと同じ文言を出す。戻って一覧を読み直せば新しい URL になる
+                errorWidget: (context, url, error) => const Center(
+                  child: Text('画像を読み込めません',
+                      style: TextStyle(color: Colors.white70)),
+                ),
               ),
             ),
           ),
-        ),
-        if (widget.showInfo)
-          Container(
-            width: double.infinity,
-            color: Colors.black54,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(formatTakenAt(photo.takenAt),
-                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                Text(_placeText(photo),
-                    style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                if (photo.category != null && photo.category != otherCategory)
-                  Text(categoryLabel(photo.category!),
-                      style: AppTextStyles.body1.copyWith(color: Colors.white)),
-                if (isProcessingInProgress(photo.processingState))
-                  Text('分類中...',
-                      style:
-                          AppTextStyles.body1.copyWith(color: Colors.white70)),
-                if (isProcessingFailed(photo.processingState))
-                  Row(children: [
-                    Text('分類に失敗しました',
-                        style: AppTextStyles.body1
-                            .copyWith(color: Colors.white70)),
-                    TextButton(
-                      onPressed: widget.onRetry,
-                      // 暗い下の情報の上でも読めるよう、上のバーの「やり直す」と同じ白にする
-                      style:
-                          TextButton.styleFrom(foregroundColor: Colors.white),
-                      child: const Text('やり直す'),
+          if (widget.showInfo)
+            Container(
+              width: double.infinity,
+              // コメントの長さは AI が返す文で決まる。下の情報は画面の高さの半分までにし、超える分は下の情報の中でスクロールする。
+              // 「コメントを編集」はスクロールの外に置き、いつも押せるようにする
+              // （固定の高さのまま置くと、小さな端末で写真と「コメントを編集」が画面の外に出る）
+              constraints:
+                  BoxConstraints(maxHeight: constraints.maxHeight * 0.5),
+              color: Colors.black54,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(formatTakenAt(photo.takenAt),
+                              style: AppTextStyles.body1
+                                  .copyWith(color: Colors.white)),
+                          Text(_placeText(photo),
+                              style: AppTextStyles.body1
+                                  .copyWith(color: Colors.white)),
+                          if (photo.category != null &&
+                              photo.category != otherCategory)
+                            Text(categoryLabel(photo.category!),
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white)),
+                          if (isProcessingInProgress(photo.processingState))
+                            Text(identifying ? '識別中...' : '分類中...',
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white70)),
+                          if (isProcessingFailed(photo.processingState))
+                            _withRetry(identifying ? '識別に失敗しました' : '分類に失敗しました'),
+                          if (entry != null)
+                            TextButton(
+                              onPressed: () =>
+                                  widget.onOpenEntry(entry.kind, entry.name),
+                              style: _infoLinkStyle,
+                              child: Text('${entry.name} >'),
+                            ),
+                          if (identification != null &&
+                              !identification.matchesKind)
+                            _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
+                          if (comment != null)
+                            Text(
+                                photo.commentSource == 'user'
+                                    ? '$comment（編集済み）'
+                                    : comment,
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white)),
+                        ],
+                      ),
                     ),
-                  ]),
-              ],
+                  ),
+                  TextButton(
+                    onPressed: widget.onEditComment,
+                    style: _infoLinkStyle,
+                    child: const Text('コメントを編集'),
+                  ),
+                ],
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
