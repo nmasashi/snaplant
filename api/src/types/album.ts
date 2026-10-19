@@ -102,8 +102,6 @@ export interface PhotoDocument extends PhotoFields {
   blobName: string;
   /** サムネイルの Blob 名。無ければ null */
   thumbnailBlobName: string | null;
-  /** 植物図鑑から移した写真の、元の植物の id（移行の突き合わせのためだけの項目。06 §7） */
-  legacyPlantId?: string;
 }
 
 /** 写真（API の応答の形）。Blob 名の代わりに SAS 付きの URL を持つ */

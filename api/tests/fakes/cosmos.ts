@@ -1,6 +1,5 @@
 import { Container } from '@azure/cosmos';
-import { Plant, PlantSummary } from '../../src/types/plant';
-import { TripDocument } from '../../src/types/album';
+import { PhotoDocument, TripDocument } from '../../src/types/album';
 
 /**
  * 引数を見分ける状態持ちの偽物 Cosmos DB。
@@ -79,12 +78,12 @@ import { TripDocument } from '../../src/types/album';
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
- * （`@name` / `@imagePath` / `@type` / `@tripId` / `@category`、図鑑の `@kind` / `@entryName`（写真の `identification.kind` / `.name`））の値で絞り込むだけに留める。クエリ文字列自体への
+ * （`@type` / `@tripId` / `@category`、図鑑の `@kind` / `@entryName`（写真の `identification.kind` / `.name`））の値で絞り込むだけに留める。クエリ文字列自体への
  * 依存はリファクタリング耐性を失うため見ない。この簡略化の結果、
  * 次の点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
  * もしくは E2E テストに委ねる）:
  *
- * - WHERE句が実際に name / imagePath / tripId で絞り込む条件になっているか
+ * - WHERE句が実際に tripId などで絞り込む条件になっているか
  *   （パラメータの値さえ渡っていれば、絞り込み条件を丸ごと削除しても
  *   この偽物は気づかない）
  * - `@tripId` に null を渡したとき、実際の Cosmos が「tripId が null のものだけ」に絞るか。
@@ -114,13 +113,11 @@ import { TripDocument } from '../../src/types/album';
 
 /**
  * 偽物が絞り込みに使う最小のフィールド。
- * 旅行のドキュメントは name を持つが imagePath を持たないため、どちらも任意にしている
+ * 旅行と写真の両方を入れるので、片方にしか無い項目は任意にしている
  */
 export interface FakeCosmosDocument {
   id: string;
   type?: string;
-  name?: string;
-  imagePath?: string;
   /** 写真の属する旅行。旅行に属さないときは null、旅行のドキュメントなどは項目ごと持たない */
   tripId?: string | null;
   /** 写真のカテゴリ（分類前は null） */
@@ -129,11 +126,7 @@ export interface FakeCosmosDocument {
   identification?: unknown;
 }
 
-export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = Plant | PlantSummary | TripDocument> {
-  // Cosmosは射影（SELECTの列指定）に応じてPlantの部分集合しか返さないことがある。
-  // 既定を Plant 固定にすると「常に完全なPlantが返る」という誤った前提を型で
-  // 固定してしまうため、射影結果として渡す PlantSummary も受け入れる。
-  // Plant しか入れないテストは FakeCosmosBackend<Plant> と明示して絞れる
+export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocument | TripDocument> {
   documents: Map<string, TDoc>;
   forcedCreateError?: Error | null;
   /**
@@ -357,23 +350,15 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         options?: { maxItemCount?: number; continuationToken?: string; enableQueryControl?: boolean }
       ) => {
         const parameters = typeof querySpec === 'string' ? [] : (querySpec.parameters ?? []);
-        const nameParam = parameters.find((p: any) => p.name === '@name')?.value;
-        const imagePathParam = parameters.find((p: any) => p.name === '@imagePath')?.value;
         const typeParam = parameters.find((p: any) => p.name === '@type')?.value;
         // @tripId は null を値として渡せる（旅行に属さない写真）ので、値ではなくパラメータがあるかで判断する
         const tripIdParam = parameters.find((p: any) => p.name === '@tripId');
         const categoryParam = parameters.find((p: any) => p.name === '@category')?.value;
-        // 図鑑の項目（識別の種類と名前）。名前は植物の @name と分けて @entryName で受ける。
+        // 図鑑の項目（識別の種類と名前）。名前は @entryName で受ける。
         // @kind・@entryName は図鑑の識別の絞り込み専用（別の意味で同じ名前のパラメータを使うと、偽物が識別で絞ってしまう）
         const kindParam = parameters.find((p: any) => p.name === '@kind')?.value;
         const entryNameParam = parameters.find((p: any) => p.name === '@entryName')?.value;
         let docs = Array.from(backend.documents.values());
-        if (nameParam !== undefined) {
-          docs = docs.filter((d) => d.name === nameParam);
-        }
-        if (imagePathParam !== undefined) {
-          docs = docs.filter((d) => d.imagePath === imagePathParam);
-        }
         if (typeParam !== undefined) {
           docs = docs.filter((d) => d.type === typeParam);
         }

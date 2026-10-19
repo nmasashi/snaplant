@@ -58,38 +58,10 @@ export const FILE_UPLOAD = {
   }
 } as const;
 
-// 植物データの文字数制限
-export const PLANT_VALIDATION = {
-  // 各フィールドの最大文字数
-  MAX_LENGTH: {
-    NAME: positiveIntFromEnv(process.env.PLANT_NAME_MAX_LENGTH, 100),
-    SCIENTIFIC_NAME: positiveIntFromEnv(process.env.PLANT_SCIENTIFIC_NAME_MAX_LENGTH, 150),
-    FAMILY_NAME: positiveIntFromEnv(process.env.PLANT_FAMILY_NAME_MAX_LENGTH, 100),
-    DESCRIPTION: positiveIntFromEnv(process.env.PLANT_DESCRIPTION_MAX_LENGTH, 1000),
-    CHARACTERISTICS: positiveIntFromEnv(process.env.PLANT_CHARACTERISTICS_MAX_LENGTH, 500)
-  },
-  
-  // 信頼度の範囲
-  CONFIDENCE: {
-    MIN: 0,
-    MAX: 100
-  },
-  
-  // エラーメッセージ
-  ERROR_MESSAGES: {
-    NAME_TOO_LONG: `植物名は${positiveIntFromEnv(process.env.PLANT_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
-    SCIENTIFIC_NAME_TOO_LONG: `学名は${positiveIntFromEnv(process.env.PLANT_SCIENTIFIC_NAME_MAX_LENGTH, 150)}文字以内で指定してください`,
-    FAMILY_NAME_TOO_LONG: `科名は${positiveIntFromEnv(process.env.PLANT_FAMILY_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
-    DESCRIPTION_TOO_LONG: `説明は${positiveIntFromEnv(process.env.PLANT_DESCRIPTION_MAX_LENGTH, 1000)}文字以内で指定してください`,
-    CHARACTERISTICS_TOO_LONG: `特徴は${positiveIntFromEnv(process.env.PLANT_CHARACTERISTICS_MAX_LENGTH, 500)}文字以内で指定してください`,
-    CONFIDENCE_OUT_OF_RANGE: '信頼度は0から100の間の数値で指定してください'
-  }
-} as const;
-
 // 補足情報（contextInfo）の制限
 //
 // プロンプトに直接埋め込まれ、ログにも全文が出るため、トークン消費と
-// ログ量の両方に効く。クライアント側（camera_screen.dart の入力欄）が
+// ログ量の両方に効く。クライアント側（やり直しダイアログの手がかりの入力欄）が
 // 既に maxLength: 500 を強制しているが、APIはFunction Keyがあれば
 // 直接叩けるのでサーバ側でも守る
 export const CONTEXT_INFO_VALIDATION = {
