@@ -12,7 +12,7 @@ import 'catalog_entry_screen.dart';
 
 /// 図鑑のタブ（種類のタブ → 項目の一覧。docs/travel-album/03_screen_design.md §6.1）
 ///
-/// 種類のタブは種類の一覧（`GET /api/catalog/kinds`）から作る。植物図鑑から移す（4-5）までは、下のタブの3つ目「図鑑（新）」に置く
+/// 種類のタブは種類の一覧（`GET /api/catalog/kinds`）から作る。下のタブの「図鑑」（起動時のタブ）
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen(
       {super.key,

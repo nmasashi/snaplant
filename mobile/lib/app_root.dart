@@ -132,7 +132,8 @@ class _AppRootState extends State<AppRoot> {
   Future<void> _openSettings() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+      MaterialPageRoute(
+          builder: (context) => SettingsScreen(httpClient: widget.httpClient)),
     );
     if (!mounted) return;
     await _loadSettings(openSettingsIfMissing: false);

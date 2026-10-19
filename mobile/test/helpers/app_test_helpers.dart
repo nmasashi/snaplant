@@ -21,7 +21,8 @@ void useSecureStorage(FlutterSecureStoragePlatform platform) {
 }
 
 /// [app]（既定は SnapPlantApp）を実機の解像度で開き、起動時の初期化（設定の読み出し）を進める
-Future<void> openApp(WidgetTester tester, {Widget app = const SnapPlantApp()}) async {
+Future<void> openApp(WidgetTester tester,
+    {Widget app = const SnapPlantApp()}) async {
   // 画面が想定している実機の解像度に合わせる。
   // ただし密度は 3.5 でなく 3.0（幅 480dp）にする。アプリ本来のテーマではカードの余白が広く、
   // テスト環境の既定のフォント（全角も半角も1文字が1em幅）では、設定画面の「開発者」行が
@@ -48,57 +49,107 @@ const testApiEndpoint = 'https://func-test.example.net';
 /// [testApiEndpoint] のホスト。偽のサーバが宛先の照合に使う
 const testApiHost = 'func-test.example.net';
 
-/// GET /api/plants に、宛先のホストと API キー（`?code=`）の組ごとに決めた植物 1 件の一覧を返す偽のサーバ。
-/// [plantNames] に無い組（宛先かキーの取り違え）と、それ以外のメソッドやパスは 404 にする。
-/// [succeedFirst] を渡すと、一覧の取得はその回数目までだけ成功し、以降は 500 を返す
+/// 図鑑の API（GET /api/catalog/kinds・GET /api/catalog/entries）に、宛先のホストと API キー（`?code=`）の組ごとに決めた
+/// 表示名の種類1つ（植物）を返す偽のサーバ。項目は返さない（空の一覧）。旅行の一覧（GET /api/trips）は空で返す（[databaseDown] なら写真の一覧と一緒に 503）。図鑑のタブに出る種類のタブの名前で、どの設定で通信したかを見分ける。
+/// [kindLabels] に無い組は、宛先が合っていてキーだけが違えば 401、宛先が違えば 404。それ以外のメソッドやパスは 404 にする。写真の一覧（GET /api/photos）は空のページ。
+/// [succeedFirst] を渡すと、種類の一覧の取得はその回数目までだけ成功し、以降は 500 を返す
 /// （読み直したかどうかを、読み直したときの失敗で見分けるため）
-MockClient plantServer(
-  Map<({String host, String code}), String> plantNames, {
+MockClient catalogServer(
+  Map<({String host, String code}), String> kindLabels, {
   int? succeedFirst,
+  bool databaseDown = false,
 }) {
-  var listRequests = 0;
+  var kindRequests = 0;
   return MockClient((request) async {
-    if (request.method != 'GET' || request.url.path != '/api/plants') {
-      return http.Response('', 404);
-    }
-    final plantName = plantNames[(
+    final label = kindLabels[(
       host: request.url.host,
       code: request.url.queryParameters['code'] ?? '',
     )];
-    if (plantName == null) return http.Response('', 404);
-    listRequests++;
+    if (request.method != 'GET') return http.Response('', 404);
+    if (label == null) {
+      // 宛先は合っていてキーだけが違えば、本物の Functions のランタイムと同じく封筒の無い 401。宛先が違えば 404（別のサーバ）
+      final knownHost = kindLabels.keys.any((k) => k.host == request.url.host);
+      return http.Response('', knownHost ? 401 : 404);
+    }
     // サーバの実際のヘッダに合わせる（charset なしの application/json。無いと日本語が化ける）
     const headers = {'content-type': 'application/json'};
-    if (succeedFirst != null && listRequests > succeedFirst) {
-      return http.Response(
-        json.encode({
-          'success': false,
-          'error': {'code': 'INTERNAL_ERROR', 'message': 'サーバーエラー'},
-        }),
-        500,
-        headers: headers,
-      );
-    }
-    return http.Response(
-      json.encode({
-        'success': true,
-        'data': {
-          'plants': [
-            {
-              'id': 'plant-1',
-              'name': plantName,
-              'characteristics': '春に咲く',
-              'imagePath': 'https://stsnaplant.blob.core.windows.net/images/a.jpg',
-              'confidence': 95.0,
-              'createdAt': '2026-10-01T09:00:00.000Z',
+    switch (request.url.path) {
+      case '/api/catalog/kinds':
+        kindRequests++;
+        if (succeedFirst != null && kindRequests > succeedFirst) {
+          return http.Response(
+            json.encode({
+              'success': false,
+              'error': {'code': 'INTERNAL_ERROR', 'message': '図鑑の種類の取得に失敗しました'},
+            }),
+            500,
+            headers: headers,
+          );
+        }
+        return http.Response(
+          json.encode({
+            'success': true,
+            'data': {
+              'kinds': [
+                {'kind': 'plant', 'label': label, 'fields': <Object?>[]},
+              ],
             },
-          ],
-          'total': 1,
-        },
-      }),
-      200,
-      headers: headers,
-    );
+          }),
+          200,
+          headers: headers,
+        );
+      case '/api/catalog/entries':
+        return http.Response(
+          json.encode({
+            'success': true,
+            'data': {'entries': <Object?>[], 'total': 0},
+          }),
+          200,
+          headers: headers,
+        );
+      case '/api/photos':
+        // 写真の一覧はデータベースを読む（クエリなので、コンテナが無ければ失敗する）。偽のサーバは写真を持たないので空のページ（[databaseDown] なら 503）
+        if (databaseDown) {
+          return http.Response(
+            json.encode({
+              'success': false,
+              'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
+            }),
+            503,
+            headers: headers,
+          );
+        }
+        return http.Response(
+          json.encode({
+            'success': true,
+            'data': {'photos': <Object?>[], 'continuationToken': null, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'},
+          }),
+          200,
+          headers: headers,
+        );
+      case '/api/trips':
+        // 旅行の一覧はデータベースを読む。[databaseDown] なら本物と同じく 503 DATABASE_ERROR
+        if (databaseDown) {
+          return http.Response(
+            json.encode({
+              'success': false,
+              'error': {'code': 'DATABASE_ERROR', 'message': 'データベースに接続できません'},
+            }),
+            503,
+            headers: headers,
+          );
+        }
+        return http.Response(
+          json.encode({
+            'success': true,
+            'data': {'trips': <Object?>[], 'total': 0, 'unassignedPhotoCount': 0},
+          }),
+          200,
+          headers: headers,
+        );
+      default:
+        return http.Response('', 404);
+    }
   });
 }
 

@@ -405,6 +405,22 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **判断が要ること**: ビューアの末尾で失敗を知らせて「再試行」を出すか、ビューアからもう一度払ったら読み直すか、今のまま（戻って一覧で再試行）とするか。
 `docs/travel-album/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
 
+### ルートの仕様書に、アプリから消した植物図鑑の画面が「今ある」と書かれている（文書、旅行アルバム）
+
+4-5（2026-10-20）でアプリの植物図鑑の画面（植物一覧・画像選択・識別結果・植物詳細）を消した。旅行アルバムの開発中はルートの仕様書（`docs/01`〜`07`）へ取り込まない方針なので、
+次の箇所が古いまま残っている（4-5 の contract-auditor の報告。文書を読んでの確認）。
+
+- `docs/03_screen_design.md`: 画面一覧と §1〜§4 の植物図鑑の画面、設定画面の保存後の「植物一覧画面へ戻る」、**接続テストの宛先 `GET /api/plants`**（今は写真の一覧の1件。`docs/travel-album/03_screen_design.md` §6.4）、画面遷移のパターン
+- `docs/05_technology_selection.md` §4.2・§4.3: フォルダ構造の植物の画面とモデル、識別結果確認画面の 409 `IMAGE_ALREADY_SAVED`、植物識別フロー
+- `docs/07_api_workflow.md`・`docs/06_api_design.md`: クライアントが 409 で植物一覧へ戻る・`CameraScreen` にエラーを出す、の記述（API 自体は 4-6 まで残る）
+- `docs/01_requirements.md`・`docs/02_feature_list.md`・ルートの `README.md`「主な機能」: 植物図鑑の画面の機能
+- `docs/09_backlog.md` の植物図鑑の画面を前提にした項目（`identification_screen_test.dart` を手本にする記述、`camera_screen.dart` の `maxLength`、科名の「科」が二重になる、など）
+
+あわせて、`mobile/android/app/src/main/AndroidManifest.xml` の `android.permission.CAMERA` は、カメラを使うコードが無くなったので要らない。
+
+**やること**: 旅行アルバムの機能が固まったら、`docs/travel-album/` をルートの仕様書へ取り込むときにまとめて書き直す（4-6 で植物の API を消すときに `docs/06`・`07`・`README` は直す計画。09 §4）。
+カメラの権限を外すかは、実機で写真の追加が変わらないことを確かめてから決める。
+
 ### アプリの API の呼び出しに時間切れが無く、ダイアログの処理中に通信が返らないと閉じられない（Dart）
 
 `mobile/lib/services/api_service.dart` の呼び出しは、写真の送信（`upload_queue.dart` の 60 秒）を除いて時間切れを付けていない。

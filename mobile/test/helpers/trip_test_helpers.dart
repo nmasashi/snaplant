@@ -168,7 +168,7 @@ enum TripRoute {
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
 ///   遅れて届く古い応答（止めている間に別の端末で状態が変わる）を表す
-/// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`plantServer` と同じ考え方）
+/// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`catalogServer` と同じ考え方）
 /// - 削除の要求の `deletePhotos` を [deletePhotosSent] に記録する。写真が0枚の旅行は `true` でも `false` でも応答が同じで、
 ///   結果からは何を送ったか見分けられない。二重に送られたかどうか（2回目は 404 になって成功扱いと区別しにくい）も、これで見る。
 ///   API が必須にしている `deletePhotos` を載せたかという、クライアントが送る要求そのものを確かめたいときだけ使う
@@ -237,9 +237,6 @@ class FakeTripBackend {
 
   /// `GET /api/catalog/entries` で受け取った `offset`（届いた順）
   final List<int> catalogOffsetsReceived = [];
-
-  /// 図鑑の API（種類の一覧・項目の一覧・項目の詳細）の要求が届いた回数（応答を保留する前に数える）
-  int catalogRequestsReceived = 0;
 
   /// `GET /api/catalog/entry` で受け取った名前と継続トークン（届いた順。トークンが無ければ null）
   final List<({String? name, String? continuationToken})> catalogEntryQueriesReceived = [];
@@ -334,9 +331,6 @@ class FakeTripBackend {
     if (route == TripRoute.upload) uploadsReceived++;
     if (route == TripRoute.detail) tripFetchesReceived++;
     if (route == TripRoute.photos) photoPagesReceived++;
-    if (route == TripRoute.catalogKinds || route == TripRoute.catalogEntries || route == TripRoute.catalogEntry) {
-      catalogRequestsReceived++;
-    }
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -972,7 +966,8 @@ class _MultipartPart {
 
 /// 端末に API キーを保存した状態でアプリ全体を開き、旅行タブに切り替える。
 /// 偽のサーバは API キーを照合するので、保存するキーは [backend] の `functionKey`（既定の 'saved-key'）。
-/// 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
+/// 起動時のタブの図鑑も偽のサーバから種類と項目を読むが、隠れているので旅行タブの表示に影響しない
+/// （項目の表紙の画像は実時間を進めると取りに行くので、図鑑に項目を置くテストで runAsync を使うときは path_provider に注意。CLAUDE.md）
 Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
   SharedPreferences.setMockInitialValues({});
@@ -982,13 +977,12 @@ Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   await letFramesRun(tester);
 }
 
-/// アプリを開いて、下のタブの「図鑑（新）」を開く（図鑑の種類の一覧と、最初の種類の項目の一覧を読み込むまで進める）
+/// アプリを開く。起動時のタブは図鑑なので、何も押さずに図鑑の種類の一覧と、最初の種類の項目の一覧を読み込むまで進める
 Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
   SharedPreferences.setMockInitialValues({});
   await saveTestEndpoint(tester);
   await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
-  await tester.tap(find.text('図鑑（新）'));
   await letFramesRun(tester);
 }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_colors.dart';
@@ -8,7 +9,10 @@ import '../theme/app_text_styles.dart';
 /// APIキーとエンドポイントの設定、接続テスト機能を提供
 /// 1440×2960画面サイズに最適化されたレスポンシブデザイン
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.httpClient});
+
+  /// 接続テストに使う HTTP クライアント（アプリに差し込んだもの。無ければ ApiService が自分で作る）
+  final http.Client? httpClient;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -84,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       Navigator.pop(context, true);
       
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isSaving = false;
       });
@@ -104,14 +109,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _connectionStatus = null;
     });
 
+    ApiService? apiService;
     try {
-      final apiService = ApiService(
+      apiService = ApiService(
         baseUrl: _endpointController.text.trim(),
         functionKey: _apiKeyController.text.trim(),
+        client: widget.httpClient,
       );
-
       final isConnected = await apiService.testConnection();
-      
+      // 待っている間に設定画面を閉じていたら、何もしない（保存と同じ）
+      if (!mounted) return;
+
       setState(() {
         _isTesting = false;
         _connectionStatus = isConnected ? 'success' : 'failed';
@@ -122,12 +130,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         _showErrorSnackBar('接続に失敗しました。設定を確認してください。');
       }
-
-      apiService.dispose();
-
     } catch (e) {
       // 今の ApiService.testConnection() は例外をすべて false にするので、ここには来ない。
       // testConnection() の実装が変わっても処理中のまま固まらないよう、守りとして残している
+      if (!mounted) return;
       setState(() {
         _isTesting = false;
         _connectionStatus = 'error';
@@ -137,6 +143,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ? e.userMessage 
           : '接続テストでエラーが発生しました';
       _showErrorSnackBar(errorMessage);
+    } finally {
+      // 結果によらず閉じる（ApiService が自分で作った HTTP クライアントを閉じる。差し込んだものは閉じない）
+      apiService?.dispose();
     }
   }
 

@@ -63,7 +63,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | 偽物 | 使い方 |
 |---|---|
 | `MockClient`（`package:http/testing.dart`） | `ApiService` の新メソッドと `UploadQueue`。メソッドとパスが一致したときだけ応答し、それ以外は 404。`content-type: application/json` を付ける |
-| `image_picker_platform_interface` の偽物 | `pickMultiImage()` の差し替え（既存の `camera_screen_test.dart` と同じ形） |
+| `image_picker_platform_interface` の偽物 | `pickMultiImage()` の差し替え（`test/helpers/gallery_test_helpers.dart` の `FakeMultiGallery`。元にした `camera_screen_test.dart` は 4-5 で画面と一緒に消した） |
 | 小さな JPEG の資産 | EXIF（撮影日時・GPS あり/なし）を持つ数 KB の JPEG を `test/assets/` に置き、EXIF の読み取りとハッシュの固定値に使う |
 | `Geocoder` | `geocoding_platform_interface` の `GeocodingPlatformFactory.instance` を偽物に差し替える（`test/helpers/geocoding_test_helpers.dart`。知っている場所の近くには結果を返し、知らない場所には空のリスト。失敗・応答しないも作れる。引いた座標を残す） |
 | 画像の圧縮（サムネイル） | `flutter_image_compress` の `FlutterImageCompressPlatform.instance` を偽物に差し替える（`test/helpers/image_compress_test_helpers.dart`。Android の実装と同じ規則で、渡された最小の幅・高さから作る寸法を決め、寸法・画質・形式を結果として残す。EXIF の回転は再現しない） |

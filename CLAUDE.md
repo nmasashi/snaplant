@@ -75,13 +75,13 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
   `application/json` を UTF-8 で読むが、ヘッダが無いと latin1 になり日本語が化ける。
   アプリ全体を開くテストでは `SnapPlantApp(httpClient: ...)` で差し込む（`AppRoot` が作る `ApiService` に渡る）
 - **画面のテストは表示サイズを実機に合わせる。** 既定の 800×600 では
-  `IdentificationScreen` の保存ボタンが画面外に出てタップが空振りする（警告だけで失敗しない）。
+  画面の下の方のボタンが画面外に出てタップが空振りする（警告だけで失敗しない。`openApp` は実機の大きさにしている）。
   `tester.view.physicalSize` / `devicePixelRatio` を設定し、`addTearDown(tester.view.reset)` で戻す
 - **`tester.ensureVisible()` の後は `pump` が要る。** スクロール位置は次のフレームまで反映されない
 - **`ElevatedButton.icon` は `find.widgetWithText(ElevatedButton, ...)` で見つからない。**
   実体がサブクラスで、`byType` は型の完全一致を見るため。文言で探す
 - **端末の機能（OS の画像選択・セキュアストレージ）は、プラットフォーム層を偽物に差し替える。**
-  `ImagePickerPlatform.instance`（`camera_screen_test.dart`）、`FlutterImageCompressPlatform.instance`・`GeocodingPlatformFactory.instance`（写真の送信。テスト環境では未登録で、差し替えないと例外になる）、`FlutterSecureStoragePlatform.instance`
+  `ImagePickerPlatform.instance`（`helpers/gallery_test_helpers.dart`）、`FlutterImageCompressPlatform.instance`・`GeocodingPlatformFactory.instance`（写真の送信。テスト環境では未登録で、差し替えないと例外になる）、`FlutterSecureStoragePlatform.instance`
   （`helpers/app_test_helpers.dart` の `useSecureStorage`。値だけなら `FlutterSecureStorage.setMockInitialValues`）。
   `SharedPreferences.setMockInitialValues` も使える。ただし `SettingsService` はシングルトンで、
   最初に取った `SharedPreferences` を持ち越す（テスト間でエンドポイントを変えると古い値が残りうる。
@@ -98,8 +98,8 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
   `CachedNetworkImage` のプレースホルダー（テスト環境の HTTP は 400 を返す）が回り続けて終わらない。
   `pump` を必要な回数だけ呼ぶ。ファイルの読み書きは `tester.runAsync` の中でないと進まない
 - **日時の表示のテストは、日本時間で動くことを前提にしている。** 期待値を日本時間の文字列で書き、
-  テストの冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
-  CI（`flutter.yml`）は `TZ=Asia/Tokyo` で動かしている
+  端末の時刻に直して出すテストを足すときは、冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
+  CI（`flutter.yml`）は `TZ=Asia/Tokyo` で動かしている。写真の撮影日時はタイムゾーンを変換しないので、この前提に頼らない
 - **送信まわりのテスト（`trip_detail_screen_test.dart`）は、負荷が高いと稀に落ちる**（変異で全テストを繰り返しているときなど）。
   落ちたら、もう一度回してから判断する
 
@@ -716,8 +716,8 @@ SQL の絞り込み・並び順・射影を検証しているテストは無い�
 ### クライアント実装で踏みやすい罠
 
 - 非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。`userMessage` の決まりは `docs/05_technology_selection.md` §4.2。
-  **同じステータスでも `code` で意味が違うものがある**（409 は `IMAGE_ALREADY_SAVED` と `DATABASE_ERROR`）。分岐はステータスではなく `code` で行う（例: `ApiException.isImageAlreadySaved`）
+  **同じステータスでも `code` で意味が違うものがある**（404 は `TRIP_NOT_FOUND`・`PHOTO_NOT_FOUND` と宛先の誤り）。分岐はステータスではなく `code` で行う（例: `ApiException.isTripNotFound`）
 - 2xx の応答は `{ success, data }` の封筒に包まれていて、`_parseResponse()` は**ボディ全体**をコールバックに渡す。各メソッドが自分で `json['data']` を剥がす。
   忘れると実行時に `fromJson` がキーを見つけられず失敗する。`data` の中身はエンドポイントごとに違う（表は `docs/06_api_design.md` と `docs/travel-album/05_api_design.md` §2）
-- 植物の API は `mobile/test/services/api_service_test.dart` が `data` の読み方を固定している。旅行アルバムの API は画面のテストが偽のサーバ越しに通すので、
+- `mobile/test/services/api_service_test.dart` はエンドポイントによらない封筒の契約（エラーの例外と `userMessage`、写真の送信の Content-Type）だけを見る。各メソッドの `data` の読み方は画面のテストが偽のサーバ越しに通すので、
   `api_service_test.dart` にメソッドごとのテストは足さない（上位に従属するテストを作らない。#41）。メソッドを足したら、それを使う画面のテストで `data` の読み違いが落ちることを確かめる

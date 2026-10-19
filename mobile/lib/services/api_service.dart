@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import '../models/plant.dart';
 import '../models/api_response.dart';
 import '../models/catalog.dart';
 import '../models/photo.dart';
@@ -108,311 +107,6 @@ class ApiService {
         message: 'エラー詳細: ${error.runtimeType} - ${error.toString()}',
         body: error.toString(),
       );
-    }
-  }
-
-  /// 画像アップロードとAI識別を統合実行
-  /// POST /api/images/upload（docsワークフローに準拠）
-  Future<Map<String, dynamic>> uploadAndIdentifyImage(dynamic imageFile,
-      {String? contextInfo}) async {
-    try {
-      if (kDebugMode) {
-        debugPrint('ApiService: uploadAndIdentifyImage開始');
-        debugPrint('ApiService: imageFile type: ${imageFile.runtimeType}');
-      }
-
-      final url = _buildUrl('/api/images/upload');
-      final request = http.MultipartRequest('POST', Uri.parse(url));
-
-      // Web環境とモバイル環境で異なる処理
-      if (kIsWeb) {
-        // Web環境の場合、Uint8Listを期待
-        if (imageFile is Uint8List) {
-          if (kDebugMode) {
-            debugPrint('ApiService: Web環境 - 画像サイズ: ${imageFile.length} bytes');
-          }
-          request.files.add(
-            http.MultipartFile.fromBytes(
-              'image',
-              imageFile,
-              filename: 'plant_image.jpg',
-              contentType: MediaType.parse(detectImageMimeType(imageFile)),
-            ),
-          );
-        } else {
-          throw ArgumentError('Web環境では画像データはUint8Listである必要があります');
-        }
-      } else {
-        // モバイル環境の場合、Fileを期待
-        if (imageFile is File) {
-          final fileSize = await imageFile.length();
-          if (kDebugMode) {
-            debugPrint('ApiService: モバイル環境 - ファイルパス: ${imageFile.path}');
-            debugPrint('ApiService: モバイル環境 - 画像サイズ: $fileSize bytes');
-          }
-
-          // 拡張子ではなく中身のシグネチャで判定する。判定に必要なのは先頭12バイトだけ
-          final header = await imageFile
-              .openRead(0, 12)
-              .fold<List<int>>(<int>[], (bytes, chunk) => bytes..addAll(chunk));
-          final mimeType = detectImageMimeType(Uint8List.fromList(header));
-
-          if (kDebugMode) {
-            debugPrint('ApiService: 検出MIMEタイプ: $mimeType');
-          }
-
-          request.files.add(
-            await http.MultipartFile.fromPath(
-              'image',
-              imageFile.path,
-              filename: 'plant_image.jpg',
-              contentType: MediaType.parse(mimeType),
-            ),
-          );
-        } else {
-          throw ArgumentError('モバイル環境では画像データはFileである必要があります');
-        }
-      }
-
-      // コンテキスト情報がある場合は追加
-      if (contextInfo != null && contextInfo.isNotEmpty) {
-        request.fields['contextInfo'] = contextInfo;
-        if (kDebugMode) {
-          debugPrint('ApiService: コンテキスト情報追加: $contextInfo');
-        }
-      }
-
-      if (kDebugMode) {
-        debugPrint('ApiService: HTTP リクエスト送信開始');
-      }
-
-      final streamedResponse = await _client.send(request);
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (kDebugMode) {
-        debugPrint('ApiService: HTTPレスポンス受信 - ステータス: ${response.statusCode}');
-        debugPrint('ApiService: レスポンスボディ長: ${response.body.length}');
-        if (response.statusCode != 200) {
-          debugPrint('ApiService: エラーレスポンス: ${response.body}');
-        }
-      }
-
-      return _parseResponse(
-        response,
-        (json) {
-          if (kDebugMode) {
-            debugPrint('ApiService: レスポンス解析開始');
-            debugPrint('ApiService: json keys: ${json.keys}');
-          }
-          final data = json['data'] as Map<String, dynamic>;
-          if (kDebugMode) {
-            debugPrint('ApiService: data keys: ${data.keys}');
-          }
-          return {
-            'uploadResult': UploadResult(
-              imagePath: data['imagePath'] as String,
-              imageUrl: data['imagePath'] as String,
-            ),
-            'identificationResult':
-                IdentificationResult.fromJson(data['identificationResult']),
-          };
-        },
-      );
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('ApiService: uploadAndIdentifyImage エラー: $error');
-      }
-      throw _handleError(error);
-    }
-  }
-
-  /// 重複チェック
-  /// GET /api/plants/check-duplicate（docsワークフローに準拠）
-  Future<DuplicateCheckResult> checkDuplicate(String plantName) async {
-    try {
-      final url = _buildUrl(
-          '/api/plants/check-duplicate?name=${Uri.encodeComponent(plantName)}');
-      final response = await _client.get(
-        Uri.parse(url),
-        headers: _headers,
-      );
-
-      return _parseResponse(
-        response,
-        (json) {
-          if (kDebugMode) {
-            debugPrint('ApiService: 重複チェックレスポンス: $json');
-          }
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          if (kDebugMode) {
-            debugPrint('ApiService: 重複チェックdata: $data');
-          }
-          return DuplicateCheckResult.fromJson(data);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-
-  /// 植物保存
-  /// POST /api/plants/save
-  Future<Plant> savePlant(PlantCreateRequest request) async {
-    try {
-      final url = _buildUrl('/api/plants/save');
-      final response = await _client.post(
-        Uri.parse(url),
-        headers: _headers,
-        body: json.encode(request.toJson()),
-      );
-
-      return _parseResponse(
-        response,
-        (json) {
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          return Plant.fromJson(data['plant']);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-
-  /// 植物一覧取得
-  /// GET /api/plants
-  Future<List<PlantSummary>> getPlants() async {
-    try {
-      final url = _buildUrl('/api/plants');
-      final response = await _client.get(
-        Uri.parse(url),
-        headers: _headers,
-      );
-
-      return _parseResponse(
-        response,
-        (json) {
-          if (kDebugMode) {
-            debugPrint('ApiService: レスポンス内容: $json');
-          }
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            if (kDebugMode) {
-              debugPrint('ApiService: dataがnullのため空リストを返す');
-            }
-            return <PlantSummary>[];
-          }
-          final plants = data['plants'] as List<dynamic>?;
-          if (plants == null) {
-            if (kDebugMode) {
-              debugPrint('ApiService: plantsがnullのため空リストを返す');
-            }
-            return <PlantSummary>[];
-          }
-          return plants
-              .map((e) => PlantSummary.fromJson(e as Map<String, dynamic>))
-              .toList();
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-
-  /// 植物詳細取得
-  /// GET /api/plants/{id}
-  Future<Plant> getPlant(String id) async {
-    try {
-      final url = _buildUrl('/api/plants/$id');
-      final response = await _client.get(
-        Uri.parse(url),
-        headers: _headers,
-      );
-
-      return _parseResponse(
-        response,
-        (json) {
-          if (kDebugMode) {
-            debugPrint('ApiService: 植物詳細レスポンス: $json');
-          }
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          return Plant.fromJson(data['plant']);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-
-  /// 植物更新
-  /// PUT /api/plants/{id}
-  Future<Plant> updatePlant(
-      String id, String imagePath, double confidence) async {
-    try {
-      final url = _buildUrl('/api/plants/$id');
-      final response = await _client.put(
-        Uri.parse(url),
-        headers: _headers,
-        body: json.encode({
-          'imagePath': imagePath,
-          'confidence': confidence,
-        }),
-      );
-
-      return _parseResponse(
-        response,
-        (json) {
-          final data = json['data'] as Map<String, dynamic>?;
-          if (data == null) {
-            throw ApiException(
-              statusCode: 0,
-              message: 'レスポンスデータが無効です',
-              body: json.toString(),
-            );
-          }
-          return Plant.fromJson(data['plant']);
-        },
-      );
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-
-  /// 植物削除
-  /// DELETE /api/plants/{id}
-  Future<void> deletePlant(String id) async {
-    try {
-      final url = _buildUrl('/api/plants/$id');
-      final response = await _client.delete(
-        Uri.parse(url),
-        headers: _headers,
-      );
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw ApiException.fromResponse(response);
-      }
-    } catch (error) {
-      throw _handleError(error);
     }
   }
 
@@ -776,12 +470,16 @@ class ApiService {
   /// 接続テスト
   Future<bool> testConnection() async {
     try {
-      final url = _buildUrl('/api/plants');
+      // エンドポイント・キーに加えて、サーバがデータベースとストレージに届くかまで確かめる。
+      // - 図鑑の種類の一覧は定義表を返すだけで、データベースの設定が誤っていても成功する
+      // - 1件の読み取り（旅行の詳細など）は、Cosmos の SDK がコンテナ・データベースが無いときの 404 も「見つからない」にまとめるので、設定の誤りが成功に見える
+      // - 旅行の一覧は全部の旅行と写真を集計して重い
+      // 旅行をまたぐ写真の一覧を1件だけ読む（クエリなので、コンテナが無ければ失敗する。写真があれば URL に署名するのでストレージの設定も通る）
+      final url = _buildUrl('/api/photos?${Uri(queryParameters: {'category': 'plant', 'limit': '1'}).query}');
       final response = await _client.get(
         Uri.parse(url),
         headers: _headers,
       );
-
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (error) {
       return false;
@@ -840,14 +538,6 @@ class ApiException implements Exception {
   bool get isNetworkError => statusCode == 0;
   bool get isAuthError => statusCode == 401;
   bool get isNotFound => statusCode == 404;
-
-  /// 同じ画像が既に保存されている（409 `IMAGE_ALREADY_SAVED`）
-  ///
-  /// 保存は成功したがレスポンスが届かず、その後に別の候補（別の名前）で保存し直した場合に起きる。
-  /// 同じ候補で保存し直すと、名前の重複確認が既存の植物を見つけて更新（PUT）に進み、
-  /// PUT は自分自身を重複から除外するので 409 にはならない。
-  /// 同じ 409 でも `DATABASE_ERROR` は本当の失敗なので、ステータスではなくコードで判定する
-  bool get isImageAlreadySaved => code == 'IMAGE_ALREADY_SAVED';
 
   /// 旅行が無い（404 `TRIP_NOT_FOUND`）。別の端末で消された、送信中に消されたなど
   bool get isTripNotFound => code == 'TRIP_NOT_FOUND';
