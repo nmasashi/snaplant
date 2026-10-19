@@ -49,61 +49,6 @@ const testApiEndpoint = 'https://func-test.example.net';
 /// [testApiEndpoint] のホスト。偽のサーバが宛先の照合に使う
 const testApiHost = 'func-test.example.net';
 
-/// GET /api/plants に、宛先のホストと API キー（`?code=`）の組ごとに決めた植物 1 件の一覧を返す偽のサーバ。
-/// [plantNames] に無い組（宛先かキーの取り違え）と、それ以外のメソッドやパスは 404 にする。
-/// [succeedFirst] を渡すと、一覧の取得はその回数目までだけ成功し、以降は 500 を返す
-/// （読み直したかどうかを、読み直したときの失敗で見分けるため）
-MockClient plantServer(
-  Map<({String host, String code}), String> plantNames, {
-  int? succeedFirst,
-}) {
-  var listRequests = 0;
-  return MockClient((request) async {
-    if (request.method != 'GET' || request.url.path != '/api/plants') {
-      return http.Response('', 404);
-    }
-    final plantName = plantNames[(
-      host: request.url.host,
-      code: request.url.queryParameters['code'] ?? '',
-    )];
-    if (plantName == null) return http.Response('', 404);
-    listRequests++;
-    // サーバの実際のヘッダに合わせる（charset なしの application/json。無いと日本語が化ける）
-    const headers = {'content-type': 'application/json'};
-    if (succeedFirst != null && listRequests > succeedFirst) {
-      return http.Response(
-        json.encode({
-          'success': false,
-          'error': {'code': 'INTERNAL_ERROR', 'message': 'サーバーエラー'},
-        }),
-        500,
-        headers: headers,
-      );
-    }
-    return http.Response(
-      json.encode({
-        'success': true,
-        'data': {
-          'plants': [
-            {
-              'id': 'plant-1',
-              'name': plantName,
-              'characteristics': '春に咲く',
-              'imagePath':
-                  'https://stsnaplant.blob.core.windows.net/images/a.jpg',
-              'confidence': 95.0,
-              'createdAt': '2026-10-01T09:00:00.000Z',
-            },
-          ],
-          'total': 1,
-        },
-      }),
-      200,
-      headers: headers,
-    );
-  });
-}
-
 /// 図鑑の API（GET /api/catalog/kinds・GET /api/catalog/entries）に、宛先のホストと API キー（`?code=`）の組ごとに決めた
 /// 表示名の種類1つ（植物）を返す偽のサーバ。項目は返さない（空の一覧）。図鑑のタブに出る種類のタブの名前で、どの設定で通信したかを見分ける。
 /// [kindLabels] に無い組（宛先かキーの取り違え）と、それ以外のメソッドやパスは 404 にする。
