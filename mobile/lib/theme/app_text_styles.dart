@@ -98,33 +98,6 @@ class AppTextStyles {
     letterSpacing: 0.15,
   );
   
-  static const TextStyle plantName = TextStyle(
-    fontSize: 20,
-    fontWeight: FontWeight.w600,
-    color: AppColors.textPrimary,
-    height: 1.3,
-  );
-  
-  static const TextStyle scientificName = TextStyle(
-    fontSize: 14,
-    fontStyle: FontStyle.italic,
-    color: AppColors.textSecondary,
-    height: 1.4,
-  );
-  
-  static const TextStyle confidence = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-    height: 1.2,
-  );
-  
-  static const TextStyle characteristics = TextStyle(
-    fontSize: 16,
-    color: AppColors.textPrimary,
-    height: 1.6,
-    letterSpacing: 0.15,
-  );
-  
   // エラー・警告系
   static const TextStyle error = TextStyle(
     fontSize: 14,
@@ -161,13 +134,6 @@ class AppTextStyles {
     fontSize: 16,
     color: AppColors.textHint,
   );
-  
-  // 信頼度に基づくスタイル
-  static TextStyle confidenceWithColor(double confidence) {
-    return AppTextStyles.confidence.copyWith(
-      color: AppColors.getConfidenceColor(confidence),
-    );
-  }
   
   // レスポンシブ対応: 画面幅に基づいてフォントサイズを調整
   static double getResponsiveFontSize(BuildContext context, double baseFontSize) {

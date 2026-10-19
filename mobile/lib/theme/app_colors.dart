@@ -61,13 +61,6 @@ class AppColors {
   static const Color borderColor = Color(0xFFE0E0E0);
   static const Color dividerColor = Color(0xFFBDBDBD);
   
-  // 信頼度表示用グラデーション
-  static List<Color> confidenceGradient = [
-    const Color(0xFFF44336), // 低い（赤）
-    const Color(0xFFFF9800), // 中程度（オレンジ）
-    const Color(0xFF4CAF50), // 高い（緑）
-  ];
-  
   // 信頼度に基づく色を取得
   static Color getConfidenceColor(double confidence) {
     if (confidence >= 90) return success;
