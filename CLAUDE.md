@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | ディレクトリ | 内容 | 言語/ツール |
 |---|---|---|
-| `api/` | Azure Functions v4 の植物識別 API | TypeScript / npm / Jest |
+| `api/` | Azure Functions v4 の旅行アルバム・図鑑の API | TypeScript / npm / Jest |
 | `mobile/` | Flutter 製モバイルアプリ | Dart / flutter |
 | `infrastructure/` | Azure リソース定義 | Terraform |
 | `docs/` | 設計書・OpenAPI 仕様（日本語） | Markdown / YAML |
@@ -50,7 +50,7 @@ api・mobile・ドキュメントの作業はすべてこの作業ツリー（`C
 ```bash
 cd api
 npm ci                                  # lock が変わったらやり直す
-npm test                                # 単一: npx jest tests/functions/save.test.ts、npx jest -t "植物一覧取得"
+npm test                                # 単一: npx jest tests/functions/trips.test.ts、npx jest -t "旅行の一覧"
 npx tsc -p tsconfig.test.json --noEmit  # 型チェック（tests も含める。tsconfig.json は src のみ対象）
 ```
 
@@ -111,16 +111,15 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 ### 関数の登録
 
 - **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)`（キューのワーカーは `app.storageQueue(...)`、タイマーは `app.timer(...)`）で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる（ワーカーならメッセージが誰にも拾われずに溜まる）
-- `plants/{id}` は `plantDetail.ts`（GET・DELETE）と `updatePlant.ts`（PUT）の2ファイルが別々に登録している。片方だけ見て全体を判断しない
+- `photos/{photoId}` は `photoDetail.ts`（GET・PATCH・DELETE）、`photos/{photoId}/process` は `photoProcess.ts` と、同じ写真でもルートごとにファイルが分かれている。片方だけ見て全体を判断しない
 - `photos/move` は `photos/{photoId}` と同じ階層のリテラルのルート（`photoMove.ts`）。デプロイ後に `{photoId}` に取られていないことを確かめる
 - 呼び出しに要る `?code=` は、Flutter の `ApiService._buildUrl()` が付ける
 
 ### Blob Storage
 
-- 一時コンテナの名前は環境変数から取る。コードの `'temp'` は未設定時のフォールバック値にすぎず、Terraform が作るのは `temp-images`
-- `StorageService` は削除する URL を、ホストの一致とパスセグメントの完全一致で検証し、合わなければ何も消さずに `false` を返す。
-  文字列包含で判定していた頃は、外部ホストの URL を渡すだけで自分のコンテナの同名 Blob を消せた。緩めない
-- Blob 名の拡張子は検証済みの Content-Type から引く。クライアントのファイル名からは取らない（`/` を含む名前で署名対象がずれるため）。`upload` の応答の `fileName` は Blob 名とは別物
+- 写真の Blob 名は `<写真の id（画像の SHA-256）><拡張子>` で、拡張子は検証済みの Content-Type から引く。クライアントのファイル名からは取らない（`/` を含む名前で署名対象がずれるため）
+- Blob の場所を URL で受け取って読み書きするコードを足すときは、ホストとパスのセグメントの完全一致で確かめ、パーセントエンコードを戻した名前の `/`・`..` も弾く
+  （植物図鑑の頃、文字列包含の判定で外部ホストの URL から自分のコンテナの Blob を消せた。移行スクリプトでは `..%2F` で別のコンテナを読めた。どちらも今は無いコード）
 - `BlobEndpoint=` 形式の接続文字列（Azurite）は使えない（`docs/06`・`DEPLOYMENT.md`）
 
 ### レスポンス規約
@@ -136,21 +135,18 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 ### Cosmos DB
 
 - パーティションキーは `/id`。単一ドキュメントの操作は `container.item(id, id)` と id を2回渡す
-- `updatePlant()` / `deletePlant()` は `imagePath` の Blob を無条件に消す（失敗はログだけ）。**同じ `imagePath` のレコードが2つあると、一方の削除で他方の画像が消える。**
-  だから `save` と `PUT` の両方が、重複を 409 `IMAGE_ALREADY_SAVED` で止める（`PUT` は自分自身が持つ画像なら通す。振る舞いは `docs/06`）。片方の入口だけ塞いでも、もう片方から同じ状態を作れる
-- これは read-then-write なので、ほぼ同時に届いた2件には効かない（パーティションキーが `/id` なので一意キーを張れない。バックログ）
+- 写真の id は画像の SHA-256 なので、同じ画像は1枚になる（`create` の 409 を「先にある」として扱う）。旅行と写真は同じコンテナにあり、`type` で見分ける
 
 ### OpenAI
 
 - Structured Outputs の strict の制約（全プロパティを `required` に、`minimum` などが使えない、`max_completion_tokens`、`temperature` を渡さない、`detail: "low"`）が設計を縛っている。
-  理由は `openAIVisionService.ts` 冒頭のコメントにある。守ったまま変える
+  理由は `openAIVisionService.ts` の `AnalyzeRequest` のコメントにある。守ったまま変える
 - デプロイ名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment` 名と一致している必要がある（現在 `gpt-6-luna`）
 
 ### 入力検証
 
-- `imagePath` の検証（`StorageService.isValidImagePath()`）は4つの独立した条件で、最後は生の文字列の完全一致（条件は `docs/06`）。
-  `new URL()` はクエリや大文字小文字を正規化するので、パース結果を見る限り正当な URL と区別できない。過去に「URL の一部を無視する」誤りを4回繰り返したので、1つが緩んでも他が残る形にしてある。
-  入口（ハンドラ）と出口（`deleteImage()`）の二層で守っている。片方だけ緩めない
+- URL を検証するときは、`new URL()` がクエリや大文字小文字を正規化することに注意する（パース結果を見る限り正当な URL と区別できない）。
+  植物図鑑の `imagePath` の検証で「URL の一部を無視する」誤りを4回繰り返したので、条件を独立させ、最後に生の文字列の完全一致を求める形にしていた
 - 上限値は `constants/validation.ts` にあり、環境変数は `positiveIntFromEnv()` で読む。**正の整数として読めない値は既定値に戻す。** `parseInt` の `NaN` をそのまま使うと `length > NaN` が常に false になり、上限が静かに消える。
   マジックナンバーをハンドラに直接書かない
 
@@ -524,7 +520,6 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 
 | 対象 | 入口 | 仕様 |
 |---|---|---|
-| api（植物図鑑） | エンドポイント（`api/tests/functions/`） | `docs/06_api_design.md`・`06_api_openapi.yaml` |
 | api（旅行アルバム） | エンドポイント（`api/tests/functions/`） | `docs/travel-album/05_api_design.md`（目指す姿） |
 | api（手で回すスクリプト） | スクリプトの関数（`api/tests/scripts/`。`src/scripts/` をミラー） | `docs/travel-album/06_processing_design.md` §1・§7 |
 | mobile | 画面（`mobile/test/screens/`） | `docs/03_screen_design.md` |
@@ -541,7 +536,7 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 | `api/tests/services/catalogEntries.test.ts`（`catalogPageOf()` のテストだけ） | 入口から入力を作れない | 偽物は `GROUP BY` と `ORDER BY` を解釈しないので、名前ごとの枚数の行と、項目ごとの見出しの写真（信頼度の高い1枚）を入口（`GET /api/catalog/entries`）から作れない |
 | `api/tests/services/tripSummaries.test.ts` | 入口から入力を作れない | 偽物は Cosmos SQL を解釈しないので、`GROUP BY` の結果の行を入口（`GET /api/trips`）から作れない |
 
-**複数の入口が同じ規則を持つとき**（データベースの 503、`imagePath` の検証、植物 ID の形式など）は、
+**複数の入口が同じ規則を持つとき**（データベースの 503、写真 ID の形式、継続トークンの検証など）は、
 仕様の「同じ」「全エンドポイント」を根拠に全ケースを通す入口を1つ決め、他の入口は1〜2行にして、
 どこで全ケースを通しているかをコメントに書く（`photos.test.ts` の `storageFailureCases` のコメントが既にこの形）。
 `databaseFailureCases` のように同じ表を入口ごとに全件回す形は、この決め方で減らす。
@@ -715,8 +710,8 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 ### Cosmos のクエリを変更したら手で確認する
 
 SQL の絞り込み・並び順・射影を検証しているテストは無い（偽物は SQL を解釈せず、エミュレータも E2E も無い）。
-`cosmosService.ts`・`albumQueries.ts`・`albumService.ts`・`catalogQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
-項目は `docs/06_api_design.md` §8（植物図鑑）と `docs/travel-album/08_test_plan.md` §5.2・§5.3（旅行アルバム。§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件）。
+`albumQueries.ts`・`albumService.ts`・`catalogQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
+項目は `docs/travel-album/08_test_plan.md` §5.2・§5.3（§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件）。
 
 ### クライアント実装で踏みやすい罠
 
