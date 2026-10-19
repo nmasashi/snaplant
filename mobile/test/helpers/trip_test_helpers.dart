@@ -238,9 +238,6 @@ class FakeTripBackend {
   /// `GET /api/catalog/entries` で受け取った `offset`（届いた順）
   final List<int> catalogOffsetsReceived = [];
 
-  /// 図鑑の API（種類の一覧・項目の一覧・項目の詳細）の要求が届いた回数（応答を保留する前に数える）
-  int catalogRequestsReceived = 0;
-
   /// `GET /api/catalog/entry` で受け取った名前と継続トークン（届いた順。トークンが無ければ null）
   final List<({String? name, String? continuationToken})> catalogEntryQueriesReceived = [];
 
@@ -334,9 +331,6 @@ class FakeTripBackend {
     if (route == TripRoute.upload) uploadsReceived++;
     if (route == TripRoute.detail) tripFetchesReceived++;
     if (route == TripRoute.photos) photoPagesReceived++;
-    if (route == TripRoute.catalogKinds || route == TripRoute.catalogEntries || route == TripRoute.catalogEntry) {
-      catalogRequestsReceived++;
-    }
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -972,7 +966,8 @@ class _MultipartPart {
 
 /// 端末に API キーを保存した状態でアプリ全体を開き、旅行タブに切り替える。
 /// 偽のサーバは API キーを照合するので、保存するキーは [backend] の `functionKey`（既定の 'saved-key'）。
-/// 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
+/// 起動時のタブの図鑑も偽のサーバから種類と項目を読むが、隠れているので旅行タブの表示に影響しない
+/// （項目の表紙の画像は実時間を進めると取りに行くので、図鑑に項目を置くテストで runAsync を使うときは path_provider に注意。CLAUDE.md）
 Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
   SharedPreferences.setMockInitialValues({});
