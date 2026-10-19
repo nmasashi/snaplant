@@ -125,8 +125,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `classification` | object \| null | ○（null 可） | 3 | `{ kind, confidence, model, at }`。[06 §2](./06_processing_design.md#2-分類段階3) |
 | `identification` | object \| null | ○（null 可） | 4 | `{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`（§3.1）。**図鑑はこの項目からまとめる**。「種類ごとの1件に写真が複数」（要件 5.5）は `identification.kind` と `identification.name` が同じ写真の集まりとして表す。[06 §3](./06_processing_design.md#3-識別段階4) |
 | `processing` | object | ○ | 2（値は3） | `{ state, step, attempts, lastError, updatedAt }`。`state` は `none` / `pending` / `classifying` / `identifying` / `done` / `failed`、`step` は `null` / `classify` / `identify`（次にやる、またはやっている処理。タイマーが再投入するときに見る。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`lastError` は `null` か、どこで失敗したか（`"ai"` / `"internal"`。例外の文言は入れない）。段階2は `state: "none"`・`step: null` 固定。段階3から、送信（`POST /api/photos`）は `state: "pending"`・`step: "classify"`・`updatedAt` に保存した時刻で作る |
-| `uploadedAt` / `updatedAt` | string (ISO 8601, UTC) | ○ | 2 | サーバが付ける。作成時は同じ値（植物図鑑から移した写真は、`uploadedAt` が植物を保存した日時、`updatedAt` が移した時刻。[06 §7.1](./06_processing_design.md#71-移行スクリプト手順-2)） |
-| `legacyPlantId` | string | 移した写真だけ | 4 | 植物図鑑から移した写真（[06 §7.1](./06_processing_design.md#71-移行スクリプト手順-2)）の、元の植物の id。移行の突き合わせ（06 §7 の手順 3）のためだけの項目で、移行スクリプトだけが書く。ほかの写真には項目ごと無い（下の「全項目を書く」の例外。クエリの条件に使わない）。API の応答には出さない |
+| `uploadedAt` / `updatedAt` | string (ISO 8601, UTC) | ○ | 2 | サーバが付ける。作成時は同じ値 |
 
 段階2から**全項目を書く**（段階3・4で使う項目も `null` で）。項目が無いドキュメントと `null` のドキュメントは Cosmos SQL で振る舞いが違う
 （`IS_NULL` は欠損で偽、`IS_DEFINED` は null で真）ので、後から項目を足すときに「無い」を2通り扱わずに済むようにする。
@@ -653,17 +652,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 途中の写真の patch（412・404 以外）で止まる | それまでの写真は識別の待ち、残りは `done` のまま | 待ちにした写真は「分類中...」（段階4のアプリで「識別中...」） | 回し直す（待ちにした写真は `done` でないので対象から外れる）。待ちにした写真は再投入のタイマーが 10〜20 分後に積む |
 | 読んだ後・書く前に、やり直しの受付やワーカーが `processing` を書いた | その写真は受付・ワーカーが書いた状態 | — | 条件付き patch が 412 で、その写真は飛ばす（ログに ID） |
 
-**移行スクリプト**（4-4 で実装済み。[06 §7.1](./06_processing_design.md#71-移行スクリプト手順-2)。`plants` を全件読み、植物1件ずつ: 旧 Blob を読む → 写真の文書を読む（あれば飛ばす）→ `photos` に上げる → 写真の `create`）
-
-| 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
-|---|---|---|---|
-| `plants` の読み取り | 何も変わらない | 無し | 回し直す |
-| 旧 Blob の読み取り（404 以外。権限・ネットワークなど）・写真の文書の読み取り | それまでの植物は移っている。残りは移っていない | 旧図鑑の件数と合わない | 回し直す（移した植物は「同じ写真が先にある」として飛ばす） |
-| `photos` への Blob の保存 | 同上 | 同上 | 同上 |
-| Blob を上げた後、`create` の前 | 孤児 Blob | 無し | 再実行（冪等。文書が無いので上書きして `create` する）。回し直さなければ掃除（§7.2） |
-| `plants` の `imagePath` の Blob が無い（既存の「保存しなかった画像が残る」不具合の裏返し）・`imagePath` が `images` の Blob を指していない・画像の形式が写真として受け付けないもの | その植物は移らない | 旧図鑑の件数と合わない | **手**（スクリプトが飛ばして一覧に出し、続く植物を移す。人間が捨てるか手で入れる） |
-| 同じ画像がアルバムに先にある（写真の文書を読んであった、または `create` が 409） | アルバムの写真に植物の記録は乗らない（先の写真を変えない） | 突き合わせで `legacyPlantId` が無い | **手**（一覧に出す。その写真の `identification` が `null` なら乗せるかを人間が決める） |
-| 移行の後、`plants` を消す前 | 両方に同じ記録 | 旧図鑑と新図鑑の両方に出る（意図どおり） | 手順 4〜6 で旧を消す |
+**移行スクリプト**（4-4 で作り、旧図鑑の植物を移さないと決めたので回さずに 4-6 で削除した。[06 §7.1](./06_processing_design.md#71-移行スクリプト手順-2削除した)）。表は削除した。
 
 **ライフサイクル**（[07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減)）
 

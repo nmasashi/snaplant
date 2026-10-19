@@ -9,13 +9,14 @@
 SnapPlant は、Flutter で構築された植物図鑑モバイルアプリです。Azure OpenAI（デプロイメント `gpt-6-luna`）を活用した高精度な植物識別機能と、Material Design 3.0 による美しいユーザーインターフェースを提供します。
 
 ### 主な機能
-- 🖼️ **画像選択** - ギャラリーから写真を選び、補足情報（最大500文字）を添えて送信
-- 🤖 **AI植物識別** - Azure OpenAI（`gpt-6-luna`）による識別。候補は最大3件
-- 📚 **植物図鑑** - 識別結果の保存・一覧表示・詳細表示・削除
-- 🔍 **重複チェック** - 同名の植物があれば既存レコードの画像・信頼度を更新
+- 🧳 **旅行アルバム** - 旅行を作り、ギャラリーから選んだ写真をまとめて送る（撮影日時・位置・地名を添える）。旅行ごとに撮影日時の順で見る・移す・消す
+- 🤖 **AIによる分類と識別** - 送った写真を、サーバの裏の処理が Azure OpenAI（`gpt-6-luna`）で植物・食べ物・風景・その他に分け、植物・食べ物・風景は名前まで識別する
+- 📚 **図鑑** - 識別した写真を種類と名前ごとにまとめて見る
 - ⚙️ **設定管理** - APIキーとエンドポイントのセキュア保存・接続テスト
 
 カメラ撮影には対応していない。写真の取得経路はギャラリー選択のみ。
+植物の写真を1枚ずつ識別して登録する以前の植物図鑑の API は 4-6 で削除した（`docs/06_api_design.md` §1）。
+要件と設計は [docs/travel-album/](./docs/travel-album/01_requirements.md)。
 
 ## 🏗️ アーキテクチャ
 
@@ -28,9 +29,9 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 
 ### バックエンド
 - **Azure Functions**: サーバーレス API ホスティング
-- **Azure Cosmos DB**: 植物データの永続化（無料枠活用）
-- **Azure Blob Storage**: 画像ファイルの保存（SAS URL対応）
-- **Azure OpenAI Service**: `gpt-6-luna` デプロイメントによる植物識別（画像入力）
+- **Azure Cosmos DB**: 旅行と写真の情報の永続化（無料枠活用）
+- **Azure Blob Storage**: 写真の保存（非公開。SAS URL で渡す）と、解析の待ちのキュー（Storage Queue）
+- **Azure OpenAI Service**: `gpt-6-luna` デプロイメントによる写真の分類と識別（画像入力）
 - **Application Insights**: 監視・ログ・分析
 
 ## 🚀 CI/CD
@@ -52,18 +53,29 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 
 | エンドポイント | メソッド | 説明 |
 |---------------|----------|------|
-| `/api/images/upload` | POST | 画像アップロード＋AI識別（統合） |
-| `/api/plants/identify` | POST | 植物識別（既存画像URLから） |
-| `/api/plants/check-duplicate` | GET | 重複チェック |
-| `/api/plants/save` | POST | 識別結果の保存 |
-| `/api/plants` | GET | 保存済み植物一覧 |
-| `/api/plants/{id}` | GET | 植物詳細取得 |
-| `/api/plants/{id}` | PUT | 植物情報更新 |
-| `/api/plants/{id}` | DELETE | 植物削除 |
+| `/api/trips` | POST | 旅行の作成 |
+| `/api/trips` | GET | 旅行一覧（旅行に属さない写真の枚数も返す） |
+| `/api/trips/{tripId}` | GET | 旅行詳細 |
+| `/api/trips/{tripId}` | PUT | 旅行の更新 |
+| `/api/trips/{tripId}` | DELETE | 旅行の削除（`deletePhotos` が `true` なら中の写真も消し、`false` なら未所属に移す） |
+| `/api/photos` | POST | 写真の保存（multipart） |
+| `/api/photos` | GET | 写真一覧（旅行・未所属・カテゴリで絞り、ページで返す） |
+| `/api/photos/move` | POST | 写真を旅行へ移す・旅行から外す |
+| `/api/photos/{photoId}` | GET | 写真の詳細 |
+| `/api/photos/{photoId}` | PATCH | 写真のコメント・タグの更新 |
+| `/api/photos/{photoId}` | DELETE | 写真の削除 |
+| `/api/photos/{photoId}/process` | POST | 写真の解析（分類・識別）のやり直しの受付 |
+| `/api/catalog/kinds` | GET | 図鑑の種類の一覧 |
+| `/api/catalog/entries` | GET | 図鑑の項目の一覧（種類ごと） |
+| `/api/catalog/entry` | GET | 図鑑の項目の詳細（種類と名前で指定） |
 
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
-詳細は [OpenAPI 仕様書](./docs/06_api_openapi.yaml) を参照してください。
+詳細は [旅行アルバム API 設計](./docs/travel-album/05_api_design.md) を参照してください
+（[OpenAPI 仕様書](./docs/06_api_openapi.yaml) への取り込みは機能が固まってから行います）。
+植物図鑑の API（`/api/images/upload`・`/api/plants/*`）は 4-6 で削除しました。
+
+HTTP 以外に、写真の解析のワーカー（Storage Queue のトリガー）と2つのタイマー（止まった解析の再投入・孤児の掃除）があります（`api/README.md`）。
 
 ## 🛠️ 開発
 
@@ -126,7 +138,8 @@ flutter build apk --release
 ## 🔒 セキュリティ
 
 - Function Key 認証（クライアントは flutter_secure_storage にキーを保存）
-- 入力値検証（画像の形式・サイズ、文字数上限、`imagePath` のスキーム・ホスト・パス形）
+- 入力値検証（画像の形式・サイズ、写真 ID と画像のハッシュの照合、文字数上限）
+- 写真の Blob は非公開で、読み取り専用の SAS 付き URL を応答のたびに作って渡す（クライアントから URL を受け取る API は無い）
 - 依存パッケージの脆弱性検査（`audit.yml` の `npm audit --audit-level=high`。high 以上で失敗しますが、デプロイは止めません）
 - CodeQL による静的解析（`ci.yml`。解析ステップは `continue-on-error: true` のため、失敗してもワークフローは失敗しません）
 - CORS は Function App 側で**全オリジンを許可**（`infrastructure/main.tf` の `allowed_origins = ["*"]`）。オリジンの制限はしていません
@@ -148,6 +161,7 @@ flutter build apk --release
 - [API設計書](./docs/06_api_design.md)
 - [OpenAPI仕様書](./docs/06_api_openapi.yaml)
 - [API ワークフロー](./docs/07_api_workflow.md)
+- [旅行アルバムの要件・設計](./docs/travel-album/01_requirements.md)（今の API と画面の多くはこちらにある。上の一式への取り込みは機能が固まってから）
 - [バックログ（未実装・既知の課題）](./docs/09_backlog.md)
 
 **運用:**

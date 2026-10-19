@@ -213,11 +213,11 @@ terraform {
 - セキュリティパッチの適用
 - 不要なリソースのクリーンアップ
 
-### 植物図鑑の退避（旅行アルバムへの移行の前）
+### 植物図鑑の退避（任意。`images`・`plants` を消す前）
 
-`docs/travel-album/06_processing_design.md` §7 の手順 1。移行スクリプト（手順 2。`api/README.md`「手で回すスクリプト」）を回す前に、
-`images` コンテナの画像と `plants` コンテナの全ドキュメントを作業マシンに落とす。移行スクリプトは `images`・`plants` を読むだけで消さないが、
-手順 6 で両方を消すので、それまでに退避が済んでいる必要がある。人間が Git Bash で回す。
+`docs/travel-album/06_processing_design.md` §7 の手順 1。旧図鑑の植物は新しい図鑑へ移さないと決めたので（同 §7）、退避は要らない。
+移行スクリプトも 4-6 で削除した。手元に残しておきたいときだけ、手順 6（4-7）で `images` コンテナと `plants` コンテナを消す前に、
+画像と全ドキュメントを作業マシンに落とす。人間が Git Bash で回す。
 
 退避先はリポジトリの外のフォルダにする（`.work/` は作業単位ごとに掃除するので置かない）。植物の名前や画像を含むので、共有しない。
 
@@ -247,7 +247,7 @@ new CosmosClient({ endpoint: v.COSMOS_DB_ENDPOINT, key: v.COSMOS_DB_KEY })
 
 確かめること。
 
-- `plants.json` の件数が、移行スクリプトの最初に出る `植物図鑑の記録: <件数> 件` と一致する
+- `plants.json` の件数（出力の `<件数> 件を書きました`）が、ポータルのデータエクスプローラーで `plants` に `SELECT VALUE COUNT(1) FROM c` を回した結果と一致する
 - `$BACKUP/images` のファイルの数（`ls "$BACKUP/images" | wc -l`）が、ポータルで見た `images` の Blob の数と一致する。
   `images` には植物から指されていない画像が残っていることがあるので、植物の件数とは一致しなくてよい
 

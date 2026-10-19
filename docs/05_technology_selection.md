@@ -89,8 +89,11 @@ Application Insights へ送るのは Function App 側のログ・メトリクス
 #### Functions構成
 - **HTTP Trigger**: REST API提供（`api/src/app.ts` が全関数を import して登録）
 
-Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行）は検討したが**未実装**。
-現在の関数はすべて HTTP Trigger（`app.http(...)`）である。
+- **Queue Trigger**: 写真の解析（分類・識別）のワーカー `processPhoto`（`app.storageQueue(...)`）
+- **Timer Trigger**: 止まった解析の再投入 `requeueStalePhotos` と、孤児の掃除 `sweepAlbum`（`app.timer(...)`）
+
+一覧とスケジュールは `api/README.md`「関数の登録」、設計は `travel-album/06_processing_design.md` §1。
+Blob Trigger（画像処理の非同期実行）は検討したが**未実装**（非同期の処理は Storage Queue で行う）。
 
 ### 3.3 データベース
 
@@ -148,16 +151,14 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 #### 要求の形を縛っている制約（なぜそうなっているか）
 
 要求の要素（モデル、メッセージ、画像の渡し方、応答の形、トークン上限、送らないパラメータ）は
-`06_api_design.md` §5.9「AI 識別サービスへ渡すもの」が正で、ここには形をそう選んだ理由だけを書く。
+`06_api_design.md` §5「AI 識別サービスへの接続」（分類と識別に共通の要素）と `travel-album/06_processing_design.md` §2・§3（分類と識別ごとのスキーマ・画像）が正で、ここには形をそう選んだ理由だけを書く。
 
 - **推論モデルの制約**: トークン上限は `max_completion_tokens` で指定する（`max_tokens` を送ると 400
   `Unsupported parameter`）。推論トークンもここから消費するため、値には余裕を持たせている。
   `temperature` は既定値 1 のみサポートで、それ以外を送ると 400 `Unsupported value` になるため送らない
 - **strict モードの制約**: Structured Outputs の `strict: true` は、全プロパティを `required` に列挙し
-  `additionalProperties: false` にすることを求める。そのため任意項目（候補の `scientificName` /
-  `familyName` / `description`、植物でない場合の `plantAnalysis`）は null 許容で表し、null で返った項目は
-  サーバ側で省略してクライアントに返す（`06_api_design.md` §4.2）。`minimum` / `maximum` / `maxItems` は
-  使えないため、信頼度の範囲はサーバ側で検証し（範囲外は 502）、候補の件数はプロンプトで指示する
+  `additionalProperties: false` にすることを求める。そのため任意項目（識別の `name` / `description` / `characteristics` や、定義表の各項目）は `["string", "null"]` のように null 許容で表す。
+  `minimum` / `maximum` / `maxItems` は使えないため、信頼度の範囲はサーバ側で検証する（範囲外は AI の失敗。`travel-album/06_processing_design.md` §2.1・§3.1）
 - **トークン節約**: 画像は `detail: "low"` で渡す（§9.2）
 
 ### 3.6 API管理・セキュリティ
@@ -190,23 +191,15 @@ Timer Trigger（定期処理）と Blob Trigger（画像処理の非同期実行
 ### 4.1 Azure Functions 構成
 
 #### API エンドポイント設計
-```typescript
-// GET    /api/plants                 - 植物一覧取得
-// GET    /api/plants/{id}            - 植物詳細取得
-// POST   /api/plants/save            - 植物新規登録
-// PUT    /api/plants/{id}            - 植物情報更新
-// DELETE /api/plants/{id}            - 植物削除
-// POST   /api/plants/identify        - 植物識別
-// GET    /api/plants/check-duplicate - 重複チェック
-// POST   /api/images/upload          - 画像アップロード＋AI識別（統合）
-```
+一覧はルートの `README.md` のエンドポイント表と `travel-album/05_api_design.md` §2（旅行・写真・図鑑の API）。
+植物図鑑の API（`/api/plants*`・`/api/images/upload`）は 4-6 で削除した（`06_api_design.md` §1）。
 
 #### 使用パッケージ（`api/package.json` の dependencies）
 - **@azure/functions**: Azure Functions ランタイム
 - **@azure/cosmos**: Cosmos DB接続
 - **@azure/storage-blob**: Blob Storage操作
 - **openai**: Azure OpenAI / OpenAI API連携
-- **uuid**: Blob名の生成（植物IDは `CosmosService.generateId()` の自前実装で生成しており、このパッケージは使っていない。統一するかは 09_backlog の「UUID の生成方法が2つある」）
+- **uuid**: 旅行の ID の生成（`AlbumService`。v4）
 
 ファイルアップロードは Azure Functions v4 の `request.formData()` で処理する。
 multer は導入していない。
@@ -400,8 +393,8 @@ audit.yml はこの流れに含まれない（`api/package*.json` を変えた p
 
 - **実装方式**:
   ```
-  GET /api/plants?code={FUNCTION_KEY}
-  POST /api/plants/identify?code={FUNCTION_KEY}
+  GET /api/trips?code={FUNCTION_KEY}
+  POST /api/photos?code={FUNCTION_KEY}
   ```
 
 - **キー管理**:
@@ -420,10 +413,9 @@ audit.yml はこの流れに含まれない（`api/package*.json` を変えた p
 ### 7.2 データ保護
 - **Azure Cosmos DB**: 保存時暗号化・ネットワーク暗号化
 - **Azure Blob Storage**: アクセス制御・暗号化
-  - 永続コンテナ `images` は公開読み取り、一時コンテナ `temp-images` は非公開
-  - AI 識別サービスには、一時 Blob 1つに対する読み取り専用・発行から15分で失効する SAS 付き URL で読ませる。
-    この URL はクライアントには返さず、一時保存の完了ログにも SAS を出さない
-    （[APIワークフロー設計書](./07_api_workflow.md)の 2.3）
+  - 写真のコンテナ `photos` は非公開で、クライアントには Blob 1つに対する読み取り専用の SAS 付き URL を応答のたびに作って渡す（`travel-album/05_api_design.md` §6）
+  - AI 識別サービスには、写真の原寸の Blob 1つに対する読み取り専用・発行から15分で失効する SAS 付き URL で読ませる（`travel-album/06_processing_design.md` §2.1）
+  - 植物図鑑が使っていた `images`（公開読み取り）と `temp-images`（非公開）は、アプリからは使っていない（4-7 で消す）
 
 ## 8. 将来拡張性
 
@@ -445,6 +437,6 @@ audit.yml はこの流れに含まれない（`api/package*.json` を変えた p
 - **Azure Functions**: Consumption Plan のコールドスタート
 
 ### 9.2 対策
-- **コスト最適化**: 画像は `detail: "low"` で渡しトークン消費を抑制（渡すものの全体は `06_api_design.md` §5.9）
+- **コスト最適化**: 画像は `detail: "low"` で渡しトークン消費を抑制（渡すものの全体は `06_api_design.md` §5）
 - **ハイブリッド開発**: 必要に応じてネイティブコード併用
 - **Premium Plan**: パフォーマンス要件に応じた移行

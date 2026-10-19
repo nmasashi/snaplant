@@ -140,19 +140,19 @@ sequenceDiagram
 | 項目 | 値 |
 |---|---|
 | デプロイ | 環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。**未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う。** 当面は分類にも今のデプロイ（`gpt-6-luna`。Terraform の `azurerm_cognitive_deployment.gpt6_luna`）をそのまま使い、分類用のデプロイは足さない（2026-10-12 に人間が決定。2026-10-17 に今のデプロイを `gpt-5.6-luna` から `gpt-6-luna` に替えた。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。分類と識別を別のモデルにするときは、Terraform でデプロイを1つ足して環境変数を書き換えるだけ（[07 §2](./07_infrastructure_design.md#2-段階3)） |
-| デプロイ名の入る所 | 空文字列・空白だけの `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` は未設定と同じに扱い、どちらの環境変数も前後の空白を取り除いて使う。分類用のデプロイ名があれば、`AZURE_OPENAI_DEPLOYMENT_NAME` が無くても分類できる。Azure OpenAI Service（`AZURE_OPENAI_ENDPOINT` がある）では、選んだデプロイ名が `baseURL`（`<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`）と `model` の両方に入る。OpenAI API に直接つなぐときは `model` だけで、どちらの環境変数も無ければ `gpt-5.6-luna`（植物図鑑と同じ既定値）。`api-version`・`api-key` ヘッダの付け方は植物図鑑と同じ（[docs/06_api_design.md §5.9](../06_api_design.md#59-ai-識別サービスへ渡すもの)） |
+| デプロイ名の入る所 | 空文字列・空白だけの `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` は未設定と同じに扱い、どちらの環境変数も前後の空白を取り除いて使う。分類用のデプロイ名があれば、`AZURE_OPENAI_DEPLOYMENT_NAME` が無くても分類できる。Azure OpenAI Service（`AZURE_OPENAI_ENDPOINT` がある）では、選んだデプロイ名が `baseURL`（`<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`）と `model` の両方に入る。OpenAI API に直接つなぐときは `model` だけで、どちらの環境変数も無ければ `gpt-5.6-luna`。`api-version`・`api-key` ヘッダの付け方は [docs/06_api_design.md §5](../06_api_design.md#5-ai-識別サービスへの接続) |
 | 設定の誤り | 次のどちらも、AI を呼ばずに失敗する。AI の障害ではないので `UpstreamError` にはしない（AI の失敗にすると、ワーカーが一時的な障害として送り直し続ける）。<br>・Azure OpenAI Service で送り先のデプロイ名が決まらない（`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` も `AZURE_OPENAI_DEPLOYMENT_NAME` も未設定。空文字列・空白だけを含む）<br>・AI のクライアントを作れない（API キーが無いなど。SDK がクライアントのコンストラクタで例外を投げる） |
-| 画像 | 原寸（サムネイルではない）の Blob の読み取り SAS を `image_url` に、`detail: "low"`。有効期限は 15 分（`constants/album.ts` の定数 `CLASSIFY_IMAGE_SAS_MINUTES`。環境変数では変えられない。植物図鑑の一時画像の `TEMP_SAS_EXPIRY_MINUTES` と同じ理由）。写真の表示用の URL と同じ `PhotoStorageService.readUrl()` で作るので、`startsOn` は発行の 5 分前（[07 §6.2](./07_infrastructure_design.md#62-api-のコードの定数)） |
+| 画像 | 原寸（サムネイルではない）の Blob の読み取り SAS を `image_url` に、`detail: "low"`。有効期限は 15 分（`constants/album.ts` の定数 `CLASSIFY_IMAGE_SAS_MINUTES`。環境変数では変えられない。関数の実行時間の上限（`api/host.json` の `functionTimeout` = 5 分）にサーバ間の時計のずれの余裕を足した値で、植物図鑑の一時画像の SAS（4-6 で削除）と同じ理由）。写真の表示用の URL と同じ `PhotoStorageService.readUrl()` で作るので、`startsOn` は発行の 5 分前（[07 §6.2](./07_infrastructure_design.md#62-api-のコードの定数)） |
 | 要求の形 | `user` ロールのメッセージ1件に、テキスト（プロンプト）と画像の2パート。`response_format` は `json_schema`（名前 `photo_classification`、`strict: true`、スキーマは §2.2）。`max_completion_tokens: 4000`（`max_tokens` は送らない）。`temperature` は送らない |
 | サービス | `api/src/services/photoClassifierService.ts` の `classify(imageUrl, { placeName, hint })`（手がかり。どちらも無ければ `null`）。`new OpenAIVisionService(AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME)` を作り（`PhotoClassifierService` のコンストラクタ）、一般化した `analyze({ schemaName, schema, prompt, imageUrl })` を呼ぶ（`detail` は `"low"` で固定） |
 | 返すもの | `{ kind, confidence, model }`。`model` は要求を送ったデプロイ名（§2.3 の `classification.model`）。`reason` は返さない |
-| 失敗 | `UpstreamError('ai')`。AI の呼び出しの失敗（SDK のエラー応答など）、応答が空・JSON として読めない、応答の検証違反（`kind` が選択肢に無い、`confidence` が数値でないか 0〜100 の範囲外。0 と 100 は受け付ける。`reason` は検査しない）のどれも同じ（既存の `identifyPlant()` と同じ扱い） |
+| 失敗 | `UpstreamError('ai')`。AI の呼び出しの失敗（SDK のエラー応答など）、応答が空・JSON として読めない、応答の検証違反（`kind` が選択肢に無い、`confidence` が数値でないか 0〜100 の範囲外。0 と 100 は受け付ける。`reason` は検査しない）のどれも同じ（植物図鑑の `identifyPlant()`（4-6 で削除）と同じ扱いだった） |
 
-`OpenAIVisionService` の一般化（3-2 で実装）: スキーマ・プロンプトを引数で受ける `analyze()` を足し、`identifyPlant()` もこれを通す。
+`OpenAIVisionService` の一般化（3-2 で実装）: スキーマ・プロンプトを引数で受ける `analyze()` を足し、`identifyPlant()` もこれを通した（`identifyPlant()` は 4-6 で削除）。
 Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temperature` を指定しない点はそのまま。
-送り先のデプロイはコンストラクタの引数で決める（省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は落とす）。植物の識別は引数なしで作る。
+送り先のデプロイはコンストラクタの引数で決める（省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は落とす）。写真の識別は引数なしで作る。
 クライアントもコンストラクタで1つ作り、設定の誤り（デプロイ名が無い、SDK がクライアントを作れない）はコンストラクタで例外にする
-（`analyze()` の中で作ると、呼び出し側が AI の失敗に包んで AI の障害に見え、アップロードは一時コンテナに画像を置いた後で気づくことになる）。
+（`analyze()` の中で作ると、呼び出し側が AI の失敗に包んで AI の障害に見える）。
 
 ### 2.2 契約（Structured Outputs）
 
@@ -208,7 +208,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 - スキーマは `kind` ごとに定義表から組み立てる（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）。`attributes` の各項目は `required` に入れ、任意は `["string","null"]`、`string[]` は `["array","null"]`
 - `candidates` は無い。プロンプトで「候補を列挙せず1つに決める。信頼度が低いときは `comment` で補足する」と指示する
 - 命名規則は定義表の `namingRule` をプロンプト本文に入れる
-- 手がかりは既存の `contextSection`（`openAIVisionService.ts` の `plantIdentificationPrompt()`）と同じ形で渡す:
+- 手がかりは植物図鑑の識別のプロンプトの `contextSection`（4-6 で削除）と同じ形で渡す:
 
   ```
   追加情報：
@@ -254,10 +254,10 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
   （[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9「やり直しは利用者のコメントを上書きする」）。
   利用者の文を失わないよう、アプリのやり直し画面は `commentSource == "user"` なら現在のコメントを、無ければ前回の `hint` を、手がかりに事前入力する
 
-### 3.3 既存の `identifyPlant()` との関係
+### 3.3 植物図鑑の `identifyPlant()` との関係
 
-`PLANT_IDENTIFICATION_SCHEMA`（`openAIVisionService.ts` 15〜84行）と `identifyPlant()` は、植物図鑑の廃止（§7）と同時に消す。
-それまでは `analyze()` と並存する。`validateAnalysisResult()` の「範囲はコードで検証」の方針は新しい検証にも引き継ぐ。
+**消した**（4-6。§7 の手順 5）。`PLANT_IDENTIFICATION_SCHEMA` と `identifyPlant()` は植物図鑑の API と一緒に消し、`OpenAIVisionService` は `analyze()` だけになった。
+`validateAnalysisResult()` の「範囲はコードで検証」の方針は、分類と識別の検証（§2.1・§3.1）に引き継いでいる。
 
 ## 4. 地名への変換
 
@@ -353,83 +353,22 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 要件 5.8。前提: 段階4の新しい図鑑（写真の `identification`・`GET /api/catalog/*`・Flutter の図鑑画面）が先に動いていること。
 図鑑の項目は文書として持たないので、**`plants` の記録は写真（`identification.kind = "plant"`）に移すだけ**になる。項目を作る・併合する手順は無い。
 
+**決定（2026-10-19、人間）: 旧図鑑の植物は移さずに捨てる。** 元の写真は人間の手元にあり、旅行を作って送り直す（分類と識別が新しく走り、新しい図鑑にまとまる）。
+手順 1〜3 は行わない（移行スクリプトは 4-4 で作ったが回さず、4-6 で植物の API と一緒に消した）。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #34。
+
 | 手順 | 内容 | 担当 |
 |---|---|---|
-| 1. 退避 | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」） | 人間 |
-| 2. 移行 | `api/src/scripts/migratePlants.ts`（4-4 で実装済み。ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` の記録を、植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す。流れ・写真の中身・飛ばす植物は §7.1 | メインセッション（スクリプト）、人間（実行） |
-| 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の飛ばした植物の一覧（§7.1 の5つの理由）を人間が見て、捨てるか手で入れるかを決める | 人間 |
-| 4. アプリ | 図鑑タブを新しい図鑑画面に差し替え、`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除 | PR |
-| 5. API | `upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |
-| 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |
+| 1. 退避（行わない） | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」。手元に残したいときだけ、手順 6 の前に回す） | 人間 |
+| 2. 移行（行わない。2026-10-19 に決定） | 移行スクリプト（`api/src/scripts/migratePlants.ts`。4-4 で作り、4-6 で削除した）で、`plants` の記録を植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す予定だった | — |
+| 3. 確認（行わない） | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと | — |
+| 4. アプリ（実装済み。4-5） | 図鑑タブを新しい図鑑画面に差し替え、`plant_list_screen`・`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除。設定画面の接続テストは写真の一覧を1件だけ読んで（`GET /api/photos?category=plant&limit=1`）確かめる（[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)） | PR |
+| 5. API（実装済み。4-6） | 移行スクリプト（`scripts/migratePlants.ts` とテスト、`PhotoDocument.legacyPlantId`）・`upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテスト、`OpenAIVisionService.identifyPlant()`、`PLANT_VALIDATION`、`ErrorCode` の `NOT_A_PLANT`・`PLANT_NOT_FOUND`・`IMAGE_ALREADY_SAVED` を削除。`app.ts` の import を外した。`docs/06`・`07`・`README` を更新（植物の API の記述を消し、旅行アルバムの API はこの一式を案内する） | PR |
+| 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除（手順 5 の後、アプリはどれも使っていない）。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |
 
-4〜6 は別々の PR。順序は 1→2→3→4→5→6。`legacyPlantId` は移行の突き合わせのためだけの項目で、確認が済んだら残しても消してもよい。
+4〜6 は別々の PR。順序は 4→5→6（移さないと決めたので、1〜3 は無い）。
 azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` が無くなれば消える。
 
-### 7.1 移行スクリプト（手順 2）
+### 7.1 移行スクリプト（手順 2。削除した）
 
-**実装済み**（4-4。`api/src/scripts/migratePlants.ts`）。人間がローカルで回す（回し方・宛先の表示は `api/README.md`「手で回すスクリプト」）。
-`--apply` が無ければ読むだけで、何も書かない。`plants` と `images` は読むだけで、消さない・書き換えない。
-
-**流れ**
-
-1. 設定を確かめる。読む元の `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_CONTAINER`（`plants`）・`STORAGE_CONNECTION_STRING`・`STORAGE_CONTAINER_NAME`（`images`）と、
-   書く先の `COSMOS_DB_ALBUM_CONTAINER`・`PHOTO_STORAGE_CONTAINER_NAME` のどれかが無い・空白だけなら、`--apply` が無いときも、
-   何も読まずに `設定が足りません: <足りない設定の名前をすべて、", " でつないだもの>` で止まる（例 `設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME, PHOTO_STORAGE_CONTAINER_NAME`）。
-   続けて `AlbumService`・`PhotoStorageService` を作る（`STORAGE_CONNECTION_STRING` にアカウント名と鍵が無ければ、`写真の保存先の設定（アカウント名・鍵・コンテナ名）が足りません` で止まる）
-   （読むだけの実行が通ったのに、`--apply` で止まることが無いように）
-2. `plants` を全件読み（`SELECT * FROM c`）、保存した順（`createdAt` の昇順）に並べる。止まったときにどこまで移したかを追いやすいように
-3. 植物1件ずつ、次の順に進む。飛ばしたら次の植物へ進み、止まったらそこで終わる（それまでに移した写真は残る）
-   0. 名前の前後の空白を除き、空か 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超えれば飛ばす（名前は図鑑の項目の鍵。識別のワーカーと同じ条件。04 §3.1）
-   1. `imagePath` が自分のアカウントの `images` の Blob を指しているか確かめる。条件は4つで、植物図鑑の `StorageService.isValidImagePath()`（[docs/06_api_design.md](../06_api_design.md)）と同じ考え方:
-      `https`、ホストが `<AccountName>.blob.<EndpointSuffix>`、パスが `/<STORAGE_CONTAINER_NAME>/<Blob 名>` のちょうど2段で Blob 名が空でない、
-      生の文字列が `https://<ホスト>/<STORAGE_CONTAINER_NAME>/<Blob 名>` と完全一致する（クエリの付いた URL・ホストが大文字の URL は通さない）。
-      植物図鑑の API が保存のときに検証しているが、別のホスト・別のコンテナの Blob を読まないように、移す前にもう一度確かめる。
-      満たさないとき、Blob 名のパーセントエンコードが壊れていて戻せないとき、戻した Blob 名が階層を持つ（`/`・`\` を含む）か `.`・`..` のときは飛ばす（移行全体は止めない）。
-      戻した名前の `..` は SDK が URL に入れるときに正規化するので、`images/..%2Fphotos%2Fx.jpg` は読めば別のコンテナの Blob になる（上の4つの条件は戻す前の文字列を見ているので通る）
-   2. Blob を読む（中身と Content-Type を1回の要求で）。Content-Type は小文字にそろえる（植物図鑑は送られた Content-Type をそのまま Blob に付けていた）。Content-Type の無い Blob は空文字列として 3-3 で飛ぶ。
-      404 なら飛ばす。それ以外の失敗（権限・ネットワークなど）は飛ばさずに止まる（画像がある植物を「見つからない」として一覧に出さないように）
-   3. Content-Type から拡張子を引く（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`。`image/jpeg`・`image/jpg` → `.jpg`、`image/png` → `.png`、`image/webp` → `.webp`、`image/gif` → `.gif`）。無ければ（HEIC など）飛ばす
-   4. 写真の文書（id は画像の中身の SHA-256）を読み、あれば飛ばす（Blob も上げない）。`--apply` が無いときは、その回で移すと数えた写真もあるとみなす
-   5. `--apply` が無ければ、移す植物として数えて次の植物へ進む（何も書かない）
-   6. `photos` コンテナの `<SHA-256><拡張子>` に上げる（上書き）。失敗したら止まる
-   7. 写真を `create` する。409（読んだ後に同じ写真が作られた）なら、先の写真をそのまま残して飛ばす
-4. 最初に `植物図鑑の記録: <件数> 件`、最後に `移した植物: <件数> 件、飛ばした植物: <件数> 件` を出す。
-   `--apply` が無ければ最後の行は `移す植物: <件数> 件、飛ばす植物: <件数> 件（--apply が無いので、何も書いていません）`（数え方と飛ばす植物の一覧は `--apply` のときと同じ。同じ画像の植物が2つあれば、どちらでも2つ目が 3-4 で飛ぶ）
-
-Blob → `create` の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）。途中で止まると文書の無い Blob が残るだけで、回し直すと上書きされる。
-冪等: 写真の id が画像の中身から決まるので、回し直すと前の回で移した植物は「同じ写真が先にある」として飛ばし、写真を変えない。
-
-**飛ばす植物**（ログに `飛ばしました: <名前>（植物 ID=<植物の id>）: <理由>` を1行ずつ出す。`--apply` が無いときも同じ行を出す。理由の文言は次のとおり）
-
-| 理由 | 条件 |
-|---|---|
-| `名前が空か、100文字を超える` | 3-0 を満たさない |
-| `画像の URL が images コンテナの Blob ではない` | 3-1 を満たさない、パーセントエンコードが壊れている、または戻した Blob 名が階層を持つ（`images` の部分は `STORAGE_CONTAINER_NAME` によらず固定の文言） |
-| `画像が見つからない` | 3-2 で Blob が 404 |
-| `画像の形式（<Content-Type>）が写真として受け付けないもの` | 3-3 で拡張子を引けない。Content-Type は小文字にそろえたもの（例 `画像の形式（image/heic）が写真として受け付けないもの`。Content-Type の無い Blob は `画像の形式（）が写真として受け付けないもの`） |
-| `同じ写真が先にある（写真 ID=<SHA-256>）` | 3-4 で写真があった、または 3-7 で 409。旅行アルバムに同じ写真を送っていた、同じ画像の植物が先に移った、前の回で移した（回し直したとき）のどれか。どれかは、その写真の `legacyPlantId` で見分ける |
-
-**写真の中身**（[04 §1.3](./04_data_design.md#13-写真type-photo)。識別のワーカーが書く写真と同じ形にする）
-
-| 項目 | 値 |
-|---|---|
-| `id` | 画像の中身の SHA-256 |
-| `type` | `"photo"` |
-| `tripId` | `null`（どの旅行にも属さない） |
-| `blobName` | `<id><拡張子>`（拡張子は 3-3） |
-| `thumbnailBlobName` | `null`（サムネイルは作らない） |
-| `contentType` | `images` の Blob の Content-Type を小文字にしたもの |
-| `fileSize` | 画像のバイト数 |
-| `takenAt` / `takenAtSource` | `null` / `"none"` |
-| `sortAt` | `uploadedAt` を日本時間に直したもの（04 §1.3） |
-| `location` | `null` |
-| `category` | `"plant"` |
-| `tags` | `[]` |
-| `comment` / `commentSource` | `plant.characteristics` / `"ai"`。`characteristics` が無い・空なら `null` / `null` |
-| `hint` | `null` |
-| `classification` | `{ kind: "plant", confidence: null, model: "migration", at: plant.createdAt }`（分類 AI は通していないので `confidence` は `null`） |
-| `identification` | `{ kind: "plant", matchesKind: true, name: plant.name, confidence: plant.confidence, description, characteristics, attributes, reason: null, model: "migration", at: plant.createdAt }`。`description`・`characteristics` は植物の値で、無い・空なら `null`。`attributes` は植物の定義表（`CATALOG_KINDS.plant.fields`。[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）の項目をすべて持ち（`scientificName`・`familyName`）、値は植物の同名の項目で、無い・空なら `null`（識別のワーカーと同じ。§3.1） |
-| `processing` | `{ state: "done", step: "identify", attempts: 0, lastError: null, updatedAt: plant.createdAt }` |
-| `uploadedAt` | `plant.createdAt` |
-| `updatedAt` | 移した時刻 |
-| `legacyPlantId` | `plant.id` |
+**削除した**（4-6）。4-4 で `api/src/scripts/migratePlants.ts` として実装したが、旧図鑑の植物は移さないと決めた（§7）ので回さずに消した。
+写真の文書の `legacyPlantId`（移した写真の元の植物の id）も一緒に消した。流れ・写真の中身・飛ばす植物の理由の文言は、4-6 より前の版のこの節にある（`git log` で `docs/travel-album/06_processing_design.md` を見る）。

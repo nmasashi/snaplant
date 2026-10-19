@@ -8,7 +8,7 @@
 
 データの形は [04_data_design.md](./04_data_design.md)、裏の処理は [06_processing_design.md](./06_processing_design.md)、
 画面からの使い方は [03_screen_design.md](./03_screen_design.md) を参照する。
-エラーの `message`・検証の順序・上限値は第3版に無く、この文書で既存の流儀（`docs/06_api_design.md` §5.4・§5.8）に合わせて決めた。
+エラーの `message`・検証の順序・上限値は第3版に無く、この文書で既存の流儀（植物図鑑の API の `docs/06_api_design.md` §5.4・§5.8。植物図鑑の API と一緒に 4-6 で削除）に合わせて決めた。
 
 ---
 
@@ -21,7 +21,7 @@
 - **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
 - Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
-  errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有し、植物図鑑の Cosmos 側が手で比べている集合とも同じ。`ETIMEDOUT` は含めないので 500 になる）。
+  errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有する。`ETIMEDOUT` は含めないので 500 になる）。
   応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）。
   `cause` をたどるのは10段までで、循環していても止まる（見つからなければ接続できない以外の失敗として下の 500）
 - Blob Storage の失敗 → `UpstreamError('storage')` → 502 / 503 `STORAGE_ERROR`（既存の `message`）。AI の失敗は段階3以降で `'ai'`。
@@ -57,11 +57,11 @@
 そのため項目の id は無く、項目は `kind` と `name` で指定する。項目を削除する API は置かない。項目は写真の集まりに過ぎず、
 「この項目を消す」に当たる操作は、写真を消す（`DELETE /api/photos/{photoId}`）か、識別をやり直す（`process`。要件 5.5.1）で足りる。
 
-- `plants/{id}` と同じく、同じルートを複数ファイルが別々のメソッドで登録してよいが、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
+- 同じルートを複数ファイルが別々のメソッドで登録してもよい（植物図鑑の `plants/{id}` はそうしていた。4-6 で削除）が、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
   実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）・`deleteTrip`（DELETE）、
   `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）、`catalogEntry.ts` が `getCatalogEntry`（GET。4-2b）。
-  `plantDetail.ts` のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
+  植物図鑑の `plantDetail.ts`（4-6 で削除）のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
   デプロイ後に `POST /api/photos/move` が `photoMove.ts` に届くことを手で確認する。届かなければ `/api/photo-moves` に変える
@@ -170,7 +170,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 ### 3.4 Error
 
-既存と同じ（`docs/06_api_design.md` §4.3）。
+既存と同じ（`docs/06_api_design.md` §4.1）。
 
 ## 4. 入力検証の定数
 
@@ -275,9 +275,9 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | 17 | `placeName` が空・空白のみ・ファイル、または 100 文字を超える | 400 `INVALID_REQUEST` | `地名は100文字以内で指定してください` |
 | 18 | `image` の SHA-256 が `photoId` と一致しない | 400 `INVALID_REQUEST` | `写真IDが画像の内容と一致しません` |
 
-1・1.5・4〜7 は `upload.ts` 23〜70行と同じ順序・同じ `message`（間に `photoId` の 2・3 が入る）。`details` は付く行（1・1.5・4・5・9）と付かない行があり、契約外。
+1・1.5・4〜7 は植物図鑑の `POST /api/images/upload`（4-6 で削除）と同じ順序・同じ `message` だった（間に `photoId` の 2・3 が入る）。`details` は付く行（1・1.5・4・5・9）と付かない行があり、契約外。
 `tripId`・`takenAt` がファイルで送られたときも 12・13 になる。
-18 はバイト列を読む必要があるので最後。1.5 は `upload.ts` と同じ `message` だが、エラーの文字列では判定せず `formData()` の失敗をそのまま 400 にする。
+18 はバイト列を読む必要があるので最後。1.5 は植物図鑑の `upload` と同じ `message` だが、エラーの文字列では判定せず `formData()` の失敗をそのまま 400 にする。
 緯度・経度は10進（`-?数字(.数字)?`。`PHOTO_VALIDATION.COORDINATE_REGEX`）で範囲内のものだけを受け入れる（16進・2進・8進・指数表記・前後の空白・先頭の `+`・`Infinity`・`NaN`・空文字は 15。`Number()` に任せるとこれらが数値として通るため）。
 `placeName` は送られたまま保存する（前後の空白も除かずに数える）。サムネイルは JPEG を想定するが、対応形式なら受け付け、Blob 名は `.thumb.jpg`、Content-Type は送られたものにする。空白だけの `placeName` は「指定なし」ではなく 400 にする（地名が無ければクライアントはパートを省く。multipart に null は無く、文字列 `null` を送るとその文字列が地名として保存される）。
 
@@ -464,7 +464,7 @@ AI の解析をやり直す（要件 5.5.1）。
 
 4 は `step` が文字列の `"classify"` か `"identify"` のときだけ通す（未指定・ほかの文字列・文字列でないものは 4）。
 ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `step` が無いものとして扱い、4 になる。`step`・`hint` 以外のキーは無視する。
-6 の上限（`CONTEXT_INFO_MAX_LENGTH`）と 5・6 の `message` は植物図鑑の補足情報（`contextInfo`）と共用で、上限の値は `message` に埋め込まれる。
+6 の上限（`CONTEXT_INFO_MAX_LENGTH`）と 5・6 の `message` は植物図鑑の補足情報（`contextInfo`。4-6 で削除）と共用していた定数 `CONTEXT_INFO_VALIDATION` のもので、上限の値は `message` に埋め込まれる。
 写真があるか（7）はボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
 `step: "identify"` のときは、書く前に写真を読んで 7 と 8 をこの順に見る（無い写真は 8 ではなく 404）。`step: "classify"` は読まずに下の patch を当て、404 なら 7。
 どちらも写真を読む・書く前に写真の保存先の設定を確かめる（下の 500）。読んでから書くまでに分類のワーカーがカテゴリを `other` に変えることはまれにありえ、そのときは受け付けた識別の待ちをワーカーが AI を呼ばずに内部の失敗として数える（[06 §3.1](./06_processing_design.md#31-契約)）。
@@ -657,9 +657,9 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `startsOn` | 発行の 5 分前（`PHOTO_SAS_START_SKEW_MINUTES`。`constants/album.ts`） | サーバと Blob の時計のずれで「まだ有効でない」になるのを防ぐ |
 | 応答 | 各 URL と、まとめて `urlExpiresAt`（ISO, UTC。期限は SAS の `se` に合わせて秒に切り捨てるので、ミリ秒の桁は常に `.000`）。旅行の表紙（§3.2）と図鑑の項目一覧の表紙（§3.3.1）には `urlExpiresAt` を付けない（図鑑の項目の詳細の `urlExpiresAt` は、`entry` の表紙と `photos` の共通の期限。§5.14） | クライアントが期限を知って取り直せる。秒を切り捨てないと `urlExpiresAt` が実際の期限より最大1秒遅れる |
 
-- 署名は `utils/blobSas.ts` の `generateReadSasUrl()`（`storageService.ts` から切り出したもの）。写真の URL は `PhotoStorageService.readUrl()` が `startsOn` を付けて呼び、
+- 署名は `utils/blobSas.ts` の `generateReadSasUrl()`（植物図鑑の `storageService.ts`（4-6 で削除）から切り出したもの）。写真の URL は `PhotoStorageService.readUrl()` が `startsOn` を付けて呼び、
   期限は `photoUrlExpiresOn()`（`services/photoStorageService.ts`）が応答ごとに1回決めて、その応答のすべての URL と `urlExpiresAt` に同じ値を使う。
-  一時画像の `generateTempSasUrl()` は `startsOn` を渡さない薄い包みで、既存の `upload` の振る舞いを変えない
+  植物図鑑の一時画像の `generateTempSasUrl()`（`startsOn` を渡さない薄い包み）は、`upload` と一緒に 4-6 で削除した
 - 1応答で数百枚分を生成するが、SAS の生成はローカルの署名計算だけで Blob へは通信しない
 - URL をクライアントから受け取る API は無い。クライアントは `cacheKey` に `photo-<id>` / `thumb-<id>` を使い、URL の変化に影響されない
 - 期限切れの URL は Blob が 403 を返す。クライアントは一覧を取り直す
@@ -676,8 +676,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
-`createNotFoundError(message, code)` は第2引数の `code` が**必須**（既定値を置かない。旅行や写真の 404 で渡し忘れると植物のコードが返り、クライアントの分岐を誤らせるため）。
-植物図鑑の呼び出しは `ErrorCode.PLANT_NOT_FOUND` を明示して渡す（実装済み）。
+`createNotFoundError(message, code)` は第2引数の `code` が**必須**（既定値を置かない。旅行や写真の 404 で渡し忘れると別のもののコードが返り、クライアントの分岐を誤らせるため。実装済み）。
+植物図鑑の `PLANT_NOT_FOUND` は、植物の API と一緒に 4-6 で削除した。
 
 ### 7.2 500 `INTERNAL_ERROR` の `message`
 
