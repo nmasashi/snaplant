@@ -106,7 +106,7 @@ void main() {
     expect(find.text('設定画面で API キーとエンドポイントを入力してください'), findsOneWidget);
     expect(find.text('設定を開く'), findsOneWidget);
     expect(find.text('エラーが発生しました'), findsNothing);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('旅行'), findsNothing);
   });
 
   testWidgets('保存済みの設定を読めなかったときに「再試行」を押すと、読み直した設定に応じた表示になる（キーが無ければ設定を促す）', (tester) async {
@@ -137,7 +137,7 @@ void main() {
     await resetSettingsAndGoBack(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('旅行'), findsNothing);
   });
 
   testWidgets('設定済みの状態で設定画面から戻ったときに設定を読めなければ、古い設定で図鑑を読み直さず「API設定の読み込みに失敗しました」と表示する', (tester) async {
@@ -277,6 +277,25 @@ void main() {
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     await tester.tap(find.byIcon(Icons.settings));
     await letFramesRun(tester);
+    await tester.ensureVisible(find.text('接続テスト'));
+    await tester.pump();
+
+    await tester.tap(find.text('接続テスト'));
+    await letFramesRun(tester);
+
+    expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
+  });
+
+  testWidgets('設定画面の「接続テスト」は、保存済みの値ではなく入力中のキーで確かめる（届かないキーなら「接続に失敗しました」）', (tester) async {
+    // 保存前の値で試せるようにする。偽のサーバは保存済みのキーにだけ答え、入れたキーには 404 を返す
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
+    final server = catalogServer({(host: testApiHost, code: 'saved-key'): '桜'});
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.byIcon(Icons.settings));
+    await letFramesRun(tester);
+    await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'typed-key');
     await tester.ensureVisible(find.text('接続テスト'));
     await tester.pump();
 

@@ -107,24 +107,7 @@ void main() {
   });
 
   group('エラーレスポンス', () {
-    test('409はサーバが返したエラーコードとメッセージを例外が保持し、メッセージはそのまま利用者に表示する', () async {
-      final service = _serviceResponding('POST', '/api/trips', 409, {
-        'success': false,
-        'error': {
-          'code': 'DATABASE_ERROR',
-          'message': '他の操作と重なりました',
-        },
-      });
-
-      final error = await _captureApiException(() => service.createTrip('北海道', null));
-
-      expect(error.statusCode, 409);
-      expect(error.code, 'DATABASE_ERROR');
-      expect(error.message, '他の操作と重なりました');
-      expect(error.userMessage, '他の操作と重なりました');
-    });
-
-    test('削除の失敗でもサーバが返した理由をユーザーに伝える', () async {
+    test('サーバが返したエラーコードとメッセージを例外が保持し、400 などはメッセージをそのまま利用者に表示する（削除の失敗）', () async {
       // 404 などは userMessage が固定文言を返すので、サーバの文言がそのまま出る 400 で確かめる
       final service = _serviceResponding('DELETE', '/api/photos/not-a-hash', 400, {
         'success': false,
@@ -136,7 +119,9 @@ void main() {
 
       final error = await _captureApiException(() => service.deletePhoto('not-a-hash'));
 
+      expect(error.statusCode, 400);
       expect(error.code, 'INVALID_REQUEST');
+      expect(error.message, '写真IDの形式が無効です');
       expect(error.userMessage, '写真IDの形式が無効です');
     });
   });
@@ -164,6 +149,24 @@ void main() {
         'Too Busy',
         null,
         'サーバーが混雑しています。しばらく待ってから再試行してください。',
+      ),
+      (
+        // Function Key が違う（Functions のランタイムが返す。アプリを通らないので封筒にならない）
+        '401はAPIキーの確認を促す',
+        401,
+        '',
+        null,
+        'APIキーが無効です。設定を確認してください。',
+      ),
+      (
+        '404は見つからない旨を伝え、サーバの文言は出さない',
+        404,
+        {
+          'success': false,
+          'error': {'code': 'TRIP_NOT_FOUND', 'message': '指定された旅行が見つかりません'},
+        },
+        'TRIP_NOT_FOUND',
+        '要求されたデータが見つかりません。',
       ),
       (
         '500はサーバ内部の文言を出さず定型のメッセージにする',

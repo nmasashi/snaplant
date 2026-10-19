@@ -17,10 +17,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await saveTestEndpoint(tester);
     await openApp(tester);
-    expect(find.text('図鑑'), findsWidgets);
-    expect(find.text('旅行'), findsOneWidget);
-    // 植物図鑑を差し替えたので、3つ目のタブ「図鑑（新）」は無い（03 §4.1）
-    expect(find.text('図鑑（新）'), findsNothing);
+    // 図鑑の画面上部の見出しも「図鑑」なので、下のタブの中で探す
+    expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('図鑑')), findsOneWidget);
+    expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('旅行')), findsOneWidget);
+    // 植物図鑑を差し替えたので、タブは2つだけ（03 §4.1）
     expect(find.byType(NavigationDestination), findsNWidgets(2));
     // 起動時は図鑑なので、画面上部はまだ「旅行」ではない
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('旅行')), findsNothing);
