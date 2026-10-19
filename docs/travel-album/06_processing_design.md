@@ -355,12 +355,81 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 
 | 手順 | 内容 | 担当 |
 |---|---|---|
-| 1. 退避 | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md` に書く） | 人間 |
-| 2. 移行 | `api/src/scripts/migratePlants.ts`（ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` を全件読み → `imagePath` の Blob を読んで SHA-256 → `photos/<hash>.jpg` に上げる（上書き）→ `photo` を `create`（既にあれば飛ばして一覧に出す）。写真の中身: `tripId: null`、`category: "plant"`、`tags: []`、`takenAt: null`・`takenAtSource: "none"`、`uploadedAt = plant.createdAt`、`sortAt` は `uploadedAt` を日本時間に直したもの（[04 §1.3](./04_data_design.md#13-写真type-photo)）、`comment = plant.characteristics`・`commentSource: "ai"`、`classification: { kind: "plant", confidence: null, model: "migration", at: plant.createdAt }`（分類 AI は通していないので `confidence` は `null`）、`identification: { kind: "plant", matchesKind: true, name: plant.name, confidence: plant.confidence, description: plant.description, characteristics: plant.characteristics, attributes: { scientificName, familyName }, reason: null, model: "migration", at: plant.createdAt }`、`processing: { state: "done", step: "identify", ... }`、`legacyPlantId`。Blob → `create` の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）。`imagePath` の Blob が無い植物は飛ばして一覧に出す | メインセッション（スクリプト）、人間（実行） |
-| 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の一覧（Blob が無い・同じ写真が先にあった）を人間が見て、捨てるか手で入れるかを決める | 人間 |
+| 1. 退避 | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」） | 人間 |
+| 2. 移行 | `api/src/scripts/migratePlants.ts`（4-4 で実装済み。ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` の記録を、植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す。流れ・写真の中身・飛ばす植物は §7.1 | メインセッション（スクリプト）、人間（実行） |
+| 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の飛ばした植物の一覧（§7.1 の5つの理由）を人間が見て、捨てるか手で入れるかを決める | 人間 |
 | 4. アプリ | 図鑑タブを新しい図鑑画面に差し替え、`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除 | PR |
 | 5. API | `upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |
 | 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |
 
 4〜6 は別々の PR。順序は 1→2→3→4→5→6。`legacyPlantId` は移行の突き合わせのためだけの項目で、確認が済んだら残しても消してもよい。
 azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` が無くなれば消える。
+
+### 7.1 移行スクリプト（手順 2）
+
+**実装済み**（4-4。`api/src/scripts/migratePlants.ts`）。人間がローカルで回す（回し方・宛先の表示は `api/README.md`「手で回すスクリプト」）。
+`--apply` が無ければ読むだけで、何も書かない。`plants` と `images` は読むだけで、消さない・書き換えない。
+
+**流れ**
+
+1. 設定を確かめる。読む元の `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_CONTAINER`（`plants`）・`STORAGE_CONNECTION_STRING`・`STORAGE_CONTAINER_NAME`（`images`）と、
+   書く先の `COSMOS_DB_ALBUM_CONTAINER`・`PHOTO_STORAGE_CONTAINER_NAME` のどれかが無い・空白だけなら、`--apply` が無いときも、
+   何も読まずに `設定が足りません: <足りない設定の名前をすべて、", " でつないだもの>` で止まる（例 `設定が足りません: COSMOS_DB_CONTAINER, STORAGE_CONTAINER_NAME, PHOTO_STORAGE_CONTAINER_NAME`）。
+   続けて `AlbumService`・`PhotoStorageService` を作る（`STORAGE_CONNECTION_STRING` にアカウント名と鍵が無ければ、`写真の保存先の設定（アカウント名・鍵・コンテナ名）が足りません` で止まる）
+   （読むだけの実行が通ったのに、`--apply` で止まることが無いように）
+2. `plants` を全件読み（`SELECT * FROM c`）、保存した順（`createdAt` の昇順）に並べる。止まったときにどこまで移したかを追いやすいように
+3. 植物1件ずつ、次の順に進む。飛ばしたら次の植物へ進み、止まったらそこで終わる（それまでに移した写真は残る）
+   0. 名前の前後の空白を除き、空か 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超えれば飛ばす（名前は図鑑の項目の鍵。識別のワーカーと同じ条件。04 §3.1）
+   1. `imagePath` が自分のアカウントの `images` の Blob を指しているか確かめる。条件は4つで、植物図鑑の `StorageService.isValidImagePath()`（[docs/06_api_design.md](../06_api_design.md)）と同じ考え方:
+      `https`、ホストが `<AccountName>.blob.<EndpointSuffix>`、パスが `/<STORAGE_CONTAINER_NAME>/<Blob 名>` のちょうど2段で Blob 名が空でない、
+      生の文字列が `https://<ホスト>/<STORAGE_CONTAINER_NAME>/<Blob 名>` と完全一致する（クエリの付いた URL・ホストが大文字の URL は通さない）。
+      植物図鑑の API が保存のときに検証しているが、別のホスト・別のコンテナの Blob を読まないように、移す前にもう一度確かめる。
+      満たさないとき、Blob 名のパーセントエンコードが壊れていて戻せないとき、戻した Blob 名が階層を持つ（`/`・`\` を含む）か `.`・`..` のときは飛ばす（移行全体は止めない）。
+      戻した名前の `..` は SDK が URL に入れるときに正規化するので、`images/..%2Fphotos%2Fx.jpg` は読めば別のコンテナの Blob になる（上の4つの条件は戻す前の文字列を見ているので通る）
+   2. Blob を読む（中身と Content-Type を1回の要求で）。Content-Type は小文字にそろえる（植物図鑑は送られた Content-Type をそのまま Blob に付けていた）。Content-Type の無い Blob は空文字列として 3-3 で飛ぶ。
+      404 なら飛ばす。それ以外の失敗（権限・ネットワークなど）は飛ばさずに止まる（画像がある植物を「見つからない」として一覧に出さないように）
+   3. Content-Type から拡張子を引く（`FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`。`image/jpeg`・`image/jpg` → `.jpg`、`image/png` → `.png`、`image/webp` → `.webp`、`image/gif` → `.gif`）。無ければ（HEIC など）飛ばす
+   4. 写真の文書（id は画像の中身の SHA-256）を読み、あれば飛ばす（Blob も上げない）。`--apply` が無いときは、その回で移すと数えた写真もあるとみなす
+   5. `--apply` が無ければ、移す植物として数えて次の植物へ進む（何も書かない）
+   6. `photos` コンテナの `<SHA-256><拡張子>` に上げる（上書き）。失敗したら止まる
+   7. 写真を `create` する。409（読んだ後に同じ写真が作られた）なら、先の写真をそのまま残して飛ばす
+4. 最初に `植物図鑑の記録: <件数> 件`、最後に `移した植物: <件数> 件、飛ばした植物: <件数> 件` を出す。
+   `--apply` が無ければ最後の行は `移す植物: <件数> 件、飛ばす植物: <件数> 件（--apply が無いので、何も書いていません）`（数え方と飛ばす植物の一覧は `--apply` のときと同じ。同じ画像の植物が2つあれば、どちらでも2つ目が 3-4 で飛ぶ）
+
+Blob → `create` の順（[04 §7.1](./04_data_design.md#71-操作ごとの表)）。途中で止まると文書の無い Blob が残るだけで、回し直すと上書きされる。
+冪等: 写真の id が画像の中身から決まるので、回し直すと前の回で移した植物は「同じ写真が先にある」として飛ばし、写真を変えない。
+
+**飛ばす植物**（ログに `飛ばしました: <名前>（植物 ID=<植物の id>）: <理由>` を1行ずつ出す。`--apply` が無いときも同じ行を出す。理由の文言は次のとおり）
+
+| 理由 | 条件 |
+|---|---|
+| `名前が空か、100文字を超える` | 3-0 を満たさない |
+| `画像の URL が images コンテナの Blob ではない` | 3-1 を満たさない、パーセントエンコードが壊れている、または戻した Blob 名が階層を持つ（`images` の部分は `STORAGE_CONTAINER_NAME` によらず固定の文言） |
+| `画像が見つからない` | 3-2 で Blob が 404 |
+| `画像の形式（<Content-Type>）が写真として受け付けないもの` | 3-3 で拡張子を引けない。Content-Type は小文字にそろえたもの（例 `画像の形式（image/heic）が写真として受け付けないもの`。Content-Type の無い Blob は `画像の形式（）が写真として受け付けないもの`） |
+| `同じ写真が先にある（写真 ID=<SHA-256>）` | 3-4 で写真があった、または 3-7 で 409。旅行アルバムに同じ写真を送っていた、同じ画像の植物が先に移った、前の回で移した（回し直したとき）のどれか。どれかは、その写真の `legacyPlantId` で見分ける |
+
+**写真の中身**（[04 §1.3](./04_data_design.md#13-写真type-photo)。識別のワーカーが書く写真と同じ形にする）
+
+| 項目 | 値 |
+|---|---|
+| `id` | 画像の中身の SHA-256 |
+| `type` | `"photo"` |
+| `tripId` | `null`（どの旅行にも属さない） |
+| `blobName` | `<id><拡張子>`（拡張子は 3-3） |
+| `thumbnailBlobName` | `null`（サムネイルは作らない） |
+| `contentType` | `images` の Blob の Content-Type を小文字にしたもの |
+| `fileSize` | 画像のバイト数 |
+| `takenAt` / `takenAtSource` | `null` / `"none"` |
+| `sortAt` | `uploadedAt` を日本時間に直したもの（04 §1.3） |
+| `location` | `null` |
+| `category` | `"plant"` |
+| `tags` | `[]` |
+| `comment` / `commentSource` | `plant.characteristics` / `"ai"`。`characteristics` が無い・空なら `null` / `null` |
+| `hint` | `null` |
+| `classification` | `{ kind: "plant", confidence: null, model: "migration", at: plant.createdAt }`（分類 AI は通していないので `confidence` は `null`） |
+| `identification` | `{ kind: "plant", matchesKind: true, name: plant.name, confidence: plant.confidence, description, characteristics, attributes, reason: null, model: "migration", at: plant.createdAt }`。`description`・`characteristics` は植物の値で、無い・空なら `null`。`attributes` は植物の定義表（`CATALOG_KINDS.plant.fields`。[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）の項目をすべて持ち（`scientificName`・`familyName`）、値は植物の同名の項目で、無い・空なら `null`（識別のワーカーと同じ。§3.1） |
+| `processing` | `{ state: "done", step: "identify", attempts: 0, lastError: null, updatedAt: plant.createdAt }` |
+| `uploadedAt` | `plant.createdAt` |
+| `updatedAt` | 移した時刻 |
+| `legacyPlantId` | `plant.id` |
