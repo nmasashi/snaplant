@@ -116,7 +116,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 
       final isConnected = await apiService.testConnection();
-      
+      apiService.dispose();
+      // 待っている間に設定画面を閉じていたら、何もしない（保存と同じ）
+      if (!mounted) return;
+
       setState(() {
         _isTesting = false;
         _connectionStatus = isConnected ? 'success' : 'failed';
@@ -127,12 +130,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         _showErrorSnackBar('接続に失敗しました。設定を確認してください。');
       }
-
-      apiService.dispose();
-
     } catch (e) {
       // 今の ApiService.testConnection() は例外をすべて false にするので、ここには来ない。
       // testConnection() の実装が変わっても処理中のまま固まらないよう、守りとして残している
+      if (!mounted) return;
       setState(() {
         _isTesting = false;
         _connectionStatus = 'error';
