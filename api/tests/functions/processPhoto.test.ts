@@ -42,6 +42,8 @@ const ENV_KEYS = [
   'AZURE_OPENAI_API_KEY',
   'AZURE_OPENAI_DEPLOYMENT_NAME',
   'AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME',
+  'AZURE_OPENAI_API_VERSION',
+  'OPENAI_API_KEY',
   'PHOTO_PROCESSING_MAX_ATTEMPTS',
   'PHOTO_QUEUE_NAME',
   'AzureWebJobsStorage'
@@ -127,6 +129,8 @@ describe('写真の解析のワーカー', () => {
     process.env.AZURE_OPENAI_API_KEY = 'azure-api-key';
     process.env.AZURE_OPENAI_DEPLOYMENT_NAME = 'main-deployment';
     delete process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME;
+    delete process.env.AZURE_OPENAI_API_VERSION;
+    delete process.env.OPENAI_API_KEY;
     delete process.env.PHOTO_PROCESSING_MAX_ATTEMPTS;
     process.env.PHOTO_QUEUE_NAME = 'photo-processing';
     process.env.AzureWebJobsStorage = 'UseDevelopmentStorage=true';
@@ -304,7 +308,7 @@ describe('写真の解析のワーカー', () => {
       expect(schema.properties.reason.type).toBe('string');
 
       // トークン上限は max_completion_tokens（max_tokens は新しいモデルでは 400）。temperature は送らない
-      expect(typeof body.max_completion_tokens).toBe('number');
+      expect(body.max_completion_tokens).toBe(4000);
       expect(body).not.toHaveProperty('max_tokens');
       expect(body).not.toHaveProperty('temperature');
     });
@@ -513,7 +517,7 @@ describe('写真の解析のワーカー', () => {
       expect(attributes.additionalProperties).toBe(false);
       expect(attributes.properties.scientificName.type).toEqual(['string', 'null']);
 
-      expect(typeof body.max_completion_tokens).toBe('number');
+      expect(body.max_completion_tokens).toBe(4000);
       expect(body).not.toHaveProperty('max_tokens');
       expect(body).not.toHaveProperty('temperature');
     });
@@ -758,6 +762,16 @@ describe('写真の解析のワーカー', () => {
       expectDeployment(expected);
     });
 
+    it('今のデプロイ名の前後に空白や改行があれば、取り除いたデプロイに送る', async () => {
+      // アプリの設定に紛れた空白や改行のまま URL に入れると、Azure の 404 になって AI の障害に見える（06 §2.1）
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME = ' main-deployment\n';
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expectDeployment('main-deployment');
+    });
+
     it('分類用のデプロイ名があれば、今のデプロイ名が無くても分類できる', async () => {
       process.env.AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME = 'classify-deployment';
       delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
@@ -767,6 +781,59 @@ describe('写真の解析のワーカー', () => {
 
       expectDeployment('classify-deployment');
       expect(storedPhoto().classification).toEqual({ kind: 'food', confidence: 82.5, model: 'classify-deployment', at: NOW });
+    });
+  });
+
+  describe('AIの接続先', () => {
+    // Azure OpenAI Service と OpenAI API の分岐、api-version・api-key ヘッダの付け方（06 §2.1。分類と識別で同じ）
+    it('Azure OpenAI Serviceの接続先には、api-versionのクエリ（AZURE_OPENAI_API_VERSION）とapi-keyヘッダを付ける', async () => {
+      process.env.AZURE_OPENAI_API_VERSION = '2025-04-01-preview';
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].options.baseURL).toBe('https://test.openai.azure.com/openai/deployments/main-deployment');
+      expect(sent[0].options.defaultQuery['api-version']).toBe('2025-04-01-preview');
+      expect(sent[0].options.defaultHeaders['api-key']).toBe('azure-api-key');
+    });
+
+    it('AZURE_OPENAI_API_VERSIONが未設定なら、api-versionは2024-12-01-preview', async () => {
+      // 未設定にするのは beforeEach
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].options.defaultQuery['api-version']).toBe('2024-12-01-preview');
+    });
+
+    it('AZURE_OPENAI_ENDPOINTが無ければ、接続先はOpenAI API（OPENAI_API_KEY）', async () => {
+      delete process.env.AZURE_OPENAI_ENDPOINT;
+      delete process.env.AZURE_OPENAI_API_KEY;
+      process.env.OPENAI_API_KEY = 'openai-api-key';
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].options.apiKey).toBe('openai-api-key');
+      expect(sent[0].options.baseURL).toBeUndefined();
+      expect(sent[0].options.defaultQuery).toBeUndefined();
+      expect(sent[0].options.defaultHeaders).toBeUndefined();
+    });
+
+    it('AZURE_OPENAI_ENDPOINTが無く、デプロイ名も未設定なら、既定のモデル（gpt-5.6-luna）を指定する', async () => {
+      delete process.env.AZURE_OPENAI_ENDPOINT;
+      delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+      process.env.OPENAI_API_KEY = 'openai-api-key';
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].body.model).toBe('gpt-5.6-luna');
+      expect(storedPhoto().classification).toMatchObject({ model: 'gpt-5.6-luna' });
     });
   });
 

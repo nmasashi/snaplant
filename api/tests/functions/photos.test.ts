@@ -776,11 +776,24 @@ describe('写真API', () => {
         502,
         STORAGE_FAILED
       ],
-      // 接続できない errno の一覧は utils/response.ts の共通設定で、全部を通すのは upload.test.ts。
-      // ここは写真の保存の Blob の失敗が、その共通設定を通って 503 になることだけを見るので、1つで足りる
+      // 接続できないとみなす errno（05 §5.1 の ENOTFOUND・ECONNREFUSED・ETIMEDOUT）は全部ここで通す。
+      // ストレージの失敗を応答にする入口は写真の保存だけで、ETIMEDOUT を含むのはストレージだけ
+      // （Cosmos DB の errno の全部を通すのは trips.test.ts の「旅行の作成」）
       [
         '原寸のアップロードがENOTFOUNDで失敗したときは、接続できないエラー（503）を返す',
         (backend) => { backend.forcedUploadError = storageUnreachable('ENOTFOUND'); },
+        503,
+        STORAGE_UNREACHABLE
+      ],
+      [
+        '原寸のアップロードがECONNREFUSEDで失敗したときは、接続できないエラー（503）を返す',
+        (backend) => { backend.forcedUploadError = storageUnreachable('ECONNREFUSED'); },
+        503,
+        STORAGE_UNREACHABLE
+      ],
+      [
+        '原寸のアップロードがETIMEDOUTで失敗したときは、接続できないエラー（503）を返す',
+        (backend) => { backend.forcedUploadError = storageUnreachable('ETIMEDOUT'); },
         503,
         STORAGE_UNREACHABLE
       ],
