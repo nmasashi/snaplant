@@ -470,8 +470,9 @@ class ApiService {
   /// 接続テスト
   Future<bool> testConnection() async {
     try {
-      // データベースを読まずに済む図鑑の種類の一覧で、エンドポイントとキーが通るかを確かめる
-      final url = _buildUrl('/api/catalog/kinds');
+      // エンドポイント・キーに加えて、サーバがデータベースに届くかまで確かめるため、データベースを読む旅行の一覧で見る
+      // （図鑑の種類の一覧は定義表を返すだけで、データベースの設定が誤っていても成功する）
+      final url = _buildUrl('/api/trips');
       final response = await _client.get(
         Uri.parse(url),
         headers: _headers,
