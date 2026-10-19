@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_colors.dart';
@@ -8,7 +9,10 @@ import '../theme/app_text_styles.dart';
 /// APIキーとエンドポイントの設定、接続テスト機能を提供
 /// 1440×2960画面サイズに最適化されたレスポンシブデザイン
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.httpClient});
+
+  /// 接続テストに使う HTTP クライアント（アプリに差し込んだもの。無ければ ApiService が自分で作る）
+  final http.Client? httpClient;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -108,6 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final apiService = ApiService(
         baseUrl: _endpointController.text.trim(),
         functionKey: _apiKeyController.text.trim(),
+        client: widget.httpClient,
       );
 
       final isConnected = await apiService.testConnection();
