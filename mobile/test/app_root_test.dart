@@ -269,7 +269,7 @@ void main() {
   });
 
   testWidgets('設定画面の「接続テスト」は、データベースに届かなければ（図鑑の種類の一覧は読めても）「接続に失敗しました」と出す', (tester) async {
-    // 接続テストはデータベースを読む旅行の一覧で確かめる。種類の一覧はデータベースを読まないので、届かなくても読めてしまう
+    // 接続テストはデータベースを読む写真の一覧で確かめる。種類の一覧はデータベースを読まないので、届かなくても読めてしまう
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
     await saveTestEndpoint(tester);
@@ -287,7 +287,7 @@ void main() {
   });
 
   testWidgets('設定画面の「接続テスト」は、保存済みの値ではなく入力中のキーで確かめる（届かないキーなら「接続に失敗しました」）', (tester) async {
-    // 保存前の値で試せるようにする。偽のサーバは保存済みのキーにだけ答え、入れたキーには 404 を返す
+    // 保存前の値で試せるようにする。偽のサーバは保存済みのキーにだけ答え、入れたキーには 401 を返す
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
     await saveTestEndpoint(tester);
