@@ -353,16 +353,19 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 要件 5.8。前提: 段階4の新しい図鑑（写真の `identification`・`GET /api/catalog/*`・Flutter の図鑑画面）が先に動いていること。
 図鑑の項目は文書として持たないので、**`plants` の記録は写真（`identification.kind = "plant"`）に移すだけ**になる。項目を作る・併合する手順は無い。
 
+**決定（2026-10-19、人間）: 旧図鑑の植物は移さずに捨てる。** 元の写真は人間の手元にあり、旅行を作って送り直す（分類と識別が新しく走り、新しい図鑑にまとまる）。
+手順 1〜3 は行わない（移行スクリプトは 4-4 で作ったが回さない。4-6 で植物の API と一緒に消す）。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #34。
+
 | 手順 | 内容 | 担当 |
 |---|---|---|
-| 1. 退避 | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」） | 人間 |
-| 2. 移行 | `api/src/scripts/migratePlants.ts`（4-4 で実装済み。ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` の記録を、植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す。流れ・写真の中身・飛ばす植物は §7.1 | メインセッション（スクリプト）、人間（実行） |
-| 3. 確認 | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の飛ばした植物の一覧（§7.1 の5つの理由）を人間が見て、捨てるか手で入れるかを決める | 人間 |
+| 1. 退避（行わない） | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」） | 人間 |
+| 2. 移行（行わない。2026-10-19 に決定） | `api/src/scripts/migratePlants.ts`（4-4 で実装済み。ローカルで実行。冪等。置き場と回し方は `api/README.md`「手で回すスクリプト」）: `plants` の記録を、植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す。流れ・写真の中身・飛ばす植物は §7.1 | メインセッション（スクリプト）、人間（実行） |
+| 3. 確認（行わない） | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと。`legacyPlantId` で突き合わせ。手順 2 の飛ばした植物の一覧（§7.1 の5つの理由）を人間が見て、捨てるか手で入れるかを決める | 人間 |
 | 4. アプリ | 図鑑タブを新しい図鑑画面に差し替え、`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除 | PR |
-| 5. API | `upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |
+| 5. API | 移行スクリプト（`scripts/migratePlants.ts` とテスト、`PhotoDocument.legacyPlantId`）・`upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテストを削除。`app.ts` の import を外す。`docs/06`・`07`・`README` を更新 | PR |
 | 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |
 
-4〜6 は別々の PR。順序は 1→2→3→4→5→6。`legacyPlantId` は移行の突き合わせのためだけの項目で、確認が済んだら残しても消してもよい。
+4〜6 は別々の PR。順序は 1→2→3→4→5→6（移さないと決めたので、4→5→6）。`legacyPlantId` は移行の突き合わせのためだけの項目で、確認が済んだら残しても消してもよい。
 azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` が無くなれば消える。
 
 ### 7.1 移行スクリプト（手順 2）
