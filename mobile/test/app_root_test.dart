@@ -250,8 +250,8 @@ void main() {
     expect(find.text('旧キーの桜'), findsNothing);
   });
 
-  testWidgets('設定画面の「接続テスト」は、入れたエンドポイントとキーで図鑑の種類の一覧を読めれば「接続に成功しました」と出す', (tester) async {
-    // 接続テストは、データベースを読まずに済む図鑑の種類の一覧で確かめる（植物図鑑の API は消すので使わない）
+  testWidgets('設定画面の「接続テスト」は、入れたエンドポイントとキーでサーバとデータベースに届けば「接続に成功しました」と出す', (tester) async {
+    // 植物図鑑の API は消すので使わない
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
     await saveTestEndpoint(tester);
@@ -266,5 +266,23 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.text('接続に成功しました'), findsOneWidget);
+  });
+
+  testWidgets('設定画面の「接続テスト」は、データベースに届かなければ（図鑑の種類の一覧は読めても）「接続に失敗しました」と出す', (tester) async {
+    // 接続テストはデータベースを読む旅行の一覧で確かめる。種類の一覧はデータベースを読まないので、届かなくても読めてしまう
+    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
+    SharedPreferences.setMockInitialValues({});
+    await saveTestEndpoint(tester);
+    final server = catalogServer({(host: testApiHost, code: 'saved-key'): '桜'}, databaseDown: true);
+    await openApp(tester, app: SnapPlantApp(httpClient: server));
+    await tester.tap(find.byIcon(Icons.settings));
+    await letFramesRun(tester);
+    await tester.ensureVisible(find.text('接続テスト'));
+    await tester.pump();
+
+    await tester.tap(find.text('接続テスト'));
+    await letFramesRun(tester);
+
+    expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
   });
 }
