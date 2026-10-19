@@ -48,7 +48,7 @@ jobs:
     - name: Analyze
       run: flutter analyze
 
-    # 日時の表示のテストは日本時間で動くことを前提にしている（plant_detail_screen_test.dart が冒頭で確かめる）
+    # 端末の時刻に直して出す日時のテストは、日本時間で動くことを前提にする（CLAUDE.md。写真の撮影日時は変換しない）
     - name: Test
       run: flutter test
       env:
