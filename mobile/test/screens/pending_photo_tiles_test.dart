@@ -650,7 +650,8 @@ void main() {
     await tester.pageBack();
     await letFramesRun(tester);
 
-    await tester.tap(find.text('図鑑（新）'));
+    await tester.tap(find.descendant(
+        of: find.byType(NavigationBar), matching: find.text('図鑑')));
     await letFramesRun(tester);
     await tester.tap(find.text('ソメイヨシノ'));
     await letFramesRun(tester);

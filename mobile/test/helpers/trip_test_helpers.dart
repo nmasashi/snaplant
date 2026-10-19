@@ -982,13 +982,12 @@ Future<void> openTripsTab(WidgetTester tester, FakeTripBackend backend) async {
   await letFramesRun(tester);
 }
 
-/// アプリを開いて、下のタブの「図鑑（新）」を開く（図鑑の種類の一覧と、最初の種類の項目の一覧を読み込むまで進める）
+/// アプリを開く。起動時のタブは図鑑なので、何も押さずに図鑑の種類の一覧と、最初の種類の項目の一覧を読み込むまで進める
 Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async {
   useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': backend.functionKey}));
   SharedPreferences.setMockInitialValues({});
   await saveTestEndpoint(tester);
   await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
-  await tester.tap(find.text('図鑑（新）'));
   await letFramesRun(tester);
 }
 
