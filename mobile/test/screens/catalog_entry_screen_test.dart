@@ -309,6 +309,75 @@ void main() {
     expect(backend.catalogOffsetsReceived, [0, 0]);
   });
 
+  group('項目詳細から戻ったときの一覧の読み直し（一覧の行に出すものが変わっていれば読み直す。02 §5 #35）', () {
+    // 偽のサーバの項目詳細は写真から作る（_backend の3枚: 見出しは信頼度 92 の写真 2、枚数 3）。
+    // 一覧の行をこれと同じにしておき、変わったものだけを変えて渡す
+    final headThumbnail = _sakura(2, '11:00', confidence: 92)['thumbnailUrl'] as String;
+
+    /// 項目詳細と同じ一覧の行。表紙の URL は署名だけを変える（署名は読むたびに変わる）
+    Map<String, Object?> listRow(
+            {int photoCount = 3, num confidence = 92, String? cover}) =>
+        {
+          ...catalogEntryJson('plant', 'ソメイヨシノ',
+              confidence: confidence, photoCount: photoCount),
+          'coverThumbnailUrl':
+              cover ?? headThumbnail.replaceFirst('sig=test', 'sig=old'),
+        };
+
+    FakeTripBackend backendWithRow(Map<String, Object?> row) {
+      final backend = _backend();
+      backend.catalogEntriesByKind['plant'] = [row];
+      return backend;
+    }
+
+    testWidgets('一覧の行と同じなら（表紙の URL の署名だけが違っても）、戻っても一覧を読み直さない', (tester) async {
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      expect(find.text('3枚'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+    });
+
+    testWidgets('枚数が一覧の行と違えば（項目詳細で写真を消したなど）、戻ると一覧を先頭から読み直す', (tester) async {
+      final backend = backendWithRow(listRow(photoCount: 4));
+      await _openEntry(tester, backend);
+      expect(find.text('3枚'), findsOneWidget);
+      backend.catalogEntriesByKind['plant'] = [listRow()];
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      expect(find.text('3枚'), findsOneWidget);
+    });
+
+    testWidgets('信頼度が一覧の行と違えば（見出しの写真をやり直したなど）、戻ると一覧を読み直す', (tester) async {
+      final backend = backendWithRow(listRow(confidence: 85));
+      await _openEntry(tester, backend);
+      backend.catalogEntriesByKind['plant'] = [listRow()];
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      expect(find.text('92%'), findsOneWidget);
+    });
+
+    testWidgets('表紙の写真が一覧の行と違えば（見出しの写真が別の写真になったなど）、戻ると一覧を読み直す', (tester) async {
+      final otherThumbnail = _sakura(1, '10:00')['thumbnailUrl'] as String;
+      final backend = backendWithRow(listRow(cover: otherThumbnail));
+      await _openEntry(tester, backend);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+    });
+  });
+
   testWidgets('取得に失敗したら、エラーと「再試行」を出し、再試行で読み直す', (tester) async {
     final backend = _backend();
     backend.failNext(TripRoute.catalogEntry);
