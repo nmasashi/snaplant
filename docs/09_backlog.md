@@ -315,8 +315,8 @@ AI の分類・識別に渡ったときにどうなるか（OpenAI がその形�
 iOS からは当面使う予定が無いので、iOS の HEIC の問題は考えなくてよい。
 実機確認はすぐにはできないため、TODO として残す。
 
-**TODO（Android 実機）**: カメラ撮影とギャラリー選択のそれぞれで、`image_picker` が
-渡すファイルの形式（先頭バイト）を確認する。4形式以外（HEIC / HEIF など）が来るかどうかで決める。
+**TODO（Android 実機）**: ギャラリー選択で `image_picker` が
+渡すファイルの形式（先頭バイト）を確認する（アプリにカメラ撮影の経路は無く、2026-10-22 に CAMERA 権限も外した。`docs/travel-album/02_design_overview.md` §5 #38）。4形式以外（HEIC / HEIF など）が来るかどうかで決める。
 
 - 4形式以外が来ない → 下記の推奨どおり 415 で弾かせても利用者に影響しない
 - 来る → 弾くとアップロードできなくなる。クライアント側で JPEG に変換するか、
@@ -416,7 +416,6 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 - `docs/07_api_workflow.md`・`docs/06_api_design.md`: クライアントが 409 で植物一覧へ戻る・`CameraScreen` にエラーを出す、の記述（API 自体は 4-6 まで残る）
 - `docs/01_requirements.md`・`docs/02_feature_list.md`・ルートの `README.md`「主な機能」: 植物図鑑の画面の機能
 - `docs/09_backlog.md` の植物図鑑の画面を前提にした項目（`identification_screen_test.dart` を手本にする記述、`camera_screen.dart` の `maxLength`、科名の「科」が二重になる、など）
-
 
 **やること**: 旅行アルバムの機能が固まったら、`docs/travel-album/` をルートの仕様書へ取り込むときにまとめて書き直す（4-6 で植物の API を消すときに `docs/06`・`07`・`README` は直す計画。09 §4）。
 
