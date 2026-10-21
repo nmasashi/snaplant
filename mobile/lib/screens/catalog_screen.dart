@@ -241,9 +241,10 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
     }
   }
 
-  /// 項目詳細を開く。項目が無くなっていた（写真が0枚）なら、戻ったときに一覧を読み直す（03 §6.2）
+  /// 項目詳細を開く。戻ったときに、項目詳細で最後に読んだ見出しがこの行と違えば一覧を読み直す（03 §6.1・§6.2）
   Future<void> _openEntry(CatalogEntry entry) async {
-    var vanished = false;
+    // 項目詳細で最後に読んだ見出し（写真が無ければ null）。一度も読めずに戻ったら（読み込み中・失敗）行のままとみなす
+    CatalogEntry? latest = entry;
     await Navigator.push(
         context,
         MaterialPageRoute(
@@ -252,9 +253,18 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
                 uploadQueue: widget.uploadQueue,
                 kind: widget.kind,
                 name: entry.name,
-                onEntryVanished: () => vanished = true)));
-    if (vanished && mounted) await _refresh();
+                onEntryLoaded: (e) => latest = e)));
+    if (_rowChanged(entry, latest) && mounted) await _refresh();
   }
+
+  /// 一覧の行 [row] に出すもの（表紙・枚数・信頼度）が、項目詳細で読んだ見出し [latest] と違うか。写真が無くなっていれば（null）違う。
+  /// 表紙は署名を除いた場所で比べる（署名は読むたびに変わる）
+  static bool _rowChanged(CatalogEntry row, CatalogEntry? latest) =>
+      latest == null ||
+      latest.photoCount != row.photoCount ||
+      latest.confidence != row.confidence ||
+      coverCacheKey(latest.coverThumbnailUrl) !=
+          coverCacheKey(row.coverThumbnailUrl);
 
   void _retryLoadMore() {
     setState(() => _loadMoreFailed = false);

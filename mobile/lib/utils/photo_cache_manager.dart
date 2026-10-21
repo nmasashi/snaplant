@@ -34,7 +34,8 @@ String thumbnailCacheKey(String photoId) => 'thumb-$photoId';
 /// 原寸のキャッシュのキー
 String imageCacheKey(String photoId) => 'photo-$photoId';
 
-/// 旅行の表紙のキャッシュのキー。応答に写真の id が無いので、SAS（クエリ）を除いた Blob の URL から作る
+/// 旅行と図鑑の項目の表紙のキャッシュのキー。応答に写真の id が無いので、SAS（クエリ）を除いた Blob の URL から作る。
+/// 図鑑の一覧は、項目詳細から戻ったときに表紙が同じ写真かをこのキーで比べる（署名は読むたびに変わる）。形を変えるときは署名を含めないこと
 String coverCacheKey(String coverThumbnailUrl) {
   final uri = Uri.parse(coverThumbnailUrl);
   return 'cover-${uri.host}${uri.path}';

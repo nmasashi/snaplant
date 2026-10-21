@@ -309,6 +309,169 @@ void main() {
     expect(backend.catalogOffsetsReceived, [0, 0]);
   });
 
+  group('項目詳細から戻ったときの一覧の読み直し（一覧の行に出すものが変わっていれば読み直す。02 §5 #35）', () {
+    // 偽のサーバの項目詳細は写真から作る（_backend の3枚: 見出しは信頼度 92 の写真 2、枚数 3）。
+    // 一覧の行をこれと同じにしておき、変わったものだけを変えて渡す
+    final headThumbnail = _sakura(2, '11:00', confidence: 92)['thumbnailUrl'] as String;
+
+    /// 項目詳細と同じ一覧の行。表紙の URL は署名だけを変える（署名は読むたびに変わる）
+    Map<String, Object?> listRow(
+            {int photoCount = 3, num confidence = 92, String? cover}) =>
+        {
+          ...catalogEntryJson('plant', 'ソメイヨシノ',
+              confidence: confidence, photoCount: photoCount),
+          'coverThumbnailUrl':
+              cover ??
+              Uri.parse(headThumbnail).replace(queryParameters: {
+                ...Uri.parse(headThumbnail).queryParameters,
+                'sig': 'old',
+              }).toString(),
+        };
+
+    FakeTripBackend backendWithRow(Map<String, Object?> row) {
+      final backend = _backend();
+      backend.catalogEntriesByKind['plant'] = [row];
+      return backend;
+    }
+
+    testWidgets('一覧の行と同じなら（表紙の URL の署名だけが違っても）、戻っても一覧を読み直さない', (tester) async {
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      expect(find.text('3枚'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+    });
+
+    testWidgets('枚数が一覧の行と違えば（項目詳細で写真を消したなど）、戻ると一覧を先頭から読み直す', (tester) async {
+      final backend = backendWithRow(listRow(photoCount: 4));
+      await _openEntry(tester, backend);
+      expect(find.text('3枚'), findsOneWidget);
+      backend.catalogEntriesByKind['plant'] = [listRow()];
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      expect(find.text('3枚'), findsOneWidget);
+    });
+
+    testWidgets('信頼度が一覧の行と違えば（見出しの写真をやり直したなど）、戻ると一覧を読み直す', (tester) async {
+      final backend = backendWithRow(listRow(confidence: 85));
+      await _openEntry(tester, backend);
+      backend.catalogEntriesByKind['plant'] = [listRow()];
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      expect(find.text('92%'), findsOneWidget);
+    });
+
+    testWidgets('表紙の写真が一覧の行と違えば（見出しの写真が別の写真になったなど）、戻ると一覧を読み直す', (tester) async {
+      final otherThumbnail = _sakura(1, '10:00')['thumbnailUrl'] as String;
+      final backend = backendWithRow(listRow(cover: otherThumbnail));
+      await _openEntry(tester, backend);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+    });
+
+    testWidgets('項目詳細を一度も読めずに（取得に失敗して）戻ったら、一覧を読み直さない', (tester) async {
+      final backend = backendWithRow(listRow());
+      backend.failNext(TripRoute.catalogEntry);
+      await _openEntry(tester, backend);
+      expect(find.text('エラーが発生しました'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+    });
+
+    testWidgets('写真ビューアから戻った後の読み直しに失敗したら、一覧に戻ると一覧を読み直す（写真が変わったかが分からない）',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      backend.failNext(TripRoute.catalogEntry);
+      await tester.pageBack();
+      await letFramesRun(tester);
+      expect(find.text('エラーが発生しました'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      semantics.dispose();
+    });
+
+    testWidgets('写真を見て戻り、読み直した見出しが一覧の行と同じなら、一覧に戻っても読み直さない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      await tester.pageBack();
+      await letFramesRun(tester);
+      // ビューアから戻った後の読み直しが届いた（見出しが一覧に届いたかは、最後の読み直さないことで確かめる）
+      expect(backend.catalogEntryQueriesReceived, hasLength(2));
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+      semantics.dispose();
+    });
+
+    testWidgets('下に引っ張った読み直しに失敗しても、それまでの見出しが一覧の行と同じなら、戻っても一覧を読み直さない',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      backend.failNext(TripRoute.catalogEntry);
+      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await letFramesRun(tester);
+      // 引っ張った読み直しが失敗した（見出しとグリッドは出したまま、エラーをスナックバーに出す）
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('エラーが発生しました'), findsNothing);
+      expect(find.text('3枚'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+      semantics.dispose();
+    });
+
+    testWidgets('写真ビューアから戻った後の読み直しの途中で一覧に戻っても、一覧を読み直す', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      final reply = backend.holdNextReply(TripRoute.catalogEntry);
+      await tester.pageBack();
+      await letFramesRun(tester);
+      expect(find.text('項目を読み込み中...'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      reply.complete();
+      await letFramesRun(tester);
+      semantics.dispose();
+    });
+  });
+
   testWidgets('取得に失敗したら、エラーと「再試行」を出し、再試行で読み直す', (tester) async {
     final backend = _backend();
     backend.failNext(TripRoute.catalogEntry);

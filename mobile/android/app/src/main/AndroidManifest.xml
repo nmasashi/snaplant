@@ -3,9 +3,6 @@
     <!-- インターネット接続権限 -->
     <uses-permission android:name="android.permission.INTERNET" />
     
-    <!-- カメラ権限 -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    
     <!-- 外部ストレージ読み取り権限 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     

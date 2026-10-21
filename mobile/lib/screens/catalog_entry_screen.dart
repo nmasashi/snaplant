@@ -21,7 +21,7 @@ class CatalogEntryScreen extends StatefulWidget {
       required this.uploadQueue,
       required this.kind,
       required this.name,
-      this.onEntryVanished});
+      this.onEntryLoaded});
 
   final ApiService apiService;
 
@@ -34,8 +34,10 @@ class CatalogEntryScreen extends StatefulWidget {
   /// 項目の名前
   final String name;
 
-  /// その種類と名前の写真が無い（`entry: null`）と分かったときに呼ぶ。図鑑の一覧は、戻ったときに読み直す
-  final VoidCallback? onEntryVanished;
+  /// 見出しを読んだたびに、その見出しで呼ぶ（その種類と名前の写真が無い `entry: null` なら null）。
+  /// 写真を消した・ビューアから戻ったときの読み直しを始めたら、読み終わるまでは見出しが分からないので null で呼ぶ（失敗・途中で戻っても一覧が読み直す）。
+  /// 図鑑の一覧は、戻ったときに最後の見出しを自分の行と比べ、変わっていれば（null も含む）読み直す
+  final ValueChanged<CatalogEntry?>? onEntryLoaded;
 
   @override
   State<CatalogEntryScreen> createState() => _CatalogEntryScreenState();
@@ -54,7 +56,12 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
     super.dispose();
   }
 
-  Future<void> _reload() async => setState(() => _gridVersion++);
+  Future<void> _reload() async {
+    // ビューアや削除を待っている間に、この画面を閉じていたら何もしない
+    if (!mounted) return;
+    widget.onEntryLoaded?.call(null);
+    setState(() => _gridVersion++);
+  }
 
   /// グリッドが読むページ。見出しはページに持たせ、グリッドが1ページ目として当てたときに出す（[_onFirstPageApplied]）。
   /// 読み込みが重なったとき（引っ張った読み直しと「再試行」、読み直しの間のグリッドの作り直し）に、どの応答を採るかをグリッドの決まりにそろえ、
@@ -74,10 +81,11 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
     final entry = page.entry;
     if (entry == null) {
       setState(() => _vanished = true);
-      widget.onEntryVanished?.call();
+      widget.onEntryLoaded?.call(null);
       return;
     }
     setState(() => _entry = entry);
+    widget.onEntryLoaded?.call(entry);
   }
 
   @override
