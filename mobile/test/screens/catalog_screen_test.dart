@@ -52,6 +52,9 @@ void main() {
   testWidgets('種類のタブの文字は、選んでいるタブは白、選んでいないタブは薄い白で出す（見出しの緑の上で読めるように）',
       (tester) async {
     await openCatalogTab(tester, _backend());
+    // 先頭以外を選ぶ（開いた直後は「選んでいるタブ」と「先頭のタブ」の区別がつかないため）
+    await tester.tap(_kindTab('食べ物'));
+    await letFramesRun(tester);
 
     Color? colorOf(String label) => tester
         .widget<RichText>(
@@ -59,8 +62,8 @@ void main() {
         .text
         .style
         ?.color;
-    expect(colorOf('植物'), Colors.white);
-    expect(colorOf('食べ物'), Colors.white70);
+    expect(colorOf('食べ物'), Colors.white);
+    expect(colorOf('植物'), Colors.white70);
     expect(colorOf('風景'), Colors.white70);
   });
 
