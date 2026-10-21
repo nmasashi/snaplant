@@ -168,6 +168,9 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 
 公開していた `images` が無くなったので、ストレージアカウントに `allow_nested_items_to_be_public = false` を足した（匿名で読めるコンテナを作れなくする。残るコンテナはどれも非公開）。
 
+**apply の前に人間が確かめること**: ポータルで、ストレージアカウントのライフサイクル管理に、手で足したルールが無いこと。
+ポリシーはアカウントに1つで、この apply がポリシーごと消すので、手で足したルールも一緒に消える。
+
 `plan` は「0 to add, 2 to change, 4 to destroy」（Function App の `app_settings` から3つを消す変更、ストレージアカウントの `allow_nested_items_to_be_public` を `false` にする変更と、上の4つのリソースの削除）。`album`・`photos` に replace が出ないことを確かめた。
 無料枠は `album` 400 だけになる（`var.cosmos_db_throughput` を割り当てるコンテナは `album` の1つだけ）。
 

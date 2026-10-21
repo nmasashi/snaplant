@@ -318,6 +318,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
 | 応答に `_rid` などが出ない | `GET /api/photos/{photoId}` の JSON を目で見る | 余分なキー |
+| 匿名で読めない（4-7 の apply の後） | ポータルのストレージアカウントの「BLOB の匿名アクセスを許可する」が無効。アプリの旅行詳細と図鑑でサムネイルと原寸が出る（SAS 付きの URL で読める）。`photos` の Blob の URL から `?` 以降を外して開くと読めない（[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | 写真が出ない・SAS 無しで読める |
 | 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`・`deleteTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の `listPhotos`・`createPhoto`・`getPhoto`・`deletePhoto`・`updatePhoto`・`movePhotos` がある | 404（`app.ts` の import 忘れ） |
 
 ### 5.3 段階3・4で足すもの
