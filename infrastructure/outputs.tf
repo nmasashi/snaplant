@@ -26,16 +26,6 @@ output "storage_account_connection_string" {
   sensitive   = true
 }
 
-output "images_container_name" {
-  description = "Name of the images blob container"
-  value       = azurerm_storage_container.images.name
-}
-
-output "temp_images_container_name" {
-  description = "Name of the temporary images blob container"
-  value       = azurerm_storage_container.temp_images.name
-}
-
 output "photos_container_name" {
   description = "Name of the travel album photos blob container (private)"
   value       = azurerm_storage_container.photos.name
@@ -61,11 +51,6 @@ output "cosmos_db_primary_key" {
 output "cosmos_db_database_name" {
   description = "Name of the Cosmos DB database"
   value       = azurerm_cosmosdb_sql_database.main.name
-}
-
-output "cosmos_db_container_name" {
-  description = "Name of the Cosmos DB container"
-  value       = azurerm_cosmosdb_sql_container.plants.name
 }
 
 output "album_container_name" {
