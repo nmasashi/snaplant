@@ -321,7 +321,10 @@ void main() {
           ...catalogEntryJson('plant', 'ソメイヨシノ',
               confidence: confidence, photoCount: photoCount),
           'coverThumbnailUrl':
-              cover ?? headThumbnail.replaceFirst('sig=test', 'sig=old'),
+              cover ??
+              Uri.parse(headThumbnail)
+                  .replace(query: 'sv=2024-01-01&sig=old')
+                  .toString(),
         };
 
     FakeTripBackend backendWithRow(Map<String, Object?> row) {
@@ -405,6 +408,43 @@ void main() {
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
+      semantics.dispose();
+    });
+
+    testWidgets('写真を見て戻り、読み直した見出しが一覧の行と同じなら、一覧に戻っても読み直さない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      await tester.pageBack();
+      await letFramesRun(tester);
+      // ビューアから戻った後の読み直しが届いて、見出しを出し直した
+      expect(backend.catalogEntryQueriesReceived, hasLength(2));
+      expect(find.text('3枚'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+      semantics.dispose();
+    });
+
+    testWidgets('下に引っ張った読み直しに失敗しても、それまでの見出しが一覧の行と同じなら、戻っても一覧を読み直さない',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      backend.failNext(TripRoute.catalogEntry);
+      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await letFramesRun(tester);
+      // 引っ張った読み直しが失敗した（見出しとグリッドは出したまま、エラーをスナックバーに出す）
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
       semantics.dispose();
     });
 
