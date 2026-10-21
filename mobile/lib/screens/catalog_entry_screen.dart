@@ -57,6 +57,8 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
   }
 
   Future<void> _reload() async {
+    // ビューアや削除を待っている間に、この画面を閉じていたら何もしない
+    if (!mounted) return;
     widget.onEntryLoaded?.call(null);
     setState(() => _gridVersion++);
   }
