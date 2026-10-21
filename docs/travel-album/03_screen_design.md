@@ -747,6 +747,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 - 植物一覧画面（`screens/plant_list_screen.dart`・`widgets/plant_card.dart`）、画像選択・コンテキスト入力画面（`screens/camera_screen.dart`）、識別結果確認画面（`screens/identification_screen.dart`）、植物詳細画面（`screens/plant_detail_screen.dart`）を削除した。
   植物の写真を撮って識別・保存する入口はアプリから無くなり、植物は旅行アルバムの写真の識別から図鑑（§6.1）にまとまる
 - 下のタブの「図鑑」は図鑑画面（§6.1）になり、3つ目のタブ「図鑑（新）」は消した（§4.1）
+- アプリはカメラを使わない（写真はギャラリーから選ぶだけ）ので、`AndroidManifest.xml` の `android.permission.CAMERA` を外した（2026-10-22。02 §5 #38）
 - `models/plant.dart` と、`ApiService` の植物のメソッド（`uploadAndIdentifyImage`・`checkDuplicate`・`savePlant`・`getPlants`・`getPlant`・`updatePlant`・`deletePlant`）、`ApiException.isImageAlreadySaved` を削除した。アプリは植物図鑑の API（`/api/images/upload`・`/api/plants*`）を呼ばない（API は 4-6 で消す）
 - **設定画面の「接続テスト」は、入力中のエンドポイントと API キー（保存前の値）で、旅行をまたぐ写真の一覧を1件だけ読んで（`GET /api/photos?category=plant&limit=1`）確かめる**（以前は `GET /api/plants`）。2xx なら届いたとみなす。
   Function Key に加えて、サーバがデータベース（とストレージ）に届くかまで確かめるため。キーが違えば 401、データベースに届かなければ 503 などで失敗になる。
