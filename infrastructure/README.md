@@ -222,8 +222,8 @@ terraform {
 4-7 で定義から消した（`docs/travel-album/06_processing_design.md` §7 の手順 6、`docs/travel-album/07_infrastructure_design.md` §3.2）。
 api と mobile はどれも 4-5・4-6 で使わなくなっている。
 
-**`apply` は人間が行う（4-7 の PR のマージの後）。済むまでは Azure 上にまだ残っている。** `plan` は「0 to add, 1 to change, 4 to destroy」
-（Function App の `app_settings` から3つを消す変更と、4つのリソースの削除）で、`album`・`photos` に置き換え（replace）が出ないことを確かめる。
+**`apply` は人間が行う（4-7 の PR のマージの後）。済むまでは Azure 上にまだ残っている。** `plan` は「0 to add, 2 to change, 4 to destroy」
+（Function App の `app_settings` から3つを消す変更、ストレージアカウントの匿名公開を止める変更 `allow_nested_items_to_be_public = false` と、4つのリソースの削除）で、`album`・`photos` に置き換え（replace）が出ないことを確かめる。
 `apply` でコンテナの中身も消える。旧図鑑の植物は新しい図鑑へ移さないと決めたので（`docs/travel-album/02_design_overview.md` §5 #34）、退避はしない。
 
 ### OpenAIモデル移行（gpt-5.6-luna → gpt-6-luna、2026-10-17）

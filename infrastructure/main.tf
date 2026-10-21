@@ -43,6 +43,9 @@ resource "azurerm_storage_account" "main" {
   account_replication_type = "LRS"
   account_kind             = "StorageV2"
 
+  # 匿名で読めるコンテナを作らせない。公開していた植物図鑑の images を 4-7 で消し、残るコンテナ（photos・Functions の内部用）はどれも非公開
+  allow_nested_items_to_be_public = false
+
   blob_properties {
     cors_rule {
       allowed_headers    = ["*"]

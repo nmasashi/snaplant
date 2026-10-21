@@ -210,6 +210,7 @@ az functionapp log tail --name <FUNCTION_APP_NAME> --resource-group <RESOURCE_GR
 - HTTP の各関数は `authLevel: 'function'`。呼び出しには `?code={FUNCTION_KEY}` が必要（キューのトリガーの関数は HTTP で呼び出せない）
 - CORS は **全オリジン許可**（`infrastructure/main.tf` の `site_config.cors.allowed_origins = ["*"]`）。
   Blob Storage 側の `cors_rule` も `allowed_origins = ["*"]`。オリジンの制限はしていない
+- ストレージアカウントは匿名の読み取りを許さない（`allow_nested_items_to_be_public = false`）。写真は Blob 単位の読み取り専用の SAS でだけ読める
 
 ## コスト最適化
 

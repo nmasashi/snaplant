@@ -81,8 +81,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 ### 1.4 apply の前に人間が確認すること
 
 - Cosmos DB の無料枠が「アカウントで 1000 RU/s」か「400 RU/s」か（ポータルの「無料枠」の表示）。400 なら `album` を足すと課金される（[04 §6](./04_data_design.md#6-無料枠と-ru-の見積もり)）
-- `plan` で `plants`・`images`・`temp-images`・Function App に replace や予期しない差分が出ないこと
-- ポータルで、ストレージアカウントにライフサイクル管理のルールが手で足されていないこと（ポリシーはアカウントに1つで、apply で丸ごと置き換わる）
+- `plan` で `album`・`photos`・Function App に replace や予期しない差分が出ないこと（段階2の時点では `plants`・`images`・`temp-images` も見ていた。4-7 で消した。§3.2）
 - apply 後にポータルで `photos` が非公開（匿名アクセスなし）であること
 
 ## 2. 段階3
@@ -167,7 +166,9 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `app_settings` の `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` | コード側の参照（`cosmosService.ts`・`storageService.ts`）は手順 5（4-6）で消した |
 | `outputs.tf` の `images_container_name`・`temp_images_container_name`・`cosmos_db_container_name` | |
 
-`plan` は「0 to add, 1 to change, 4 to destroy」（Function App の `app_settings` から3つを消す変更と、上の4つのリソースの削除）。`album`・`photos` に replace が出ないことを確かめた。
+公開していた `images` が無くなったので、ストレージアカウントに `allow_nested_items_to_be_public = false` を足した（匿名で読めるコンテナを作れなくする。残るコンテナはどれも非公開）。
+
+`plan` は「0 to add, 2 to change, 4 to destroy」（Function App の `app_settings` から3つを消す変更、ストレージアカウントの `allow_nested_items_to_be_public` を `false` にする変更と、上の4つのリソースの削除）。`album`・`photos` に replace が出ないことを確かめた。
 無料枠は `album` 400 だけになる（`var.cosmos_db_throughput` を割り当てるコンテナは `album` の1つだけ）。
 
 ## 4. `host.json` の変更
