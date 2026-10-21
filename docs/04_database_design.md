@@ -5,7 +5,7 @@
 植物図鑑アプリ「SnapPlant」で使用するAzure Cosmos DBのデータベース設計を定義します。
 NoSQLドキュメントデータベースとして設計され、JSONドキュメントとしてデータを保存します。
 
-**この文書の `plants` コンテナは、アプリからはもう使っていません。** 植物図鑑の API を 4-6 で削除し、コンテナは Terraform に残っているだけです（4-7 で消す）。
+**この文書の `plants` コンテナは、アプリからはもう使っていません。** 植物図鑑の API を 4-6 で削除し、コンテナも 4-7 で Terraform の定義から消しました（4-7 の `apply` が済むまでは Azure 上に残っています。中身は `apply` で消え、新しい図鑑へは移しません）。
 今の API が使うのは旅行と写真の `album` コンテナで、設計は [docs/travel-album/04_data_design.md](./travel-album/04_data_design.md) にあります
 （この文書への取り込みは、旅行アルバムの機能が固まってから後でまとめて行う）。以下の §2〜§8 は植物図鑑の当時の設計です。
 
@@ -53,8 +53,8 @@ NoSQLドキュメントデータベースとして設計され、JSONドキュ�
 
 ### 3.2 インデクシングポリシー
 
-Terraform（`infrastructure/main.tf` の `azurerm_cosmosdb_sql_container.plants`）で
-定義している実際のポリシーは、全パスをインデックス対象にする既定構成です。
+Terraform（`infrastructure/main.tf` の `azurerm_cosmosdb_sql_container.plants`。4-7 で消した）で
+定義していたポリシーは、全パスをインデックス対象にする既定構成です。
 
 ```json
 {

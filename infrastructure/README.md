@@ -20,10 +20,11 @@ infrastructure/
 ```
 
 リソースは `main.tf` 1ファイルにまとめている（再利用可能なモジュールには分割していない）。
-定義しているのは、リソースグループ / Storage Account（`images`・`temp-images`・`photos` の3コンテナと、`temp-images` を1日で消すライフサイクル管理、旅行アルバムの写真の解析のキュー `photo-processing`）/
-Cosmos DB（`snaplant-db`・`plants`・`album`）/ App Service Plan / Linux Function App /
+定義しているのは、リソースグループ / Storage Account（`photos` コンテナと、旅行アルバムの写真の解析のキュー `photo-processing`）/
+Cosmos DB（`snaplant-db`・`album`）/ App Service Plan / Linux Function App /
 Application Insights / Azure OpenAI（`gpt-6-luna` デプロイメント）/ リソースグループの月額の予算アラート（`azurerm_consumption_budget_resource_group`）。
 Azure API Management と Key Vault は**定義していない**。
+植物図鑑の `images`・`temp-images`・`plants` とライフサイクル管理は 4-7 で消した（4-7 の `apply` までは Azure 上に残っている。下の「植物図鑑のリソースの削除（4-7）」）。
 
 ## CI での静的チェック
 
@@ -213,43 +214,17 @@ terraform {
 - セキュリティパッチの適用
 - 不要なリソースのクリーンアップ
 
-### 植物図鑑の退避（任意。`images`・`plants` を消す前）
+### 植物図鑑のリソースの削除（4-7）
 
-`docs/travel-album/06_processing_design.md` §7 の手順 1。旧図鑑の植物は新しい図鑑へ移さないと決めたので（同 §7）、退避は要らない。
-移行スクリプトも 4-6 で削除した。手元に残しておきたいときだけ、手順 6（4-7）で `images` コンテナと `plants` コンテナを消す前に、
-画像と全ドキュメントを作業マシンに落とす。人間が Git Bash で回す。
+植物図鑑が使っていた Cosmos DB の `plants` コンテナ、Blob の `images`・`temp-images` コンテナ、`temp-images` を1日で消すライフサイクル管理
+（`azurerm_storage_management_policy.main`。ルールがこれだけだったのでリソースごと）、Function App の `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・
+`TEMP_STORAGE_CONTAINER_NAME`、`outputs.tf` の `images_container_name`・`temp_images_container_name`・`cosmos_db_container_name` は、
+4-7 で定義から消した（`docs/travel-album/06_processing_design.md` §7 の手順 6、`docs/travel-album/07_infrastructure_design.md` §3.2）。
+api と mobile はどれも 4-5・4-6 で使わなくなっている。
 
-退避先はリポジトリの外のフォルダにする（`.work/` は作業単位ごとに掃除するので置かない）。植物の名前や画像を含むので、共有しない。
-
-```bash
-BACKUP="<退避先>"   # 例: リポジトリの外の、日付の入ったフォルダ
-mkdir -p "$BACKUP/images"
-
-# 1. images の画像を全部落とす。ストレージアカウント名は infrastructure/ で `terraform output -raw storage_account_name`、またはポータルで確かめる。
-#    鍵を指定しないと、az login の権限で CLI がアカウントの鍵を取りに行く（その旨の警告が出る）。鍵や接続文字列をコマンドに書かない
-az storage blob download-batch --account-name <ストレージアカウント名> --source images --destination "$BACKUP/images"
-
-# 2. plants の全ドキュメントを JSON で書き出す（api/ で。api/node_modules の @azure/cosmos を使う）。
-#    接続先は api/local.settings.json の Values から読む（中身は表示しない）。最初に出る「読む元」が本番の plants かを確かめる
-cd api
-node -e "
-const { CosmosClient } = require('@azure/cosmos');
-const fs = require('fs');
-const v = require('./local.settings.json').Values;
-const out = process.argv[1];
-console.log('読む元:', new URL(v.COSMOS_DB_ENDPOINT).host, '/', v.COSMOS_DB_DATABASE, '/', v.COSMOS_DB_CONTAINER);
-new CosmosClient({ endpoint: v.COSMOS_DB_ENDPOINT, key: v.COSMOS_DB_KEY })
-  .database(v.COSMOS_DB_DATABASE).container(v.COSMOS_DB_CONTAINER)
-  .items.query('SELECT * FROM c').fetchAll()
-  .then(({ resources }) => { fs.writeFileSync(out, JSON.stringify(resources, null, 2)); console.log(resources.length + ' 件を書きました'); });
-" "$BACKUP/plants.json"
-```
-
-確かめること。
-
-- `plants.json` の件数（出力の `<件数> 件を書きました`）が、ポータルのデータエクスプローラーで `plants` に `SELECT VALUE COUNT(1) FROM c` を回した結果と一致する
-- `$BACKUP/images` のファイルの数（`ls "$BACKUP/images" | wc -l`）が、ポータルで見た `images` の Blob の数と一致する。
-  `images` には植物から指されていない画像が残っていることがあるので、植物の件数とは一致しなくてよい
+**`apply` は人間が行う（4-7 の PR のマージの後）。済むまでは Azure 上にまだ残っている。** `plan` で出るはずの差分と、
+`apply` の前にポータルで確かめること（手で足したライフサイクル管理のルールが無いか）は `docs/travel-album/07_infrastructure_design.md` §3.2。
+`apply` でコンテナの中身も消える。旧図鑑の植物は新しい図鑑へ移さないと決めたので（`docs/travel-album/02_design_overview.md` §5 #34）、退避はしない。
 
 ### OpenAIモデル移行（gpt-5.6-luna → gpt-6-luna、2026-10-17）
 

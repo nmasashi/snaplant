@@ -358,15 +358,15 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 
 | 手順 | 内容 | 担当 |
 |---|---|---|
-| 1. 退避（行わない） | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す（手順は `infrastructure/README.md`「植物図鑑の退避」。手元に残したいときだけ、手順 6 の前に回す） | 人間 |
+| 1. 退避（行わない） | `images` を作業マシンに落とし、`plants` の全ドキュメントを JSON で書き出す予定だった。移さないと決めたので、`infrastructure/README.md` の手順も 4-7 で消した | — |
 | 2. 移行（行わない。2026-10-19 に決定） | 移行スクリプト（`api/src/scripts/migratePlants.ts`。4-4 で作り、4-6 で削除した）で、`plants` の記録を植物1件につき写真1枚（識別の済んだ、どの旅行にも属さない写真）に移す予定だった | — |
 | 3. 確認（行わない） | アプリの図鑑（種類 = 植物）に旧図鑑の件数が揃うこと | — |
 | 4. アプリ（実装済み。4-5） | 図鑑タブを新しい図鑑画面に差し替え、`plant_list_screen`・`camera_screen`・`identification_screen`・`plant_detail_screen` と `Plant` 系のモデル、`ApiService` の植物メソッドとテストを削除。設定画面の接続テストは写真の一覧を1件だけ読んで（`GET /api/photos?category=plant&limit=1`）確かめる（[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)） | PR |
 | 5. API（実装済み。4-6） | 移行スクリプト（`scripts/migratePlants.ts` とテスト、`PhotoDocument.legacyPlantId`）・`upload.ts`・`identify.ts`・`checkDuplicate.ts`・`save.ts`・`updatePlant.ts`・`plants.ts`・`plantDetail.ts`・`cosmosService.ts`・`storageService.ts`（SAS は `utils/blobSas.ts` に移っている）・`types/plant.ts` とテスト、`OpenAIVisionService.identifyPlant()`、`PLANT_VALIDATION`、`ErrorCode` の `NOT_A_PLANT`・`PLANT_NOT_FOUND`・`IMAGE_ALREADY_SAVED` を削除。`app.ts` の import を外した。`docs/06`・`07`・`README` を更新（植物の API の記述を消し、旅行アルバムの API はこの一式を案内する） | PR |
-| 6. インフラ | `images`・`plants` と `STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`・`COSMOS_DB_CONTAINER` の `app_settings` を削除（手順 5 の後、アプリはどれも使っていない）。`temp-images` も不要。`plan` で `album`・`photos` に replace が出ないことを確かめる | PR + 人間が apply |
+| 6. インフラ（実装済み。4-7。apply は人間がマージの後に行う） | Blob の `images`・`temp-images`、`temp-images` のライフサイクル管理（`azurerm_storage_management_policy.main`）、Cosmos の `plants`、`app_settings` の `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME`、`outputs.tf` の3つを Terraform から削除（手順 5 の後、アプリはどれも使っていない）。`plan` で見るものは [07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)（[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | PR + 人間が apply |
 
 4〜6 は別々の PR。順序は 4→5→6（移さないと決めたので、1〜3 は無い）。
-azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` が無くなれば消える。
+azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` を定義から消したので無くなった（残るのは `photos` だけで、最初から非公開）。
 
 ### 7.1 移行スクリプト（手順 2。削除した）
 

@@ -12,8 +12,10 @@ SnapPlant は Azure Functions を使用した旅行アルバム（写真の分�
 - **Application Insights**: 監視・ログ
 - **Azure OpenAI**: 写真の分類と識別の AI（Vision + Structured Outputs）
 
-植物図鑑の API は 4-6 で削除しました。植物図鑑が使っていた Cosmos DB の `plants` コンテナと Blob の `images`・`temp-images` コンテナは、
-アプリからは使っていませんが、Terraform にはまだ残っています（4-7 で消す。`docs/travel-album/07_infrastructure_design.md` §3.2）。
+植物図鑑の API は 4-6 で削除し、植物図鑑が使っていた Cosmos DB の `plants` コンテナ、Blob の `images`・`temp-images` コンテナ、
+`temp-images` のライフサイクル管理、Function App の環境変数 `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は
+4-7 で Terraform から消しました（`docs/travel-album/07_infrastructure_design.md` §3.2）。
+**4-7 の `apply` が済むまでは、これらは Azure 上にまだ残っています**（`apply` で消え、コンテナの中身も消える。旧図鑑の植物は移さない）。
 
 ## 初回セットアップ
 
@@ -208,6 +210,8 @@ az functionapp log tail --name <FUNCTION_APP_NAME> --resource-group <RESOURCE_GR
 - HTTP の各関数は `authLevel: 'function'`。呼び出しには `?code={FUNCTION_KEY}` が必要（キューのトリガーの関数は HTTP で呼び出せない）
 - CORS は **全オリジン許可**（`infrastructure/main.tf` の `site_config.cors.allowed_origins = ["*"]`）。
   Blob Storage 側の `cors_rule` も `allowed_origins = ["*"]`。オリジンの制限はしていない
+- ストレージアカウントは匿名の読み取りを許さない（`allow_nested_items_to_be_public = false`）。アプリには写真の Blob ごとに読み取り専用の SAS を付けた URL を返す。
+  共有キーでの接続は有効のままで、Function App は `AzureWebJobsStorage`（アカウントキー入りの接続文字列）で読み書きする。この接続文字列とキーは写真をすべて読み書きできる
 
 ## コスト最適化
 
@@ -225,14 +229,11 @@ Function App に設定される主要な環境変数：
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
 | `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
 | `COSMOS_DB_ALBUM_CONTAINER` | 旅行と写真の Cosmos DB コンテナ名（`album`） |
-| `COSMOS_DB_CONTAINER` | 植物図鑑の Cosmos DB コンテナ名（`plants`）。**アプリはもう使っていない**（植物図鑑の API を 4-6 で削除した）。Terraform の `app_settings` からは 4-7 で消す |
 | `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`AccountName` と `AccountKey` が必須。`EndpointSuffix` も必須。下の「`STORAGE_CONNECTION_STRING` の制約」） |
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
-| `STORAGE_CONTAINER_NAME` | 植物図鑑の永続画像用 Blob コンテナ名（`images`）。**アプリはもう使っていない**。4-7 で消す |
-| `TEMP_STORAGE_CONTAINER_NAME` | 植物図鑑の一時画像用 Blob コンテナ名（`temp-images`）。**アプリはもう使っていない**。4-7 で消す |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（要求先の URL とモデル名の両方に使用）。`AZURE_OPENAI_ENDPOINT` を設定するなら必須 |

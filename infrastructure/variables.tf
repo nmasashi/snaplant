@@ -38,7 +38,7 @@ variable "cosmos_db_consistency_level" {
 }
 
 variable "cosmos_db_throughput" {
-  description = "Throughput for each Cosmos DB container (RU/s). plants と album の両方に割り当てるので、合計はこの2倍"
+  description = "Throughput for each Cosmos DB container (RU/s). 今は album の1つだけ"
   type        = number
   default     = 400
   validation {

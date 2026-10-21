@@ -107,6 +107,10 @@ Blob Trigger（画像処理の非同期実行）は検討したが**未実装**�
   - グローバル分散可能
 
 #### データ構造調整
+
+植物図鑑の `plants` コンテナの当時の構造。植物図鑑の API は 4-6 で削除し、コンテナも 4-7 で Terraform の定義から消した（4-7 の `apply` までは Azure 上に残っている）。
+今の旅行と写真の `album` コンテナは `travel-album/04_data_design.md`。
+
 ```json
 // plantsコンテナのドキュメント構造
 {
@@ -415,7 +419,7 @@ audit.yml はこの流れに含まれない（`api/package*.json` を変えた p
 - **Azure Blob Storage**: アクセス制御・暗号化
   - 写真のコンテナ `photos` は非公開で、クライアントには Blob 1つに対する読み取り専用の SAS 付き URL を応答のたびに作って渡す（`travel-album/05_api_design.md` §6）
   - AI 識別サービスには、写真の原寸の Blob 1つに対する読み取り専用・発行から15分で失効する SAS 付き URL で読ませる（`travel-album/06_processing_design.md` §2.1）
-  - 植物図鑑が使っていた `images`（公開読み取り）と `temp-images`（非公開）は、アプリからは使っていない（4-7 で消す）
+  - 植物図鑑が使っていた `images`（公開読み取り）と `temp-images`（非公開）は、4-7 で Terraform の定義から消した（4-7 の `apply` が済むまでは Azure 上に残っている）
 
 ## 8. 将来拡張性
 

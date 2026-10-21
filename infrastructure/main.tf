@@ -43,6 +43,9 @@ resource "azurerm_storage_account" "main" {
   account_replication_type = "LRS"
   account_kind             = "StorageV2"
 
+  # 匿名で読めるコンテナを作らせない。公開していた植物図鑑の images を 4-7 で消し、残るコンテナ（photos・Functions の内部用）はどれも非公開
+  allow_nested_items_to_be_public = false
+
   blob_properties {
     cors_rule {
       allowed_headers    = ["*"]
@@ -56,22 +59,8 @@ resource "azurerm_storage_account" "main" {
   tags = var.tags
 }
 
-# 画像保存用Blobコンテナの作成
-resource "azurerm_storage_container" "images" {
-  name                  = "images"
-  storage_account_name  = azurerm_storage_account.main.name
-  container_access_type = "blob"
-}
-
-# 一時画像保存用Blobコンテナの作成
-resource "azurerm_storage_container" "temp_images" {
-  name                  = "temp-images"
-  storage_account_name  = azurerm_storage_account.main.name
-  container_access_type = "private"
-}
-
 # 旅行アルバムの写真（原寸・サムネイル）用 Blob コンテナ。
-# images と違い公開しない。読み取りは Blob 単位の SAS（有効期限は PHOTO_SAS_EXPIRY_MINUTES）
+# 公開しない。読み取りは Blob 単位の SAS（有効期限は PHOTO_SAS_EXPIRY_MINUTES）
 resource "azurerm_storage_container" "photos" {
   name                  = "photos"
   storage_account_name  = azurerm_storage_account.main.name
@@ -84,29 +73,6 @@ resource "azurerm_storage_container" "photos" {
 resource "azurerm_storage_queue" "photo_processing" {
   name               = "photo-processing"
   storage_account_id = azurerm_storage_account.main.id
-}
-
-# temp-images に残った Blob を最終更新から1日で消す。
-# upload が途中で失敗すると一時 Blob が残り、コードの後片付けでは拾えない場合がある
-# （関数のタイムアウト・プロセスの停止・削除自体の失敗）
-resource "azurerm_storage_management_policy" "main" {
-  storage_account_id = azurerm_storage_account.main.id
-
-  rule {
-    name    = "delete-temp-images"
-    enabled = true
-    filters {
-      # 接頭辞で必ず絞る。同じアカウントを AzureWebJobsStorage が使っており、
-      # 絞らないと Functions の鍵（azure-webjobs-secrets）や images・photos まで消える
-      prefix_match = ["${azurerm_storage_container.temp_images.name}/"]
-      blob_types   = ["blockBlob"]
-    }
-    actions {
-      base_blob {
-        delete_after_days_since_modification_greater_than = 1
-      }
-    }
-  }
 }
 
 # Cosmos DBアカウントの作成
@@ -128,7 +94,7 @@ resource "azurerm_cosmosdb_account" "main" {
     failover_priority = 0
   }
 
-  # 無料枠を有効化。コンテナ（plants・album）ごとに cosmos_db_throughput を確保するので、
+  # 無料枠を有効化。コンテナ（album）ごとに cosmos_db_throughput を確保するので、
   # 合計 RU/s が無料枠を超えないこと（docs/travel-album/04_data_design.md §6）
   free_tier_enabled = true
 
@@ -140,29 +106,6 @@ resource "azurerm_cosmosdb_sql_database" "main" {
   name                = "snaplant-db"
   resource_group_name = azurerm_resource_group.main.name
   account_name        = azurerm_cosmosdb_account.main.name
-}
-
-# 植物データ用Cosmos DB SQLコンテナの作成
-resource "azurerm_cosmosdb_sql_container" "plants" {
-  name                = "plants"
-  resource_group_name = azurerm_resource_group.main.name
-  account_name        = azurerm_cosmosdb_account.main.name
-  database_name       = azurerm_cosmosdb_sql_database.main.name
-  partition_key_paths = ["/id"]
-
-  # 無料枠の共有スループットを使用
-  throughput = var.cosmos_db_throughput
-
-  indexing_policy {
-    indexing_mode = "consistent"
-
-    included_path {
-      path = "/*"
-    }
-
-    # `/"_etag"/?` の除外は Cosmos がシステム側で自動的に付ける。azurerm v4 は読み戻すときに
-    # これを取り除くため、ここに書くと apply しても plan に「追加する」差分が出続ける
-  }
 }
 
 # 旅行アルバムの Cosmos DB コンテナ。旅行と写真を type で区別して置く。
@@ -243,10 +186,9 @@ resource "azurerm_linux_function_app" "main" {
 
   app_settings = {
     # Cosmos DB接続設定
-    "COSMOS_DB_ENDPOINT"  = azurerm_cosmosdb_account.main.endpoint
-    "COSMOS_DB_KEY"       = azurerm_cosmosdb_account.main.primary_key
-    "COSMOS_DB_DATABASE"  = azurerm_cosmosdb_sql_database.main.name
-    "COSMOS_DB_CONTAINER" = azurerm_cosmosdb_sql_container.plants.name
+    "COSMOS_DB_ENDPOINT" = azurerm_cosmosdb_account.main.endpoint
+    "COSMOS_DB_KEY"      = azurerm_cosmosdb_account.main.primary_key
+    "COSMOS_DB_DATABASE" = azurerm_cosmosdb_sql_database.main.name
 
     # 旅行アルバム
     "COSMOS_DB_ALBUM_CONTAINER"    = azurerm_cosmosdb_sql_container.album.name
@@ -254,9 +196,7 @@ resource "azurerm_linux_function_app" "main" {
     "PHOTO_SAS_EXPIRY_MINUTES"     = "60"
 
     # ストレージ接続設定
-    "STORAGE_CONNECTION_STRING"   = azurerm_storage_account.main.primary_connection_string
-    "STORAGE_CONTAINER_NAME"      = azurerm_storage_container.images.name
-    "TEMP_STORAGE_CONTAINER_NAME" = azurerm_storage_container.temp_images.name
+    "STORAGE_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
 
     # Azure OpenAI設定
     "AZURE_OPENAI_ENDPOINT"        = azurerm_cognitive_account.openai.endpoint
@@ -324,7 +264,7 @@ resource "azurerm_cognitive_deployment" "gpt6_luna" {
   }
 
   # デプロイ名が変わると作り直しになる。新しいデプロイを先に作り、Functions の向き先を替えてから古い方を消す
-  # （植物図鑑の識別が止まる時間を作らない）
+  # （写真の分類と識別が止まる時間を作らない）
   lifecycle {
     create_before_destroy = true
   }

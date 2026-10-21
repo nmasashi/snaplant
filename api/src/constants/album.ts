@@ -67,6 +67,6 @@ export const PHOTO_REQUEUE_AFTER_MINUTES = 10;
  * 掃除のタイマーが、写真の文書の無い Blob を消すまでの時間（時間）
  *
  * 新しい Blob は送信の途中（Blob を書いた後、文書を作る前）かもしれないので消さない。
- * 一時画像のライフサイクル管理（最終更新から1日）と同じ根拠（04 §7.2）
+ * 送信は数分で終わるので、1日あれば途中の Blob を消すことは無い（docs/travel-album/04_data_design.md §7.2）
  */
 export const ORPHAN_BLOB_MIN_AGE_HOURS = 24;
