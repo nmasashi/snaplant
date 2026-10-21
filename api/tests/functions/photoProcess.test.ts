@@ -111,6 +111,7 @@ describe('写真の解析のやり直しAPI', () => {
     jest.clearAllMocks();
     delete process.env.PHOTO_QUEUE_NAME;
     delete process.env.AzureWebJobsStorage;
+    delete process.env.CONTEXT_INFO_MAX_LENGTH;
   });
 
   it('分類のやり直しを頼むと、202で受け付け、写真を分類の待ちにして手がかりを書き、コメントを消してキューに積む', async () => {
@@ -221,6 +222,41 @@ describe('写真の解析のやり直しAPI', () => {
 
     expect(response.status).toBe(202);
     expect(storedPhoto().hint).toBe('あ'.repeat(500));
+  });
+
+  it('手がかりの上限の設定（CONTEXT_INFO_MAX_LENGTH）が数値として読めない値でも、上限は既定の500文字のまま', async () => {
+    // parseInt('invalid') の NaN をそのまま上限に使うと `501 > NaN` が false になり、上限が静かに消える（05 §4）。
+    // 上限はモジュールを読み込んだ時点で決まるので、環境変数を変えてから読み込み直す。
+    // 読み込み直したモジュールの SDK のモックは別物になるので、偽物を配線し直す
+    // （配線しないと、上限が消えたときに 202 ではなく偽物の未配線という別の理由で落ちる）
+    process.env.CONTEXT_INFO_MAX_LENGTH = 'invalid';
+    cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+    let handlerWithInvalidEnv!: typeof processPhotoRequestHandler;
+    jest.isolateModules(() => {
+      const fakeContainer = createFakeContainer(cosmosBackend);
+      require('@azure/cosmos').CosmosClient.mockImplementation(() => ({
+        database: () => ({ container: () => fakeContainer })
+      }));
+      const freshBlob = require('@azure/storage-blob');
+      freshBlob.BlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
+      freshBlob.generateBlobSASQueryParameters.mockReturnValue({ toString: () => TEST_SAS_TOKEN });
+      require('@azure/storage-queue').QueueClient.mockImplementation((_connectionString: string, queueName: string) =>
+        createFakeQueueClient(queueBackend, queueName));
+      handlerWithInvalidEnv = require('../../src/functions/photoProcess').processPhotoRequestHandler;
+    });
+
+    const response = await handlerWithInvalidEnv(
+      createRequest(PHOTO_ID, { step: 'classify', hint: 'あ'.repeat(501) }),
+      mockContext
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.jsonBody).toMatchObject({
+      success: false,
+      error: { code: 'INVALID_REQUEST', message: '補足情報は500文字以内で指定してください' }
+    });
+    expect(storedPhoto()).toEqual(classifiedPhoto());
+    expect(queuedMessages()).toEqual([]);
   });
 
   it('手がかりは、前後の空白を除いて書く', async () => {

@@ -2,15 +2,18 @@
 
 ## 概要
 
-SnapPlant は Azure Functions を使用した植物識別 API です。このガイドでは、GitHub Actions を使用した自動デプロイの設定方法を説明します。
+SnapPlant は Azure Functions を使用した旅行アルバム（写真の分類と識別・図鑑）の API です。このガイドでは、GitHub Actions を使用した自動デプロイの設定方法を説明します。
 
 ## アーキテクチャ
 
-- **Azure Functions**: サーバーレス API ホスティング
-- **Azure Cosmos DB**: 植物データストレージ
-- **Azure Blob Storage**: 画像ストレージ
+- **Azure Functions**: サーバーレス API ホスティング（HTTP の関数と、写真の解析のワーカー・タイマー）
+- **Azure Cosmos DB**: 旅行と写真の情報（`album` コンテナ）
+- **Azure Blob Storage**: 写真（`photos` コンテナ）と、解析の待ちのキュー（Storage Queue）
 - **Application Insights**: 監視・ログ
-- **Azure OpenAI**: 植物識別AI（Vision + Structured Outputs）
+- **Azure OpenAI**: 写真の分類と識別の AI（Vision + Structured Outputs）
+
+植物図鑑の API は 4-6 で削除しました。植物図鑑が使っていた Cosmos DB の `plants` コンテナと Blob の `images`・`temp-images` コンテナは、
+アプリからは使っていませんが、Terraform にはまだ残っています（4-7 で消す。`docs/travel-album/07_infrastructure_design.md` §3.2）。
 
 ## 初回セットアップ
 
@@ -221,10 +224,15 @@ Function App に設定される主要な環境変数：
 | `COSMOS_DB_ENDPOINT` | Cosmos DB エンドポイント |
 | `COSMOS_DB_KEY` | Cosmos DB アクセスキー |
 | `COSMOS_DB_DATABASE` | Cosmos DB データベース名 |
-| `COSMOS_DB_CONTAINER` | Cosmos DB コンテナ名 |
-| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`BlobEndpoint=` を含む形式は未対応。`EndpointSuffix` は必須） |
-| `STORAGE_CONTAINER_NAME` | 永続画像用 Blob コンテナ名 |
-| `TEMP_STORAGE_CONTAINER_NAME` | 一時画像用 Blob コンテナ名 |
+| `COSMOS_DB_ALBUM_CONTAINER` | 旅行と写真の Cosmos DB コンテナ名（`album`） |
+| `COSMOS_DB_CONTAINER` | 植物図鑑の Cosmos DB コンテナ名（`plants`）。**アプリはもう使っていない**（植物図鑑の API を 4-6 で削除した）。Terraform の `app_settings` からは 4-7 で消す |
+| `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`AccountName` と `AccountKey` が必須。`EndpointSuffix` も必須。下の「`STORAGE_CONNECTION_STRING` の制約」） |
+| `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
+| `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
+| `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
+| `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
+| `STORAGE_CONTAINER_NAME` | 植物図鑑の永続画像用 Blob コンテナ名（`images`）。**アプリはもう使っていない**。4-7 で消す |
+| `TEMP_STORAGE_CONTAINER_NAME` | 植物図鑑の一時画像用 Blob コンテナ名（`temp-images`）。**アプリはもう使っていない**。4-7 で消す |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイメント名（要求先の URL とモデル名の両方に使用）。`AZURE_OPENAI_ENDPOINT` を設定するなら必須 |
@@ -237,55 +245,42 @@ Application Insights の2つは `site_config` の `application_insights_key` / `
 それ以外は `app_settings` から設定されます（azurerm v4 は Application Insights とランタイム関係の設定を
 プロバイダ自身が管理するため、`app_settings` に直接書かない）。
 ローカル開発では `api/local.settings.json` の `Values` に同じキーを置きます。
+Terraform が設定しない任意の設定（分類用のデプロイ名 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、入力検証の上限など）と、
+キューの接続に使う `AzureWebJobsStorage` を含む一覧は `docs/travel-album/07_infrastructure_design.md` §6.1 にあります。
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
-このときモデル名は `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白は取り除く）、未設定（空文字列・空白だけを含む）なら `gpt-5.6-luna` です。
+このときモデル名は送り先のデプロイ名（分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、無ければ `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は取り除く）、
+どちらも未設定（空文字列・空白だけを含む）なら `gpt-5.6-luna` です。
 
-`AZURE_OPENAI_ENDPOINT` を設定して `AZURE_OPENAI_DEPLOYMENT_NAME` を設定しない（空文字列・空白だけを含む）と、
-`POST /api/plants/identify` と `POST /api/images/upload` は、入力検証を通ったリクエストが
-AI 識別サービスを呼ばずに 500 `INTERNAL_ERROR` になります（`message` は `docs/06_api_design.md` §6.2 の
-エンドポイントごとの文言。`POST /api/images/upload` は一時保存の前に失敗するので、何も保存しません）。Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定するので、手で設定するローカル開発で踏みやすい設定です。API キーが無いなど、`openai` SDK がクライアントを作れない設定も同じ扱いです。
+`AZURE_OPENAI_ENDPOINT` を設定して送り先のデプロイ名を設定しない（空文字列・空白だけを含む）と、写真の解析のワーカーは
+AI 識別サービスを呼ばずに失敗し、写真の解析は内部の失敗（`processing.lastError: "internal"`）として数えられます
+（上限の回数で `failed`。`docs/travel-album/06_processing_design.md` §2.1・§5）。HTTP の応答には現れません。
+Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定するので、手で設定するローカル開発で踏みやすい設定です。API キーが無いなど、`openai` SDK がクライアントを作れない設定も同じ扱いです。
 
 `AZURE_OPENAI_ENDPOINT` が設定されている場合（Azure）の要求先は
-`${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT_NAME}`（デプロイ名は前後の空白を取り除いたもの）で、
+`${AZURE_OPENAI_ENDPOINT}/openai/deployments/<デプロイ名>`（デプロイ名は前後の空白を取り除いたもの）で、
 クエリの `api-version` に `AZURE_OPENAI_API_VERSION`（未設定時は `2024-12-01-preview`）を付けます。
 キー（`AZURE_OPENAI_API_KEY`）は `api-key` ヘッダで送ります（`openai` SDK の `apiKey` にも
 同じ値を渡しているため、SDK 既定の `Authorization: Bearer` ヘッダも付きます）。
 
 ### 検証の上限値の上書き
 
-`api/src/constants/validation.ts` の上限値は、環境変数で上書きできる（`MAX_FILE_SIZE`、`PLANT_NAME_MAX_LENGTH`、
-`CONTEXT_INFO_MAX_LENGTH` など。一覧は同ファイル）。エラーメッセージも同じ値から文字数を埋め込んで作るので、
+`api/src/constants/validation.ts` の上限値は、環境変数で上書きできる（`MAX_FILE_SIZE`、`TRIP_NAME_MAX_LENGTH`、
+`CONTEXT_INFO_MAX_LENGTH` など。一覧は同ファイルと `docs/travel-album/07_infrastructure_design.md` §6.1）。エラーメッセージも同じ値から文字数を埋め込んで作るので、
 値を変えるとメッセージも追従する。正の整数として読めない値は既定値になる。
 
 ### `STORAGE_CONNECTION_STRING` の制約
 
-`BlobEndpoint=` を含む接続文字列を設定すると、`StorageService` のコンストラクタが
-`BlobEndpointを明示した接続文字列は未対応です` で例外を投げます。
-`CosmosService` は内部で `StorageService` を持つため、植物図鑑のエンドポイントのうち
-`POST /api/plants/identify` 以外は、入力検証を通ったリクエストがすべて 500 `INTERNAL_ERROR` になります
-（`message` は `docs/06_api_design.md` §6.2 のエンドポイントごとの文言。`POST /api/images/upload` は
-何も保存せず、AI 識別サービスも呼びません）。
-旅行アルバムの写真の保存先（`PhotoStorageService`）はこの検査をしません。
-
-`AccountName` と `EndpointSuffix` から Blob エンドポイントのホストを組み立てて
-URL を検証しているため、`BlobEndpoint=` で別のホストを指定されると
-「自分が生成した URL を自分で拒否する」状態になるためです。
-静かに誤動作させるのではなく、サービスの初期化時点で失敗させる方針です
-（`api/src/services/storageService.ts`）。
-
-組み立てるホストは `<AccountName>.blob.<EndpointSuffix>` です。
+写真の保存先（`PhotoStorageService`。`api/src/services/photoStorageService.ts`）は、接続文字列の `AccountName` と `AccountKey` で
+写真の読み取り SAS に署名します。どちらかが無い（または `PHOTO_STORAGE_CONTAINER_NAME` が無い）と、サービスを作る時点で
+`写真の保存先の設定（アカウント名・鍵・コンテナ名）が足りません` で例外を投げ、写真の保存先を使うエンドポイントは
+500 `INTERNAL_ERROR` になります（`message` はエンドポイントごとの文言。`docs/travel-album/05_api_design.md` §7.2）。
 
 `EndpointSuffix` は必須です。省くと Azure SDK（`BlobServiceClient.fromConnectionString`）が
-`Invalid EndpointSuffix in the provided Connection String` で接続文字列を拒否し、`BlobEndpoint=` の場合と同じく
-植物図鑑の `POST /api/plants/identify` 以外のエンドポイントは 500 `INTERNAL_ERROR` になります
-（写真の保存先を使う旅行アルバムの処理も同じ SDK の呼び出しで失敗します）。
-`StorageService` には `EndpointSuffix` が無ければ `core.windows.net` とみなす分岐がありますが、
-SDK が先に拒否するため効きません（[バックログ](./docs/09_backlog.md)の
-「`EndpointSuffix` の無い接続文字列の既定値の分岐が使われない」）。
+`Invalid EndpointSuffix in the provided Connection String` で接続文字列を拒否し、同じく写真の保存先を使う処理が失敗します。
 
 Terraform が流し込む `azurerm_storage_account.main.primary_connection_string` は
-`BlobEndpoint=` を含まないため、本番でこの制約に触れることはありません。
-Azurite などパス形式のエンドポイントを使うローカル開発は未対応で、
+`AccountName`・`AccountKey`・`EndpointSuffix` を含むため、本番でこの制約に触れることはありません。
+Azurite などパス形式のエンドポイント（`BlobEndpoint=`）を使うローカル開発は確かめておらず、
 [バックログ](./docs/09_backlog.md) に判断待ちとして分離しています。
