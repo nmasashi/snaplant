@@ -261,7 +261,7 @@ resource "azurerm_cognitive_deployment" "gpt6_luna" {
   }
 
   # デプロイ名が変わると作り直しになる。新しいデプロイを先に作り、Functions の向き先を替えてから古い方を消す
-  # （植物図鑑の識別が止まる時間を作らない）
+  # （写真の分類と識別が止まる時間を作らない）
   lifecycle {
     create_before_destroy = true
   }

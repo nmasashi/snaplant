@@ -92,8 +92,8 @@ Azure Functions で動くものは3種類あり、どれも同じ Function App�
 | ワーカー | キューにたまった依頼（分類・識別）を1件ずつ処理する関数（キュー トリガー） | 3 |
 | タイマー | 決まった間隔で動く関数（タイマー トリガー）。止まった処理の拾い直しと掃除 | 3 |
 
-既存の植物図鑑（`plants` コンテナ・公開の `images` コンテナ・`POST /api/images/upload`）は段階2・3では**このまま並存**し、
-段階4で `album` に統合して廃止する（要件 5.8、[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4)）。
+既存の植物図鑑（`plants` コンテナ・公開の `images` コンテナ・`POST /api/images/upload`）は段階2・3では**このまま並存**させ、
+段階4で廃止した（要件 5.8、[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4)。旧図鑑の植物は移さない（§5 #34）。アプリは 4-5、API は 4-6、Terraform の定義は 4-7 で消した。4-7 の apply までは `plants`・`images`・`temp-images` が Azure 上に残る）。
 
 ## 3. 既存の流用と新設
 
@@ -117,7 +117,7 @@ Azure Functions で動くものは3種類あり、どれも同じ Function App�
 
 「コンテナ」は Cosmos DB と Blob Storage の両方で使う言葉で、別物である。Cosmos DB のコンテナは文書（旅行・写真の情報）の入れ物、
 Blob Storage のコンテナはファイル（画像）の入れ物。段階2で足すのは Cosmos DB の `album` と Blob Storage の `photos` の1つずつで、
-段階4で植物図鑑を統合したあとは、この2つだけが残る（Cosmos の `plants`、Blob の `images`・`temp-images` は消す）。
+植物図鑑を廃止したあとは、この2つだけが残る（Cosmos の `plants`、Blob の `images`・`temp-images` は 4-7 で Terraform の定義から消した。4-7 の apply までは Azure 上に残る）。
 
 新しく作るもの（段階2）: Cosmos の `album` コンテナと `AlbumService`、Blob の `photos` コンテナと `PhotoStorageService`、
 旅行・写真の API（Azure Functions の関数。`trips.ts`・`tripDetail.ts`・`photos.ts`・`photoDetail.ts`・`photoMove.ts`）、`types/album.ts`、
@@ -344,13 +344,13 @@ Cosmos DB は別パーティションの文書をまとめて原子的に書け�
 | 図鑑の1ページで `TOP 1` を項目の数（最大 50）だけ投げる。2項目の `ORDER BY` は複合インデックスが要る（B の代償。推測の見積もりは [04 §3.1](./04_data_design.md#31-項目は写真からまとめる)） | ページを開くのが遅い、インデックスが無いと 400 | 段階4の最初に実測して記録する。インフラ（複合インデックス）を API より先に apply する。遅ければ「写真から作り直せる控え」を足す（データの移し替えは要らない） |
 | Cosmos の Patch の `condition`（`FROM c WHERE …`）の書き方と、`null` の比較（推測） | 利用者のコメントが AI に消される、担当の二重化 | 段階3のデプロイ後に、コメントを書いてからやり直しを頼む手順で確かめる（[08 §5.3](./08_test_plan.md#53-段階34で足すもの)） |
 | 途中で失敗した操作の残骸（孤児 Blob・消えた旅行を指す写真） | 容量の費用。写真が一覧から消える（段階3の掃除が入るまで） | 書く順・冪等・掃除のタイマー（§4.10、[04 §7](./04_data_design.md#7-整合性途中で失敗したら何が残るか)） |
-| 従量課金の 429、SAS の時計のずれ、ライフサイクルの接頭辞の付け忘れ、Cosmos のクエリ（絞り込み・並び順・射影）は単体テストで検証できない、送信キューがメモリだけ、Terraform state が作業マシンにしか無い | 既存と同じ | それぞれ [05 §6](./05_api_design.md#6-sas-付き-url)・[07](./07_infrastructure_design.md)・[08 §5](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目) |
+| 従量課金の 429、SAS の時計のずれ、ライフサイクルの接頭辞の付け忘れ（`temp-images` のライフサイクルは 4-7 で消した。入れ直すときの注意は [07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減)）、Cosmos のクエリ（絞り込み・並び順・射影）は単体テストで検証できない、送信キューがメモリだけ、Terraform state が作業マシンにしか無い | 既存と同じ | それぞれ [05 §6](./05_api_design.md#6-sas-付き-url)・[07](./07_infrastructure_design.md)・[08 §5](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目) |
 
 ## 7. 既存の不具合との関係（`docs/09_backlog.md`）
 
 | 既存の不具合 | 旅行アルバムでの扱い |
 |---|---|
-| `upload` で AI の呼び出しが例外で失敗すると一時 Blob が残る | 引き継がない（段階2は一時保存を使わない）。既存側は PR 1 の `temp-images` のライフサイクルで軽減し、段階4で `upload.ts` ごと消える |
+| `upload` で AI の呼び出しが例外で失敗すると一時 Blob が残る | 引き継がない（段階2は一時保存を使わない）。既存側は PR 1 の `temp-images` のライフサイクルで軽減した。`upload.ts` は 4-6 で消し、`temp-images` とライフサイクルも 4-7 で Terraform の定義から消した |
 | 識別結果で保存しなかった画像が永続コンテナに残る | 引き継がない。送った写真はすべてアルバムに残す（要件 5.2） |
 | `save` の重複チェックが read-then-write で同時リクエストに効かない | 引き継がない。id を中身から決めることで、一意キー無しでも `create` の 409 で DB が保証する |
 | UUID の生成方法が2つある | 新コードは `uuid` パッケージ。サーバで振るのは旅行の id だけ |
@@ -358,7 +358,7 @@ Cosmos DB は別パーティションの文書をまとめて原子的に書け�
 | `ETIMEDOUT` の分類のずれ | `isConnectivityError()` の集合に `ETIMEDOUT` を含めるかは、既存の判断（バックログ）に合わせる。新ハンドラだけ違う集合にしない |
 | Cosmos のシステム項目が応答に含まれる可能性 | 新しい API は応答に出す項目を明示的に詰め替える（[05 §3](./05_api_design.md#3-データモデル)） |
 | `host.json` の `http` がトップレベルにある | 段階3で `extensions.queues` を足すときに `extensions.http` へ直す（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)） （PR 3-1 で直した） |
-| azurerm v5 で `images` が非公開になる懸念 | 段階4で `images` を消せば消える。それまでに v5 へ上げるなら `allow_nested_items_to_be_public = true` を明示 |
+| azurerm v5 で `images` が非公開になる懸念 | 4-7 で `images` を Terraform の定義から消したので無くなった（残る `photos` は最初から非公開） |
 | `updatePlant` の 404 / 409 の順序 | 段階4で植物専用の関数が消える。直すなら段階4より前に価値があるかで判断 |
 | Application Insights へのマスキングが無い | 新ハンドラのログは `photoId`・`tripId`・件数だけにし、`placeName`・`comment`・`hint`・ファイル名は出さない |
 | Flutter が CI の対象外 | `mobile/` の PR はマージ前に `flutter analyze` / `flutter test` を通す（CLAUDE.md「PR の粒度」）。段階0で CI に入れるのが先 |

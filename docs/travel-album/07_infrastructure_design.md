@@ -22,7 +22,7 @@ PR の順序は [09_implementation_plan.md](./09_implementation_plan.md) を参�
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
 | `azurerm_storage_container.photos` | `photos` | `container_access_type = "private"` | 要件 §6「最初から非公開」。`images` と違い公開しない |
-| `azurerm_storage_management_policy.main` | — | `temp-images/` の Blob を最終更新から 1 日で削除 | §1.2 |
+| `azurerm_storage_management_policy.main` | — | `temp-images/` の Blob を最終更新から 1 日で削除 | §1.2。4-7 で `temp-images` ごと消した（§3.2） |
 | `azurerm_cosmosdb_sql_container.album` | `album` | `partition_key_paths = ["/id"]`、`throughput = var.cosmos_db_throughput`、`indexing_policy` は `plants` と同じ（`/*`）。一意キーは無し | 無料枠は apply の前にポータルで確認（§1.4） |
 
 ```hcl
@@ -54,34 +54,15 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 
 ### 1.2 ライフサイクル管理（`temp-images` の孤児の軽減）
 
-`docs/09_backlog.md`「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」の対処2をここで入れる。
+**4-7 で消した**（§3.2。`temp-images` が無くなり、ルールがこれだけだったのでポリシー `azurerm_storage_management_policy.main` ごと消した。4-7 の apply までは Azure 上に残る）。
+今のストレージアカウントにライフサイクル管理は無い。`photos` に残った Blob（孤児）は掃除のタイマーが消す（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）。
 
-```hcl
-resource "azurerm_storage_management_policy" "main" {
-  storage_account_id = azurerm_storage_account.main.id
+段階2では、植物図鑑の `upload` が失敗して残した一時 Blob を、`temp-images/` の接頭辞に絞ったルールで最終更新から 1 日で消していた
+（`docs/09_backlog.md` にあった「`upload` で AI の呼び出しが例外で失敗すると、一時保存した Blob が残る」の対処2）。
 
-  rule {
-    name    = "delete-temp-images"
-    enabled = true
-    filters {
-      # 接頭辞で必ず絞る。同じアカウントを AzureWebJobsStorage が使っており、
-      # 絞らないと Functions の鍵やホストの情報（azure-webjobs-secrets など）まで消える
-      prefix_match = ["temp-images/"]
-      blob_types   = ["blockBlob"]
-    }
-    actions {
-      base_blob {
-        delete_after_days_since_modification_greater_than = 1
-      }
-    }
-  }
-}
-```
-
-- **`prefix_match` を付け忘れると、Function App の鍵（`azure-webjobs-secrets`）・`images`・`photos` も消える。** 絶対に絞る
-- ストレージアカウントごとにポリシーは1つ。段階4で `temp-images` を消すときはこのルールも消す
-- 1 日は「アップロードの1リクエスト（5 分）より十分長く、残骸が溜まらない」長さ。SAS の 15 分より長いので、正常な処理の途中で消えることは無い
-- 削除は最大で 1 日程度遅れて実行される（Azure の仕様。推測）
+- 1 日は「アップロードの1リクエスト（5 分）より十分長く、残骸が溜まらない」長さとして決めた。SAS の 15 分より長いので、正常な処理の途中で消えることは無い。掃除のタイマーが孤児の Blob を消すまでに待つ時間（`ORPHAN_BLOB_MIN_AGE_HOURS`）も同じ根拠で 1 日にしている
+- ライフサイクル管理を再び入れるときは、**`prefix_match` で必ず接頭辞を絞る。** 同じアカウントを `AzureWebJobsStorage` が使っており、付け忘れると Function App の鍵（`azure-webjobs-secrets`）・`photos` も消える。
+  ストレージアカウントごとにポリシーは1つで、apply で丸ごと置き換わる
 
 ### 1.3 `app_settings` と `outputs`
 
@@ -91,7 +72,7 @@ resource "azurerm_storage_management_policy" "main" {
 | `PHOTO_STORAGE_CONTAINER_NAME` | `azurerm_storage_container.photos.name` | `PhotoStorageService` |
 | `PHOTO_SAS_EXPIRY_MINUTES` | `"60"` | `photoUrlExpiresOn()`（`services/photoStorageService.ts`） |
 
-既存の `COSMOS_DB_CONTAINER`（`plants`）・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は段階4まで残す。
+植物図鑑の `COSMOS_DB_CONTAINER`（`plants`）・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は段階4まで残し、4-7 で消した（§3.2）。
 検証の上限（`TRIP_NAME_MAX_LENGTH` など）やページの大きさ（`PHOTO_PAGE_SIZE` など）は既定値で動くので `app_settings` には書かない（変えたいときだけ足す）。
 環境変数とコードの定数の一覧は §6。
 
@@ -127,7 +108,7 @@ API 側はデプロイ名を環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`
 `capacity` は 1 単位 = 1,000 トークン/分（TPM）で、`capacity × 1,000 × 1,440 分 × 単価` が1日の費用の上限になる。超えた呼び出しは 429 になり、キューの再試行で翌分以降に流れる。
 
 - 容量の値は今のデプロイのまま（`capacity = 150`）でよい（#17）。段階3の最初の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）で費用が気になれば下げる
-- 植物図鑑の `upload` / `identify` も同じデプロイを使っているので、段階4より前に下げるなら既存の使い方に影響しないことを確かめる
+- 植物図鑑の `upload` / `identify` も同じデプロイを使っていた（4-6 で削除）。今は旅行アルバムの分類と識別だけが使う
 - 容量を下げても止まらず遅くなるだけ
 
 | `app_settings` | 値 |
@@ -176,15 +157,18 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 
 植物図鑑の廃止（[06 §7](./06_processing_design.md#7-今の植物図鑑の統合と廃止段階4) の手順 6）。旧図鑑の植物は移さないと決めたので、移行の確認（手順 3）は無い。アプリと API（手順 4・5）が先に消えていること。
 
-| 削除するもの | 注意 |
+**定義から削除済み（4-7）。apply は人間が行う（4-7 の PR のマージの後）。** apply が済むまでは、下のものは Azure 上に残っている。
+
+| 削除したもの | 注意 |
 |---|---|
-| `azurerm_storage_container.images`・`temp_images` | **`images` の中身が消える。** 移さないと決めたので退避（手順 1）は要らない。手元に残したいときだけ先に退避する |
-| `azurerm_storage_management_policy.main` の `temp-images` のルール | ポリシー自体は残してもよい（ルールが空なら削除） |
-| `azurerm_cosmosdb_sql_container.plants` | 中身が消える。残したいときだけ先に手順 1 の JSON 書き出しをする |
-| `app_settings` の `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` | コード側の参照（`cosmosService.ts`・`storageService.ts`）を先に消す（手順 5。4-6 で消した） |
+| `azurerm_storage_container.images`・`temp_images` | **`images` の中身が消える。** 旧図鑑の植物は移さないと決めたので退避（手順 1）はしない |
+| `azurerm_storage_management_policy.main` | ルールが `temp-images` のもの（§1.2）だけだったので、ポリシーごと消した |
+| `azurerm_cosmosdb_sql_container.plants` | 中身が消える。退避はしない |
+| `app_settings` の `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` | コード側の参照（`cosmosService.ts`・`storageService.ts`）は手順 5（4-6）で消した |
 | `outputs.tf` の `images_container_name`・`temp_images_container_name`・`cosmos_db_container_name` | |
 
-`plan` で `album`・`photos` に replace が出ないことを確かめる。無料枠は `album` 400 だけになる。
+`plan` は「0 to add, 1 to change, 4 to destroy」（Function App の `app_settings` から3つを消す変更と、上の4つのリソースの削除）。`album`・`photos` に replace が出ないことを確かめた。
+無料枠は `album` 400 だけになる（`var.cosmos_db_throughput` を割り当てるコンテナは `album` の1つだけ）。
 
 ## 4. `host.json` の変更
 
@@ -290,7 +274,6 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `geocache` の丸め | 小数3桁（≒ 100 m） | 地名のキャッシュの鍵 | `GeocodingService` | 3・任意 |
 | `host.json` の `extensions.queues` | `batchSize: 1`・`newBatchThreshold: 0`・`maxDequeueCount: 3`・`visibilityTimeout: 00:01:00`・`maxPollingInterval: 00:00:10` | キューの直列化・再試行・待ち時間 | ワーカー（§4） | 3 |
 | タイマーの間隔（`app.timer` の cron。UTC） | 再投入 `0 */10 * * * *`（10 分ごと）、掃除 `0 0 18 * * *`（毎日 UTC 18 時 = 日本時間の午前3時） | | `requeueStalePhotos.ts`・`sweepAlbum.ts` | 3 |
-| ライフサイクルの日数（Terraform） | `1` | `temp-images` の Blob を消すまでの日数 | §1.2 | 2 |
 
 ### 6.3 Flutter 側の定数
 

@@ -18,8 +18,8 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 
 | 項目 | 値 | 根拠 |
 |---|---|---|
-| データベース | `snaplant-db`（既存） | `infrastructure/main.tf` 99〜103行 |
-| コンテナ | **`album`**（新設）。既存の `plants` は段階4まで並存 | 要件 5.8 |
+| データベース | `snaplant-db`（既存） | `infrastructure/main.tf` の `azurerm_cosmosdb_sql_database.main` |
+| コンテナ | **`album`**（新設）。植物図鑑の `plants` は段階4まで並存させ、4-7 で Terraform の定義から消した（4-7 の apply までは Azure 上に残る。[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | 要件 5.8 |
 | パーティションキー | `/id` | 写真が旅行をまたいで移動するため（[02 §4.1](./02_design_overview.md#41-album-を1コンテナ追加しpk-は-id写真の-id-は中身の-sha-256要件-51152)） |
 | スループット | `var.cosmos_db_throughput`（400 RU/s）。専用 | `plants` と同じ形。無料枠は §6 |
 | 一意キー | 無し | PK `/id` では意味が無い。id を決定的に作って `create` の 409 で代替する |
@@ -336,10 +336,10 @@ export const CATALOG_KINDS = {
 | コンテナ | 公開範囲 | 用途 | 段階 |
 |---|---|---|---|
 | `photos`（新設） | `private` | 写真の原寸とサムネイル。読み取りは Blob 単位の SAS（[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
-| `images`（既存） | `blob`（公開） | 植物図鑑の画像。段階4で廃止 | — |
-| `temp-images`（既存） | `private` | `upload` の一時保存。段階2でライフサイクル（1日で削除）を足す。段階4で廃止 | — |
+| `images`（既存） | `blob`（公開） | 植物図鑑の画像。4-7 で Terraform の定義から消した（4-7 の apply までは Azure 上に残る。[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | — |
+| `temp-images`（既存） | `private` | `upload` の一時保存。段階2でライフサイクル（1日で削除）を足した。4-7 でライフサイクルごと Terraform の定義から消した（同上） | — |
 
-コンテナ名は環境変数 `PHOTO_STORAGE_CONTAINER_NAME` から取る（Terraform が作るのは `photos`）。**コードにフォールバックは無い**（`temp-images` の `'temp'` と違い、未設定なら既定のコンテナ名を使わない）。
+コンテナ名は環境変数 `PHOTO_STORAGE_CONTAINER_NAME` から取る（Terraform が作るのは `photos`）。**コードにフォールバックは無い**（未設定なら既定のコンテナ名を使わない。植物図鑑の `temp-images` は未設定なら `'temp'` を使っていた。4-6 で削除）。
 
 ### 4.2 Blob 名
 
@@ -484,7 +484,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 ```
 
 `@type = 'photo'`。1 と 3 は実装済み（4-2a。`services/catalogQueries.ts` の `queryCatalogNameCounts()`・`queryCatalogHead()`。2 と組み立ては `services/catalogEntries.ts`）。
-項目の名前のパラメータは `@name` ではなく `@entryName`（テスト用の Cosmos の偽物は `@name` を植物図鑑の文書の `name` の絞り込みに使うので、`@name` で渡すと偽物が写真をすべて外す。5.7 も同じ名前にする）。
+項目の名前のパラメータは `@name` ではなく `@entryName`（決めた当時、テスト用の Cosmos の偽物は `@name` を植物図鑑の文書の `name` の絞り込みに使っていて、`@name` で渡すと偽物が写真をすべて外したため。偽物のその扱いは 4-6 で消した。5.7 も同じ名前にする）。
 1 の行と 3 の写真から、§3.1 の表のとおり `CatalogEntry`（名前・説明・特徴・属性・信頼度・枚数・表紙）を組み立てる。
 項目の詳細（§5 の 5.7。4-2b で実装済み）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、3 と同じ条件（`@kind`・`matchesKind = true`・`@entryName`）で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。`AlbumService.getCatalogEntry()` は先に見出しを読み、無ければ（その種類と名前の写真が0枚）残りの2本を投げずに項目なし（`entry: null`・`photos: []`）とする。あれば枚数と写真のページを並列に読み、枚数が 0 なら項目なしとする（読む間に写真が消された・名前が変わったときに、見出しだけ残った食い違った項目を返さない）。
 
@@ -517,8 +517,8 @@ Cosmos DB の無料枠は**アカウントで最初の 1000 RU/s と 25 GB**（M
 
 | 時期 | コンテナ | 合計 RU/s | 枠内か |
 |---|---|---|---|
-| 段階2〜4の移行前 | `plants` 400 + `album` 400 | 800 | 1000 なら枠内。400 なら超過（`album` の 400 RU/s 分で月 3,000〜3,500 円程度。100 RU/s あたり 1 時間 $0.008 からの推測） |
-| 段階4の移行後 | `album` 400 | 400 | 枠内 |
+| 段階2〜4-7 の apply の前 | `plants` 400 + `album` 400 | 800 | 1000 なら枠内。400 なら超過（`album` の 400 RU/s 分で月 3,000〜3,500 円程度。100 RU/s あたり 1 時間 $0.008 からの推測） |
+| 4-7 の apply の後（`plants` を消す。[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | `album` 400 | 400 | 枠内 |
 
 `catalog` を別コンテナにすると移行中に 1200 になり枠を超えうるのが、`album` 1コンテナにした理由の1つ。
 データベース共有スループットへの変更は作り直しになる（推測）ので採らない。
@@ -654,12 +654,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 **移行スクリプト**（4-4 で作り、旧図鑑の植物を移さないと決めたので回さずに 4-6 で削除した。[06 §7.1](./06_processing_design.md#71-移行スクリプト手順-2削除した)）。表は削除した。
 
-**ライフサイクル**（[07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減)）
-
-| 失敗 | 残るもの | 利用者から見えるもの | 直り方 |
-|---|---|---|---|
-| `prefix_match` の付け忘れ | Function App の鍵・`photos`・`images` が消える | 全部止まる | **手**（復旧できない）。CI の `validate` では検出できないので、`plan` の差分を目で見る |
-| 削除が1日遅れる（Azure の仕様。推測） | 一時 Blob が長く残る | 無し | 自動 |
+**ライフサイクル**（`temp-images` の Blob を1日で消すルール）は 4-7 で `temp-images` ごと消したので、表は削除した（[07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減)）。
 
 ### 7.2 掃除のタイマー（段階3）
 

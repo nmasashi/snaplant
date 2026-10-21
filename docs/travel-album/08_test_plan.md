@@ -36,7 +36,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 | 拡張 | 中身 | 理由 |
 |---|---|---|
-| `query` の絞り込み | `@type`・`@tripId`（`tripId` が値と厳密に等しいものだけ。未所属は `@tripId = null` で、`tripId` が `null` のものだけ。項目が無いものは含めない。SQL の null の比較自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@entryName`（`identification.kind` / `identification.name` が値と厳密に等しいもの。`identification` が無い・`null` の写真は外れる。**`matchesKind` は見ない**（`matchesKind: false` の写真は名前が `null` なので `@entryName` で外れるが、`@kind` だけの絞り込みには残る）。4-2b で足した。項目の詳細の見出し・枚数・写真のページが使う。項目一覧の `GROUP BY` も `@kind` を渡すが、集計なので絞っても偽物では行を作れない）のパラメータで絞る。項目の名前を `@name` にしないのは、偽物が `@name` を下の `plants` の名前の絞り込みに使うため（[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）。`@name`（`plants` の名前）・`@imagePath` は残す（`type` で使い分ける） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
+| `query` の絞り込み | `@type`・`@tripId`（`tripId` が値と厳密に等しいものだけ。未所属は `@tripId = null` で、`tripId` が `null` のものだけ。項目が無いものは含めない。SQL の null の比較自体は手で確かめる。§5.2）・`@category`（`category` の一致）・`@kind`・`@entryName`（`identification.kind` / `identification.name` が値と厳密に等しいもの。`identification` が無い・`null` の写真は外れる。**`matchesKind` は見ない**（`matchesKind: false` の写真は名前が `null` なので `@entryName` で外れるが、`@kind` だけの絞り込みには残る）。4-2b で足した。項目の詳細の見出し・枚数・写真のページが使う。項目一覧の `GROUP BY` も `@kind` を渡すが、集計なので絞っても偽物では行を作れない）のパラメータで絞る。項目の名前を `@name` にしなかったのは、偽物が `@name` を植物図鑑の `plants` の名前の絞り込みに使っていたため（[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)。偽物の `@name`・`@imagePath` の扱いは植物図鑑と一緒に 4-6 で消した） | サービスはこれらを必ずパラメータで渡す（[04 §5](./04_data_design.md#5-クエリ)）。SQL 文字列は見ない |
 | `query` のページ | `fetchNext()` が `maxItemCount` 件ずつ返し、続きがあれば `continuationToken`（偽物では挿入順の位置を表す文字列）を返す。同じトークンを渡すと続きから返す。`fetchAll()` も残す | 写真一覧のページの切れ目とトークンの受け渡し（[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。`ORDER BY` は解釈しないので、**並び順は挿入順になる**（並びそのものは手で確かめる。§5.2） |
 | 集計クエリ | `COUNT` / `MIN` / `MAX` / `GROUP BY` / `TOP 1 … ORDER BY` は偽物では解釈できない（`TOP 1` は絞り込んだ文書を挿入順で返すので先頭の1枚が見出しになり、`SELECT VALUE COUNT(1)` は数の代わりに文書を返す。項目の詳細の入口のテストは `photoCount` を見ず、見出しになる写真を先に入れる）。集計の SQL は `services/albumQueries.ts`（図鑑は `services/catalogQueries.ts`。4-2a）に集め（SQL 文字列とパラメータの組み立てだけの薄い層。取るに足らないコードとしてテストしない）、集計の行から `TripSummary` / `CatalogEntry` を組み立てる所は純粋関数（`services/tripSummaries.ts`・`services/catalogEntries.ts`）に分け、行を直接渡して単体で確かめる（`albumQueries` を差し替えない。PR 3 で決めた）。SQL 自体は手で確かめる（§5.2・§5.3） | 偽物に SQL の解釈を持ち込まない（CLAUDE.md「偽物は Cosmos SQL を解釈しない」）。集計の行から応答を組み立てる所は単体で確かめられる |
 | `create` の 409 | 同じ `id` があれば `{ code: 409 }` のエラーを投げる（実 SDK の `Conflict`） | 写真の冪等性は `create` の 409 で成り立つ |
@@ -318,7 +318,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 | 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
 | 応答に `_rid` などが出ない | `GET /api/photos/{photoId}` の JSON を目で見る | 余分なキー |
-| ライフサイクル | `temp-images` に Blob を置いて 2 日後に消えている。`photos`・`images`・`azure-webjobs-*` が消えていない | 消えない・消えすぎ |
+| ライフサイクル（4-7 の apply の後は不要） | `temp-images` に Blob を置いて 2 日後に消えている。`photos`・`images`・`azure-webjobs-*` が消えていない。4-7 で `temp-images` とライフサイクル管理を Terraform から消したので、apply の後は確かめるものが無い（[07 §1.2](./07_infrastructure_design.md#12-ライフサイクル管理temp-images-の孤児の軽減)） | 消えない・消えすぎ |
 | 関数の登録 | ポータルの「関数」に、旅行の `listTrips`・`createTrip`・`getTrip`・`updateTrip`・`deleteTrip`（`app.http` の第1引数。ファイル名ではない）と、写真の `listPhotos`・`createPhoto`・`getPhoto`・`deletePhoto`・`updatePhoto`・`movePhotos` がある | 404（`app.ts` の import 忘れ） |
 
 ### 5.3 段階3・4で足すもの
