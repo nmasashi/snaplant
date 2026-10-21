@@ -244,6 +244,7 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
   /// 項目詳細を開く。項目が無くなっていた（写真が0枚）なら、戻ったときに一覧を読み直す（03 §6.2）
   Future<void> _openEntry(CatalogEntry entry) async {
     var vanished = false;
+    CatalogEntry? loaded;
     await Navigator.push(
         context,
         MaterialPageRoute(
@@ -252,8 +253,14 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
                 uploadQueue: widget.uploadQueue,
                 kind: widget.kind,
                 name: entry.name,
-                onEntryVanished: () => vanished = true)));
-    if (vanished && mounted) await _refresh();
+                onEntryVanished: () => vanished = true,
+                onEntryLoaded: (e) => loaded = e)));
+    final changed = loaded != null &&
+        (loaded!.photoCount != entry.photoCount ||
+            loaded!.confidence != entry.confidence ||
+            coverCacheKey(loaded!.coverThumbnailUrl) !=
+                coverCacheKey(entry.coverThumbnailUrl));
+    if ((vanished || changed) && mounted) await _refresh();
   }
 
   void _retryLoadMore() {

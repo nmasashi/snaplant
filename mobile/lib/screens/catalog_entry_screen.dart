@@ -21,7 +21,8 @@ class CatalogEntryScreen extends StatefulWidget {
       required this.uploadQueue,
       required this.kind,
       required this.name,
-      this.onEntryVanished});
+      this.onEntryVanished,
+      this.onEntryLoaded});
 
   final ApiService apiService;
 
@@ -36,6 +37,9 @@ class CatalogEntryScreen extends StatefulWidget {
 
   /// その種類と名前の写真が無い（`entry: null`）と分かったときに呼ぶ。図鑑の一覧は、戻ったときに読み直す
   final VoidCallback? onEntryVanished;
+
+  /// 見出しを読んだたびに、その見出しで呼ぶ。図鑑の一覧は、戻ったときに自分の行と比べて、変わっていれば読み直す
+  final ValueChanged<CatalogEntry>? onEntryLoaded;
 
   @override
   State<CatalogEntryScreen> createState() => _CatalogEntryScreenState();
@@ -78,6 +82,7 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
       return;
     }
     setState(() => _entry = entry);
+    widget.onEntryLoaded?.call(entry);
   }
 
   @override
