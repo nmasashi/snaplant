@@ -322,9 +322,10 @@ void main() {
               confidence: confidence, photoCount: photoCount),
           'coverThumbnailUrl':
               cover ??
-              Uri.parse(headThumbnail)
-                  .replace(query: 'sv=2024-01-01&sig=old')
-                  .toString(),
+              Uri.parse(headThumbnail).replace(queryParameters: {
+                ...Uri.parse(headThumbnail).queryParameters,
+                'sig': 'old',
+              }).toString(),
         };
 
     FakeTripBackend backendWithRow(Map<String, Object?> row) {
@@ -419,9 +420,8 @@ void main() {
       await letFramesRun(tester);
       await tester.pageBack();
       await letFramesRun(tester);
-      // ビューアから戻った後の読み直しが届いて、見出しを出し直した
+      // ビューアから戻った後の読み直しが届いた（見出しが一覧に届いたかは、最後の読み直さないことで確かめる）
       expect(backend.catalogEntryQueriesReceived, hasLength(2));
-      expect(find.text('3枚'), findsOneWidget);
 
       await tester.pageBack();
       await letFramesRun(tester);
@@ -439,7 +439,10 @@ void main() {
       await tester.drag(find.byType(GridView), const Offset(0, 300));
       await letFramesRun(tester);
       // 引っ張った読み直しが失敗した（見出しとグリッドは出したまま、エラーをスナックバーに出す）
+      expect(find.byType(SnackBar), findsOneWidget);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('エラーが発生しました'), findsNothing);
+      expect(find.text('3枚'), findsOneWidget);
 
       await tester.pageBack();
       await letFramesRun(tester);
