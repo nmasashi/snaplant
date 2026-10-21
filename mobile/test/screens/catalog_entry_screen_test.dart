@@ -376,6 +376,57 @@ void main() {
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
     });
+
+    testWidgets('項目詳細を一度も読めずに（取得に失敗して）戻ったら、一覧を読み直さない', (tester) async {
+      final backend = backendWithRow(listRow());
+      backend.failNext(TripRoute.catalogEntry);
+      await _openEntry(tester, backend);
+      expect(find.text('エラーが発生しました'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0]);
+    });
+
+    testWidgets('写真ビューアから戻った後の読み直しに失敗したら、一覧に戻ると一覧を読み直す（写真が変わったかが分からない）',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      backend.failNext(TripRoute.catalogEntry);
+      await tester.pageBack();
+      await letFramesRun(tester);
+      expect(find.text('エラーが発生しました'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      semantics.dispose();
+    });
+
+    testWidgets('写真ビューアから戻った後の読み直しの途中で一覧に戻っても、一覧を読み直す', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = backendWithRow(listRow());
+      await _openEntry(tester, backend);
+      await tester.tap(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      final reply = backend.holdNextReply(TripRoute.catalogEntry);
+      await tester.pageBack();
+      await letFramesRun(tester);
+      expect(find.text('項目を読み込み中...'), findsOneWidget);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+
+      expect(backend.catalogOffsetsReceived, [0, 0]);
+      reply.complete();
+      await letFramesRun(tester);
+      semantics.dispose();
+    });
   });
 
   testWidgets('取得に失敗したら、エラーと「再試行」を出し、再試行で読み直す', (tester) async {
