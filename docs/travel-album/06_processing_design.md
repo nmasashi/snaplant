@@ -200,13 +200,14 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
   confidence: number,              // 0〜100（範囲はコードで検証）
   description: string | null,      // 種類の説明
   characteristics: string | null,  // 見た目の特徴（一言）
-  comment: string,                 // この写真への一言。確証が無いときは「〇〇の可能性もある」と補足
+  comment: string,                 // 写っているものについての一言。確証が無いときは「〇〇の可能性もある」と補足。手がかり・追加情報・識別の過程には触れない
   attributes: { <CATALOG_KINDS[kind].fields から> }
 }
 ```
 
 - スキーマは `kind` ごとに定義表から組み立てる（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）。`attributes` の各項目は `required` に入れ、任意は `["string","null"]`、`string[]` は `["array","null"]`
 - `candidates` は無い。プロンプトで「候補を列挙せず1つに決める。信頼度が低いときは `comment` で補足する」と指示する
+- `comment` は写真ビューアに出て、後で見返すときに読む文なので、プロンプトで「写っているものについての一言にし、手がかり・追加情報・識別の過程（「手がかりと一致する」など）には触れない」と指示する（2026-10-22。実機で「手がかりの『ジャンダルム』と、写真中央の特徴的な岩峰が一致します。」のようなコメントが出て、時間がたつと手がかりが何のことか分からなかった）。指示の文言は契約外
 - 命名規則は定義表の `namingRule` をプロンプト本文に入れる
 - 手がかりは植物図鑑の識別のプロンプトの `contextSection`（4-6 で削除）と同じ形で渡す:
 
