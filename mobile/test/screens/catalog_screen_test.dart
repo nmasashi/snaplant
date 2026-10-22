@@ -49,6 +49,24 @@ void main() {
     expect(find.text('味噌ラーメン'), findsNothing);
   });
 
+  testWidgets('種類のタブの文字は、選んでいるタブは白、選んでいないタブは薄い白で出す（見出しの緑の上で読めるように）',
+      (tester) async {
+    await openCatalogTab(tester, _backend());
+    // 先頭以外を選ぶ（開いた直後は「選んでいるタブ」と「先頭のタブ」の区別がつかないため）
+    await tester.tap(_kindTab('食べ物'));
+    await letFramesRun(tester);
+
+    Color? colorOf(String label) => tester
+        .widget<RichText>(
+            find.descendant(of: _kindTab(label), matching: find.byType(RichText)))
+        .text
+        .style
+        ?.color;
+    expect(colorOf('食べ物'), Colors.white);
+    expect(colorOf('植物'), Colors.white70);
+    expect(colorOf('風景'), Colors.white70);
+  });
+
   testWidgets('種類のタブの表示名と順は、アプリの表ではなく種類の一覧の応答に従う', (tester) async {
     // 種類はサーバの定義表が決める（05 §5.14）。応答に無い種類のタブは出さない
     final backend = _backend()

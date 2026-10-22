@@ -91,8 +91,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
         appBar: AppBar(
           title: const Text('図鑑'),
           actions: appBarActions,
-          bottom:
-              TabBar(tabs: [for (final kind in kinds) Tab(text: kind.label)]),
+          // 見出しの緑の上に出すので、文字を白にする（既定では選んでいるタブの文字が見出しと同じ緑になって見えない。03 §6.1）。
+          // 下線の色は仕様に無い見た目の判断で、文字に合わせて白にしている
+          bottom: TabBar(
+              labelColor: AppColors.textOnPrimary,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: AppColors.textOnPrimary,
+              tabs: [for (final kind in kinds) Tab(text: kind.label)]),
         ),
         // タブを切り替えると、離れたタブの一覧は破棄され、戻ると先頭から読み直す（03 §6.1）
         body: TabBarView(
