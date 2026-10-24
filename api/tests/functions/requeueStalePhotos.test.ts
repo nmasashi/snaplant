@@ -256,6 +256,22 @@ describe('再投入のタイマー', () => {
       expect(queuedTimelines()).toEqual([]);
     });
 
+    it('写真の再投入で失敗しても、タイムラインの下書きは積み直し、最後に失敗を投げる', async () => {
+      // 写真の側の障害（1枚の書き込みの失敗など）で、止まった下書きがいつまでも積み直されない、ということにしない
+      cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+      const photoError = Object.assign(new Error('something went wrong'), { code: 500 });
+      cosmosBackend.forcedErrorById = { [photoId('a')]: photoError };
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+
+      await expect(requeueStalePhotosHandler(timer, mockContext)).rejects.toBe(photoError);
+
+      expect(storedTimeline().draft.job).toEqual({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW });
+      expect(queuedTimelines()).toEqual([{ tripId: TRIP_ID, draftId: DRAFT_ID }]);
+    });
+
     it('下書きの無いタイムラインは拾わない', async () => {
       const timeline = timelineDocument(TRIP_ID);
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
