@@ -201,7 +201,7 @@ void main() {
       });
     }
 
-    // 502（上流のストレージがエラーを返した）は写真の送信が返す（docs/travel-album/05_api_design.md §5.1）。
+    // 502（上流のストレージがエラーを返した）は写真の送信が返す（docs/05_api_design.md §5.1）。
     // 写真の送信は MultipartRequest を送って http.Response.fromStream で応答を作るので、
     // JSON の要求とはエラーを例外にする経路が別。表には入れず、実際に 502 が返る経路で再現する
     test('502は上流がエラーを返した状態なので同じ操作の繰り返しを促さない', () async {

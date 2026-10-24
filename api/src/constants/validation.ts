@@ -146,7 +146,7 @@ const CATALOG_NAME_MAX_LENGTH = 100;
 // 旅行アルバムの図鑑の項目（段階4）
 export const CATALOG_VALIDATION = {
   // 項目の名前（識別の identification.name）の最大文字数。識別の応答の検証と、図鑑の項目を名前で開く API の検証で同じ値を使う
-  // （docs/travel-album/04_data_design.md §3.1）。AI が返す値なので環境変数では変えない
+  // （docs/04_data_design.md §3.1）。AI が返す値なので環境変数では変えない
   NAME_MAX_LENGTH: CATALOG_NAME_MAX_LENGTH,
   // 項目の一覧（GET /api/catalog/entries）の1ページの件数（既定と上限）
   PAGE_SIZE: positiveIntFromEnv(process.env.CATALOG_PAGE_SIZE, 50),

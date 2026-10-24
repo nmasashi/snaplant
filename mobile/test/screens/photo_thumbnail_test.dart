@@ -10,7 +10,7 @@ import 'package:snaplant_mobile/services/upload_queue.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 写真のサムネイル1枚の表示を、旅行詳細画面を通して確かめる（docs/travel-album/03_screen_design.md §3）。
+// 写真のサムネイル1枚の表示を、旅行詳細画面を通して確かめる（docs/03_screen_design.md §3）。
 // 画像の取得は cached_network_image（flutter_cache_manager）が端末のディレクトリとファイルを使う。
 // テスト環境では端末の機能（path_provider）が無いので、プラットフォーム層を一時ディレクトリに差し替える。
 // 画像の HTTP は flutter_test が必ず 400 を返すため、サムネイルは「読み込めない」状態になる。

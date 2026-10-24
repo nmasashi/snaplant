@@ -20,7 +20,7 @@ function photoIdOfBlob(blobName: string): string | null {
 /**
  * 掃除のタイマー（1日1回、日本時間の午前3時）
  *
- * 途中で止まった操作の残骸を片付ける（docs/travel-album/04_data_design.md §7.2）。
+ * 途中で止まった操作の残骸を片付ける（docs/04_data_design.md §7.2）。
  * 1. 写真の文書の無い Blob のうち、1日より古いものを消す
  * 2. 消えた旅行を指す写真を、どの旅行にも属さない写真に戻す（消さない）
  * 3. 原寸の Blob の無い写真の文書をログに出す（消さない。手で直す）

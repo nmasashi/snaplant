@@ -1,4 +1,4 @@
-/// 旅行（作成・更新の応答。集計は付かない。docs/travel-album/05_api_design.md §3.1）
+/// 旅行（作成・更新の応答。集計は付かない。docs/05_api_design.md §3.1）
 class Trip {
   final String id;
   final String name;
@@ -15,7 +15,7 @@ class Trip {
   }
 }
 
-/// 写真から導いた集計を足した旅行（一覧・詳細の応答。docs/travel-album/05_api_design.md §3.2）
+/// 写真から導いた集計を足した旅行（一覧・詳細の応答。docs/05_api_design.md §3.2）
 ///
 /// 枚数・撮影期間・表紙はサーバが写真から導いて返す（旅行のドキュメントには保存されない）
 class TripSummary {

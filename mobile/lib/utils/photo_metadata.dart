@@ -1,7 +1,7 @@
 import 'package:exif/exif.dart';
 import 'package:flutter/foundation.dart';
 
-/// 写真の EXIF から読んだ撮影日時と位置（docs/travel-album/03_screen_design.md §4.7「準備」）
+/// 写真の EXIF から読んだ撮影日時と位置（docs/03_screen_design.md §4.7「準備」）
 class PhotoMetadata {
   const PhotoMetadata({this.takenAt, this.latitude, this.longitude});
 

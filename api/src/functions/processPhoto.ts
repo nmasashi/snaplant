@@ -14,7 +14,7 @@ import { enqueuePhotoOrLog } from '../services/photoQueueService';
  * 写真の解析のワーカー（キュー photo-processing のメッセージ `{ photoId }` で動く）
  *
  * メッセージは「この写真を見ろ」という合図だけで、やる処理は写真の processing から読む
- * （docs/travel-album/06_processing_design.md §1）
+ * （docs/06_processing_design.md §1）
  */
 export async function processPhotoHandler(message: unknown, context: InvocationContext): Promise<void> {
   const photoId = photoIdOf(message);

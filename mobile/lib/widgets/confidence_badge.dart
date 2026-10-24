@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
-/// 図鑑の項目の信頼度のバッジ（「92%」。四捨五入した整数。色は植物図鑑と同じ4段階。docs/travel-album/03_screen_design.md §6.1・§6.2）
+/// 図鑑の項目の信頼度のバッジ（「92%」。四捨五入した整数。色は植物図鑑と同じ4段階。docs/03_screen_design.md §6.1・§6.2）
 class ConfidenceBadge extends StatelessWidget {
   const ConfidenceBadge({super.key, required this.confidence});
 

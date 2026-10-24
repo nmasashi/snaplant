@@ -69,7 +69,7 @@ resource "azurerm_storage_container" "photos" {
 
 # 旅行アルバムの写真の処理（段階3の分類・段階4の識別）のキュー。API の写真の送信が { photoId } を入れ、ワーカーが1件ずつ取る。
 # 3回失敗した要求は Functions が自動で作る photo-processing-poison に落ちる（host.json の maxDequeueCount）。
-# docs/travel-album/07_infrastructure_design.md §2・06_processing_design.md §1
+# docs/07_infrastructure_design.md §2・06_processing_design.md §1
 resource "azurerm_storage_queue" "photo_processing" {
   name               = "photo-processing"
   storage_account_id = azurerm_storage_account.main.id
@@ -95,7 +95,7 @@ resource "azurerm_cosmosdb_account" "main" {
   }
 
   # 無料枠を有効化。コンテナ（album）ごとに cosmos_db_throughput を確保するので、
-  # 合計 RU/s が無料枠を超えないこと（docs/travel-album/04_data_design.md §6）
+  # 合計 RU/s が無料枠を超えないこと（docs/04_data_design.md §6）
   free_tier_enabled = true
 
   tags = var.tags
@@ -110,7 +110,7 @@ resource "azurerm_cosmosdb_sql_database" "main" {
 
 # 旅行アルバムの Cosmos DB コンテナ。旅行と写真を type で区別して置く。
 # 写真が旅行をまたいで移動するので、PK は tripId ではなく /id。
-# コンテナごとに RU/s を確保するため、種類ごとに分けず1つにまとめている（docs/travel-album/04 §6）
+# コンテナごとに RU/s を確保するため、種類ごとに分けず1つにまとめている（docs/04 §6）
 resource "azurerm_cosmosdb_sql_container" "album" {
   name                = "album"
   resource_group_name = azurerm_resource_group.main.name
@@ -128,7 +128,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 
     # 図鑑の見出しの写真（信頼度が最も高く、同点なら識別の日時が新しいもの）を TOP 1 で引くため。
     # 2項目の ORDER BY は複合インデックスが無いと失敗するので、図鑑の API より先に apply する
-    # （docs/travel-album/07_infrastructure_design.md §3.1）
+    # （docs/07_infrastructure_design.md §3.1）
     composite_index {
       index {
         path  = "/identification/confidence"
@@ -244,7 +244,7 @@ resource "azurerm_cognitive_account" "openai" {
 # GPT-6 Luna モデルのデプロイ (Vision機能含む)。植物の識別と、旅行アルバムの分類・識別に使う
 # （2026-10-17 に gpt-5.6-luna から切り替え。GPT-6 系で一番安く、提供の終了も 2028-03-11 と遅い。
 #  分類と識別を別のモデルにするときは、分類用のデプロイを足して AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME に書く。
-#  docs/travel-album/07_infrastructure_design.md §2）
+#  docs/07_infrastructure_design.md §2）
 # 注: Standard SKU は無いので GlobalStandard を使用
 resource "azurerm_cognitive_deployment" "gpt6_luna" {
   name                 = "gpt-6-luna"

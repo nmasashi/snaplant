@@ -14,7 +14,7 @@ SnapPlant は Azure Functions を使用した旅行アルバム（写真の分�
 
 植物図鑑の API は 4-6 で削除し、植物図鑑が使っていた Cosmos DB の `plants` コンテナ、Blob の `images`・`temp-images` コンテナ、
 `temp-images` のライフサイクル管理、Function App の環境変数 `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は
-4-7 で Terraform から消しました（`docs/travel-album/07_infrastructure_design.md` §3.2）。
+4-7 で Terraform から消しました（`docs/07_infrastructure_design.md` §3.2）。
 **4-7 の `apply` が済むまでは、これらは Azure 上にまだ残っています**（`apply` で消え、コンテナの中身も消える。旧図鑑の植物は移さない）。
 
 ## 初回セットアップ
@@ -247,7 +247,7 @@ Application Insights の2つは `site_config` の `application_insights_key` / `
 プロバイダ自身が管理するため、`app_settings` に直接書かない）。
 ローカル開発では `api/local.settings.json` の `Values` に同じキーを置きます。
 Terraform が設定しない任意の設定（分類用のデプロイ名 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、入力検証の上限など）と、
-キューの接続に使う `AzureWebJobsStorage` を含む一覧は `docs/travel-album/07_infrastructure_design.md` §6.1 にあります。
+キューの接続に使う `AzureWebJobsStorage` を含む一覧は `docs/07_infrastructure_design.md` §6.1 にあります。
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
@@ -256,7 +256,7 @@ Terraform が設定しない任意の設定（分類用のデプロイ名 `AZURE
 
 `AZURE_OPENAI_ENDPOINT` を設定して送り先のデプロイ名を設定しない（空文字列・空白だけを含む）と、写真の解析のワーカーは
 AI 識別サービスを呼ばずに失敗し、写真の解析は内部の失敗（`processing.lastError: "internal"`）として数えられます
-（上限の回数で `failed`。`docs/travel-album/06_processing_design.md` §2.1・§5）。HTTP の応答には現れません。
+（上限の回数で `failed`。`docs/06_processing_design.md` §2.1・§5）。HTTP の応答には現れません。
 Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定するので、手で設定するローカル開発で踏みやすい設定です。API キーが無いなど、`openai` SDK がクライアントを作れない設定も同じ扱いです。
 
 `AZURE_OPENAI_ENDPOINT` が設定されている場合（Azure）の要求先は
@@ -268,7 +268,7 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定するので、手�
 ### 検証の上限値の上書き
 
 `api/src/constants/validation.ts` の上限値は、環境変数で上書きできる（`MAX_FILE_SIZE`、`TRIP_NAME_MAX_LENGTH`、
-`CONTEXT_INFO_MAX_LENGTH` など。一覧は同ファイルと `docs/travel-album/07_infrastructure_design.md` §6.1）。エラーメッセージも同じ値から文字数を埋め込んで作るので、
+`CONTEXT_INFO_MAX_LENGTH` など。一覧は同ファイルと `docs/07_infrastructure_design.md` §6.1）。エラーメッセージも同じ値から文字数を埋め込んで作るので、
 値を変えるとメッセージも追従する。正の整数として読めない値は既定値になる。
 
 ### `STORAGE_CONNECTION_STRING` の制約
@@ -276,7 +276,7 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定するので、手�
 写真の保存先（`PhotoStorageService`。`api/src/services/photoStorageService.ts`）は、接続文字列の `AccountName` と `AccountKey` で
 写真の読み取り SAS に署名します。どちらかが無い（または `PHOTO_STORAGE_CONTAINER_NAME` が無い）と、サービスを作る時点で
 `写真の保存先の設定（アカウント名・鍵・コンテナ名）が足りません` で例外を投げ、写真の保存先を使うエンドポイントは
-500 `INTERNAL_ERROR` になります（`message` はエンドポイントごとの文言。`docs/travel-album/05_api_design.md` §7.2）。
+500 `INTERNAL_ERROR` になります（`message` はエンドポイントごとの文言。`docs/05_api_design.md` §7.2）。
 
 `EndpointSuffix` は必須です。省くと Azure SDK（`BlobServiceClient.fromConnectionString`）が
 `Invalid EndpointSuffix in the provided Connection String` で接続文字列を拒否し、同じく写真の保存先を使う処理が失敗します。

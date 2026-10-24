@@ -4,7 +4,7 @@ import { endpointHost, loadLocalSettings } from './scriptSettings';
 
 /**
  * 段階3で分類まで済んだ写真（図鑑の種類で、識別の無いもの）を、識別の待ちにする一度だけのスクリプト
- * （docs/travel-album/06_processing_design.md §1、02 §5 #30）
+ * （docs/06_processing_design.md §1、02 §5 #30）
  *
  * キューには積まない。識別の待ちにした写真は、再投入のタイマーが 10〜20 分後に積む（待ちのまま 10 分たった写真を拾う）。
  * 手元から本番のキューにつながなくて済む（手元の設定の AzureWebJobsStorage はローカルの偽物を指していることがある）

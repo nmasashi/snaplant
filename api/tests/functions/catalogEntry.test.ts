@@ -10,7 +10,7 @@ import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物（図鑑の種類と名前は @kind・@entryName で絞る）。
 // 偽物は ORDER BY と COUNT を解釈しないので、見出しの写真の選び方（信頼度の降順）・写真の並び（sortAt）・枚数（photoCount）は
-// ここでは見ない（デプロイ後に手で確かめる。docs/travel-album/08_test_plan.md §5.3）。
+// ここでは見ない（デプロイ後に手で確かめる。docs/08_test_plan.md §5.3）。
 // SAS の署名に使う関数は、固定のトークンを返す形に差し替える（署名の中身は photos.test.ts が実 SDK で見ている）
 jest.mock('@azure/cosmos');
 jest.mock('@azure/storage-blob', () => ({

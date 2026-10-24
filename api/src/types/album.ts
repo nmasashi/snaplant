@@ -4,7 +4,7 @@ import { CatalogKind } from '../catalog/kinds';
  * 旅行アルバムの型定義
  *
  * 旅行と写真は Cosmos DB の album コンテナに type で区別して置く
- * （docs/travel-album/04_data_design.md §1）。
+ * （docs/04_data_design.md §1）。
  */
 
 /** 旅行（API の応答の形） */
@@ -110,7 +110,7 @@ export interface Photo extends PhotoFields {
   thumbnailUrl: string | null;
 }
 
-/** 図鑑の項目（識別済みの写真を種類と名前でまとめたもの。docs/travel-album/05_api_design.md §3.3.1） */
+/** 図鑑の項目（識別済みの写真を種類と名前でまとめたもの。docs/05_api_design.md §3.3.1） */
 export interface CatalogEntry {
   kind: string;
   name: string;

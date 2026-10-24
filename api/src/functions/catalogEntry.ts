@@ -11,7 +11,7 @@ import { PHOTO_VALIDATION } from '../constants/validation';
  * 図鑑の項目の詳細 API（項目の見出しと、その写真の1ページ）
  * GET /api/catalog/entry?kind={kind}&name={name}&limit={limit}&continuationToken={token}&code={FUNCTION_KEY}
  *
- * 項目は種類と名前で指定する（名前はクエリ文字列に URL エンコードして載せる。docs/travel-album/05_api_design.md §5.14）。
+ * 項目は種類と名前で指定する（名前はクエリ文字列に URL エンコードして載せる。docs/05_api_design.md §5.14）。
  * 該当する写真が無ければ 200 で entry: null（項目は文書ではなく「その写真が0枚」に過ぎないので 404 にしない）
  */
 export async function getCatalogEntryHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {

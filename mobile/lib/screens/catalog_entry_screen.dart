@@ -11,7 +11,7 @@ import '../widgets/photo_grid.dart';
 import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
 
-/// 図鑑の項目詳細（見出しと、その項目の写真。docs/travel-album/03_screen_design.md §6.2）
+/// 図鑑の項目詳細（見出しと、その項目の写真。docs/03_screen_design.md §6.2）
 ///
 /// 図鑑の一覧の項目の行から開く。見出しは1ページ目の応答の `entry` で出し、続きのページの応答では書き換えない
 class CatalogEntryScreen extends StatefulWidget {

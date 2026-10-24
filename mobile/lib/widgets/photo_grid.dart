@@ -14,7 +14,7 @@ import '../utils/taken_at.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
 
-/// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
+/// 写真のサムネイルのグリッド（docs/03_screen_design.md §3・§4.4）
 ///
 /// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・図鑑の項目詳細で使う
 class PhotoGrid extends StatefulWidget {
@@ -528,7 +528,7 @@ class _PhotoTile extends StatelessWidget {
     final inProgress = isProcessingInProgress(photo.processingState);
     final failed = isProcessingFailed(photo.processingState);
     return Semantics(
-      // 分類の印は読み上げにも足す（docs/travel-album/03_screen_design.md §5.5）
+      // 分類の印は読み上げにも足す（docs/03_screen_design.md §5.5）
       label: formatTakenAt(photo.takenAt) +
           (inProgress
               ? '、分類中'
@@ -598,7 +598,7 @@ class _PhotoTile extends StatelessWidget {
   }
 }
 
-/// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/travel-album/03_screen_design.md §4.4）
+/// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/03_screen_design.md §4.4）
 class _PendingTile extends StatelessWidget {
   const _PendingTile({required this.item, required this.state});
 

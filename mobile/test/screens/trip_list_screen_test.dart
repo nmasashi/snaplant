@@ -9,7 +9,7 @@ import '../helpers/gallery_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // アプリ全体を開き、旅行タブの旅行一覧の利用者から見た振る舞いを確かめる
-// （docs/travel-album/03_screen_design.md §3・§4.2〜§4.4）。
+// （docs/03_screen_design.md §3・§4.2〜§4.4）。
 // 旅行の API は偽のサーバ（helpers の FakeTripBackend）で差し替える。偽のサーバは API キーを照合するので、
 // 端末に保存したキー（ここでは FakeTripBackend の既定の 'saved-key'）で通信しているかも確かめられる。
 // 起動時の図鑑タブも同じ偽のサーバが返すが、旅行タブを開いている間は隠れていて、旅行タブの表示に影響しない

@@ -11,7 +11,7 @@ const STALE_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifyi
  * 再投入のタイマー（10 分ごと）
  *
  * 解析待ち・処理中のまま止まった写真（投入に失敗した、処理中に落ちた、メッセージが poison に落ちた）を拾い、
- * 解析待ちに戻してキューに積む。回数が上限なら積まずに失敗にする（docs/travel-album/06_processing_design.md §1）
+ * 解析待ちに戻してキューに積む。回数が上限なら積まずに失敗にする（docs/06_processing_design.md §1）
  */
 export async function requeueStalePhotosHandler(_timer: Timer, context: InvocationContext): Promise<void> {
   const now = new Date();

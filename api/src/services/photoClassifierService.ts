@@ -8,7 +8,7 @@ const KIND_LABELS = Object.entries(CATALOG_KINDS)
   .join('・');
 
 /**
- * 分類の応答の形（Structured Outputs。docs/travel-album/06_processing_design.md §2.2）
+ * 分類の応答の形（Structured Outputs。docs/06_processing_design.md §2.2）
  *
  * 選択肢は定義表の種類と other から組み立てる（定義表に種類を足すと追従する）。
  * strict モードでは minimum / maximum を書けないので、信頼度の 0〜100 はコードで検査する

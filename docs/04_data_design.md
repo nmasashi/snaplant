@@ -3,8 +3,7 @@
 ## この文書の位置づけ
 
 旅行アルバムの Cosmos DB と Blob Storage のデータの形、クエリ、無料枠と RU の見積もりを書く。
-書き方は [docs/04_database_design.md](../04_database_design.md)（実装の写し）に合わせる。**未実装を含む目指す姿**で、
-実装した部分は `docs/04_database_design.md` へ取り込む（開発中はこの一式を正として都度直し、取り込みは機能が固まってから後でまとめて行う。2026-10-12 に人間が決定）。
+**未実装を含む目指す姿**で、実装した部分には「実装済み」の印を付ける（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/travel-album/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
 
 API から見た形（応答に出す項目・SAS 付き URL）は [05_api_design.md](./05_api_design.md)、裏の処理が書き込む項目の遷移は
 [06_processing_design.md](./06_processing_design.md)、Terraform の定義は [07_infrastructure_design.md](./07_infrastructure_design.md) を参照する。
@@ -775,7 +774,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 ### 7.2 掃除のタイマー（段階3）
 
-**実装済み**（3-3b）。`api/src/functions/sweepAlbum.ts`。`app.timer('sweepAlbum')`、1日1回、日本時間の午前3時（cron は UTC で `0 0 18 * * *`）。`requeueStalePhotos` と同じ PR で入れた（[09 §3](./09_implementation_plan.md#3-段階3の-pr-の骨格)）。
+**実装済み**（3-3b）。`api/src/functions/sweepAlbum.ts`。`app.timer('sweepAlbum')`、1日1回、日本時間の午前3時（cron は UTC で `0 0 18 * * *`）。`requeueStalePhotos` と同じ PR で入れた（[09 §3](./11_implementation_plan.md#3-段階3の-pr-の骨格)）。
 
 順: 全写真の薄い射影（§5 の 5.9）→ 旅行の id の一覧 → `photos` コンテナの Blob の列挙。**写真の文書を Blob より先に読む**（読んだ後に送られた写真の Blob は新しいので、1 では消えない）。
 写真の文書・旅行の一覧を読めなければ、Blob を1つも消さずに例外を投げる（文書の無い Blob と取り違えない。次の回にやり直す）。

@@ -38,7 +38,7 @@ Map<String, Object?> tripJson({
   };
 }
 
-/// 写真（Photo。docs/travel-album/05_api_design.md §3.3）の JSON を作る。
+/// 写真（Photo。docs/05_api_design.md §3.3）の JSON を作る。
 /// [number] から 64 桁の小文字16進の id を作る（実際の id は画像の SHA-256）。サムネイルの URL は SAS 付きの形にする。
 /// [takenAt] はタイムゾーン無しの撮影日時（`2026-10-05T12:30:15`）。[hasThumbnail] が false ならサムネイルが無い写真（thumbnailUrl が null）
 Map<String, Object?> photoJson({
@@ -149,7 +149,7 @@ enum TripRoute {
 ///   `thumbnail` パートがあれば `thumbnailUrl` を入れ（無ければ null）、バイト列は [thumbnailsByPhotoId] に残す。サムネイルの検証（ファイルでない・形式・空・[thumbnailMaxSize] 超え）も実際のサーバと同じ。
 ///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `POST /api/photos/{photoId}/process` は、写真を分類の待ち（`pending`・`classify`・回数 0・時刻は [processAcceptedAt]）にし、
-///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/travel-album/05_api_design.md §5.7）。
+///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/05_api_design.md §5.7）。
 ///   `step` は `processing.step` に書く。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
 /// - `PATCH /api/photos/{photoId}` はコメントだけを書き換える（前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`）。
 ///   200 で `{ photo, urlExpiresAt }`。`comment` のキーが無い・文字列でも null でもない・500 文字を超えるなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）
@@ -260,7 +260,7 @@ class FakeTripBackend {
   final List<String?> deletePhotosSent = [];
 
   /// 写真の送信（`POST /api/photos`）の要求が届いた回数（応答を保留する前に数える）。
-  /// 要求が届くまで待つ印として使う。届いた要求の数そのものが仕様（docs/travel-album/03_screen_design.md §4.7）の振る舞いであるときは、検証にも使う
+  /// 要求が届くまで待つ印として使う。届いた要求の数そのものが仕様（docs/03_screen_design.md §4.7）の振る舞いであるときは、検証にも使う
   /// （送り直しの回数と間隔、404 の後に残りを送らないこと）。送れたかどうかは、写真が偽のサーバに入ったことで見る
   int uploadsReceived = 0;
 
@@ -276,7 +276,7 @@ class FakeTripBackend {
   static const thumbnailMaxSize = 1048576;
 
   /// 写真の送信で受け取ったサムネイルのバイト列（キーは写真の id）。写真を新しく保存したときだけ入る
-  /// （既にある id の再送では、サムネイルを足さない。docs/travel-album/05_api_design.md §5.1 の 3）
+  /// （既にある id の再送では、サムネイルを足さない。docs/05_api_design.md §5.1 の 3）
   final Map<String, List<int>> thumbnailsByPhotoId = {};
 
   // 次の呼び出しの失敗を、届いた時点で作る（応答を返すものと、通信が切れて例外になるもの）
@@ -549,7 +549,7 @@ class FakeTripBackend {
     final query = request.url.queryParameters;
     final tripId = query['tripId'];
     final category = query['category'];
-    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.2 の 1・3・6）
+    // 実際のサーバの検証の順（docs/05_api_design.md §5.2 の 1・3・6）
     if (tripId == null && category == null) return _error(400, 'INVALID_REQUEST', '絞り込み条件を指定してください');
     if (category != null && !const ['plant', 'food', 'landscape', 'other'].contains(category)) {
       return _error(400, 'INVALID_REQUEST', 'カテゴリが無効です');
@@ -608,7 +608,7 @@ class FakeTripBackend {
     return later >= 0 ? later : photos.length;
   }
 
-  /// `POST /api/photos`（multipart。docs/travel-album/05_api_design.md §5.1）。
+  /// `POST /api/photos`（multipart。docs/05_api_design.md §5.1）。
   /// 写真の id（`photoId`）は画像のバイト列の SHA-256 でなければ 400 にする（実際のサーバと同じ。クライアントが正しいハッシュを送ったかを結果で見るため）。
   /// 既にある id は、動かさずに 200 で既存を返す（冪等）。無ければ、宛先（`tripId` が無ければ `none`）の末尾に足し、枚数を増やして 201 を返す
   http.Response _uploadPhoto(http.Request request) {
@@ -618,7 +618,7 @@ class FakeTripBackend {
     final parts = _parseMultipart(request);
     final photoId = parts['photoId']?.text;
     final image = parts['image'];
-    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.1）のうち、クライアントが取り違えうるもの。
+    // 実際のサーバの検証の順（docs/05_api_design.md §5.1）のうち、クライアントが取り違えうるもの。
     // 値が無いときはパートごと省く。空文字のパートは「指定あり」として検証され、400 になる
     if (photoId == null || photoId.isEmpty) return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
     if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
@@ -747,7 +747,7 @@ class FakeTripBackend {
   http.Response _processPhoto(http.Request request) {
     final photoId = request.url.pathSegments[2];
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
-    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.7 の 1〜6）。写真の有無は検証の後に見る
+    // 実際のサーバの検証の順（docs/05_api_design.md §5.7 の 1〜6）。写真の有無は検証の後に見る
     if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
     final Object? body;
     try {
@@ -787,7 +787,7 @@ class FakeTripBackend {
   http.Response _updatePhoto(http.Request request) {
     final photoId = request.url.pathSegments[2];
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
-    // 実際のサーバの検証の順（docs/travel-album/05_api_design.md §5.6 の 1〜6・10。タグは送らないので検証しない）
+    // 実際のサーバの検証の順（docs/05_api_design.md §5.6 の 1〜6・10。タグは送らないので検証しない）
     if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
     final Object? body;
     try {
@@ -815,7 +815,7 @@ class FakeTripBackend {
     final photoIds = (body['photoIds'] as List<dynamic>).cast<String>();
     final tripId = body['tripId'] as String?;
     final targetKey = tripId ?? 'none';
-    // 実際のサーバと同じ上限と順（検証が先、旅行の有無が後。docs/travel-album/05_api_design.md §5.5）
+    // 実際のサーバと同じ上限と順（検証が先、旅行の有無が後。docs/05_api_design.md §5.5）
     if (photoIds.isEmpty) {
       return _error(400, 'INVALID_REQUEST', '写真IDが指定されていません');
     }

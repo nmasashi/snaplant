@@ -8,7 +8,7 @@ import { readCatalogEntriesQuery } from '../utils/catalogInput';
  * 図鑑の項目の一覧 API（種類ごと。名前順に offset / limit でページに切る）
  * GET /api/catalog/entries?kind={kind}&offset={offset}&limit={limit}&code={FUNCTION_KEY}
  *
- * 項目は文書ではなく、識別済みの写真を名前でまとめたもの（docs/travel-album/04_data_design.md §3.1）
+ * 項目は文書ではなく、識別済みの写真を名前でまとめたもの（docs/04_data_design.md §3.1）
  */
 export async function listCatalogEntriesHandler(
   request: HttpRequest,

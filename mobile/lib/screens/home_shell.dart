@@ -7,7 +7,7 @@ import 'trip_list_screen.dart';
 /// ホーム（下のタブ: 図鑑 / 旅行）
 ///
 /// 起動時は図鑑。IndexedStack で、タブを切り替えても各タブの画面の状態
-/// （スクロール位置、読み込んだ一覧）を保つ（docs/travel-album/03_screen_design.md §4.1）
+/// （スクロール位置、読み込んだ一覧）を保つ（docs/03_screen_design.md §4.1）
 class HomeShell extends StatefulWidget {
   const HomeShell(
       {super.key,

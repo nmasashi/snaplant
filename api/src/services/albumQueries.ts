@@ -5,7 +5,7 @@ import { Container } from '@azure/cosmos';
  *
  * SQL 文字列とパラメータの組み立てだけの薄い層。集計（GROUP BY・COUNT・MIN / MAX）は
  * テスト用の偽物では解釈できないため、ここはテストせず、デプロイ後に手で確かめる
- * （docs/travel-album/08_test_plan.md §5.2）。集計の行から応答を組み立てる所は
+ * （docs/08_test_plan.md §5.2）。集計の行から応答を組み立てる所は
  * tripSummaries.ts に分けてあり、そちらを単体で確かめる。
  *
  * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けない。

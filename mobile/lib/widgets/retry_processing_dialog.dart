@@ -4,7 +4,7 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/photo_category.dart';
 
-/// 解析のやり直しダイアログ（docs/travel-album/03_screen_design.md §5.4）
+/// 解析のやり直しダイアログ（docs/03_screen_design.md §5.4）
 ///
 /// 手がかりを書いて頼む。受け付けられたら、受け付けた写真を返して閉じる。受け付けられなければ留まって理由を出す
 class RetryProcessingDialog extends StatefulWidget {

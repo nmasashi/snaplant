@@ -1,9 +1,9 @@
 # SnapPlant mobile
 
 Flutter 製の Android アプリ（旅行アルバムと、その写真の識別からまとまる図鑑）。
-画面の仕様は `docs/travel-album/03_screen_design.md`（旅行アルバムと図鑑。下のタブは「図鑑」「旅行」）と `docs/03_screen_design.md`（設定画面と全画面共通。
+画面の仕様は `docs/03_screen_design.md`（旅行アルバムと図鑑。下のタブは「図鑑」「旅行」）と `docs/03_screen_design.md`（設定画面と全画面共通。
 植物図鑑の画面は 4-5 でアプリから消したが、この文書への反映は旅行アルバムの取り込みのときにまとめて行う）、
-技術の選び方は `docs/05_technology_selection.md`。
+アプリの作りの方針（状態管理・画面遷移・HTTP）とエラー表示の決まりは `docs/03_screen_design.md` §9。
 
 ## コマンド
 

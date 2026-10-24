@@ -1,7 +1,7 @@
 # SnapPlant API
 
 Azure Functions v4（Node.js 22・TypeScript）で動く、旅行アルバム（写真の分類と識別・図鑑）の API。
-仕様は `docs/travel-album/05_api_design.md`（裏の処理は `06_processing_design.md`）、共通事項（認証・応答の封筒・エラーの分類・AI 識別サービスへの接続）は `docs/06_api_design.md`。
+仕様は `docs/05_api_design.md`（裏の処理は `06_processing_design.md`）、共通事項（認証・応答の封筒・エラーの分類・AI 識別サービスへの接続）は `docs/05_api_design.md` §9。
 植物図鑑の API は 4-6 で削除した。
 デプロイの手順と環境変数は `DEPLOYMENT.md`。
 
@@ -43,9 +43,9 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 ルートの一覧は `README.md`（リポジトリ直下）のエンドポイント表。
 
 キューのトリガーの関数は、旅行アルバムの写真の解析のワーカー `processPhoto`（`src/functions/processPhoto.ts`）だけ。
-キューの名前はアプリの設定 `PHOTO_QUEUE_NAME` から `%PHOTO_QUEUE_NAME%` で解決し、接続は `AzureWebJobsStorage`（設定値は `docs/travel-album/07_infrastructure_design.md` §6.1）。
+キューの名前はアプリの設定 `PHOTO_QUEUE_NAME` から `%PHOTO_QUEUE_NAME%` で解決し、接続は `AzureWebJobsStorage`（設定値は `docs/07_infrastructure_design.md` §6.1）。
 
-タイマーの関数は旅行アルバムの2つ（スケジュールは UTC の cron。設計は `docs/travel-album/06_processing_design.md` §1.1）。
+タイマーの関数は旅行アルバムの2つ（スケジュールは UTC の cron。設計は `docs/06_processing_design.md` §1.1）。
 
 | 関数（`app.timer` の第1引数） | ファイル | スケジュール | 内容 |
 |---|---|---|---|
@@ -59,7 +59,7 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 
 | スクリプト | 内容 | 設計 |
 |---|---|---|
-| `src/scripts/enqueueUnidentified.ts` | 段階3で分類まで済んだ写真（`done`・図鑑の種類・識別なし）を識別の待ちにする。キューには積まず、再投入のタイマーが 10〜20 分後に積む | `docs/travel-album/06_processing_design.md` §1 |
+| `src/scripts/enqueueUnidentified.ts` | 段階3で分類まで済んだ写真（`done`・図鑑の種類・識別なし）を識別の待ちにする。キューには積まず、再投入のタイマーが 10〜20 分後に積む | `docs/06_processing_design.md` §1 |
 
 設定の読み込みと宛先の表示は `src/scripts/scriptSettings.ts` にある（スクリプトを足すときはこれを使う）。
 植物図鑑の記録を写真へ移すスクリプト（`migratePlants`）は、旧図鑑の植物を移さないと決めたので、4-6 で植物図鑑の API と一緒に削除した。

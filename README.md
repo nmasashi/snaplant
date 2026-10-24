@@ -15,8 +15,8 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 - ⚙️ **設定管理** - APIキーとエンドポイントのセキュア保存・接続テスト
 
 カメラ撮影には対応していない。写真の取得経路はギャラリー選択のみ。
-植物の写真を1枚ずつ識別して登録する以前の植物図鑑の API は 4-6 で削除した（`docs/06_api_design.md` §1）。
-要件と設計は [docs/travel-album/](./docs/travel-album/01_requirements.md)。
+植物の写真を1枚ずつ識別して登録する以前の植物図鑑の API は 4-6 で削除した（`docs/05_api_design.md` §9.1）。
+要件と設計は [docs/](./docs/01_requirements.md)。
 
 ## 🏗️ アーキテクチャ
 
@@ -71,8 +71,8 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
-詳細は [旅行アルバム API 設計](./docs/travel-album/05_api_design.md) を参照してください
-（[OpenAPI 仕様書](./docs/06_api_openapi.yaml) への取り込みは機能が固まってから行います）。
+詳細は [API 設計](./docs/05_api_design.md) を参照してください
+（OpenAPI の仕様書は置いていません。API 設計が正です）。
 植物図鑑の API（`/api/images/upload`・`/api/plants/*`）は 4-6 で削除しました。
 
 HTTP 以外に、写真の解析のワーカー（Storage Queue のトリガー）と2つのタイマー（止まった解析の再投入・孤児の掃除）があります（`api/README.md`）。
@@ -153,15 +153,17 @@ flutter build apk --release
 ## 📄 ドキュメント
 
 **設計・仕様:**
+設計書は目指す姿を書き、実装した節に「実装済み」の印を付ける（README と DEPLOYMENT は実装の写し）。
+
 - [要件定義](./docs/01_requirements.md)
-- [機能一覧](./docs/02_feature_list.md)  
-- [画面設計](./docs/03_screen_design.md)
-- [データベース設計](./docs/04_database_design.md)
-- [技術選定（Flutter対応）](./docs/05_technology_selection.md)
-- [API設計書](./docs/06_api_design.md)
-- [OpenAPI仕様書](./docs/06_api_openapi.yaml)
-- [API ワークフロー](./docs/07_api_workflow.md)
-- [旅行アルバムの要件・設計](./docs/travel-album/01_requirements.md)（今の API と画面の多くはこちらにある。上の一式への取り込みは機能が固まってから）
+- [設計の全体像と決定の記録](./docs/02_design_overview.md)
+- [画面設計（アプリの作りの方針を含む）](./docs/03_screen_design.md)
+- [データ設計（Cosmos DB・Blob Storage）](./docs/04_data_design.md)
+- [API 設計（共通の決まりを含む）](./docs/05_api_design.md)
+- [裏の処理（分類・識別・タイムライン）](./docs/06_processing_design.md)
+- [インフラ設計](./docs/07_infrastructure_design.md)
+- [テスト計画](./docs/08_test_plan.md)
+- [実装計画（PR の分け方）](./docs/11_implementation_plan.md)
 - [バックログ（未実装・既知の課題）](./docs/09_backlog.md)
 
 **運用:**

@@ -15,7 +15,7 @@ import '../widgets/message_view.dart';
 import '../widgets/trip_edit_dialog.dart';
 import '../widgets/upload_banner.dart';
 
-/// 旅行一覧画面（旅行タブ。docs/travel-album/03_screen_design.md §4.2）
+/// 旅行一覧画面（旅行タブ。docs/03_screen_design.md §4.2）
 ///
 /// 先頭に「旅行に属さない写真」の行を固定で置き、その下に旅行をサーバが返す順（作成日時の降順）で並べる
 class TripListScreen extends StatefulWidget {

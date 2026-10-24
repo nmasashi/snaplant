@@ -35,7 +35,7 @@ export async function readTripInput(request: HttpRequest): Promise<{ input: Trip
 }
 
 /**
- * 旅行の作成・更新のボディを検証する（docs/travel-album/05_api_design.md §5.8 の表の順）
+ * 旅行の作成・更新のボディを検証する（docs/05_api_design.md §5.8 の表の順）
  *
  * 型の検査を空・文字数の検査より先に置く。文字列以外を通すと .trim() の TypeError で 500 になる
  * @param body リクエストボディ

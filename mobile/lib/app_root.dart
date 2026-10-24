@@ -14,7 +14,7 @@ import 'theme/app_text_styles.dart';
 /// アプリの根
 ///
 /// 設定（API キー・エンドポイント）を読み、画面をまたいで共有する [ApiService] と [UploadQueue] を1つ作って下の画面に渡す
-/// （docs/travel-album/03_screen_design.md §1「状態の持ち方」）。図鑑と旅行の2タブが同じ設定で通信するため、
+/// （docs/03_screen_design.md §1「状態の持ち方」）。図鑑と旅行の2タブが同じ設定で通信するため、
 /// 各画面が自分で作らない。API キーかエンドポイントが未設定なら、タブの中身の代わりに設定を促す表示を出す
 class AppRoot extends StatefulWidget {
   const AppRoot({super.key, this.httpClient});

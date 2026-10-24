@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// 写真のグリッドの複数選択（docs/travel-album/03_screen_design.md §4.8）
+/// 写真のグリッドの複数選択（docs/03_screen_design.md §4.8）
 ///
 /// 選択の状態は、画面の見出し・下の操作バーと、グリッドの印にまたがるので、画面が1つ作って [PhotoGrid] に渡し、両方がこれを見る
 class PhotoSelection extends ChangeNotifier {

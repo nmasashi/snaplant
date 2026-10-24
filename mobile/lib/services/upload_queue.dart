@@ -44,7 +44,7 @@ class UploadItem {
   final String? placeName;
 }
 
-/// 緯度・経度から地名（都道府県＋市区町村）を引く（docs/travel-album/06_processing_design.md §4.2）。
+/// 緯度・経度から地名（都道府県＋市区町村）を引く（docs/06_processing_design.md §4.2）。
 /// 引けなければ null（送信は止めない）。端末の機能（プラグイン）を使うので、別の isolate ではなくここで呼ぶ
 ///
 /// 同じ場所の写真が続くので、小数3桁（≒100m）に丸めた座標をキーに、引けた地名を端末に残して使い回す（引けなかったものは残さない）
@@ -77,10 +77,10 @@ Future<String?> _lookupPlaceName(double latitude, double longitude) async {
 /// 地名を引くのを待つ長さ。過ぎたら地名なしで送る（端末の Geocoder は応答しないことがあり、送信を止めない。06 §4.2）
 const _placeNameTimeout = Duration(seconds: 5);
 
-/// サーバが受け付ける地名の長さの上限（docs/travel-album/05_api_design.md §5.1 の 17）
+/// サーバが受け付ける地名の長さの上限（docs/05_api_design.md §5.1 の 17）
 const _placeNameMaxLength = 100;
 
-/// サムネイルの長辺と画質（docs/travel-album/03_screen_design.md §4.7「準備」）
+/// サムネイルの長辺と画質（docs/03_screen_design.md §4.7「準備」）
 const _thumbnailLongSide = 320;
 const _thumbnailQuality = 70;
 
@@ -121,7 +121,7 @@ class _PreparedPhoto {
 }
 
 /// 画像のファイルを読み、SHA-256 と EXIF の撮影日時・位置を求める。
-/// 数百枚を選ぶと画面が固まるので、別の isolate（compute）で行う（docs/travel-album/03_screen_design.md §4.7「準備」）
+/// 数百枚を選ぶと画面が固まるので、別の isolate（compute）で行う（docs/03_screen_design.md §4.7「準備」）
 Future<_PreparedPhoto> _preparePhoto(String path) async {
   final bytes = await File(path).readAsBytes();
   return _PreparedPhoto(
@@ -163,7 +163,7 @@ class PreparationProgress {
 /// 送る写真1枚の状態
 enum UploadState { waiting, sending, done, failed }
 
-/// 写真の送信の列（docs/travel-album/03_screen_design.md §4.7）
+/// 写真の送信の列（docs/03_screen_design.md §4.7）
 ///
 /// 送信は画面を移っても続くので、画面ではなく AppRoot が1つ持ち、各画面に渡す（§1「状態の持ち方」）
 class UploadQueue extends ChangeNotifier {
@@ -171,7 +171,7 @@ class UploadQueue extends ChangeNotifier {
 
   final ApiService _apiService;
 
-  /// 同時に送る数（docs/travel-album/02_design_overview.md §4.7）
+  /// 同時に送る数（docs/02_design_overview.md §4.7）
   static const _maxConcurrent = 2;
 
   // 進み具合の全体として数える項目。送信中の項目が無くなったら、送れた項目を除く（失敗した項目は送り直すか閉じるまで残る）
@@ -331,7 +331,7 @@ class UploadQueue extends ChangeNotifier {
     }
   }
 
-  /// 一時的な失敗のときに送り直すまでの間隔（docs/travel-album/03_screen_design.md §4.7 の表）。回数の上限もこの長さ
+  /// 一時的な失敗のときに送り直すまでの間隔（docs/03_screen_design.md §4.7 の表）。回数の上限もこの長さ
   /// 1回の送信の応答を待つ長さ。過ぎたら通信の失敗として送り直す（§4.7 の表）。
   /// 時間切れが無いと、通信が固まったときに送信中のまま枠がふさがり、送り直しも区切りも来ない
   static const _requestTimeout = Duration(seconds: 60);
@@ -366,7 +366,7 @@ class UploadQueue extends ChangeNotifier {
                 onTimeout: () => throw const ApiException(
                     statusCode: 0, message: '応答がありませんでした'));
         _states[item] = UploadState.done;
-        // 送信は「入れる」ではないので、既にある写真の宛先は変わらない（docs/travel-album/05_api_design.md §5.1）
+        // 送信は「入れる」ではないので、既にある写真の宛先は変わらない（docs/05_api_design.md §5.1）
         if (photo.tripId != item.tripId) _alreadyElsewhere.add(item);
         break;
       } catch (e) {
@@ -459,7 +459,7 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/travel-album/03_screen_design.md §4.4）。
+  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/03_screen_design.md §4.4）。
   /// 送信待ち・失敗・送れた写真は列から消し、準備中の写真は準備が済んでも入れない。
   /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
   void cancelTrip(String tripId) {

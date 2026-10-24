@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
-/// 確認してから操作を実行するダイアログ（docs/travel-album/03_screen_design.md §4.8「旅行から外す」）
+/// 確認してから操作を実行するダイアログ（docs/03_screen_design.md §4.8「旅行から外す」）
 ///
 /// 実行できたら結果を返して閉じる。失敗したらダイアログに留まってエラーを出す（そのまま押し直せる）。
 /// 実行の処理は呼び出し側が [onConfirm] で渡す

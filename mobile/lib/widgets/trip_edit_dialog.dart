@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
-/// 旅行の作成・編集ダイアログ（docs/travel-album/03_screen_design.md §4.3）
+/// 旅行の作成・編集ダイアログ（docs/03_screen_design.md §4.3）
 ///
 /// 保存できたら true を返して閉じる。保存の処理は呼び出し側が [onSave] で渡す（作成と編集で API が違う）
 class TripEditDialog extends StatefulWidget {
