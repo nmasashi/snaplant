@@ -4,7 +4,7 @@
 
 送信を待たせずに裏で行う処理（分類・識別・地名の埋め直し）の設計を書く。段階3・4が中心で、
 段階2に関係するのは地名変換（§4 の端末側）だけ。**未実装を含む目指す姿**で、骨格の粒度。
-実装した部分は `docs/07_api_workflow.md`（ワークフロー）・`docs/06_api_design.md` へ取り込む（開発中はこの一式を正として都度直し、取り込みは機能が固まってから後でまとめて行う。2026-10-12 に人間が決定）。
+実装した部分には「実装済み」の印を付ける（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移した）。
 
 データの項目は [04_data_design.md](./04_data_design.md)、やり直しの API は [05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)、
 インフラは [07_infrastructure_design.md](./07_infrastructure_design.md) を参照する。
@@ -140,7 +140,7 @@ sequenceDiagram
 | 項目 | 値 |
 |---|---|
 | デプロイ | 環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`。**未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`（今のデプロイ）を使う。** 当面は分類にも今のデプロイ（`gpt-6-luna`。Terraform の `azurerm_cognitive_deployment.gpt6_luna`）をそのまま使い、分類用のデプロイは足さない（2026-10-12 に人間が決定。2026-10-17 に今のデプロイを `gpt-5.6-luna` から `gpt-6-luna` に替えた。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #17）。分類と識別を別のモデルにするときは、Terraform でデプロイを1つ足して環境変数を書き換えるだけ（[07 §2](./07_infrastructure_design.md#2-段階3)） |
-| デプロイ名の入る所 | 空文字列・空白だけの `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` は未設定と同じに扱い、どちらの環境変数も前後の空白を取り除いて使う。分類用のデプロイ名があれば、`AZURE_OPENAI_DEPLOYMENT_NAME` が無くても分類できる。Azure OpenAI Service（`AZURE_OPENAI_ENDPOINT` がある）では、選んだデプロイ名が `baseURL`（`<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`）と `model` の両方に入る。OpenAI API に直接つなぐときは `model` だけで、どちらの環境変数も無ければ `gpt-5.6-luna`。`api-version`・`api-key` ヘッダの付け方は [docs/06_api_design.md §5](../06_api_design.md#5-ai-識別サービスへの接続) |
+| デプロイ名の入る所 | 空文字列・空白だけの `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` は未設定と同じに扱い、どちらの環境変数も前後の空白を取り除いて使う。分類用のデプロイ名があれば、`AZURE_OPENAI_DEPLOYMENT_NAME` が無くても分類できる。Azure OpenAI Service（`AZURE_OPENAI_ENDPOINT` がある）では、選んだデプロイ名が `baseURL`（`<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`）と `model` の両方に入る。OpenAI API に直接つなぐときは `model` だけで、どちらの環境変数も無ければ `gpt-5.6-luna`。`api-version`・`api-key` ヘッダの付け方は [05 §9.5](./05_api_design.md#95-ai-識別サービスへの接続) |
 | 設定の誤り | 次のどちらも、AI を呼ばずに失敗する。AI の障害ではないので `UpstreamError` にはしない（AI の失敗にすると、ワーカーが一時的な障害として送り直し続ける）。<br>・Azure OpenAI Service で送り先のデプロイ名が決まらない（`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` も `AZURE_OPENAI_DEPLOYMENT_NAME` も未設定。空文字列・空白だけを含む）<br>・AI のクライアントを作れない（API キーが無いなど。SDK がクライアントのコンストラクタで例外を投げる） |
 | 画像 | 原寸（サムネイルではない）の Blob の読み取り SAS を `image_url` に、`detail: "low"`。有効期限は 15 分（`constants/album.ts` の定数 `CLASSIFY_IMAGE_SAS_MINUTES`。環境変数では変えられない。関数の実行時間の上限（`api/host.json` の `functionTimeout` = 5 分）にサーバ間の時計のずれの余裕を足した値で、植物図鑑の一時画像の SAS（4-6 で削除）と同じ理由）。写真の表示用の URL と同じ `PhotoStorageService.readUrl()` で作るので、`startsOn` は発行の 5 分前（[07 §6.2](./07_infrastructure_design.md#62-api-のコードの定数)） |
 | 要求の形 | `user` ロールのメッセージ1件に、テキスト（プロンプト）と画像の2パート。`response_format` は `json_schema`（名前 `photo_classification`、`strict: true`、スキーマは §2.2）。`max_completion_tokens: 4000`（`max_tokens` は送らない）。`temperature` は送らない |
@@ -373,7 +373,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 ### 7.1 移行スクリプト（手順 2。削除した）
 
 **削除した**（4-6）。4-4 で `api/src/scripts/migratePlants.ts` として実装したが、旧図鑑の植物は移さないと決めた（§7）ので回さずに消した。
-写真の文書の `legacyPlantId`（移した写真の元の植物の id）も一緒に消した。流れ・写真の中身・飛ばす植物の理由の文言は、4-6 より前の版のこの節にある（`git log` で `docs/travel-album/06_processing_design.md` を見る）。
+写真の文書の `legacyPlantId`（移した写真の元の植物の id）も一緒に消した。流れ・写真の中身・飛ばす植物の理由の文言は、4-6 より前の版のこの節にある（`git log` で `docs/06_processing_design.md` を見る）。
 
 ## 8. タイムライン（段階5）
 

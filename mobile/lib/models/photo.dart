@@ -1,4 +1,4 @@
-/// 旅行アルバムの写真（docs/travel-album/05_api_design.md §3.3）
+/// 旅行アルバムの写真（docs/05_api_design.md §3.3）
 ///
 /// 画面が使う項目だけを読む（段階3で分類の項目を足した）。URL は SAS 付きで、応答のたびに変わる
 class Photo {
@@ -85,7 +85,7 @@ class Photo {
   }
 }
 
-/// AI の識別の結果（写真の `identification`。docs/travel-album/04_data_design.md §2.1）のうち、画面が使う項目
+/// AI の識別の結果（写真の `identification`。docs/04_data_design.md §2.1）のうち、画面が使う項目
 class PhotoIdentification {
   /// 図鑑の種類（`plant` など）
   final String kind;

@@ -105,7 +105,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 
 ## アーキテクチャ
 
-設計そのものは仕様書にある（`docs/06_api_design.md`・`docs/07_api_workflow.md`、旅行アルバムは `docs/travel-album/`）。
+設計そのものは `docs/` の設計書にある（API は `docs/05_api_design.md`、裏の処理は `docs/06_processing_design.md`）。
 ここには、コードを読んでも分からない罠と、守っている判断だけを書く。
 
 ### 関数の登録
@@ -232,8 +232,7 @@ Green と Refactor を1つの変更で入れていて、どこで設計判断を
 - **List の上位の行は入口の振る舞いで書く。** 最後に残るテストも仕様に載る文もその単位だから。
   小さく進めるために関数単位の細かい行を足してよいが、それは作業単位の終わりに入口へ寄せる対象になる
   （「Refactor 段でのテストコードの扱い」）。仕様に無い振る舞いは行にしない。契約にしたければ先に仕様に書く
-  （旅行アルバムは `docs/travel-album/` が目指す姿なので先に書ける。植物図鑑の `docs/06` は実装後に書く文書なので、
-  List がそのまま仕様の下書きになり、作業単位の終わりに `contract-auditor` が写す）
+  （`docs/` の設計書は目指す姿なので先に書ける）
 - **1サイクルで赤にするテストは原則1つ。ただし、1つの実装がリストの複数の行を同時に満たすと分かっているときは、
   その行の Red をまとめて書いてよい**（2026-10-17 に人間が決定）。実装の後に書いたテストは実装に寄りやすいので、
   先に満たされてしまう行があるなら、実装の前に赤を見ておく。まとめて書いたときは、全部が**期待した理由で落ちる**ことを
@@ -479,7 +478,7 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
   `any` を使っている（api 側で20箇所）。`error.code` や `error.message` への
   アクセスのため。ここを `unknown` + 型ガードに変えるなら全体で揃えること。
   **1箇所だけ流儀を変えない**
-- **Flutter 側の構成方針**（`setState`、`Navigator.push` / `pop`、`http`）と、その理由は `docs/05_technology_selection.md` §4.2 にある。
+- **Flutter 側の構成方針**（`setState`、`Navigator.push` / `pop`、`http`）と、その理由は `docs/03_screen_design.md` §9.1 にある。
   見直すときは状態管理の方式を選び直し、**全画面を一度に移す**（`setState` と混在させると状態の所在が追えなくなる）。`pubspec.yaml` には使うパッケージだけを宣言する
 
 ## テストの流儀
@@ -492,7 +491,7 @@ TDD で進めた場合、**テストコードが成果物の大きな割合を�
 最重要の原則は、**テストダブルの検証可否を依存の種類で決める**こと。
 Cosmos DB / Blob Storage は管理下にある依存なので、モックは運用上の例外として許容するが
 **やり取りの検証はしない**。OpenAI API は管理外の依存なのでモックと検証の両方が正当。
-検証するのは `docs/06_api_design.md` §5「AI 識別サービスへの接続」と `docs/travel-album/06_processing_design.md` §2.1・§3.1 に書いた要素まで。
+検証するのは `docs/05_api_design.md` §9.5「AI 識別サービスへの接続」と `docs/06_processing_design.md` §2.1・§3.1・§8.4 に書いた要素まで。
 プロンプトの文言は `details` と同じ契約外で、完全一致で固定しない。
 
 **エラー応答で固定するのはステータス・`code`・`message` まで。** `details` の文言は契約外なので
@@ -520,11 +519,11 @@ Cosmos DB / Blob Storage は管理下にある依存なので、モックは運�
 
 | 対象 | 入口 | 仕様 |
 |---|---|---|
-| api（旅行アルバム） | エンドポイント（`api/tests/functions/`） | `docs/travel-album/05_api_design.md`（目指す姿） |
-| api（手で回すスクリプト） | スクリプトの関数（`api/tests/scripts/`。`src/scripts/` をミラー） | `docs/travel-album/06_processing_design.md` §1・§7 |
+| api | エンドポイント（`api/tests/functions/`） | `docs/05_api_design.md` |
+| api（手で回すスクリプト） | スクリプトの関数（`api/tests/scripts/`。`src/scripts/` をミラー） | `docs/06_processing_design.md` §1・§7 |
 | mobile | 画面（`mobile/test/screens/`） | `docs/03_screen_design.md` |
-| mobile | アプリ全体（`mobile/test/app_root_test.dart`。起動直後の設定の扱い） | `docs/03_screen_design.md` §1・`docs/travel-album/03_screen_design.md` §4.1 |
-| mobile | `ApiService`（封筒の契約。`mobile/test/services/`） | `docs/05_technology_selection.md` §4.2・`docs/06_api_design.md` §4.1 |
+| mobile | アプリ全体（`mobile/test/app_root_test.dart`。起動直後の設定の扱い） | `docs/03_screen_design.md` §4.1 |
+| mobile | `ApiService`（封筒の契約。`mobile/test/services/`） | `docs/03_screen_design.md` §9.2・`docs/05_api_design.md` §9.2 |
 
 **入口以外に残してよいテストの名簿。** 原則4の2つの例外に当たるもの。ここに無いテストが入口以外に残っていたら、
 `test-consolidator` は理由を報告し、メインセッションが判断する。
@@ -665,20 +664,20 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 ## ドキュメントの扱い
 
-**仕様書には実装済みのものだけを書く。** 未実装の機能や既知の課題は `docs/09_backlog.md` に置く。
-この分離により、`docs/06_api_openapi.yaml` を「実装の正確な写し」として信頼できる状態に保つ。
+**`docs/` の設計書（`01`〜`08`・`11`）は目指す姿を書き、実装した節に「実装済み」の印を付ける。** 未実装の要件も書いてよい。開発中に設計と実装が食い違ったら、同じ PR で設計書を直す
+（2026-10-25 に人間が決定。以前は旅行アルバムの設計を `docs/travel-album/` に置き、ルートの `docs/01`〜`07` を「実装済みのものだけ」の写しにしていたが、植物図鑑の写しが古いまま残ったので一本にした）。
+**`docs/05_api_openapi.yaml` だけは実装の正確な写し**で、実装済みのものだけを書く。未実装の課題・判断待ちは `docs/09_backlog.md` に置く。
 
 記録先は確度で分かれており、**混ぜない**こと。
 
 | 文書 | 内容 | 書き込む主体 |
 |---|---|---|
-| 仕様書・設計文書（`docs/01`〜`07`, README, DEPLOYMENT） | **実装済みの事実** | 人間、`contract-auditor` |
-| `docs/travel-album/` | 旅行アルバムの**目指す姿**（要件・設計）。**未実装の要件を書いてよい**（2026-10-12 に決定）。開発中はこちらを正として都度直す。`docs/01`〜`07`・`DEPLOYMENT.md` への取り込みは機能が固まってから後でまとめて行う（2026-10-12 に決定。開発中に何度も変わるため） | 人間、メインセッション |
+| 設計書（`docs/01`〜`08`・`11`） | **目指す姿**（要件・設計・計画）。実装した節に「実装済み」の印 | 人間、メインセッション、`contract-auditor` |
+| `docs/05_api_openapi.yaml`・README・DEPLOYMENT | **実装済みの事実** | 人間、メインセッション、`contract-auditor` |
 | `docs/09_backlog.md` | **検証済みで実在する**課題・未実装機能 | 人間、根拠を確認したエージェント |
 | `docs/10_proposals.md` | **トリアージ待ちの提案**（未採用） | `improvement-scout` のみ |
 
-`contract-auditor` は `docs/travel-album/` を実装の写しとして扱わない（未実装の記述をバックログへ移さない）。
-ただし、旅行アルバムの機能を実装して `docs/01`〜`07` に取り込むときは、両者の食い違いを見る。
+`contract-auditor` は設計書の未実装の記述をバックログへ移さない（目指す姿として残す）。実装したものと、「実装済み」の印の付いた節・OpenAPI・README の食い違いを見る。
 
 採用した提案は**人間が**バックログへ移す。却下した提案は理由を添えて
 提案文書の「却下」節へ残す（同じ提案の蒸し返しを防ぐため）。
@@ -695,29 +694,27 @@ CLAUDE.md は毎回のセッションの最初に丸ごと読み込まれるの�
 
 API を変更したら、あわせて更新する対象：
 
-- `docs/06_api_openapi.yaml` — ルート、リクエスト/レスポンス形状、ステータスコード、エラーの `code` と `message`
-- `docs/06_api_design.md` / `docs/07_api_workflow.md`
+- `docs/05_api_openapi.yaml` — ルート、リクエスト/レスポンス形状、ステータスコード、エラーの `code` と `message`
+- `docs/05_api_design.md`（エンドポイントの節と、共通の決まりの §9）
 - `README.md` のエンドポイント表
 - `mobile/lib/services/api_service.dart` — クライアント側の呼び出し
-- `docs/06_api_design.md` §5・`docs/travel-album/06_processing_design.md` §2.1・§3.1 — AI 識別サービスへ渡すものを変えたとき。要素まで書き、プロンプトの文言は書かない
+- `docs/05_api_design.md` §9.5・`docs/06_processing_design.md` §2.1・§3.1・§8.4 — AI 識別サービスへ渡すものを変えたとき。要素まで書き、プロンプトの文言は書かない
 
 Flutter クライアントの振る舞いを変えたら、あわせて更新する対象：
 
-- `docs/05_technology_selection.md` §4.2 — エラー表示の文言（`userMessage` の表）、送信内容の決め方
-- `docs/03_screen_design.md` — 画面ごとの挙動（保存時の 409 の扱いなど）
-- `docs/07_api_workflow.md` — エラー時のクライアントの対応
+- `docs/03_screen_design.md` — 画面ごとの挙動、§9 のエラー表示の文言（`userMessage` の表）と送信内容の決め方
 
 ### Cosmos のクエリを変更したら手で確認する
 
 SQL の絞り込み・並び順・射影を検証しているテストは無い（偽物は SQL を解釈せず、エミュレータも E2E も無い）。
 `albumQueries.ts`・`albumService.ts`・`catalogQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
-項目は `docs/travel-album/08_test_plan.md` §5.2・§5.3（§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件）。
+項目は `docs/08_test_plan.md` §5.2・§5.3・§5.4（§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件、§5.4 は段階5のタイムライン）。
 
 ### クライアント実装で踏みやすい罠
 
-- 非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。`userMessage` の決まりは `docs/05_technology_selection.md` §4.2。
+- 非 2xx は `ApiException.fromResponse()` が封筒の `error.code` / `error.message` を読む。`userMessage` の決まりは `docs/03_screen_design.md` §9.2。
   **同じステータスでも `code` で意味が違うものがある**（404 は `TRIP_NOT_FOUND`・`PHOTO_NOT_FOUND` と宛先の誤り）。分岐はステータスではなく `code` で行う（例: `ApiException.isTripNotFound`）
 - 2xx の応答は `{ success, data }` の封筒に包まれていて、`_parseResponse()` は**ボディ全体**をコールバックに渡す。各メソッドが自分で `json['data']` を剥がす。
-  忘れると実行時に `fromJson` がキーを見つけられず失敗する。`data` の中身はエンドポイントごとに違う（表は `docs/06_api_design.md` と `docs/travel-album/05_api_design.md` §2）
+  忘れると実行時に `fromJson` がキーを見つけられず失敗する。`data` の中身はエンドポイントごとに違う（表は `docs/05_api_design.md` §2）
 - `mobile/test/services/api_service_test.dart` はエンドポイントによらない封筒の契約（エラーの例外と `userMessage`、写真の送信の Content-Type）だけを見る。各メソッドの `data` の読み方は画面のテストが偽のサーバ越しに通すので、
   `api_service_test.dart` にメソッドごとのテストは足さない（上位に従属するテストを作らない。#41）。メソッドを足したら、それを使う画面のテストで `data` の読み違いが落ちることを確かめる

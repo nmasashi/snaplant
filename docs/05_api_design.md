@@ -2,13 +2,12 @@
 
 ## この文書の位置づけ
 
-旅行アルバムの REST API を書く。書き方は [docs/06_api_design.md](../06_api_design.md)（実装の写し）に合わせ、
-エラーの契約（ステータス・`code`・`message`）は文言まで決める。**未実装を含む目指す姿**で、
-実装したエンドポイントは `docs/06_api_design.md`・`docs/06_api_openapi.yaml`・`README.md` のエンドポイント表へ取り込む（開発中はこの一式を正として都度直し、取り込みは機能が固まってから後でまとめて行う。2026-10-12 に人間が決定）。
+SnapPlant の REST API を書く。エラーの契約（ステータス・`code`・`message`）は文言まで決める。**未実装を含む目指す姿**で、実装したエンドポイントには「実装済み」の印を付ける（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
+実装したエンドポイントは `05_api_openapi.yaml`（実装の正確な写し）と `README.md` のエンドポイント表にも書く。認証・応答の封筒・エラーの共通の決まり・AI への接続は §9（以前の `docs/06_api_design.md` から移した）。
 
 データの形は [04_data_design.md](./04_data_design.md)、裏の処理は [06_processing_design.md](./06_processing_design.md)、
 画面からの使い方は [03_screen_design.md](./03_screen_design.md) を参照する。
-エラーの `message`・検証の順序・上限値は第3版に無く、この文書で既存の流儀（植物図鑑の API の `docs/06_api_design.md` §5.4・§5.8。植物図鑑の API と一緒に 4-6 で削除）に合わせて決めた。
+エラーの `message`・検証の順序・上限値は第3版に無く、この文書で既存の流儀（以前の植物図鑑の API 設計の §5.4・§5.8。植物図鑑の API と一緒に 4-6 で削除）に合わせて決めた。
 
 ---
 
@@ -180,7 +179,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 
 ### 3.4 Error
 
-既存と同じ（`docs/06_api_design.md` §4.1）。
+§9.2。
 
 ## 4. 入力検証の定数
 
@@ -884,3 +883,116 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - `placeName`: 地名（[06 §4.2](./06_processing_design.md#42-段階2端末)）があり、緯度・経度も送るときだけ（§5.1 の 16）。無ければパートごと省く（空・空白のみは §5.1 の 17 で 400）
 
 `movePhotos` は 200 件（§5.5 の 5）を超える分を分けて順に送り、`moved`・`notFound` を合わせて返す。旅行から外すときも `tripId` のキーを省かずに `null` を送る。
+
+## 9. 共通の決まり
+
+API 全体に共通する、認証・応答の封筒・エラー・AI 識別サービスへの接続の決まり（以前の `docs/06_api_design.md` と `docs/05_technology_selection.md` §3.5 から移した。2026-10-25）。
+**実装済み**。
+
+### 9.1 認証と宛先
+
+- Function Key 認証。`code` クエリパラメータでキーを渡す（例: `GET /api/trips?code={FUNCTION_KEY}`。POST なども同じ）。キーはアプリの設定画面で入れる（[03 §4.9](./03_screen_design.md#49-設定画面)）
+- HTTP の関数はすべて `authLevel: 'function'`。キューとタイマーの関数は HTTP では呼べない
+- Base URL は `https://<Function App>.azurewebsites.net/api`（アプリは本番の URL を持たない。設定画面で入れる）
+- 消した植物図鑑のルート（`/api/plants` 系・`/api/images/upload`。4-6 で削除）には関数が登録されていないので、呼ぶと 404 になる（封筒の無い、Functions のランタイムの応答）
+
+### 9.2 応答の封筒とエラーの形
+
+成功は `{ "success": true, "data": { ... } }` で、`data` の中身はエンドポイントごとに違う（§2 の表）。失敗も同じ封筒に包む。
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "エラーの説明（日本語）",
+    "details": "string | null"
+  }
+}
+```
+
+- `details` は省略されることがある（`createErrorResponse()` に渡されなかった場合、JSON にキー自体が現れない）
+- 500 `INTERNAL_ERROR`・502・503 では、`details` にサーバ内部で起きた例外のメッセージ（`error.message`）がそのまま入る。SDK 由来の英語のこともあり内容は安定しないので、クライアントは表示や分岐に使わない
+- **契約の範囲**: HTTP ステータス・`code`・`message` は契約で、エンドポイントの仕様に文言まで書く。`message` はアプリが画面にそのまま出すので、変えるときは仕様も変える。`details` は契約外で、文言を保証しない（2026-10-11 に人間が決定）
+
+### 9.3 エラーコード
+
+`code` は `api/src/types/api.ts` の `ErrorCode` の値。どのエンドポイントがどのステータス・`message` で返すかは、各エンドポイントの節と §7 にある。
+
+| `code` | HTTP ステータス | 説明 |
+|---|---|---|
+| `INVALID_REQUEST` | 400 | リクエストの形が不正 |
+| `TRIP_NOT_FOUND` | 404 | 旅行が見つからない |
+| `PHOTO_NOT_FOUND` | 404 | 写真が見つからない |
+| `FILE_TOO_LARGE` | 413 | ファイルの大きさが上限を超えた（0 バイトは 400 `INVALID_REQUEST`） |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | 受け付けないファイル形式 |
+| `INTERNAL_ERROR` | 500 | サーバー内部エラー。`message` はエンドポイントごとに固定（§7.2。失敗の原因によって変わらない） |
+| `STORAGE_ERROR` | 502 / 503 | Blob Storage の操作の失敗（§9.4） |
+| `DATABASE_ERROR` | 503 | Cosmos DB へ接続できない（`データベースに接続できません`） |
+| `AI_SERVICE_ERROR` | 502 / 503 | AI 識別サービスの呼び出しの失敗。今は返すエンドポイントが無い（AI を呼ぶのは裏のワーカーだけで、ワーカーは応答を返さない） |
+
+段階5で足すタイムラインのコード（`TIMELINE_*`）は §7.1。
+
+**401 はこの表に載せていない。** Function Key が未指定・無効な場合は Azure Functions のランタイムが 401 を返し、アプリケーションのコードに届かない。
+そのため応答は封筒にならず、`ErrorCode` にも対応する定義を持たない（以前は `UNAUTHORIZED` / `INVALID_API_KEY` が定義されていたが、生成箇所が構造的に無いため削除した）。
+
+**429 もこの表に載せていない。** 過負荷時に Azure Functions のランタイムが 429（"Too Busy"）を返すことがあり、これも 401 と同じく封筒なしの応答になる。
+従量課金プランでは `host.json` の `extensions.http.dynamicThrottlesEnabled`（既定 `true`）と `extensions.http.maxOutstandingRequests`（既定 200）でこの拒否が有効になっており、`api/host.json` はどちらも変えていない。
+アプリケーションのレート制限（未実装。`docs/09_backlog.md`）とは別物。
+
+### 9.4 502 / 503 の振り分け
+
+上流（Blob Storage・AI 識別サービス）の呼び出しの失敗は、**失敗した場所**でコードを決め、**接続できたかどうか**で 502 と 503 を分ける
+（`api/src/utils/response.ts` の `createUpstreamErrorResponse()`）。エラーメッセージの文言は判定に使わない。
+
+| 失敗した場所 | 原因 | ステータス・コード | `message` |
+|---|---|---|---|
+| Blob Storage の操作 | 接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | 503 `STORAGE_ERROR` | `ストレージサービスに接続できません` |
+| Blob Storage の操作 | 上記以外（接続できたうえでの失敗） | 502 `STORAGE_ERROR` | `ストレージサービスでエラーが発生しました` |
+| AI 識別の呼び出し | 接続できない（`ENOTFOUND` / `ECONNREFUSED`） | 503 `AI_SERVICE_ERROR` | `AIサービスに接続できません` |
+| AI 識別の呼び出し | 上記以外 | 502 `AI_SERVICE_ERROR` | `AIサービスでエラーが発生しました` |
+
+AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`UpstreamError` の種類ごとに持つ表なので、コードに残っている。
+
+- **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行う（OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）。
+  たどるのは10段までで、原因が循環していても止まる（見つからなければ接続できない以外の失敗として扱う）
+- `ETIMEDOUT` を 503 にするのは Blob Storage の操作だけ（Cosmos DB の `ETIMEDOUT` は 500 `INTERNAL_ERROR`。`docs/09_backlog.md` の「`ETIMEDOUT` を 503 に分類するのは Blob Storage の操作だけ」）
+- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）
+
+### 9.5 AI 識別サービスへの接続
+
+写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
+AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る。
+管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは分類と識別に共通の要素で、
+送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像は [06 §2.1・§2.2・§3.1](./06_processing_design.md#21-モデルとサービス) にある。
+
+**プロンプトの文言は契約外。** ここにも 06 にも写さず、テストでも完全一致で固定しない。
+
+| 要素 | 内容 |
+|---|---|
+| 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき送り先のデプロイ名は必須で、決まらない（空文字列・空白だけを含む）なら要求を送らずに失敗する（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`（デプロイ名は前後の空白を取り除いたもの）、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
+| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を渡し、識別は何も渡さない（06 §2.1・§3.1） |
+| モデル | デプロイ名。Azure OpenAI Service では `baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、デプロイ名が決まらなければ `gpt-5.6-luna` を使う |
+| メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
+| 画像 | `image_url` パート。`detail: "low"`（トークン節約）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
+| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`） |
+| トークン上限 | `max_completion_tokens: 4000`（`max_tokens` は送らない） |
+| 送らないパラメータ | `temperature` |
+
+応答が空・JSON として読めない場合は、AI の失敗として扱う。応答の中身の検証は呼び出し側が行う（06 §2.1・§3.1）。
+
+`AZURE_OPENAI_ENDPOINT` があるのに送り先のデプロイ名が決まらない場合と、AI 識別サービスのクライアントを作れない設定
+（API キーが無いなど、SDK がクライアントを作る時点で例外を投げる場合）は、設定の誤りとして AI 識別サービスへ要求を送らずに失敗する。
+AI 識別サービスの障害とは扱わない（ワーカーは `lastError: "internal"` として数える。06 §2.1・§5）。
+Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT.md` の「環境変数」）。
+
+**要求の形を縛っている制約（なぜそうなっているか）**
+
+- **推論モデルの制約**: トークン上限は `max_completion_tokens` で指定する（`max_tokens` を送ると 400 `Unsupported parameter`）。
+  推論トークンもここから消費するため、値には余裕を持たせている。`temperature` は既定値 1 のみサポートで、それ以外を送ると 400 `Unsupported value` になるため送らない
+- **strict モードの制約**: Structured Outputs の `strict: true` は、全プロパティを `required` に列挙し `additionalProperties: false` にすることを求める。
+  そのため任意項目（識別の `name` / `description` / `characteristics` や、定義表の各項目）は `["string", "null"]` のように null 許容で表す。
+  `minimum` / `maximum` / `maxItems` は使えないため、信頼度の範囲はサーバ側で検証する（範囲外は AI の失敗。06 §2.1・§3.1）
+- **トークン節約**: 画像は `detail: "low"` で渡す
+- モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment.gpt6_luna`（`gpt-6-luna` / GlobalStandard SKU。2026-10-17 に `gpt-5.6-luna` から切り替え）と一致させる。
+  `AZURE_OPENAI_ENDPOINT` も `AZURE_OPENAI_DEPLOYMENT_NAME` も無いときの既定値（OpenAI 公式 API へのフォールバック）は、コードの中で `gpt-5.6-luna` のまま

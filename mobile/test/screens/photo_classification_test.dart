@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 写真の分類の表示と、解析のやり直し（docs/travel-album/03_screen_design.md §5.1・§5.4・§5.5。段階3）。
+// 写真の分類の表示と、解析のやり直し（docs/03_screen_design.md §5.1・§5.4・§5.5。段階3）。
 // 入口は旅行詳細の写真のグリッドと、そこから開く写真ビューア
 
 /// 解析の進み具合（processing）。[step] は分類（classify）か識別（identify）。段階2・3の写真は null のこともある

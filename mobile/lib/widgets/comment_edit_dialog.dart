@@ -3,7 +3,7 @@ import '../models/photo.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 
-/// 写真のコメントの編集ダイアログ（docs/travel-album/03_screen_design.md §6.3）
+/// 写真のコメントの編集ダイアログ（docs/03_screen_design.md §6.3）
 ///
 /// 今のコメントを入れておき、直して保存する。保存できたら直した写真を返して閉じる。保存できなければ留まって理由を出す
 class CommentEditDialog extends StatefulWidget {

@@ -2,7 +2,7 @@
 
 実装されていない機能・既知の課題を記録する。対応したらこのファイルから該当項目を削除する。
 
-運用方針: 仕様書（`06_api_design.md` / `06_api_openapi.yaml` など）には**実装済みのものだけ**を書く。
+運用方針: 未実装の機能・既知の課題はここに置く。設計書（`docs/01`〜`08`）は目指す姿を書き、実装した節に「実装済み」の印を付ける。`05_api_openapi.yaml` は実装の写しなので、実装済みのものだけを書く。
 未実装のものをここに置くことで、仕様書を「実装の正確な写し」として信頼できる状態に保つ。
 
 各項目の**「判断が必要な点」と「推奨」は Claude が付けた意見**であり、検証済みの事実ではない。
@@ -21,7 +21,6 @@ Dart に触る作業の索引。以前は WSL から `flutter test` を実行で
 | 項目 | 判断 | 内容 |
 |---|---|---|
 | [判定できない画像形式を `image/jpeg` として送る](#判定できない画像形式を-imagejpeg-として送る) | **TODO: Android 実機で確認** | 確認結果を見て、既定値を残すかサーバに 415 で弾かせるかを決める |
-| [科名の「科」が二重になる可能性](#科名の科が二重になる可能性要確認dart) | 要確認 | 実際の `familyName` を確かめてから |
 
 第1弾（テストの新設、`uploadImage()` の削除、409 の扱い、`api_response.dart` の書き直し、
 Content-Type のマジックバイト判定）は #2 で対応済み。その後、未使用の `identifyPlant()` の削除と、
@@ -38,7 +37,7 @@ flutter test
 
 **先に CLAUDE.md の「クライアント実装で踏みやすい罠」節と、`mobile/` 節のテストの注意点を読むこと。**
 テストの書き方は `mobile/test/services/api_service_test.dart`（`MockClient` で HTTP を差し替える）と
-`mobile/test/screens/identification_screen_test.dart`（画面のテスト）が手本になる。
+`mobile/test/screens/trip_detail_screen_test.dart`（画面のテスト。偽のサーバ `FakeTripBackend` を使う）が手本になる。
 
 `dev_dependencies` は `flutter_test`・`flutter_lints` と、端末の機能をテストで差し替えるための
 プラットフォーム層（`image_picker_platform_interface`・`flutter_secure_storage_platform_interface`・
@@ -57,7 +56,7 @@ CLAUDE.md「実装の慣習」の Flutter の構成方針を確認すること�
 ### 旅行アルバム（ロードマップ）
 
 旅行中に撮った写真をアップロードしてアルバムにする構想（人間の要望、2026-10-12）。
-**要件（決まっていること・段階）は [docs/travel-album/01_requirements.md](./travel-album/01_requirements.md) にある。**
+**要件（決まっていること・段階）は [docs/01_requirements.md](./01_requirements.md) にある。**
 進み具合は Issue #22。ここには、要件や設計の根拠になる実測の記録だけを置く。
 
 **段階1の結果**（2026-10-12、旅行で使う端末 SC-03K・Android 10 で実測）
@@ -80,7 +79,7 @@ CLAUDE.md「実装の慣習」の Flutter の構成方針を確認すること�
   前後で並び順がずれうる。位置情報がある写真は GPS の時刻（UTC）で補正できる
 - 確かめていないこと: Google フォトから選んだ場合、Android 10 以外の版。SC-03K は Android 10 が最終版なので OS の更新では変わらない
 
-**段階2の結果**（2026-10-14、SC-03K・Android 10 で実測。PR 7 の着手前の確認、[09 §6](./travel-album/09_implementation_plan.md#6-最初に実機で確かめること)、#33）
+**段階2の結果**（2026-10-14、SC-03K・Android 10 で実測。PR 7 の着手前の確認、[09 §6](./11_implementation_plan.md#6-最初に実機で確かめること)、#33）
 
 同じ試作（`spike/photo-metadata`）に「D: 複数選択」を足し、PR 7 と同じ `pickMultiImage()`（画質85%・最大1920px）で選んだ写真の
 SHA-256・バイト数・EXIF・地名（`geocoding` 5.0.0、端末の Geocoder）を出して確かめた。
@@ -93,11 +92,11 @@ SHA-256・バイト数・EXIF・地名（`geocoding` 5.0.0、端末の Geocoder�
 
 - **機内モードで地名が返ったのは、直前に同じ座標を引いた結果が端末に残っていたため**と見ている（応答が 40ms 前後で、オンラインの初回より速い）。
   初めて引く座標がオフラインで引けるかは確かめていない（別の場所の写真が手元に無かった）。止まらないこと（10 秒で打ち切る作りで、打ち切りには至らなかった）は確かめた
-- **`geocoding` 5.0.0 は minSdk 24・compileSdk 36 を求める。** 本体は minSdk 21・compileSdk 35 だったので、PR 7c で入れるときに上げた（`mobile/android/app/build.gradle`。[07 §6.3](./travel-album/07_infrastructure_design.md#63-flutter-側の定数)）
+- **`geocoding` 5.0.0 は minSdk 24・compileSdk 36 を求める。** 本体は minSdk 21・compileSdk 35 だったので、PR 7c で入れるときに上げた（`mobile/android/app/build.gradle`。[07 §6.3](./07_infrastructure_design.md#63-flutter-側の定数)）
   （SC-03K は Android 10 = API 29 なので影響しない。API 21〜23 の端末は対象から外れる）
 - 確かめていないこと: 1枚の縮小後のバイト数（10MB の上限と 300 枚の送信時間の見積もり。PR 7 の 300 枚の送信の確認で測る）
 
-**段階2の結果（PR 7 の後）**（2026-10-17、SC-03K・Android 10。デバッグ版（`flutter run --debug`）で実測。[08 §5.1](./travel-album/08_test_plan.md#51-実機sc-03k段階2)、#33）
+**段階2の結果（PR 7 の後）**（2026-10-17、SC-03K・Android 10。デバッグ版（`flutter run --debug`）で実測。[08 §5.1](./08_test_plan.md#51-実機sc-03k段階2)、#33）
 
 | §5.1 | 確かめたこと | 結果 |
 |---|---|---|
@@ -124,7 +123,7 @@ SHA-256・バイト数・EXIF・地名（`geocoding` 5.0.0、端末の Geocoder�
 
 **段階3の結果（分類）**（2026-10-18、SC-03K・Android 10。デバッグ版で 5 枚を送り、1 枚をやり直した。
 分類の結果と時間は Application Insights のログ、トークンは Azure OpenAI の計測値（`ProcessedPromptTokens`・`GeneratedTokens`）で読んだ。
-[06 §6](./travel-album/06_processing_design.md#6-費用の抑え方)・[08 §5.3](./travel-album/08_test_plan.md#53-段階34で足すもの)、#71）
+[06 §6](./06_processing_design.md#6-費用の抑え方)・[08 §5.3](./08_test_plan.md#53-段階34で足すもの)、#71）
 
 | 確かめたこと | 結果 |
 |---|---|
@@ -137,7 +136,7 @@ SHA-256・バイト数・EXIF・地名（`geocoding` 5.0.0、端末の Geocoder�
 | 画面（3-4a） | 送った直後のサムネイルに砂時計、下に引っ張ると消える。ビューアに「分類中...」→ カテゴリ。やり直しダイアログはキーボードを出してもはみ出さない |
 
 - 計測値に入っていたのは 6 回の呼び出しのうち 3 回分（読んだ時点の反映の遅れと見ている）。3 回とも入力 1,094 トークンで同じだったので、1 回あたりの値とした
-- 「10 枚の実測」（[09 §3](./travel-album/09_implementation_plan.md#3-段階3の-pr-の骨格) 3-3b）は、1 回あたりの値がそろったので 5 枚で済ませた（2026-10-18、人間と確認）
+- 「10 枚の実測」（[09 §3](./11_implementation_plan.md#3-段階3の-pr-の骨格) 3-3b）は、1 回あたりの値がそろったので 5 枚で済ませた（2026-10-18、人間と確認）
 - 分類の精度は、`gpt-6-luna` に統一したとき（2026-10-17）の「普段使いで決める」を続ける。今回の 5 枚では問題なし
 
 ### ヘルスチェックエンドポイント `GET /api/health`
@@ -316,7 +315,7 @@ iOS からは当面使う予定が無いので、iOS の HEIC の問題は考え
 実機確認はすぐにはできないため、TODO として残す。
 
 **TODO（Android 実機）**: ギャラリー選択で `image_picker` が
-渡すファイルの形式（先頭バイト）を確認する（アプリにカメラ撮影の経路は無く、2026-10-22 に CAMERA 権限も外した。`docs/travel-album/02_design_overview.md` §5 #38）。4形式以外（HEIC / HEIF など）が来るかどうかで決める。
+渡すファイルの形式（先頭バイト）を確認する（アプリにカメラ撮影の経路は無く、2026-10-22 に CAMERA 権限も外した。`docs/02_design_overview.md` §5 #38）。4形式以外（HEIC / HEIF など）が来るかどうかで決める。
 
 - 4形式以外が来ない → 下記の推奨どおり 415 で弾かせても利用者に影響しない
 - 来る → 弾くとアップロードできなくなる。クライアント側で JPEG に変換するか、
@@ -341,7 +340,7 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 
 ### Android 13 以上では、地名を引けないときに写真1枚ごとに5秒待つ（Dart、旅行アルバム）
 
-写真の準備は、位置情報のある写真ごとに端末の Geocoder（`geocoding` 5）で地名を引き、5秒で打ち切る（`docs/travel-album/06_processing_design.md` §4.2）。
+写真の準備は、位置情報のある写真ごとに端末の Geocoder（`geocoding` 5）で地名を引き、5秒で打ち切る（`docs/06_processing_design.md` §4.2）。
 `geocoding_android` 5.0.2 は API 33 以上の経路（`getFromLocation` のリスナー版）で、エラーのときに結果を返さない
 （`lib/src/geocoding_android.dart` の `onError: (listener, error) {}`。2026-10-16、PR 7c の test-reviewer がソースを読んでの判断で、実機では未確認）。
 そのため API 33 以上の端末がオフラインだと、位置情報のある写真1枚ごとに5秒の時間切れまで待つ。引けなかった結果は端末に残さないので、
@@ -367,11 +366,11 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 移動なら「（N枚は見つかりませんでした）」、削除なら 404 を消せたと数えるので、写真を取り違えることは無い。
 
 **判断が要ること**: 読み直したら選択を読み込んだ写真に絞るか、選択モード中は引っ張る読み直しをさせないか、読み直したら選択モードを抜けるか。
-`docs/travel-album/03_screen_design.md` §4.8 に決めた扱いを書いてから直す。
+`docs/03_screen_design.md` §4.8 に決めた扱いを書いてから直す。
 
 ### 送信を取り消した写真がサーバに保存されても、一覧を読み直すまで出ない（Dart、旅行アルバム）
 
-旅行の削除を確定すると、その旅行宛ての送信を取り消す（`UploadQueue.cancelTrip`）。取り消した写真は送らず、送信中だった要求の結果も知らせない（`docs/travel-album/03_screen_design.md` §4.4）。
+旅行の削除を確定すると、その旅行宛ての送信を取り消す（`UploadQueue.cancelTrip`）。取り消した写真は送らず、送信中だった要求の結果も知らせない（`docs/03_screen_design.md` §4.4）。
 そのため次の2つの場合に、サーバに保存された写真が、下に引っ張って読み直すまでどの一覧にも出ない（2026-10-17、PR 7e の `/code-review` の指摘。コードを読んでの判断）。
 - 削除が失敗して旅行が残り、送信中だった写真がサーバに保存された（一区切りの読み直しの宛先に入らない）
 - 「写真は残す」で削除し、一区切りの前に送れていた写真が「旅行に属さない写真」に移った（同じく読み直しの宛先に入らない）
@@ -391,9 +390,9 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 ### 図鑑の項目の一覧で、見出しの写真のクエリを最大 100 本同時に投げる（api、旅行アルバム）
 
 `GET /api/catalog/entries` は、ページの項目ごとに見出しの写真を `TOP 1 … ORDER BY confidence DESC, at DESC` で読み、ページの件数だけ並列に投げる
-（`api/src/services/catalogEntries.ts` の `catalogPageOf()`。既定 50 件、上限 100 件。設計どおり。`docs/travel-album/04_data_design.md` §3.1）。
+（`api/src/services/catalogEntries.ts` の `catalogPageOf()`。既定 50 件、上限 100 件。設計どおり。`docs/04_data_design.md` §3.1）。
 `album` の RU/s（無料枠の 400）を一度に超えると 429 になり、SDK が自動で再試行するので遅くなる（2026-10-18、4-2a の `/code-review` の指摘。コードを読んでの判断。実測していない）。
-**判断**: 4-2a のデプロイ後の実測（1種類の1ページを開く RU と時間。`docs/travel-album/09_implementation_plan.md` §4）を見てから決める。
+**判断**: 4-2a のデプロイ後の実測（1種類の1ページを開く RU と時間。`docs/11_implementation_plan.md` §4）を見てから決める。
 遅ければ、同時に投げる本数を抑える（例 10 本ずつ）か、04 §3.1 の「まとめの控え」を足す。
 
 ### 写真ビューアで続きのページの読み込みに失敗すると、ビューアからは読み直せない（Dart、旅行アルバム）
@@ -404,20 +403,14 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 戻れば一覧の「再試行」で読み直せる。
 
 **判断が要ること**: ビューアの末尾で失敗を知らせて「再試行」を出すか、ビューアからもう一度払ったら読み直すか、今のまま（戻って一覧で再試行）とするか。
-`docs/travel-album/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
+`docs/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
 
-### ルートの仕様書に、アプリから消した植物図鑑の画面が「今ある」と書かれている（文書、旅行アルバム）
+### OpenAPI 仕様書にエンドポイントが無い（文書）
 
-4-5（2026-10-20）でアプリの植物図鑑の画面（植物一覧・画像選択・識別結果・植物詳細）を消した。旅行アルバムの開発中はルートの仕様書（`docs/01`〜`07`）へ取り込まない方針なので、
-次の箇所が古いまま残っている（4-5 の contract-auditor の報告。文書を読んでの確認）。
+`docs/05_api_openapi.yaml` は共通の部品（認証・封筒・エラーの形）だけで、`paths` が空。旅行アルバムと図鑑のエンドポイント（`docs/05_api_design.md` §2 の表）は書いていない。
+以前は「機能が固まってから取り込む」としていたが、2026-10-25 に設計書を `docs/` 直下に一本化した（CLAUDE.md「ドキュメントの扱い」）ときに、OpenAPI だけは実装の写しとして残した。
 
-- `docs/03_screen_design.md`: 画面一覧と §1〜§4 の植物図鑑の画面、設定画面の保存後の「植物一覧画面へ戻る」、**接続テストの宛先 `GET /api/plants`**（今は写真の一覧の1件。`docs/travel-album/03_screen_design.md` §6.4）、画面遷移のパターン
-- `docs/05_technology_selection.md` §4.2・§4.3: フォルダ構造の植物の画面とモデル、識別結果確認画面の 409 `IMAGE_ALREADY_SAVED`、植物識別フロー
-- `docs/07_api_workflow.md`・`docs/06_api_design.md`: クライアントが 409 で植物一覧へ戻る・`CameraScreen` にエラーを出す、の記述（API 自体は 4-6 まで残る）
-- `docs/01_requirements.md`・`docs/02_feature_list.md`・ルートの `README.md`「主な機能」: 植物図鑑の画面の機能
-- `docs/09_backlog.md` の植物図鑑の画面を前提にした項目（`identification_screen_test.dart` を手本にする記述、`camera_screen.dart` の `maxLength`、科名の「科」が二重になる、など）
-
-**やること**: 旅行アルバムの機能が固まったら、`docs/travel-album/` をルートの仕様書へ取り込むときにまとめて書き直す（4-6 で植物の API を消すときに `docs/06`・`07`・`README` は直す計画。09 §4）。
+**判断が要ること**: 全エンドポイントを書き起こして、API を変えるたびに直すか（クライアントの生成や外部ツールで使う予定が無ければ、`05_api_design.md` と二重になる）、OpenAPI をやめて `05_api_design.md` を API の正にするか。
 
 ### アプリの API の呼び出しに時間切れが無く、ダイアログの処理中に通信が返らないと閉じられない（Dart）
 
@@ -427,7 +420,7 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 （2026-10-18、3-4a の `/code-review` で指摘。コードを読んでの判断）。
 
 **判断が要ること**: `ApiService` の呼び出しに一律の時間切れ（例: 30 秒）を付けて、時間切れを `ApiException`（ステータス 0）にするか。
-付けるなら、時間切れの後にサーバが受け付けていた場合の画面の扱い（読み直しで直る）も `docs/05_technology_selection.md` §4.2 に書く。
+付けるなら、時間切れの後にサーバが受け付けていた場合の画面の扱い（読み直しで直る）も `docs/03_screen_design.md` §9.2 に書く。
 
 ### Azurite などパス形式のエンドポイントで動くか確かめていない
 
@@ -473,7 +466,7 @@ URL を受け取って検証する API も無い。ただし Azurite で動く�
 
 **着手時の手順**: Cosmos DB の失敗の表（`api/tests/helpers/databaseFailures.ts`）に `ETIMEDOUT` の行を足す
 （Blob Storage の側は `photos.test.ts` の `storageFailureCases` に先行例がある）。全入口のステータスが変わる契約変更なので、
-実装後は仕様書（`docs/06_api_design.md` §6.2「502 / 503 の振り分けと `message`」と `docs/travel-album/05_api_design.md` §1）も更新すること。
+実装後は仕様書（`docs/05_api_design.md` §9.4「502 / 503 の振り分け」と §1）も更新すること。
 
 ### 手がかり・旅行名などの文字数の数え方がクライアントとサーバで違う
 
@@ -521,7 +514,7 @@ api / mobile の全テスト197件を仕様書（docs/01〜08、OpenAPI、README
 （`api/src` にもインフラ定義にも、テレメトリのプロセッサや関連する設定は無い）。仕様書から外してここに移した。
 植物図鑑のハンドラは利用者の入力（ファイル名・補足情報の自由記述・植物名）をそのままログに出していたが、4-6 で API ごと消えた。
 旅行アルバムのハンドラは、写真の id・旅行の id・件数だけを出し、地名・コメント・手がかり・ファイル名は出さない方針
-（`docs/travel-album/05_api_design.md` §1）。ただし失敗のときは例外のオブジェクトをそのままログに出す（SDK の文言を含む）。
+（`docs/05_api_design.md` §1）。ただし失敗のときは例外のオブジェクトをそのままログに出す（SDK の文言を含む）。
 ワーカーは識別した名前（AI の出力）もログに出す。アプリに利用者アカウントは無い。
 
 **判断が必要な点**: ログに出す項目を減らすか、マスキングを入れるか、このままにするか。
@@ -532,14 +525,6 @@ api / mobile の全テスト197件を仕様書（docs/01〜08、OpenAPI、README
 
 `docs/03_screen_design.md` を実装の写しに書き直し、`docs/08_flutter_ui_design.md` を削除したときに、
 コードを読んで見つけたもの（`contract-auditor` の報告。日時の表示と処理中の画面操作はメインセッションがコードで確認した）。
-
-### 科名の「科」が二重になる可能性（要確認、Dart）
-
-識別結果確認画面と詳細画面は、科名の値の末尾に必ず「科」を付けて表示する。
-一方、AI のスキーマの説明は「科名（日本語）」（`openAIVisionService.ts`）で、OpenAPI と 07 の例は `"バラ科"`。
-AI が「バラ科」を返すと「バラ科科」と表示される。
-
-**やること**: 実際の識別結果の `familyName` を確かめる。「科」まで含むなら、クライアントで付けるのをやめる。
 
 ### 初期の設計にあって未実装の機能
 

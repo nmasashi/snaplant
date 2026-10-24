@@ -4,7 +4,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import 'trip_edit_dialog.dart';
 
-/// 選んだ写真を入れる旅行を選ぶダイアログ（docs/travel-album/03_screen_design.md §4.8「旅行に入れる」）
+/// 選んだ写真を入れる旅行を選ぶダイアログ（docs/03_screen_design.md §4.8「旅行に入れる」）
 ///
 /// 開くたびに旅行の一覧を取り直し、[excludeTripId]（今いる旅行）を除いて並べる。
 /// 移せたら旅行名と結果を返して閉じる。移す処理は呼び出し側が [onMove] で渡す

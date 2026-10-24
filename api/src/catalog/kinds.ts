@@ -1,5 +1,5 @@
 /**
- * 図鑑の種類の定義表（docs/travel-album/04_data_design.md §3.2）
+ * 図鑑の種類の定義表（docs/04_data_design.md §3.2）
  *
  * 種類を足すときは、この表に1行足す。分類 AI の選択肢（段階3）と、識別 AI のスキーマ・
  * `GET /api/catalog/kinds`（段階4）がこの表から追従する。段階3で使うのはキー（分類の選択肢）だけで、

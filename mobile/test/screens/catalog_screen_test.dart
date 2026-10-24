@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 図鑑のタブ（docs/travel-album/03_screen_design.md §6.1。段階4の 4-3a）。
+// 図鑑のタブ（docs/03_screen_design.md §6.1。段階4の 4-3a）。
 // 入口は下のタブの「図鑑」（起動時のタブ）。図鑑の API は偽のサーバ（FakeTripBackend）が返す
 
 /// 植物と食べ物の項目を持つ偽のサーバ

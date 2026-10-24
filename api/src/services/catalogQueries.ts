@@ -2,11 +2,11 @@ import { Container } from '@azure/cosmos';
 import { PhotoDocument } from '../types/album';
 
 /**
- * 図鑑のまとめに使う Cosmos SQL（docs/travel-album/04_data_design.md §5.6）
+ * 図鑑のまとめに使う Cosmos SQL（docs/04_data_design.md §5.6）
  *
  * SQL 文字列とパラメータの組み立てだけの薄い層。集計（GROUP BY）と2項目の ORDER BY は
  * テスト用の偽物では解釈できないため、ここはテストせず、デプロイ後に手で確かめる
- * （docs/travel-album/08_test_plan.md §5.3）。行と見出しの写真からページを組み立てる所は
+ * （docs/08_test_plan.md §5.3）。行と見出しの写真からページを組み立てる所は
  * catalogEntries.ts に分けてあり、そちらを単体で確かめる（旅行の albumQueries.ts と tripSummaries.ts と同じ分け方）
  */
 

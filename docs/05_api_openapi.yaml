@@ -4,10 +4,10 @@ info:
   description: |
     SnapPlant の REST API 仕様書。
 
-    今あるエンドポイントは、すべて旅行アルバムの API で、まだこの仕様書に取り込んでいない
-    （取り込みは機能が固まってから後でまとめて行う。2026-10-12 に決定）。
-    ルート・リクエスト・応答・エラーの文言は `docs/travel-album/05_api_design.md` を参照。
-    共通事項（認証・応答の封筒・エラーの分類）は `docs/06_api_design.md`。
+    今あるエンドポイント（旅行アルバムと図鑑）は、まだこの仕様書に書いていない（`docs/09_backlog.md` の
+    「OpenAPI 仕様書にエンドポイントが無い」）。
+    ルート・リクエスト・応答・エラーの文言は `docs/05_api_design.md` を参照。
+    共通事項（認証・応答の封筒・エラーの分類）は `docs/05_api_design.md` §9。
 
     植物図鑑の API（`/plants`・`/plants/{id}`・`/plants/save`・`/plants/identify`・
     `/plants/check-duplicate`・`/images/upload`）は 4-6 で削除した。関数が登録されていないので、呼ぶと 404 になる。
@@ -24,7 +24,7 @@ servers:
 security:
   - FunctionKey: []
 
-# 旅行アルバムの API は docs/travel-album/05_api_design.md にあり、まだ取り込んでいない（info.description）
+# エンドポイントは docs/05_api_design.md にあり、まだここに書いていない（info.description）
 paths: {}
 
 components:
@@ -87,4 +87,4 @@ components:
         この応答は Azure Functions ランタイムが返し、アプリケーションコードに到達しないため、
         `{ success, error }` の封筒にならず、`code` / `message` も無い。
         アプリケーションの `ErrorCode` にも対応する値は無い（以前の `UNAUTHORIZED` /
-        `INVALID_API_KEY` は生成箇所が無いため削除済み。`06_api_design.md` §6.2）。
+        `INVALID_API_KEY` は生成箇所が無いため削除済み。`05_api_design.md` §9.3）。

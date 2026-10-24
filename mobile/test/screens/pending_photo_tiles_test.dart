@@ -11,7 +11,7 @@ import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 送信中・失敗の写真(端末の画像)を、写真のグリッドにサーバの写真と並べて出す振る舞いを確かめる
-// （docs/travel-album/03_screen_design.md §4.4）。入口は旅行詳細と「旅行に属さない写真」の画面。
+// （docs/03_screen_design.md §4.4）。入口は旅行詳細と「旅行に属さない写真」の画面。
 //
 // このファイルのテストは、サーバの写真のサムネイルを出したまま、実時間を進める(tester.runAsync。送信の要求が届くのを待つため)。
 // 画像のキャッシュ(flutter_cache_manager)は、そのとき端末のディレクトリを path_provider で探すので、
@@ -515,7 +515,7 @@ void main() {
   });
   testWidgets('旅行詳細でカテゴリを絞り込んでいる間は、送れなかった写真の端末の画像のマスを並べず、「すべて」に戻すと並べる',
       (tester) async {
-    // 送れなかった写真はまだ分類されていないので、「すべて」のときだけ並べる（docs/travel-album/03_screen_design.md §5.3）。
+    // 送れなかった写真はまだ分類されていないので、「すべて」のときだけ並べる（docs/03_screen_design.md §5.3）。
     // 失敗は、自動では送り直さない 500。「すべて」に戻すと並ぶことで、「並べない」が項目の無いせいではないことも確かめる
     useFakeImageCompress();
     final semantics = tester.ensureSemantics();
@@ -561,7 +561,7 @@ void main() {
   });
 
   testWidgets('図鑑の項目詳細には、旅行を指定せずに送れなかった写真の端末の画像のマスを並べない', (tester) async {
-    // 送信中の写真はまだ識別されていないので、項目詳細には並べない（docs/travel-album/03_screen_design.md §6.2）
+    // 送信中の写真はまだ識別されていないので、項目詳細には並べない（docs/03_screen_design.md §6.2）
     useFakeImageCompress();
     final semantics = tester.ensureSemantics();
     final image = writeTestImage('unassigned.png');

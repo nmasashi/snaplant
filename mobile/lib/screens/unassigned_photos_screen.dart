@@ -10,7 +10,7 @@ import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
 import '../widgets/upload_banner.dart';
 
-/// 旅行に属さない写真の画面（docs/travel-album/03_screen_design.md §4.5）
+/// 旅行に属さない写真の画面（docs/03_screen_design.md §4.5）
 ///
 /// 旅行詳細と同じ部品で、旅行ではないので編集・削除のメニューは無く、期間も出さない
 class UnassignedPhotosScreen extends StatefulWidget {

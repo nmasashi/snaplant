@@ -1,6 +1,6 @@
-/// 写真のカテゴリ（AI の分類の `category`）の表示名（docs/travel-album/03_screen_design.md §5.1）
+/// 写真のカテゴリ（AI の分類の `category`）の表示名（docs/03_screen_design.md §5.1）
 ///
-/// アプリが持つ（図鑑のタブは種類の一覧の API から作るが、カテゴリの表示名はこの表のまま。docs/travel-album/02_design_overview.md §5 #33）。
+/// アプリが持つ（図鑑のタブは種類の一覧の API から作るが、カテゴリの表示名はこの表のまま。docs/02_design_overview.md §5 #33）。
 /// どれにも当てはまらない分類（[otherCategory]）は画面に出さないので、表に入れない
 const _categoryLabels = {
   'plant': '植物',

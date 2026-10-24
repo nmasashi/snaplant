@@ -7,7 +7,7 @@ import 'confirm_action_dialog.dart';
 import 'photo_selection.dart';
 import 'trip_picker_dialog.dart';
 
-/// 写真のグリッドを持つ画面の骨組み。複数選択のモード（docs/travel-album/03_screen_design.md §4.8）を受け持つ
+/// 写真のグリッドを持つ画面の骨組み。複数選択のモード（docs/03_screen_design.md §4.8）を受け持つ
 ///
 /// 選択モード中は、見出しを選んだ枚数に、下に操作バー（旅行に入れる・旅行から外す・削除。[allowMove] が false なら削除だけ）を出し、
 /// 端末の戻る操作では画面を閉じずに選択モードを抜ける。旅行詳細・旅行に属さない写真の画面・図鑑の項目詳細が使う

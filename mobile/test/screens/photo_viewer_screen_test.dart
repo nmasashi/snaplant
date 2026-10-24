@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 写真ビューア（docs/travel-album/03_screen_design.md §4.6）。入口は旅行詳細の写真のグリッド
+// 写真ビューア（docs/03_screen_design.md §4.6）。入口は旅行詳細の写真のグリッド
 //
 // 偽のサーバの写真は、本物の API と同じく sortAt の昇順で並べる（photoJson は sortAt = takenAt）。
 

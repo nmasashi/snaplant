@@ -89,7 +89,7 @@ export class AlbumService {
    * 旅行の一覧を、写真の集計を付けて返す（作成日時の新しい順）
    *
    * 写真を全部読まずに、旅行ごとの枚数と撮影期間を GROUP BY で数える
-   * （docs/travel-album/04_data_design.md §5.1）。旅行に属さない写真の枚数も同じ集計から出す
+   * （docs/04_data_design.md §5.1）。旅行に属さない写真の枚数も同じ集計から出す
    */
   async listTrips(coverUrlOf?: CoverUrlOf): Promise<{ trips: TripSummary[]; unassignedPhotoCount: number }> {
     const [{ resources: tripDocs }, counts, ranges] = await Promise.all([
@@ -127,7 +127,7 @@ export class AlbumService {
   }
 
   /**
-   * 図鑑の項目の一覧の1ページを作る（docs/travel-album/04_data_design.md §3.1 の3段）
+   * 図鑑の項目の一覧の1ページを作る（docs/04_data_design.md §3.1 の3段）
    * @param query 検証済みのクエリ（種類・何件目から・何件まで）。offset と limit はどちらも数なので、位置で渡すと取り違えても型が止めない
    * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
    * @returns ページの項目と、項目の総数
@@ -148,7 +148,7 @@ export class AlbumService {
   }
 
   /**
-   * 図鑑の項目の詳細と、その写真の1ページを読む（docs/travel-album/04_data_design.md §5.6 の詳細の3本）
+   * 図鑑の項目の詳細と、その写真の1ページを読む（docs/04_data_design.md §5.6 の詳細の3本）
    *
    * 見出しの写真（TOP 1）を先に読み、無ければ項目は無い（その種類と名前の写真が0枚）。写真のページを読まないので、
    * 項目が消えた後に古い継続トークンで続きを頼まれても、トークンの不正ではなく entry: null を返す。
@@ -471,7 +471,7 @@ export class AlbumService {
    * 写真の解析のやり直しを受け付ける（分類の待ちにし、回数を 0 に戻し、手がかりを書き、コメントを消す）
    *
    * コメントは、やり直しの結果で置き換えるために消す（利用者の文は、アプリが手がかりに事前入力してから頼む。
-   * docs/travel-album/05_api_design.md §5.7）。前回の結果の欄（category など）は、やり直しの結果が出るまで残す
+   * docs/05_api_design.md §5.7）。前回の結果の欄（category など）は、やり直しの結果が出るまで残す
    * @param id 写真 ID
    * @param step やり直す処理
    * @param hint 利用者からの手がかり。無ければ null
@@ -504,7 +504,7 @@ export class AlbumService {
   /**
    * 写真の解析を担当する（processing を処理中にする）。processing が expected のままのときだけ書く条件付きの patch
    *
-   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/travel-album/04_data_design.md §7.4）。
+   * 同じメッセージが2回届いたとき、先に書いた方だけが担当になる（docs/04_data_design.md §7.4）。
    * 条件は processingCondition()（state・step・回数・updatedAt）。読んでから担当するまでに、別のインスタンスの担当と失敗や、
    * やり直しの受付が入っていたら担当しない
    * @param id 写真 ID
@@ -531,7 +531,7 @@ export class AlbumService {
   }
 
   /**
-   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/travel-album/04_data_design.md §7.4）。担当したときのままのときだけ書く
+   * 分類の結果を写真に書く（AI が書く欄だけ。利用者の欄には触らない。docs/04_data_design.md §7.4）。担当したときのままのときだけ書く
    * @param id 写真 ID
    * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
    * @param result 書く値
@@ -552,7 +552,7 @@ export class AlbumService {
   }
 
   /**
-   * 識別の結果を写真に書く（AI が書く欄だけ。docs/travel-album/04_data_design.md §7.4）。担当したときのままのときだけ書く
+   * 識別の結果を写真に書く（AI が書く欄だけ。docs/04_data_design.md §7.4）。担当したときのままのときだけ書く
    * @param id 写真 ID
    * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
    * @param result 書く値
@@ -598,7 +598,7 @@ export class AlbumService {
    * 担当したときのまま（processing が担当したときに書いたもののまま）のときだけ書く条件付きの patch
    *
    * 分類の間にやり直しの受付（pending・回数 0）が入っていたら書かない。古い処理の結果や失敗でやり直しを上書きすると、
-   * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/travel-album/05_api_design.md §5.7）
+   * やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える（docs/05_api_design.md §5.7）
    * @param extraCondition 担当したときのままに加えて満たすべき条件（括弧で包んで `AND` でつなぐ）。無ければ担当したときのままだけ
    * @returns 書けたら true。担当したときと変わっていた・extraCondition を満たさない（412）か、写真が消えていた（404）なら false
    */
@@ -627,7 +627,7 @@ export class AlbumService {
    * 旅行を消す。先に中の写真を消すか、どの旅行にも属さない写真に戻してから、最後に旅行を消す
    *
    * 中の写真は最初にページで全部読み（射影）、その分だけを処理する。削除の途中に届いた写真は消さない
-   * （段階3の掃除のタイマーが未所属に戻す。docs/travel-album/04_data_design.md §7.3）。
+   * （段階3の掃除のタイマーが未所属に戻す。docs/04_data_design.md §7.3）。
    * 写真の処理が失敗したら投げる（旅行は残り、済んだ分はそのまま。再送で続きができる）
    * @param id 旅行 ID
    * @param deletePhotos 中の写真も消すなら true、残すなら false

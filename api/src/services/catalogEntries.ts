@@ -4,7 +4,7 @@ import { CatalogHeadPhoto, CatalogNameCountRow } from './catalogQueries';
 
 /**
  * 図鑑の項目のページを、名前ごとの枚数の行と見出しの写真から組み立てる純粋な関数
- * （docs/travel-album/04_data_design.md §3.1 の「規模の注意」の 2 段と 3 段）
+ * （docs/04_data_design.md §3.1 の「規模の注意」の 2 段と 3 段）
  *
  * 集計とその並びは偽物では作れないので、入口ではなく catalogPageOf() を単体で確かめる（CLAUDE.md の名簿）
  */

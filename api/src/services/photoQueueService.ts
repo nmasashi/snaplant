@@ -1,7 +1,7 @@
 import { QueueClient } from '@azure/storage-queue';
 
 /**
- * 写真の解析（分類・識別）のキュー（docs/travel-album/06_processing_design.md §1）
+ * 写真の解析（分類・識別）のキュー（docs/06_processing_design.md §1）
  *
  * メッセージは `{ photoId }` だけ。やる処理（`processing.step`）と手がかり（`hint`）はワーカーが写真から読む
  * （メッセージに載せると、再投入や重複配信で写真の中身と食い違ったものが届きうる）

@@ -20,7 +20,7 @@ import '../helpers/geocoding_test_helpers.dart';
 import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/travel-album/03_screen_design.md §4.3・§4.4）。
+// 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/03_screen_design.md §4.3・§4.4）。
 // 旅行の API は偽のサーバ（helpers の FakeTripBackend）で差し替える。
 // 偽のサーバは API キーを照合するので、画面に渡す ApiService には同じキーを持たせる
 
@@ -204,7 +204,7 @@ void main() {
   });
 
   testWidgets('写真が0枚の旅行を開くと、「まだ写真がありません」と「写真を追加」から送る案内を出し、読み込み中の表示は消える', (tester) async {
-    // 旅行は存在し、写真が1枚も無い（404 ではなく photos: [] の応答。docs/travel-album/05_api_design.md §5.2）
+    // 旅行は存在し、写真が1枚も無い（404 ではなく photos: [] の応答。docs/05_api_design.md §5.2）
     final backend = _backendWith([tripJson(id: hokkaidoTripId, name: '京都', photoCount: 0)]);
 
     await openDetailFromHome(tester, backend);
@@ -1822,7 +1822,7 @@ void main() {
 
   testWidgets('位置情報のある写真を送ると、端末の Geocoder で引いた都道府県と市区町村をつないだ地名（北海道旭川市）が、端末由来としてその写真に入る', (tester) async {
     // EXIF の位置は北緯 43.5・東経 141.25。偽の Geocoder（端末の機能。管理外の依存）は、その近くに対して、番地や区・郡・国まで含む結果を返す。
-    // 地名にするのは、都道府県（administrativeArea）と市区町村（locality）だけ（docs/travel-album/06_processing_design.md §4.2）
+    // 地名にするのは、都道府県（administrativeArea）と市区町村（locality）だけ（docs/06_processing_design.md §4.2）
     useFakeGeocoding(places: [
       (
         latitude: 43.5,
@@ -1963,7 +1963,7 @@ void main() {
   });
 
   testWidgets('つないだ地名が空白だけなら、地名なしで送られる（空白だけの地名はサーバが 400 で断り、写真が届かなくなる）', (tester) async {
-    // Geocoder が都道府県に空白だけを返した（市区町村は null）。前後の空白を除くと空になる（docs/travel-album/06_processing_design.md §4.2）
+    // Geocoder が都道府県に空白だけを返した（市区町村は null）。前後の空白を除くと空になる（docs/06_processing_design.md §4.2）
     useFakeGeocoding(places: [
       (
         latitude: 24.3333,
@@ -2103,7 +2103,7 @@ void main() {
   });
 
   testWidgets('Geocoder の結果に都道府県も市区町村も無ければ（null と空文字）、他の欄が埋まっていても、その写真は地名なしで送られ、「1枚を送信しました」と知らせる', (tester) async {
-    // 町名（subLocality）や国は埋まっているが、地名にするのは都道府県と市区町村だけ（docs/travel-album/06_processing_design.md §4.2）。どちらも空なら地名なし。
+    // 町名（subLocality）や国は埋まっているが、地名にするのは都道府県と市区町村だけ（docs/06_processing_design.md §4.2）。どちらも空なら地名なし。
     // 空の地名を送ると、サーバは 400（地名は1〜100文字）で断るので、写真が届くことでも、空の地名を送っていないことが分かる
     final geocoding = useFakeGeocoding(places: [
       (
@@ -2140,7 +2140,7 @@ void main() {
   });
 
   testWidgets('Geocoder の結果に市区町村が無く都道府県だけなら（locality が null）、地名はその都道府県になり、端末由来としてその写真に入る', (tester) async {
-    // 島や海沿いなど、市区町村まで引けない場所。片方でもあれば、その分だけを地名にする（docs/travel-album/06_processing_design.md §4.2 は「どちらも空なら null」）
+    // 島や海沿いなど、市区町村まで引けない場所。片方でもあれば、その分だけを地名にする（docs/06_processing_design.md §4.2 は「どちらも空なら null」）
     useFakeGeocoding(places: [
       (
         latitude: 33.1,

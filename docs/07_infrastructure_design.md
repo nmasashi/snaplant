@@ -3,13 +3,13 @@
 ## この文書の位置づけ
 
 旅行アルバムのために `infrastructure/`（Terraform）・`api/host.json`・CI/CD に加える変更を、段階ごとに書く。
-**未実装を含む目指す姿**で、`DEPLOYMENT.md`・`docs/04_database_design.md` へは後でまとめて取り込む（開発中はこの一式を正として都度直し、取り込みは機能が固まってから後でまとめて行う。2026-10-12 に人間が決定）。Terraform の定義の一覧である `infrastructure/README.md` は実装と一緒に直す。
+**未実装を含む目指す姿**で、実装した部分には「実装済み」の印を付ける。デプロイの手順と、今ある設定の一覧は `DEPLOYMENT.md`（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移した）。
 
 `terraform plan` / `apply` には作業マシンにしか無い `terraform.tfstate` と `terraform.tfvars` が要り、**apply は人間が行う**（CLAUDE.md「開発環境」）。
 CI（`terraform.yml`）は `fmt -check` と `validate` だけで、Azure へは通信しない。`.tf` を編集したら `terraform fmt` をかける。
 
 データの形は [04_data_design.md](./04_data_design.md)、裏の処理は [06_processing_design.md](./06_processing_design.md)、
-PR の順序は [09_implementation_plan.md](./09_implementation_plan.md) を参照する。リソース名・変数名はこの文書で決めた。
+PR の順序は [11_implementation_plan.md](./11_implementation_plan.md) を参照する。リソース名・変数名はこの文書で決めた。
 
 ---
 
@@ -124,7 +124,7 @@ API 側はデプロイ名を環境変数 `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`
 ### 3.1 図鑑の前に足すもの（複合インデックス）
 
 図鑑の見出しの写真を `ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む（[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)）ために、
-`album` に複合インデックスを足す。2項目の `ORDER BY` は複合インデックスが無いと失敗する（推測）ので、**図鑑の API（[09 §4](./09_implementation_plan.md#4-段階4の-pr-の骨格) の 4-2）より先に apply する**。
+`album` に複合インデックスを足す。2項目の `ORDER BY` は複合インデックスが無いと失敗する（推測）ので、**図鑑の API（[09 §4](./11_implementation_plan.md#4-段階4の-pr-の骨格) の 4-2）より先に apply する**。
 
 ```hcl
 resource "azurerm_cosmosdb_sql_container" "album" {
@@ -292,12 +292,16 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | 送信の同時本数（`UploadQueue`） | `2` | `POST /api/photos` を同時に送る数 | [02 §4.7](./02_design_overview.md#47-送り方は1リクエスト1枚クライアントが同時2本まで要件-52) |
 | 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ | [03 §4.7](./03_screen_design.md#47-写真の追加と送信の進み具合) |
 | サムネイル（`UploadQueue`。`upload_queue.dart` の `_thumbnailLongSide`・`_thumbnailQuality`） | 長辺 320px・画質 70・JPEG | 一覧用の小さな画像 | [04 §4.2](./04_data_design.md#42-blob-名)・[03 §4.7](./03_screen_design.md#47-写真の追加と送信の進み具合) |
-| 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。縮小してもハッシュが決まることは実機で確かめた） | 原寸の大きさ | [09 §6](./09_implementation_plan.md#6-最初に実機で確かめること) |
+| 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。縮小してもハッシュが決まることは実機で確かめた） | 原寸の大きさ | [09 §6](./11_implementation_plan.md#6-最初に実機で確かめること) |
 | 地名の変換（`UploadQueue`。`upload_queue.dart` の `_placeNameTimeout`） | タイムアウト 5 秒、キャッシュの鍵は小数3桁（`shared_preferences`。引けた地名だけを残す） | 端末の Geocoder | [06 §4.2](./06_processing_design.md#42-段階2端末) |
 | Android の `minSdkVersion` / `compileSdk`（`mobile/android/app/build.gradle`） | `24`（Android 7.0）/ `36` | アプリを入れられる端末の下限と、ビルドに使う SDK | `geocoding` 5 の要求（PR 7c で 21 / 35 から上げた。旅行で使う SC-03K は Android 10 なので影響しない） |
 | 写真一覧のページ（`ApiService.getPhotos`） | `limit` を送らない（サーバの既定 100） | 下までスクロールで次のページ | [03 §4.4](./03_screen_design.md#44-旅行詳細画面) |
 | 画像キャッシュ（`photo_cache_manager.dart`） | 件数の上限を既定の 200 から引き上げる（値は実装時に決める） | 数百枚の旅行で入れ替わり続けないように | [03 §3](./03_screen_design.md#3-全画面共通) |
 | 旅行の削除ダイアログの既定 | 「写真は残す」 | 誤操作で写真が消えないように | [03 §4.4](./03_screen_design.md#44-旅行詳細画面) |
+
+### 6.4 運用監視
+
+アラートルールは定義していない（`infrastructure/` に該当するリソースが無い）。予算アラート（`azurerm_consumption_budget_resource_group`。§2）だけがある（以前の `docs/07_api_workflow.md` §3 から移した）。
 
 ## 7. 段階5（タイムライン）
 

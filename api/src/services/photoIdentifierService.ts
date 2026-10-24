@@ -4,7 +4,7 @@ import { UpstreamError } from '../utils/errors';
 import { CATALOG_VALIDATION } from '../constants/validation';
 
 /**
- * 識別の応答の形（Structured Outputs。docs/travel-album/06_processing_design.md §3.1）
+ * 識別の応答の形（Structured Outputs。docs/06_processing_design.md §3.1）
  *
  * 種類ごとの項目（attributes）は定義表の fields から組み立てる（定義表に項目を足すと追従する）。
  * strict モードではすべての項目を required に入れなければならないので、無いことは null で表す

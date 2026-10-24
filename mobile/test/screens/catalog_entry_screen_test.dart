@@ -7,7 +7,7 @@ import 'package:snaplant_mobile/screens/photo_viewer_screen.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 図鑑の項目詳細（docs/travel-album/03_screen_design.md §6.2。段階4の 4-3b）。
+// 図鑑の項目詳細（docs/03_screen_design.md §6.2。段階4の 4-3b）。
 // 入口は図鑑のタブ（下のタブの「図鑑」）の項目の行。項目の詳細は偽のサーバ（FakeTripBackend）が写真の識別から作る
 
 /// 撮影日時（10月6日の [time]）のサムネイルの読み上げのラベル

@@ -229,7 +229,7 @@ describe('写真API', () => {
         hint: null,
         classification: null,
         identification: null,
-        // 段階3から、新しい写真は分類の待ち（docs/travel-album/05_api_design.md §5.1）
+        // 段階3から、新しい写真は分類の待ち（docs/05_api_design.md §5.1）
         processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-10T03:12:45.000Z' },
         uploadedAt: '2026-10-10T03:12:45.000Z',
         updatedAt: '2026-10-10T03:12:45.000Z'
@@ -298,7 +298,7 @@ describe('写真API', () => {
     });
 
     it('解析のキューへの投入に失敗しても、201で保存した写真を返し、写真は解析待ちのまま残る', async () => {
-      // 解析待ちの写真は再投入のタイマーが拾う（docs/travel-album/04_data_design.md §7.1）。
+      // 解析待ちの写真は再投入のタイマーが拾う（docs/04_data_design.md §7.1）。
       // 投入の失敗で送信を失敗にすると、保存できているのにアプリが送り直すことになる
       queueBackend.forcedSendError = Object.assign(new Error('The specified queue does not exist.'), {
         name: 'RestError',

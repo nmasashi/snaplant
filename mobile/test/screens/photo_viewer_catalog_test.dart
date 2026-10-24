@@ -8,7 +8,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 写真ビューアの図鑑の項目へのリンク・分類と合わない写真・コメントの編集
-// （docs/travel-album/03_screen_design.md §6.3。段階4の 4-3c）。入口は旅行詳細の写真のグリッドから開く写真ビューア
+// （docs/03_screen_design.md §6.3。段階4の 4-3c）。入口は旅行詳細の写真のグリッドから開く写真ビューア
 
 const _takenAt = '2026年10月6日 10:15';
 

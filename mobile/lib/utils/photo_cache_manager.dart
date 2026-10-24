@@ -1,6 +1,6 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
-/// 旅行アルバムの写真用のキャッシュ（docs/travel-album/03_screen_design.md §3）
+/// 旅行アルバムの写真用のキャッシュ（docs/03_screen_design.md §3）
 ///
 /// 既定のキャッシュは 200 件までで、数百枚の旅行を見ると入れ替わり続ける。写真用に上限を上げて分ける。
 /// キーは URL ではなく写真の id から作る（[thumbnailCacheKey]・[imageCacheKey]）。SAS 付きの URL は応答のたびに変わるので、

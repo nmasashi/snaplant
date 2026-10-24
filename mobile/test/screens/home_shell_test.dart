@@ -7,7 +7,7 @@ import 'package:snaplant_mobile/main.dart';
 import '../helpers/app_test_helpers.dart';
 
 // アプリ全体を開き、ホーム（下のタブ「図鑑」「旅行」）の利用者から見た振る舞いを確かめる
-// （docs/travel-album/03_screen_design.md §4.1）。
+// （docs/03_screen_design.md §4.1）。
 // サーバを差し込まないテストでは、API キーがある状態で開くと図鑑タブは種類の一覧を取得し、テスト環境の HTTP は常に 400 を返すので
 // 「エラーが発生しました」の表示になる（その図鑑の中身は見ない）。サーバの応答が要るテストは偽のサーバ（helpers の catalogServer）を差し込む。
 

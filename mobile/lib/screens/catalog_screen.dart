@@ -10,7 +10,7 @@ import '../widgets/confidence_badge.dart';
 import '../widgets/message_view.dart';
 import 'catalog_entry_screen.dart';
 
-/// 図鑑のタブ（種類のタブ → 項目の一覧。docs/travel-album/03_screen_design.md §6.1）
+/// 図鑑のタブ（種類のタブ → 項目の一覧。docs/03_screen_design.md §6.1）
 ///
 /// 種類のタブは種類の一覧（`GET /api/catalog/kinds`）から作る。下のタブの「図鑑」（起動時のタブ）
 class CatalogScreen extends StatefulWidget {

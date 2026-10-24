@@ -14,7 +14,7 @@ import '../widgets/confirm_action_dialog.dart';
 import '../widgets/retry_processing_dialog.dart';
 import 'catalog_entry_screen.dart';
 
-/// 写真ビューア（docs/travel-album/03_screen_design.md §4.6）
+/// 写真ビューア（docs/03_screen_design.md §4.6）
 ///
 /// 開いた一覧の写真を、一覧と同じ順で左右にスワイプして見る
 class PhotoViewerScreen extends StatefulWidget {

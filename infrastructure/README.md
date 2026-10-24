@@ -219,12 +219,12 @@ terraform {
 植物図鑑が使っていた Cosmos DB の `plants` コンテナ、Blob の `images`・`temp-images` コンテナ、`temp-images` を1日で消すライフサイクル管理
 （`azurerm_storage_management_policy.main`。ルールがこれだけだったのでリソースごと）、Function App の `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・
 `TEMP_STORAGE_CONTAINER_NAME`、`outputs.tf` の `images_container_name`・`temp_images_container_name`・`cosmos_db_container_name` は、
-4-7 で定義から消した（`docs/travel-album/06_processing_design.md` §7 の手順 6、`docs/travel-album/07_infrastructure_design.md` §3.2）。
+4-7 で定義から消した（`docs/06_processing_design.md` §7 の手順 6、`docs/07_infrastructure_design.md` §3.2）。
 api と mobile はどれも 4-5・4-6 で使わなくなっている。
 
 **`apply` は人間が行う（4-7 の PR のマージの後）。済むまでは Azure 上にまだ残っている。** `plan` で出るはずの差分と、
-`apply` の前にポータルで確かめること（手で足したライフサイクル管理のルールが無いか）は `docs/travel-album/07_infrastructure_design.md` §3.2。
-`apply` でコンテナの中身も消える。旧図鑑の植物は新しい図鑑へ移さないと決めたので（`docs/travel-album/02_design_overview.md` §5 #34）、退避はしない。
+`apply` の前にポータルで確かめること（手で足したライフサイクル管理のルールが無いか）は `docs/07_infrastructure_design.md` §3.2。
+`apply` でコンテナの中身も消える。旧図鑑の植物は新しい図鑑へ移さないと決めたので（`docs/02_design_overview.md` §5 #34）、退避はしない。
 
 ### OpenAIモデル移行（gpt-5.6-luna → gpt-6-luna、2026-10-17）
 

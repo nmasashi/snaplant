@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// カテゴリでの絞り込み（docs/travel-album/03_screen_design.md §5.3。段階3）。
+// カテゴリでの絞り込み（docs/03_screen_design.md §5.3。段階3）。
 // 入口は旅行詳細のチップ（旅行をまたぐカテゴリ横断画面は 2026-10-24 に消した。§5.2）
 
 /// 分類が済んだ写真。[time] は 2026年10月6日のその時刻（サムネイルの読み上げ用ラベルで見分ける）

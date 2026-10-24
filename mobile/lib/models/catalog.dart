@@ -1,6 +1,6 @@
 import 'photo.dart';
 
-/// 図鑑の種類の項目の欄（種類の一覧の `fields` の1つ。docs/travel-album/05_api_design.md §5.14）
+/// 図鑑の種類の項目の欄（種類の一覧の `fields` の1つ。docs/05_api_design.md §5.14）
 class CatalogField {
   /// 項目の `attributes` のキー
   final String key;

@@ -9,7 +9,7 @@ import { readPageLimit } from './pageLimit';
 /**
  * 図鑑の項目の一覧（GET /api/catalog/entries）のクエリを検証する
  *
- * 順は種類 → ページ（docs/travel-album/05_api_design.md §5.14）。Cosmos に触る前に全部弾く。
+ * 順は種類 → ページ（docs/05_api_design.md §5.14）。Cosmos に触る前に全部弾く。
  * 「無い」と「空」を分ける（無ければ既定、空なら 400。写真の一覧の limit と同じ）
  * @param query リクエストのクエリ
  * @returns 検証を通ったクエリ、または 400 の応答
@@ -35,7 +35,7 @@ export function readCatalogEntriesQuery(
 /**
  * 図鑑の項目の詳細（GET /api/catalog/entry）のクエリを検証する
  *
- * 順は種類 → 名前 → 名前の長さ → 写真のページ（docs/travel-album/05_api_design.md §5.14）。
+ * 順は種類 → 名前 → 名前の長さ → 写真のページ（docs/05_api_design.md §5.14）。
  * 写真のページ（limit・継続トークン）は写真の一覧（GET /api/photos）と同じ規則と文言
  * @param query リクエストのクエリ（名前は URL エンコードされて届き、get が復号する）
  * @returns 検証を通ったクエリ（名前は前後の空白を除いたもの）、または 400 の応答

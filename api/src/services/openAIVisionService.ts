@@ -37,7 +37,7 @@ export class OpenAIVisionService {
 		// Azure OpenAI または OpenAI APIの設定
 		if (process.env.AZURE_OPENAI_ENDPOINT) {
 			// デプロイ名は接続先の URL に入る。無いと .../deployments/undefined に送って Azure の 404 になり、
-			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/travel-album/06_processing_design.md §2.1）
+			// 設定の書き忘れが AI の障害（502）に見える。AI を呼ぶ前に、設定の誤りとして止める（docs/06_processing_design.md §2.1）
 			if (!name) {
 				throw new Error(
 					deployment === undefined

@@ -16,7 +16,7 @@ import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
 import '../widgets/upload_banner.dart';
 
-/// 旅行詳細画面（docs/travel-album/03_screen_design.md §4.4）
+/// 旅行詳細画面（docs/03_screen_design.md §4.4）
 ///
 /// 開くたびに旅行を取り直す（一覧から渡された値は使わない。一覧を読んだ後に写真が増減しうるため）
 class TripDetailScreen extends StatefulWidget {

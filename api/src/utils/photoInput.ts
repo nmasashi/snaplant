@@ -31,7 +31,7 @@ type FilePart = Exclude<FormValue, string | null>;
 /**
  * 写真の保存（POST /api/photos）の multipart を読んで検証する
  *
- * 順序は docs/travel-album/05_api_design.md §5.1 の表のとおり。Blob と Cosmos に触る前に全部弾く。
+ * 順序は docs/05_api_design.md §5.1 の表のとおり。Blob と Cosmos に触る前に全部弾く。
  * 画像の内容と写真 ID の照合（18）はバイト列を読む必要があるので最後
  * @param request リクエスト
  * @returns 検証を通った入力、または 400 / 413 / 415 の応答
@@ -229,7 +229,7 @@ export interface PhotoListQuery {
 /**
  * 写真一覧（GET /api/photos）のクエリを検証する
  *
- * 順序は docs/travel-album/05_api_design.md §5.2 の表のとおり。Cosmos に触る前に全部弾く。
+ * 順序は docs/05_api_design.md §5.2 の表のとおり。Cosmos に触る前に全部弾く。
  * 「無い」と「空」を分ける（limit が無ければ既定の枚数、空なら 400。継続トークンが無ければ先頭から、空なら 400）
  * @param query リクエストのクエリ
  * @returns 検証を通ったクエリ、または 400 の応答
@@ -305,7 +305,7 @@ export interface MoveInput {
 }
 
 /**
- * 写真の移動（POST /api/photos/move）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.5 の表の順）
+ * 写真の移動（POST /api/photos/move）のボディを読んで検証する（docs/05_api_design.md §5.5 の表の順）
  *
  * 「旅行から外す」は tripId: null を明示させる（キーの省略と区別し、取り違えを検出する）
  * @param request リクエスト
@@ -351,7 +351,7 @@ export interface PhotoUpdateInput {
 }
 
 /**
- * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.6 の 2〜9）
+ * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9）
  *
  * コメントは前後の空白を除いてから数え、空なら null（消す）と同じ。タグは前後の空白を除いてから数え、
  * 重複は除いた後の値で、先に出たものを残す
@@ -413,7 +413,7 @@ export interface ProcessRequestInput {
 }
 
 /**
- * 解析のやり直し（POST /api/photos/{photoId}/process）のボディを読んで検証する（docs/travel-album/05_api_design.md §5.7 の 2〜6）
+ * 解析のやり直し（POST /api/photos/{photoId}/process）のボディを読んで検証する（docs/05_api_design.md §5.7 の 2〜6）
  * @param request リクエスト
  * @returns 検証を通った入力、または 400 の応答
  */

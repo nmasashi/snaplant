@@ -214,7 +214,7 @@ class ApiService {
       String? category,
       String? continuationToken}) async {
     // アプリが読むのは旅行（旅行に属さない写真は none）の一覧と、その中のカテゴリの絞り込みだけなので、tripId は必須にしている。
-    // 旅行をまたいでカテゴリだけで読む画面は消した（docs/travel-album/03_screen_design.md §5.2。旅行をまたいで見るのは図鑑。
+    // 旅行をまたいでカテゴリだけで読む画面は消した（docs/03_screen_design.md §5.2。旅行をまたいで見るのは図鑑。
     // API の category だけの絞り込みは、接続テストが自分で URL を組んで使う）
     try {
       // 旅行（tripId。旅行に属さない写真は none）で絞り、カテゴリがあれば AND で絞る
@@ -259,7 +259,7 @@ class ApiService {
   /// GET /api/catalog/entries?kind=<種類>&offset=<何件目から>&limit=<何件まで>
   ///
   /// サーバは数えてから見出しを読むまでに写真が無くなった項目をページから外すので、件数が [limit] より少なくても続きがあることがある。
-  /// 次のページは [offset] を [limit] だけ進めて読み、[CatalogEntryPage.total] 以上になったら読み切り（docs/travel-album/03_screen_design.md §6.1）
+  /// 次のページは [offset] を [limit] だけ進めて読み、[CatalogEntryPage.total] 以上になったら読み切り（docs/03_screen_design.md §6.1）
   Future<CatalogEntryPage> getCatalogEntries(String kind, {required int offset, required int limit}) async {
     try {
       final query = {'kind': kind, 'offset': '$offset', 'limit': '$limit'};
