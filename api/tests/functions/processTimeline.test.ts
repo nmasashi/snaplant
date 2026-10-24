@@ -38,6 +38,9 @@ const ENV_KEYS = [
 
 const photoId = (head: string): string => head.repeat(64);
 
+/** AI に渡す写真の行の頭（06 §8.4 の `[番号] 何日目 …`） */
+const PHOTO_LINE = /^\[\d+\] \d+日目/;
+
 /** 控えの写真。既定は名前・地名・コメントの無い風景の写真 */
 const snapshotPhoto = (id: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}): TimelinePhotoSnapshot => ({
   id,
@@ -242,7 +245,7 @@ describe('タイムラインのワーカー', () => {
       expect(promptLineOf(prompt, 6)).toBeUndefined();
       expect(prompt).not.toContain('日時の無い写真');
       // 日の区切り（何番から何日目か）も渡す。写真の行（[番号] で始まる）とは別の行
-      const dayLines = prompt.split('\n').filter((line) => !line.trimStart().startsWith('['));
+      const dayLines = prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
       expect(dayLines.find((line) => line.includes('1日目'))).toEqual(expect.stringMatching(/0.*3/));
       expect(dayLines.find((line) => line.includes('2日目'))).toEqual(expect.stringMatching(/4.*5/));
     });
@@ -260,7 +263,7 @@ describe('タイムラインのワーカー', () => {
 
       await runWorker();
 
-      const photoLines = sentPrompt().split('\n').filter((line) => line.trimStart().startsWith('['));
+      const photoLines = sentPrompt().split('\n').filter((line) => PHOTO_LINE.test(line.trimStart()));
       expect(photoLines).toHaveLength(2);
       expect(photoLines[0]).toContain('海鮮 丼');
       expect(photoLines[0]).toContain('北海道 千歳市');
