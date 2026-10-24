@@ -76,6 +76,20 @@ export class TimelineService {
   }
 
   /**
+   * 写真の控えを消す。無ければ何もしない
+   * @param id 控えの id
+   */
+  async deleteSnapshot(id: string): Promise<void> {
+    try {
+      await this.container.item(id, id).delete();
+    } catch (error: any) {
+      if (error.code !== 404) {
+        throw error;
+      }
+    }
+  }
+
+  /**
    * タイムラインを作る（まだ無いとき）
    * @throws TimelineConflictError 同時に作られていた（409）
    */
@@ -90,6 +104,23 @@ export class TimelineService {
     }
   }
 
+
+  /**
+   * タイムラインを置き換える。読んだときの _etag のままのときだけ書く
+   * @param doc 書く文書
+   * @param etag 読んだときの _etag
+   * @throws TimelineConflictError 読んでから書くまでに他が書いた（412）か、消えていた（404）
+   */
+  async replaceTimeline(doc: TimelineDocument, etag: string): Promise<void> {
+    try {
+      await this.container.item(doc.id, doc.id).replace(doc, { accessCondition: { type: 'IfMatch', condition: etag } });
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        throw new TimelineConflictError();
+      }
+      throw error;
+    }
+  }
 }
 
 /** 旅行のタイムラインの文書の id（旅行ごとに1件） */

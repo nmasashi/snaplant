@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
-import { TimelinePhotoRow, TimelineService, timelineIdOf } from '../services/timelineService';
+import { TimelineConflictError, TimelinePhotoRow, TimelineService, timelineIdOf } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 import { photoUrlExpiresOn } from '../services/photoStorageService';
 import {
@@ -57,7 +57,8 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     await timelines.createSnapshot({ id: snapshotId, type: 'timelinePhotos', tripId, photos: snapshotPhotosOf(rows), createdAt: now });
     draft = {
       id: uuidv4(),
-      reason: 'create',
+      // 完成版があれば作り直し（完成版は文を書き終えるまで変えない。02 §5 #48）
+      reason: existing?.doc.current ? 'rebuild' : 'create',
       phase: 'proposing',
       job: { step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: now },
       snapshotId,
@@ -66,17 +67,36 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
       sceneStarts: [],
       startedAt: now,
     };
-    const doc: TimelineDocument = {
-      id: timelineIdOf(tripId),
-      type: 'timeline',
-      tripId,
-      current: null,
-      draft,
-      droppedEdits: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    await timelines.createTimeline(doc);
+    try {
+      if (existing) {
+        // 前の下書き（確かめ中・失敗）は置き換える。完成版と残せなかった文はそのまま
+        await timelines.replaceTimeline({ ...existing.doc, draft, updatedAt: now }, existing.etag);
+      } else {
+        const doc: TimelineDocument = {
+          id: timelineIdOf(tripId),
+          type: 'timeline',
+          tripId,
+          current: null,
+          draft,
+          droppedEdits: [],
+          createdAt: now,
+          updatedAt: now,
+        };
+        await timelines.createTimeline(doc);
+      }
+    } catch (error: any) {
+      if (error instanceof TimelineConflictError) {
+        // どこからも指されない控えを残さない（残っても害は無く、旅行の削除で消える。04 §7.1）
+        await deleteSnapshotOrLog(timelines, snapshotId, context);
+        return stateConflict();
+      }
+      throw error;
+    }
+    // 置き換えた下書きの控えは、完成版から指されていなければ使われなくなる
+    const replacedSnapshotId = existing?.doc.draft?.snapshotId;
+    if (replacedSnapshotId && replacedSnapshotId !== existing.doc.current?.snapshotId) {
+      await deleteSnapshotOrLog(timelines, replacedSnapshotId, context);
+    }
   } catch (error: any) {
     context.log('タイムラインの作成の受付エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');
@@ -87,6 +107,17 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     { draft: draftStatusOf(draft), urlExpiresAt: photoUrlExpiresOn().toISOString() },
     HttpStatusCode.ACCEPTED
   );
+}
+
+/**
+ * 使われなくなった控えを消す。失敗してもログだけ出す（残っても害は無く、旅行の削除で消える。04 §1.6）
+ */
+async function deleteSnapshotOrLog(timelines: TimelineService, snapshotId: string, context: InvocationContext): Promise<void> {
+  try {
+    await timelines.deleteSnapshot(snapshotId);
+  } catch (error: any) {
+    context.log(`使われなくなった写真の控えを消せませんでした: ${snapshotId}`, error);
+  }
 }
 
 /** 作っている途中、または読んでから書くまでに他が書いた（05 §5.15 の共通） */
