@@ -9,7 +9,7 @@ import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from 
 import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
 import { catalogEntryOf, catalogPageOf } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
-import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
+import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES, UNFINISHED_PROCESSING_STATES } from '../constants/album';
 
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
@@ -423,8 +423,11 @@ export class AlbumService {
   async listStalePhotos(before: string): Promise<{ id: string; processing: PhotoProcessing }[]> {
     const { resources } = await this.container.items
       .query<{ id: string; processing: PhotoProcessing }>({
+        // 状態の一覧は、タイマーがコードで見直す条件・タイムラインを作れない条件と同じ定数から作る（片方だけ増えて拾われない状態を作らない）。
+        // 値はサーバの定数なので埋め込む（できる文は今までの IN ('pending', 'classifying', 'identifying') と同じ）
         query:
-          "SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before",
+          `SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN (${UNFINISHED_PROCESSING_STATES.map((state) => `'${state}'`).join(', ')})` +
+          ' AND c.processing.updatedAt < @before',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@before', value: before },

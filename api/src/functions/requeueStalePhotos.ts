@@ -5,7 +5,6 @@ import { TimelineService } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 import { PHOTO_REQUEUE_AFTER_MINUTES, UNFINISHED_PROCESSING_STATES, photoProcessingMaxAttempts } from '../constants/album';
 
-
 /**
  * 再投入のタイマー（10 分ごと）
  *
@@ -23,9 +22,13 @@ export async function requeueStalePhotosHandler(_timer: Timer, context: Invocati
     requeuePhotos(now, before, maxAttempts, context),
     requeueDrafts(now, before, maxAttempts, context),
   ]);
-  const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-  if (rejected) {
-    throw rejected.reason;
+  const rejected = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+  // 両方が失敗したとき、投げるのは1つだけなので、もう片方はログに残す（別々の障害を見落とさない）
+  for (const failure of rejected.slice(1)) {
+    context.log('再投入のタイマーのエラー:', failure.reason);
+  }
+  if (rejected.length > 0) {
+    throw rejected[0].reason;
   }
 }
 
