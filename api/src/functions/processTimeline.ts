@@ -1,6 +1,6 @@
 import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineService } from '../services/timelineService';
+import { TimelineConflictError, TimelineService } from '../services/timelineService';
 import { TimelineProposalPhoto, TimelineProposerService } from '../services/timelineProposerService';
 import { TimelineDatedDay, datedDaysOf } from '../services/timelineView';
 import { TIMELINE_MAX_PHOTOS_PER_CALL, photoProcessingMaxAttempts } from '../constants/album';
@@ -56,20 +56,16 @@ export async function processTimelineHandler(message: unknown, context: Invocati
     }
     const starts = await proposeScenes(snapshot.photos, draft, read.doc.current);
 
-    const now = new Date().toISOString();
-    const current = await timelines.readTimeline(tripId);
-    if (!current || current.doc.draft?.id !== draftId) {
+    const written = await writeDraftResult(timelines, tripId, draftId, claimedJob, (current) => ({
+      ...current,
+      phase: 'reviewing',
+      job: null,
+      ...starts,
+    }));
+    if (!written) {
       context.log(`区切り案の間に下書きが変わったので、この結果は書きません: 旅行=${tripId}, 下書き=${draftId}`);
       return;
     }
-    await timelines.replaceTimeline(
-      {
-        ...current.doc,
-        draft: { ...current.doc.draft, phase: 'reviewing', job: null, ...starts },
-        updatedAt: now,
-      },
-      current.etag
-    );
     context.log(`タイムラインの区切り案が済みました: 旅行=${tripId}, 下書き=${draftId}, 区切り=${starts.sceneStarts.length}`);
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が文書に残り続ける）
@@ -93,6 +89,53 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       throw error;
     }
   }
+}
+
+/** 結果の書き込みが他の操作と重なったときに、読み直して当て直す回数（06 §8.1） */
+const RESULT_RETRIES = 3;
+
+/**
+ * 担当した下書きに結果を書く。読んだ文書の _etag 付きの置き換えで、他の操作と重なったら（412）読み直して当て直す
+ *
+ * 当て直すのは、下書きがまだ自分のもの（同じ id）で、処理も担当したときのままのときだけ（利用者が完成版の文を直した・
+ * 残せなかった文を閉じたなどと重なっても、AI の結果を捨てない）。重なりが続けば投げる（内部の失敗として待ちに戻る）
+ * @param apply 読み直した下書きに結果を当てた下書きを返す
+ * @returns 書けたら true。下書きが自分のものでなくなっていた・タイムラインが消えていたら false
+ */
+async function writeDraftResult(
+  timelines: TimelineService,
+  tripId: string,
+  draftId: string,
+  claimedJob: TimelineJob,
+  apply: (draft: TimelineDraft) => TimelineDraft
+): Promise<boolean> {
+  for (let attempt = 0; attempt <= RESULT_RETRIES; attempt += 1) {
+    const read = await timelines.readTimeline(tripId);
+    const draft = read?.doc.draft;
+    if (!read || !draft || draft.id !== draftId || !sameJob(draft.job, claimedJob)) {
+      return false;
+    }
+    try {
+      await timelines.replaceTimeline({ ...read.doc, draft: apply(draft), updatedAt: new Date().toISOString() }, read.etag);
+      return true;
+    } catch (error: any) {
+      if (!(error instanceof TimelineConflictError)) {
+        throw error;
+      }
+    }
+  }
+  throw new Error(`タイムラインの書き込みが他の操作と重なり続けました: 旅行=${tripId}`);
+}
+
+/** 下書きの処理が担当したときのままか（担当の後に、再投入のタイマーが待ちに戻すなどしていないか） */
+function sameJob(job: TimelineJob | null, claimed: TimelineJob): boolean {
+  return (
+    job !== null &&
+    job.step === claimed.step &&
+    job.state === claimed.state &&
+    job.attempts === claimed.attempts &&
+    job.updatedAt === claimed.updatedAt
+  );
 }
 
 /**
