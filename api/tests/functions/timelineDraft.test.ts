@@ -636,7 +636,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {
+    it.each(databaseFailureCases('タイムラインの区切りの保存に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       cosmosBackend.forcedReplaceError = error;
 
