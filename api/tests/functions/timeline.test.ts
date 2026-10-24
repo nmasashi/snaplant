@@ -682,6 +682,23 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.pendingPhotoCount).toBe(1);
   });
 
+  it('完成版の日は、完成版の日付の切り替えの時刻で分ける（翌日の 2:30 は前の日に入る）', async () => {
+    const K = snap('k', '2026-10-06T02:30:00');
+    cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, [A, K, D]));
+    [A, K, D].forEach((photo) => placePhoto(photo.id));
+    cosmosBackend.documents.set(
+      TIMELINE_ID,
+      timelineDocument(TRIP_ID, { current: timelineCurrent(CURRENT_SNAPSHOT_ID, { dayStartHour: 4, proposedStarts: [A.id, D.id], sceneStarts: [A.id, D.id] }) })
+    );
+
+    const data = await read();
+
+    expect(data.timeline.current.days.map((day: any) => [day.date, day.scenes[0].photos.map((photo: any) => photo.id)])).toEqual([
+      ['2026-10-05', [A.id, K.id]],
+      ['2026-10-06', [D.id]]
+    ]);
+  });
+
   it('下書きがあれば状態だけを返す（区切りの中身は返さない）', async () => {
     placeCurrentSnapshot();
     const draft = timelineDraft(DRAFT_ID, OLD_DRAFT_SNAPSHOT_ID, {

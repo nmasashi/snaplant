@@ -518,6 +518,32 @@ describe('タイムラインの下書きAPI', () => {
       expect(data.draft.undatedPhotos).toEqual([shown('u', null)]);
     });
 
+    it('各日の最初の写真は、下書きの日付の切り替えの時刻で決める（翌日の 2:30 は前の日の途中）', async () => {
+      // k は 10/06 2:30。切り替えが4時なので 10/05 に入り、2日目の最初は d のまま
+      placeSnapshot([...PHOTOS.slice(0, 3), snap('k', '2026-10-06T02:30:00'), ...PHOTOS.slice(3)]);
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: [photoId('a'), photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.draft.days[0].scenes[0].photos.map((photo: any) => photo.id)).toContain(photoId('k'));
+    });
+
+    it('応答の日と場面には、控えを取った後に消えた写真を出さない', async () => {
+      // 控えを取った後に b を消した
+      cosmosBackend.documents.delete(photoId('b'));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: [photoId('a'), photoId('b'), photoId('d')] });
+
+      // b の場面は残り（c がある）、場面の id は控えの最初の写真の b のまま
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes.map((scene: any) => [scene.startPhotoId, scene.photos.map((photo: any) => photo.id)])).toEqual([
+        [photoId('a'), [photoId('a')]],
+        [photoId('b'), [photoId('c')]]
+      ]);
+    });
+
     it('文を書くのに失敗した下書きでも保存でき、確かめ中に戻る（処理は消える）', async () => {
       const failed = reviewing({
         phase: 'writing',
