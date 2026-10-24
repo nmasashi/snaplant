@@ -16,7 +16,7 @@ import 'photo_selection.dart';
 
 /// 写真のサムネイルのグリッド（docs/travel-album/03_screen_design.md §3・§4.4）
 ///
-/// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面（旅行をまたぐ）・図鑑の項目詳細で使う
+/// 写真の一覧を自分で読む。旅行詳細・旅行に属さない写真の画面・図鑑の項目詳細で使う
 class PhotoGrid extends StatefulWidget {
   const PhotoGrid(
       {super.key,
@@ -34,16 +34,17 @@ class PhotoGrid extends StatefulWidget {
       this.loadingMessage = '写真を読み込み中...',
       this.errorFallbackMessage = '写真の読み込みに失敗しました',
       this.onFirstPageApplied})
-      // 旅行もカテゴリも無い一覧はサーバが 400 で断る。置く画面の誤りなので、組み立てたところで止める
-      : assert(tripId != null || category != null || loadPage != null,
-            'tripId か category か loadPage のどれかを指定する');
+      // 旅行もカテゴリも無い一覧はサーバが 400 で断る。カテゴリは旅行の中の絞り込みにだけ使う（旅行をまたぐ一覧は図鑑。03 §5.2）。
+      // 置く画面の誤りなので、組み立てたところで止める
+      : assert(
+            tripId != null || loadPage != null, 'tripId か loadPage のどちらかを指定する');
 
   final ApiService apiService;
 
-  /// 旅行の id。旅行に属さない写真なら `none`、旅行をまたぐ（カテゴリの写真の画面）なら null
+  /// 旅行の id。旅行に属さない写真なら `none`。[loadPage] で読むなら null
   final String? tripId;
 
-  /// カテゴリ（`plant` / `food` / `landscape` / `other`）で絞るならそのキー。絞らないなら null
+  /// 旅行の中をカテゴリ（`plant` / `food` / `landscape` / `other`）で絞るならそのキー。絞らないなら null
   final String? category;
 
   /// 写真が0枚のときの案内（画面ごとに文言が違う）。[emptyMessage] は無ければ出さない
@@ -61,7 +62,7 @@ class PhotoGrid extends StatefulWidget {
   /// 写真の送信の列。この一覧の宛先に送っている写真を、サーバの写真の後ろに端末の画像で並べる
   final UploadQueue uploadQueue;
 
-  /// 画面の右下に「写真を追加」が浮かぶか。浮かぶなら、一覧と末尾の表示をその分だけ上に空ける（カテゴリの写真の画面には無い）
+  /// 画面の右下に「写真を追加」が浮かぶか。浮かぶなら、一覧と末尾の表示をその分だけ上に空ける（図鑑の項目詳細には無い）
   final bool hasFloatingButton;
 
   /// 複数選択（長押しで始める）
