@@ -4,7 +4,7 @@ import { TimelineService } from '../services/timelineService';
 import { TimelineProposerService } from '../services/timelineProposerService';
 import { datedDaysOf } from '../services/timelineView';
 import { photoProcessingMaxAttempts } from '../constants/album';
-import { TimelineDraft, TimelineJob, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft, TimelineJob, TimelinePhotoSnapshot } from '../types/timeline';
 import { UpstreamError } from '../utils/errors';
 import { isValidUUID } from '../utils/response';
 
@@ -54,7 +54,7 @@ export async function processTimelineHandler(message: unknown, context: Invocati
     if (!snapshot) {
       throw new Error(`写真の控えがありません: ${draft.snapshotId}`);
     }
-    const starts = await proposeScenes(snapshot.photos, draft);
+    const starts = await proposeScenes(snapshot.photos, draft, read.doc.current);
 
     const now = new Date().toISOString();
     const current = await timelines.readTimeline(tripId);
@@ -65,12 +65,12 @@ export async function processTimelineHandler(message: unknown, context: Invocati
     await timelines.replaceTimeline(
       {
         ...current.doc,
-        draft: { ...current.doc.draft, phase: 'reviewing', job: null, proposedStarts: starts, sceneStarts: starts },
+        draft: { ...current.doc.draft, phase: 'reviewing', job: null, ...starts },
         updatedAt: now,
       },
       current.etag
     );
-    context.log(`タイムラインの区切り案が済みました: 旅行=${tripId}, 下書き=${draftId}, 区切り=${starts.length}`);
+    context.log(`タイムラインの区切り案が済みました: 旅行=${tripId}, 下書き=${draftId}, 区切り=${starts.sceneStarts.length}`);
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が文書に残り続ける）
     const lastError = error instanceof UpstreamError ? error.service : 'internal';
@@ -96,15 +96,36 @@ export async function processTimelineHandler(message: unknown, context: Invocati
 }
 
 /**
- * 区切りの案を出す（06 §8.2）。AI の案に、各日の最初の写真を足す（場面は日をまたがない）
- * @returns 区切り（場面の最初の写真の id。撮影の順）
+ * 区切りの案を出す（06 §8.2）
+ *
+ * AI の案に、作り直しなら完成版で利用者が直した区切り（足した・消した）を当て、最後に各日の最初の写真を足す
+ * （利用者が消した区切りが、日付の切り替えの時刻を変えた後などに日の最初になっていても、場面が日をまたがないように）
+ * @returns AI の案（各日の最初の写真を足したもの）と区切り。どちらも場面の最初の写真の id で、撮影の順
  */
-async function proposeScenes(photos: TimelinePhotoSnapshot[], draft: TimelineDraft): Promise<string[]> {
+async function proposeScenes(
+  photos: TimelinePhotoSnapshot[],
+  draft: TimelineDraft,
+  current: TimelineCurrent | null
+): Promise<{ proposedStarts: string[]; sceneStarts: string[] }> {
   const days = datedDaysOf(photos, draft.dayStartHour);
   const ordered = days.flatMap((day) => day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber })));
-  const proposed = await new TimelineProposerService().propose(ordered);
-  const starts = new Set([...proposed.map((index) => ordered[index].photo.id), ...days.map((day) => day.photos[0].id)]);
-  return ordered.map(({ photo }) => photo.id).filter((id) => starts.has(id));
+  const proposed = (await new TimelineProposerService().propose(ordered)).map((index) => ordered[index].photo.id);
+  const dayStarts = days.map((day) => day.photos[0].id);
+
+  let starts = new Set(proposed);
+  if (draft.reason === 'rebuild' && current) {
+    const aiStarts = new Set(current.proposedStarts);
+    const userStarts = new Set(current.sceneStarts);
+    const added = current.sceneStarts.filter((id) => !aiStarts.has(id));
+    const removed = new Set(current.proposedStarts.filter((id) => !userStarts.has(id)));
+    starts = new Set([...proposed, ...added].filter((id) => !removed.has(id)));
+  }
+  // 撮影の順に並べる。控えに無い・撮影日時の無い写真の区切りはここで落ちる
+  const inOrder = (ids: Set<string>) => ordered.map(({ photo }) => photo.id).filter((id) => ids.has(id));
+  return {
+    proposedStarts: inOrder(new Set([...proposed, ...dayStarts])),
+    sceneStarts: inOrder(new Set([...starts, ...dayStarts])),
+  };
 }
 
 /**
