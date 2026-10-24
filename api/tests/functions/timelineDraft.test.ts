@@ -632,6 +632,22 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
     });
 
+    it('写真の保存先の設定に鍵が無ければ、区切りを書き換えずに 500 を返す（保存したのに失敗と返さない）', async () => {
+      // 応答の写真の URL を作れないので、書き換える前に失敗させる。書き換えた後に失敗すると、画面は保存できなかったと思って送り直す
+      process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: [photoId('a'), photoId('b'), photoId('d')] });
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'タイムラインの区切りの保存に失敗しました' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
     it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、書いたものを変えない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       const written = timelineWith(reviewing({ sceneStarts: [photoId('a'), photoId('c'), photoId('d'), photoId('e')] }));
