@@ -804,7 +804,7 @@ describe('旅行詳細API', () => {
       );
     });
 
-    it('タイムラインを消すときに失敗したら、旅行を消さずに失敗を返す（再送で続きができる）', async () => {
+    it('タイムラインを消すときに失敗したら、旅行を消さずに失敗を返す', async () => {
       const kyoto = tripDocument(KYOTO_TRIP_ID, '京都旅行');
       cosmosBackend.documents.set(KYOTO_TRIP_ID, kyoto);
       cosmosBackend.documents.set(`timeline-${KYOTO_TRIP_ID}`, timelineDocument(KYOTO_TRIP_ID));

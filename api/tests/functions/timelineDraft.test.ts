@@ -322,7 +322,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('タイムラインを読むときに%s', async (_case, error, status, code, message) => {
+    it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('旅行やタイムラインを読むときに%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedReadError = error;
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
@@ -423,6 +423,20 @@ describe('タイムラインの下書きAPI', () => {
       expect(storedSnapshotIds()).toEqual([SNAPSHOT_ID]);
     });
 
+    it('読んでから消すまでにタイムラインが他の操作で消えていたら（旅行の削除など）、409 で控えを消さない', async () => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
+      cosmosBackend.beforeDelete = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TIMELINE_ID);
+      };
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(storedSnapshotIds()).toEqual([SNAPSHOT_ID]);
+    });
+
     it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
       cosmosBackend.documents.delete(TRIP_ID);
 
@@ -439,7 +453,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('タイムラインを読むときに%s', async (_case, error, status, code, message) => {
+    it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('旅行やタイムラインを読むときに%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedReadError = error;
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);

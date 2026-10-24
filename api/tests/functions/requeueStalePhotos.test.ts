@@ -256,7 +256,7 @@ describe('再投入のタイマー', () => {
       expect(queuedTimelines()).toEqual([]);
     });
 
-    it('写真の再投入で失敗しても、タイムラインの下書きは積み直し、最後に失敗を投げる', async () => {
+    it('写真の再投入で失敗しても、タイムラインの下書きは積み直し、タイマーは失敗として終わる', async () => {
       // 写真の側の障害（1枚の書き込みの失敗など）で、止まった下書きがいつまでも積み直されない、ということにしない
       cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
       const photoError = Object.assign(new Error('something went wrong'), { code: 500 });
@@ -298,6 +298,37 @@ describe('再投入のタイマー', () => {
       await requeueStalePhotosHandler(timer, mockContext);
 
       expect(storedTimeline()).toEqual(replaced);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('読んだ後にワーカーが下書きの処理を担当していたら、触らず、積まない', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+      const taken = timelineWithJob({ step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: FRESH });
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, taken);
+      };
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(taken);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('読んだ後にタイムラインが消えていたら（旅行の削除など）、触らず、積まず、タイマーは失敗にしない', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TIMELINE_ID);
+      };
+
+      await expect(requeueStalePhotosHandler(timer, mockContext)).resolves.toBeUndefined();
+
+      expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
       expect(queuedTimelines()).toEqual([]);
     });
   });

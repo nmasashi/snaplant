@@ -151,7 +151,6 @@ describe('タイムラインを作るAPI', () => {
         commentSource: 'user'
       })
     );
-    // 分類と合わない写真は名前を持たない（識別の名前は null）
     cosmosBackend.documents.set(
       photoId('b'),
       analyzedPhoto(photoId('b'), {
@@ -225,6 +224,19 @@ describe('タイムラインを作るAPI', () => {
     expect(queuedMessages()).toEqual([['timeline-processing', [{ tripId: TRIP_ID, draftId: timeline.draft.id }]]]);
   });
 
+  it('写真の控えは、撮影日時のある写真を撮影の順に並べ、その後に撮影日時の無い写真を並び位置の順に並べる', async () => {
+    // 偽物はクエリの結果を置いた順に返すので、わざと撮影の順と逆に置く
+    cosmosBackend.documents.set(photoId('b'), analyzedPhoto(photoId('b'), { takenAt: '2026-10-05T10:10:00', takenAtSource: 'exif', sortAt: '2026-10-05T10:10:00' }));
+    cosmosBackend.documents.set(photoId('e'), analyzedPhoto(photoId('e'), { takenAt: null, sortAt: '2026-10-02T09:00:00' }));
+    cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif', sortAt: '2026-10-05T07:50:12' }));
+    cosmosBackend.documents.set(photoId('c'), analyzedPhoto(photoId('c'), { takenAt: null, sortAt: '2026-10-01T09:00:00' }));
+
+    const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(202);
+    expect(storedSnapshots()[0].photos.map((photo: { id: string }) => photo.id)).toEqual([photoId('a'), photoId('b'), photoId('c'), photoId('e')]);
+  });
+
   it('撮影日時のある写真が1枚も無ければ、409（TIMELINE_NO_DATED_PHOTOS）で、何も作らずキューにも積まない', async () => {
     cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: null }));
 
@@ -269,7 +281,7 @@ describe('タイムラインを作るAPI', () => {
   it.each<[string, PhotoProcessing]>([
     ['none', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
     ['failed', { state: 'failed', step: 'identify', attempts: 3, lastError: 'ai', updatedAt: null }]
-  ])('解析の対象でない・解析に失敗した写真（%s）は、済んだものとして扱う', async (_state, processing) => {
+  ])('解析の対象でない・解析に失敗した写真（%s）があっても、作れる（202）', async (_state, processing) => {
     cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif', processing }));
 
     const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
@@ -328,7 +340,7 @@ describe('タイムラインを作るAPI', () => {
     ['-1', 4],
     ['abc', 4],
     ['', 4]
-  ])('日付の切り替えの時刻（TIMELINE_DAY_START_HOUR=%j）を、下書きに %i として書く', async (value, expected) => {
+  ])('日付の切り替えの時刻（TIMELINE_DAY_START_HOUR=%j）を、下書きに %i として書く（0〜23 の整数でなければ既定の4時）', async (value, expected) => {
     process.env.TIMELINE_DAY_START_HOUR = value;
     cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
 
@@ -413,8 +425,10 @@ describe('タイムラインを作るAPI', () => {
       expect(storedTimeline().draft).toMatchObject({ phase: 'proposing', job: { step: 'propose', state: 'pending', attempts: 0 } });
     });
 
-    it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない', async () => {
+    it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない（前の下書きの控えは残す）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
+      // 他が書いた文書は前の下書きの控えを指したままなので、消してはいけない
+      cosmosBackend.documents.set(OLD_DRAFT_SNAPSHOT_ID, snapshotDocument(OLD_DRAFT_SNAPSHOT_ID));
       const written = existingTimeline({ draft: reviewingDraft({ sceneStarts: [] }), updatedAt: '2026-10-25T08:59:59.000Z' });
       cosmosBackend.beforeReplace = (id) => {
         if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
@@ -425,6 +439,21 @@ describe('タイムラインを作るAPI', () => {
       expect(response.status).toBe(409);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
       expect(storedTimeline()).toEqual(written);
+      expect(storedSnapshots().map((doc) => doc.id)).toEqual([OLD_DRAFT_SNAPSHOT_ID]);
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('読んでから書くまでにタイムラインが他の操作で消えていたら（旅行の削除など）、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
+      cosmosBackend.beforeReplace = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TIMELINE_ID);
+      };
+
+      const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(storedTimeline()).toBeUndefined();
       expect(storedSnapshots()).toEqual([]);
       expect(queuedMessages()).toEqual([]);
     });
