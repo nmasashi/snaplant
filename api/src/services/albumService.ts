@@ -1,5 +1,6 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
+import { sqlString } from '../utils/sqlString';
 import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
@@ -776,12 +777,3 @@ function processingCondition(expected: PhotoProcessing): string {
   );
 }
 
-/**
- * patch の condition に埋める文字列のリテラル
- *
- * condition はパラメータを取れないので値を埋め込む。埋める値はどれもサーバが書いた列挙・時刻・UUID だが、
- * 引用符が混ざっても条件が壊れないよう、JSON の文字列としてエスケープする（Cosmos SQL の文字列リテラルと同じ書き方）
- */
-function sqlString(value: string): string {
-  return JSON.stringify(value);
-}

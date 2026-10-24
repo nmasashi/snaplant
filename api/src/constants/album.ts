@@ -1,4 +1,5 @@
 import { hourFromEnv, positiveIntFromEnv } from './validation';
+import { PhotoProcessing } from '../types/album';
 
 /**
  * 旅行アルバムの定数
@@ -87,3 +88,11 @@ export function timelineDayStartHour(): number {
  * AI に渡す分だけを残す。全文（最大 500 文字）を控えると、写真の多い旅行で控えの文書が大きくなる（docs/04_data_design.md §1.6）
  */
 export const TIMELINE_SNAPSHOT_COMMENT_LENGTH = 100;
+
+/**
+ * 解析（分類・識別）が済んでいない写真の状態
+ *
+ * 再投入のタイマーが拾う状態で、タイムラインを作れない状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。
+ * SQL の IN の並び（albumService.listStalePhotos）も同じ3つにする
+ */
+export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying'];

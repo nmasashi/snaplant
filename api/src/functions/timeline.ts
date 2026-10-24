@@ -16,10 +16,7 @@ import {
 } from '../utils/response';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
-import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, timelineDayStartHour } from '../constants/album';
-
-/** 解析が済んでいない写真の状態（none・done・failed は済んだものとして扱う。01 §5.3.1） */
-const UNFINISHED_STATES: readonly string[] = ['pending', 'classifying', 'identifying'];
+import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, UNFINISHED_PROCESSING_STATES, timelineDayStartHour } from '../constants/album';
 
 /**
  * タイムラインを作る・作り直す API（区切り案の下書きを作って、キューに積む。区切り案はワーカーが後で出す）
@@ -43,7 +40,7 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
       return createTimelineStateConflict();
     }
     const rows = await timelines.readTripPhotosForSnapshot(tripId);
-    if (rows.some((row) => UNFINISHED_STATES.includes(row.processing.state))) {
+    if (rows.some((row) => UNFINISHED_PROCESSING_STATES.includes(row.processing.state))) {
       return createErrorResponse(
         ErrorCode.TIMELINE_PHOTOS_PROCESSING,
         '解析中の写真があります。終わってから作ってください',

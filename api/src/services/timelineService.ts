@@ -1,5 +1,6 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
+import { sqlString } from '../utils/sqlString';
 import { PhotoDocument } from '../types/album';
 import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotosDocument } from '../types/timeline';
 
@@ -109,6 +110,14 @@ export class TimelineService {
    * @param id 控えの id
    */
   async deleteSnapshot(id: string): Promise<void> {
+    await this.deleteDocument(id);
+  }
+
+  /**
+   * 文書を消す。無ければ何もしない（控えと、旅行の削除のときのタイムライン）
+   * @param id 文書の id
+   */
+  private async deleteDocument(id: string): Promise<void> {
     try {
       await this.container.item(id, id).delete();
     } catch (error: any) {
@@ -218,8 +227,9 @@ export class TimelineService {
     try {
       await this.container.item(id, id).patch({
         condition:
-          `FROM c WHERE c.draft.id = "${draftId}" AND c.draft.job.state = "${expected.state}" AND c.draft.job.step = "${expected.step}"` +
-          ` AND c.draft.job.attempts = ${expected.attempts} AND c.draft.job.updatedAt = "${expected.updatedAt}"`,
+          `FROM c WHERE c.draft.id = ${sqlString(draftId)} AND c.draft.job.state = ${sqlString(expected.state)}` +
+          ` AND c.draft.job.step = ${sqlString(expected.step)} AND c.draft.job.attempts = ${Number(expected.attempts)}` +
+          ` AND c.draft.job.updatedAt = ${sqlString(expected.updatedAt)}`,
         operations: [{ op: 'set', path: '/draft/job', value: job }],
       });
       return true;
@@ -248,15 +258,8 @@ export class TimelineService {
         ],
       })
       .fetchAll();
-    const ids = [timelineIdOf(tripId), ...resources.map((row) => row.id)];
-    for (const id of ids) {
-      try {
-        await this.container.item(id, id).delete();
-      } catch (error: any) {
-        if (error.code !== 404) {
-          throw error;
-        }
-      }
+    for (const id of [timelineIdOf(tripId), ...resources.map((row) => row.id)]) {
+      await this.deleteDocument(id);
     }
   }
 }

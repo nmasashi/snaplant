@@ -3,11 +3,8 @@ import { AlbumService } from '../services/albumService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { TimelineService } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
-import { PHOTO_REQUEUE_AFTER_MINUTES, photoProcessingMaxAttempts } from '../constants/album';
-import { PhotoProcessing } from '../types/album';
+import { PHOTO_REQUEUE_AFTER_MINUTES, UNFINISHED_PROCESSING_STATES, photoProcessingMaxAttempts } from '../constants/album';
 
-/** 再投入のタイマーが拾う状態（failed と none は拾わない。06 §1.1） */
-const STALE_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying'];
 
 /**
  * 再投入のタイマー（10 分ごと）
@@ -43,7 +40,7 @@ async function requeuePhotos(now: Date, before: string, maxAttempts: number, con
     const read = photo.processing;
     // SQL と同じ条件をコードでも見る。SQL の絞り込みはテストで確かめられない（手で確かめる項目）ので、
     // 崩れても failed や none を拾わない（永遠に回り続けない・意図せず課金しない）ことを、ここでも守る
-    if (!STALE_STATES.includes(read.state) || read.updatedAt === null || !(read.updatedAt < before)) {
+    if (!UNFINISHED_PROCESSING_STATES.includes(read.state) || read.updatedAt === null || !(read.updatedAt < before)) {
       continue;
     }
     const giveUp = read.attempts >= maxAttempts;

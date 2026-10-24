@@ -38,8 +38,8 @@ export async function getTimelineDraftHandler(request: HttpRequest, context: Inv
     if (draft.phase !== 'reviewing') {
       return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
     }
-    const snapshot = await timelines.readSnapshot(draft.snapshotId);
-    const existing = await timelines.readTripPhotoIds(tripId);
+    // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
+    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
     const storage = new PhotoStorageService();
     const layout = layoutTimeline({
       photos: snapshot?.photos ?? [],
