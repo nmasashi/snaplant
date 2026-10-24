@@ -196,4 +196,108 @@ describe('再投入のタイマー', () => {
 
     expect(queuedPhotoIds()).toEqual([]);
   });
+  describe('タイムラインの下書き（段階5）', () => {
+    const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
+    const TIMELINE_ID = `timeline-${TRIP_ID}`;
+    const DRAFT_ID = '33333333-3333-4333-8333-333333333333';
+    const timelineWithJob = (job: unknown, overrides: Record<string, unknown> = {}) => ({
+      id: TIMELINE_ID,
+      type: 'timeline',
+      tripId: TRIP_ID,
+      current: null,
+      draft: {
+        id: DRAFT_ID,
+        reason: 'create',
+        phase: 'proposing',
+        job,
+        snapshotId: `timeline-photos-${TRIP_ID}-22222222-2222-4222-8222-222222222222`,
+        dayStartHour: 4,
+        proposedStarts: [],
+        sceneStarts: [],
+        startedAt: '2026-10-18T02:40:00.000Z',
+        ...overrides
+      },
+      droppedEdits: [],
+      createdAt: '2026-10-18T02:40:00.000Z',
+      updatedAt: '2026-10-18T02:40:00.000Z'
+    });
+    const storedTimeline = () => cosmosBackend.documents.get(TIMELINE_ID) as any;
+    const queuedTimelines = (): unknown[] => (queueBackend.queues.get('timeline-processing') ?? []).map(decodeQueueMessage);
+
+    beforeEach(() => {
+      process.env.TIMELINE_QUEUE_NAME = 'timeline-processing';
+    });
+
+    afterEach(() => {
+      delete process.env.TIMELINE_QUEUE_NAME;
+    });
+
+    it.each(['pending', 'running'])('10分以上止まっている下書き（%s）を、待ちに戻して（処理と回数はそのまま）タイムラインのキューに積む', async (state) => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state, attempts: 1, lastError: 'ai', updatedAt: STALE }) as any
+      );
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline().draft.job).toEqual({ step: 'propose', state: 'pending', attempts: 1, lastError: 'ai', updatedAt: NOW });
+      expect(queuedTimelines()).toEqual([{ tripId: TRIP_ID, draftId: DRAFT_ID }]);
+      expect(queuedPhotoIds()).toEqual([]);
+    });
+
+    it('回数が上限（3回）に達した下書きは、積まずに失敗（failed）にする', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'write', state: 'running', attempts: 3, lastError: null, updatedAt: STALE }, { phase: 'writing' }) as any
+      );
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline().draft.job).toEqual({ step: 'write', state: 'failed', attempts: 3, lastError: null, updatedAt: NOW });
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it.each([
+      ['確かめ中で処理の無い', null],
+      ['失敗した', { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: STALE }],
+      ['止まってまだ10分たっていない', { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: FRESH }]
+    ])('%s下書きは拾わない（変えず、積まない）', async (_label, job) => {
+      const timeline = timelineWithJob(job, job === null ? { phase: 'reviewing' } : {});
+      cosmosBackend.documents.set(TIMELINE_ID, timeline as any);
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(timeline);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('下書きの無いタイムラインは拾わない', async () => {
+      const timeline = { ...timelineWithJob(null), draft: null };
+      cosmosBackend.documents.set(TIMELINE_ID, timeline as any);
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(timeline);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('読んだ後に下書きが置き換えられていたら（やめた・出し直した）、触らない', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE }) as any
+      );
+      const replaced = timelineWithJob(
+        { step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE },
+        { id: '44444444-4444-4444-8444-444444444444' }
+      );
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, replaced as any);
+      };
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(replaced);
+      expect(queuedTimelines()).toEqual([]);
+    });
+  });
 });
