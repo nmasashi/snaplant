@@ -137,6 +137,11 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocume
   beforeCreate?: () => void;
   forcedReadError?: Error | null;
   forcedReplaceError?: Error | null;
+  /**
+   * `item(id).replace()` の冒頭（`_etag` を比べる前）で呼ばれる。「読んだ後・置き換える直前に、他のリクエストが書き換えた」を再現する
+   * （コールバックの中で `documents` に別の文書を置く。置いた文書は別の `_etag` になるので、読んだ `_etag` 付きの置き換えは 412 になる）
+   */
+  beforeReplace?: (id: string) => void;
   forcedDeleteError?: Error | null;
   /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
   forcedPatchError?: Error | null;
@@ -159,6 +164,25 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocume
    * （ファイル冒頭の説明を参照）。既定は未設定（0）
    */
   emptyPagesBeforeResults?: number;
+}
+
+/**
+ * 文書の `_etag`。文書のオブジェクトごとに振る（`documents` に別のオブジェクトを置くと、別の `_etag` になる）
+ *
+ * 実 SDK は書くたびに `_etag` を振り直し、読んだ結果に `_etag` を付ける。タイムラインの文書は読んだ `_etag` 付きの
+ * 置き換え（IfMatch）で書くので、「読んでから書くまでに他が書いた」を 412 で検出できるよう、偽物も持つ。
+ * `documents` の中身には足さない（置いた文書を `toEqual` で見るテストが多いため）。読み取りの結果にだけ付ける
+ */
+const etags = new WeakMap<object, string>();
+let etagCounter = 0;
+function etagOf(doc: object): string {
+  let etag = etags.get(doc);
+  if (etag === undefined) {
+    etagCounter += 1;
+    etag = `"fake-etag-${etagCounter}"`;
+    etags.set(doc, etag);
+  }
+  return etag;
 }
 
 /** 実 SDK が、patch の condition を満たさないときに投げる形（数値 `code` 412） */
@@ -426,14 +450,22 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         if (id !== partitionKey || !backend.documents.has(id)) {
           return { resource: undefined };
         }
-        return { resource: backend.documents.get(id) };
+        const doc = backend.documents.get(id)!;
+        return { resource: { ...doc, _etag: etagOf(doc) } };
       },
-      replace: async (doc: TDoc) => {
+      replace: async (doc: TDoc, options?: { accessCondition?: { type: string; condition: string } }) => {
         assertSdkItemId(id);
+        backend.beforeReplace?.(id);
         if (backend.forcedReplaceError) throw backend.forcedReplaceError;
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
-        backend.documents.set(id, doc);
-        return { resource: doc };
+        // 実 SDK は IfMatch の _etag が今の文書と違えば 412 を投げる（読んでから書くまでに他が書いた）
+        if (options?.accessCondition?.type === 'IfMatch' && options.accessCondition.condition !== etagOf(backend.documents.get(id)!)) {
+          throw cosmosPreconditionFailedError();
+        }
+        // 置いた文書は新しいオブジェクトにして、_etag を進める（呼び出し側が渡したオブジェクトを後で書き換えても、置いた文書は変わらない）
+        const stored = { ...doc };
+        backend.documents.set(id, stored);
+        return { resource: { ...stored, _etag: etagOf(stored) } };
       },
       patch: async (body: FakePatchBody) => {
         assertSdkItemId(id);
