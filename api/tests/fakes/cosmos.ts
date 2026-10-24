@@ -481,11 +481,15 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         backend.documents.set(id, patched);
         return { resource: patched };
       },
-      delete: async () => {
+      delete: async (options?: { accessCondition?: { type: string; condition: string } }) => {
         assertSdkItemId(id);
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
+        // 置き換えと同じく、IfMatch の _etag が今の文書と違えば 412
+        if (options?.accessCondition?.type === 'IfMatch' && options.accessCondition.condition !== etagOf(backend.documents.get(id)!)) {
+          throw cosmosPreconditionFailedError();
+        }
         backend.documents.delete(id);
         return { resource: { id } };
       }

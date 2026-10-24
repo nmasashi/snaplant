@@ -55,7 +55,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/trips/{tripId}/timeline` | POST | `{ draft, urlExpiresAt }` 202 | 作る・作り直す（区切り案の下書きから）。解析中の写真があれば 409 | 5 | `timeline.ts` |
 | `/api/trips/{tripId}/timeline/recut` | POST | `{ draft, urlExpiresAt }` | 完成版の区切りを直し始める（下書きを作る） | 5 | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft` | GET | `{ draft, urlExpiresAt }` | 下書きの状態と、確かめ中なら区切り | 5 | `timelineDraft.ts` |
-| `/api/trips/{tripId}/timeline/draft` | DELETE | `{ timeline, pendingPhotoCount, urlExpiresAt }` | 下書きをやめる | 5 | `timelineDraft.ts` |
+| `/api/trips/{tripId}/timeline/draft` | DELETE | `{ draft: null }` | 下書きをやめる | 5 | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft/scenes` | PUT | `{ draft, urlExpiresAt }` | `{ sceneStarts }`。下書きの区切りを保存 | 5 | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft/write` | POST | `{ draft, urlExpiresAt }` 202 | 確かめた区切りで文を書く | 5 | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/days/{date}` | PATCH | `{ timeline, pendingPhotoCount, urlExpiresAt }` | `{ title?, summary? }`。完成版の文 | 5 | `timelineTexts.ts` |
@@ -753,10 +753,11 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 下書きが無ければ 404 `TIMELINE_NOT_FOUND`（上と同じ文言）。`phase` が `reviewing` でも、文を書くのに失敗した下書きでもなければ 409 `TIMELINE_STATE_CONFLICT`
 - それ以外は `phase: "writing"`・`job: { step: "write", state: "pending" }` にしてキューへ投入し 202（投入の失敗は上と同じ扱い）。書き終えると、下書きが完成版に入れ替わる
 
-**`DELETE /api/trips/{tripId}/timeline/draft`**（下書きをやめる）→ 200 `{ timeline, pendingPhotoCount, urlExpiresAt }`（`GET …/timeline` と同じ形）
+**`DELETE /api/trips/{tripId}/timeline/draft`**（下書きをやめる）→ 200 `{ draft: null }`（画面は続けて `GET …/timeline` を読み直す。完成版の表示を組むのは `GET …/timeline` の1か所にする。2026-10-25、5-1a）
 
 - 下書きが無ければ 404 `TIMELINE_NOT_FOUND`（上と同じ文言）。作っている途中でもやめられる（ワーカーはやめた下書きに書かない。[06 §8.1](./06_processing_design.md#81-構成)）
-- 下書きを消し、その控え（完成版から指されていなければ）を消す。完成版も無ければタイムラインの文書ごと消す（応答の `timeline` は `null`）
+- 下書きを消し、その控え（完成版から指されていなければ）を消す（失敗はログだけ）。完成版も無ければタイムラインの文書ごと消す
+- 読んでから書くまでに他が書いていたら 409 `TIMELINE_STATE_CONFLICT`（何も消さない）
 
 **`PATCH /api/trips/{tripId}/timeline/days/{date}`** `{ title?, summary? }`・**`PATCH /api/trips/{tripId}/timeline/scenes/{photoId}`** `{ label?, note? }`（完成版の文を直す）→ 200 `{ timeline, pendingPhotoCount, urlExpiresAt }`
 
@@ -859,7 +860,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可） |
 | `createTimeline(tripId)`・`recutTimeline(tripId)` | `POST …/timeline`・`POST …/timeline/recut` | `data['draft']` |
 | `saveTimelineScenes(tripId, sceneStarts)`・`writeTimeline(tripId)` | `PUT …/timeline/draft/scenes`・`POST …/timeline/draft/write` | `data['draft']` |
-| `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | `data['timeline']`・`data['pendingPhotoCount']` |
+| `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | 読まない（続けて `getTimeline` で読み直す） |
 | `updateTimelineDay(tripId, date, {title, summary})`・`updateTimelineScene(tripId, photoId, {label, note})`・`dismissTimelineDroppedEdits(tripId)` | `PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | 同上 |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |

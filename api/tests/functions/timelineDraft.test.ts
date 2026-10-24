@@ -1,7 +1,7 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
-import { getTimelineDraftHandler } from '../../src/functions/timelineDraft';
+import { deleteTimelineDraftHandler, getTimelineDraftHandler } from '../../src/functions/timelineDraft';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { photoDocument, tripDocument } from '../helpers/albumDocuments';
@@ -316,6 +316,133 @@ describe('タイムラインの下書きAPI', () => {
       cosmosBackend.forcedReadError = error;
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+    });
+  });
+  describe('下書きをやめる（DELETE）', () => {
+    const CURRENT_SNAPSHOT_ID = `timeline-photos-${TRIP_ID}-11111111-1111-4111-8111-111111111111`;
+    const currentVersion = {
+      snapshotId: CURRENT_SNAPSHOT_ID,
+      dayStartHour: 4,
+      proposedStarts: [],
+      sceneStarts: [],
+      sceneTexts: {},
+      dayTexts: {},
+      writtenAt: '2026-10-08T12:14:00.000Z'
+    };
+    const snapshotDocument = (id: string) => ({ id, type: 'timelinePhotos', tripId: TRIP_ID, photos: [], createdAt: '2026-10-08T12:10:00.000Z' });
+    const storedSnapshotIds = () =>
+      [...cosmosBackend.documents.values()].filter((doc) => doc.type === 'timelinePhotos').map((doc) => doc.id).sort();
+
+    it('完成版の無い下書きをやめると、タイムラインの文書ごと消え、下書きの控えも消える', async () => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()) as any);
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({ success: true, data: { draft: null } });
+      expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
+      expect(storedSnapshotIds()).toEqual([]);
+    });
+
+    it('作り直しの下書きをやめると、下書きだけが消え、完成版とその控えは残る', async () => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ reason: 'rebuild' }), currentVersion) as any);
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({ ...timelineWith(null, currentVersion), updatedAt: NOW });
+      expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID]);
+    });
+
+    it('完成版の区切りを直している途中（recut）の下書きをやめても、完成版と同じ控えは消さない', async () => {
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(draftOf({ reason: 'recut', snapshotId: CURRENT_SNAPSHOT_ID }), currentVersion) as any
+      );
+
+      await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: null, current: currentVersion });
+      expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID]);
+    });
+
+    it('作っている途中の下書きでもやめられる', async () => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(
+          draftOf({ phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' } })
+        ) as any
+      );
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
+    });
+
+    it.each([
+      ['タイムラインが無い', null],
+      ['完成版だけで下書きが無い', 'current-only']
+    ])('%sときは、404（TIMELINE_NOT_FOUND）を返す', async (_label, existing) => {
+      if (existing) cosmosBackend.documents.set(TIMELINE_ID, timelineWith(null, currentVersion) as any);
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインの下書きが見つかりません' }
+      });
+    });
+
+    it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、何も消さない', async () => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID) as any);
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ reason: 'rebuild' }), currentVersion) as any);
+      const written = timelineWith(draftOf({ reason: 'rebuild', sceneStarts: [photoId('a')] }), currentVersion);
+      cosmosBackend.beforeReplace = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written } as any);
+      };
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'TIMELINE_STATE_CONFLICT', message: 'タイムラインが変わったか、作っている途中です。読み直してください' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
+      expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID, SNAPSHOT_ID].sort());
+    });
+
+    it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
+      cosmosBackend.documents.delete(TRIP_ID);
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+    });
+
+    it('旅行IDがUUIDの形でなければ、400を返す', async () => {
+      const response = await deleteTimelineDraftHandler(createRequest('not-a-uuid', 'DELETE'), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
+    });
+
+    it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('タイムラインを読むときに%s', async (_case, error, status, code, message) => {
+      cosmosBackend.forcedReadError = error;
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
