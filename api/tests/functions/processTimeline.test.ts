@@ -274,6 +274,73 @@ describe('タイムラインのワーカー', () => {
     });
   });
 
+  describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
+    /** その日の 6:00 から1分おきに撮った写真（id は日ごとの頭の数と通し番号から作る） */
+    const photosOfDay = (date: string, head: number, count: number): TimelinePhotoSnapshot[] =>
+      Array.from({ length: count }, (_, index) => {
+        const minutes = 6 * 60 + index;
+        const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
+        return snapshotPhoto((head * 100000 + index).toString(16).padStart(64, '0'), `${date}T${time}`);
+      });
+    const replies = (...bodies: unknown[]) => {
+      reply = async () => ({ choices: [{ message: { content: JSON.stringify(bodies.shift()) } }] });
+    };
+    const useSnapshot = (photos: TimelinePhotoSnapshot[]) =>
+      cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, photos));
+
+    it('上限を超える旅行は日の境目で分けて順に呼び、番号は呼び出しごとに 0 から振る', async () => {
+      const day1 = photosOfDay('2026-10-05', 1, 250);
+      const day2 = photosOfDay('2026-10-06', 2, 200);
+      const day3 = photosOfDay('2026-10-07', 3, 100);
+      useSnapshot([...day1, ...day2, ...day3]);
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      // 1回目は1日目（2日目を足すと上限を超える）、2回目は2日目と3日目
+      replies({ sceneStarts: [0, 100] }, { sceneStarts: [0, 50, 200] });
+
+      await runWorker();
+
+      expect(sent).toHaveLength(2);
+      expect(promptLineOf(sentPrompt(0), 249)).toContain('1日目');
+      expect(promptLineOf(sentPrompt(0), 250)).toBeUndefined();
+      expect(promptLineOf(sentPrompt(1), 0)).toContain('2日目');
+      expect(promptLineOf(sentPrompt(1), 200)).toContain('3日目');
+      expect(promptLineOf(sentPrompt(1), 299)).toContain('3日目');
+      expect(promptLineOf(sentPrompt(1), 300)).toBeUndefined();
+      const starts = [day1[0].id, day1[100].id, day2[0].id, day2[50].id, day3[0].id];
+      expect(storedTimeline()?.draft).toMatchObject({ phase: 'reviewing', proposedStarts: starts, sceneStarts: starts });
+    });
+
+    it('1日で上限を超える日は、撮影の順に上限ごとに切って呼び、切れ目を区切りにする', async () => {
+      const day1 = photosOfDay('2026-10-05', 1, 450);
+      useSnapshot(day1);
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      replies({ sceneStarts: [0, 10] }, { sceneStarts: [20] });
+
+      await runWorker();
+
+      expect(sent).toHaveLength(2);
+      expect(promptLineOf(sentPrompt(0), 399)).toBeDefined();
+      expect(promptLineOf(sentPrompt(0), 400)).toBeUndefined();
+      expect(promptLineOf(sentPrompt(1), 49)).toBeDefined();
+      expect(promptLineOf(sentPrompt(1), 50)).toBeUndefined();
+      const starts = [day1[0].id, day1[10].id, day1[400].id, day1[420].id];
+      expect(storedTimeline()?.draft).toMatchObject({ phase: 'reviewing', proposedStarts: starts, sceneStarts: starts });
+    });
+
+    it('分けて呼ぶ途中で失敗したら、途中までの結果は書かずに全体を失敗にする', async () => {
+      useSnapshot([...photosOfDay('2026-10-05', 1, 250), ...photosOfDay('2026-10-06', 2, 200)]);
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      // 2回目の番号は2日目の枚数（200）以上なので範囲外
+      replies({ sceneStarts: [0, 100] }, { sceneStarts: [0, 200] });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedTimeline()).toEqual(
+        proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }) }) })
+      );
+    });
+  });
+
   describe('失敗', () => {
     it.each<[string, unknown]>([
       ['写真の数以上の番号', { sceneStarts: [0, 6] }],
