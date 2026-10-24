@@ -326,7 +326,14 @@ describe('タイムラインのワーカー', () => {
 
     it.each<[string, (doc: TimelineDocument) => TimelineDocument]>([
       ['下書きをやめた', (doc) => ({ ...doc, draft: null })],
-      ['下書きを出し直した', (doc) => ({ ...doc, draft: proposingDraft({ id: '44444444-4444-4444-8444-444444444444' }) })],
+      // 新しい下書きを別のインスタンスが同じ時刻に担当した（処理は自分が担当したときと同じ形になる。下書きの id だけで見分ける）
+      [
+        '下書きを出し直した',
+        (doc) => ({
+          ...doc,
+          draft: proposingDraft({ id: '44444444-4444-4444-8444-444444444444', job: pendingJob({ state: 'running', attempts: 1, updatedAt: NOW }) })
+        })
+      ],
       ['再投入のタイマーが待ちに戻した', (doc) => ({ ...doc, draft: proposingDraft({ job: pendingJob({ attempts: 1, updatedAt: NOW }) }) })]
     ])('%sなら、結果も失敗も書かずに終える', async (_case, write) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
