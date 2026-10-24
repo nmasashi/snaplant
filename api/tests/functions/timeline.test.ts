@@ -703,6 +703,16 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.pendingPhotoCount).toBe(1);
   });
 
+  it('完成版の写真の控えが無ければ（壊れている）、500 を返す（空の完成版や、全部の写真が増えたとは返さない）', async () => {
+    PHOTOS.forEach((photo) => placePhoto(photo.id));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(500);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの取得に失敗しました' } });
+  });
+
   it('文の無い日と場面は、文と書いた主を null にして返す（項目は省かない）', async () => {
     placeCurrentSnapshot();
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, sceneTexts: {}, dayTexts: {} } }));

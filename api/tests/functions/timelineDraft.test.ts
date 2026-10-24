@@ -325,6 +325,15 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
+    it('確かめ中の下書きの写真の控えが無ければ（壊れている）、500 を返す（空の日と場面を返さない）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの取得に失敗しました' } });
+    });
+
     it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('旅行やタイムラインを読むときに%s', async (_case, error, status, code, message) => {
       cosmosBackend.forcedReadError = error;
 
@@ -634,6 +643,21 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+    });
+
+    it('下書きの写真の控えが無ければ（壊れている）、区切りを書き換えずに 500 を返す（区切りが無効とは返さない）', async () => {
+      cosmosBackend.documents.delete(SNAPSHOT_ID);
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'タイムラインの区切りの保存に失敗しました' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     });
 
     it('写真の保存先の設定に鍵が無ければ、区切りを書き換えずに 500 を返す（保存したのに失敗と返さない）', async () => {
