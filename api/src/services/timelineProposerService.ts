@@ -103,9 +103,9 @@ function photoLineOf(photo: TimelinePhotoSnapshot, dayNumber: number, index: num
   return parts.filter((part): part is string => !!part).join(' ') + (comment ? `「${comment}」` : '');
 }
 
-/** 改行を空白にして1行にする（続く空白は1つにまとめる） */
+/** 改行（続く改行は1つ）を空白にして1行にする。全角の空白など、改行でない空白は利用者が書いたまま残す */
 function oneLine(text: string | null): string | null {
-  return text === null ? null : text.replace(/\s+/g, ' ').trim();
+  return text === null ? null : text.replace(/[\r\n\u0085\u2028\u2029]+/g, ' ').trim();
 }
 
 /** カテゴリの表示名（図鑑の種類は定義表の名前、それ以外は「その他」、分類していなければ書かない） */

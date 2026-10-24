@@ -316,7 +316,7 @@ const JOB_IDENTITY = ['state', 'step', 'attempts', 'updatedAt'] as const;
 
 /** patch の条件に埋める job の値（数はそのまま、文字列はエスケープする） */
 function jobValueLiteral(value: string | number): string {
-  return typeof value === 'number' ? String(Number(value)) : sqlString(value);
+  return typeof value === 'number' ? String(value) : sqlString(value);
 }
 
 /** 下書きの処理が担当したときのままか（担当の後に、再投入のタイマーが待ちに戻すなどしていないか） */
