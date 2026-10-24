@@ -4,6 +4,7 @@ import { AlbumService } from '../services/albumService';
 import { TimelineConflictError, TimelinePhotoRow, TimelineService, timelineIdOf } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 import { photoUrlExpiresOn } from '../services/photoStorageService';
+import { draftStatusOf } from '../services/timelineView';
 import {
   createDatabaseErrorResponse,
   createErrorResponse,
@@ -13,7 +14,7 @@ import {
   isValidUUID
 } from '../utils/response';
 import { ErrorCode, HttpStatusCode } from '../types/api';
-import { TimelineDocument, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, timelineDayStartHour } from '../constants/album';
 
 /** 解析が済んでいない写真の状態（none・done・failed は済んだものとして扱う。01 §5.3.1） */
@@ -151,17 +152,6 @@ function snapshotPhotosOf(rows: TimelinePhotoRow[]): TimelinePhotoSnapshot[] {
       thumbnailBlobName: row.thumbnailBlobName,
     };
   });
-}
-
-/** 下書きの状態（応答の形。05 §5.15） */
-function draftStatusOf(draft: TimelineDraft): TimelineDraftStatus {
-  return {
-    id: draft.id,
-    reason: draft.reason,
-    phase: draft.phase,
-    job: draft.job ? { step: draft.job.step, state: draft.job.state, lastError: draft.job.lastError } : null,
-    startedAt: draft.startedAt,
-  };
 }
 
 app.http('createTimeline', {

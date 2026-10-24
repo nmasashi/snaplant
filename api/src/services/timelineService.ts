@@ -68,6 +68,35 @@ export class TimelineService {
   }
 
   /**
+   * 写真の控えを読む
+   * @param id 控えの id
+   * @returns 控え。無ければ null
+   */
+  async readSnapshot(id: string): Promise<TimelinePhotosDocument | null> {
+    const { resource } = await this.container.item(id, id).read<TimelinePhotosDocument>();
+    return resource?.type === 'timelinePhotos' ? resource : null;
+  }
+
+  /**
+   * 旅行の今の写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分ける）
+   *
+   * id だけの射影なので軽い。区切りの確認と完成版を開くときに読む
+   * @param tripId 旅行の ID
+   */
+  async readTripPhotoIds(tripId: string): Promise<Set<string>> {
+    const { resources } = await this.container.items
+      .query<{ id: string }>({
+        query: 'SELECT c.id FROM c WHERE c.type = @type AND c.tripId = @tripId',
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@tripId', value: tripId },
+        ],
+      })
+      .fetchAll();
+    return new Set(resources.map((row) => row.id));
+  }
+
+  /**
    * 写真の控えを作る（後から変えない）
    * @param doc 控えの文書
    */
