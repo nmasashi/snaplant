@@ -59,8 +59,11 @@ void main() {
       (tester) async {
     await openTripsTab(tester, FakeTripBackend(trips: [hokkaidoTrip()]));
 
-    expect(find.byTooltip('設定'), findsOneWidget);
-    expect(find.byTooltip('カテゴリ'), findsNothing);
+    final barButtons = find.descendant(
+        of: find.byType(AppBar), matching: find.byType(IconButton));
+    expect(barButtons, findsOneWidget);
+    expect(find.descendant(of: barButtons, matching: find.byTooltip('設定')),
+        findsOneWidget);
   });
 
   testWidgets('旅行が1件もないときも「旅行に属さない写真」の行は出し、その下に最初の旅行を作るよう促す', (tester) async {
