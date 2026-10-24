@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineConflictError, TimelineService } from '../services/timelineService';
+import { TimelineConflictError, TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, layoutTimeline } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
@@ -28,28 +28,33 @@ export async function getTimelineDraftHandler(request: HttpRequest, context: Inv
     return createValidationError('旅行IDの形式が無効です');
   }
   try {
-    if (!(await new AlbumService().tripExists(tripId))) {
-      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-    }
-    const timelines = new TimelineService();
-    const draft = (await timelines.readTimeline(tripId))?.doc.draft ?? null;
-    const expiresOn = photoUrlExpiresOn();
-    if (!draft) {
-      return createSuccessResponse({ draft: null, urlExpiresAt: expiresOn.toISOString() });
-    }
-    if (draft.phase !== 'reviewing') {
-      return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
-    }
-    // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
-    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
-    return createSuccessResponse({
-      draft: reviewingDraftOf(draft, photos, existing, new PhotoStorageService(), expiresOn),
-      urlExpiresAt: expiresOn.toISOString(),
-    });
+    return await rereadIfSnapshotMissing(() => readDraftResponse(tripId));
   } catch (error: any) {
     context.log('タイムラインの下書きの取得エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの取得に失敗しました');
   }
+}
+
+/** 下書きを読んで応答を組む（控えが無ければ投げる。呼ぶ側が一度だけ読み直す） */
+async function readDraftResponse(tripId: string): Promise<HttpResponseInit> {
+  if (!(await new AlbumService().tripExists(tripId))) {
+    return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+  }
+  const timelines = new TimelineService();
+  const draft = (await timelines.readTimeline(tripId))?.doc.draft ?? null;
+  const expiresOn = photoUrlExpiresOn();
+  if (!draft) {
+    return createSuccessResponse({ draft: null, urlExpiresAt: expiresOn.toISOString() });
+  }
+  if (draft.phase !== 'reviewing') {
+    return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
+  }
+  // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
+  const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+  return createSuccessResponse({
+    draft: reviewingDraftOf(draft, photos, existing, new PhotoStorageService(), expiresOn),
+    urlExpiresAt: expiresOn.toISOString(),
+  });
 }
 
 /**
@@ -134,7 +139,17 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!Array.isArray(sceneStarts) || !sceneStarts.every((id) => typeof id === 'string')) {
       return createValidationError('区切りは写真IDの配列で指定してください');
     }
-    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+    let photos: TimelinePhotoSnapshot[];
+    let existing: Set<string>;
+    try {
+      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+    } catch (error: any) {
+      // 読んだ後に他の操作が下書きをやめた・作り直した（控えを消した）なら重なり。下書きが同じまま控えだけ無ければ壊れている
+      if (error instanceof TimelineSnapshotMissingError && (await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
+        return createTimelineStateConflict();
+      }
+      throw error;
+    }
     if (!isValidSceneStarts(sceneStarts, photos, draft.dayStartHour)) {
       return createValidationError('区切りが無効です');
     }

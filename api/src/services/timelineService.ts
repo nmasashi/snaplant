@@ -29,6 +29,37 @@ export class TimelineConflictError extends Error {
  *
  * タイムラインの文書は、利用者の操作とワーカーが同じ欄（下書き・完成版）を書くので、読んだ _etag 付きの置き換えで書く
  */
+/**
+ * 写真の控えが無い
+ *
+ * 控えを消すのはタイムラインの書き込みの後（下書きをやめる・作り直す・旅行の削除）なので、読んだタイムラインが指す控えが、
+ * 読む前に消えていることがある（他の操作と重なった）。読み直しても無ければ壊れている
+ */
+export class TimelineSnapshotMissingError extends Error {
+  constructor(id: string) {
+    super(`写真の控えがありません: ${id}`);
+    this.name = 'TimelineSnapshotMissingError';
+  }
+}
+
+/**
+ * タイムラインと控えを読んで応答を組む処理を、控えが無ければ一度だけ最初から読み直す（05 §5.15）
+ *
+ * 1回目に控えが無いのは、読んだ後に他の操作が下書きをやめた・作り直した・旅行を消したとき。読み直すと今の状態になる。
+ * 2回目も無ければ壊れているので投げる（500）
+ * @param read タイムラインを読むところから応答を組むまで
+ */
+export async function rereadIfSnapshotMissing<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error: any) {
+    if (!(error instanceof TimelineSnapshotMissingError)) {
+      throw error;
+    }
+    return await read();
+  }
+}
+
 export class TimelineService {
   private readonly container: Container;
 
@@ -71,15 +102,15 @@ export class TimelineService {
   /**
    * 写真の控えの写真を読む。無ければ投げる
    *
-   * 下書き・完成版が指している控えは消さない決まりなので、無ければ壊れている。空として扱うと、日と場面が空になり、
-   * 全部の写真が増えたと知らせ、区切りを無効と返してしまうので、内部の失敗にする（04 §1.6）
+   * 空として扱うと、日と場面が空になり、全部の写真が増えたと知らせ、区切りを無効と返してしまう。
+   * 他の操作と重なったのか壊れているのかは、呼ぶ側が読み直して見分ける（rereadIfSnapshotMissing）
    * @param id 控えの id
-   * @throws Error 控えが無い
+   * @throws TimelineSnapshotMissingError 控えが無い
    */
   async readSnapshotPhotos(id: string): Promise<TimelinePhotoSnapshot[]> {
     const { resource } = await this.container.item(id, id).read<TimelinePhotosDocument>();
     if (resource?.type !== 'timelinePhotos') {
-      throw new Error(`写真の控えがありません: ${id}`);
+      throw new TimelineSnapshotMissingError(id);
     }
     return resource.photos;
   }
