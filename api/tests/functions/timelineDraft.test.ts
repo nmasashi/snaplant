@@ -675,6 +675,19 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(cancelled);
     });
 
+    it('タイムラインを読んだ後に旅行が消されていたら（控えも消えた）、404（TRIP_NOT_FOUND）を返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      cosmosBackend.beforeRead = (id) => {
+        if (id === SNAPSHOT_ID) [TIMELINE_ID, SNAPSHOT_ID, TRIP_ID].forEach((docId) => cosmosBackend.documents.delete(docId));
+      };
+
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+      expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
+    });
+
     it('下書きの写真の控えが無ければ（壊れている）、区切りを書き換えずに 500 を返す（区切りが無効とは返さない）', async () => {
       cosmosBackend.documents.delete(SNAPSHOT_ID);
       const timeline = timelineWith(reviewing());
