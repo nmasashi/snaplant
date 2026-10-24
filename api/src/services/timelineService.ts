@@ -119,6 +119,19 @@ export class TimelineService {
   }
 
   /**
+   * 使われなくなった控えを消す。失敗しても投げず、ログだけ出す（残っても害は無く、旅行の削除で消える。04 §1.6）
+   * @param id 控えの id
+   * @param log ログの出し先
+   */
+  async deleteUnusedSnapshot(id: string, log: (...args: unknown[]) => void): Promise<void> {
+    try {
+      await this.deleteSnapshot(id);
+    } catch (error: any) {
+      log(`使われなくなった写真の控えを消せませんでした: ${id}`, error);
+    }
+  }
+
+  /**
    * タイムラインを作る（まだ無いとき）
    * @throws TimelineConflictError 同時に作られていた（409）
    */

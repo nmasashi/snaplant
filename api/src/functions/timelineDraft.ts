@@ -5,13 +5,13 @@ import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorage
 import { draftStatusOf, layoutTimeline } from '../services/timelineView';
 import {
   createDatabaseErrorResponse,
-  createErrorResponse,
+  createTimelineStateConflict,
   createNotFoundError,
   createSuccessResponse,
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { ErrorCode, HttpStatusCode } from '../types/api';
+import { ErrorCode } from '../types/api';
 
 /**
  * タイムラインの下書きを読む API（状態と、確かめ中なら日と場面）
@@ -86,21 +86,13 @@ export async function deleteTimelineDraftHandler(request: HttpRequest, context: 
       }
     } catch (error: any) {
       if (error instanceof TimelineConflictError) {
-        return createErrorResponse(
-          ErrorCode.TIMELINE_STATE_CONFLICT,
-          'タイムラインが変わったか、作っている途中です。読み直してください',
-          HttpStatusCode.CONFLICT
-        );
+        return createTimelineStateConflict();
       }
       throw error;
     }
-    // 下書きの控えは、完成版から指されていなければ使われなくなる（失敗はログだけ。残っても害は無く、旅行の削除で消える）
+    // 下書きの控えは、完成版から指されていなければ使われなくなる
     if (draft.snapshotId !== read.doc.current?.snapshotId) {
-      try {
-        await timelines.deleteSnapshot(draft.snapshotId);
-      } catch (error: any) {
-        context.log(`使われなくなった写真の控えを消せませんでした: ${draft.snapshotId}`, error);
-      }
+      await timelines.deleteUnusedSnapshot(draft.snapshotId, (...args) => context.log(...args));
     }
     return createSuccessResponse({ draft: null });
   } catch (error: any) {

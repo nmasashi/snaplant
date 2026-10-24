@@ -8,6 +8,7 @@ import { draftStatusOf } from '../services/timelineView';
 import {
   createDatabaseErrorResponse,
   createErrorResponse,
+  createTimelineStateConflict,
   createNotFoundError,
   createSuccessResponse,
   createValidationError,
@@ -39,7 +40,7 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     const existing = await timelines.readTimeline(tripId);
     const job = existing?.doc.draft?.job;
     if (job && (job.state === 'pending' || job.state === 'running')) {
-      return stateConflict();
+      return createTimelineStateConflict();
     }
     const rows = await timelines.readTripPhotosForSnapshot(tripId);
     if (rows.some((row) => UNFINISHED_STATES.includes(row.processing.state))) {
@@ -88,15 +89,15 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     } catch (error: any) {
       if (error instanceof TimelineConflictError) {
         // どこからも指されない控えを残さない（残っても害は無く、旅行の削除で消える。04 §7.1）
-        await deleteSnapshotOrLog(timelines, snapshotId, context);
-        return stateConflict();
+        await timelines.deleteUnusedSnapshot(snapshotId, (...args) => context.log(...args));
+        return createTimelineStateConflict();
       }
       throw error;
     }
     // 置き換えた下書きの控えは、完成版から指されていなければ使われなくなる
     const replacedSnapshotId = existing?.doc.draft?.snapshotId;
     if (replacedSnapshotId && replacedSnapshotId !== existing.doc.current?.snapshotId) {
-      await deleteSnapshotOrLog(timelines, replacedSnapshotId, context);
+      await timelines.deleteUnusedSnapshot(replacedSnapshotId, (...args) => context.log(...args));
     }
   } catch (error: any) {
     context.log('タイムラインの作成の受付エラー:', error);
@@ -107,26 +108,6 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
   return createSuccessResponse(
     { draft: draftStatusOf(draft), urlExpiresAt: photoUrlExpiresOn().toISOString() },
     HttpStatusCode.ACCEPTED
-  );
-}
-
-/**
- * 使われなくなった控えを消す。失敗してもログだけ出す（残っても害は無く、旅行の削除で消える。04 §1.6）
- */
-async function deleteSnapshotOrLog(timelines: TimelineService, snapshotId: string, context: InvocationContext): Promise<void> {
-  try {
-    await timelines.deleteSnapshot(snapshotId);
-  } catch (error: any) {
-    context.log(`使われなくなった写真の控えを消せませんでした: ${snapshotId}`, error);
-  }
-}
-
-/** 作っている途中、または読んでから書くまでに他が書いた（05 §5.15 の共通） */
-function stateConflict(): HttpResponseInit {
-  return createErrorResponse(
-    ErrorCode.TIMELINE_STATE_CONFLICT,
-    'タイムラインが変わったか、作っている途中です。読み直してください',
-    HttpStatusCode.CONFLICT
   );
 }
 

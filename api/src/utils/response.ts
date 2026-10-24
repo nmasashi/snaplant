@@ -111,6 +111,19 @@ export function createNotFoundError(
 }
 
 /**
+ * タイムラインが作っている途中か、読んでから書くまでに他が書いた（409。docs/05_api_design.md §5.15 の共通）
+ *
+ * どの状態の食い違いでも同じ文言にする。画面は読み直して今の状態を出す
+ */
+export function createTimelineStateConflict(): HttpResponseInit {
+  return createErrorResponse(
+    ErrorCode.TIMELINE_STATE_CONFLICT,
+    'タイムラインが変わったか、作っている途中です。読み直してください',
+    HttpStatusCode.CONFLICT
+  );
+}
+
+/**
  * 内部サーバーエラーレスポンス
  */
 export function createInternalError(message: string = 'サーバー内部エラーが発生しました', details?: string): HttpResponseInit {
