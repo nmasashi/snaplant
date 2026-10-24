@@ -211,11 +211,12 @@ class ApiService {
   /// 続きがあるかは枚数ではなく、返る継続トークンが null かどうかで判断する（最後のページが空のこともある）
   Future<PhotoPage> getPhotos(
       {String? tripId, String? category, String? continuationToken}) async {
-    // どちらも無い要求はサーバが 400 で断る（絞り込み条件が無い）。呼び出しの誤りなので、デバッグ版では送る前に止める
-    // （リリース版では assert が外れ、サーバの 400 が読み込みの失敗として出る）
-    assert(tripId != null || category != null, 'tripId か category のどちらかを指定する');
+    // アプリが読むのは旅行（旅行に属さない写真は none）の一覧と、その中のカテゴリの絞り込みだけ。旅行をまたいでカテゴリだけで読む画面は消した
+    // （docs/travel-album/03_screen_design.md §5.2。旅行をまたいで見るのは図鑑。API の category だけの絞り込みは接続テストが自分で URL を組んで使う）。
+    // 呼び出しの誤りなので、デバッグ版では送る前に止める
+    assert(tripId != null, 'tripId を指定する（旅行をまたぐ一覧はアプリでは読まない）');
     try {
-      // 旅行（tripId。旅行に属さない写真は none）とカテゴリのどちらか（両方なら AND）で絞る。旅行を指定しなければ旅行をまたぐ
+      // 旅行（tripId。旅行に属さない写真は none）で絞り、カテゴリがあれば AND で絞る
       final query = {
         if (tripId != null) 'tripId': tripId,
         if (category != null) 'category': category,
