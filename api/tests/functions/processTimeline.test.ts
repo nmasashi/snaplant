@@ -89,8 +89,10 @@ describe('タイムラインのワーカー', () => {
   let sent: Array<{ options: any; body: any }>;
   let reply: () => Promise<unknown>;
 
+  /** AI が body を JSON の応答として返す */
+  const answering = (body: unknown) => async () => ({ choices: [{ message: { content: JSON.stringify(body) } }] });
   const aiReturns = (body: unknown) => {
-    reply = async () => ({ choices: [{ message: { content: JSON.stringify(body) } }] });
+    reply = answering(body);
   };
 
   /** キューのトリガーが渡すメッセージ（本文の JSON は読まれた後のオブジェクトで届く） */
@@ -255,16 +257,13 @@ describe('タイムラインのワーカー', () => {
       expect(body.temperature).toBeUndefined();
     });
 
-    it.each<[string, string | undefined, string]>([
-      ['タイムライン用のデプロイが設定されていれば、そこへ送る', 'timeline-deployment', 'timeline-deployment'],
-      ['タイムライン用のデプロイが無ければ、識別と同じデプロイへ送る', undefined, 'main-deployment'],
-      ['タイムライン用のデプロイが空白だけなら、識別と同じデプロイへ送る', '  ', 'main-deployment']
-    ])('%s', async (_case, timelineDeployment, expected) => {
-      if (timelineDeployment === undefined) {
-        delete process.env.AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME;
-      } else {
-        process.env.AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME = timelineDeployment;
-      }
+    // タイムライン用のデプロイは beforeEach で消してあるので、無い行は何も足さない
+    it.each<[string, Record<string, string>, string]>([
+      ['タイムライン用のデプロイが設定されていれば、そこへ送る', { AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME: 'timeline-deployment' }, 'timeline-deployment'],
+      ['タイムライン用のデプロイが無ければ、識別と同じデプロイへ送る', {}, 'main-deployment'],
+      ['タイムライン用のデプロイが空白だけなら、識別と同じデプロイへ送る', { AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME: '  ' }, 'main-deployment']
+    ])('%s', async (_case, env, expected) => {
+      Object.assign(process.env, env);
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
 
       await runWorker();
@@ -294,19 +293,10 @@ describe('タイムラインのワーカー', () => {
       };
     };
 
-    it('下書きがまだ自分のもので処理も担当したときのままなら、読み直した文書に同じ結果を当て直す（他の操作が書いたものは残す）', async () => {
+    it('下書きがまだ自分のもので処理も担当したときのままなら、3回まで重なっても、読み直した文書に同じ結果を当て直す（他の操作が書いたものは残す）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
-      // 区切り案の間に、利用者が残せなかった文の知らせを閉じた
-      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [], updatedAt: '2026-10-25T08:59:30.000Z' }));
-
-      await runWorker();
-
-      expect(storedTimeline()).toEqual(proposingTimeline({ draft: proposedDraft(), droppedEdits: [], updatedAt: NOW }));
-    });
-
-    it('当て直しは3回まで重なっても書ける', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
-      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [] }), 3);
+      // 区切り案の間に、利用者が残せなかった文の知らせを閉じた（書くたびに他の操作がまた書く）
+      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [], updatedAt: '2026-10-25T08:59:30.000Z' }), 3);
 
       await runWorker();
 
@@ -423,32 +413,24 @@ describe('タイムラインのワーカー', () => {
   });
 
   describe('失敗', () => {
-    it.each<[string, unknown]>([
-      ['写真の数以上の番号', { sceneStarts: [0, 6] }],
-      ['負の番号', { sceneStarts: [-1] }],
-      ['整数でない番号', { sceneStarts: [1.5] }],
-      ['番号でない値', { sceneStarts: ['1'] }],
-      ['配列でない', { sceneStarts: 1 }]
-    ])('AI の応答に%sがあれば AI の失敗として、下書きを待ちに戻して例外を投げる（キューの再試行に任せる）', async (_case, body) => {
+    it.each<[string, () => Promise<unknown>]>([
+      ['AI がエラーを返した', async () => {
+        throw Object.assign(new Error('500 The server had an error while processing your request.'), { name: 'InternalServerError', status: 500 });
+      }],
+      ['AI の応答に写真の数以上の番号があった', answering({ sceneStarts: [0, 6] })],
+      ['AI の応答に負の番号があった', answering({ sceneStarts: [-1] })],
+      ['AI の応答に整数でない番号があった', answering({ sceneStarts: [1.5] })],
+      ['AI の応答に番号でない値があった', answering({ sceneStarts: ['1'] })],
+      ['AI の応答が配列でなかった', answering({ sceneStarts: 1 })]
+    ])('%sら AI の失敗として、下書きを待ちに戻して例外を投げる（キューの再試行に任せる）', async (_case, aiReply) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
-      aiReturns(body);
+      reply = aiReply;
 
       await expect(runWorker()).rejects.toThrow();
 
       expect(storedTimeline()).toEqual(
         proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }) }) })
       );
-    });
-
-    it('AI がエラーを返したら AI の失敗として、下書きを待ちに戻して例外を投げる', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
-      reply = async () => {
-        throw Object.assign(new Error('500 The server had an error while processing your request.'), { name: 'InternalServerError', status: 500 });
-      };
-
-      await expect(runWorker()).rejects.toThrow();
-
-      expect(storedTimeline()?.draft?.job).toEqual(pendingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }));
     });
 
     it('写真の控えが無いなど AI 以外の失敗は、内部の失敗として待ちに戻して例外を投げ、AI は呼ばない', async () => {
