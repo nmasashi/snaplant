@@ -338,6 +338,23 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
     });
 
+    it('読み直す間にも続けて作り直されていたら、続けて読み直す（2回続けて重なっても、今の状態を返す）', async () => {
+      // 1回目・2回目に読んだ下書きの控えは、読む前に作り直しで消された。3回目に読むときは下書きがやめられている
+      const replacedSnapshotId = `timeline-photos-${TRIP_ID}-55555555-5555-4555-8555-555555555555`;
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
+      let reads = 0;
+      cosmosBackend.beforeRead = (id) => {
+        if (id !== SNAPSHOT_ID && id !== replacedSnapshotId) return;
+        reads += 1;
+        cosmosBackend.documents.set(TIMELINE_ID, reads === 1 ? timelineWith(draftOf({ snapshotId: replacedSnapshotId })) : timelineWith(null, currentVersion));
+      };
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
+    });
+
     it('確かめ中の下書きの写真の控えが無ければ（壊れている）、500 を返す（空の日と場面を返さない）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
 
