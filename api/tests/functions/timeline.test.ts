@@ -616,20 +616,6 @@ describe('タイムラインを読むAPI（GET）', () => {
     placeCurrentSnapshot();
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED }));
 
-    const scene = (photos: TimelinePhotoSnapshot[], startedBy: string, label: string, labelSource: string) => ({
-      startPhotoId: photos[0].id,
-      startedBy,
-      hasFood: photos.some((photo) => photo.category === 'food'),
-      label,
-      labelSource,
-      note: `${label}の一言`,
-      noteSource: 'ai',
-      firstTakenAt: photos[0].takenAt,
-      lastTakenAt: photos[photos.length - 1].takenAt,
-      placeNames: [...new Set(photos.map((photo) => photo.placeName).filter((name) => name !== null))],
-      names: photos.map((photo) => photo.name).filter((name) => name !== null),
-      photos: photos.map(shown)
-    });
     expect(await read()).toEqual({
       timeline: {
         current: {
@@ -642,7 +628,20 @@ describe('タイムラインを読むAPI（GET）', () => {
               titleSource: 'user',
               summary: '千歳と札幌のまとめ',
               summarySource: 'ai',
-              scenes: [scene([A, B], 'day', '朝ごはん', 'ai'), scene([C], 'ai', '昼ごはん', 'user')]
+              scenes: [
+                {
+                  startPhotoId: A.id, startedBy: 'day', hasFood: true,
+                  label: '朝ごはん', labelSource: 'ai', note: '朝ごはんの一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-05T07:50:12', lastTakenAt: '2026-10-05T08:10:00',
+                  placeNames: ['北海道千歳市'], names: ['海鮮丼'], photos: [shown(A), shown(B)]
+                },
+                {
+                  startPhotoId: C.id, startedBy: 'ai', hasFood: true,
+                  label: '昼ごはん', labelSource: 'user', note: '昼ごはんの一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-05T12:30:00', lastTakenAt: '2026-10-05T12:30:00',
+                  placeNames: ['札幌市'], names: ['ラーメン'], photos: [shown(C)]
+                }
+              ]
             },
             {
               date: '2026-10-06',
@@ -651,7 +650,20 @@ describe('タイムラインを読むAPI（GET）', () => {
               titleSource: 'user',
               summary: '小樽のまとめ',
               summarySource: 'ai',
-              scenes: [scene([D], 'day', '運河', 'ai'), scene([E], 'user', '散歩', 'ai')]
+              scenes: [
+                {
+                  startPhotoId: D.id, startedBy: 'day', hasFood: false,
+                  label: '運河', labelSource: 'ai', note: '運河の一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-06T09:00:00', lastTakenAt: '2026-10-06T09:00:00',
+                  placeNames: ['小樽市'], names: ['小樽運河'], photos: [shown(D)]
+                },
+                {
+                  startPhotoId: E.id, startedBy: 'user', hasFood: false,
+                  label: '散歩', labelSource: 'ai', note: '散歩の一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-06T11:00:00', lastTakenAt: '2026-10-06T11:00:00',
+                  placeNames: ['小樽市'], names: [], photos: [shown(E)]
+                }
+              ]
             }
           ],
           undatedPhotos: [shown(U)]
@@ -665,11 +677,9 @@ describe('タイムラインを読むAPI（GET）', () => {
     });
   });
 
-  it('控えを取った後に消えた写真は出さず（写真が全部消えた場面と日も出さない）、増えた・消えた枚数を知らせる（日時の無い写真も数える）', async () => {
-    // b と2日目の写真（d・e）と日時の無い写真が消え、控えに無い写真が2枚増えた（1枚は解析中）
+  it('控えを取った後に消えた写真は出さない（写真が全部消えた場面と日も出さない）', async () => {
+    // b と2日目の写真（d・e）と日時の無い写真が消えた
     placeCurrentSnapshot([B.id, D.id, E.id, U.id]);
-    placePhoto(photoId('n'));
-    placePhoto(photoId('m'), 'pending');
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
 
     const data = await read();
@@ -678,7 +688,18 @@ describe('タイムラインを読むAPI（GET）', () => {
       ['2026-10-05', [[A.id], [C.id]]]
     ]);
     expect(data.timeline.current.undatedPhotos).toEqual([]);
-    expect(data.timeline.changes).toEqual({ added: 2, removed: 4 });
+  });
+
+  it('完成版の控えと比べて増えた・消えた写真の枚数を返し（日時の無い写真も数える）、完成版があっても解析中の写真を数える', async () => {
+    // b と日時の無い写真が消え、控えに無い写真が2枚増えた（1枚は解析中）
+    placeCurrentSnapshot([B.id, U.id]);
+    placePhoto(photoId('n'));
+    placePhoto(photoId('m'), 'pending');
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 2, removed: 2 });
     expect(data.pendingPhotoCount).toBe(1);
   });
 
@@ -692,13 +713,14 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(day.scenes[0]).toMatchObject({ label: null, labelSource: null, note: null, noteSource: null });
   });
 
-  it('完成版の日は、完成版の日付の切り替えの時刻で分ける（翌日の 2:30 は前の日に入る）', async () => {
-    const K = snap('k', '2026-10-06T02:30:00');
+  it('完成版の日は、完成版の日付の切り替えの時刻で分ける（5時なら翌日の 4:30 は前の日に入る）', async () => {
+    // 既定（4時）と違う値にして、今の設定ではなく完成版に書いた値で分けることを見る
+    const K = snap('k', '2026-10-06T04:30:00');
     cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, [A, K, D]));
     [A, K, D].forEach((photo) => placePhoto(photo.id));
     cosmosBackend.documents.set(
       TIMELINE_ID,
-      timelineDocument(TRIP_ID, { current: timelineCurrent(CURRENT_SNAPSHOT_ID, { dayStartHour: 4, proposedStarts: [A.id, D.id], sceneStarts: [A.id, D.id] }) })
+      timelineDocument(TRIP_ID, { current: timelineCurrent(CURRENT_SNAPSHOT_ID, { dayStartHour: 5, proposedStarts: [A.id, D.id], sceneStarts: [A.id, D.id] }) })
     );
 
     const data = await read();

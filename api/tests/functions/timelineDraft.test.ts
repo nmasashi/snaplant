@@ -518,10 +518,11 @@ describe('タイムラインの下書きAPI', () => {
       expect(data.draft.undatedPhotos).toEqual([shown('u', null)]);
     });
 
-    it('各日の最初の写真は、下書きの日付の切り替えの時刻で決める（翌日の 2:30 は前の日の途中）', async () => {
-      // k は 10/06 2:30。切り替えが4時なので 10/05 に入り、2日目の最初は d のまま
-      placeSnapshot([...PHOTOS.slice(0, 3), snap('k', '2026-10-06T02:30:00'), ...PHOTOS.slice(3)]);
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+    it('各日の最初の写真は、下書きの日付の切り替えの時刻で決める（5時なら翌日の 4:30 は前の日の途中）', async () => {
+      // k は 10/06 4:30。下書きの切り替えが5時なので 10/05 に入り、2日目の最初は d のまま。
+      // 既定（4時）と違う値にして、今の設定ではなく下書きに書いた値で分けることを見る
+      placeSnapshot([...PHOTOS.slice(0, 3), snap('k', '2026-10-06T04:30:00'), ...PHOTOS.slice(3)]);
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ dayStartHour: 5 })));
 
       const response = await put({ sceneStarts: [photoId('a'), photoId('d')] });
 
@@ -555,6 +556,7 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(200);
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
+      expect((response.jsonBody as any).data.draft).toMatchObject({ phase: 'reviewing', job: null });
     });
 
     it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）', async (_label, timelines) => {
@@ -572,7 +574,8 @@ describe('タイムラインの下書きAPI', () => {
     it.each<[string, Partial<TimelineDraft>]>([
       ['区切り案を作っている', { phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }],
       ['区切り案に失敗した', { phase: 'proposing', job: { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: NOW } }],
-      ['文を書いている', { phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW } }]
+      ['文を書く順番を待っている', { phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW } }],
+      ['文を書いている', { phase: 'writing', job: { step: 'write', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }]
     ])('下書きが%sときは、409（TIMELINE_STATE_CONFLICT）で区切りを変えない', async (_label, overrides) => {
       const timeline = timelineWith(reviewing(overrides));
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
@@ -606,6 +609,7 @@ describe('タイムラインの下書きAPI', () => {
       ['控えに無い写真を含む', [photoId('a'), photoId('z'), photoId('d')]],
       ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
       ['同じ写真を重ねて含む', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
+      ['先頭で同じ写真を重ねて含む', [photoId('a'), photoId('a'), photoId('d')]],
       ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]],
       ['1日目の最初の写真を含まない', [photoId('b'), photoId('d')]],
       ['2日目の最初の写真を含まない', [photoId('a'), photoId('e')]]
