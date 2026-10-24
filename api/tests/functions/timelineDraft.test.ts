@@ -70,6 +70,12 @@ const currentVersion = timelineCurrent(CURRENT_SNAPSHOT_ID);
 const timelineWith = (draft: TimelineDraft | null, current: TimelineDocument['current'] = null) =>
   timelineDocument(TRIP_ID, { current, draft });
 
+/** 下書きが無い状態（タイムラインが無いときと、完成版だけのとき）。下書きを読む・やめる・区切りを保存するで同じ扱い（05 §5.15） */
+const noDraftCases: [string, TimelineDocument[]][] = [
+  ['タイムラインが無い', []],
+  ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
+];
+
 const createRequest = (tripId: string, method = 'GET'): HttpRequest =>
   ({
     method,
@@ -128,10 +134,7 @@ describe('タイムラインの下書きAPI', () => {
   });
 
   describe('下書きを読む（GET）', () => {
-    it.each<[string, TimelineDocument[]]>([
-      ['タイムラインが無い', []],
-      ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
-    ])('%sときは、下書きは null', async (_label, timelines) => {
+    it.each(noDraftCases)('%sときは、下書きは null', async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
@@ -372,10 +375,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID]);
     });
 
-    it.each<[string, TimelineDocument[]]>([
-      ['タイムラインが無い', []],
-      ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
-    ])('%sときは、404（TIMELINE_NOT_FOUND）を返す', async (_label, timelines) => {
+    it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）を返す', async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
@@ -531,10 +531,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
     });
 
-    it.each<[string, TimelineDocument[]]>([
-      ['タイムラインが無い', []],
-      ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
-    ])('%sときは、404（TIMELINE_NOT_FOUND）', async (_label, timelines) => {
+    it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）', async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await put({ sceneStarts: proposed });
@@ -580,13 +577,13 @@ describe('タイムラインの下書きAPI', () => {
     });
 
     it.each<[string, string[]]>([
-      ['控えに無い写真', [photoId('a'), photoId('z'), photoId('d')]],
-      ['撮影日時の無い写真', [photoId('a'), photoId('d'), photoId('u')]],
-      ['重なる写真', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
-      ['撮影の順でない', [photoId('a'), photoId('d'), photoId('b')]],
-      ['1日目の最初の写真が無い', [photoId('b'), photoId('d')]],
-      ['2日目の最初の写真が無い', [photoId('a'), photoId('e')]]
-    ])('区切りに%sがあるときは、400（区切りが無効です）', async (_label, starts) => {
+      ['控えに無い写真を含む', [photoId('a'), photoId('z'), photoId('d')]],
+      ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
+      ['同じ写真を重ねて含む', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
+      ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]],
+      ['1日目の最初の写真を含まない', [photoId('b'), photoId('d')]],
+      ['2日目の最初の写真を含まない', [photoId('a'), photoId('e')]]
+    ])('区切りが%sときは、400（区切りが無効です）', async (_label, starts) => {
       const timeline = timelineWith(reviewing());
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -599,7 +596,7 @@ describe('タイムラインの下書きAPI', () => {
 
     it.each<[string, () => HttpRequest, string]>([
       ['JSON として読めない', () => putRequest(TRIP_ID, undefined, '{'), 'リクエストボディの形式が無効です'],
-      ['null', () => putRequest(TRIP_ID, null), 'リクエストボディが指定されていません']
+      ['null の', () => putRequest(TRIP_ID, null), 'リクエストボディが指定されていません']
     ])('ボディが%sときは、400', async (_label, request, message) => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
 
@@ -623,15 +620,20 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
     });
 
-    it('旅行IDが UUID の形でなければ 400、旅行が無ければ 404（TRIP_NOT_FOUND）', async () => {
-      const invalid = await putTimelineDraftScenesHandler(putRequest('not-a-uuid', { sceneStarts: proposed }), mockContext);
+    it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
       cosmosBackend.documents.delete(TRIP_ID);
-      const missing = await put({ sceneStarts: proposed });
 
-      expect(invalid.status).toBe(400);
-      expect(invalid.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
-      expect(missing.status).toBe(404);
-      expect(missing.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+    });
+
+    it('旅行IDがUUIDの形でなければ、400を返す', async () => {
+      const response = await putTimelineDraftScenesHandler(putRequest('not-a-uuid', { sceneStarts: proposed }), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
     it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {

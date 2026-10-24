@@ -72,18 +72,56 @@ const existingTimeline = (overrides: Partial<TimelineDocument> = {}) =>
     ...overrides
   });
 
-const createRequest = (tripId: string): HttpRequest =>
+const createRequest = (tripId: string, method = 'POST'): HttpRequest =>
   ({
-    method: 'POST',
+    method,
     url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}/timeline?code=test-key`,
     query: new Map([['code', 'test-key']]),
     headers: new Map(),
     params: { tripId }
   }) as any as HttpRequest;
 
+const SAS = 'sig=test';
+
+let mockContext: InvocationContext;
+let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
+
+// 作る・読むに共通の前提（Cosmos DB と Blob の偽物、SAS、環境変数、旅行）
+beforeEach(() => {
+  jest.useFakeTimers({
+    now: new Date(NOW),
+    doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+  });
+  mockContext = { log: jest.fn() } as any;
+
+  cosmosBackend = { documents: new Map() };
+  const fakeContainer = createFakeContainer(cosmosBackend);
+  MockedCosmosClient.mockImplementation(() => ({
+    database: () => ({ container: () => fakeContainer })
+  }) as unknown as CosmosClient);
+
+  const blobBackend: FakeBlobBackend = { store: new Map() };
+  MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
+  mockedGenerateSas.mockReturnValue({ toString: () => SAS } as any);
+
+  process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
+  process.env.COSMOS_DB_KEY = 'test-key';
+  process.env.COSMOS_DB_DATABASE = 'test-db';
+  process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
+  process.env.STORAGE_CONNECTION_STRING =
+    'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+  process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
+  process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
+
+  cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+  jest.clearAllMocks();
+});
+
 describe('タイムラインを作るAPI', () => {
-  let mockContext: InvocationContext;
-  let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let queueBackend: FakeQueueBackend;
 
   const storedTimeline = () => cosmosBackend.documents.get(TIMELINE_ID) as any;
@@ -92,45 +130,17 @@ describe('タイムラインを作るAPI', () => {
     [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
 
   beforeEach(() => {
-    jest.useFakeTimers({
-      now: new Date(NOW),
-      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
-    });
-    mockContext = { log: jest.fn() } as any;
-
-    cosmosBackend = { documents: new Map() };
-    const fakeContainer = createFakeContainer(cosmosBackend);
-    MockedCosmosClient.mockImplementation(() => ({
-      database: () => ({ container: () => fakeContainer })
-    }) as unknown as CosmosClient);
-
-    const blobBackend: FakeBlobBackend = { store: new Map() };
-    MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
-    mockedGenerateSas.mockReturnValue({ toString: () => 'sig=test' } as any);
-
     queueBackend = { queues: new Map(), forcedSendError: null };
     MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
       createFakeQueueClient(queueBackend, queueName)) as any);
 
-    process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
-    process.env.COSMOS_DB_KEY = 'test-key';
-    process.env.COSMOS_DB_DATABASE = 'test-db';
-    process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
-    process.env.STORAGE_CONNECTION_STRING =
-      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
-    process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
-    process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
     process.env.AzureWebJobsStorage =
       'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
     process.env.TIMELINE_QUEUE_NAME = 'timeline-processing';
     delete process.env.TIMELINE_DAY_START_HOUR;
-
-    cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
   });
 
   afterEach(() => {
-    jest.useRealTimers();
-    jest.clearAllMocks();
     delete process.env.TIMELINE_QUEUE_NAME;
     delete process.env.TIMELINE_DAY_START_HOUR;
     delete process.env.AzureWebJobsStorage;
@@ -498,10 +508,6 @@ describe('タイムラインを作るAPI', () => {
 });
 
 describe('タイムラインを読むAPI（GET）', () => {
-  let mockContext: InvocationContext;
-  let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
-
-  const SAS = 'sig=test';
   const DRAFT_ID = '44444444-4444-4444-8444-444444444444';
 
   /** 完成版の控えの1枚（既定は名前・地名の無い風景の写真） */
@@ -586,54 +592,13 @@ describe('タイムラインを読むAPI（GET）', () => {
     PHOTOS.filter((photo) => !removed.includes(photo.id)).forEach((photo) => placePhoto(photo.id));
   };
 
-  const getRequest = (tripId: string): HttpRequest =>
-    ({
-      method: 'GET',
-      url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}/timeline?code=test-key`,
-      query: new Map([['code', 'test-key']]),
-      headers: new Map(),
-      params: { tripId }
-    }) as any as HttpRequest;
+  const getRequest = (tripId: string) => createRequest(tripId, 'GET');
 
   const read = async () => {
     const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
     expect(response.status).toBe(200);
     return (response.jsonBody as any).data;
   };
-
-  beforeEach(() => {
-    jest.useFakeTimers({
-      now: new Date(NOW),
-      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
-    });
-    mockContext = { log: jest.fn() } as any;
-
-    cosmosBackend = { documents: new Map() };
-    const fakeContainer = createFakeContainer(cosmosBackend);
-    MockedCosmosClient.mockImplementation(() => ({
-      database: () => ({ container: () => fakeContainer })
-    }) as unknown as CosmosClient);
-
-    const blobBackend: FakeBlobBackend = { store: new Map() };
-    MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
-    mockedGenerateSas.mockReturnValue({ toString: () => SAS } as any);
-
-    process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
-    process.env.COSMOS_DB_KEY = 'test-key';
-    process.env.COSMOS_DB_DATABASE = 'test-db';
-    process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
-    process.env.STORAGE_CONNECTION_STRING =
-      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
-    process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
-    process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
-
-    cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-    jest.clearAllMocks();
-  });
 
   it('タイムラインが無ければ null で、解析が済んでいない写真の枚数を返す（別の旅行の写真は数えない）', async () => {
     placePhoto(photoId('1'), 'pending');
@@ -758,15 +723,20 @@ describe('タイムラインを読むAPI（GET）', () => {
     });
   });
 
-  it('旅行IDが UUID の形でなければ 400、旅行が無ければ 404（TRIP_NOT_FOUND）', async () => {
-    const invalid = await getTimelineHandler(getRequest('not-a-uuid'), mockContext);
+  it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
     cosmosBackend.documents.delete(TRIP_ID);
-    const missing = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
 
-    expect(invalid.status).toBe(400);
-    expect(invalid.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
-    expect(missing.status).toBe(404);
-    expect(missing.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(404);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+  });
+
+  it('旅行IDがUUIDの形でなければ、400を返す', async () => {
+    const response = await getTimelineHandler(getRequest('not-a-uuid'), mockContext);
+
+    expect(response.status).toBe(400);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
   });
 
   it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('旅行の写真を読むときに%s', async (_case, error, status, code, message) => {
