@@ -64,24 +64,23 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayLayout[]; undatedPhotos: TimelinePhotoView[] } {
   const starts = new Set(input.sceneStarts);
   const proposed = new Set(input.proposedStarts);
-  const dated = input.photos.filter((photo) => photo.takenAt !== null);
-  const firstDay = dated.length > 0 ? dayOf(dated[0].takenAt!, input.dayStartHour) : null;
 
-  const days: { date: string; scenes: TimelinePhotoSnapshot[][] }[] = [];
   const starters = new Map<string, TimelineSceneLayout['startedBy']>();
-  for (const photo of dated) {
-    const date = dayOf(photo.takenAt!, input.dayStartHour);
-    const day = days[days.length - 1];
-    if (!day || day.date !== date) {
-      days.push({ date, scenes: [[photo]] });
-      starters.set(photo.id, 'day');
-    } else if (starts.has(photo.id)) {
-      day.scenes.push([photo]);
-      starters.set(photo.id, proposed.has(photo.id) ? 'ai' : 'user');
-    } else {
-      day.scenes[day.scenes.length - 1].push(photo);
-    }
-  }
+  const days = datedDaysOf(input.photos, input.dayStartHour).map((day) => {
+    const scenes: TimelinePhotoSnapshot[][] = [];
+    day.photos.forEach((photo, index) => {
+      if (index === 0) {
+        scenes.push([photo]);
+        starters.set(photo.id, 'day');
+      } else if (starts.has(photo.id)) {
+        scenes.push([photo]);
+        starters.set(photo.id, proposed.has(photo.id) ? 'ai' : 'user');
+      } else {
+        scenes[scenes.length - 1].push(photo);
+      }
+    });
+    return { date: day.date, dayNumber: day.dayNumber, scenes };
+  });
 
   const view = (photo: TimelinePhotoSnapshot): TimelinePhotoView => ({
     id: photo.id,
@@ -95,7 +94,7 @@ export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayL
   const laidOut = days
     .map((day) => ({
       date: day.date,
-      dayNumber: (Date.parse(`${day.date}T00:00:00Z`) - Date.parse(`${firstDay}T00:00:00Z`)) / DAY_MS + 1,
+      dayNumber: day.dayNumber,
       scenes: day.scenes
         .map((scene) => ({ startPhotoId: scene[0].id, photos: scene.filter((photo) => input.exists(photo.id)) }))
         .filter((scene) => scene.photos.length > 0)
