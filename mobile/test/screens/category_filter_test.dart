@@ -4,8 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// カテゴリでの絞り込み（docs/travel-album/03_screen_design.md §5.2・§5.3。段階3）。
-// 入口は旅行詳細のチップと、旅行一覧の「カテゴリ」から開くカテゴリの写真の画面
+// カテゴリでの絞り込み（docs/travel-album/03_screen_design.md §5.3。段階3）。
+// 入口は旅行詳細のチップ（旅行をまたぐカテゴリ横断画面は 2026-10-24 に消した。§5.2）
 
 /// 分類が済んだ写真。[time] は 2026年10月6日のその時刻（サムネイルの読み上げ用ラベルで見分ける）
 Map<String, Object?> _photo(
@@ -170,132 +170,6 @@ void main() {
       expect(_chip('すべて'), findsNothing);
       // 選択モードに入っても、絞り込んだまま（全部の写真に戻らない）
       expect(_shown(['10:00', '11:00', '12:00']), [true, false, false]);
-      semantics.dispose();
-    });
-  });
-
-  group('カテゴリ横断画面', () {
-    /// 北海道と京都と、どの旅行にも属さない写真に、食べ物とそれ以外を混ぜた偽のサーバ
-    FakeTripBackend acrossTrips() => FakeTripBackend(
-          trips: [
-            hokkaidoTrip(photoCount: 2),
-            tripJson(id: kyotoTripId, name: '京都 2026冬', photoCount: 1),
-          ],
-          functionKey: 'test-key',
-          unassignedPhotoCount: 1,
-          photosByTripId: {
-            hokkaidoTripId: [
-              _photo(1, hokkaidoTripId, 'food', '10:00'),
-              _photo(2, hokkaidoTripId, 'landscape', '11:00'),
-            ],
-            kyotoTripId: [_photo(3, kyotoTripId, 'food', '12:00')],
-            'none': [_photo(4, null, 'food', '13:00')],
-          },
-        );
-
-    /// 旅行一覧の「カテゴリ」から、[label] のカテゴリの写真の画面を開く
-    Future<void> openCategory(
-        WidgetTester tester, FakeTripBackend backend, String label) async {
-      await openTripsTab(tester, backend);
-      await tester.tap(find.byTooltip('カテゴリ'));
-      await letFramesRun(tester);
-      await tester.tap(find.text(label));
-      await letFramesRun(tester);
-    }
-
-    testWidgets('旅行一覧の「カテゴリ」から開く一覧に、植物・食べ物・風景を並べ、その他は並べない', (tester) async {
-      await openTripsTab(tester, acrossTrips());
-
-      await tester.tap(find.byTooltip('カテゴリ'));
-      await letFramesRun(tester);
-
-      for (final label in ['植物', '食べ物', '風景']) {
-        expect(find.text(label), findsOneWidget);
-      }
-      expect(find.text('その他'), findsNothing);
-    });
-
-    testWidgets('「食べ物」を選ぶと、旅行をまたいで（旅行に属さない写真も）食べ物の写真だけを並べる', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await openCategory(tester, acrossTrips(), '食べ物');
-
-      expect(find.widgetWithText(AppBar, '食べ物'), findsOneWidget);
-      expect(_shown(['10:00', '11:00', '12:00', '13:00']),
-          [true, false, true, true]);
-      semantics.dispose();
-    });
-
-    testWidgets('写真ビューアから戻ると、一覧を読み直す（開いている間に増えた写真も出る）', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = acrossTrips();
-      await openCategory(tester, backend, '食べ物');
-      await tester.tap(photoThumbnail(_label('10:00')));
-      await letFramesRun(tester);
-      backend.photosByTripId[kyotoTripId]!
-          .add(_photo(5, kyotoTripId, 'food', '14:00'));
-
-      await tester.pageBack();
-      await letFramesRun(tester);
-
-      expect(photoThumbnail(_label('14:00')), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('そのカテゴリの写真が無ければ案内を出し、「写真を追加」は置かない', (tester) async {
-      await openCategory(tester, acrossTrips(), '植物');
-
-      expect(find.text('植物の写真はありません'), findsOneWidget);
-      expect(find.text('分類が済んだ写真が、ここに並びます'), findsOneWidget);
-      expect(find.text('写真を追加'), findsNothing);
-    });
-
-    testWidgets('カテゴリの写真の複数選択の操作は「削除」だけ', (tester) async {
-      await openCategory(tester, acrossTrips(), '食べ物');
-
-      await tester.longPress(photoThumbnail(_label('10:00')));
-      await letFramesRun(tester);
-
-      expect(find.text('削除'), findsOneWidget);
-      expect(find.text('旅行に入れる'), findsNothing);
-      expect(find.text('旅行から外す'), findsNothing);
-    });
-
-    testWidgets('カテゴリの画面で写真を消してから旅行一覧へ戻ると、旅行の枚数を読み直している', (tester) async {
-      // 旅行詳細・旅行に属さない写真の画面から戻ったときと同じ（消すと旅行の枚数・期間・表紙が変わる）
-      final backend = acrossTrips();
-      await openCategory(tester, backend, '食べ物');
-      await tester.longPress(photoThumbnail(_label('12:00')));
-      await letFramesRun(tester);
-      await tester.tap(find.text('削除'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '削除');
-
-      await tester.pageBack();
-      await letFramesRun(tester);
-      await tester.pageBack();
-      await letFramesRun(tester);
-
-      final kyotoRow = find.ancestor(
-          of: find.text('京都 2026冬'), matching: find.byType(ListTile));
-      expect(
-          find.descendant(
-              of: kyotoRow, matching: find.textContaining(RegExp('^0枚'))),
-          findsOneWidget);
-    });
-
-    testWidgets('選んだ写真を削除できる', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = acrossTrips();
-      await openCategory(tester, backend, '食べ物');
-      await tester.longPress(photoThumbnail(_label('12:00')));
-      await letFramesRun(tester);
-
-      await tester.tap(find.text('削除'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '削除');
-
-      expect(backend.photosByTripId[kyotoTripId], isEmpty);
-      expect(_shown(['10:00', '12:00', '13:00']), [true, false, true]);
       semantics.dispose();
     });
   });
