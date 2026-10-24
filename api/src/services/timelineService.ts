@@ -83,19 +83,20 @@ export class TimelineService {
    *
    * 控えを取った後に消えた写真を見分ける（下書きの表示・区切りの保存・完成版）。完成版を開くときは、控えとの差で写真の増えた・消えた枚数を、
    * 同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）。射影は id と解析の状態だけなので軽い
+   * （processing の中の state だけをオブジェクトの射影で読む。processing の無い文書は状態が無いものとして扱う）
    * @param tripId 旅行の ID
    */
-  async readTripPhotoStates(tripId: string): Promise<{ id: string; state: PhotoProcessing['state'] }[]> {
+  async readTripPhotoStates(tripId: string): Promise<{ id: string; state: PhotoProcessing['state'] | null }[]> {
     const { resources } = await this.container.items
-      .query<{ id: string; processing: PhotoProcessing }>({
-        query: 'SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
+      .query<{ id: string; processing?: { state?: PhotoProcessing['state'] } }>({
+        query: 'SELECT c.id, { "state": c.processing.state } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@tripId', value: tripId },
         ],
       })
       .fetchAll();
-    return resources.map((row) => ({ id: row.id, state: row.processing.state }));
+    return resources.map((row) => ({ id: row.id, state: row.processing?.state ?? null }));
   }
 
   /**

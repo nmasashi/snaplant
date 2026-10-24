@@ -151,7 +151,7 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
     const timelines = new TimelineService();
     const [read, photos] = await Promise.all([timelines.readTimeline(tripId), timelines.readTripPhotoStates(tripId)]);
     const expiresOn = photoUrlExpiresOn();
-    const pendingPhotoCount = photos.filter((photo) => UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
+    const pendingPhotoCount = photos.filter((photo) => photo.state !== null && UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
     if (!read) {
       return createSuccessResponse({ timeline: null, pendingPhotoCount, urlExpiresAt: expiresOn.toISOString() });
     }
@@ -159,7 +159,12 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
     let current = null;
     let changes = null;
     if (doc.current) {
-      const snapshot = (await timelines.readSnapshot(doc.current.snapshotId))?.photos ?? [];
+      const snapshotDoc = await timelines.readSnapshot(doc.current.snapshotId);
+      if (!snapshotDoc) {
+        // 完成版が指す控えは消さない決まりなので、ふつうは起きない。空の完成版として返すが、壊れていることをログに残す
+        context.log(`完成版の写真の控えがありません: 旅行=${tripId}, 控え=${doc.current.snapshotId}`);
+      }
+      const snapshot = snapshotDoc?.photos ?? [];
       const existing = new Set(photos.map((photo) => photo.id));
       const snapshotIds = new Set(snapshot.map((photo) => photo.id));
       const storage = new PhotoStorageService();
