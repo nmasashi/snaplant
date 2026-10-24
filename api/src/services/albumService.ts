@@ -618,12 +618,14 @@ export class AlbumService {
    * @param id 旅行 ID
    * @param deletePhotos 中の写真も消すなら true、残すなら false
    * @param onPhotoDeleted 写真のドキュメントを消した後に呼ぶ（Blob を消すため）
+   * @param beforeTripDeleted 写真を処理した後、旅行を消す前に呼ぶ（タイムラインを消すため。失敗したら旅行は残る）
    * @returns 消した写真と未所属に戻した写真の枚数。旅行が無ければ null
    */
   async deleteTrip(
     id: string,
     deletePhotos: boolean,
-    onPhotoDeleted: (photo: PhotoBlobNames) => Promise<void>
+    onPhotoDeleted: (photo: PhotoBlobNames) => Promise<void>,
+    beforeTripDeleted: () => Promise<void> = async () => {}
   ): Promise<{ deletedPhotoCount: number; detachedPhotoCount: number } | null> {
     if (!(await this.readTrip(id))) {
       return null;
@@ -652,6 +654,7 @@ export class AlbumService {
         }
       }
     }
+    await beforeTripDeleted();
     try {
       await this.container.item(id, id).delete();
     } catch (error: any) {

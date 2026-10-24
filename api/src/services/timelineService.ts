@@ -230,6 +230,35 @@ export class TimelineService {
       throw error;
     }
   }
+
+  /**
+   * 旅行のタイムラインと写真の控えを全部消す（旅行の削除の手順 4。05 §5.12）。無いものは飛ばす
+   *
+   * 控えは旅行の id で引く（どこからも指されなくなった控えも、ここでまとめて消える）。
+   * 失敗したら投げる（旅行の削除は中断し、旅行は残る。再送で続きができる）
+   * @param tripId 旅行の ID
+   */
+  async deleteTripTimeline(tripId: string): Promise<void> {
+    const { resources } = await this.container.items
+      .query<{ id: string }>({
+        query: 'SELECT c.id FROM c WHERE c.type = @type AND c.tripId = @tripId',
+        parameters: [
+          { name: '@type', value: 'timelinePhotos' },
+          { name: '@tripId', value: tripId },
+        ],
+      })
+      .fetchAll();
+    const ids = [timelineIdOf(tripId), ...resources.map((row) => row.id)];
+    for (const id of ids) {
+      try {
+        await this.container.item(id, id).delete();
+      } catch (error: any) {
+        if (error.code !== 404) {
+          throw error;
+        }
+      }
+    }
+  }
 }
 
 /** 旅行のタイムラインの文書の id（旅行ごとに1件） */
