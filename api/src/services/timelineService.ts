@@ -150,6 +150,24 @@ export class TimelineService {
       throw error;
     }
   }
+
+  /**
+   * タイムラインの文書を消す。読んだときの _etag のままのときだけ消す
+   * @param tripId 旅行の ID
+   * @param etag 読んだときの _etag
+   * @throws TimelineConflictError 読んでから消すまでに他が書いた（412）か、消えていた（404）
+   */
+  async deleteTimeline(tripId: string, etag: string): Promise<void> {
+    const id = timelineIdOf(tripId);
+    try {
+      await this.container.item(id, id).delete({ accessCondition: { type: 'IfMatch', condition: etag } });
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        throw new TimelineConflictError();
+      }
+      throw error;
+    }
+  }
 }
 
 /** 旅行のタイムラインの文書の id（旅行ごとに1件） */
