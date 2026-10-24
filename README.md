@@ -68,6 +68,9 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/catalog/kinds` | GET | 図鑑の種類の一覧 |
 | `/api/catalog/entries` | GET | 図鑑の項目の一覧（種類ごと） |
 | `/api/catalog/entry` | GET | 図鑑の項目の詳細（種類と名前で指定） |
+| `/api/trips/{tripId}/timeline` | POST | タイムラインを作る・作り直す（区切り案の下書きを作ってキューに積む。202） |
+| `/api/trips/{tripId}/timeline/draft` | GET | タイムラインの下書きの状態（確かめ中なら日と場面も） |
+| `/api/trips/{tripId}/timeline/draft` | DELETE | タイムラインの下書きをやめる |
 
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
@@ -75,7 +78,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 （OpenAPI の仕様書は置いていません。API 設計が正です）。
 植物図鑑の API（`/api/images/upload`・`/api/plants/*`）は 4-6 で削除しました。
 
-HTTP 以外に、写真の解析のワーカー（Storage Queue のトリガー）と2つのタイマー（止まった解析の再投入・孤児の掃除）があります（`api/README.md`）。
+HTTP 以外に、写真の解析のワーカー（Storage Queue のトリガー）と2つのタイマー（止まった解析とタイムラインの下書きの再投入・孤児の掃除）があります（`api/README.md`）。
 
 ## 🛠️ 開発
 

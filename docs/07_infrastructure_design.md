@@ -234,7 +234,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 
 | 名前 | 既定値 | 意味 | どこで使うか | 段階 |
 |---|---|---|---|---|
-| `COSMOS_DB_ALBUM_CONTAINER` | （必須。Terraform が `album` を入れる） | 旅行・写真のコンテナ名。これと `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE` のどれかが無い（空白だけを含む）と、`AlbumService` は足りない設定の名前を言って止まる（4-2a） | `AlbumService` | 2 |
+| `COSMOS_DB_ALBUM_CONTAINER` | （必須。Terraform が `album` を入れる） | 旅行・写真のコンテナ名。これと `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE` のどれかが無い（空白だけを含む）と、`AlbumService` は足りない設定の名前を言って止まる（4-2a。5-1a で `services/albumContainer.ts` の `openAlbumContainer()` に移し、`TimelineService` も同じ確かめ方で開く） | `AlbumService`・`TimelineService`（5-1a） | 2 |
 | `PHOTO_STORAGE_CONTAINER_NAME` | （必須。コードにフォールバックは無い。Terraform が `photos` を入れる） | 写真の Blob コンテナ名 | `PhotoStorageService` | 2 |
 | `PHOTO_SAS_EXPIRY_MINUTES` | `60` | 写真の表示用 SAS の有効期限（分）。定数にせず、応答を作るたびに `positiveIntFromEnv()` で読む（読めない値・0・負なら 60）。旅行の表紙の URL も同じ期限 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
 | `TRIP_NAME_MAX_LENGTH` | `100` | 旅行名の上限（文字） | `POST` / `PUT /api/trips` | 2 |
@@ -250,13 +250,13 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | `50` / `100` | 図鑑の項目一覧の1ページの既定と上限（件） | `GET /api/catalog/entries` | 4 |
 | `PHOTO_QUEUE_NAME` | （必須。既定値なし。Terraform が `photo-processing` を入れる）。ワーカーのトリガーは `queueName: '%PHOTO_QUEUE_NAME%'` でアプリの設定から解決するので既定値を持てず、投入する側（`PhotoQueueService`）も揃えて、未設定・空・空白だけなら投げる（`POST /api/photos` は投入の失敗として 201） | 分類・識別のキュー名 | 投入する側（`PhotoQueueService`。`POST /api/photos`・`POST /api/photos/{photoId}/process`・再投入のタイマー。どれも投入の失敗はログだけ）とワーカー（`processPhoto.ts` のトリガー） | 3 |
 | `AzureWebJobsStorage`（既存） | （必須。Function App が `storage_account_name` / `storage_account_access_key` から自動で入れる。§2） | キューのストレージアカウントの接続文字列 | 投入する API（`PhotoQueueService`）とワーカーのトリガー（`connection: 'AzureWebJobsStorage'`） | 3 |
-| `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。達したら `failed`。`photoProcessingMaxAttempts()`（`constants/album.ts`）が呼ぶたびに読む。**`host.json` の `maxDequeueCount`（3）以下にする**（大きくすると上限の前にメッセージが poison に落ち、残りの回は再投入のタイマーだけで進む） | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)） | 3 |
+| `PHOTO_PROCESSING_MAX_ATTEMPTS` | `3` | 自動の再試行の上限（回）。達したら `failed`。`photoProcessingMaxAttempts()`（`constants/album.ts`）が呼ぶたびに読む。**`host.json` の `maxDequeueCount`（3）以下にする**（大きくすると上限の前にメッセージが poison に落ち、残りの回は再投入のタイマーだけで進む） | ワーカー・再投入のタイマー（[06 §1.3](./06_processing_design.md#13-状態と失敗)）。タイムラインの下書きの上限にも使う（再投入のタイマーは 5-1a で実装済み。[06 §8.1](./06_processing_design.md#81-構成)） | 3 |
 | `AZURE_OPENAI_DEPLOYMENT_NAME`（既存） | （必須。Terraform が `gpt6_luna` の名前を入れる） | 今のデプロイ名。旅行アルバムの分類（段階3）と識別（段階4）に当面はこれを使う（植物図鑑の識別にも使っていた。4-6 で削除） | `OpenAIVisionService`・`PhotoClassifierService`・`PhotoIdentifierService` | 3・4 |
 | `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 分類用のデプロイ名。安いモデルのデプロイを足したときに設定する（#17） | `PhotoClassifierService` | 3 |
 | `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 識別用のデプロイ名。分類と同じく、別のモデルに変えるときに設定する | `PhotoIdentifierService` | 4 |
 | `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | タイムラインの区切り案と文に使うデプロイ名（分類・識別と同じ形） | タイムラインのワーカー（[06 §8](./06_processing_design.md#8-タイムライン段階5)） | 5 |
-| `TIMELINE_QUEUE_NAME` | （必須。既定値なし。Terraform が `timeline-processing` を入れる）。`PHOTO_QUEUE_NAME` と同じ理由で既定値を持たない | タイムラインのキュー名 | 投入する側（`POST …/timeline`・`POST …/write`・再投入のタイマー）とワーカー（`processTimeline.ts`） | 5 |
-| `TIMELINE_DAY_START_HOUR` | `4` | 日付の切り替えの時刻（0〜23 時）。4 なら 10月6日 2:30 の写真は 10月5日に入る。**0 を受け付けるので `positiveIntFromEnv()` ではなく、0〜23 の整数として読めなければ既定値に戻す読み方**（`hourFromEnv()` を足す）。タイムラインを作る・作り直すとき（`POST …/timeline`）に読み、下書きに書く（後で変えても、作り直すまでその値で分ける） | `POST /api/trips/{tripId}/timeline` | 5 |
+| `TIMELINE_QUEUE_NAME` | （必須。既定値なし。Terraform が `timeline-processing` を入れる）。`PHOTO_QUEUE_NAME` と同じ理由で既定値を持たない。投入する側（`TimelineQueueService`）は、未設定・空・空白だけなら投げ（呼び出し側は投入の失敗としてログだけ）、前後の空白は落とさずに使う | タイムラインのキュー名 | 投入する側（`POST …/timeline`・再投入のタイマーは 5-1a で実装済み。`POST …/write` は 5-2）とワーカー（`processTimeline.ts`。未実装） | 5 |
+| `TIMELINE_DAY_START_HOUR` | `4` | 日付の切り替えの時刻（0〜23 時）。4 なら 10月6日 2:30 の写真は 10月5日に入る。**0 を受け付けるので `positiveIntFromEnv()` ではなく、0〜23 の整数として読めなければ既定値に戻す読み方**（5-1a で実装済み。`constants/validation.ts` の `hourFromEnv()` を、`constants/album.ts` の `timelineDayStartHour()` が呼ぶたびに読む。数字1〜2桁で 23 以下のときだけその値（`"05"` は 5）、未設定・空・`24`・`-1`・`abc`・前後の空白付き・`4abc` は 4）。タイムラインを作る・作り直すとき（`POST …/timeline`）に読み、下書きに書く（後で変えても、作り直すまでその値で分ける） | `POST /api/trips/{tripId}/timeline` | 5 |
 | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | `40` / `400` / `30` / `200` | 日のタイトル・まとめ、場面の見出し・一言の上限（文字） | `PATCH …/timeline/days/{date}`・`scenes/{photoId}` と、AI の文の切り詰め | 5 |
 | `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |
 
@@ -275,7 +275,8 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `PHOTO_CONTINUATION_TOKEN_LIMIT_KB`（`constants/album.ts`） | `2` | 写真一覧の継続トークンの大きさの上限（KB）。クエリパラメータで受け渡すので URL の長さに収める | `AlbumService.listPhotos()`（`GET /api/photos`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)） | 2 |
 | `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |
 | `CLASSIFY_IMAGE_SAS_MINUTES`（`constants/album.ts`） | `15` | AI に渡す原寸の読み取り SAS の有効期限（分）。植物図鑑の一時画像の SAS（`services/storageService.ts` の `TEMP_SAS_EXPIRY_MINUTES`、同じく 15 分のコードの定数。4-6 で削除）と同じ理由で、関数の実行時間の上限（`api/host.json` の `functionTimeout` = 5 分）に時計のずれの余裕を足した値。環境変数では変えられない | ワーカーの分類と識別（[06 §2.1](./06_processing_design.md#21-モデルとサービス)・[§3.1](./06_processing_design.md#31-契約)） | 3 |
-| `PHOTO_REQUEUE_AFTER_MINUTES`（`constants/album.ts`） | `10` | 解析待ち・処理中のまま、これより長く `processing.updatedAt` が更新されていない写真を再投入する（分）。キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの1回（5 分以内）より長くとる。環境変数では変えられない | 再投入のタイマー（[06 §1.1](./06_processing_design.md#11-構成)） | 3 |
+| `PHOTO_REQUEUE_AFTER_MINUTES`（`constants/album.ts`） | `10` | 解析待ち・処理中のまま、これより長く `processing.updatedAt` が更新されていない写真を再投入する（分）。キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの1回（5 分以内）より長くとる。環境変数では変えられない | 再投入のタイマー（[06 §1.1](./06_processing_design.md#11-構成)）。タイムラインの下書き（`draft.job.updatedAt`）にも同じ値を使う（5-1a。[06 §8.1](./06_processing_design.md#81-構成)） | 3 |
+| `TIMELINE_SNAPSHOT_COMMENT_LENGTH`（`constants/album.ts`） | `100` | タイムラインの写真の控えに残すコメントの長さ（先頭から。`String.length` で数える）。AI に渡す分だけを残し、控えの文書を小さく保つ。環境変数では変えられない。5-1a で実装済み | `POST /api/trips/{tripId}/timeline`（控えを取る。[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)） | 5 |
 | `TIMELINE_MAX_PHOTOS_PER_CALL`（`constants/album.ts`） | `400` | タイムラインで AI に一度に渡す写真の数の上限。超える旅行は日の境目で分けて呼ぶ（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)） | タイムラインのワーカー | 5 |
 | `TIMELINE_PROPOSE_MAX_TOKENS` / `TIMELINE_WRITE_MAX_TOKENS`（`constants/album.ts`） | `4000` / `16000` | タイムラインの区切り案・文の `max_completion_tokens`（推論のトークンも含む） | タイムラインのワーカー（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)） | 5 |
 | `ORPHAN_BLOB_MIN_AGE_HOURS`（`constants/album.ts`） | `24` | 文書の無い Blob を消す前に待つ時間（最終更新から）。環境変数では変えられない | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |

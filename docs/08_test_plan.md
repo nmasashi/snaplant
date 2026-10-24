@@ -249,6 +249,9 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 
 ### 3.10 段階5（タイムライン）で足すシナリオ（骨格）
 
+**実装済み**（5-1a。`tests/functions/timeline.test.ts`・`timelineDraft.test.ts`・`requeueStalePhotos.test.ts`・`tripDetail.test.ts`）: 「作る」、「再投入のタイマー」、「旅行の削除」の前半（タイムラインと控えが消える）、下書きの読み取り（確かめ中の日と場面、消えた写真）とやめる（[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
+ほかの行（区切り案・区切りの保存・文・並行・文の編集、旅行の無いタイムラインのメッセージ）は未実装（5-1b・5-2）。
+
 入口はエンドポイント（`api/tests/functions/`）とワーカー（`processTimeline`）。AI はモックし、渡したもの（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの) の要素）と応答の検証を確かめる。
 
 - 作る: 解析中の写真があれば 409、撮影日時のある写真が無ければ 409、それ以外は 202 で控えができて下書きが `proposing`、キューに `{ tripId, draftId }`。作っている途中は 409
@@ -388,5 +391,8 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 作り直し: 区切りと文を手で直してから写真を1枚足して作り直し、確かめている間も完成版が出ている。書き終えると、直した区切りと文（同じ日・同じ場面のもの）が残り、残せなかった文が知らされる。途中で「やめる」と完成版のまま
 - 使われなくなった控え: 作り直しを書き終えた後・やめた後に、ポータルで前の `timeline-photos-<tripId>-…` が消えている（失敗はログだけなので、残っていても害は無い）
 - 旅行の削除でタイムラインと控えも消える（ポータルで `timeline-<tripId>`・`timeline-photos-<tripId>-…` が無い）
+- 関数の登録（5-1a）: ポータルの「関数」に `createTimeline`・`getTimelineDraft`・`deleteTimelineDraft`（`app.http` の第1引数）がある（404 なら `app.ts` の import 忘れ）。`GET /api/trips/{tripId}/timeline/draft` と `DELETE` が同じルートで別の関数に届く
+- 書き込みの条件（5-1a。偽物は `_etag` の IfMatch と patch の `condition` を自前で評価している）: 実環境で、既にタイムラインがある旅行で作り直す（`POST …/timeline`）・やめる（`DELETE …/timeline/draft`）が 202 / 200 で通る（読んだ `_etag` の渡し方が違えば、重なっていなくても常に 409 `TIMELINE_STATE_CONFLICT` になる）。
+  再投入のタイマーの patch の `condition`（`c.draft.id = "<id>" AND c.draft.job.state = … AND c.draft.job.updatedAt = …`。入れ子の項目）が実環境で通る: ワーカーが無い間（5-1b のデプロイ前）に作ると下書きが `pending` のまま止まるので、10〜20 分後のタイマーの回で、ログの「止まっていたタイムラインの下書き」の件数に出て、下書きの `job.updatedAt` が進む（`attempts` を増やすのはワーカーなので、ワーカーが無い間は `failed` にならず、10 分ごとに積み続けてキューにメッセージが溜まる。確かめたら下書きをやめる）
 
 CLAUDE.md の「Cosmos のクエリを変更したら手で確認する」は、旅行アルバムの項目としてこの節を指す（クエリを変えたら、ここの該当する行を手で確かめる）。

@@ -163,6 +163,9 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 ### 1.6 タイムライン（`type: "timeline"` と `"timelinePhotos"`、段階5）
 
+**実装済み**（5-1a。型は `api/src/types/timeline.ts`、文書の操作は `services/timelineService.ts`、控えの作り方は `functions/timeline.ts`、日と場面の組み方は `services/timelineView.ts`）: 2種類の文書の形、控えの中身、`draft` の書き方、日の分け方・場面・消えた写真の扱い（下書きの表示で）、使われなくなった控えのうち下書きの置き換え・やめるときのもの。
+未実装: `current`（完成版）・`droppedEdits` を書くこと（5-2 のワーカーの `write`）、完成版に入れ替わったときの控えの後始末（5-2）、写真が増えた・消えた枚数の知らせ（5-1b の `GET …/timeline`）。
+
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)）。文書は2種類に分ける。
 
 | `type` | id | 中身 | 書く時 |
@@ -170,7 +173,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | `timeline` | `"timeline-" + <旅行の id>`（旅行ごとに1件） | 完成版（`current`）と下書き（`draft`）の区切り・文・状態 | 区切りを1つ直すたび・文を直すたび・ワーカーの各段 |
 | `timelinePhotos` | `"timeline-photos-" + <旅行の id> + "-" + <UUID>` | 区切り案を出すときに取った、旅行の写真の控え | 作る・作り直すときに1回だけ（後から変えない） |
 
-写真の控えを分けるのは、区切りを1つ直すたびに文書全体を書き直すため。控えは写真1枚あたり 300〜400 バイトで、数百枚の旅行では数百 KB になる（1回の書き込みの RU が大きさに比例する。§6.2）。
+写真の控えを分けるのは、区切りを1つ直すたびに文書全体を書き直すため。控えは写真1枚あたり 300〜700 バイトで、数百枚の旅行では数百 KB になる（1回の書き込みの RU が大きさに比例する。§6.2）。
 控えを書くのは作るときの1回だけにし、何度も書く `timeline` は区切りと文だけの小さな文書にする。
 
 **`timeline`**
@@ -242,17 +245,20 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 }
 ```
 
-- `photos` は旅行の写真すべて（撮影日時の無い写真は `takenAt: null`）。撮影日時のある写真が撮影の順で先、無い写真が後
-- `name` は識別の名前（分類と合わない写真・識別していない写真は `null`）。`comment` は先頭 100 文字（AI に渡す分だけ。§6.2 の大きさを抑える）
-- 1枚あたり 300〜400 バイト。1,000 枚で 400 KB 程度で、文書の上限（2 MB）には余裕がある
+- `photos` は旅行の写真すべて（撮影日時の無い写真は `takenAt: null`）。撮影日時のある写真が撮影の順で先、無い写真が後（無い写真どうしは `sortAt`、つまりアップロードの順）
+- `name` は識別の名前（`identification.matchesKind` が `true` のときだけ。分類と合わない写真・識別していない写真は `null`）。`placeName` は `location.placeName`（位置情報が無ければ `null`）。`comment` は先頭 100 文字（`TIMELINE_SNAPSHOT_COMMENT_LENGTH`。AI に渡す分だけ。§6.2 の大きさを抑える）
+- 1枚あたり 300〜700 バイト（id と Blob 名で 200 バイト余り。日本語のコメントは1文字 3 バイトで、100 文字なら 300 バイト）。1,000 枚で最大 700 KB 程度。文書の上限（2 MB）に届くのは、コメントの多い旅行で 3,000 枚前後から（届くと作る受付が 500 になる。[09](./09_backlog.md#タイムラインの写真の控えが文書の上限2-mbに届く旅行では作れないapi旅行アルバム)）
 
 決まり:
 
 - **日の分け方**: 写真の `takenAt`（タイムゾーン無しの現地の時刻）から `dayStartHour` 時間を引いた日付をその写真の日とする（4 なら 10月6日 2:30 の写真は 10月5日）。一番早い日が1日目で、「何日目」は暦の日付の差で数える（写真の無い日を挟むと 3日目の次が5日目になる）
-- **場面**: `sceneStarts` の写真から、次の区切りの手前までが1つの場面。撮影日時の無い写真は場面に入れず「日時なし」にまとめる
+- **場面**: `sceneStarts` の写真から、次の区切りの手前までが1つの場面。撮影日時の無い写真は場面に入れず「日時なし」にまとめる。
+  各日の最初の写真は、`sceneStarts` に無くても場面の始まりにする（場面は日をまたがない）。区切りを入れた主（`startedBy`）は、日の最初の写真なら `day`、そうでなく `proposedStarts` にあれば `ai`、無ければ `user`。控えに無い・撮影日時の無い写真の id が `sceneStarts` にあっても無視する（5-1a。表示の組み方）
 - **利用者が直した区切り**: `sceneStarts` と `proposedStarts` の差。足した区切り = `sceneStarts` にあって `proposedStarts` に無いもの、消した区切り = その逆
-- **控えは作るとき・作り直すときに取る**。その後に写真が増えた・消えたときは、作り直すまで控えのまま（画面は増えた・消えた枚数を知らせる。消えた写真は出さず、写真が全部消えた場面と日は出さない）。やり直しで名前やカテゴリが変わったことは知らせない（作り直せば新しい控えになる）
-- **使われなくなった控え**は消す。下書きが完成版に入れ替わったとき・下書きをやめたときに、どちらからも指されなくなった控えを消す（失敗はログだけ。残っても害は無く、旅行の削除でまとめて消える）
+- **控えは作るとき・作り直すときに取る**。その後に写真が増えた・消えたときは、作り直すまで控えのまま（画面は増えた・消えた枚数を知らせる。消えた写真は出さず、写真が全部消えた場面と日は出さない）。やり直しで名前やカテゴリが変わったことは知らせない（作り直せば新しい控えになる）。
+  何日目かと場面の分け方は、消えた写真も含めた控えで決め、出すときに消えた写真を除く（写真を消しても日の番号や区切りが動かない。場面の最初の写真が消えても、場面の id は控えの最初の写真のまま）
+- **使われなくなった控え**は消す。下書きが完成版に入れ替わったとき・下書きをやめたとき・作り直しで前の下書きを置き換えたときに、どちらからも指されなくなった控えを消す（失敗はログだけ。残っても害は無く、旅行の削除でまとめて消える）。
+  作る・作り直すときにタイムラインの書き込みが他の操作と重なった（412・409）ときも、作ったばかりの控えを消す
 
 ## 2. カテゴリとタグ
 
@@ -479,10 +485,10 @@ export const CATALOG_KINDS = {
 | 5.9 | 掃除のタイマー（段階3。実装済み） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（`@type = 'photo'`。全写真の薄い射影）と、旅行の id の一覧 `SELECT c.id FROM c WHERE c.type = @type`（`@type = 'trip'`）。どちらも `fetchAll()` で読む | 突き合わせは○ | 射影 |
 | 5.10 | 旅行の削除（段階2） | `SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId`（ページで読み、1枚ずつ消す、または `tripId` を `null` に patch する。§5.7） | `@tripId` で絞る。消える・未所属になる結果は○ | 射影 |
 | 5.11 | 分類まで済んだ写真を識別に回すスクリプト（段階4。4-1b で実装済み。`AlbumService.listUnidentifiedPhotos()`。[06 §1.2](./06_processing_design.md#12-流れ)） | `SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)`（`@type = 'photo'`、`@kinds` は `CATALOG_KINDS` のキーの配列）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。スクリプトが同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
-| 5.12 | タイムラインを作る・作り直す（段階5。写真の控えを取る。[06 §8](./06_processing_design.md#8-タイムライン段階5)） | `SELECT c.id, c.takenAt, c.sortAt, c.category, c.identification, c.placeName, c.comment, c.blobName, c.thumbnailBlobName, c.processing FROM c WHERE c.type = @type AND c.tripId = @tripId`（旅行1つ分の写真の薄い射影を `fetchAll()`。**写真を全部読む例外**。利用者が押したときだけで、旅行1つ分に限る。並びはサービスが `sortAt` で並べ直す）。同じ結果から解析が済んでいない写真の数も数える（5.14） | `@tripId` で絞る。控えの中身は○ | 射影 |
-| 5.13 | タイムラインを開く（段階5。写真の変化の検出） | `SELECT VALUE c.id FROM c WHERE c.type = @type AND c.tripId = @tripId`（id だけ。控えとの差で「写真が増えた・消えた」を数える）。**開くたびに旅行の写真の id を全部読む例外**（id だけの射影で、1枚あたり数十バイト。下書きの処理中に 5 秒ごとに読み直すときは数えない。[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。タイムラインの文書と、完成版の控えは `item(id, id).read()` | `@tripId` で絞る。増えた・消えた枚数は○ | 射影 |
+| 5.12 | タイムラインを作る・作り直す（段階5。5-1a で実装済み。`TimelineService.readTripPhotosForSnapshot()`。写真の控えを取る。[06 §8](./06_processing_design.md#8-タイムライン段階5)） | `SELECT c.id, c.takenAt, c.sortAt, c.category, c.identification, c.location, c.comment, c.blobName, c.thumbnailBlobName, c.processing FROM c WHERE c.type = @type AND c.tripId = @tripId`（`@type = 'photo'`。旅行1つ分の写真の薄い射影を `fetchAll()`。**写真を全部読む例外**。利用者が押したときだけで、旅行1つ分に限る。並びはハンドラが `sortAt` で並べ直す）。解析が済んでいない写真があるか・撮影日時のある写真があるかも同じ結果から見る（5.14 の `COUNT` は投げない） | `@tripId` で絞る。控えの中身は○ | 射影 |
+| 5.13 | タイムラインを開く（段階5。写真の変化の検出）。クエリは 5-1a で実装済み（`TimelineService.readTripPhotoIds()`）で、今は確かめ中の下書きの表示（`GET …/timeline/draft`）が消えた写真を除くのに使う。写真の変化を数える `GET …/timeline` は 5-1b | `SELECT c.id FROM c WHERE c.type = @type AND c.tripId = @tripId`（`@type = 'photo'`。id だけ。控えとの差で「写真が増えた・消えた」を数える）。**開くたびに旅行の写真の id を全部読む例外**（id だけの射影で、1枚あたり数十バイト。下書きの処理中に 5 秒ごとに読み直すときは数えない。[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。タイムラインの文書と、完成版の控えは `item(id, id).read()` | `@tripId` で絞る。増えた・消えた枚数は○ | 射影 |
 | 5.14 | タイムラインを作れるかの判定（段階5） | `SELECT VALUE COUNT(1) FROM c WHERE c.type = @type AND c.tripId = @tripId AND c.processing.state IN ('pending', 'classifying', 'identifying')`（解析が済んでいない写真の数。`none`・`done`・`failed` は済んだものとして扱う） | `@tripId` で絞る。0 か否かの分岐は○ | 絞り込み |
-| 5.15 | 再投入のタイマーがタイムラインの下書きも拾う（段階5。[06 §8.1](./06_processing_design.md#81-構成)） | `SELECT c.id, c.tripId, c.draft FROM c WHERE c.type = @type AND c.draft.job.state IN ('pending', 'running') AND c.draft.job.updatedAt < @staleBefore`（`@type = 'timeline'`） | `@type` の絞り込み。積む・`failed` にする分岐は○ | 絞り込み |
+| 5.15 | 再投入のタイマーがタイムラインの下書きも拾う（段階5。5-1a で実装済み。`TimelineService.listStaleDrafts()`。[06 §8.1](./06_processing_design.md#81-構成)） | `SELECT c.tripId, c.draft FROM c WHERE c.type = @type AND c.draft.job.state IN ('pending', 'running') AND c.draft.job.updatedAt < @before`（`@type = 'timeline'`、`@before` は今の 10 分前の ISO 文字列。5.8 と同じ）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。タイマーは同じ条件をコードでも見直すので、単体テストはそちらを通る）。積む・`failed` にする分岐は○ | 絞り込み |
 
 ### 5.1 旅行一覧
 
@@ -606,10 +612,12 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
 | ワーカーの結果・失敗の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。`processingCondition()`。3-3b）で、412・404 なら書かずに終える。`_etag` の条件は付けない（§7.4）。コメント（識別だけ）は `comment`・`commentSource` の `set` に、同じ担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ**条件付き patch**（`patchIfStillClaimed()` に条件を足す形）で、412（利用者のコメントがある、またはやり直しの受付が入った）・404 なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `AlbumService.detachPhotoFromMissingTrip()`。`tripId` を `null`・`updatedAt` を今に、`FROM c WHERE c.tripId = "<読んだ旅行 ID>"` の条件付き patch（読んだ後に利用者が別の旅行へ移していたら 412 で戻さない）。404 は飛ばす |
-| タイムラインを作る・作り直す（段階5） | 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: IfMatch <読んだ _etag> })`、無ければ `items.create(timeline)` → キューへ `{ tripId, draftId }`。412（読んでから書くまでに他が書いた）・409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`。置き換えた下書きの控え（完成版から指されていなければ）は消す |
-| 区切りの保存・文の編集・下書きの受付とやめる・残せなかった文を閉じる（段階5） | `item(id, id).replace({ ...読んだ文書, 変えた欄, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう） |
+| タイムラインを作る・作り直す（段階5。5-1a で実装済み） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: { type: 'IfMatch', condition: <読んだ _etag> } })`、無ければ `items.create(timeline)` → 置き換えた下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）→ キューへ `{ tripId, draftId }`。replace の 412（読んでから書くまでに他が書いた）・404（読んだ後に消えた）と create の 409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`。置き換える文書には読んだ Cosmos のシステム項目（`_etag` など）を書き戻さない |
+| 下書きをやめる（段階5。5-1a で実装済み） | 完成版があれば `item(id, id).replace({ ...読んだ文書, draft: null, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`、無ければ `item(id, id).delete({ accessCondition: IfMatch <読んだ _etag> })` → 下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（控えも消さない） |
+| 区切りの保存・文の編集・下書きの受付・残せなかった文を閉じる（段階5） | `item(id, id).replace({ ...読んだ文書, 変えた欄, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう） |
+| 再投入のタイマーが止まった下書きを戻す（段階5。5-1a で実装済み。`TimelineService.writeDraftJob()`） | `item(id, id).patch({ operations: [{ op: 'set', path: '/draft/job', value: <job> }], condition: 'FROM c WHERE c.draft.id = "<読んだ draft.id>" AND c.draft.job.state = "<読んだ state>" AND c.draft.job.step = "<読んだ step>" AND c.draft.job.attempts = <読んだ attempts> AND c.draft.job.updatedAt = "<読んだ updatedAt>"' })`（写真の `writeProcessing()` と同じ形に、下書きの id を足したもの）。412・404 なら触らずに次へ |
 | ワーカーの担当・結果・失敗（段階5） | 担当は `item(id, id).patch({ operations: [draft.job の set], condition: "FROM c WHERE c.draft.id = <メッセージの draftId> AND c.draft.job.state = 'pending' AND c.draft.job.step = <読んだ step> AND c.draft.job.attempts = <読んだ attempts> AND c.draft.job.updatedAt = <読んだ時刻>" })`（写真の担当と同じ条件の形）。結果・失敗は IfMatch 付きの replace で、412 なら読み直し、下書きがまだ自分のもの（同じ `draft.id`・担当したときの `job`）なら同じ結果を当て直す（3回まで。利用者が文を直した・残せなかった文を閉じたなどと重なっても、結果を捨てない）。404（旅行の削除で消えた）なら何もせずに終える。詳細は [06 §8.1](./06_processing_design.md#81-構成) |
-| 旅行の削除のときのタイムライン（段階5） | 写真の後、旅行の前に、タイムライン（`timeline-<tripId>`）と旅行の控え（`SELECT VALUE c.id FROM c WHERE c.type = 'timelinePhotos' AND c.tripId = @tripId`）を消す（404 は無視）。旅行の削除の再実行で続きができる |
+| 旅行の削除のときのタイムライン（段階5。5-1a で実装済み。`TimelineService.deleteTripTimeline()`） | 写真の後、旅行の前に、旅行の控えの id を読み（`SELECT c.id FROM c WHERE c.type = @type AND c.tripId = @tripId`、`@type = 'timelinePhotos'`。`fetchAll()`）、タイムライン（`timeline-<tripId>`）→ 控えの順に1件ずつ `item(id, id).delete()`（404 は無視。条件は付けない）。それ以外の失敗は投げ、旅行は消さない。旅行の削除の再実行で続きができる |
 
 ## 6. 無料枠と RU の見積もり
 
@@ -637,7 +645,7 @@ Cosmos DB の無料枠は**アカウントで最初の 1000 RU/s と 25 GB**（M
 | 旅行の削除（300 枚。写真も消す） | 約 3,000 + 射影の読み取り | まれ | 同上。「写真は残す」は patch 300 件で同程度 |
 | 図鑑の1種類の1ページを開く（`GROUP BY` + `TOP 1` 50 件。段階4） | 約 200〜400 | 種類のタブ・ページを開くたび | 写真の枚数に依らない。§3.1 の「規模の注意」 |
 | 掃除のタイマー（全写真の薄い射影 + 旅行の一覧。段階3） | 約 100〜500 | 1日1回 | 唯一の全件読み。`fetchAll()` で一度に読む。Blob の列挙は Cosmos の RU とは別 |
-| タイムラインを作る（300 枚。段階5） | 射影の読み取り 30〜100 + 控えの作成（100〜150 KB）で数百 + タイムラインの書き込み | 作る・作り直すたび | 控えは1回だけ書く（§1.6） |
+| タイムラインを作る（300 枚。段階5） | 射影の読み取り 30〜100 + 控えの作成（100〜200 KB）で数百 + タイムラインの書き込み | 作る・作り直すたび | 控えは1回だけ書く（§1.6） |
 | タイムラインの区切りを1つ直す・文を直す（段階5） | 読み 1 + replace 数十 | 操作のたび | 区切りと文だけの小さな文書（数十 KB まで）。控えは書かない |
 | タイムラインを開く（段階5） | 読み 2（タイムラインと控え）+ id の射影 5〜20 | 開くたび | 処理中の 5 秒ごとの読み直しは控えと id の射影を読まない |
 
@@ -680,15 +688,28 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 読んだ後・消す前に、同じ写真の別の削除が文書を消した | 何も変わらない（画像は先に消した側が消す） | 404 `PHOTO_NOT_FOUND` | 不要（アプリは成功扱い） |
 | Blob の削除 | 孤児 Blob（文書は消えている。原寸の削除に失敗してもサムネイルは消しにいく） | 無し（200） | 掃除 |
 
-**タイムラインを作る・作り直す**（段階5。`POST /api/trips/{tripId}/timeline`。順: 写真の射影を読む → 控えを作る → タイムラインに下書きを書く → キューへ投入）
+**タイムラインを作る・作り直す**（段階5。`POST /api/trips/{tripId}/timeline`。順: 旅行を読む → タイムラインを読む → 写真の射影を読む → 控えを作る → タイムラインに下書きを書く → 置き換えた下書きの控えを消す → キューへ投入）。
+**実装済み**（5-1a）。最後の行（旅行の削除と重なったときの後始末）だけは、直すワーカーが未実装（5-1b）。
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| 射影の読み取り・控えの作成 | 何も残らないか、どこからも指されない控え | 失敗（503 / 500） | 押し直す。指されない控えは害が無く、旅行の削除で消える |
-| タイムラインの書き込み（412・409 を含む） | どこからも指されない控え（消すのに失敗したとき） | 409 / 503 / 500 | 読み直して押し直す |
+| 旅行・タイムライン・射影の読み取り、控えの作成 | 何も残らないか、どこからも指されない控え | 失敗（503 / 500） | 押し直す。指されない控えは害が無く、旅行の削除で消える |
+| タイムラインの書き込みが 412・404・409（他の操作と重なった） | 何も変わらない（作った控えは消す。消すのに失敗したときだけ、どこからも指されない控え） | 409 `TIMELINE_STATE_CONFLICT` | 読み直して押し直す |
+| タイムラインの書き込みがそれ以外で失敗 | どこからも指されない控え（消さない） | 503 / 500 | 押し直す。指されない控えは害が無く、旅行の削除で消える |
+| 置き換えた下書きの控えの削除 | どこからも指されない控え | 無し（202。失敗はログだけ） | 旅行の削除で消える |
 | キューへの投入 | `draft.job` が `pending` のまま | 「作っています」のまま | 再投入のタイマー（10 分ごと）が積む |
 | ワーカーの途中で落ちる | `draft.job` が `running` のまま | 「作っています」のまま | 再投入のタイマーが `pending` に戻して積む（上限なら `failed`） |
 | 旅行の削除と重なる（削除がタイムラインを消した後に、このタイムラインが書かれた） | 旅行の無いタイムライン | 見えない（旅行が無い） | ワーカーが旅行の無いタイムラインと控えを消す（[06 §8.1](./06_processing_design.md#81-構成)）。投入にも失敗していれば再投入のタイマーが積み、同じく消える |
+
+**タイムラインの下書きをやめる**（段階5。`DELETE /api/trips/{tripId}/timeline/draft`。順: 旅行を読む → タイムラインを読む → 下書きを消す（完成版が無ければ文書ごと消す）→ 下書きの控えを消す）。
+**実装済み**（5-1a）。
+
+| 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
+|---|---|---|---|
+| 旅行・タイムラインの読み取り | 何も変わらない | 失敗（503 / 500） | 押し直す |
+| 下書きの書き込み（置き換え・削除）が 412・404（他の操作と重なった） | 何も変わらない（控えも消さない） | 409 `TIMELINE_STATE_CONFLICT` | 読み直して押し直す |
+| 下書きの書き込みがそれ以外で失敗 | 何も変わらない | 失敗（503 / 500） | 押し直す |
+| 控えの削除 | どこからも指されない控え | 無し（200。失敗はログだけ） | 旅行の削除で消える |
 
 **旅行の作成・更新**（`POST` / `PUT /api/trips`。文書1つ）
 
@@ -699,7 +720,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `replace` | 何も変わらない | 失敗 | 再送（同じ値なので冪等） |
 
 **旅行の削除**（`DELETE /api/trips/{tripId}?deletePhotos=true|false`。[05 §5.12](./05_api_design.md#512-delete-apitripstripiddeletephotostruefalse)。
-順: 旅行の文書を読む → 中の写真の射影を読む → 写真を1枚ずつ（`deletePhotos=true` は文書 → Blob、`false` は `tripId` を `null` に patch）→ 旅行の文書）
+順: 旅行の文書を読む → 中の写真の射影を読む → 写真を1枚ずつ（`deletePhotos=true` は文書 → Blob、`false` は `tripId` を `null` に patch）→（段階5）タイムラインと写真の控え → 旅行の文書）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
@@ -708,6 +729,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 写真の Blob の削除（`true`） | 孤児 Blob | 無し（続行する） | 掃除 |
 | 写真の patch（`false`） | 一部だけ未所属になった旅行 | 失敗（503 / 500）。枚数が減った旅行が残る | 再送（続きから。`detachedPhotoCount` は残りの分。patch は同じ値なら結果が同じ） |
 | 射影を読んだ後・処理する前に、中の写真が別の操作で消された（写真の削除と重なった） | 写真が減った旅行 | 失敗（500。文書の削除・patch の 404 を「無い」として扱わない） | 再送（消えた写真は次の射影に出ないので続きができる） |
+| （段階5。5-1a で実装済み）控えの id の読み取り・タイムラインや控えの削除（404 以外） | 写真を処理し終えた旅行と、タイムラインか控えの一部 | 失敗（503 / 500） | 再送（写真は次の射影に出ないので、タイムラインと控えの削除から続く。消えたものの 404 は無視する） |
 | 旅行の文書の削除 | 0枚の旅行 | 失敗（503 / 500）。0枚の旅行 | 再送 |
 | 旅行の文書の削除で、他の操作が先に旅行を消していた（404） | 正しい状態 | 無し（成功として 200） | 不要 |
 | 削除の途中・直後に送信や move がその旅行に届く | 消えた旅行を指す写真 | どの一覧にも出ない。写真は消えていない（`deletePhotos=true` でも、削除が読んだ射影に無かった写真は消さない） | 掃除（段階3のタイマーが未所属に戻す。段階2の間は見えないまま。§7.3） |
