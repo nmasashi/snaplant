@@ -70,7 +70,7 @@ API と mobile の列は並行できるが、**同時に進めるなら別のブ
 | 3-3b | （実装済み。Issue #71）api: タイマー `requeueStalePhotos.ts`（10 分ごと。`failed` は拾わない。処理中の写真は `pending` に戻してから投入する。読んだときの `state`・`attempts` の条件付き patch。[06 §1.1](./06_processing_design.md#11-構成)）・`sweepAlbum.ts`（日本時間の午前3時。[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)）、`POST /api/photos/{photoId}/process`（受付でコメントを消し `attempts` を 0 に。投入に失敗しても 202。`hint` を分類の AI に渡す。ワーカーの結果・失敗の書き込みは、担当したときの `state` と `attempts` の条件付きにした（やり直しの受付と重なったとき、古い処理の結果でやり直しを上書きしないため。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)））、`GET /api/photos?category=`。デプロイ後に 10 枚の実測を記録する（容量は今のまま。[06 §6](./06_processing_design.md#6-費用の抑え方)）と、[08 §5.3](./08_test_plan.md#53-段階34で足すもの) の手での確認 | 3-3a |
 | 3-4 | 2,000 行に収めるため 3-4a・3-4b に分ける（2026-10-18） | 3-3 |
 | 3-4a | （実装済み。Issue #71）mobile: 写真ビューアのカテゴリと分類の状態（`failed` と「やり直す」）、やり直しダイアログ、サムネイルの分類の印（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。カテゴリの表示名は段階3ではアプリが持つ | 3-3 |
-| 3-4b | （実装済み。Issue #71）mobile: 旅行詳細画面のカテゴリの絞り込み、カテゴリ横断画面（[03 §5.2・§5.3](./03_screen_design.md#5-段階3の画面骨格)）、`getPhotos` の `category`（[05 §8](./05_api_design.md#8-クライアントmobilelibservicesapi_servicedartに足すメソッド)）。カテゴリの一覧は段階3ではアプリが持つ | 3-4a |
+| 3-4b | （実装済み。Issue #71）mobile: 旅行詳細画面のカテゴリの絞り込み、カテゴリ横断画面（[03 §5.2・§5.3](./03_screen_design.md#5-段階3の画面骨格)）、`getPhotos` の `category`（[05 §8](./05_api_design.md#8-クライアントmobilelibservicesapi_servicedartに足すメソッド)）。カテゴリの一覧は段階3ではアプリが持つ。カテゴリ横断画面は 2026-10-24 に消した（02 §5 #40） | 3-4a |
 | 3-5 | （見送り。2026-10-18 に人間が判断）api + infra: Azure Maps の `GeocodingService` と `geocache` | 実機確認で Geocoder が不十分だったとき |
 
 ## 4. 段階4の PR の骨格

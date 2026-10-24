@@ -560,57 +560,6 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('カテゴリの写真の画面には、旅行を指定せずに送れなかった写真の端末の画像のマスを並べない', (tester) async {
-    // 旅行をまたぐ画面は、どの宛先の送信中の写真も並べない（§5.2）。「旅行に属さない写真」の画面から送った分が混ざらないことを見る
-    useFakeImageCompress();
-    final semantics = tester.ensureSemantics();
-    final image = writeTestImage('unassigned.png');
-    useGalleryReturning([image]);
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 0)],
-      functionKey: _apiKey,
-      unassignedPhotoCount: 1,
-      photosByTripId: {
-        hokkaidoTripId: [],
-        'none': [
-          photoJson(number: 1, takenAt: '2026-10-05T12:30:15')
-            ..['category'] = 'food'
-        ],
-      },
-    );
-    backend.failNext(TripRoute.upload,
-        status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('旅行に属さない写真'));
-    await letFramesRun(tester);
-    final markInGrid =
-        find.descendant(of: find.byType(GridView), matching: find.text('!'));
-    await tester.tap(find.text('写真を追加'));
-    await waitUntilUploadsReceived(tester, backend, 1);
-    await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
-    await letFramesRun(tester);
-    expect(markInGrid, findsOneWidget);
-    await tester.pageBack();
-    await letFramesRun(tester);
-
-    await tester.tap(find.byTooltip('カテゴリ'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('食べ物'));
-    await letFramesRun(tester);
-
-    expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
-    expect(markInGrid, findsNothing);
-    // 後始末: 旅行一覧に戻り、失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
-    await tester.pageBack();
-    await letFramesRun(tester);
-    await tester.pageBack();
-    await letFramesRun(tester);
-    await tester.tap(find.text('閉じる'));
-    await letFramesRun(tester);
-    await tester.pump(const Duration(seconds: 20));
-    semantics.dispose();
-  });
-
   testWidgets('図鑑の項目詳細には、旅行を指定せずに送れなかった写真の端末の画像のマスを並べない', (tester) async {
     // 送信中の写真はまだ識別されていないので、項目詳細には並べない（docs/travel-album/03_screen_design.md §6.2）
     useFakeImageCompress();

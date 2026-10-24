@@ -9,7 +9,6 @@ import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/trip_period.dart';
-import 'category_photos_screen.dart';
 import 'trip_detail_screen.dart';
 import 'unassigned_photos_screen.dart';
 import '../widgets/message_view.dart';
@@ -85,20 +84,6 @@ class _TripListScreenState extends State<TripListScreen> {
     }
   }
 
-  /// カテゴリの一覧を開く（旅行をまたいでカテゴリの写真を見る。§5.2）
-  Future<void> _openCategories() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CategoryListScreen(
-            apiService: widget.apiService, uploadQueue: widget.uploadQueue),
-      ),
-    );
-    // カテゴリの写真の画面で写真を消すと旅行の枚数が変わるので、戻ったら読み直す（旅行詳細と同じ）
-    if (!mounted) return;
-    await _loadTrips();
-  }
-
   /// 旅行に属さない写真の画面を開く
   Future<void> _openUnassignedPhotos(int photoCount) async {
     await Navigator.push(
@@ -152,11 +137,6 @@ class _TripListScreenState extends State<TripListScreen> {
       appBar: AppBar(
         title: const Text('旅行', style: AppTextStyles.appBarTitle),
         actions: [
-          // 旅行をまたいでカテゴリの写真を見る（§5.2）
-          IconButton(
-              icon: const Icon(Icons.category_outlined),
-              onPressed: _openCategories,
-              tooltip: 'カテゴリ'),
           IconButton(
               icon: const Icon(Icons.settings),
               onPressed: widget.onOpenSettings,

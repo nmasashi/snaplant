@@ -12,7 +12,7 @@ import '../helpers/trip_test_helpers.dart';
 // （docs/travel-album/03_screen_design.md §3・§4.2〜§4.4）。
 // 旅行の API は偽のサーバ（helpers の FakeTripBackend）で差し替える。偽のサーバは API キーを照合するので、
 // 端末に保存したキー（ここでは FakeTripBackend の既定の 'saved-key'）で通信しているかも確かめられる。
-// 図鑑タブの GET /api/plants は 404 になるが、図鑑タブは隠れていて、旅行タブの表示に影響しない
+// 起動時の図鑑タブも同じ偽のサーバが返すが、旅行タブを開いている間は隠れていて、旅行タブの表示に影響しない
 
 /// 右下の「旅行を作る」ボタンから、旅行の作成ダイアログを開く
 Future<void> openCreateDialog(WidgetTester tester) async {
@@ -53,6 +53,17 @@ void main() {
     expect(unassignedTop, lessThan(hokkaidoTop));
     expect(hokkaidoTop, lessThan(osakaTop));
     expect(osakaTop, lessThan(kyotoTop));
+  });
+
+  testWidgets('旅行一覧の上のバーには設定のボタンだけがあり、「カテゴリ」のボタンは無い（旅行をまたいで種類ごとに見るのは図鑑）',
+      (tester) async {
+    await openTripsTab(tester, FakeTripBackend(trips: [hokkaidoTrip()]));
+
+    final barButtons = find.descendant(
+        of: find.byType(AppBar), matching: find.byType(IconButton));
+    expect(barButtons, findsOneWidget);
+    expect(find.descendant(of: barButtons, matching: find.byTooltip('設定')),
+        findsOneWidget);
   });
 
   testWidgets('旅行が1件もないときも「旅行に属さない写真」の行は出し、その下に最初の旅行を作るよう促す', (tester) async {
@@ -241,6 +252,22 @@ void main() {
     expect(find.text('北海道 2026秋'), findsNothing);
     expect(find.text('大阪'), findsOneWidget);
     expect(find.text('20枚'), findsOneWidget);
+  });
+
+  testWidgets('旅行に属さない写真の画面から一覧に戻ると一覧を読み直し、枚数が新しくなっている', (tester) async {
+    final backend =
+        FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 8);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    // 開いている間に、旅行に属さない写真が旅行へ移るなどして枚数が変わった
+    backend.unassignedPhotoCount = 3;
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    expect(find.text('3枚'), findsOneWidget);
+    expect(find.text('8枚'), findsNothing);
   });
 
   testWidgets('旅行一覧は、最初の読み込みが終わるまで「旅行一覧を読み込み中...」を出し、読み込めたら消して一覧を出す', (tester) async {

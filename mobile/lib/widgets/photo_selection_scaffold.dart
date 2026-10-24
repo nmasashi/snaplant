@@ -10,7 +10,7 @@ import 'trip_picker_dialog.dart';
 /// 写真のグリッドを持つ画面の骨組み。複数選択のモード（docs/travel-album/03_screen_design.md §4.8）を受け持つ
 ///
 /// 選択モード中は、見出しを選んだ枚数に、下に操作バー（旅行に入れる・旅行から外す・削除。[allowMove] が false なら削除だけ）を出し、
-/// 端末の戻る操作では画面を閉じずに選択モードを抜ける。旅行詳細・旅行に属さない写真の画面・カテゴリの写真の画面・図鑑の項目詳細が使う
+/// 端末の戻る操作では画面を閉じずに選択モードを抜ける。旅行詳細・旅行に属さない写真の画面・図鑑の項目詳細が使う
 class PhotoSelectionScaffold extends StatelessWidget {
   const PhotoSelectionScaffold(
       {super.key,
@@ -26,7 +26,7 @@ class PhotoSelectionScaffold extends StatelessWidget {
   final ApiService apiService;
   final PhotoSelection selection;
 
-  /// 旅行への出し入れ（「旅行に入れる」「旅行から外す」）を出すか。カテゴリの写真の画面は「削除」だけにする（§5.2）
+  /// 旅行への出し入れ（「旅行に入れる」「旅行から外す」）を出すか。図鑑の項目詳細は「削除」だけにする（§6.2）
   final bool allowMove;
 
   /// 今いる旅行の id。旅行に属さない写真の画面なら null（「旅行から外す」を出さず、入れる先にすべての旅行を出す）
