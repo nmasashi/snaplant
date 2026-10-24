@@ -4,7 +4,7 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import { deleteTripHandler, getTripHandler, updateTripHandler } from '../../src/functions/tripDetail';
 import { FakeCosmosBackend, FakeCosmosDocument, cosmosNotFoundError, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
-import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
+import { COSMOS_SYSTEM_FIELDS, photoDocument, timelineDocument, timelinePhotosDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
@@ -777,47 +777,29 @@ describe('旅行詳細API', () => {
       });
     });
 
-    // 「写真は残す」は画像に触れないので、写真の保存先(Blob Storage)の設定に頼らない。外側の beforeEach は設定を
-    // 入れてあるので、このテストが設定を消す。使わない保存先のサービスを作る退行は、設定が無いので 500 になって落ちる
     it.each(['true', 'false'])('旅行を削除すると（deletePhotos=%s）、その旅行のタイムラインと写真の控えも消え、別の旅行のものは残る', async (deletePhotos) => {
-      const timelineOf = (tripId: string) => ({
-        id: `timeline-${tripId}`,
-        type: 'timeline',
-        tripId,
-        current: null,
-        draft: null,
-        droppedEdits: [],
-        createdAt: '2026-10-08T12:10:00.000Z',
-        updatedAt: '2026-10-08T12:10:00.000Z'
-      });
-      const snapshotOf = (tripId: string, suffix: string) => ({
-        id: `timeline-photos-${tripId}-${suffix}`,
-        type: 'timelinePhotos',
-        tripId,
-        photos: [],
-        createdAt: '2026-10-08T12:10:00.000Z'
-      });
+      const snapshotOf = (tripId: string, suffix: string) => timelinePhotosDocument(`timeline-photos-${tripId}-${suffix}`, tripId);
       const kyotoSnapshots = [
         snapshotOf(KYOTO_TRIP_ID, '11111111-1111-4111-8111-111111111111'),
         snapshotOf(KYOTO_TRIP_ID, '22222222-2222-4222-8222-222222222222')
       ];
-      const sapporoTimeline = timelineOf(SAPPORO_TRIP_ID);
+      const sapporoTimeline = timelineDocument(SAPPORO_TRIP_ID);
       const sapporoSnapshot = snapshotOf(SAPPORO_TRIP_ID, '33333333-3333-4333-8333-333333333333');
       [
         tripDocument(KYOTO_TRIP_ID, '京都旅行'),
-        timelineOf(KYOTO_TRIP_ID),
+        timelineDocument(KYOTO_TRIP_ID),
         ...kyotoSnapshots,
         sapporoTimeline,
         sapporoSnapshot
-      ].forEach((doc) => cosmosBackend.documents.set(doc.id, doc as any));
+      ].forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await deleteTripHandler(createDeleteRequest(KYOTO_TRIP_ID, deletePhotos), mockContext);
 
       expect(response.status).toBe(200);
       expect(cosmosBackend.documents).toEqual(
         new Map<string, FakeCosmosDocument>([
-          [sapporoTimeline.id, sapporoTimeline as any],
-          [sapporoSnapshot.id, sapporoSnapshot as any]
+          [sapporoTimeline.id, sapporoTimeline],
+          [sapporoSnapshot.id, sapporoSnapshot]
         ])
       );
     });
@@ -825,7 +807,7 @@ describe('旅行詳細API', () => {
     it('タイムラインを消すときに失敗したら、旅行を消さずに失敗を返す（再送で続きができる）', async () => {
       const kyoto = tripDocument(KYOTO_TRIP_ID, '京都旅行');
       cosmosBackend.documents.set(KYOTO_TRIP_ID, kyoto);
-      cosmosBackend.documents.set(`timeline-${KYOTO_TRIP_ID}`, { id: `timeline-${KYOTO_TRIP_ID}`, type: 'timeline', tripId: KYOTO_TRIP_ID } as any);
+      cosmosBackend.documents.set(`timeline-${KYOTO_TRIP_ID}`, timelineDocument(KYOTO_TRIP_ID));
       cosmosBackend.forcedErrorById = { [`timeline-${KYOTO_TRIP_ID}`]: new Error('something went wrong') };
 
       const response = await deleteTripHandler(createDeleteRequest(KYOTO_TRIP_ID, 'false'), mockContext);
@@ -835,6 +817,8 @@ describe('旅行詳細API', () => {
       expect(cosmosBackend.documents.get(KYOTO_TRIP_ID)).toEqual(kyoto);
     });
 
+    // 「写真は残す」は画像に触れないので、写真の保存先(Blob Storage)の設定に頼らない。外側の beforeEach は設定を
+    // 入れてあるので、このテストが設定を消す。使わない保存先のサービスを作る退行は、設定が無いので 500 になって落ちる
     it('写真は残すを選んだときは、写真の保存先の設定が無くても旅行を削除できる', async () => {
       freezeNow();
       delete process.env.STORAGE_CONNECTION_STRING;

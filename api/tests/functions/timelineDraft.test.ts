@@ -4,7 +4,15 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import { deleteTimelineDraftHandler, getTimelineDraftHandler } from '../../src/functions/timelineDraft';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
-import { photoDocument, tripDocument } from '../helpers/albumDocuments';
+import {
+  photoDocument,
+  timelineCurrent,
+  timelineDocument,
+  timelineDraft,
+  timelinePhotosDocument,
+  tripDocument
+} from '../helpers/albumDocuments';
+import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../../src/types/timeline';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // タイムラインの下書き（段階5。docs/05_api_design.md §5.15、文書は 04 §1.6）。
@@ -24,6 +32,7 @@ const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
 const TIMELINE_ID = `timeline-${TRIP_ID}`;
 const SNAPSHOT_ID = `timeline-photos-${TRIP_ID}-22222222-2222-4222-8222-222222222222`;
+const CURRENT_SNAPSHOT_ID = `timeline-photos-${TRIP_ID}-11111111-1111-4111-8111-111111111111`;
 const DRAFT_ID = '33333333-3333-4333-8333-333333333333';
 const NOW = '2026-10-25T09:00:00.000Z';
 const SAS = 'sig=test';
@@ -32,7 +41,7 @@ const SAS = 'sig=test';
 const photoId = (head: string): string => head.repeat(64);
 
 /** 控えの1枚。撮影日時と、確かめに使う項目だけを指定する */
-const snap = (head: string, takenAt: string | null, overrides: Record<string, unknown> = {}) => ({
+const snap = (head: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}): TimelinePhotoSnapshot => ({
   id: photoId(head),
   takenAt,
   category: 'landscape',
@@ -45,35 +54,21 @@ const snap = (head: string, takenAt: string | null, overrides: Record<string, un
 });
 
 /** 控えの1枚の、応答での形 */
-const shown = (head: string, takenAt: string | null, overrides: Record<string, unknown> = {}) => {
-  const { comment: _comment, blobName: _blobName, thumbnailBlobName, ...fields } = snap(head, takenAt, overrides) as any;
+const shown = (head: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}) => {
+  const { comment: _comment, blobName: _blobName, thumbnailBlobName, ...fields } = snap(head, takenAt, overrides);
   const thumbnail = thumbnailBlobName ?? `${photoId(head)}.jpg`;
   return { ...fields, thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${thumbnail}?${SAS}` };
 };
 
-const draftOf = (overrides: Record<string, unknown> = {}) => ({
-  id: DRAFT_ID,
-  reason: 'create',
-  phase: 'reviewing',
-  job: null,
-  snapshotId: SNAPSHOT_ID,
-  dayStartHour: 4,
-  proposedStarts: [],
-  sceneStarts: [],
-  startedAt: '2026-10-25T08:50:00.000Z',
-  ...overrides
-});
+/** 下書き（既定は確かめ中で、区切りは無い） */
+const draftOf = (overrides: Partial<TimelineDraft> = {}) =>
+  timelineDraft(DRAFT_ID, SNAPSHOT_ID, { startedAt: '2026-10-25T08:50:00.000Z', ...overrides });
 
-const timelineWith = (draft: unknown, current: unknown = null) => ({
-  id: TIMELINE_ID,
-  type: 'timeline',
-  tripId: TRIP_ID,
-  current,
-  draft,
-  droppedEdits: [],
-  createdAt: '2026-10-25T08:50:00.000Z',
-  updatedAt: '2026-10-25T08:55:00.000Z'
-});
+/** 完成版（文は確かめに使わない形だけ） */
+const currentVersion = timelineCurrent(CURRENT_SNAPSHOT_ID);
+
+const timelineWith = (draft: TimelineDraft | null, current: TimelineDocument['current'] = null) =>
+  timelineDocument(TRIP_ID, { current, draft });
 
 const createRequest = (tripId: string, method = 'GET'): HttpRequest =>
   ({
@@ -89,14 +84,8 @@ describe('タイムラインの下書きAPI', () => {
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
 
   /** 控えを置き、控えの写真のうち、まだある写真を写真の文書として置く */
-  const placeSnapshot = (photos: ReturnType<typeof snap>[], removed: string[] = []) => {
-    cosmosBackend.documents.set(SNAPSHOT_ID, {
-      id: SNAPSHOT_ID,
-      type: 'timelinePhotos',
-      tripId: TRIP_ID,
-      photos,
-      createdAt: '2026-10-25T08:50:00.000Z'
-    } as any);
+  const placeSnapshot = (photos: TimelinePhotoSnapshot[], removed: string[] = []) => {
+    cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, photos));
     for (const photo of photos) {
       if (!removed.includes(photo.id)) {
         cosmosBackend.documents.set(photo.id, photoDocument(photo.id, { tripId: TRIP_ID, takenAt: photo.takenAt }));
@@ -139,19 +128,16 @@ describe('タイムラインの下書きAPI', () => {
   });
 
   describe('下書きを読む（GET）', () => {
-    it('タイムラインが無ければ、下書きは null', async () => {
+    it.each<[string, TimelineDocument[]]>([
+      ['タイムラインが無い', []],
+      ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
+    ])('%sときは、下書きは null', async (_label, timelines) => {
+      timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
+
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
 
       expect(response.status).toBe(200);
       expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
-    });
-
-    it('完成版だけで下書きが無ければ、下書きは null', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(null, { snapshotId: SNAPSHOT_ID }) as any);
-
-      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
-
-      expect((response.jsonBody as any).data.draft).toBeNull();
     });
 
     it('区切り案を作っている下書きは、状態だけを返す（日と場面は返さない）', async () => {
@@ -163,7 +149,7 @@ describe('タイムラインの下書きAPI', () => {
             phase: 'proposing',
             job: { step: 'propose', state: 'running', attempts: 1, lastError: 'ai', updatedAt: '2026-10-25T08:59:00.000Z' }
           })
-        ) as any
+        )
       );
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
@@ -191,7 +177,7 @@ describe('タイムラインの下書きAPI', () => {
       ]);
       cosmosBackend.documents.set(
         TIMELINE_ID,
-        timelineWith(draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a'), photoId('c')] })) as any
+        timelineWith(draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a'), photoId('c')] }))
       );
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
@@ -270,7 +256,7 @@ describe('タイムラインの下書きAPI', () => {
       );
       cosmosBackend.documents.set(
         TIMELINE_ID,
-        timelineWith(draftOf({ proposedStarts: [photoId('a'), photoId('b')], sceneStarts: [photoId('a'), photoId('b')] })) as any
+        timelineWith(draftOf({ proposedStarts: [photoId('a'), photoId('b')], sceneStarts: [photoId('a'), photoId('b')] }))
       );
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
@@ -285,7 +271,7 @@ describe('タイムラインの下書きAPI', () => {
 
     it('日付の切り替えの時刻は、下書きに書いた値を使う（0 なら日付どおり）', async () => {
       placeSnapshot([snap('a', '2026-10-05T22:00:00'), snap('b', '2026-10-06T02:30:00')]);
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ dayStartHour: 0 })) as any);
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ dayStartHour: 0 })));
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
 
@@ -322,23 +308,19 @@ describe('タイムラインの下書きAPI', () => {
     });
   });
   describe('下書きをやめる（DELETE）', () => {
-    const CURRENT_SNAPSHOT_ID = `timeline-photos-${TRIP_ID}-11111111-1111-4111-8111-111111111111`;
-    const currentVersion = {
-      snapshotId: CURRENT_SNAPSHOT_ID,
-      dayStartHour: 4,
-      proposedStarts: [],
-      sceneStarts: [],
-      sceneTexts: {},
-      dayTexts: {},
-      writtenAt: '2026-10-08T12:14:00.000Z'
-    };
-    const snapshotDocument = (id: string) => ({ id, type: 'timelinePhotos', tripId: TRIP_ID, photos: [], createdAt: '2026-10-08T12:10:00.000Z' });
+    const snapshotDocument = (id: string) => timelinePhotosDocument(id, TRIP_ID);
     const storedSnapshotIds = () =>
       [...cosmosBackend.documents.values()].filter((doc) => doc.type === 'timelinePhotos').map((doc) => doc.id).sort();
 
-    it('完成版の無い下書きをやめると、タイムラインの文書ごと消え、下書きの控えも消える', async () => {
-      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()) as any);
+    it.each<[string, TimelineDraft]>([
+      ['確かめ中の', draftOf()],
+      [
+        '作っている途中の',
+        draftOf({ phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' } })
+      ]
+    ])('完成版の無い%s下書きをやめると、タイムラインの文書ごと消え、下書きの控えも消える', async (_label, draft) => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draft));
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
 
@@ -348,10 +330,16 @@ describe('タイムラインの下書きAPI', () => {
       expect(storedSnapshotIds()).toEqual([]);
     });
 
-    it('作り直しの下書きをやめると、下書きだけが消え、完成版とその控えは残る', async () => {
-      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ reason: 'rebuild' }), currentVersion) as any);
+    it.each<[string, string[], TimelineDraft]>([
+      ['作り直しの下書き', [SNAPSHOT_ID, CURRENT_SNAPSHOT_ID], draftOf({ reason: 'rebuild' })],
+      [
+        '完成版の区切りを直している途中（recut）の下書き（完成版と同じ控えを指す）',
+        [CURRENT_SNAPSHOT_ID],
+        draftOf({ reason: 'recut', snapshotId: CURRENT_SNAPSHOT_ID })
+      ]
+    ])('%sをやめると、下書きだけが消え、完成版とその控えは残る', async (_label, snapshotIds, draft) => {
+      snapshotIds.forEach((id) => cosmosBackend.documents.set(id, snapshotDocument(id)));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draft, currentVersion));
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
 
@@ -360,39 +348,11 @@ describe('タイムラインの下書きAPI', () => {
       expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID]);
     });
 
-    it('完成版の区切りを直している途中（recut）の下書きをやめても、完成版と同じ控えは消さない', async () => {
-      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(
-        TIMELINE_ID,
-        timelineWith(draftOf({ reason: 'recut', snapshotId: CURRENT_SNAPSHOT_ID }), currentVersion) as any
-      );
-
-      await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
-
-      expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: null, current: currentVersion });
-      expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID]);
-    });
-
-    it('作っている途中の下書きでもやめられる', async () => {
-      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(
-        TIMELINE_ID,
-        timelineWith(
-          draftOf({ phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' } })
-        ) as any
-      );
-
-      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
-
-      expect(response.status).toBe(200);
-      expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
-    });
-
-    it.each([
-      ['タイムラインが無い', null],
-      ['完成版だけで下書きが無い', 'current-only']
-    ])('%sときは、404（TIMELINE_NOT_FOUND）を返す', async (_label, existing) => {
-      if (existing) cosmosBackend.documents.set(TIMELINE_ID, timelineWith(null, currentVersion) as any);
+    it.each<[string, TimelineDocument[]]>([
+      ['タイムラインが無い', []],
+      ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
+    ])('%sときは、404（TIMELINE_NOT_FOUND）を返す', async (_label, timelines) => {
+      timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
 
@@ -404,12 +364,12 @@ describe('タイムラインの下書きAPI', () => {
     });
 
     it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、何も消さない', async () => {
-      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID) as any);
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ reason: 'rebuild' }), currentVersion) as any);
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID));
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ reason: 'rebuild' }), currentVersion));
       const written = timelineWith(draftOf({ reason: 'rebuild', sceneStarts: [photoId('a')] }), currentVersion);
       cosmosBackend.beforeReplace = (id) => {
-        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written } as any);
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
       };
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
