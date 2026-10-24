@@ -251,6 +251,22 @@ void main() {
     expect(find.text('20枚'), findsOneWidget);
   });
 
+  testWidgets('旅行に属さない写真の画面から一覧に戻ると一覧を読み直し、枚数が新しくなっている', (tester) async {
+    final backend =
+        FakeTripBackend(trips: [hokkaidoTrip()], unassignedPhotoCount: 8);
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    // 開いている間に、旅行に属さない写真が旅行へ移るなどして枚数が変わった
+    backend.unassignedPhotoCount = 3;
+
+    await tester.pageBack();
+    await letFramesRun(tester);
+
+    expect(find.text('3枚'), findsOneWidget);
+    expect(find.text('8枚'), findsNothing);
+  });
+
   testWidgets('旅行一覧は、最初の読み込みが終わるまで「旅行一覧を読み込み中...」を出し、読み込めたら消して一覧を出す', (tester) async {
     // 応答を止めておき、読み込み中の状態を見る
     final release = Completer<void>();
