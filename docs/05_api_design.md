@@ -663,7 +663,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 ### 5.15 タイムライン（段階5）
 
 **実装済み**（5-1a。`timeline.ts`・`timelineDraft.ts`、文書の操作は `services/timelineService.ts`、日と場面の組み立ては `services/timelineView.ts`）: 「共通」（ボディの行を除く）、「応答の形」のうち `draft`（状態）、`GET …/timeline/draft`・`POST …/timeline`・`DELETE …/timeline/draft`。
-未実装: `GET …/timeline`（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）・`PUT …/draft/scenes`（5-1b）、`POST …/recut`・`POST …/draft/write`・`PATCH` の2つ・`DELETE …/dropped-edits`（5-2）。
+未実装: `GET …/timeline`（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）・`PUT …/draft/scenes`（5-1c）、`POST …/recut`・`POST …/draft/write`・`PATCH` の2つ・`DELETE …/dropped-edits`（5-2）。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)、文書は [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
 完成版（`current`）と下書き（`draft`）を分けて持ち、下書きの文を書き終えるまで完成版は変わらない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。
