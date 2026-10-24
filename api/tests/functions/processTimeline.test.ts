@@ -232,11 +232,48 @@ describe('タイムラインのワーカー', () => {
       // 翌日の 2:30 は日付の切り替え（4時）より前なので1日目
       expect(promptLineOf(prompt, 3)).toContain('1日目');
       expect(promptLineOf(prompt, 3)).toContain('10/06 02:30');
+      // 図鑑の種類でないカテゴリは「その他」
+      expect(promptLineOf(prompt, 3)).toContain('その他');
       expect(promptLineOf(prompt, 4)).toContain('2日目');
       expect(promptLineOf(prompt, 4)).toContain('風景');
       expect(promptLineOf(prompt, 4)).toContain('小樽運河');
       expect(promptLineOf(prompt, 6)).toBeUndefined();
       expect(prompt).not.toContain('日時の無い写真');
+      // 日の区切り（何番から何日目か）も渡す。写真の行（[番号] で始まる）とは別の行
+      const dayLines = prompt.split('\n').filter((line) => !line.trimStart().startsWith('['));
+      expect(dayLines.find((line) => line.includes('1日目'))).toEqual(expect.stringMatching(/0.*3/));
+      expect(dayLines.find((line) => line.includes('2日目'))).toEqual(expect.stringMatching(/4.*5/));
+    });
+
+    it('分類していない写真（カテゴリが無い）は、カテゴリを書かない', async () => {
+      cosmosBackend.documents.set(
+        SNAPSHOT_ID,
+        timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, [snapshotPhoto(photoId('a'), '2026-10-05T07:50:12', { category: null, placeName: '札幌市' })])
+      );
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+
+      await runWorker();
+
+      const line = promptLineOf(sentPrompt(), 0)!;
+      expect(line).toContain('札幌市');
+      for (const label of ['その他', '植物', '食べ物', '風景', 'null']) {
+        expect(line).not.toContain(label);
+      }
+    });
+
+    it('読んだ後に別のインスタンスが先に担当していたら、AI を呼ばずに終える', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      // 同じ時刻に担当したので、処理は自分が書くはずだった形と同じになる
+      const taken = proposingTimeline({ draft: proposingDraft({ job: pendingJob({ state: 'running', attempts: 1, updatedAt: NOW }) }) });
+      let left = 1;
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID && left-- > 0) cosmosBackend.documents.set(TIMELINE_ID, { ...taken } as any);
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(sent).toEqual([]);
+      expect(storedTimeline()).toEqual(taken);
     });
 
     it('応答は Structured Outputs（strict）で区切りの番号の配列に縛り、出力の上限は 4,000 トークン', async () => {
@@ -324,7 +361,11 @@ describe('タイムラインのワーカー', () => {
           draft: proposingDraft({ id: '44444444-4444-4444-8444-444444444444', job: pendingJob({ state: 'running', attempts: 1, updatedAt: NOW }) })
         })
       ],
-      ['再投入のタイマーが待ちに戻した', (doc) => ({ ...doc, draft: proposingDraft({ job: pendingJob({ attempts: 1, updatedAt: NOW }) }) })]
+      ['再投入のタイマーが待ちに戻した', (doc) => ({ ...doc, draft: proposingDraft({ job: pendingJob({ attempts: 1, updatedAt: NOW }) }) })],
+      [
+        '再投入のタイマーが待ちに戻し、別のインスタンスが担当し直した',
+        (doc) => ({ ...doc, draft: proposingDraft({ job: pendingJob({ state: 'running', attempts: 2, updatedAt: NOW }) }) })
+      ]
     ])('%sなら、結果も失敗も書かずに終える', async (_case, write) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
       let written: TimelineDocument | undefined;
@@ -381,6 +422,16 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()?.draft).toMatchObject({ phase: 'reviewing', proposedStarts: starts, sceneStarts: starts });
     });
 
+    it('ちょうど上限の枚数なら、日をまたいでも1回で呼ぶ', async () => {
+      useSnapshot([...photosOfDay('2026-10-05', 1, 250), ...photosOfDay('2026-10-06', 2, 150)]);
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(promptLineOf(sentPrompt(0), 399)).toContain('2日目');
+    });
+
     it('1日で上限を超える日は、撮影の順に上限ごとに切って呼び、切れ目を区切りにする', async () => {
       const day1 = photosOfDay('2026-10-05', 1, 450);
       useSnapshot(day1);
@@ -431,6 +482,30 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()).toEqual(
         proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }) }) })
       );
+    });
+
+    it('区切り案の間に下書きをやめていたら、AI が失敗しても失敗を書かずに終える（例外も投げない）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      let cancelled: TimelineDocument | undefined;
+      reply = async () => {
+        cancelled = { ...storedTimeline()!, draft: null };
+        cosmosBackend.documents.set(TIMELINE_ID, cancelled as any);
+        throw Object.assign(new Error('500 The server had an error while processing your request.'), { name: 'InternalServerError', status: 500 });
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedTimeline()).toEqual(cancelled);
+    });
+
+    it('回数の上限は PHOTO_PROCESSING_MAX_ATTEMPTS に従う（5 なら3回目の失敗は待ちに戻す）', async () => {
+      process.env.PHOTO_PROCESSING_MAX_ATTEMPTS = '5';
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 2, lastError: 'ai' }) }) }));
+      aiReturns({ sceneStarts: [99] });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedTimeline()?.draft?.job).toEqual(pendingJob({ attempts: 3, lastError: 'ai', updatedAt: NOW }));
     });
 
     it('写真の控えが無いなど AI 以外の失敗は、内部の失敗として待ちに戻して例外を投げ、AI は呼ばない', async () => {
