@@ -41,7 +41,7 @@ export async function getTimelineDraftHandler(request: HttpRequest, context: Inv
       return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
     }
     // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
-    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
+    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
     return createSuccessResponse({ draft: reviewingDraftOf(draft, snapshot?.photos ?? [], existing, expiresOn), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの下書きの取得エラー:', error);
@@ -131,7 +131,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!Array.isArray(sceneStarts) || !sceneStarts.every((id) => typeof id === 'string')) {
       return createValidationError('区切りは写真IDの配列で指定してください');
     }
-    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
+    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
     const photos = snapshot?.photos ?? [];
     if (!isValidSceneStarts(sceneStarts, photos, draft.dayStartHour)) {
       return createValidationError('区切りが無効です');
@@ -151,6 +151,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
   }
+}
+
+/** 旅行の今の写真の id（控えを取った後に消えた写真を見分ける） */
+async function readExistingPhotoIds(timelines: TimelineService, tripId: string): Promise<Set<string>> {
+  return new Set((await timelines.readTripPhotoStates(tripId)).map((photo) => photo.id));
 }
 
 /** 確かめ中の下書きの応答（状態に、日ごと・場面ごとの写真と日時なしを足す。05 §5.15） */
