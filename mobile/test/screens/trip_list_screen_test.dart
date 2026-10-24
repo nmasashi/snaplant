@@ -55,6 +55,14 @@ void main() {
     expect(osakaTop, lessThan(kyotoTop));
   });
 
+  testWidgets('旅行一覧の上のバーには設定のボタンだけがあり、「カテゴリ」のボタンは無い（旅行をまたいで種類ごとに見るのは図鑑）',
+      (tester) async {
+    await openTripsTab(tester, FakeTripBackend(trips: [hokkaidoTrip()]));
+
+    expect(find.byTooltip('設定'), findsOneWidget);
+    expect(find.byTooltip('カテゴリ'), findsNothing);
+  });
+
   testWidgets('旅行が1件もないときも「旅行に属さない写真」の行は出し、その下に最初の旅行を作るよう促す', (tester) async {
     final backend = FakeTripBackend(unassignedPhotoCount: 5);
 
