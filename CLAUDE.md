@@ -709,7 +709,7 @@ Flutter クライアントの振る舞いを変えたら、あわせて更新す
 ### Cosmos のクエリを変更したら手で確認する
 
 SQL の絞り込み・並び順・射影を検証しているテストは無い（偽物は SQL を解釈せず、エミュレータも E2E も無い）。
-`albumQueries.ts`・`albumService.ts`・`catalogQueries.ts` のクエリを変えたら、デプロイ後に手で確かめる。
+`albumQueries.ts`・`albumService.ts`・`catalogQueries.ts`・`timelineService.ts` のクエリ（patch の条件も）を変えたら、デプロイ後に手で確かめる。
 項目は `docs/08_test_plan.md` §5.2・§5.3・§5.4（§5.3 は段階3のカテゴリ・再投入・掃除のクエリと patch の条件、§5.4 は段階5のタイムライン）。
 
 ### クライアント実装で踏みやすい罠
