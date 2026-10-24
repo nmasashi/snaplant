@@ -103,3 +103,10 @@ export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] =
  * 出力は番号の配列で数百トークンの見込みだが、推論のトークンも同じ枠から使うので、分類・識別と同じだけ取る（06 §8.4）
  */
 export const TIMELINE_PROPOSE_MAX_TOKENS = 4000;
+
+/**
+ * タイムラインで AI に一度に渡す写真の数の上限
+ *
+ * 超える旅行は日の境目で分けて呼ぶ（06 §8.4）。写真1枚が 30〜50 トークンなので、400 枚で入力は 2 万トークン以下に収まる
+ */
+export const TIMELINE_MAX_PHOTOS_PER_CALL = 400;
