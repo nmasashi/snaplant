@@ -151,7 +151,7 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
     const timelines = new TimelineService();
     const [read, photos] = await Promise.all([timelines.readTimeline(tripId), timelines.readTripPhotoStates(tripId)]);
     const expiresOn = photoUrlExpiresOn();
-    const pendingPhotoCount = photos.filter((photo) => photo.state !== null && UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
+    const pendingPhotoCount = photos.filter((photo) => UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
     if (!read) {
       return createSuccessResponse({ timeline: null, pendingPhotoCount, urlExpiresAt: expiresOn.toISOString() });
     }
