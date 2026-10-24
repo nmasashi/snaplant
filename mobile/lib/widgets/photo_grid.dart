@@ -128,7 +128,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     return [
       for (final item in widget.uploadQueue.items)
         // 旅行を指定せずに送ったものは none の一覧の宛先。項目の側を none に読み替えるので、
-        // 旅行をまたぐ一覧（tripId が null）の宛先になる項目は無い
+        // 読む先を渡された一覧（図鑑の項目詳細。tripId が null）の宛先になる項目は無い
         if ((item.tripId ?? 'none') == widget.tripId &&
             !loadedIds.contains(item.photoId) &&
             !widget.uploadQueue.hasLanded(item))
