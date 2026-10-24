@@ -212,6 +212,41 @@ export class TimelineService {
   }
 
   /**
+   * ワーカーが担当した下書きに結果を書く。読んだ文書の _etag 付きの置き換えで、他の操作と重なったら（412）読み直して当て直す（06 §8.1）
+   *
+   * 当て直すのは、下書きがまだ自分のもの（同じ id）で、処理も担当したときのままのときだけ（利用者が完成版の文を直した・
+   * 残せなかった文を閉じたなどと重なっても、AI の結果を捨てない）。重なりが続けば投げる（内部の失敗として待ちに戻る）
+   * @param tripId 旅行の ID
+   * @param draftId 担当した下書きの id
+   * @param claimedJob 担当したときに書いた job
+   * @param apply 読み直した下書きに結果を当てた下書きを返す
+   * @returns 書けたら true。下書きが自分のものでなくなっていた・タイムラインが消えていたら false
+   */
+  async writeDraftResult(
+    tripId: string,
+    draftId: string,
+    claimedJob: TimelineJob,
+    apply: (draft: TimelineDraft) => TimelineDraft
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt <= RESULT_RETRIES; attempt += 1) {
+      const read = await this.readTimeline(tripId);
+      const draft = read?.doc.draft;
+      if (!read || !draft || draft.id !== draftId || !sameJob(draft.job, claimedJob)) {
+        return false;
+      }
+      try {
+        await this.replaceTimeline({ ...read.doc, draft: apply(draft), updatedAt: new Date().toISOString() }, read.etag);
+        return true;
+      } catch (error: any) {
+        if (!(error instanceof TimelineConflictError)) {
+          throw error;
+        }
+      }
+    }
+    throw new Error(`タイムラインの書き込みが他の操作と重なり続けました: 旅行=${tripId}`);
+  }
+
+  /**
    * 下書きの処理の状態だけを書く。同じ下書き（id）で、処理が expected のままのときだけ書く条件付きの patch
    *
    * 再投入のタイマーとワーカーの担当が使う（写真の writeProcessing と同じ条件の形。06 §8.1）。
@@ -267,6 +302,20 @@ export class TimelineService {
 /** 旅行のタイムラインの文書の id（旅行ごとに1件） */
 export function timelineIdOf(tripId: string): string {
   return `timeline-${tripId}`;
+}
+
+/** 結果の書き込みが他の操作と重なったときに、読み直して当て直す回数（06 §8.1） */
+const RESULT_RETRIES = 3;
+
+/** 下書きの処理が担当したときのままか（担当の後に、再投入のタイマーが待ちに戻すなどしていないか） */
+function sameJob(job: TimelineJob | null, claimed: TimelineJob): boolean {
+  return (
+    job !== null &&
+    job.step === claimed.step &&
+    job.state === claimed.state &&
+    job.attempts === claimed.attempts &&
+    job.updatedAt === claimed.updatedAt
+  );
 }
 
 /**

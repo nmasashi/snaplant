@@ -1,10 +1,9 @@
 import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineConflictError, TimelineService } from '../services/timelineService';
-import { TimelineProposalPhoto, TimelineProposerService } from '../services/timelineProposerService';
-import { TimelineDatedDay, datedDaysOf } from '../services/timelineView';
-import { TIMELINE_MAX_PHOTOS_PER_CALL, photoProcessingMaxAttempts } from '../constants/album';
-import { TimelineCurrent, TimelineDraft, TimelineJob, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineService } from '../services/timelineService';
+import { proposeScenes } from '../services/timelineProposal';
+import { photoProcessingMaxAttempts } from '../constants/album';
+import { TimelineJob } from '../types/timeline';
 import { UpstreamError } from '../utils/errors';
 import { isValidUUID } from '../utils/response';
 
@@ -56,7 +55,7 @@ export async function processTimelineHandler(message: unknown, context: Invocati
     }
     const starts = await proposeScenes(snapshot.photos, draft, read.doc.current);
 
-    const written = await writeDraftResult(timelines, tripId, draftId, claimedJob, (current) => ({
+    const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, (current) => ({
       ...current,
       phase: 'reviewing',
       job: null,
@@ -89,123 +88,6 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       throw error;
     }
   }
-}
-
-/** 結果の書き込みが他の操作と重なったときに、読み直して当て直す回数（06 §8.1） */
-const RESULT_RETRIES = 3;
-
-/**
- * 担当した下書きに結果を書く。読んだ文書の _etag 付きの置き換えで、他の操作と重なったら（412）読み直して当て直す
- *
- * 当て直すのは、下書きがまだ自分のもの（同じ id）で、処理も担当したときのままのときだけ（利用者が完成版の文を直した・
- * 残せなかった文を閉じたなどと重なっても、AI の結果を捨てない）。重なりが続けば投げる（内部の失敗として待ちに戻る）
- * @param apply 読み直した下書きに結果を当てた下書きを返す
- * @returns 書けたら true。下書きが自分のものでなくなっていた・タイムラインが消えていたら false
- */
-async function writeDraftResult(
-  timelines: TimelineService,
-  tripId: string,
-  draftId: string,
-  claimedJob: TimelineJob,
-  apply: (draft: TimelineDraft) => TimelineDraft
-): Promise<boolean> {
-  for (let attempt = 0; attempt <= RESULT_RETRIES; attempt += 1) {
-    const read = await timelines.readTimeline(tripId);
-    const draft = read?.doc.draft;
-    if (!read || !draft || draft.id !== draftId || !sameJob(draft.job, claimedJob)) {
-      return false;
-    }
-    try {
-      await timelines.replaceTimeline({ ...read.doc, draft: apply(draft), updatedAt: new Date().toISOString() }, read.etag);
-      return true;
-    } catch (error: any) {
-      if (!(error instanceof TimelineConflictError)) {
-        throw error;
-      }
-    }
-  }
-  throw new Error(`タイムラインの書き込みが他の操作と重なり続けました: 旅行=${tripId}`);
-}
-
-/** 下書きの処理が担当したときのままか（担当の後に、再投入のタイマーが待ちに戻すなどしていないか） */
-function sameJob(job: TimelineJob | null, claimed: TimelineJob): boolean {
-  return (
-    job !== null &&
-    job.step === claimed.step &&
-    job.state === claimed.state &&
-    job.attempts === claimed.attempts &&
-    job.updatedAt === claimed.updatedAt
-  );
-}
-
-/**
- * 区切りの案を出す（06 §8.2）
- *
- * AI の案に、作り直しなら完成版で利用者が直した区切り（足した・消した）を当て、最後に各日の最初の写真を足す
- * （利用者が消した区切りが、日付の切り替えの時刻を変えた後などに日の最初になっていても、場面が日をまたがないように）
- * @returns AI の案（各日の最初の写真を足したもの）と区切り。どちらも場面の最初の写真の id で、撮影の順
- */
-async function proposeScenes(
-  photos: TimelinePhotoSnapshot[],
-  draft: TimelineDraft,
-  current: TimelineCurrent | null
-): Promise<{ proposedStarts: string[]; sceneStarts: string[] }> {
-  const days = datedDaysOf(photos, draft.dayStartHour);
-  const ordered = days.flatMap((day) => day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber })));
-  const { calls, cuts } = proposalCallsOf(days);
-  const proposer = new TimelineProposerService();
-  const proposed: string[] = [];
-  // 順に呼ぶ（functionTimeout に収まる数で、並べると AI の同時実行の枠を一度に使う）。途中で失敗したら投げ、何も書かない
-  for (const call of calls) {
-    proposed.push(...(await proposer.propose(call)).map((index) => call[index].photo.id));
-  }
-  // 各日の最初の写真と、1日を上限で切った切れ目は、AI の案によらず場面の始まり
-  const dayStarts = [...days.map((day) => day.photos[0].id), ...cuts];
-
-  let starts = new Set(proposed);
-  if (draft.reason === 'rebuild' && current) {
-    const aiStarts = new Set(current.proposedStarts);
-    const userStarts = new Set(current.sceneStarts);
-    const added = current.sceneStarts.filter((id) => !aiStarts.has(id));
-    const removed = new Set(current.proposedStarts.filter((id) => !userStarts.has(id)));
-    starts = new Set([...proposed, ...added].filter((id) => !removed.has(id)));
-  }
-  // 撮影の順に並べる。控えに無い・撮影日時の無い写真の区切りはここで落ちる
-  const inOrder = (ids: Set<string>) => ordered.map(({ photo }) => photo.id).filter((id) => ids.has(id));
-  return {
-    proposedStarts: inOrder(new Set([...proposed, ...dayStarts])),
-    sceneStarts: inOrder(new Set([...starts, ...dayStarts])),
-  };
-}
-
-/**
- * AI に渡す写真を、一度に渡せる数（TIMELINE_MAX_PHOTOS_PER_CALL）ごとの呼び出しに分ける（06 §8.4）
- *
- * 日の境目で分け、入る日はまとめる。1日で上限を超える日は撮影の順に上限ごとに切り、切れ目の写真を返す（区切りにする）
- */
-function proposalCallsOf(days: TimelineDatedDay[]): { calls: TimelineProposalPhoto[][]; cuts: string[] } {
-  const calls: TimelineProposalPhoto[][] = [];
-  const cuts: string[] = [];
-  let call: TimelineProposalPhoto[] = [];
-  for (const day of days) {
-    const photos = day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber }));
-    if (call.length > 0 && call.length + photos.length > TIMELINE_MAX_PHOTOS_PER_CALL) {
-      calls.push(call);
-      call = [];
-    }
-    for (let start = 0; start < photos.length; start += TIMELINE_MAX_PHOTOS_PER_CALL) {
-      if (start > 0) {
-        calls.push(call);
-        call = [];
-        cuts.push(photos[start].photo.id);
-      }
-      call.push(...photos.slice(start, start + TIMELINE_MAX_PHOTOS_PER_CALL));
-    }
-  }
-  if (call.length > 0) {
-    calls.push(call);
-  }
-  return { calls, cuts };
 }
 
 /**
