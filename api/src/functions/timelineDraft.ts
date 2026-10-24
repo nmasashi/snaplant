@@ -144,8 +144,15 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     try {
       [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
     } catch (error: any) {
-      // 読んだ後に他の操作が下書きをやめた・作り直した（控えを消した）なら重なり。下書きが同じまま控えだけ無ければ壊れている
-      if (error instanceof TimelineSnapshotMissingError && (await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
+      // 読んだ後に他の操作が旅行を消した・下書きをやめた・作り直した（控えを消した）なら重なり。下書きが同じまま控えだけ無ければ壊れている。
+      // 最初から読み直して保存はしない（出し直した新しい下書きに、前の下書きへの直しを書いてしまう）
+      if (!(error instanceof TimelineSnapshotMissingError)) {
+        throw error;
+      }
+      if (!(await new AlbumService().tripExists(tripId))) {
+        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+      }
+      if ((await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
         return createTimelineStateConflict();
       }
       throw error;

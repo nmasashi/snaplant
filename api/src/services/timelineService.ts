@@ -25,11 +25,6 @@ export class TimelineConflictError extends Error {
 }
 
 /**
- * タイムライン（段階5）の Cosmos DB の操作（docs/04_data_design.md §1.6・§5.7）
- *
- * タイムラインの文書は、利用者の操作とワーカーが同じ欄（下書き・完成版）を書くので、読んだ _etag 付きの置き換えで書く
- */
-/**
  * 写真の控えが無い
  *
  * 控えを消すのはタイムラインの書き込みの後（下書きをやめる・作り直す・旅行の削除）なので、読んだタイムラインが指す控えが、
@@ -43,23 +38,32 @@ export class TimelineSnapshotMissingError extends Error {
 }
 
 /**
- * タイムラインと控えを読んで応答を組む処理を、控えが無ければ一度だけ最初から読み直す（05 §5.15）
+ * タイムラインと控えを読んで応答を組む処理を、控えが無ければ最初から読み直す（05 §5.15。3回まで）
  *
- * 1回目に控えが無いのは、読んだ後に他の操作が下書きをやめた・作り直した・旅行を消したとき。読み直すと今の状態になる。
- * 2回目も無ければ壊れているので投げる（500）
+ * 控えが無いのは、読んだ後に他の操作が下書きをやめた・作り直した・旅行を消したとき。読み直すと今の状態になる。
+ * 続けて重なることもある（作り直しを続けて押した）ので数回は読み直し、それでも無ければ壊れているとして投げる（500）
  * @param read タイムラインを読むところから応答を組むまで
  */
 export async function rereadIfSnapshotMissing<T>(read: () => Promise<T>): Promise<T> {
-  try {
-    return await read();
-  } catch (error: any) {
-    if (!(error instanceof TimelineSnapshotMissingError)) {
-      throw error;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error: any) {
+      if (!(error instanceof TimelineSnapshotMissingError) || attempt > SNAPSHOT_REREADS) {
+        throw error;
+      }
     }
-    return await read();
   }
 }
 
+/** 控えが無いときに読み直す回数 */
+const SNAPSHOT_REREADS = 3;
+
+/**
+ * タイムライン（段階5）の Cosmos DB の操作（docs/04_data_design.md §1.6・§5.7）
+ *
+ * タイムラインの文書は、利用者の操作とワーカーが同じ欄（下書き・完成版）を書くので、読んだ _etag 付きの置き換えで書く
+ */
 export class TimelineService {
   private readonly container: Container;
 
