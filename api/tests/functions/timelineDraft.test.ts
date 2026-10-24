@@ -1,7 +1,7 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
-import { deleteTimelineDraftHandler, getTimelineDraftHandler } from '../../src/functions/timelineDraft';
+import { deleteTimelineDraftHandler, getTimelineDraftHandler, putTimelineDraftScenesHandler } from '../../src/functions/timelineDraft';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import {
@@ -457,6 +457,188 @@ describe('タイムラインの下書きAPI', () => {
       cosmosBackend.forcedReadError = error;
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+    });
+  });
+
+  describe('区切りを保存する（PUT …/draft/scenes）', () => {
+    // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、日時なし: u
+    const PHOTOS = [
+      snap('a', '2026-10-05T07:50:00'),
+      snap('b', '2026-10-05T09:00:00'),
+      snap('c', '2026-10-05T12:00:00', { category: 'food' }),
+      snap('d', '2026-10-06T09:00:00'),
+      snap('e', '2026-10-06T13:00:00'),
+      snap('u', null)
+    ];
+    const proposed = [photoId('a'), photoId('c'), photoId('d')];
+    const reviewing = (overrides: Partial<TimelineDraft> = {}) => draftOf({ proposedStarts: proposed, sceneStarts: proposed, ...overrides });
+
+    /** ボディ付きの要求。text を渡すと、JSON として読めない本文にする */
+    const putRequest = (tripId: string, body: unknown, text?: string): HttpRequest =>
+      ({
+        method: 'PUT',
+        url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}/timeline/draft/scenes?code=test-key`,
+        query: new Map([['code', 'test-key']]),
+        headers: new Map([['content-type', 'application/json']]),
+        params: { tripId },
+        json: async () => (text !== undefined ? JSON.parse(text) : body)
+      }) as any as HttpRequest;
+
+    const put = (body: unknown) => putTimelineDraftScenesHandler(putRequest(TRIP_ID, body), mockContext);
+
+    beforeEach(() => {
+      placeSnapshot(PHOTOS);
+    });
+
+    it('確かめ中の下書きの区切りを置き換え、確かめ中の日と場面を返す（ほかの欄は変わらない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current: currentVersion, draft: reviewing(), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+      const starts = [photoId('a'), photoId('b'), photoId('d')];
+
+      const response = await put({ sceneStarts: starts });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({ ...timeline, draft: reviewing({ sceneStarts: starts }), updatedAt: NOW });
+      const data = (response.jsonBody as any).data;
+      expect(data.urlExpiresAt).toBe('2026-10-25T10:00:00.000Z');
+      expect(data.draft).toMatchObject({ id: DRAFT_ID, reason: 'create', phase: 'reviewing', job: null });
+      // b は利用者が足した区切り、AI の案の c は消した（b の場面に入る）
+      expect(
+        data.draft.days.map((day: any) => day.scenes.map((scene: any) => [scene.startPhotoId, scene.startedBy, scene.photos.length]))
+      ).toEqual([
+        [
+          [photoId('a'), 'day', 1],
+          [photoId('b'), 'user', 2]
+        ],
+        [[photoId('d'), 'day', 2]]
+      ]);
+      expect(data.draft.undatedPhotos).toEqual([shown('u', null)]);
+    });
+
+    it('文を書くのに失敗した下書きでも保存でき、確かめ中に戻る（処理は消える）', async () => {
+      const failed = reviewing({
+        phase: 'writing',
+        job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:30:00.000Z' }
+      });
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(failed));
+
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
+    });
+
+    it.each<[string, TimelineDocument[]]>([
+      ['タイムラインが無い', []],
+      ['完成版だけで下書きが無い', [timelineWith(null, currentVersion)]]
+    ])('%sときは、404（TIMELINE_NOT_FOUND）', async (_label, timelines) => {
+      timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
+
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインの下書きが見つかりません' }
+      });
+    });
+
+    it.each<[string, Partial<TimelineDraft>]>([
+      ['区切り案を作っている', { phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }],
+      ['区切り案に失敗した', { phase: 'proposing', job: { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: NOW } }],
+      ['文を書いている', { phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW } }]
+    ])('下書きが%sときは、409（TIMELINE_STATE_CONFLICT）で区切りを変えない', async (_label, overrides) => {
+      const timeline = timelineWith(reviewing(overrides));
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: [photoId('a'), photoId('b'), photoId('d')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
+    it.each<[string, unknown]>([
+      ['区切りが無い', {}],
+      ['区切りが配列でない', { sceneStarts: 'aaaa' }],
+      ['区切りに文字列でない値がある', { sceneStarts: ['aaaa', 1] }]
+    ])('%sときは、400（区切りは写真IDの配列で指定してください）', async (_label, body) => {
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put(body);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: '区切りは写真IDの配列で指定してください' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
+    it.each<[string, string[]]>([
+      ['控えに無い写真', [photoId('a'), photoId('z'), photoId('d')]],
+      ['撮影日時の無い写真', [photoId('a'), photoId('d'), photoId('u')]],
+      ['重なる写真', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
+      ['撮影の順でない', [photoId('a'), photoId('d'), photoId('b')]],
+      ['1日目の最初の写真が無い', [photoId('b'), photoId('d')]],
+      ['2日目の最初の写真が無い', [photoId('a'), photoId('e')]]
+    ])('区切りに%sがあるときは、400（区切りが無効です）', async (_label, starts) => {
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: starts });
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '区切りが無効です' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
+    it.each<[string, () => HttpRequest, string]>([
+      ['JSON として読めない', () => putRequest(TRIP_ID, undefined, '{'), 'リクエストボディの形式が無効です'],
+      ['null', () => putRequest(TRIP_ID, null), 'リクエストボディが指定されていません']
+    ])('ボディが%sときは、400', async (_label, request, message) => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await putTimelineDraftScenesHandler(request(), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+    });
+
+    it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、書いたものを変えない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      const written = timelineWith(reviewing({ sceneStarts: [photoId('a'), photoId('c'), photoId('d'), photoId('e')] }));
+      cosmosBackend.beforeReplace = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
+      };
+
+      const response = await put({ sceneStarts: [photoId('a'), photoId('b'), photoId('d')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
+    });
+
+    it('旅行IDが UUID の形でなければ 400、旅行が無ければ 404（TRIP_NOT_FOUND）', async () => {
+      const invalid = await putTimelineDraftScenesHandler(putRequest('not-a-uuid', { sceneStarts: proposed }), mockContext);
+      cosmosBackend.documents.delete(TRIP_ID);
+      const missing = await put({ sceneStarts: proposed });
+
+      expect(invalid.status).toBe(400);
+      expect(invalid.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
+      expect(missing.status).toBe(404);
+      expect(missing.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+    });
+
+    it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      cosmosBackend.forcedReplaceError = error;
+
+      const response = await put({ sceneStarts: proposed });
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
