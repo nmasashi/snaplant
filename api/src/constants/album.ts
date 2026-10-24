@@ -96,3 +96,10 @@ export const TIMELINE_SNAPSHOT_COMMENT_LENGTH = 100;
  * SQL の IN の並び（albumService.listStalePhotos）も同じ3つにする
  */
 export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying'];
+
+/**
+ * タイムラインの区切り案の max_completion_tokens（推論のトークンも含む）
+ *
+ * 出力は番号の配列で数百トークンの見込みだが、推論のトークンも同じ枠から使うので、分類・識別と同じだけ取る（06 §8.4）
+ */
+export const TIMELINE_PROPOSE_MAX_TOKENS = 4000;

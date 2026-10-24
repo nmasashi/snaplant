@@ -10,6 +10,7 @@ import './functions/photoMove';
 import './functions/photoProcess';
 import './functions/photos';
 import './functions/processPhoto';
+import './functions/processTimeline';
 import './functions/requeueStalePhotos';
 import './functions/sweepAlbum';
 import './functions/timeline';

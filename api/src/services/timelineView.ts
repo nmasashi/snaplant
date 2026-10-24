@@ -116,6 +116,41 @@ export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayL
   return { days: laidOut, undatedPhotos };
 }
 
+/** 撮影日時のある写真の1日分 */
+export interface TimelineDatedDay {
+  date: string;
+  /** 何日目か（一番早い日を1日目として、暦の日付の差で数える） */
+  dayNumber: number;
+  /** その日の写真（撮影の順） */
+  photos: TimelinePhotoSnapshot[];
+}
+
+/**
+ * 控えの撮影日時のある写真を日に分ける（撮影の順のまま。04 §1.6 の日の分け方。日時の無い写真は入れない）
+ * @param photos 写真の控え（撮影日時のある写真が撮影の順で先）
+ * @param dayStartHour 日付の切り替えの時刻（0〜23）
+ */
+export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: number): TimelineDatedDay[] {
+  const days: { date: string; photos: TimelinePhotoSnapshot[] }[] = [];
+  for (const photo of photos) {
+    if (photo.takenAt === null) {
+      continue;
+    }
+    const date = dayOf(photo.takenAt, dayStartHour);
+    const day = days[days.length - 1];
+    if (!day || day.date !== date) {
+      days.push({ date, photos: [photo] });
+    } else {
+      day.photos.push(photo);
+    }
+  }
+  const firstDay = days[0]?.date;
+  return days.map((day) => ({
+    ...day,
+    dayNumber: (Date.parse(`${day.date}T00:00:00Z`) - Date.parse(`${firstDay}T00:00:00Z`)) / DAY_MS + 1,
+  }));
+}
+
 /** 下書きの状態（応答の形。05 §5.15） */
 export function draftStatusOf(draft: TimelineDraft): TimelineDraftStatus {
   return {
