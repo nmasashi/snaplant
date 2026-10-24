@@ -132,3 +132,18 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 - [08 §5.1・§5.2](./08_test_plan.md#5-単体テストで確かめられず手で確かめる項目) の手での確認が済み、実測が `docs/09_backlog.md` に残っている
 - CLAUDE.md の「実際のルート」の表と「Cosmos のクエリを変更したら手で確認する」の表が更新されている
 - Issue #22 の段階2のチェックが埋まっている
+
+## 8. 段階5（タイムライン）の PR の骨格
+
+要件は [01 §5.3.1](./01_requirements.md#531-タイムライン)、決定は [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #41〜#47。
+1 PR は差分 2,000 行以内。API を先に作り、画面は API ができてから足す（アプリが無くても API のテストで確かめられる）。
+
+| # | 内容 | 依存 |
+|---|---|---|
+| 5-0 | infra: キュー `timeline-processing` と `app_settings` の `TIMELINE_QUEUE_NAME`（[07 §7](./07_infrastructure_design.md#7-段階5タイムライン)）。**apply は人間**（5-1 のデプロイより先） | — |
+| 5-1 | api: タイムラインと控えの文書（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）、`GET …/timeline`・`GET …/draft`・`POST …/timeline`（作る・作り直す）・`PUT …/draft/scenes`・`DELETE …/draft`、ワーカーの `propose`（作り直しで完成版の区切りの差を当てる決まりまで。[06 §8.2](./06_processing_design.md#82-区切り案step-propose)）、再投入のタイマーにタイムラインの下書きを足す（投入に失敗しても進むように、`POST` と同じ PR に入れる）、`hourFromEnv()`。旅行の削除でタイムラインと控えも消す | 5-0 |
+| 5-2 | api: `POST …/draft/write`・`POST …/recut` とワーカーの `write`（文の引き継ぎ・残せなかった文・下書きと完成版の入れ替え。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）、`PATCH` の2つと `DELETE …/dropped-edits` | 5-1 |
+| 5-3 | mobile: 旅行詳細の切り替え、完成版が無いときの表示（[03 §8.1・§8.2](./03_screen_design.md#81-旅行詳細の切り替え)）、区切りの確認画面（[03 §8.4](./03_screen_design.md#84-区切りの確認画面)）、`ApiService` のタイムラインのメソッド | 5-2 |
+| 5-4 | mobile: 完成したタイムラインの表示と下書きの案内（[03 §8.3](./03_screen_design.md#83-完成したタイムライン)）、編集シート（§8.5）、区切りを直す・作り直す・写真が変わった案内・残せなかった文（§8.3・§8.6） | 5-3 |
+
+デプロイ後に [08 §5.4](./08_test_plan.md#54-段階5タイムラインで足すもの) を手で確かめる（5-1・5-2 のクエリ、区切り案と文の質、トークンの実測）。
