@@ -986,22 +986,22 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 
 ### 9.5 AI 識別サービスへの接続
 
-写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
-AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る。
-管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは分類と識別に共通の要素で、
-送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像は [06 §2.1・§2.2・§3.1](./06_processing_design.md#21-モデルとサービス) にある。
+写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）と、タイムラインの区切り案（段階5。5-1b。[06 §8](./06_processing_design.md#8-タイムライン段階5)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
+AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案は1回の作成につき1回。写真の多い旅行は分けて複数回。[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)）。
+管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは共通の要素で、
+送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4](./06_processing_design.md#21-モデルとサービス) にある。
 
 **プロンプトの文言は契約外。** ここにも 06 にも写さず、テストでも完全一致で固定しない。
 
 | 要素 | 内容 |
 |---|---|
 | 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき送り先のデプロイ名は必須で、決まらない（空文字列・空白だけを含む）なら要求を送らずに失敗する（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`（デプロイ名は前後の空白を取り除いたもの）、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
-| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を渡し、識別は何も渡さない（06 §2.1・§3.1） |
+| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、タイムラインは `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` を渡し、識別は何も渡さない（06 §2.1・§3.1・§8.1） |
 | モデル | デプロイ名。Azure OpenAI Service では `baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、デプロイ名が決まらなければ `gpt-5.6-luna` を使う |
-| メッセージ | `user` ロールの1件。テキスト（プロンプト）と画像の2パート |
-| 画像 | `image_url` パート。`detail: "low"`（トークン節約）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
-| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`） |
-| トークン上限 | `max_completion_tokens: 4000`（`max_tokens` は送らない） |
+| メッセージ | `user` ロールの1件。分類・識別はテキスト（プロンプト）と画像の2パート、タイムラインはテキストの1パートだけ（画像を渡さない。06 §8.4） |
+| 画像 | 分類・識別だけ。`image_url` パート。`detail: "low"`（トークン節約）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
+| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タイムラインの区切り案は `timeline_proposal`） |
+| トークン上限 | `max_completion_tokens`（`max_tokens` は送らない）。分類・識別は 4000、タイムラインの区切り案は `TIMELINE_PROPOSE_MAX_TOKENS`（4000。06 §8.4） |
 | 送らないパラメータ | `temperature` |
 
 応答が空・JSON として読めない場合は、AI の失敗として扱う。応答の中身の検証は呼び出し側が行う（06 §2.1・§3.1）。

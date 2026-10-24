@@ -42,8 +42,12 @@ npx tsc -p tsconfig.test.json --noEmit
 HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しには `?code={FUNCTION_KEY}` が要る。
 ルートの一覧は `README.md`（リポジトリ直下）のエンドポイント表。
 
-キューのトリガーの関数は、旅行アルバムの写真の解析のワーカー `processPhoto`（`src/functions/processPhoto.ts`）だけ。
-キューの名前はアプリの設定 `PHOTO_QUEUE_NAME` から `%PHOTO_QUEUE_NAME%` で解決し、接続は `AzureWebJobsStorage`（設定値は `docs/07_infrastructure_design.md` §6.1）。
+キューのトリガーの関数は旅行アルバムの2つ。キューの名前はアプリの設定から `%名前%` で解決し、接続はどちらも `AzureWebJobsStorage`（設定値は `docs/07_infrastructure_design.md` §6.1）。
+
+| 関数（`app.storageQueue` の第1引数） | ファイル | キュー（アプリの設定） | 内容 |
+|---|---|---|---|
+| `processPhoto` | `src/functions/processPhoto.ts` | `PHOTO_QUEUE_NAME` | 写真の分類・識別（`docs/06_processing_design.md` §1〜§3） |
+| `processTimeline` | `src/functions/processTimeline.ts` | `TIMELINE_QUEUE_NAME` | タイムラインの下書きの区切り案（段階5。`docs/06_processing_design.md` §8。文を書く段は未実装） |
 
 タイマーの関数は旅行アルバムの2つ（スケジュールは UTC の cron。設計は `docs/06_processing_design.md` §1.1）。
 
