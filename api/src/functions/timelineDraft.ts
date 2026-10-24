@@ -42,7 +42,10 @@ export async function getTimelineDraftHandler(request: HttpRequest, context: Inv
     }
     // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
     const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
-    return createSuccessResponse({ draft: reviewingDraftOf(draft, snapshot?.photos ?? [], existing, expiresOn), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({
+      draft: reviewingDraftOf(draft, snapshot?.photos ?? [], existing, new PhotoStorageService(), expiresOn),
+      urlExpiresAt: expiresOn.toISOString(),
+    });
   } catch (error: any) {
     context.log('タイムラインの下書きの取得エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの取得に失敗しました');
@@ -137,6 +140,8 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return createValidationError('区切りが無効です');
     }
     const saved: TimelineDraft = { ...draft, sceneStarts, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) };
+    // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
+    const storage = new PhotoStorageService();
     try {
       await timelines.replaceTimeline({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag);
     } catch (error: any) {
@@ -146,7 +151,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       throw error;
     }
     const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, expiresOn), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, storage, expiresOn), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
@@ -159,8 +164,13 @@ async function readExistingPhotoIds(timelines: TimelineService, tripId: string):
 }
 
 /** 確かめ中の下書きの応答（状態に、日ごと・場面ごとの写真と日時なしを足す。05 §5.15） */
-function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, expiresOn: Date) {
-  const storage = new PhotoStorageService();
+function reviewingDraftOf(
+  draft: TimelineDraft,
+  photos: TimelinePhotoSnapshot[],
+  existing: Set<string>,
+  storage: PhotoStorageService,
+  expiresOn: Date
+) {
   const layout = layoutTimeline({
     photos,
     sceneStarts: draft.sceneStarts,
