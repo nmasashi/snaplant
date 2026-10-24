@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `api/` | Azure Functions v4 の旅行アルバム・図鑑の API | TypeScript / npm / Jest |
 | `mobile/` | Flutter 製モバイルアプリ | Dart / flutter |
 | `infrastructure/` | Azure リソース定義 | Terraform |
-| `docs/` | 設計書・OpenAPI 仕様（日本語） | Markdown / YAML |
+| `docs/` | 設計書（日本語） | Markdown |
 
 コメント・エラーメッセージ・コミットメッセージはすべて日本語で記述する慣習。
 
@@ -666,18 +666,21 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 
 **`docs/` の設計書（`01`〜`08`・`11`）は目指す姿を書き、実装した節に「実装済み」の印を付ける。** 未実装の要件も書いてよい。開発中に設計と実装が食い違ったら、同じ PR で設計書を直す
 （2026-10-25 に人間が決定。以前は旅行アルバムの設計を `docs/travel-album/` に置き、ルートの `docs/01`〜`07` を「実装済みのものだけ」の写しにしていたが、植物図鑑の写しが古いまま残ったので一本にした）。
-**`docs/05_api_openapi.yaml` だけは実装の正確な写し**で、実装済みのものだけを書く。未実装の課題・判断待ちは `docs/09_backlog.md` に置く。
+**API の正は `docs/05_api_design.md`**（OpenAPI の仕様書は 2026-10-25 にやめた。手書きの写しが二重になり、中身が空のまま残っていたため。コード生成や外部公開が要るようになったら、コードから生成する）。README と DEPLOYMENT は実装の写し。未実装の課題・判断待ちは `docs/09_backlog.md` に置く。
+
+**「実装済み」の印の付け方**: 節の見出しの直下に「**実装済み**（作業単位の名前）」と書く。印の無い節は未実装として扱われ、`contract-auditor` は触らない（消さない・移さない）。
+印を「実装済み」側に付けるのは、付け忘れたときに起きるのが「食い違いの見逃し」で済み、未実装の設計が消されないため。作業単位で実装した節には同じ PR で印を付け、`contract-auditor` に付け忘れが無いかも見させる。
 
 記録先は確度で分かれており、**混ぜない**こと。
 
 | 文書 | 内容 | 書き込む主体 |
 |---|---|---|
 | 設計書（`docs/01`〜`08`・`11`） | **目指す姿**（要件・設計・計画）。実装した節に「実装済み」の印 | 人間、メインセッション、`contract-auditor` |
-| `docs/05_api_openapi.yaml`・README・DEPLOYMENT | **実装済みの事実** | 人間、メインセッション、`contract-auditor` |
+| README・DEPLOYMENT | **実装済みの事実** | 人間、メインセッション、`contract-auditor` |
 | `docs/09_backlog.md` | **検証済みで実在する**課題・未実装機能 | 人間、根拠を確認したエージェント |
 | `docs/10_proposals.md` | **トリアージ待ちの提案**（未採用） | `improvement-scout` のみ |
 
-`contract-auditor` は設計書の未実装の記述をバックログへ移さない（目指す姿として残す）。実装したものと、「実装済み」の印の付いた節・OpenAPI・README の食い違いを見る。
+`contract-auditor` は設計書の未実装の記述をバックログへ移さない（目指す姿として残す）。実装したものと、「実装済み」の印の付いた節・README の食い違いを見る。
 
 採用した提案は**人間が**バックログへ移す。却下した提案は理由を添えて
 提案文書の「却下」節へ残す（同じ提案の蒸し返しを防ぐため）。
@@ -694,8 +697,7 @@ CLAUDE.md は毎回のセッションの最初に丸ごと読み込まれるの�
 
 API を変更したら、あわせて更新する対象：
 
-- `docs/05_api_openapi.yaml` — ルート、リクエスト/レスポンス形状、ステータスコード、エラーの `code` と `message`
-- `docs/05_api_design.md`（エンドポイントの節と、共通の決まりの §9）
+- `docs/05_api_design.md`（エンドポイントの節と、共通の決まりの §9）— ルート、リクエスト/レスポンス形状、ステータスコード、エラーの `code` と `message`
 - `README.md` のエンドポイント表
 - `mobile/lib/services/api_service.dart` — クライアント側の呼び出し
 - `docs/05_api_design.md` §9.5・`docs/06_processing_design.md` §2.1・§3.1・§8.4 — AI 識別サービスへ渡すものを変えたとき。要素まで書き、プロンプトの文言は書かない

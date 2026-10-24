@@ -3,7 +3,7 @@
 ## この文書の位置づけ
 
 旅行アルバムの Cosmos DB と Blob Storage のデータの形、クエリ、無料枠と RU の見積もりを書く。
-**未実装を含む目指す姿**で、実装した部分には「実装済み」の印を付ける（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
+**未実装を含む目指す姿**で、実装した部分には「実装済み」の印を付ける（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/travel-album/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
 
 API から見た形（応答に出す項目・SAS 付き URL）は [05_api_design.md](./05_api_design.md)、裏の処理が書き込む項目の遷移は
 [06_processing_design.md](./06_processing_design.md)、Terraform の定義は [07_infrastructure_design.md](./07_infrastructure_design.md) を参照する。

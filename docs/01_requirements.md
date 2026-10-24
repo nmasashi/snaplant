@@ -3,7 +3,7 @@
 ## この文書の位置づけ
 
 SnapPlant（旅行アルバムと、写真からまとめる図鑑）の**目指す姿**を書く文書。**まだ実装していない要件も書く**。
-`docs/01`〜`08`・`11` の一式が設計の正で、実装した節には設計書の側で「実装済み」の印を付ける。実装の正確な写しは API の `05_api_openapi.yaml`（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
+`docs/01`〜`08`・`11` の一式が設計の正で、実装した節には設計書の側で「実装済み」の印を付ける。（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/travel-album/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
 
 | 何を見るか | どこにあるか |
 |---|---|
@@ -16,7 +16,6 @@ SnapPlant（旅行アルバムと、写真からまとめる図鑑）の**目指
 | 裏の処理（分類・識別・地名変換）と植物図鑑の統合 | [06_processing_design.md](./06_processing_design.md) |
 | インフラ | [07_infrastructure_design.md](./07_infrastructure_design.md) |
 | テスト計画 | [08_test_plan.md](./08_test_plan.md) |
-| API の実装の写し（OpenAPI） | [05_api_openapi.yaml](./05_api_openapi.yaml) |
 | 実装計画（PR の分け方） | [11_implementation_plan.md](./11_implementation_plan.md) |
 | 未実装の課題・判断待ち | [09_backlog.md](./09_backlog.md) |
 

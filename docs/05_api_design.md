@@ -3,7 +3,7 @@
 ## この文書の位置づけ
 
 SnapPlant の REST API を書く。エラーの契約（ステータス・`code`・`message`）は文言まで決める。**未実装を含む目指す姿**で、実装したエンドポイントには「実装済み」の印を付ける（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移し、植物図鑑の頃の文書を置き換えた。人間が決定）。
-実装したエンドポイントは `05_api_openapi.yaml`（実装の正確な写し）と `README.md` のエンドポイント表にも書く。認証・応答の封筒・エラーの共通の決まり・AI への接続は §9（以前の `docs/06_api_design.md` から移した）。
+この文書が API の正（OpenAPI の仕様書は 2026-10-25 にやめた）。実装したエンドポイントは `README.md` のエンドポイント表にも書く。認証・応答の封筒・エラーの共通の決まり・AI への接続は §9（以前の `docs/06_api_design.md` から移した）。
 
 データの形は [04_data_design.md](./04_data_design.md)、裏の処理は [06_processing_design.md](./06_processing_design.md)、
 画面からの使い方は [03_screen_design.md](./03_screen_design.md) を参照する。

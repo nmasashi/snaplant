@@ -72,7 +72,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
 詳細は [API 設計](./docs/05_api_design.md) を参照してください
-（[OpenAPI 仕様書](./docs/05_api_openapi.yaml) にはまだエンドポイントを書いていません。`docs/09_backlog.md`）。
+（OpenAPI の仕様書は置いていません。API 設計が正です）。
 植物図鑑の API（`/api/images/upload`・`/api/plants/*`）は 4-6 で削除しました。
 
 HTTP 以外に、写真の解析のワーカー（Storage Queue のトリガー）と2つのタイマー（止まった解析の再投入・孤児の掃除）があります（`api/README.md`）。
@@ -153,14 +153,13 @@ flutter build apk --release
 ## 📄 ドキュメント
 
 **設計・仕様:**
-設計書は目指す姿を書き、実装した節に「実装済み」の印を付ける（`05_api_openapi.yaml` だけは実装の写し）。
+設計書は目指す姿を書き、実装した節に「実装済み」の印を付ける（README と DEPLOYMENT は実装の写し）。
 
 - [要件定義](./docs/01_requirements.md)
 - [設計の全体像と決定の記録](./docs/02_design_overview.md)
 - [画面設計（アプリの作りの方針を含む）](./docs/03_screen_design.md)
 - [データ設計（Cosmos DB・Blob Storage）](./docs/04_data_design.md)
 - [API 設計（共通の決まりを含む）](./docs/05_api_design.md)
-- [OpenAPI 仕様書（実装の写し。エンドポイントはまだ書いていない）](./docs/05_api_openapi.yaml)
 - [裏の処理（分類・識別・タイムライン）](./docs/06_processing_design.md)
 - [インフラ設計](./docs/07_infrastructure_design.md)
 - [テスト計画](./docs/08_test_plan.md)

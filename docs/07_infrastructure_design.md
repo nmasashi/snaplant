@@ -3,7 +3,7 @@
 ## この文書の位置づけ
 
 旅行アルバムのために `infrastructure/`（Terraform）・`api/host.json`・CI/CD に加える変更を、段階ごとに書く。
-**未実装を含む目指す姿**で、実装した部分には「実装済み」の印を付ける。デプロイの手順と、今ある設定の一覧は `DEPLOYMENT.md`（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/`）をこの `docs/` に移した）。
+**未実装を含む目指す姿**で、実装した部分には「実装済み」の印を付ける。デプロイの手順と、今ある設定の一覧は `DEPLOYMENT.md`（2026-10-25 に、旅行アルバムの設計一式（以前の `docs/travel-album/`）をこの `docs/` に移した）。
 
 `terraform plan` / `apply` には作業マシンにしか無い `terraform.tfstate` と `terraform.tfvars` が要り、**apply は人間が行う**（CLAUDE.md「開発環境」）。
 CI（`terraform.yml`）は `fmt -check` と `validate` だけで、Azure へは通信しない。`.tf` を編集したら `terraform fmt` をかける。
