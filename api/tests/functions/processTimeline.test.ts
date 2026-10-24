@@ -274,6 +274,80 @@ describe('タイムラインのワーカー', () => {
     });
   });
 
+  describe('結果の書き込みが他の操作と重なったとき', () => {
+    const DROPPED = { kind: 'scene' as const, key: photoId('a'), field: 'label' as const, text: '小樽運河さんぽ' };
+    const proposedDraft = () =>
+      proposingDraft({ phase: 'reviewing', job: null, proposedStarts: [photoId('a'), photoId('e')], sceneStarts: [photoId('a'), photoId('e')] });
+
+    /** 結果を書く直前に、他の操作が書いた文書を置く（count 回まで。置いた文書は別の _etag になるので、読んだ _etag 付きの置き換えは 412 になる） */
+    const othersWriteBeforeReplace = (write: (doc: TimelineDocument) => TimelineDocument | null, count = 1) => {
+      let left = count;
+      cosmosBackend.beforeReplace = (id) => {
+        if (id !== TIMELINE_ID || left === 0) return;
+        left -= 1;
+        const doc = write(storedTimeline()!);
+        if (doc === null) {
+          cosmosBackend.documents.delete(TIMELINE_ID);
+        } else {
+          cosmosBackend.documents.set(TIMELINE_ID, doc as any);
+        }
+      };
+    };
+
+    it('下書きがまだ自分のもので処理も担当したときのままなら、読み直した文書に同じ結果を当て直す（他の操作が書いたものは残す）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
+      // 区切り案の間に、利用者が残せなかった文の知らせを閉じた
+      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [], updatedAt: '2026-10-25T08:59:30.000Z' }));
+
+      await runWorker();
+
+      expect(storedTimeline()).toEqual(proposingTimeline({ draft: proposedDraft(), droppedEdits: [], updatedAt: NOW }));
+    });
+
+    it('当て直しは3回まで重なっても書ける', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
+      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [] }), 3);
+
+      await runWorker();
+
+      expect(storedTimeline()).toEqual(proposingTimeline({ draft: proposedDraft(), droppedEdits: [], updatedAt: NOW }));
+    });
+
+    it('当て直しても4回続けて重なったら、内部の失敗として待ちに戻して例外を投げる', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
+      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [] }), 4);
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedTimeline()).toEqual(
+        proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 1, lastError: 'internal', updatedAt: NOW }) }), droppedEdits: [] })
+      );
+    });
+
+    it.each<[string, (doc: TimelineDocument) => TimelineDocument]>([
+      ['下書きをやめた', (doc) => ({ ...doc, draft: null })],
+      ['下書きを出し直した', (doc) => ({ ...doc, draft: proposingDraft({ id: '44444444-4444-4444-8444-444444444444' }) })],
+      ['再投入のタイマーが待ちに戻した', (doc) => ({ ...doc, draft: proposingDraft({ job: pendingJob({ attempts: 1, updatedAt: NOW }) }) })]
+    ])('%sなら、結果も失敗も書かずに終える', async (_case, write) => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      let written: TimelineDocument | undefined;
+      othersWriteBeforeReplace((doc) => (written = write(doc)));
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedTimeline()).toEqual(written);
+    });
+
+    it('タイムラインが消えていたら（旅行の削除など）、何も書かずに終える', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      othersWriteBeforeReplace(() => null);
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(storedTimeline()).toBeUndefined();
+    });
+  });
+
   describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
     /** その日の 6:00 から1分おきに撮った写真（id は日ごとの頭の数と通し番号から作る） */
     const photosOfDay = (date: string, head: number, count: number): TimelinePhotoSnapshot[] =>
