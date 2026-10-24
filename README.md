@@ -68,9 +68,11 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/catalog/kinds` | GET | 図鑑の種類の一覧 |
 | `/api/catalog/entries` | GET | 図鑑の項目の一覧（種類ごと） |
 | `/api/catalog/entry` | GET | 図鑑の項目の詳細（種類と名前で指定） |
+| `/api/trips/{tripId}/timeline` | GET | タイムライン（完成版の日と場面、下書きの状態、写真の増えた・消えた枚数）と、解析中の写真の枚数 |
 | `/api/trips/{tripId}/timeline` | POST | タイムラインを作る・作り直す（区切り案の下書きを作ってキューに積む。202） |
 | `/api/trips/{tripId}/timeline/draft` | GET | タイムラインの下書きの状態（確かめ中なら日と場面も） |
 | `/api/trips/{tripId}/timeline/draft` | DELETE | タイムラインの下書きをやめる |
+| `/api/trips/{tripId}/timeline/draft/scenes` | PUT | タイムラインの下書きの区切りを保存する（確かめ中の日と場面を返す） |
 
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。

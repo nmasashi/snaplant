@@ -51,12 +51,12 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表から（表の順） | 4（4-2a。実装済み） | `catalogKinds.ts` |
 | `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。`offset` / `limit` でページ。各項目に `photoCount`・`coverThumbnailUrl`（`urlExpiresAt` は付けない） | 4（4-2a。実装済み） | `catalogEntries.ts` |
 | `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング（ページごとに `entry` も読み直す） | 4（4-2b。実装済み） | `catalogEntry.ts` |
-| `/api/trips/{tripId}/timeline` | GET | `{ timeline, pendingPhotoCount, urlExpiresAt }` | 完成版と下書きの状態。無ければ `timeline: null`。§5.15 | 5 | `timeline.ts` |
+| `/api/trips/{tripId}/timeline` | GET | `{ timeline, pendingPhotoCount, urlExpiresAt }` | 完成版と下書きの状態。無ければ `timeline: null`。§5.15 | 5（5-1c。実装済み） | `timeline.ts` |
 | `/api/trips/{tripId}/timeline` | POST | `{ draft, urlExpiresAt }` 202 | 作る・作り直す（区切り案の下書きから）。解析中の写真があれば 409 | 5（5-1a。実装済み） | `timeline.ts` |
 | `/api/trips/{tripId}/timeline/recut` | POST | `{ draft, urlExpiresAt }` | 完成版の区切りを直し始める（下書きを作る） | 5 | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft` | GET | `{ draft, urlExpiresAt }` | 下書きの状態と、確かめ中なら区切り | 5（5-1a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft` | DELETE | `{ draft: null }` | 下書きをやめる | 5（5-1a。実装済み） | `timelineDraft.ts` |
-| `/api/trips/{tripId}/timeline/draft/scenes` | PUT | `{ draft, urlExpiresAt }` | `{ sceneStarts }`。下書きの区切りを保存 | 5 | `timelineDraft.ts` |
+| `/api/trips/{tripId}/timeline/draft/scenes` | PUT | `{ draft, urlExpiresAt }` | `{ sceneStarts }`。下書きの区切りを保存。`draft` は `GET …/draft` の確かめ中と同じ形 | 5（5-1c。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft/write` | POST | `{ draft, urlExpiresAt }` 202 | 確かめた区切りで文を書く | 5 | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/days/{date}` | PATCH | `{ timeline, pendingPhotoCount, urlExpiresAt }` | `{ title?, summary? }`。完成版の文 | 5 | `timelineTexts.ts` |
 | `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | 同上 | `{ label?, note? }`。完成版の文 | 5 | `timelineTexts.ts` |
@@ -69,7 +69,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 - 同じルートを複数ファイルが別々のメソッドで登録してもよい（植物図鑑の `plants/{id}` はそうしていた。4-6 で削除）が、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
   実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）・`deleteTrip`（DELETE）、
-  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）、`catalogEntry.ts` が `getCatalogEntry`（GET。4-2b）、`timeline.ts` が `createTimeline`（POST。5-1a）、`timelineDraft.ts` が `getTimelineDraft`（GET）・`deleteTimelineDraft`（DELETE。どちらも 5-1a）。
+  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）、`catalogEntry.ts` が `getCatalogEntry`（GET。4-2b）、`timeline.ts` が `getTimeline`（GET。5-1c）・`createTimeline`（POST。5-1a）、`timelineDraft.ts` が `getTimelineDraft`（GET）・`deleteTimelineDraft`（DELETE。どちらも 5-1a）・`putTimelineDraftScenes`（PUT。`…/draft/scenes`。5-1c）。
   植物図鑑の `plantDetail.ts`（4-6 で削除）のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
@@ -663,7 +663,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 ### 5.15 タイムライン（段階5）
 
 **実装済み**（5-1a。`timeline.ts`・`timelineDraft.ts`、文書の操作は `services/timelineService.ts`、日と場面の組み立ては `services/timelineView.ts`）: 「共通」（ボディの行を除く）、「応答の形」のうち `draft`（状態）、`GET …/timeline/draft`・`POST …/timeline`・`DELETE …/timeline/draft`。
-未実装: `GET …/timeline`（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）・`PUT …/draft/scenes`（5-1c）、`POST …/recut`・`POST …/draft/write`・`PATCH` の2つ・`DELETE …/dropped-edits`（5-2）。
+**実装済み**（5-1c。`timeline.ts` の `getTimeline`・`timelineDraft.ts` の `putTimelineDraftScenes`、完成版の組み立ては `services/timelineView.ts` の `currentTimelineOf()`）: 「共通」のボディの行（`PUT` の分）、「応答の形」の全部（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）、`GET …/timeline`・`PUT …/draft/scenes`。
+未実装: `POST …/recut`・`POST …/draft/write`・`PATCH` の2つ・`DELETE …/dropped-edits`（5-2）。完成版（`current`）と `droppedEdits` を書くのは 5-2 のワーカーなので、5-1c の時点では `GET …/timeline` が読む完成版はまだ作られない。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)、文書は [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
 完成版（`current`）と下書き（`draft`）を分けて持ち、下書きの文を書き終えるまで完成版は変わらない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。
@@ -709,17 +710,22 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 }
 ```
 
-- `timeline` は完成版も下書きも無ければ `null`
-- `current`（完成版）: `days`・`scenes` は撮影の順。`startedBy` は区切りを入れた主（`day`: その日の最初の写真、`ai`: AI の案、`user`: 利用者）。`hasFood` は場面に食べ物（`category: "food"`）の写真が1枚でもあるか（画面の印の色）。
+- `timeline` は完成版も下書きも無ければ `null`（そのときも `pendingPhotoCount` と `urlExpiresAt` は返す）
+- `current`（完成版）: 完成版が無ければ `null`（下書きだけのとき）。`days`・`scenes` は撮影の順。日の分け方・場面の組み方は `GET …/timeline/draft` と同じ（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり。日の切り替えは完成版の `dayStartHour`。`startPhotoId` は場面の最初の写真が消えていても控えの最初の写真の id のまま）。
+  日の `title`・`titleSource`・`summary`・`summarySource` と、場面の `label`・`labelSource`・`note`・`noteSource` は完成版の文（日は日付、場面は `startPhotoId` で引く）で、その日・場面の文が完成版に無ければ4つとも `null`。`startedBy` は区切りを入れた主（`day`: その日の最初の写真、`ai`: AI の案、`user`: 利用者）。`hasFood` は場面に食べ物（`category: "food"`）の写真が1枚でもあるか（画面の印の色）。
   `names` は場面の写真の識別の名前、`placeNames` は地名（どちらも重なりを除いて撮影の順）。`photos` は控えから作り、**その後に消えた写真は出さない**（写真が全部消えた場面・日も出さない）。
   `thumbnailUrl` はサムネイル（無ければ原寸）の読み取りの SAS（§6）。`undatedPhotos` は撮影日時の無い写真（同じ形）
 - `draft`（下書き）は状態だけ（`id`・`reason`・`phase`・`job`（`step`・`state`・`lastError`）・`startedAt`）。区切りの中身は `GET …/timeline/draft` で読む
-- `changes` は、完成版の控えと今の写真の差（増えた・消えた枚数。日時の無い写真も数える）。完成版が無ければ `null`
+- `changes` は、完成版の控えと今の写真の差（`added` は旅行の今の写真のうち控えに無いもの（解析中の写真も数える）、`removed` は控えの写真のうち旅行に今は無いもの（消えた・別の旅行へ移した）の枚数。どちらも日時の無い写真も数える）。完成版が無ければ `null`
 - `droppedEdits` は、文を書き直したときに残せなかった利用者の文（`key` は日付か場面の最初の写真の id）。無ければ `[]`
 
 **`GET /api/trips/{tripId}/timeline`** → 200 `{ timeline, pendingPhotoCount, urlExpiresAt }`
 
-- `pendingPhotoCount` は、解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`）写真の枚数。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
+**実装済み**（5-1c。`timeline.ts` の `getTimeline`）。
+
+- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
+- 読むのは、タイムラインの文書と旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と解析の状態）を並べて、完成版があればその控え。増えた・消えた枚数と `pendingPhotoCount` は同じ 5.13 の結果から数える。下書きの控えは読まない（`draft` は状態だけ）
+- 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
 **`GET /api/trips/{tripId}/timeline/draft`** → 200 `{ draft, urlExpiresAt }`
 
@@ -728,7 +734,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 下書きが無ければ `draft: null`（タイムラインが無いときも、完成版だけのときも）。あれば状態（上と同じ）に加えて、`phase` が `reviewing` のときだけ `days`（`date`・`dayNumber`・`scenes`。`scenes` は文の無い形で `startPhotoId`・`startedBy`・`hasFood`・`firstTakenAt`・`lastTakenAt`・`placeNames`・`names`・`photos`）と `undatedPhotos` を付ける（区切りの確認の画面が読む）。
   日と場面の組み方は完成版と同じ（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり。日の切り替えは下書きの `dayStartHour`）で、控えを取った後に消えた写真は出さず、写真が全部消えた場面と日も出さない。
   何日目かと場面の分け方は、消えた写真も含めた控えで決める（写真を消しても日の番号や区切りが動かない）。そのため `startPhotoId` は、場面の最初の写真が消えていても控えの最初の写真の id のまま（`photos` の先頭とは限らない）
-- 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中のときだけ、控えと、消えた写真を見分けるための旅行の写真の id（5.13 のクエリ）を読み、写真の保存先の設定を読む（それ以外の `phase` では読まない）
+- 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中のときだけ、控えと、消えた写真を見分けるための旅行の写真（5.13 のクエリ。id だけを使う）を読み、写真の保存先の設定を読む（それ以外の `phase` では読まない）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
 **`POST /api/trips/{tripId}/timeline`**（作る・作り直す。区切り案から）→ 202 `{ draft, urlExpiresAt }`
@@ -755,13 +761,23 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **`PUT /api/trips/{tripId}/timeline/draft/scenes`**（下書きの区切りを保存する）`{ sceneStarts: string[] }` → 200 `{ draft, urlExpiresAt }`
 
+**実装済み**（5-1c。`timelineDraft.ts` の `putTimelineDraftScenes`）。
+
+判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 下の表の 1〜4。表の 3・4 はタイムラインを読んだ後に見る（4 は控えが要る。§1 の「Cosmos DB に触る前に全部弾く」の例外）。
+
 | # | 条件 | 応答 |
 |---|---|---|
-| 1 | 下書きが無い | 404 `TIMELINE_NOT_FOUND` `タイムラインの下書きが見つかりません` |
-| 2 | `phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）のでもない | 409 `TIMELINE_STATE_CONFLICT` |
+| 1 | 下書きが無い（タイムラインが無いときも、完成版だけのときも） | 404 `TIMELINE_NOT_FOUND` `タイムラインの下書きが見つかりません` |
+| 2 | `phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）のでもない（区切り案を作っている・区切り案に失敗した・文を書いている） | 409 `TIMELINE_STATE_CONFLICT` |
 | 3 | `sceneStarts` が無いか、文字列の配列でない | 400 `INVALID_REQUEST` `区切りは写真IDの配列で指定してください` |
-| 4 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない、各日の最初の写真が入っていない | 400 `INVALID_REQUEST` `区切りが無効です` |
-| 5 | それ以外 | 200。下書きの `sceneStarts` を置き換える。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
+| 4 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない、各日の最初の写真が入っていない（日は下書きの `dayStartHour` で分ける） | 400 `INVALID_REQUEST` `区切りが無効です` |
+| 5 | それ以外 | 200。下書きの `sceneStarts` を置き換え、`updatedAt` を今にする（下書きのほかの欄・完成版・残せなかった文は変えない）。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
+
+- 1〜4 のどれかで返すときは何も書かない
+- 4 は控えで見るので、控えを取った後に消えた写真の id も区切りに使える（表示では消えた写真を出さず、場面の `startPhotoId` はその id のまま）
+- 応答の `draft` は `GET …/timeline/draft` の確かめ中と同じ形（状態に、保存した区切りで組んだ `days` と `undatedPhotos`。控えを取った後に消えた写真は出さない）
+- 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
+- 500 の `message` は `タイムラインの区切りの保存に失敗しました`（§7.2）
 
 画面は区切りを1つ直すたびに送る（途中でやめても残る。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #46）。
 
@@ -829,7 +845,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 409 | `TIMELINE_NO_DATED_PHOTOS` | 撮影日時のある写真が無い | 同上 |
 | 400 / 413 / 415 / 500 / 502 / 503 | 既存のコード | 既存と同じ意味 | |
 
-段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。ほかのタイムラインのエンドポイントは未実装（§5.15）。
+段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c。どちらも `タイムラインの下書きが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。ほかのタイムラインのエンドポイントは未実装（§5.15）。
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
@@ -861,7 +877,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `PUT …/draft/scenes` | `タイムラインの区切りの保存に失敗しました` |
 | `DELETE …/draft`・`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | `タイムラインの更新に失敗しました` |
 
-段階5の行のうち実装済み（5-1a）は `GET …/timeline/draft`・`POST …/timeline`・`DELETE …/draft` の3つ。
+段階5の行のうち実装済みは `GET …/timeline/draft`・`POST …/timeline`・`DELETE …/draft`（5-1a）と `GET …/timeline`・`PUT …/draft/scenes`（5-1c）。
 
 ### 7.3 502 / 503
 
