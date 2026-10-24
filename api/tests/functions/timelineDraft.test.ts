@@ -164,6 +164,30 @@ describe('タイムラインの下書きAPI', () => {
       });
     });
 
+    it('文を書いている下書きも、状態だけを返す（日と場面は返さない）', async () => {
+      placeSnapshot([snap('a', '2026-10-05T07:50:00')]);
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(
+          draftOf({
+            phase: 'writing',
+            sceneStarts: [photoId('a')],
+            job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' }
+          })
+        )
+      );
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect((response.jsonBody as any).data.draft).toEqual({
+        id: DRAFT_ID,
+        reason: 'create',
+        phase: 'writing',
+        job: { step: 'write', state: 'pending', lastError: null },
+        startedAt: '2026-10-25T08:50:00.000Z'
+      });
+    });
+
     it('確かめ中の下書きは、日ごと・場面ごとに写真を並べて返す（日付の切り替えは朝4時、日時なしは最後）', async () => {
       placeSnapshot([
         // 1日目: 朝ごはん（AI の区切り）と午前（利用者が足した区切り）。深夜 2:30 の写真は前の日（1日目）に入る
@@ -381,6 +405,22 @@ describe('タイムラインの下書きAPI', () => {
       });
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
       expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID, SNAPSHOT_ID].sort());
+    });
+
+    it('完成版の無い下書きでも、読んでから消すまでに他の操作がタイムラインを書いたら、409 で何も消さない', async () => {
+      cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
+      const written = timelineWith(draftOf({ sceneStarts: [photoId('a')] }));
+      cosmosBackend.beforeDelete = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
+      };
+
+      const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
+      expect(storedSnapshotIds()).toEqual([SNAPSHOT_ID]);
     });
 
     it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {

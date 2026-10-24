@@ -142,6 +142,8 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocume
    * （コールバックの中で `documents` に別の文書を置く。置いた文書は別の `_etag` になるので、読んだ `_etag` 付きの置き換えは 412 になる）
    */
   beforeReplace?: (id: string) => void;
+  /** `item(id).delete()` の冒頭で呼ばれる。`beforeReplace` と同じく、読んだ後・消す直前に他のリクエストが書き換えたを再現する */
+  beforeDelete?: (id: string) => void;
   forcedDeleteError?: Error | null;
   /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
   forcedPatchError?: Error | null;
@@ -483,6 +485,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
       },
       delete: async (options?: { accessCondition?: { type: string; condition: string } }) => {
         assertSdkItemId(id);
+        backend.beforeDelete?.(id);
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();

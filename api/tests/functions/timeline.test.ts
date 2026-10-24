@@ -159,7 +159,8 @@ describe('タイムラインを作るAPI', () => {
         takenAtSource: 'exif',
         sortAt: '2026-10-05T10:10:00',
         category: 'landscape',
-        identification: { kind: 'landscape', matchesKind: false, name: null },
+        // 分類と合わない写真の名前は控えに入れない（名前が残っていても）
+        identification: { kind: 'landscape', matchesKind: false, name: '小樽運河' },
         thumbnailBlobName: null
       })
     );
