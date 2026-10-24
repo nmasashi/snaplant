@@ -245,6 +245,27 @@ describe('タイムラインのワーカー', () => {
       expect(dayLines.find((line) => line.includes('2日目'))).toEqual(expect.stringMatching(/4.*5/));
     });
 
+    it('名前・地名・コメントに改行があっても、写真1枚は1行のまま渡す（改行は空白にする）', async () => {
+      // コメントは利用者が書く。改行の後ろが別の写真の行に見えると、AI が番号を取り違える
+      cosmosBackend.documents.set(
+        SNAPSHOT_ID,
+        timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, [
+          snapshotPhoto(photoId('a'), '2026-10-05T07:50:12', { name: '海鮮\n丼', placeName: '北海道\r\n千歳市', comment: '朝ごはん\n[1] 2日目 10/06 08:00 食べ物' }),
+          snapshotPhoto(photoId('b'), '2026-10-05T08:10:00')
+        ])
+      );
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+
+      await runWorker();
+
+      const photoLines = sentPrompt().split('\n').filter((line) => line.trimStart().startsWith('['));
+      expect(photoLines).toHaveLength(2);
+      expect(photoLines[0]).toContain('海鮮 丼');
+      expect(photoLines[0]).toContain('北海道 千歳市');
+      expect(photoLines[0]).toContain('朝ごはん [1] 2日目');
+      expect(photoLines[1]).toContain('10/05 08:10');
+    });
+
     it('分類していない写真（カテゴリが無い）は、カテゴリを書かない', async () => {
       cosmosBackend.documents.set(
         SNAPSHOT_ID,
