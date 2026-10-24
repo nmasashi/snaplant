@@ -19,9 +19,23 @@ const STALE_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifyi
 export async function requeueStalePhotosHandler(_timer: Timer, context: InvocationContext): Promise<void> {
   const now = new Date();
   const before = new Date(now.getTime() - PHOTO_REQUEUE_AFTER_MINUTES * 60 * 1000).toISOString();
+  const maxAttempts = photoProcessingMaxAttempts();
+  // 写真と下書きは別々に進める。片方の失敗（写真1枚の書き込みの失敗など）で、もう片方が止まったままにならないように。
+  // 失敗は最後に投げる（次の回にやり直す。ログにも残す）
+  const results = await Promise.allSettled([
+    requeuePhotos(now, before, maxAttempts, context),
+    requeueDrafts(now, before, maxAttempts, context),
+  ]);
+  const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (rejected) {
+    throw rejected.reason;
+  }
+}
+
+/** 止まった写真を解析待ちに戻して積む。上限なら失敗にする（06 §1.1） */
+async function requeuePhotos(now: Date, before: string, maxAttempts: number, context: InvocationContext): Promise<void> {
   const album = new AlbumService();
   const photos = await album.listStalePhotos(before);
-  const maxAttempts = photoProcessingMaxAttempts();
 
   let requeued = 0;
   let failed = 0;
@@ -49,8 +63,10 @@ export async function requeueStalePhotosHandler(_timer: Timer, context: Invocati
     }
   }
   context.log(`再投入のタイマー: 止まっていた写真 ${photos.length} 枚、積んだ ${requeued} 枚、失敗にした ${failed} 枚`);
+}
 
-  // タイムラインの下書き（段階5）。写真と同じく、待ちに戻してから積み、上限なら失敗にする（06 §8.1）
+/** 止まったタイムラインの下書き（段階5）を、写真と同じく待ちに戻して積む。上限なら失敗にする（06 §8.1） */
+async function requeueDrafts(now: Date, before: string, maxAttempts: number, context: InvocationContext): Promise<void> {
   const timelines = new TimelineService();
   const drafts = await timelines.listStaleDrafts(before);
   let requeuedDrafts = 0;
