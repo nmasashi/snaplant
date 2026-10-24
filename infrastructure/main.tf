@@ -75,6 +75,14 @@ resource "azurerm_storage_queue" "photo_processing" {
   storage_account_id = azurerm_storage_account.main.id
 }
 
+# 旅行アルバムのタイムライン（段階5）のキュー。API が { tripId, draftId } を入れ、ワーカーが区切り案と文を1件ずつ作る。
+# 写真のキューと分けるのは、写真の解析が溜まっていてもタイムラインを待たせないため。poison キューは写真と同じく Functions が作る。
+# docs/07_infrastructure_design.md §7・06_processing_design.md §8
+resource "azurerm_storage_queue" "timeline_processing" {
+  name               = "timeline-processing"
+  storage_account_id = azurerm_storage_account.main.id
+}
+
 # Cosmos DBアカウントの作成
 resource "azurerm_cosmosdb_account" "main" {
   name                = "cosmos-${var.project_name}-${random_string.suffix.result}"
@@ -208,6 +216,10 @@ resource "azurerm_linux_function_app" "main" {
     # （未設定なら AZURE_OPENAI_DEPLOYMENT_NAME を使う。07 §2）
     "PHOTO_QUEUE_NAME"              = azurerm_storage_queue.photo_processing.name
     "PHOTO_PROCESSING_MAX_ATTEMPTS" = "3"
+
+    # 旅行アルバムのタイムライン（段階5）。日付の切り替えの時刻（TIMELINE_DAY_START_HOUR）と
+    # タイムライン用のデプロイ名（AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME）は書かない（未設定なら 4 と AZURE_OPENAI_DEPLOYMENT_NAME。07 §7）
+    "TIMELINE_QUEUE_NAME" = azurerm_storage_queue.timeline_processing.name
   }
 
   # Azure がポータルの表示のために自動で付けるタグ。定義に無いので apply のたびに消そうとする差分が出る（害は無いが紛らわしい）
