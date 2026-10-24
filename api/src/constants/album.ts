@@ -1,4 +1,4 @@
-import { positiveIntFromEnv } from './validation';
+import { hourFromEnv, positiveIntFromEnv } from './validation';
 
 /**
  * 旅行アルバムの定数
@@ -70,3 +70,20 @@ export const PHOTO_REQUEUE_AFTER_MINUTES = 10;
  * 送信は数分で終わるので、1日あれば途中の Blob を消すことは無い（docs/04_data_design.md §7.2）
  */
 export const ORPHAN_BLOB_MIN_AGE_HOURS = 24;
+
+/**
+ * タイムラインの日付の切り替えの時刻（TIMELINE_DAY_START_HOUR。0〜23、既定 4）
+ *
+ * 4 なら 10月6日 2:30 の写真は 10月5日に入る（深夜まで出かけた写真を前の日に入れる）。
+ * 作る・作り直すときに読み、下書きに書く（後で変えても、作り直すまでその値で日を分ける。docs/07_infrastructure_design.md §6.1）
+ */
+export function timelineDayStartHour(): number {
+  return hourFromEnv(process.env.TIMELINE_DAY_START_HOUR, 4);
+}
+
+/**
+ * タイムラインの写真の控えに残すコメントの長さ（文字）
+ *
+ * AI に渡す分だけを残す。全文（最大 500 文字）を控えると、写真の多い旅行で控えの文書が大きくなる（docs/04_data_design.md §1.6）
+ */
+export const TIMELINE_SNAPSHOT_COMMENT_LENGTH = 100;

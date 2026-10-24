@@ -1,0 +1,141 @@
+import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
+import { v4 as uuidv4 } from 'uuid';
+import { AlbumService } from '../services/albumService';
+import { TimelinePhotoRow, TimelineService, timelineIdOf } from '../services/timelineService';
+import { enqueueTimelineOrLog } from '../services/timelineQueueService';
+import { photoUrlExpiresOn } from '../services/photoStorageService';
+import {
+  createDatabaseErrorResponse,
+  createErrorResponse,
+  createNotFoundError,
+  createSuccessResponse,
+  createValidationError,
+  isValidUUID
+} from '../utils/response';
+import { ErrorCode, HttpStatusCode } from '../types/api';
+import { TimelineDocument, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
+import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, timelineDayStartHour } from '../constants/album';
+
+/** 解析が済んでいない写真の状態（none・done・failed は済んだものとして扱う。01 §5.3.1） */
+const UNFINISHED_STATES: readonly string[] = ['pending', 'classifying', 'identifying'];
+
+/**
+ * タイムラインを作る・作り直す API（区切り案の下書きを作って、キューに積む。区切り案はワーカーが後で出す）
+ * POST /api/trips/{tripId}/timeline?code={FUNCTION_KEY}
+ */
+export async function createTimelineHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const tripId = request.params.tripId;
+  context.log(`タイムラインの作成リクエストを受信: 旅行=${tripId}`);
+  if (!isValidUUID(tripId)) {
+    return createValidationError('旅行IDの形式が無効です');
+  }
+  let draft: TimelineDraft;
+  try {
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const timelines = new TimelineService();
+    const existing = await timelines.readTimeline(tripId);
+    const job = existing?.doc.draft?.job;
+    if (job && (job.state === 'pending' || job.state === 'running')) {
+      return stateConflict();
+    }
+    const rows = await timelines.readTripPhotosForSnapshot(tripId);
+    if (rows.some((row) => UNFINISHED_STATES.includes(row.processing.state))) {
+      return createErrorResponse(
+        ErrorCode.TIMELINE_PHOTOS_PROCESSING,
+        '解析中の写真があります。終わってから作ってください',
+        HttpStatusCode.CONFLICT
+      );
+    }
+    if (!rows.some((row) => row.takenAt !== null)) {
+      return createErrorResponse(ErrorCode.TIMELINE_NO_DATED_PHOTOS, '撮影日時のある写真がありません', HttpStatusCode.CONFLICT);
+    }
+
+    const now = new Date().toISOString();
+    const snapshotId = `timeline-photos-${tripId}-${uuidv4()}`;
+    await timelines.createSnapshot({ id: snapshotId, type: 'timelinePhotos', tripId, photos: snapshotPhotosOf(rows), createdAt: now });
+    draft = {
+      id: uuidv4(),
+      reason: 'create',
+      phase: 'proposing',
+      job: { step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: now },
+      snapshotId,
+      dayStartHour: timelineDayStartHour(),
+      proposedStarts: [],
+      sceneStarts: [],
+      startedAt: now,
+    };
+    const doc: TimelineDocument = {
+      id: timelineIdOf(tripId),
+      type: 'timeline',
+      tripId,
+      current: null,
+      draft,
+      droppedEdits: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await timelines.createTimeline(doc);
+  } catch (error: any) {
+    context.log('タイムラインの作成の受付エラー:', error);
+    return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');
+  }
+
+  await enqueueTimelineOrLog(tripId, draft.id, (...args) => context.log(...args));
+  return createSuccessResponse(
+    { draft: draftStatusOf(draft), urlExpiresAt: photoUrlExpiresOn().toISOString() },
+    HttpStatusCode.ACCEPTED
+  );
+}
+
+/** 作っている途中、または読んでから書くまでに他が書いた（05 §5.15 の共通） */
+function stateConflict(): HttpResponseInit {
+  return createErrorResponse(
+    ErrorCode.TIMELINE_STATE_CONFLICT,
+    'タイムラインが変わったか、作っている途中です。読み直してください',
+    HttpStatusCode.CONFLICT
+  );
+}
+
+/**
+ * 写真の射影から控えを作る。撮影日時のある写真が撮影の順で先、無い写真が後（04 §1.6）
+ *
+ * 名前は分類と合った識別の名前だけ。コメントは AI に渡す分（先頭）だけを残す
+ */
+function snapshotPhotosOf(rows: TimelinePhotoRow[]): TimelinePhotoSnapshot[] {
+  const bySortAt = (a: TimelinePhotoRow, b: TimelinePhotoRow) => a.sortAt.localeCompare(b.sortAt);
+  const dated = rows.filter((row) => row.takenAt !== null).sort(bySortAt);
+  const undated = rows.filter((row) => row.takenAt === null).sort(bySortAt);
+  return [...dated, ...undated].map((row) => {
+    const identification = row.identification as { matchesKind?: unknown; name?: unknown } | null;
+    return {
+      id: row.id,
+      takenAt: row.takenAt,
+      category: row.category,
+      name: identification?.matchesKind === true && typeof identification.name === 'string' ? identification.name : null,
+      placeName: row.location?.placeName ?? null,
+      comment: row.comment === null ? null : row.comment.slice(0, TIMELINE_SNAPSHOT_COMMENT_LENGTH),
+      blobName: row.blobName,
+      thumbnailBlobName: row.thumbnailBlobName,
+    };
+  });
+}
+
+/** 下書きの状態（応答の形。05 §5.15） */
+function draftStatusOf(draft: TimelineDraft): TimelineDraftStatus {
+  return {
+    id: draft.id,
+    reason: draft.reason,
+    phase: draft.phase,
+    job: draft.job ? { step: draft.job.step, state: draft.job.state, lastError: draft.job.lastError } : null,
+    startedAt: draft.startedAt,
+  };
+}
+
+app.http('createTimeline', {
+  methods: ['POST'],
+  authLevel: 'function',
+  route: 'trips/{tripId}/timeline',
+  handler: createTimelineHandler,
+});

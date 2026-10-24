@@ -12,5 +12,6 @@ import './functions/photos';
 import './functions/processPhoto';
 import './functions/requeueStalePhotos';
 import './functions/sweepAlbum';
+import './functions/timeline';
 import './functions/tripDetail';
 import './functions/trips';
