@@ -149,7 +149,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, expiresOn), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの区切りの保存エラー:', error);
-    return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
+    return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
   }
 }
 
