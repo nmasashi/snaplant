@@ -262,9 +262,8 @@ export class TimelineService {
     try {
       await this.container.item(id, id).patch({
         condition:
-          `FROM c WHERE c.draft.id = ${sqlString(draftId)} AND c.draft.job.state = ${sqlString(expected.state)}` +
-          ` AND c.draft.job.step = ${sqlString(expected.step)} AND c.draft.job.attempts = ${Number(expected.attempts)}` +
-          ` AND c.draft.job.updatedAt = ${sqlString(expected.updatedAt)}`,
+          `FROM c WHERE c.draft.id = ${sqlString(draftId)}` +
+          JOB_IDENTITY.map((field) => ` AND c.draft.job.${field} = ${jobValueLiteral(expected[field])}`).join(''),
         operations: [{ op: 'set', path: '/draft/job', value: job }],
       });
       return true;
@@ -307,15 +306,22 @@ export function timelineIdOf(tripId: string): string {
 /** 結果の書き込みが他の操作と重なったときに、読み直して当て直す回数（06 §8.1） */
 const RESULT_RETRIES = 3;
 
+/**
+ * 下書きの処理が「読んだときのまま」かを見分ける項目
+ *
+ * 条件付き patch の条件（writeDraftJob）と、結果を当て直すときの確かめ（sameJob）の両方をここから作る（片方だけ項目が増えて、
+ * 結果の書き込みと失敗の書き込みで「まだ自分の担当か」の判断が食い違わないように）
+ */
+const JOB_IDENTITY = ['state', 'step', 'attempts', 'updatedAt'] as const;
+
+/** patch の条件に埋める job の値（数はそのまま、文字列はエスケープする） */
+function jobValueLiteral(value: string | number): string {
+  return typeof value === 'number' ? String(Number(value)) : sqlString(value);
+}
+
 /** 下書きの処理が担当したときのままか（担当の後に、再投入のタイマーが待ちに戻すなどしていないか） */
 function sameJob(job: TimelineJob | null, claimed: TimelineJob): boolean {
-  return (
-    job !== null &&
-    job.step === claimed.step &&
-    job.state === claimed.state &&
-    job.attempts === claimed.attempts &&
-    job.updatedAt === claimed.updatedAt
-  );
+  return job !== null && JOB_IDENTITY.every((field) => job[field] === claimed[field]);
 }
 
 /**

@@ -16,7 +16,8 @@ export async function proposeScenes(
   current: TimelineCurrent | null
 ): Promise<{ proposedStarts: string[]; sceneStarts: string[] }> {
   const days = datedDaysOf(photos, draft.dayStartHour);
-  const ordered = days.flatMap((day) => day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber })));
+  // 撮影日時のある写真の id（撮影の順）
+  const ordered = days.flatMap((day) => day.photos.map((photo) => photo.id));
   const { calls, cuts } = proposalCallsOf(days);
   const proposer = new TimelineProposerService();
   const proposed: string[] = [];
@@ -36,7 +37,7 @@ export async function proposeScenes(
     starts = new Set([...proposed, ...added].filter((id) => !removed.has(id)));
   }
   // 撮影の順に並べる。控えに無い・撮影日時の無い写真の区切りはここで落ちる
-  const inOrder = (ids: Set<string>) => ordered.map(({ photo }) => photo.id).filter((id) => ids.has(id));
+  const inOrder = (ids: Set<string>) => ordered.filter((id) => ids.has(id));
   return {
     proposedStarts: inOrder(new Set([...proposed, ...dayStarts])),
     sceneStarts: inOrder(new Set([...starts, ...dayStarts])),
