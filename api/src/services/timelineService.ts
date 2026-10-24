@@ -2,7 +2,7 @@ import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { PhotoDocument, PhotoProcessing } from '../types/album';
-import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotosDocument } from '../types/timeline';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<
@@ -69,13 +69,19 @@ export class TimelineService {
   }
 
   /**
-   * 写真の控えを読む
+   * 写真の控えの写真を読む。無ければ投げる
+   *
+   * 下書き・完成版が指している控えは消さない決まりなので、無ければ壊れている。空として扱うと、日と場面が空になり、
+   * 全部の写真が増えたと知らせ、区切りを無効と返してしまうので、内部の失敗にする（04 §1.6）
    * @param id 控えの id
-   * @returns 控え。無ければ null
+   * @throws Error 控えが無い
    */
-  async readSnapshot(id: string): Promise<TimelinePhotosDocument | null> {
+  async readSnapshotPhotos(id: string): Promise<TimelinePhotoSnapshot[]> {
     const { resource } = await this.container.item(id, id).read<TimelinePhotosDocument>();
-    return resource?.type === 'timelinePhotos' ? resource : null;
+    if (resource?.type !== 'timelinePhotos') {
+      throw new Error(`写真の控えがありません: ${id}`);
+    }
+    return resource.photos;
   }
 
   /**

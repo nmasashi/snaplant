@@ -159,12 +159,7 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
     let current = null;
     let changes = null;
     if (doc.current) {
-      const snapshotDoc = await timelines.readSnapshot(doc.current.snapshotId);
-      if (!snapshotDoc) {
-        // 完成版が指す控えは消さない決まりなので、ふつうは起きない。空の完成版として返すが、壊れていることをログに残す
-        context.log(`完成版の写真の控えがありません: 旅行=${tripId}, 控え=${doc.current.snapshotId}`);
-      }
-      const snapshot = snapshotDoc?.photos ?? [];
+      const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
       const existing = new Set(photos.map((photo) => photo.id));
       const snapshotIds = new Set(snapshot.map((photo) => photo.id));
       const storage = new PhotoStorageService();

@@ -41,9 +41,9 @@ export async function getTimelineDraftHandler(request: HttpRequest, context: Inv
       return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
     }
     // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
-    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
     return createSuccessResponse({
-      draft: reviewingDraftOf(draft, snapshot?.photos ?? [], existing, new PhotoStorageService(), expiresOn),
+      draft: reviewingDraftOf(draft, photos, existing, new PhotoStorageService(), expiresOn),
       urlExpiresAt: expiresOn.toISOString(),
     });
   } catch (error: any) {
@@ -134,8 +134,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!Array.isArray(sceneStarts) || !sceneStarts.every((id) => typeof id === 'string')) {
       return createValidationError('区切りは写真IDの配列で指定してください');
     }
-    const [snapshot, existing] = await Promise.all([timelines.readSnapshot(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
-    const photos = snapshot?.photos ?? [];
+    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
     if (!isValidSceneStarts(sceneStarts, photos, draft.dayStartHour)) {
       return createValidationError('区切りが無効です');
     }
