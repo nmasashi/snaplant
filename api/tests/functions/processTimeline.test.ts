@@ -3,7 +3,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { processTimelineHandler } from '../../src/functions/processTimeline';
 import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot } from '../../src/types/timeline';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
-import { timelineDocument, timelineDraft, timelinePhotosDocument, tripDocument } from '../helpers/albumDocuments';
+import { timelineCurrent, timelineDocument, timelineDraft, timelinePhotosDocument, tripDocument } from '../helpers/albumDocuments';
 
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物、AI（管理外）は送った要求を残すモック
 jest.mock('@azure/cosmos');
@@ -176,6 +176,29 @@ describe('タイムラインのワーカー', () => {
           updatedAt: NOW
         })
       );
+    });
+
+    it('作り直しでは、完成版で利用者が足した区切りを足し、消した区切りを消し（控えに無い写真の区切りは捨てる）、最後に各日の最初の写真を足す', async () => {
+      // 完成版: AI の案 a・c・d に対して、利用者が b と控えに無い写真 z を足し、c と d を消した
+      const current = timelineCurrent(`timeline-photos-${TRIP_ID}-old`, {
+        proposedStarts: [photoId('a'), photoId('c'), photoId('d')],
+        sceneStarts: [photoId('a'), photoId('b'), photoId('z')]
+      });
+      // 日付の切り替えを2時に変えて作り直したので、10/06 02:30 の d は2日目の最初になる（利用者が消していても場面の始まり）
+      const draft = proposingDraft({ reason: 'rebuild', dayStartHour: 2 });
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ current, draft }));
+      aiReturns({ sceneStarts: [0, 2, 3, 4] });
+
+      await runWorker();
+
+      expect(storedTimeline()?.draft).toEqual({
+        ...draft,
+        phase: 'reviewing',
+        job: null,
+        proposedStarts: [photoId('a'), photoId('c'), photoId('d'), photoId('e')],
+        sceneStarts: [photoId('a'), photoId('b'), photoId('d'), photoId('e')]
+      });
+      expect(storedTimeline()?.current).toEqual(current);
     });
 
     it('区切り案を出している間、下書きの処理は処理中（running）で、回数と時刻が更新されている', async () => {
