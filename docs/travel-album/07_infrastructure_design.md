@@ -256,7 +256,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `AZURE_OPENAI_IDENTIFY_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | 識別用のデプロイ名。分類と同じく、別のモデルに変えるときに設定する | `PhotoIdentifierService` | 4 |
 | `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` | `AZURE_OPENAI_DEPLOYMENT_NAME` の値 | タイムラインの区切り案と文に使うデプロイ名（分類・識別と同じ形） | タイムラインのワーカー（[06 §8](./06_processing_design.md#8-タイムライン段階5)） | 5 |
 | `TIMELINE_QUEUE_NAME` | （必須。既定値なし。Terraform が `timeline-processing` を入れる）。`PHOTO_QUEUE_NAME` と同じ理由で既定値を持たない | タイムラインのキュー名 | 投入する側（`POST …/timeline`・`POST …/write`・再投入のタイマー）とワーカー（`processTimeline.ts`） | 5 |
-| `TIMELINE_DAY_START_HOUR` | `4` | 日付の切り替えの時刻（0〜23 時）。4 なら 10月6日 2:30 の写真は 10月5日に入る。**0 を受け付けるので `positiveIntFromEnv()` ではなく、0〜23 の整数として読めなければ既定値に戻す読み方**（`hourFromEnv()` を足す）。区切り案を出すときに読み、文書に控える（後で変えても、作り直すまでその値で分ける） | 区切り案のワーカー | 5 |
+| `TIMELINE_DAY_START_HOUR` | `4` | 日付の切り替えの時刻（0〜23 時）。4 なら 10月6日 2:30 の写真は 10月5日に入る。**0 を受け付けるので `positiveIntFromEnv()` ではなく、0〜23 の整数として読めなければ既定値に戻す読み方**（`hourFromEnv()` を足す）。タイムラインを作る・作り直すとき（`POST …/timeline`）に読み、下書きに書く（後で変えても、作り直すまでその値で分ける） | `POST /api/trips/{tripId}/timeline` | 5 |
 | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | `40` / `400` / `30` / `200` | 日のタイトル・まとめ、場面の見出し・一言の上限（文字） | `PATCH …/timeline/days/{date}`・`scenes/{photoId}` と、AI の文の切り詰め | 5 |
 | `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |
 
@@ -277,6 +277,7 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `CLASSIFY_IMAGE_SAS_MINUTES`（`constants/album.ts`） | `15` | AI に渡す原寸の読み取り SAS の有効期限（分）。植物図鑑の一時画像の SAS（`services/storageService.ts` の `TEMP_SAS_EXPIRY_MINUTES`、同じく 15 分のコードの定数。4-6 で削除）と同じ理由で、関数の実行時間の上限（`api/host.json` の `functionTimeout` = 5 分）に時計のずれの余裕を足した値。環境変数では変えられない | ワーカーの分類と識別（[06 §2.1](./06_processing_design.md#21-モデルとサービス)・[§3.1](./06_processing_design.md#31-契約)） | 3 |
 | `PHOTO_REQUEUE_AFTER_MINUTES`（`constants/album.ts`） | `10` | 解析待ち・処理中のまま、これより長く `processing.updatedAt` が更新されていない写真を再投入する（分）。キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの1回（5 分以内）より長くとる。環境変数では変えられない | 再投入のタイマー（[06 §1.1](./06_processing_design.md#11-構成)） | 3 |
 | `TIMELINE_MAX_PHOTOS_PER_CALL`（`constants/album.ts`） | `400` | タイムラインで AI に一度に渡す写真の数の上限。超える旅行は日の境目で分けて呼ぶ（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)） | タイムラインのワーカー | 5 |
+| `TIMELINE_PROPOSE_MAX_TOKENS` / `TIMELINE_WRITE_MAX_TOKENS`（`constants/album.ts`） | `4000` / `16000` | タイムラインの区切り案・文の `max_completion_tokens`（推論のトークンも含む） | タイムラインのワーカー（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)） | 5 |
 | `ORPHAN_BLOB_MIN_AGE_HOURS`（`constants/album.ts`） | `24` | 文書の無い Blob を消す前に待つ時間（最終更新から）。環境変数では変えられない | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
 | `CATALOG_VALIDATION.NAME_MAX_LENGTH`（`constants/validation.ts`） | `100` | 図鑑の項目の名前（`identification.name`）の最大文字数。環境変数では変えられない | 識別の応答の検証（ワーカー。[06 §3.1](./06_processing_design.md#31-契約)。4-1a）と、図鑑の項目を名前で開く API の `name` の検証（[05 §5.14](./05_api_design.md#514-図鑑段階4)。4-2） | 4 |
 | `OTHER_KIND`・`CATALOG_KINDS`・`PHOTO_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表・定義表のキー + `'other'` | カテゴリと図鑑の種類 | 分類の選択肢と `GET /api/photos` の `category` の検証（`PHOTO_KINDS`）・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
