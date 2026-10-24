@@ -283,12 +283,13 @@ function applyPatchOperations(doc: object, operations: FakePatchOperation[]): ob
       parent = next[segments[0]];
       if (parent === null || typeof parent !== 'object') throw cosmosBadPatchError(`親の path がありません: ${path}`);
     }
+    // 値も複製する（実 SDK は JSON で送るので、呼び出し側が後で値のオブジェクトを書き換えても、置いた文書は変わらない）
     if (op === 'set') {
-      parent[key] = value;
+      parent[key] = structuredClone(value);
     } else if (!(key in parent)) {
       throw cosmosBadPatchError(`存在しない path への ${op} です: ${path}`);
     } else if (op === 'replace') {
-      parent[key] = value;
+      parent[key] = structuredClone(value);
     } else {
       delete parent[key];
     }
@@ -473,6 +474,8 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         }
         // 置いた文書は新しいオブジェクトにして、_etag を進める（呼び出し側が渡したオブジェクトを後で書き換えても、置いた文書は変わらない）
         const stored = structuredClone(doc);
+        // 渡された _etag などのシステム項目は、そのまま置く（実 SDK は振り直すので本番では害が無いが、読んだ結果をそのまま書き戻す
+        // 誤りをテストが置いた文書で見つけられるように。落とすと、システム項目を書き戻さない決まり（04 §5.7）を守るテストが効かなくなる）
         backend.documents.set(id, stored);
         return { resource: { ...structuredClone(stored), _etag: etagOf(stored) } };
       },
@@ -488,7 +491,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         const operations = Array.isArray(body) ? body : body.operations;
         const patched = applyPatchOperations(backend.documents.get(id)!, operations) as TDoc;
         backend.documents.set(id, patched);
-        return { resource: patched };
+        return { resource: structuredClone(patched) };
       },
       delete: async (options?: { accessCondition?: { type: string; condition: string } }) => {
         assertSdkItemId(id);
