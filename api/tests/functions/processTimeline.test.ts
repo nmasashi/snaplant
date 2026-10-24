@@ -54,6 +54,7 @@ const snapshotPhoto = (id: string, takenAt: string | null, overrides: Partial<Ti
 /**
  * 2日の旅行の控え（日付の切り替えは4時）。撮影日時のある写真が撮影の順で先、無い写真が後
  * 1日目（10/05）: a・b・c と、翌日 2:30 の d（4時より前なので 10/05 に入る）。2日目（10/06）: e・f
+ * （写真の無い日を挟んだときの何日目かの数え方は、日の分け方を共有する timelineDraft.test.ts で通している）
  */
 const PHOTOS: TimelinePhotoSnapshot[] = [
   snapshotPhoto(photoId('a'), '2026-10-05T07:50:12', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市', comment: '空港で' }),
@@ -226,7 +227,8 @@ describe('タイムラインのワーカー', () => {
       expect(content.some((part: any) => part.type === 'image_url')).toBe(false);
       const prompt = sentPrompt();
       const first = promptLineOf(prompt, 0)!;
-      for (const element of ['1日目', '10/05 07:50', '食べ物', '海鮮丼', '北海道千歳市', '空港で']) {
+      // 撮影時刻は分まで（秒を付けない。後ろに空白が続く）
+      for (const element of ['1日目', '10/05 07:50 ', '食べ物', '海鮮丼', '北海道千歳市', '空港で']) {
         expect(first).toContain(element);
       }
       // 翌日の 2:30 は日付の切り替え（4時）より前なので1日目
@@ -297,6 +299,20 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()).toEqual(taken);
     });
 
+    it('読んだ後に下書きを出し直していたら（処理は同じ形の待ち）、担当せず AI を呼ばずに終える', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      const reissued = proposingTimeline({ draft: proposingDraft({ id: '44444444-4444-4444-8444-444444444444' }) });
+      let left = 1;
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID && left-- > 0) cosmosBackend.documents.set(TIMELINE_ID, { ...reissued } as any);
+      };
+
+      await expect(runWorker()).resolves.toBeUndefined();
+
+      expect(sent).toEqual([]);
+      expect(storedTimeline()).toEqual(reissued);
+    });
+
     it('応答は Structured Outputs（strict）で区切りの番号の配列に縛り、出力の上限は 4,000 トークン', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
 
@@ -306,9 +322,10 @@ describe('タイムラインのワーカー', () => {
       expect(body.max_completion_tokens).toBe(4000);
       expect(body.response_format.type).toBe('json_schema');
       expect(body.response_format.json_schema.strict).toBe(true);
-      expect(body.response_format.json_schema.schema).toMatchObject({
+      // strict では全プロパティが required に要るので、外側は完全一致で見る（項目の説明の文言は契約外）
+      expect(body.response_format.json_schema.schema).toEqual({
         type: 'object',
-        properties: { sceneStarts: { type: 'array', items: { type: 'integer' } } },
+        properties: { sceneStarts: expect.objectContaining({ type: 'array', items: { type: 'integer' } }) },
         required: ['sceneStarts'],
         additionalProperties: false
       });
@@ -470,6 +487,17 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()?.draft).toMatchObject({ phase: 'reviewing', proposedStarts: starts, sceneStarts: starts });
     });
 
+    it('分けて呼ぶときは順に呼び、前の呼び出しが失敗したら残りは呼ばない', async () => {
+      useSnapshot([...photosOfDay('2026-10-05', 1, 250), ...photosOfDay('2026-10-06', 2, 200)]);
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      // 1回目の番号は1日目の枚数（250）以上なので範囲外
+      replies({ sceneStarts: [250] }, { sceneStarts: [0] });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(sent).toHaveLength(1);
+    });
+
     it('分けて呼ぶ途中で失敗したら、途中までの結果は書かずに全体を失敗にする', async () => {
       useSnapshot([...photosOfDay('2026-10-05', 1, 250), ...photosOfDay('2026-10-06', 2, 200)]);
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
@@ -505,18 +533,37 @@ describe('タイムラインのワーカー', () => {
       );
     });
 
-    it('区切り案の間に下書きをやめていたら、AI が失敗しても失敗を書かずに終える（例外も投げない）', async () => {
+    it.each<[string, TimelineDraft | null]>([
+      ['下書きをやめていた', null],
+      // 新しい下書きを別のインスタンスが同じ時刻に担当した（処理は自分の担当と同じ形。下書きの id だけで見分ける）
+      [
+        '下書きを出し直し、別のインスタンスが担当していた',
+        proposingDraft({ id: '44444444-4444-4444-8444-444444444444', job: pendingJob({ state: 'running', attempts: 1, updatedAt: NOW }) })
+      ]
+    ])('区切り案の間に%sら、AI が失敗しても失敗を書かずに終える（例外も投げない）', async (_case, draft) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
-      let cancelled: TimelineDocument | undefined;
+      let changed: TimelineDocument | undefined;
       reply = async () => {
-        cancelled = { ...storedTimeline()!, draft: null };
-        cosmosBackend.documents.set(TIMELINE_ID, cancelled as any);
+        changed = { ...storedTimeline()!, draft };
+        cosmosBackend.documents.set(TIMELINE_ID, changed as any);
         throw Object.assign(new Error('500 The server had an error while processing your request.'), { name: 'InternalServerError', status: 500 });
       };
 
       await expect(runWorker()).resolves.toBeUndefined();
 
-      expect(storedTimeline()).toEqual(cancelled);
+      expect(storedTimeline()).toEqual(changed);
+    });
+
+    it('失敗を書くときは、処理の時刻を失敗した時刻にする（再投入のタイマーはそこから数える）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
+      reply = async () => {
+        jest.setSystemTime(new Date('2026-10-25T09:03:00.000Z'));
+        throw Object.assign(new Error('500 The server had an error while processing your request.'), { name: 'InternalServerError', status: 500 });
+      };
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedTimeline()?.draft?.job).toEqual(pendingJob({ attempts: 1, lastError: 'ai', updatedAt: '2026-10-25T09:03:00.000Z' }));
     });
 
     it('回数の上限は PHOTO_PROCESSING_MAX_ATTEMPTS に従う（5 なら3回目の失敗は待ちに戻す）', async () => {
@@ -551,7 +598,7 @@ describe('タイムラインのワーカー', () => {
     });
   });
 
-  describe('何もしないメッセージ', () => {
+  describe('何もしない・後始末だけするメッセージ', () => {
     it.each<[string, unknown]>([
       ['旅行の id が無い', { draftId: DRAFT_ID }],
       ['下書きの id が無い', { tripId: TRIP_ID }],
