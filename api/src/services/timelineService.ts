@@ -1,7 +1,7 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
-import { PhotoDocument } from '../types/album';
+import { PhotoDocument, PhotoProcessing } from '../types/album';
 import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotosDocument } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
@@ -76,6 +76,25 @@ export class TimelineService {
   async readSnapshot(id: string): Promise<TimelinePhotosDocument | null> {
     const { resource } = await this.container.item(id, id).read<TimelinePhotosDocument>();
     return resource?.type === 'timelinePhotos' ? resource : null;
+  }
+
+  /**
+   * 旅行の今の写真の id と解析の状態を読む（04 §5 の 5.13。完成版を開くとき）
+   *
+   * 控えとの差で写真の増えた・消えた枚数を数え、同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）
+   * @param tripId 旅行の ID
+   */
+  async readTripPhotoStates(tripId: string): Promise<{ id: string; state: PhotoProcessing['state'] }[]> {
+    const { resources } = await this.container.items
+      .query<{ id: string; processing: PhotoProcessing }>({
+        query: 'SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
+        parameters: [
+          { name: '@type', value: 'photo' },
+          { name: '@tripId', value: tripId },
+        ],
+      })
+      .fetchAll();
+    return resources.map((row) => ({ id: row.id, state: row.processing.state }));
   }
 
   /**

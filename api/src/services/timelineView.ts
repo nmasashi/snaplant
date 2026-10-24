@@ -1,4 +1,4 @@
-import { TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
 
 /** 応答に出す写真（控えから作る。05 §5.15） */
 export interface TimelinePhotoView {
@@ -113,6 +113,48 @@ export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayL
 
   const undatedPhotos = input.photos.filter((photo) => photo.takenAt === null && input.exists(photo.id)).map(view);
   return { days: laidOut, undatedPhotos };
+}
+
+/** 完成版の応答（日と場面に文を当てた形。05 §5.15） */
+export function currentTimelineOf(
+  current: TimelineCurrent,
+  photos: TimelinePhotoSnapshot[],
+  exists: (photoId: string) => boolean,
+  urlOf: (blobName: string) => string
+) {
+  const layout = layoutTimeline({
+    photos,
+    sceneStarts: current.sceneStarts,
+    proposedStarts: current.proposedStarts,
+    dayStartHour: current.dayStartHour,
+    exists,
+    urlOf,
+  });
+  return {
+    writtenAt: current.writtenAt,
+    days: layout.days.map((day) => {
+      const text = current.dayTexts[day.date];
+      return {
+        date: day.date,
+        dayNumber: day.dayNumber,
+        title: text?.title ?? null,
+        titleSource: text?.titleSource ?? null,
+        summary: text?.summary ?? null,
+        summarySource: text?.summarySource ?? null,
+        scenes: day.scenes.map((scene) => {
+          const sceneText = current.sceneTexts[scene.startPhotoId];
+          return {
+            ...scene,
+            label: sceneText?.label ?? null,
+            labelSource: sceneText?.labelSource ?? null,
+            note: sceneText?.note ?? null,
+            noteSource: sceneText?.noteSource ?? null,
+          };
+        }),
+      };
+    }),
+    undatedPhotos: layout.undatedPhotos,
+  };
 }
 
 /** 撮影日時のある写真の1日分 */

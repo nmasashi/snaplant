@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { TimelineConflictError, TimelinePhotoRow, TimelineService, timelineIdOf } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
-import { photoUrlExpiresOn } from '../services/photoStorageService';
-import { draftStatusOf } from '../services/timelineView';
+import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
+import { currentTimelineOf, draftStatusOf } from '../services/timelineView';
 import {
   createDatabaseErrorResponse,
   createErrorResponse,
@@ -131,6 +131,67 @@ function snapshotPhotosOf(rows: TimelinePhotoRow[]): TimelinePhotoSnapshot[] {
     };
   });
 }
+
+/**
+ * タイムラインを読む API（完成版の日と場面、下書きの状態、写真の変化、解析中の枚数）
+ * GET /api/trips/{tripId}/timeline?code={FUNCTION_KEY}
+ *
+ * 完成版の表示を組むのはここだけ（下書きをやめた後も、画面はここを読み直す。05 §5.15）
+ */
+export async function getTimelineHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const tripId = request.params.tripId;
+  context.log(`タイムラインの取得リクエストを受信: 旅行=${tripId}`);
+  if (!isValidUUID(tripId)) {
+    return createValidationError('旅行IDの形式が無効です');
+  }
+  try {
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const timelines = new TimelineService();
+    const [read, photos] = await Promise.all([timelines.readTimeline(tripId), timelines.readTripPhotoStates(tripId)]);
+    const expiresOn = photoUrlExpiresOn();
+    const pendingPhotoCount = photos.filter((photo) => UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
+    if (!read) {
+      return createSuccessResponse({ timeline: null, pendingPhotoCount, urlExpiresAt: expiresOn.toISOString() });
+    }
+    const doc = read.doc;
+    let current = null;
+    let changes = null;
+    if (doc.current) {
+      const snapshot = (await timelines.readSnapshot(doc.current.snapshotId))?.photos ?? [];
+      const existing = new Set(photos.map((photo) => photo.id));
+      const snapshotIds = new Set(snapshot.map((photo) => photo.id));
+      const storage = new PhotoStorageService();
+      current = currentTimelineOf(
+        doc.current,
+        snapshot,
+        (photoId) => existing.has(photoId),
+        (blobName) => storage.readUrl(blobName, expiresOn)
+      );
+      // 日時の無い写真も数える（作り直せば控えに入る）
+      changes = {
+        added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,
+        removed: snapshot.filter((photo) => !existing.has(photo.id)).length,
+      };
+    }
+    return createSuccessResponse({
+      timeline: { current, draft: doc.draft ? draftStatusOf(doc.draft) : null, changes, droppedEdits: doc.droppedEdits },
+      pendingPhotoCount,
+      urlExpiresAt: expiresOn.toISOString(),
+    });
+  } catch (error: any) {
+    context.log('タイムラインの取得エラー:', error);
+    return createDatabaseErrorResponse(error, 'タイムラインの取得に失敗しました');
+  }
+}
+
+app.http('getTimeline', {
+  methods: ['GET'],
+  authLevel: 'function',
+  route: 'trips/{tripId}/timeline',
+  handler: getTimelineHandler,
+});
 
 app.http('createTimeline', {
   methods: ['POST'],
