@@ -233,6 +233,7 @@ Function App に設定される主要な環境変数：
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
+| `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。読むのは 5-1 から |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |

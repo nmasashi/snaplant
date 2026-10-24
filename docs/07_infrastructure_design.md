@@ -305,6 +305,8 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 
 ## 7. 段階5（タイムライン）
 
+**定義済み**（5-0。apply は人間。Issue #97）。
+
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
 | `azurerm_storage_queue.timeline_processing` | `timeline-processing` | 写真のキューと同じストレージアカウント | poison キュー（`timeline-processing-poison`）は Functions が作る（写真と同じ） |
@@ -315,5 +317,5 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `TIMELINE_DAY_START_HOUR` | 当面は書かない（未設定なら 4） |
 | `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` | 当面は書かない（未設定なら `AZURE_OPENAI_DEPLOYMENT_NAME`） |
 
-`plan` は「1 to add, 1 to change」（キューの追加と、Function App の `app_settings` に `TIMELINE_QUEUE_NAME` を足す変更）の見込み。**apply は人間が行う**（API の PR より先に。`TIMELINE_QUEUE_NAME` が無いとワーカーのトリガーが解決できない）。
+`plan` は「1 to add, 1 to change, 0 to destroy」（キューの追加と、Function App の `app_settings` に `TIMELINE_QUEUE_NAME` を足す変更。5-0 で確かめた）。**apply は人間が行う**（API の PR より先に。`TIMELINE_QUEUE_NAME` が無いとワーカーのトリガーが解決できない）。
 `host.json` は変えない（写真のキューと同じ `batchSize`・`maxDequeueCount` が効く）。
