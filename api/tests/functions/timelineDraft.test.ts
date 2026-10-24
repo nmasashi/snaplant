@@ -325,6 +325,19 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
+    it('タイムラインを読んだ後に下書きがやめられて控えが消えていたら、読み直して今の状態（下書きなし）を返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
+      // 控えを読む直前に、別の操作が下書きをやめた（下書きを外してから控えを消す）
+      cosmosBackend.beforeRead = (id) => {
+        if (id === SNAPSHOT_ID) cosmosBackend.documents.set(TIMELINE_ID, timelineWith(null, currentVersion));
+      };
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
+    });
+
     it('確かめ中の下書きの写真の控えが無ければ（壊れている）、500 を返す（空の日と場面を返さない）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf()));
 
@@ -643,6 +656,23 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+    });
+
+    it('タイムラインを読んだ後に下書きがやめられて控えが消えていたら、409（TIMELINE_STATE_CONFLICT）で何も書かない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      const cancelled = timelineWith(null, currentVersion);
+      cosmosBackend.beforeRead = (id) => {
+        if (id === SNAPSHOT_ID) {
+          cosmosBackend.documents.set(TIMELINE_ID, cancelled);
+          cosmosBackend.documents.delete(SNAPSHOT_ID);
+        }
+      };
+
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(cancelled);
     });
 
     it('下書きの写真の控えが無ければ（壊れている）、区切りを書き換えずに 500 を返す（区切りが無効とは返さない）', async () => {

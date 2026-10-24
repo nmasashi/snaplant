@@ -703,6 +703,22 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.pendingPhotoCount).toBe(1);
   });
 
+  it('タイムラインを読んだ後に旅行が消されていたら（控えも消えた）、読み直して 404（TRIP_NOT_FOUND）を返す', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+    // 控えを読む直前に、旅行の削除がタイムラインと控えと旅行を消した
+    cosmosBackend.beforeRead = (id) => {
+      if (id === CURRENT_SNAPSHOT_ID) {
+        [TIMELINE_ID, CURRENT_SNAPSHOT_ID, TRIP_ID].forEach((docId) => cosmosBackend.documents.delete(docId));
+      }
+    };
+
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(404);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+  });
+
   it('完成版の写真の控えが無ければ（壊れている）、500 を返す（空の完成版や、全部の写真が増えたとは返さない）', async () => {
     PHOTOS.forEach((photo) => placePhoto(photo.id));
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));

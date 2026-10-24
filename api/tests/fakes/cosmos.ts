@@ -139,6 +139,11 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocume
    */
   beforeCreate?: () => void;
   forcedReadError?: Error | null;
+  /**
+   * `item(id).read()` の冒頭で呼ばれる。「別の文書を読んだ後・この文書を読む直前に、他のリクエストが書き換えた・消した」を再現する
+   * （コールバックの中で `documents` を書き換える）。呼ばれるたびに実行されるので、何回目かはコールバックの側で数える
+   */
+  beforeRead?: (id: string) => void;
   forcedReplaceError?: Error | null;
   /**
    * `item(id).replace()` の冒頭（`_etag` を比べる前）で呼ばれる。「読んだ後・置き換える直前に、他のリクエストが書き換えた」を再現する
@@ -454,6 +459,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
     item: (id: string, partitionKey: string) => ({
       read: async () => {
         assertSdkItemId(id);
+        backend.beforeRead?.(id);
         if (backend.forcedReadError) throw backend.forcedReadError;
         if (id !== partitionKey || !backend.documents.has(id)) {
           return { resource: undefined };
