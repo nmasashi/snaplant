@@ -181,8 +181,9 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<PhotoPage> _readPage(String? continuationToken) {
     final loadPage = widget.loadPage;
     if (loadPage != null) return loadPage(continuationToken);
+    // loadPage が無ければ tripId がある（コンストラクタの assert）
     return widget.apiService.getPhotos(
-        tripId: widget.tripId,
+        tripId: widget.tripId!,
         category: widget.category,
         continuationToken: continuationToken);
   }
