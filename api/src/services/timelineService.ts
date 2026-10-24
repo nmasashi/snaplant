@@ -1,7 +1,7 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { PhotoDocument } from '../types/album';
-import { TimelineDocument, TimelinePhotosDocument } from '../types/timeline';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotosDocument } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<
@@ -177,6 +177,55 @@ export class TimelineService {
     } catch (error: any) {
       if (error.code === 412 || error.code === 404) {
         throw new TimelineConflictError();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 処理が待ち・処理中のまま、指定した時刻より前から止まっている下書きを読む（再投入のタイマー。04 §5 の 5.15）
+   *
+   * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
+   * @param before この時刻（ISO）より前に job が更新された下書きを読む
+   */
+  async listStaleDrafts(before: string): Promise<{ tripId: string; draft: TimelineDraft | null }[]> {
+    const { resources } = await this.container.items
+      .query<{ tripId: string; draft: TimelineDraft | null }>({
+        query:
+          "SELECT c.tripId, c.draft FROM c WHERE c.type = @type AND c.draft.job.state IN ('pending', 'running') AND c.draft.job.updatedAt < @before",
+        parameters: [
+          { name: '@type', value: 'timeline' },
+          { name: '@before', value: before },
+        ],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
+   * 下書きの処理の状態だけを書く。同じ下書き（id）で、処理が expected のままのときだけ書く条件付きの patch
+   *
+   * 再投入のタイマーとワーカーの担当が使う（写真の writeProcessing と同じ条件の形。06 §8.1）。
+   * 読んでから書くまでに、下書きをやめた・出し直した・ワーカーが担当したなどがあれば書かない
+   * @param tripId 旅行の ID
+   * @param draftId 読んだ下書きの id
+   * @param expected 読んだ job
+   * @param job 書く job
+   * @returns 書けたら true。変わっていた（412）か、タイムラインが消えていた（404）なら false
+   */
+  async writeDraftJob(tripId: string, draftId: string, expected: TimelineJob, job: TimelineJob): Promise<boolean> {
+    const id = timelineIdOf(tripId);
+    try {
+      await this.container.item(id, id).patch({
+        condition:
+          `FROM c WHERE c.draft.id = "${draftId}" AND c.draft.job.state = "${expected.state}" AND c.draft.job.step = "${expected.step}"` +
+          ` AND c.draft.job.attempts = ${expected.attempts} AND c.draft.job.updatedAt = "${expected.updatedAt}"`,
+        operations: [{ op: 'set', path: '/draft/job', value: job }],
+      });
+      return true;
+    } catch (error: any) {
+      if (error.code === 412 || error.code === 404) {
+        return false;
       }
       throw error;
     }
