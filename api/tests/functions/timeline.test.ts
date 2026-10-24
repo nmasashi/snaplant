@@ -682,6 +682,16 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.pendingPhotoCount).toBe(1);
   });
 
+  it('文の無い日と場面は、文と書いた主を null にして返す（項目は省かない）', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, sceneTexts: {}, dayTexts: {} } }));
+
+    const day = (await read()).timeline.current.days[0];
+
+    expect(day).toMatchObject({ title: null, titleSource: null, summary: null, summarySource: null });
+    expect(day.scenes[0]).toMatchObject({ label: null, labelSource: null, note: null, noteSource: null });
+  });
+
   it('完成版の日は、完成版の日付の切り替えの時刻で分ける（翌日の 2:30 は前の日に入る）', async () => {
     const K = snap('k', '2026-10-06T02:30:00');
     cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, [A, K, D]));
