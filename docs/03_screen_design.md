@@ -111,7 +111,7 @@ flowchart TD
 
 - 画面左上の戻るボタンと端末の戻る操作は同じ動きをする（選択モードなど、画面ごとに書いた例外を除く）
 - 端末の文字サイズ設定は反映しない（倍率 1.0 に固定。§9.1）
-- アプリは端末の言語によらず日本語で動く（漢字・かなは日本語の字形で出し、戻るボタンの説明など Material の部品の文言も日本語。§9.1）
+- アプリは端末の言語によらず日本語で動く（Material の部品の文言も日本語。戻るボタンの説明は「戻る」。端末では漢字・かなを日本語の字形で出す。Web 版の字形はブラウザの言語による。§9.1。実装済み。日本語の設定の作業単位）
 
 - 処理の結果はスナックバーで知らせる。API の失敗の文言は `ApiException.userMessage`（ステータスで決まる固定文言か、サーバの `error.message`）。
   `ApiException` 以外の失敗では画面ごとの固定文言（各画面の表に書く）
@@ -1010,7 +1010,10 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 - 通信: `http`（multipart の Content-Type の指定に `http_parser` も使う）。Function Key はクエリパラメータで送る（`ApiService._buildUrl()` が `?code=` を付ける）。
   ネットワーク状態の監視（`connectivity_plus`）は入れていない。通信の失敗は `ApiService._handleError()` が例外から見分ける
 - 端末の文字サイズ設定は反映しない（倍率 1.0 に固定。`main.dart`）
-- 言語の設定は日本語（ja_JP）だけ（`main.dart` の `locale`。Material の文言は `flutter_localizations`）。設定が無いと英語として動き、Web 版で「ヰ」などの字形が日本語のものにならなかった（2026-10-26）
+- 言語の設定は日本語（ja_JP）だけ（`main.dart` の `supportedLocales`。Material の文言は `flutter_localizations`）。端末の言語が英語でも、文字を描く部品に日本語が渡るので、端末では日本語の字形を選ぶ
+  （設定が無いと英語として動き、英語の設定の端末では中国語の字形になりうる）。
+  Web 版は、Flutter が漢字・かなの補いのフォントをブラウザの言語で選ぶ（`navigator.language` がちょうど `ja` のときだけ Noto Sans JP、ほかは Noto Sans SC）ので、アプリの設定では変わらない。
+  2026-10-26 に Web 版で「ヰ」などの字形が日本語のものでなかったが、Web 版は確認用なので直していない（実装済み。日本語の設定の作業単位）
 
 ### 9.2 エラー表示（`ApiException.userMessage`）
 

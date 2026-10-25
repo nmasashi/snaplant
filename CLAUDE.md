@@ -78,6 +78,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
   画面の下の方のボタンが画面外に出てタップが空振りする（警告だけで失敗しない。`openApp` は実機の大きさにしている）。
   `tester.view.physicalSize` / `devicePixelRatio` を設定し、`addTearDown(tester.view.reset)` で戻す
 - **`tester.ensureVisible()` の後は `pump` が要る。** スクロール位置は次のフレームまで反映されない
+- **戻るボタンは `tapBack(tester)`（`helpers/app_test_helpers.dart`）で押す。** `tester.pageBack()` は英語の「Back」の説明で探すので、日本語の設定のアプリでは見つからない
 - **`ElevatedButton.icon` は `find.widgetWithText(ElevatedButton, ...)` で見つからない。**
   実体がサブクラスで、`byType` は型の完全一致を見るため。文言で探す
 - **端末の機能（OS の画像選択・セキュアストレージ）は、プラットフォーム層を偽物に差し替える。**
