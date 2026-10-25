@@ -222,6 +222,17 @@ describe('タイムラインの完成版の操作API', () => {
   describe('区切りを直し始める（POST …/recut）', () => {
     const recut = () => postTimelineRecutHandler(createRequest(TRIP_ID, 'recut'), mockContext);
 
+    it('応答の日と場面には、完成版を作った後に消えた写真を出さない（確かめ中の下書きの読み取りと同じ形）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+      // 完成版を作った後に b を消した
+      cosmosBackend.documents.delete(photoId('b'));
+
+      const response = await recut();
+
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes[0].photos.map((photo: any) => photo.id)).toEqual([photoId('a')]);
+    });
+
     it('完成版の控えと区切りを写した確かめ中の下書き（recut）を作り、確かめ中の日と場面を返す（AI は呼ばない。完成版はそのまま）', async () => {
       const timeline = timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
