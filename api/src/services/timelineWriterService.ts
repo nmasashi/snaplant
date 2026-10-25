@@ -3,6 +3,7 @@ import { TIMELINE_VALIDATION } from '../constants/validation';
 import { UpstreamError } from '../utils/errors';
 import { OpenAIVisionService } from './openAIVisionService';
 import { TimelinePromptPhoto, dayRangesOf, photoLineOf } from './timelinePrompt';
+import { GRAPHEMES } from '../utils/graphemes';
 
 /**
  * 文の応答の形（Structured Outputs。docs/06_processing_design.md §8.3）
@@ -164,9 +165,6 @@ function textsByKey<K, T>(items: unknown, requested: K[], keyOf: (item: any) => 
   }
   return texts;
 }
-
-/** 文を見た目の1文字（書記素）ずつに分ける */
-const GRAPHEMES = new Intl.Segmenter('ja', { granularity: 'grapheme' });
 
 /** 前後の空白を除いた文。空なら投げ、上限を超える分は切り詰める（切り詰めて空になるときも投げる） */
 function textOf(value: unknown, maxLength: number): string {

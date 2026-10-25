@@ -19,9 +19,7 @@ import {
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, UNFINISHED_PROCESSING_STATES, timelineDayStartHour } from '../constants/album';
-
-/** 文を見た目の1文字（書記素）ずつに分ける（控えのコメントの切り詰め） */
-const GRAPHEMES = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+import { GRAPHEMES } from '../utils/graphemes';
 
 /**
  * タイムラインを作る・作り直す API（区切り案の下書きを作って、キューに積む。区切り案はワーカーが後で出す）
