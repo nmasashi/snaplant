@@ -304,4 +304,14 @@ void main() {
 
     expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
   });
+
+  testWidgets('アプリは日本語の設定で動く（Material の部品が出す文言も日本語になる。戻るボタンの説明は「戻る」）', (tester) async {
+    await _givenNoSettingsSaved(tester);
+
+    await openApp(tester);
+
+    final context = tester.element(find.text('設定'));
+    expect(Localizations.localeOf(context), const Locale('ja', 'JP'));
+    expect(MaterialLocalizations.of(context).backButtonTooltip, '戻る');
+  });
 }
