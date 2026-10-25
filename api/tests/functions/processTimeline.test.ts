@@ -722,7 +722,7 @@ describe('タイムラインのワーカー', () => {
       }
     });
 
-    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい場面（最初の写真の番号）と日を渡す', async () => {
+    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい場面と日を渡す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
 
       await runWorker();
