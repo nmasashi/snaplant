@@ -15,6 +15,7 @@ class TimelineCurrentView extends StatelessWidget {
     required this.pendingPhotoCount,
     required this.onRecut,
     required this.onRebuild,
+    this.banner,
   });
 
   final TimelineCurrent current;
@@ -28,6 +29,9 @@ class TimelineCurrentView extends StatelessWidget {
   /// 「作り直す」。null なら押せない（解析中の写真があるときは、渡されても押せない）
   final VoidCallback? onRebuild;
 
+  /// 完成版の上に出す下書きの案内（§8.3）。あれば「区切りを直す」「作り直す」と解析中の枚数を出さない
+  final Widget? banner;
+
   /// 場面のカードに並べるサムネイルの枚数（それより多ければ「+N枚」）
   static const _thumbnailCount = 4;
 
@@ -38,22 +42,25 @@ class TimelineCurrentView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (banner != null) ...[banner!, const SizedBox(height: 16)],
         Text('${_writtenAtLabel(current.writtenAt)} に作成', style: secondary),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          children: [
-            OutlinedButton(onPressed: onRecut, child: const Text('区切りを直す')),
-            OutlinedButton(
-              onPressed: pendingPhotoCount > 0 ? null : onRebuild,
-              child: const Text('作り直す'),
-            ),
+        if (banner == null) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(onPressed: onRecut, child: const Text('区切りを直す')),
+              OutlinedButton(
+                onPressed: pendingPhotoCount > 0 ? null : onRebuild,
+                child: const Text('作り直す'),
+              ),
+            ],
+          ),
+          if (pendingPhotoCount > 0) ...[
+            const SizedBox(height: 4),
+            Text('解析中の写真があと $pendingPhotoCount 枚あります', style: secondary),
           ],
-        ),
-        if (pendingPhotoCount > 0) ...[
-          const SizedBox(height: 4),
-          Text('解析中の写真があと $pendingPhotoCount 枚あります', style: secondary),
         ],
         for (final day in current.days) ..._buildDay(day, secondary),
         if (current.undatedPhotos.isNotEmpty) ...[

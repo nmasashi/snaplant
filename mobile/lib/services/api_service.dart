@@ -349,6 +349,18 @@ class ApiService {
     }
   }
 
+  /// 完成版の区切りを直し始める（完成版の区切りを写した確かめ中の下書きを作る）。作った下書き（日と場面つき）を返す
+  /// POST /api/trips/{tripId}/timeline/recut
+  Future<TimelineDraftStatus> recutTimeline(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/recut');
+      final response = await _client.post(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) => _draftOf(json)!);
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 下書きの区切りを保存する（場面の最初の写真の id を撮影の順に）。保存した後の下書き（日と場面つき）を返す
   /// PUT /api/trips/{tripId}/timeline/draft/scenes
   Future<TimelineDraftStatus> saveTimelineScenes(

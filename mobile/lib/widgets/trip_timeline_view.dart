@@ -157,12 +157,37 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context) || !mounted) return;
+    // 完成版があれば、作り直し（区切りの直し）をやめて完成版に戻る（§8.3）
+    final confirmed = await (_overview?.timeline?.current == null
+        ? confirmDiscardTimeline(context)
+        : confirmTimelineAction(context,
+            message: '作り直しをやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる'));
+    if (!confirmed || !mounted) return;
     await _send(() async {
       await widget.apiService.discardTimelineDraft(widget.tripId);
       if (!mounted) return;
       await _load(showLoading: false);
     });
+  }
+
+  /// 完成版の区切りを直し始め、受け付けたら区切りの確認画面を開く（§8.3）
+  Future<void> _recut() => _send(() async {
+        await widget.apiService.recutTimeline(widget.tripId);
+        if (!mounted) return;
+        await _review();
+      });
+
+  /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
+  Future<void> _rebuild() async {
+    if (!await confirmTimelineAction(context,
+            title: 'タイムラインを作り直しますか？',
+            message:
+                '今の写真で区切りの案を出し直し、確認した後に見出しと一言を書き直します。書き終えるまでは今のタイムラインのままです。手で直した文と区切りは、同じ日・同じ場面なら残ります。',
+            confirmLabel: '作り直す') ||
+        !mounted) {
+      return;
+    }
+    await _create();
   }
 
   /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
@@ -250,12 +275,14 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     final timeline = overview.timeline;
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
-    if (draft != null) return _buildDraft(draft);
+    final current = timeline.current;
+    if (current == null) return _buildDraft(draft!);
     return TimelineCurrentView(
-      current: timeline.current!,
+      current: current,
       pendingPhotoCount: overview.pendingPhotoCount,
-      onRecut: () {},
-      onRebuild: () {},
+      onRecut: _sending ? null : _recut,
+      onRebuild: _sending ? null : _rebuild,
+      banner: draft == null ? null : _buildRebuildBanner(draft),
     );
   }
 
@@ -272,6 +299,49 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       ],
       note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
+    );
+  }
+
+  /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
+  Widget _buildRebuildBanner(TimelineDraftStatus draft) {
+    final discard = OutlinedButton(
+        onPressed: _sending ? null : _discard, child: const Text('やめる'));
+    Widget review(String label) => OutlinedButton(
+        onPressed: _sending ? null : _review, child: Text(label));
+    Widget retry(Future<void> Function() send) => ElevatedButton(
+        onPressed: _sending ? null : send, child: const Text('もう一度'));
+    final (String title, List<Widget> actions) = switch (draft.phase) {
+      'writing' when draft.isFailed => (
+          '見出しと一言を書き直せませんでした',
+          [retry(_write), review('区切りを確認する'), discard]
+        ),
+      'writing' => ('見出しと一言を書き直しています', const <Widget>[]),
+      'reviewing' when draft.reason == 'recut' => (
+          '区切りを直している途中です',
+          [review('続ける'), discard]
+        ),
+      'reviewing' => ('作り直しの区切りの案ができました', [review('区切りを確認する'), discard]),
+      _ when draft.isFailed => (
+          '作り直しの区切りの案を作れませんでした',
+          [retry(_create), discard]
+        ),
+      _ => ('作り直しの区切りの案を作っています', [discard]),
+    };
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: AppTextStyles.body1),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: actions),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
