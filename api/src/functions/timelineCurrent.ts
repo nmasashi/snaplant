@@ -184,7 +184,8 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
     }
     let edited: TimelineCurrent;
     if (target === 'day') {
-      // 日付の形が違う・実在しない日付も「その日は無い」（その日付の日は完成版に無い）
+      // 日付の形が違う・実在しない日付も「その日は無い」（その日付の日は完成版に無い）。完成版の鍵はいつも正しい日付なので
+      // 結果は鍵の有無と同じだが、利用者が送った文字列を、形を確かめる前に鍵として使わないために先に見る
       if (!isValidDate(key) || !Object.prototype.hasOwnProperty.call(current.dayTexts, key)) {
         return createNotFoundError('その日はタイムラインにありません', ErrorCode.TIMELINE_NOT_FOUND);
       }
