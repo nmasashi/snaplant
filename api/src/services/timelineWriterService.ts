@@ -171,8 +171,21 @@ function textOf(value: unknown, maxLength: number): string {
   if (text === '') {
     throw new Error('空の文があります');
   }
-  const cut = text.slice(0, maxLength);
-  // 文字数は UTF-16 の数で数える（05 §4）。絵文字などの途中で切ると前半（上位サロゲート）だけが残るので、それは落とす
-  const last = cut.charCodeAt(cut.length - 1);
-  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+  if (text.length <= maxLength) {
+    return text;
+  }
+  // 文字数は UTF-16 の数で数える（05 §4）が、見た目の1文字（書記素。結合した絵文字・国旗・サロゲートペア）の途中では切らない。
+  // 途中で切ると、絵文字の前の部分や国旗の片方だけが残って壊れた文字になる
+  let cut = '';
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    if (cut.length + segment.length > maxLength) {
+      break;
+    }
+    cut += segment;
+  }
+  // 切った位置の直前が空白なら、それも除く（前後の空白を除いた文にする）
+  return cut.trimEnd();
 }
+
+/** 文を見た目の1文字ずつに分ける */
+const GRAPHEMES = new Intl.Segmenter('ja', { granularity: 'grapheme' });
