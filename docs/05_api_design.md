@@ -927,12 +927,14 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`（`urlExpiresAt` と 201 / 200 の区別は読まない。200（別の場所）は、呼び出し側の `UploadQueue` が応答の `photo.tripId` と送った `tripId` を比べて判断する。区別が要らないので、201 / 200 を返す目標は 2026-10-15 に外した） |
 | `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。`continuationToken` は省略でき、`tripId` は必須（`required`。省くとコンパイルできない）。渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`。`category` は旅行の中の絞り込み（API は `tripId` を省いて `category` だけでも取れるが、アプリはその形で呼ばない。カテゴリ横断画面は 2026-10-24 に消した。[03 §5.2](./03_screen_design.md#52-カテゴリ横断画面削除した)）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b）。呼び出し側の `PhotoGrid` は、読む先（`loadPage`）が無ければ `tripId` を渡す（`tripId` も読む先も無い `PhotoGrid` は、デバッグ版では `assert` が組み立てたところで止め、リリース版では読み込みの失敗になる） |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
-| `getTimeline(tripId)` | `GET /api/trips/{tripId}/timeline` | `data['timeline']`（null 可）・`data['pendingPhotoCount']`（段階5） |
-| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可） |
-| `createTimeline(tripId)`・`recutTimeline(tripId)` | `POST …/timeline`・`POST …/timeline/recut` | `data['draft']` |
-| `saveTimelineScenes(tripId, sceneStarts)`・`writeTimeline(tripId)` | `PUT …/timeline/draft/scenes`・`POST …/timeline/draft/write` | `data['draft']` |
-| `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | 読まない（続けて `getTimeline` で読み直す） |
-| `updateTimelineDay(tripId, date, {title, summary})`・`updateTimelineScene(tripId, photoId, {label, note})`・`dismissTimelineDroppedEdits(tripId)` | `PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | 同上 |
+| `getTimeline(tripId)` | `GET /api/trips/{tripId}/timeline` | `data['timeline']`（null 可）・`data['pendingPhotoCount']`（段階5）。**実装済み**（5-3a。`models/timeline.dart` の `TimelineOverview`）: `timeline` の `current` は有る・無いだけを読み（中身は 5-4）、`draft` は状態（下の `getTimelineDraft` と同じ）。`changes`・`droppedEdits`・`urlExpiresAt` は読まない |
+| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` と確かめ中の `days`・`undatedPhotos` は読まない |
+| `createTimeline(tripId)` | `POST …/timeline` | `data['draft']`。**実装済み**（5-3a。読み方は `getTimelineDraft` と同じで、null は受け付けない） |
+| `recutTimeline(tripId)` | `POST …/timeline/recut` | `data['draft']` |
+| `saveTimelineScenes(tripId, sceneStarts)` | `PUT …/timeline/draft/scenes` | `data['draft']` |
+| `writeTimeline(tripId)` | `POST …/timeline/draft/write` | `data['draft']`。**実装済み**（5-3a。読み方は `createTimeline` と同じ） |
+| `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | 読まない（続けて `getTimeline` で読み直す）。**実装済み**（5-3a） |
+| `updateTimelineDay(tripId, date, {title, summary})`・`updateTimelineScene(tripId, photoId, {label, note})`・`dismissTimelineDroppedEdits(tripId)` | `PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | 読まない（続けて `getTimeline` で読み直す） |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグを直すメソッドは、タグを付ける画面と一緒に足す |
@@ -945,6 +947,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 既存の `testConnection()`（設定画面の接続テスト）は 4-5 で宛先を `GET /api/plants` から、旅行をまたぐ写真の一覧を1件だけ読む `GET /api/photos?category=plant&limit=1` に変えた（データベースに届かなければ失敗として出る）。ステータスが 2xx かだけを見て、ボディは読まない（通信の失敗も含めて例外を投げず `false` を返す。[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)）。
 植物図鑑のメソッド（`uploadAndIdentifyImage`・`checkDuplicate`・`savePlant`・`getPlants`・`getPlant`・`updatePlant`・`deletePlant`）は 4-5 で削除した。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）と `isPhotoNotFound`（`code == 'PHOTO_NOT_FOUND'`。複数選択の削除で既に無い写真を消せたと数える。ステータスだけで見ると宛先の誤りの 404 まで含むのでコードで見る）を足す。
+段階5では `isTimelineChanged`（`code` が `TIMELINE_STATE_CONFLICT` か `TIMELINE_NOT_FOUND`。読んだ後にタイムラインが変わったので読み直す）と `isTimelineNotCreatable`（`code` が `TIMELINE_PHOTOS_PROCESSING` か `TIMELINE_NO_DATED_PHOTOS`）を足した（**実装済み**。5-3a。画面の扱いは [03 §8.1](./03_screen_design.md#81-旅行詳細の切り替え)）。
 `uploadPhoto` は **実装済み**（PR 7a。`thumbnail`・`placeName` は PR 7c）。`multipart/form-data` で次のパートを送る。
 
 - `photoId`: 画像のバイト列の SHA-256（16進・小文字）。`image` と同じバイト列から求める（§5.1 の 18 を通るように）
