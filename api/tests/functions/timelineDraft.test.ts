@@ -622,17 +622,21 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[0].photos.map((photo: any) => photo.id)).toContain(photoId('k'));
     });
 
-    it('各日の最初の写真が区切りに無ければ、補って保存する（画面は写真が全部消えた日や場面の区切りを知らない）', async () => {
-      // 控えを取った後に、1日目の最初の写真 a と、2日目の写真 d・e を全部消した。画面には b と c の場面しか見えない
-      for (const head of ['a', 'd', 'e']) {
+    it.each<[string, string[], string[], string[]]>([
+      // 画面には b と c の場面しか見えない（日の最初の場面と2日目を丸ごと見ない）
+      ['日の最初の写真が消えていて送られない', ['a', 'd', 'e'], [photoId('b')], [photoId('a'), photoId('b'), photoId('d')]],
+      ['日の最初の写真がまだあるのに送られない', [], [photoId('b'), photoId('e')], [photoId('a'), photoId('b'), photoId('d'), photoId('e')]]
+    ])('%sときも、各日の最初の写真を補って撮影の順で保存する', async (_label, deleted, starts, saved) => {
+      // 控えを取った後に消えた写真
+      for (const head of deleted) {
         cosmosBackend.documents.delete(photoId(head));
       }
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
 
-      const response = await put({ sceneStarts: [photoId('b')] });
+      const response = await put({ sceneStarts: starts });
 
       expect(response.status).toBe(200);
-      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual([photoId('a'), photoId('b'), photoId('d')]);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual(saved);
     });
 
     it('応答の日と場面には、控えを取った後に消えた写真を出さない', async () => {

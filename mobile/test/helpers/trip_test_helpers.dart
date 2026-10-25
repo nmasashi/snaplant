@@ -524,6 +524,7 @@ class FakeTripBackend {
   /// 本物と同じく、各日の最初の写真は区切りに無くても場面の始まりにする（補う）。
   /// 区切りを入れた主は本物と違い、日の最初は `day`、前の下書きでも区切りだった写真はその主を引き継ぎ、新しい区切りは `user` にする
   /// （本物は AI の案にあれば `ai`。クライアントはまだ読まないので、読むようになったら本物に合わせる）。消えた写真（控えにだけある写真）は表さない
+  /// （そのため、日の最初の場面の写真が全部消えたとき、本物は次の場面を `day` にしないが、偽物は見えている最初の場面を `day` にする）
   List<Map<String, Object?>>? _recutDays(Map<String, Object?> draft, List<String> starts) {
     final previous = <String, Object?>{};
     final days = (draft['days'] as List).cast<Map<String, Object?>>();
