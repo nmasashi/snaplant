@@ -119,10 +119,18 @@ class TimelineCurrentView extends StatelessWidget {
               children: [
                 Text('${day.dayNumber}日目', style: AppTextStyles.headline3),
                 const SizedBox(width: 8),
-                Text(timelineDateLabel(day.date), style: secondary),
+                // 狭い画面や大きな文字でも編集のボタンにはみ出さないよう、日付と印は縮めて省く
+                Flexible(
+                  child: Text(timelineDateLabel(day.date),
+                      style: secondary, overflow: TextOverflow.ellipsis),
+                ),
                 if (mark != null) ...[
                   const SizedBox(width: 8),
-                  Text(mark, style: AppTextStyles.caption),
+                  Flexible(
+                    child: Text(mark,
+                        style: AppTextStyles.caption,
+                        overflow: TextOverflow.ellipsis),
+                  ),
                 ],
               ],
             ),

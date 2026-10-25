@@ -597,7 +597,8 @@ class FakeTripBackend {
     for (final field in fields.where(body.containsKey)) {
       final text = (body[field] as String?)?.trim() ?? '';
       if (text.isEmpty) {
-        // 本物の完成版はいつも AI の文を持つ（空にすると必ず AI の文に戻り、主は ai）。登録が無ければ、本物に無い「文が消える」状態を作らずに知らせる
+        // 本物の完成版はいつも AI の文を持つ（空にすると必ず AI の文に戻り、主は ai）。登録が無ければ、本物に無い「文が消える」状態を作らずに知らせる。
+        // ApiService がこの例外を通信の失敗として包むので、テストでは「ネットワークに接続できません」の文言が出る（それが出たら登録を疑う）
         final aiText = timelineAiTexts['$key:$field'];
         if (aiText == null) throw StateError('timelineAiTexts に $key:$field を入れてください');
         target[field] = aiText;
