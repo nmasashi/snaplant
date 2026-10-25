@@ -16,13 +16,14 @@ List<Map<String, Object?>> _hokkaidoPhotos() => [
 
 /// 旅行詳細を開く（「写真」のまま）
 Future<FakeTripBackend> _openTripDetail(WidgetTester tester,
-    {int pendingPhotoCount = 0}) async {
+    {int pendingPhotoCount = 0, Map<String, Object?>? timeline}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 1)],
     functionKey: 'test-key',
     photosByTripId: {hokkaidoTripId: _hokkaidoPhotos()},
   );
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
+  if (timeline != null) backend.timelinesByTripId[hokkaidoTripId] = timeline;
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
   await letFramesRun(tester);
@@ -32,6 +33,47 @@ Future<FakeTripBackend> _openTripDetail(WidgetTester tester,
 /// 「タイムライン」に切り替える
 Future<void> _showTimeline(WidgetTester tester) async {
   await tester.tap(find.text('タイムライン'));
+  await letFramesRun(tester);
+}
+
+/// 下書きの状態（05 §5.15 の `draft`）。[step] を省くと `job: null`（確かめ待ち）
+Map<String, Object?> _draft(String phase,
+        {String? step, String state = 'pending', String? lastError}) =>
+    {
+      'id': '0b8e1c5a-0000-4000-8000-000000000099',
+      'reason': 'create',
+      'phase': phase,
+      'job': step == null
+          ? null
+          : {'step': step, 'state': state, 'lastError': lastError},
+      'startedAt': '2026-10-25T09:00:00.000Z',
+    };
+
+/// 完成版（中身は 5-4 で出す。5-3a では有る・無いだけを見る）
+const _current = {
+  'writtenAt': '2026-10-25T09:10:00.000Z',
+  'days': <Object?>[],
+  'undatedPhotos': <Object?>[],
+};
+
+/// タイムライン（05 §5.15 の `timeline`）
+Map<String, Object?> _timeline(
+        {Map<String, Object?>? draft, Map<String, Object?>? current}) =>
+    {
+      'current': current,
+      'draft': draft,
+      'changes': current == null ? null : {'added': 0, 'removed': 0},
+      'droppedEdits': <Object?>[],
+    };
+
+/// 偽のサーバの下書き
+Map<String, Object?>? _draftOf(FakeTripBackend backend) =>
+    backend.timelinesByTripId[hokkaidoTripId]?['draft']
+        as Map<String, Object?>?;
+
+/// 下書きを読み直す間隔（5 秒）だけ時間を進め、届いた応答を画面に出す
+Future<void> _waitForPoll(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 5));
   await letFramesRun(tester);
 }
 
@@ -149,6 +191,144 @@ void main() {
       await _showTimeline(tester);
       expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
       expect(find.textContaining('解析中の写真があと'), findsNothing);
+    });
+  });
+
+  group('タイムラインを作っている間', () {
+    testWidgets('「タイムラインを作る」を押すと作り始め、区切りの案を作っていることと「やめる」を出す', (tester) async {
+      final backend = await _openTripDetail(tester);
+      await _showTimeline(tester);
+
+      await tester.tap(find.text('タイムラインを作る'));
+      await letFramesRun(tester);
+      expect(_draftOf(backend)?['phase'], 'proposing');
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('この画面を閉じても続きます。'), findsOneWidget);
+      expect(find.text('やめる'), findsOneWidget);
+      expect(find.text('タイムラインはまだありません'), findsNothing);
+    });
+
+    testWidgets(
+        '作っている間は 5 秒ごとに下書きを読み直し、区切りの案ができたら読み直して「区切りの案ができました」を出し、読み直しをやめる',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(backend.timelineDraftReadsReceived, 0);
+
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+      // ワーカーが拾った（待ち → 処理中）だけでは表示は変わらない
+      backend.timelinesByTripId[hokkaidoTripId] = _timeline(
+          draft: _draft('proposing', step: 'propose', state: 'running'));
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 2);
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+
+      backend.timelinesByTripId[hokkaidoTripId] =
+          _timeline(draft: _draft('reviewing'));
+      await _waitForPoll(tester);
+      expect(find.text('区切りの案ができました'), findsOneWidget);
+      expect(find.text('やめる'), findsOneWidget);
+      expect(find.text('区切りの案を作っています'), findsNothing);
+
+      final reads = backend.timelineDraftReadsReceived;
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, reads);
+    });
+
+    testWidgets('作っている間に失敗したら、読み直して「区切りの案を作れませんでした」を出す', (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+
+      backend.timelinesByTripId[hokkaidoTripId] = _timeline(
+          draft: _draft('proposing',
+              step: 'propose', state: 'failed', lastError: 'ai'));
+      await _waitForPoll(tester);
+      expect(find.text('区切りの案を作れませんでした'), findsOneWidget);
+      expect(find.text('区切りの案を作っています'), findsNothing);
+    });
+
+    testWidgets('「写真」に戻すと、下書きの読み直しを止める', (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+
+      await tester.tap(find.text('写真'));
+      await letFramesRun(tester);
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+    });
+
+    testWidgets('旅行詳細を閉じると、下書きの読み直しを止める', (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+    });
+
+    testWidgets('文を書いている間は、3つの段と「見出しと一言を書いています」を出し、書き終えたら読み直して完成版の仮の案内を出す',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('writing', step: 'write')));
+      await _showTimeline(tester);
+      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+      expect(find.text('この画面を閉じても続きます。'), findsOneWidget);
+      for (final step in ['区切りの案', '区切りの確認', '見出しと一言']) {
+        expect(find.text(step), findsOneWidget);
+      }
+
+      // 書き終えると、下書きが完成版に入れ替わる（06 §8.3）
+      backend.timelinesByTripId[hokkaidoTripId] = _timeline(current: _current);
+      await _waitForPoll(tester);
+      expect(find.text('見出しと一言を書いています'), findsNothing);
+      expect(find.text('タイムラインができました'), findsOneWidget);
+    });
+
+    testWidgets('区切りの案を作れなかったら「区切りの案を作れませんでした」と「もう一度」「やめる」を出し、「もう一度」で作り直す',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(
+              draft: _draft('proposing',
+                  step: 'propose', state: 'failed', lastError: 'ai')));
+      await _showTimeline(tester);
+      expect(find.text('区切りの案を作れませんでした'), findsOneWidget);
+      expect(find.text('やめる'), findsOneWidget);
+
+      await tester.tap(find.text('もう一度'));
+      await letFramesRun(tester);
+      expect(_draftOf(backend)?['job'], containsPair('state', 'pending'));
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+    });
+
+    testWidgets('見出しと一言を書けなかったら「見出しと一言を書けませんでした」と「もう一度」「やめる」を出し、「もう一度」で書き直す',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(
+              draft: _draft('writing',
+                  step: 'write', state: 'failed', lastError: 'ai')));
+      await _showTimeline(tester);
+      expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
+      expect(find.text('やめる'), findsOneWidget);
+
+      await tester.tap(find.text('もう一度'));
+      await letFramesRun(tester);
+      expect(_draftOf(backend)?['job'],
+          {'step': 'write', 'state': 'pending', 'lastError': null});
+      expect(find.text('見出しと一言を書いています'), findsOneWidget);
     });
   });
 }
