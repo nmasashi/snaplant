@@ -597,8 +597,11 @@ class FakeTripBackend {
     for (final field in fields.where(body.containsKey)) {
       final text = (body[field] as String?)?.trim() ?? '';
       if (text.isEmpty) {
-        target[field] = timelineAiTexts['$key:$field'];
-        target['${field}Source'] = target[field] == null ? null : 'ai';
+        // 本物の完成版はいつも AI の文を持つ（空にすると必ず AI の文に戻り、主は ai）。登録が無ければ、本物に無い「文が消える」状態を作らずに知らせる
+        final aiText = timelineAiTexts['$key:$field'];
+        if (aiText == null) throw StateError('timelineAiTexts に $key:$field を入れてください');
+        target[field] = aiText;
+        target['${field}Source'] = 'ai';
       } else {
         target[field] = text;
         target['${field}Source'] = 'user';

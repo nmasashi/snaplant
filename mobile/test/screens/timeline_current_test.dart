@@ -130,6 +130,12 @@ ButtonStyleButton _button(WidgetTester tester, String label) =>
     tester.widget<ButtonStyleButton>(find.ancestor(
         of: find.text(label), matching: find.bySubtype<ButtonStyleButton>()));
 
+/// 写真が変わった案内の枠の中の [text]（上の「作り直す」と見分ける）
+Finder _inChangesNotice(String text) => find.descendant(
+    of: find.ancestor(
+        of: find.textContaining('作った後に写真が'), matching: find.byType(Card)),
+    matching: find.text(text));
+
 /// タイムラインのリストを [finder] が見えるところまで送る
 Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
   await tester.scrollUntilVisible(finder, 200,
@@ -537,7 +543,7 @@ void main() {
     testWidgets('場面の編集のボタンで、今の見出しと一言を入れたシートを開き、見出しを直して保存すると描き直す',
         (tester) async {
       final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
+      await _openTimeline(tester);
 
       await openSceneSheet(tester);
       expect(find.text('場面を編集'), findsOneWidget);
@@ -546,14 +552,26 @@ void main() {
       expect(
           tester.widget<TextField>(field('一言')).controller!.text, '港の市場で海鮮丼。');
 
-      await tester.enterText(field('見出し'), '  市場の朝ごはん  ');
+      await tester.enterText(field('見出し'), '市場の朝ごはん');
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
       expect(find.text('場面を編集'), findsNothing);
       expect(find.text('市場の朝ごはん'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('見出しだけを直して保存すると、一言は送らず AI の文のまま残る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+
       expect(sceneOf(backend, breakfastId)['labelSource'], 'user');
-      // 変えていない一言は送らない（AI の文のまま）
       expect(sceneOf(backend, breakfastId)['noteSource'], 'ai');
       semantics.dispose();
     });
@@ -576,6 +594,8 @@ void main() {
 
       expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('市場と運河の一日。'), findsOneWidget);
+      // 直したのは1日目（ほかの日を直していない）
+      expect(find.text('朝は市場で海鮮丼、昼は運河を歩いた。'), findsNothing);
       semantics.dispose();
     });
 
@@ -696,7 +716,9 @@ void main() {
       await tester.pump();
       expect(_button(tester, '保存').onPressed, isNull);
       expect(_button(tester, 'キャンセル').onPressed, isNull);
-      await tester.pageBack();
+      // 端末の戻る操作（Android の戻るジェスチャーと同じ経路で PopScope を通る）。
+      // pageBack() はシートの下の旅行詳細の戻るボタンを狙い、実際はシートの外の幕に当たってしまう
+      await tester.binding.handlePopRoute();
       // 閉じていくシートも、閉じ終えるまでは見つかる。閉じ終えるだけの時間を進めてから見る
       await letFramesRun(tester);
       expect(find.text('場面を編集'), findsOneWidget);
@@ -812,6 +834,13 @@ void main() {
       });
     }
 
+    testWidgets('写真が変わった案内は、作成日時の上に出す', (tester) async {
+      await _openTimeline(tester, changes: {'added': 3, 'removed': 0});
+
+      expect(tester.getTopLeft(find.textContaining('作った後に写真が')).dy,
+          lessThan(tester.getTopLeft(find.textContaining('に作成')).dy));
+    });
+
     testWidgets('「あとで」を押すと、写真が変わった案内を隠す', (tester) async {
       await _openTimeline(tester, changes: {'added': 3, 'removed': 0});
 
@@ -824,8 +853,7 @@ void main() {
     testWidgets('写真が変わった案内の「作り直す」は、作り直しの確認のダイアログを出す', (tester) async {
       await _openTimeline(tester, changes: {'added': 3, 'removed': 0});
 
-      // 案内は作成日時の上に出すので、最初の「作り直す」が案内のもの
-      await tester.tap(find.text('作り直す').first);
+      await tester.tap(_inChangesNotice('作り直す'));
       await letFramesRun(tester);
       expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
     });
@@ -914,11 +942,10 @@ void main() {
       await _openTimeline(tester,
           changes: {'added': 3, 'removed': 0}, pendingPhotoCount: 2);
 
-      // 案内は作成日時の上に出すので、最初の「作り直す」が案内のもの
       expect(
           tester
               .widget<ButtonStyleButton>(find.ancestor(
-                  of: find.text('作り直す').first,
+                  of: _inChangesNotice('作り直す'),
                   matching: find.bySubtype<ButtonStyleButton>()))
               .onPressed,
           isNull);
