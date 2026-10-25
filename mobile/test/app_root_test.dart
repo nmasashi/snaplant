@@ -8,7 +8,7 @@ import 'package:snaplant_mobile/main.dart';
 import 'helpers/app_test_helpers.dart';
 
 // アプリ全体（SnapPlantApp）を開き、利用者から見た設定の扱い（読み込み・未設定なら設定画面へ・
-// 設定画面から戻ったら読み直す・読めなかったときの再試行）を確かめる。
+// 設定画面から戻ったら読み直す・読めなかったときの再試行）と、アプリ全体の言語の設定（03 §3）を確かめる。
 // 設定の保存先（端末のセキュアストレージと SharedPreferences）は、アプリから見て
 // プロセス外の依存なので、パッケージ同梱のテスト用の仕組みで差し替える。
 // サーバ（Azure Functions）は、API キーがある状態で図鑑（起動時のタブ）を読み込むテストでは偽のサーバ（helpers の catalogServer）に差し替える。
