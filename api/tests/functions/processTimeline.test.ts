@@ -651,6 +651,14 @@ describe('タイムラインのワーカー', () => {
       aiReturns(allTexts);
     });
 
+    it('完成版の日付の切り替えの時刻は、下書きのものを写す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ dayStartHour: 5 }) }));
+
+      await runWorker();
+
+      expect(storedTimeline()!.current!.dayStartHour).toBe(5);
+    });
+
     it('完成版の無い下書きは、AI が全部の日と場面の文を書き、完成版に入れ替わって下書きが消える', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
 
@@ -937,6 +945,80 @@ describe('タイムラインのワーカー', () => {
         for (const text of ['空港の朝', '北海道1日目', '札幌ラーメン', '運河の日']) {
           expect(otherLines.some((line) => line.includes(text))).toBe(true);
         }
+        // 引き継ぐ場面は AI の文も渡し、書き直す場面の AI の前の文は渡さない（書き直させるため）
+        expect(otherLines.some((line) => line.includes('朝ごはんの一言'))).toBe(true);
+        expect(otherLines.some((line) => line.includes('昼ごはんの一言'))).toBe(false);
+        // 今の区切り（全部の場面）と日の区切り（何番から何日目か）も渡す
+        expect(otherLines.some((line) => ['0番', '2番', '4番', '5番'].every((start) => line.includes(start)))).toBe(true);
+        expect(otherLines.some((line) => ['2日目', '4番', '5番'].every((text) => line.includes(text)))).toBe(true);
+      });
+
+      it('分けて呼ぶ作り直しでは、頼むものが無い呼び出しを飛ばし、前の文の文脈もその呼び出しの分だけ渡す', async () => {
+        const day1 = photosOfDay('2026-10-05', 1, 250);
+        const day2 = photosOfDay('2026-10-06', 2, 200);
+        useSnapshot([...day1, ...day2]);
+        const starts = [day1[0].id, day2[0].id];
+        // 1日目は場面も日も前と同じ。2日目は場面の写真が増えた（前は 100 枚）が、日の区切りは同じ
+        const current = timelineCurrent(OLD_SNAPSHOT_ID, {
+          proposedStarts: starts,
+          sceneStarts: starts,
+          sceneTexts: {
+            [day1[0].id]: aiScene('1日目の場面', '1日目の一言', day1.map((photo) => photo.id)),
+            [day2[0].id]: aiScene('2日目の場面', '2日目の一言', day2.slice(0, 100).map((photo) => photo.id))
+          },
+          dayTexts: {
+            '2026-10-05': aiDay('1日目のタイトル', '1日目のまとめ', [day1[0].id]),
+            '2026-10-06': aiDay('2日目のタイトル', '2日目のまとめ', [day2[0].id])
+          }
+        });
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current, draft: writingDraft({ reason: 'rebuild', proposedStarts: starts, sceneStarts: starts }) }));
+        replies({ days: [], scenes: [{ start: 0, label: '新しい2日目', note: '一言' }] });
+
+        await runWorker();
+
+        expect(sent).toHaveLength(1);
+        const lines = nonPhotoLines(sentPrompt(0));
+        expect(lines.some((line) => line.includes('2日目のタイトル'))).toBe(true);
+        expect(lines.some((line) => line.includes('1日目のタイトル'))).toBe(false);
+        expect(storedTimeline()!.current!.sceneTexts[day2[0].id].label).toBe('新しい2日目');
+      });
+
+      it('1日を分けて呼ぶときは、日の文の文脈をその日の最初の場面を含む呼び出しだけで渡す', async () => {
+        const day1 = photosOfDay('2026-10-05', 1, 450);
+        useSnapshot(day1);
+        const starts = [day1[0].id, day1[300].id];
+        // 最初の場面と日の区切りは前と同じ。2つ目の場面は写真が増えた（前は 100 枚）
+        const current = timelineCurrent(OLD_SNAPSHOT_ID, {
+          proposedStarts: starts,
+          sceneStarts: starts,
+          sceneTexts: {
+            [day1[0].id]: aiScene('午前', '午前の一言', day1.slice(0, 300).map((photo) => photo.id)),
+            [day1[300].id]: aiScene('午後', '午後の一言', day1.slice(300, 400).map((photo) => photo.id))
+          },
+          dayTexts: { '2026-10-05': aiDay('長い日のタイトル', '長い日のまとめ', starts) }
+        });
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current, draft: writingDraft({ reason: 'rebuild', proposedStarts: starts, sceneStarts: starts }) }));
+        replies({ days: [], scenes: [{ start: 0, label: '新しい午後', note: '一言' }] });
+
+        await runWorker();
+
+        // 1回目（最初の場面と日）は頼むものが無いので飛ばし、2回目（2つ目の場面）だけを呼ぶ
+        expect(sent).toHaveLength(1);
+        expect(nonPhotoLines(sentPrompt(0)).some((line) => line.includes('長い日のタイトル'))).toBe(false);
+        expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('長い日のタイトル');
+      });
+
+      it('書き直す場面と日でも、利用者が書いた一言とまとめは残す（AI の文だけ新しくする）', async () => {
+        const current = oldCurrent();
+        current.sceneTexts[photoId('c')] = { ...current.sceneTexts[photoId('c')], note: '自分で書いた一言', noteSource: 'user' };
+        current.dayTexts['2026-10-06'] = { ...current.dayTexts['2026-10-06'], summary: '自分で書いたまとめ', summarySource: 'user' };
+        cosmosBackend.documents.set(TIMELINE_ID, rebuilding(current));
+
+        await runWorker();
+
+        const written = storedTimeline()!.current!;
+        expect(written.sceneTexts[photoId('c')]).toMatchObject({ note: '自分で書いた一言', noteSource: 'user', aiNote: '札幌のラーメン' });
+        expect(written.dayTexts['2026-10-06']).toMatchObject({ summary: '自分で書いたまとめ', summarySource: 'user', aiSummary: '運河を歩いて一休み。' });
       });
 
       it('文を書いている間に利用者が完成版の文を直したら、引き継ぐ文は直した後のものにする（当て直し）', async () => {
@@ -958,11 +1040,13 @@ describe('タイムラインのワーカー', () => {
         current.sceneTexts[photoId('b')] = userScene('空港の売店', '売店', [photoId('b')]);
         current.dayTexts['2026-10-07'] = userDay('帰りの日', '帰る', [photoId('z')]);
         const already = { kind: 'scene' as const, key: photoId('b'), field: 'label' as const, text: '空港の売店' };
-        cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilding(current), droppedEdits: [already] } as any);
+        // 前の書き直しで残せなかった、別の文の知らせも残る
+        const earlier = { kind: 'day' as const, key: '2026-10-04', field: 'summary' as const, text: '前日の移動' };
+        cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilding(current), droppedEdits: [earlier, already] } as any);
 
         await runWorker();
 
-        expect(storedTimeline()!.droppedEdits).toEqual([already, { kind: 'day', key: '2026-10-07', field: 'title', text: '帰りの日' }]);
+        expect(storedTimeline()!.droppedEdits).toEqual([earlier, already, { kind: 'day', key: '2026-10-07', field: 'title', text: '帰りの日' }]);
         expect(Object.keys(storedTimeline()!.current!.sceneTexts).sort()).toEqual(STARTS.slice().sort());
         expect(Object.keys(storedTimeline()!.current!.dayTexts).sort()).toEqual(['2026-10-05', '2026-10-06']);
       });
