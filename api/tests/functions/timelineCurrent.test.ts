@@ -436,6 +436,17 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(before);
     });
 
+    it('直しても文が変わらなければ書き込まずに、完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
+      // AI が書いた文のままの欄に null を送る（AI の文に戻す）＝ 変わらない
+      const timeline = storedTimeline();
+
+      const response = await patchDay('2026-10-05', { title: null });
+
+      expect(response.status).toBe(200);
+      // 書けば更新日時が今になる
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
     it('入力が無効なら、旅行が無くても 400（データベースを読む前に確かめる）', async () => {
       cosmosBackend.documents.delete(TRIP_ID);
 
