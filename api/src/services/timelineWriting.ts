@@ -1,6 +1,6 @@
 import { TimelineCurrent, TimelineDayText, TimelineDraft, TimelinePhotoSnapshot, TimelineSceneText } from '../types/timeline';
 import { TimelineWriterService } from './timelineWriterService';
-import { datedDaysOf } from './timelineView';
+import { TimelineDatedDay, datedDaysOf, scenesOfDay } from './timelineView';
 
 /** 下書きの区切りで組んだ場面（控えの撮影日時のある写真。控えを取った後に消えた写真も含める） */
 interface ScenePlan {
@@ -81,18 +81,11 @@ export function assembleCurrent(draft: TimelineDraft, plan: DayPlan[], texts: Ti
   };
 }
 
-/** 日ごとに、各日の最初の写真と区切りの写真から場面を組む（表示の組み方と同じ。04 §1.6） */
-function planOf(days: ReturnType<typeof datedDaysOf>, sceneStarts: string[]): DayPlan[] {
-  const starts = new Set(sceneStarts);
-  return days.map((day) => {
-    const scenes: ScenePlan[] = [];
-    day.photos.forEach((photo, index) => {
-      if (index === 0 || starts.has(photo.id)) {
-        scenes.push({ start: photo.id, photoIds: [photo.id] });
-      } else {
-        scenes[scenes.length - 1].photoIds.push(photo.id);
-      }
-    });
-    return { date: day.date, dayNumber: day.dayNumber, scenes };
-  });
+/** 日ごとに場面を組む（表示と同じ組み方。04 §1.6） */
+function planOf(days: TimelineDatedDay[], sceneStarts: string[]): DayPlan[] {
+  return days.map((day) => ({
+    date: day.date,
+    dayNumber: day.dayNumber,
+    scenes: scenesOfDay(day.photos, sceneStarts).map((photos) => ({ start: photos[0].id, photoIds: photos.map((photo) => photo.id) })),
+  }));
 }
