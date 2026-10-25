@@ -69,7 +69,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       final overview = await widget.apiService.getTimeline(widget.tripId);
       // 後から始めた読み込みがある。先に始めたこの読み込みの結果（古い状態）では上書きしない
       if (!mounted || request != _loadRequest) return;
-      setState(() => _errorMessage = null);
       _show(overview);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの読み込みエラー: $e');
@@ -92,7 +91,11 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
   void _show(TimelineOverview overview) {
     _pollTimer?.cancel();
-    setState(() => _overview = overview);
+    // 出すものがあればエラーの表示は外す（build はエラーを先に見るので、残すと出したものが隠れる）
+    setState(() {
+      _overview = overview;
+      _errorMessage = null;
+    });
     if (overview.timeline?.draft?.isWorking ?? false) {
       _pollTimer = Timer(_pollInterval, _poll);
     }
