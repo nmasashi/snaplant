@@ -6,6 +6,7 @@ import {
   TimelinePhotoSnapshot,
   TimelineSceneText,
 } from '../types/timeline';
+import { TIMELINE_MAX_PHOTOS_PER_CALL } from '../constants/album';
 import { TimelineWriterService } from './timelineWriterService';
 import { TimelineDatedDay, datedDaysOf, scenesOfDay } from './timelineView';
 
@@ -48,22 +49,82 @@ export async function writeDraftTexts(
     return { plan, texts: { scenes: new Map(), days: new Map() } };
   }
 
-  const ordered = days.flatMap((day) => day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber })));
-  const indexOf = new Map(ordered.map(({ photo }, index) => [photo.id, index]));
-  const written = await new TimelineWriterService().write({
-    photos: ordered,
-    sceneStarts: plan.flatMap((day) => day.scenes.map((scene) => indexOf.get(scene.start)!)),
-    scenesToWrite: scenesToWrite.map((scene) => indexOf.get(scene.start)!),
-    daysToWrite: daysToWrite.map(({ date, dayNumber }) => ({ date, dayNumber })),
-    context: contextOf(plan, current, (photoId) => indexOf.get(photoId)!),
-  });
-  return {
-    plan,
-    texts: {
-      scenes: new Map([...written.scenes].map(([index, text]) => [ordered[index].photo.id, text])),
-      days: written.days,
-    },
+  const photoOf = new Map(days.flatMap((day) => day.photos.map((photo) => [photo.id, { photo, dayNumber: day.dayNumber }] as const)));
+  const fullDays = new Map(plan.map((day) => [day.date, day]));
+  const sceneStartsToWrite = new Set(scenesToWrite.map((scene) => scene.start));
+  const datesToWrite = new Set(daysToWrite.map((day) => day.date));
+  const writer = new TimelineWriterService();
+  const texts: TimelineAiTexts = { scenes: new Map(), days: new Map() };
+  // 順に呼ぶ（区切り案と同じ）。途中で失敗したら投げ、何も書かない
+  for (const call of writeCallsOf(plan)) {
+    const scenes = call.flatMap((piece) => piece.scenes);
+    const callScenes = scenes.filter((scene) => sceneStartsToWrite.has(scene.start));
+    const callDays = call.filter((piece) => piece.writesDay && datesToWrite.has(piece.date));
+    if (callScenes.length === 0 && callDays.length === 0) {
+      continue;
+    }
+    // 番号は呼び出しごとに 0 から振る
+    const ordered = scenes.flatMap((scene) => scene.photoIds.map((id) => photoOf.get(id)!));
+    const indexOf = new Map(ordered.map(({ photo }, index) => [photo.id, index]));
+    const written = await writer.write({
+      photos: ordered,
+      sceneStarts: scenes.map((scene) => indexOf.get(scene.start)!),
+      scenesToWrite: callScenes.map((scene) => indexOf.get(scene.start)!),
+      daysToWrite: callDays.map(({ date, dayNumber }) => ({ date, dayNumber })),
+      context: contextOf(call, current, fullDays, (photoId) => indexOf.get(photoId)!),
+    });
+    written.scenes.forEach((text, index) => texts.scenes.set(ordered[index].photo.id, text));
+    written.days.forEach((text, date) => texts.days.set(date, text));
+  }
+  return { plan, texts };
+}
+
+/** 1回の呼び出しに渡す日の一部（1日で上限を超える日は、場面の境目で分かれる） */
+interface CallDay {
+  date: string;
+  dayNumber: number;
+  scenes: ScenePlan[];
+  /** この呼び出しで日の文を頼むか（その日の最初の場面を含む呼び出しだけ） */
+  writesDay: boolean;
+}
+
+/**
+ * AI に渡す写真を、一度に渡せる数（TIMELINE_MAX_PHOTOS_PER_CALL）ごとの呼び出しに分ける（06 §8.4）
+ *
+ * 日の境目で分け、入る日はまとめる。1日で上限を超える日は場面の境目で分ける（区切り案のときに上限ごとの切れ目は区切りになっている。
+ * 利用者が切れ目を消して上限を超える場面になったら、その場面は1回で渡す）
+ */
+function writeCallsOf(plan: DayPlan[]): CallDay[][] {
+  const calls: CallDay[][] = [];
+  let call: CallDay[] = [];
+  let size = 0;
+  const push = () => {
+    if (call.length > 0) {
+      calls.push(call);
+      call = [];
+      size = 0;
+    }
   };
+  for (const day of plan) {
+    const daySize = day.scenes.reduce((sum, scene) => sum + scene.photoIds.length, 0);
+    if (size > 0 && size + daySize > TIMELINE_MAX_PHOTOS_PER_CALL) {
+      push();
+    }
+    day.scenes.forEach((scene, index) => {
+      if (size > 0 && size + scene.photoIds.length > TIMELINE_MAX_PHOTOS_PER_CALL) {
+        push();
+      }
+      const last = call[call.length - 1];
+      if (last && last.date === day.date) {
+        last.scenes.push(scene);
+      } else {
+        call.push({ date: day.date, dayNumber: day.dayNumber, scenes: [scene], writesDay: index === 0 });
+      }
+      size += scene.photoIds.length;
+    });
+  }
+  push();
+  return calls;
 }
 
 /**
@@ -211,9 +272,16 @@ function droppedEditsOf(
  * AI に文脈として渡す、前の完成版の文（06 §8.4。書き換えさせない）
  *
  * 引き継ぐ場面・日は文の全部を、書き直す場面・日は利用者が書いた欄だけを渡す（AI の前の文は渡さない。書き直させるため）
- * @param indexOf 写真の id から番号
+ * @param call この呼び出しに渡す日と場面（日の文は、その日の最初の場面を含む呼び出しだけで渡す）
+ * @param fullDays 日付ごとの日（1日を分けたときも、引き継ぐかはその日の全部の区切りで決める）
+ * @param indexOf 写真の id から、この呼び出しの番号
  */
-function contextOf(plan: DayPlan[], current: TimelineCurrent | null, indexOf: (photoId: string) => number): string[] {
+function contextOf(
+  call: CallDay[],
+  current: TimelineCurrent | null,
+  fullDays: Map<string, DayPlan>,
+  indexOf: (photoId: string) => number
+): string[] {
   if (!current) {
     return [];
   }
@@ -224,10 +292,10 @@ function contextOf(plan: DayPlan[], current: TimelineCurrent | null, indexOf: (p
       lines.push(`${subject}: ${shown.join(' ')}`);
     }
   };
-  for (const day of plan) {
-    const dayText = current.dayTexts[day.date];
+  for (const day of call) {
+    const dayText = day.writesDay ? current.dayTexts[day.date] : undefined;
     if (dayText) {
-      const all = inheritsDay(current, day);
+      const all = inheritsDay(current, fullDays.get(day.date)!);
       line(`${day.date}（${all ? '引き継ぐ' : '利用者が書いた'}）`, [
         ['タイトル', dayText.title, all || dayText.titleSource === 'user'],
         ['まとめ', dayText.summary, all || dayText.summarySource === 'user'],
