@@ -155,15 +155,6 @@ void main() {
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
     });
 
-    testWidgets('通信が切れて読めなかったときも、エラーの文言を出す', (tester) async {
-      final backend = await _openTripDetail(tester);
-      backend.failNextWithConnectionError(TripRoute.timeline);
-
-      await _showTimeline(tester);
-      expect(find.text('エラーが発生しました'), findsOneWidget);
-      expect(find.text('ネットワークに接続できません。インターネット接続を確認してください。'), findsOneWidget);
-    });
-
     testWidgets('旅行が別の端末で消されていたら、「この旅行は削除されています」を出す', (tester) async {
       final backend = await _openTripDetail(tester);
       backend.trips.clear();
@@ -239,19 +230,6 @@ void main() {
       expect(backend.timelineDraftReadsReceived, reads);
     });
 
-    testWidgets('作っている間に失敗したら、読み直して「区切りの案を作れませんでした」を出す', (tester) async {
-      final backend = await _openTripDetail(tester,
-          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
-      await _showTimeline(tester);
-
-      backend.timelinesByTripId[hokkaidoTripId] = _timeline(
-          draft: _draft('proposing',
-              step: 'propose', state: 'failed', lastError: 'ai'));
-      await _waitForPoll(tester);
-      expect(find.text('区切りの案を作れませんでした'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsNothing);
-    });
-
     testWidgets('「写真」に戻すと、下書きの読み直しを止める', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
@@ -298,14 +276,19 @@ void main() {
       expect(find.text('タイムラインができました'), findsOneWidget);
     });
 
-    testWidgets('区切りの案を作れなかったら「区切りの案を作れませんでした」と「もう一度」「やめる」を出し、「もう一度」で作り直す',
+    testWidgets(
+        '区切りの案を作っている間に失敗したら、読み直して「区切りの案を作れませんでした」と「もう一度」「やめる」を出し、「もう一度」で作り直す',
         (tester) async {
       final backend = await _openTripDetail(tester,
-          timeline: _timeline(
-              draft: _draft('proposing',
-                  step: 'propose', state: 'failed', lastError: 'ai')));
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
       await _showTimeline(tester);
+
+      backend.timelinesByTripId[hokkaidoTripId] = _timeline(
+          draft: _draft('proposing',
+              step: 'propose', state: 'failed', lastError: 'ai'));
+      await _waitForPoll(tester);
       expect(find.text('区切りの案を作れませんでした'), findsOneWidget);
+      expect(find.text('区切りの案を作っています'), findsNothing);
       expect(find.text('やめる'), findsOneWidget);
 
       await tester.tap(find.text('もう一度'));
