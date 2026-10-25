@@ -17,10 +17,10 @@ import { ErrorCode, HttpStatusCode } from '../types/api';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 
 /**
- * タイムラインの下書きを読む API（状態と、確かめ中なら日と場面）
+ * タイムラインの下書きを読む API（状態と、確かめ中か文を書くのに失敗した下書きなら日と場面）
  * GET /api/trips/{tripId}/timeline/draft?code={FUNCTION_KEY}
  *
- * 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら。日と場面は確かめ中のときだけ組む（05 §5.15）
+ * 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら。日と場面は確かめ中と文を書くのに失敗したときだけ組む（05 §5.15）
  */
 export async function getTimelineDraftHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -47,7 +47,8 @@ async function readDraftResponse(tripId: string): Promise<HttpResponseInit> {
   if (!draft) {
     return createSuccessResponse({ draft: null, urlExpiresAt: expiresOn.toISOString() });
   }
-  if (draft.phase !== 'reviewing') {
+  // 確かめ中と、文を書くのに失敗した下書き（区切りの確認の画面で直せる。保存と文の受付と同じ条件）だけが日と場面を返す
+  if (!isEditableDraft(draft)) {
     return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
   }
   // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
@@ -195,10 +196,15 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       }
       throw error;
     }
-    if (!isValidSceneStarts(sceneStarts, photos, draft.dayStartHour)) {
+    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour);
+    if (!normalized) {
       return createValidationError('区切りが無効です');
     }
-    const saved: TimelineDraft = { ...draft, sceneStarts, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) };
+    const saved: TimelineDraft = {
+      ...draft,
+      sceneStarts: normalized,
+      ...(writeFailed ? { phase: 'reviewing', job: null } : {})
+    };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
     const storage = new PhotoStorageService();
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
@@ -229,17 +235,20 @@ function isWriteFailed(draft: TimelineDraft): boolean {
 /**
  * 区切りが控えに合っているか（05 §5.15 の表の 4）
  *
- * どれも控えの撮影日時のある写真で、重ならず撮影の順に並び、各日の最初の写真が入っていること（場面は日をまたがない）
+ * どれも控えの撮影日時のある写真で、重ならず撮影の順に並ぶこと。合っていれば、各日の最初の写真を足した区切り（撮影の順）を返し、合わなければ null。
+ * 場面は日をまたがないので、日の最初の写真は必ず場面の始まり。区切りの確認の画面は写真が全部消えた日や場面を見ないので、
+ * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる（5-3b）
  */
-function isValidSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): boolean {
+function normalizedSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): string[] | null {
   const days = datedDaysOf(photos, dayStartHour);
-  const order = new Map(days.flatMap((day) => day.photos).map((photo, index) => [photo.id, index]));
+  const ordered = days.flatMap((day) => day.photos.map((photo) => photo.id));
+  const order = new Map(ordered.map((id, index) => [id, index]));
   const positions = sceneStarts.map((id) => order.get(id));
   if (positions.some((position, index) => position === undefined || (index > 0 && position <= positions[index - 1]!))) {
-    return false;
+    return null;
   }
-  const starts = new Set(sceneStarts);
-  return days.every((day) => starts.has(day.photos[0].id));
+  const starts = new Set([...sceneStarts, ...days.map((day) => day.photos[0].id)]);
+  return ordered.filter((id) => starts.has(id));
 }
 
 app.http('getTimelineDraft', {

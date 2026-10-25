@@ -54,7 +54,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/trips/{tripId}/timeline` | GET | `{ timeline, pendingPhotoCount, urlExpiresAt }` | 完成版と下書きの状態。無ければ `timeline: null`。§5.15 | 5（5-1c。実装済み） | `timeline.ts` |
 | `/api/trips/{tripId}/timeline` | POST | `{ draft, urlExpiresAt }` 202 | 作る・作り直す（区切り案の下書きから）。解析中の写真があれば 409 | 5（5-1a。実装済み） | `timeline.ts` |
 | `/api/trips/{tripId}/timeline/recut` | POST | `{ draft, urlExpiresAt }` | 完成版の区切りを直し始める（下書きを作る）。`draft` は `GET …/draft` の確かめ中と同じ形 | 5（5-2b。実装済み） | `timelineCurrent.ts` |
-| `/api/trips/{tripId}/timeline/draft` | GET | `{ draft, urlExpiresAt }` | 下書きの状態と、確かめ中なら区切り | 5（5-1a。実装済み） | `timelineDraft.ts` |
+| `/api/trips/{tripId}/timeline/draft` | GET | `{ draft, urlExpiresAt }` | 下書きの状態と、確かめ中か文を書くのに失敗した下書きなら区切り | 5（5-1a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft` | DELETE | `{ draft: null }` | 下書きをやめる | 5（5-1a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft/scenes` | PUT | `{ draft, urlExpiresAt }` | `{ sceneStarts }`。下書きの区切りを保存。`draft` は `GET …/draft` の確かめ中と同じ形 | 5（5-1c。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft/write` | POST | `{ draft, urlExpiresAt }` 202 | 確かめた区切りで文を書く（文を書く待ちにしてキューに積む） | 5（5-2a。実装済み） | `timelineDraft.ts` |
@@ -731,12 +731,12 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **`GET /api/trips/{tripId}/timeline/draft`** → 200 `{ draft, urlExpiresAt }`
 
-**実装済み**（5-1a。`timelineDraft.ts` の `getTimelineDraft`）。
+**実装済み**（5-1a。`timelineDraft.ts` の `getTimelineDraft`。文を書くのに失敗した下書きにも `days`・`undatedPhotos` を付けるのは 5-3b）。
 
-- 下書きが無ければ `draft: null`（タイムラインが無いときも、完成版だけのときも）。あれば状態（上と同じ）に加えて、`phase` が `reviewing` のときだけ `days`（`date`・`dayNumber`・`scenes`。`scenes` は文の無い形で `startPhotoId`・`startedBy`・`hasFood`・`firstTakenAt`・`lastTakenAt`・`placeNames`・`names`・`photos`）と `undatedPhotos` を付ける（区切りの確認の画面が読む）。
+- 下書きが無ければ `draft: null`（タイムラインが無いときも、完成版だけのときも）。あれば状態（上と同じ）に加えて、`phase` が `reviewing` のときと、文を書くのに失敗した（`writing` で `job.state: "failed"`）ときだけ `days`（`date`・`dayNumber`・`scenes`。`scenes` は文の無い形で `startPhotoId`・`startedBy`・`hasFood`・`firstTakenAt`・`lastTakenAt`・`placeNames`・`names`・`photos`）と `undatedPhotos` を付ける（区切りの確認の画面が読む）。
   日と場面の組み方は完成版と同じ（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり。日の切り替えは下書きの `dayStartHour`）で、控えを取った後に消えた写真は出さず、写真が全部消えた場面と日も出さない。
   何日目かと場面の分け方は、消えた写真も含めた控えで決める（写真を消しても日の番号や区切りが動かない）。そのため `startPhotoId` は、場面の最初の写真が消えていても控えの最初の写真の id のまま（`photos` の先頭とは限らない）
-- 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中のときだけ、控えと、消えた写真を見分けるための旅行の写真（5.13 のクエリ。id だけを使う）を読み、写真の保存先の設定を読む（それ以外の `phase` では読まない）
+- 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中と文を書くのに失敗したときだけ、控えと、消えた写真を見分けるための旅行の写真（5.13 のクエリ。id だけを使う）を読み、写真の保存先の設定を読む（それ以外では読まない。文を書くのに失敗した下書きも、区切りの確認の画面（[03 §8.4](./03_screen_design.md#84-区切りの確認画面)）で直してから書き直せる。5-3b）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
 **`POST /api/trips/{tripId}/timeline`**（作る・作り直す。区切り案から）→ 202 `{ draft, urlExpiresAt }`
@@ -778,11 +778,12 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 1 | 下書きが無い（タイムラインが無いときも、完成版だけのときも） | 404 `TIMELINE_NOT_FOUND` `タイムラインの下書きが見つかりません` |
 | 2 | `phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）のでもない（区切り案を作っている・区切り案に失敗した・文を書いている） | 409 `TIMELINE_STATE_CONFLICT` |
 | 3 | `sceneStarts` が無いか、文字列の配列でない | 400 `INVALID_REQUEST` `区切りは写真IDの配列で指定してください` |
-| 4 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない、各日の最初の写真が入っていない（日は下書きの `dayStartHour` で分ける） | 400 `INVALID_REQUEST` `区切りが無効です` |
+| 4 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない | 400 `INVALID_REQUEST` `区切りが無効です` |
 | 5 | それ以外 | 200。下書きの `sceneStarts` を置き換え、`updatedAt` を今にする（下書きのほかの欄・完成版・残せなかった文は変えない）。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
 
 - 1〜4 のどれかで返すときは何も書かない
 - 4 は控えで見るので、控えを取った後に消えた写真の id も区切りに使える（表示では消えた写真を出さず、場面の `startPhotoId` はその id のまま）
+- 各日の最初の写真（日は下書きの `dayStartHour` で分ける）が入っていなければ、補って保存する（場面は日をまたがない。5-3b）。区切りの確認の画面は写真が全部消えた日や場面を見ず、その区切りを送れないため（以前は 400 にしていて、日の最初の場面の写真を全部消すと区切りを直せなくなった）
 - 応答の `draft` は `GET …/timeline/draft` の確かめ中と同じ形（状態に、保存した区切りで組んだ `days` と `undatedPhotos`。控えを取った後に消えた写真は出さない）
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの区切りの保存に失敗しました`（§7.2）
@@ -928,10 +929,10 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。`continuationToken` は省略でき、`tripId` は必須（`required`。省くとコンパイルできない）。渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`。`category` は旅行の中の絞り込み（API は `tripId` を省いて `category` だけでも取れるが、アプリはその形で呼ばない。カテゴリ横断画面は 2026-10-24 に消した。[03 §5.2](./03_screen_design.md#52-カテゴリ横断画面削除した)）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b）。呼び出し側の `PhotoGrid` は、読む先（`loadPage`）が無ければ `tripId` を渡す（`tripId` も読む先も無い `PhotoGrid` は、デバッグ版では `assert` が組み立てたところで止め、リリース版では読み込みの失敗になる） |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
 | `getTimeline(tripId)` | `GET /api/trips/{tripId}/timeline` | `data['timeline']`（null 可）・`data['pendingPhotoCount']`（段階5）。**実装済み**（5-3a。`models/timeline.dart` の `TimelineOverview`）: `timeline` の `current` は有る・無いだけを読み（中身は 5-4）、`draft` は状態（下の `getTimelineDraft` と同じ）。`changes`・`droppedEdits`・`urlExpiresAt` は読まない |
-| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` と確かめ中の `days`・`undatedPhotos` は読まない |
+| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` は読まない。区切りを確かめられる下書きの `days`（`date`・`dayNumber`・`scenes` の `startPhotoId`・`placeNames`・`photos`（`id`・`takenAt`・`thumbnailUrl`））と `undatedPhotos` は、あれば読む（5-3b。区切りの確認画面） |
 | `createTimeline(tripId)` | `POST …/timeline` | `data['draft']`。**実装済み**（5-3a。読み方は `getTimelineDraft` と同じで、null は受け付けない） |
 | `recutTimeline(tripId)` | `POST …/timeline/recut` | `data['draft']` |
-| `saveTimelineScenes(tripId, sceneStarts)` | `PUT …/timeline/draft/scenes` | `data['draft']` |
+| `saveTimelineScenes(tripId, sceneStarts)` | `PUT …/timeline/draft/scenes` | `data['draft']`。**実装済み**（5-3b。読み方は `getTimelineDraft` と同じで、null は受け付けない）。ボディは `{ sceneStarts }`（渡したリストをそのまま。中身の決め方は [03 §8.4](./03_screen_design.md#84-区切りの確認画面)） |
 | `writeTimeline(tripId)` | `POST …/timeline/draft/write` | `data['draft']`。**実装済み**（5-3a。読み方は `createTimeline` と同じ） |
 | `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | 読まない（続けて `getTimeline` で読み直す）。**実装済み**（5-3a） |
 | `updateTimelineDay(tripId, date, {title, summary})`・`updateTimelineScene(tripId, photoId, {label, note})`・`dismissTimelineDroppedEdits(tripId)` | `PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | 読まない（続けて `getTimeline` で読み直す） |
@@ -947,7 +948,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 既存の `testConnection()`（設定画面の接続テスト）は 4-5 で宛先を `GET /api/plants` から、旅行をまたぐ写真の一覧を1件だけ読む `GET /api/photos?category=plant&limit=1` に変えた（データベースに届かなければ失敗として出る）。ステータスが 2xx かだけを見て、ボディは読まない（通信の失敗も含めて例外を投げず `false` を返す。[03 §6.4](./03_screen_design.md#64-植物図鑑の廃止に伴う画面の削除)）。
 植物図鑑のメソッド（`uploadAndIdentifyImage`・`checkDuplicate`・`savePlant`・`getPlants`・`getPlant`・`updatePlant`・`deletePlant`）は 4-5 で削除した。
 `ApiException` に `isTripNotFound`（`code == 'TRIP_NOT_FOUND'`）と `isPhotoNotFound`（`code == 'PHOTO_NOT_FOUND'`。複数選択の削除で既に無い写真を消せたと数える。ステータスだけで見ると宛先の誤りの 404 まで含むのでコードで見る）を足す。
-段階5では `isTimelineChanged`（`code` が `TIMELINE_STATE_CONFLICT` か `TIMELINE_NOT_FOUND`。読んだ後にタイムラインが変わったので読み直す）と `isTimelineNotCreatable`（`code` が `TIMELINE_PHOTOS_PROCESSING` か `TIMELINE_NO_DATED_PHOTOS`）を足した（**実装済み**。5-3a。画面の扱いは [03 §8.1](./03_screen_design.md#81-旅行詳細の切り替え)）。
+段階5では `isTimelineChanged`（`code` が `TIMELINE_STATE_CONFLICT` か `TIMELINE_NOT_FOUND`。読んだ後にタイムラインが変わったので読み直す）と `isTimelineNotCreatable`（`code` が `TIMELINE_PHOTOS_PROCESSING` か `TIMELINE_NO_DATED_PHOTOS`）を足した（**実装済み**。5-3a。画面の扱いは [03 §8.1](./03_screen_design.md#81-旅行詳細の切り替え)。区切りの確認画面（5-3b）は `isTimelineChanged` なら旅行詳細に戻る。[03 §8.4](./03_screen_design.md#84-区切りの確認画面)）。
 `uploadPhoto` は **実装済み**（PR 7a。`thumbnail`・`placeName` は PR 7c）。`multipart/form-data` で次のパートを送る。
 
 - `photoId`: 画像のバイト列の SHA-256（16進・小文字）。`image` と同じバイト列から求める（§5.1 の 18 を通るように）

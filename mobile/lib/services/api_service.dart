@@ -349,6 +349,20 @@ class ApiService {
     }
   }
 
+  /// 下書きの区切りを保存する（場面の最初の写真の id を撮影の順に）。保存した後の下書き（日と場面つき）を返す
+  /// PUT /api/trips/{tripId}/timeline/draft/scenes
+  Future<TimelineDraftStatus> saveTimelineScenes(
+      String tripId, List<String> sceneStarts) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/draft/scenes');
+      final response = await _client.put(Uri.parse(url),
+          headers: _headers, body: jsonEncode({'sceneStarts': sceneStarts}));
+      return _parseResponse(response, (json) => _draftOf(json)!);
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す
   /// POST /api/trips/{tripId}/timeline/draft/write
   Future<TimelineDraftStatus> writeTimeline(String tripId) async {

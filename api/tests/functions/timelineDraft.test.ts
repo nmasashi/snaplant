@@ -200,6 +200,50 @@ describe('タイムラインの下書きAPI', () => {
       });
     });
 
+    it('文を書くのに失敗した下書きは、確かめ中と同じく日と場面も返す（区切りの確認の画面で直してから書き直せる）', async () => {
+      placeSnapshot([snap('a', '2026-10-05T07:50:00'), snap('b', null, { category: 'other' })]);
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(
+          draftOf({
+            phase: 'writing',
+            sceneStarts: [photoId('a')],
+            job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:59:00.000Z' }
+          })
+        )
+      );
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.draft).toEqual({
+        id: DRAFT_ID,
+        reason: 'create',
+        phase: 'writing',
+        job: { step: 'write', state: 'failed', lastError: 'ai' },
+        startedAt: '2026-10-25T08:50:00.000Z',
+        days: [
+          {
+            date: '2026-10-05',
+            dayNumber: 1,
+            scenes: [
+              {
+                startPhotoId: photoId('a'),
+                startedBy: 'day',
+                hasFood: false,
+                firstTakenAt: '2026-10-05T07:50:00',
+                lastTakenAt: '2026-10-05T07:50:00',
+                placeNames: [],
+                names: [],
+                photos: [shown('a', '2026-10-05T07:50:00')]
+              }
+            ]
+          }
+        ],
+        undatedPhotos: [shown('b', null, { category: 'other' })]
+      });
+    });
+
     it('確かめ中の下書きは、日ごと・場面ごとに写真を並べて返す（日付の切り替えは朝4時、日時なしは最後）', async () => {
       placeSnapshot([
         // 1日目: 朝ごはん（AI の区切り）と午前（利用者が足した区切り）。深夜 2:30 の写真は前の日（1日目）に入る
@@ -578,6 +622,23 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[0].photos.map((photo: any) => photo.id)).toContain(photoId('k'));
     });
 
+    it.each<[string, string[], string[], string[]]>([
+      // 画面には b と c の場面しか見えない（日の最初の場面と2日目を丸ごと見ない）
+      ['日の最初の写真が消えていて送られない', ['a', 'd', 'e'], [photoId('b')], [photoId('a'), photoId('b'), photoId('d')]],
+      ['日の最初の写真がまだあるのに送られない', [], [photoId('b'), photoId('e')], [photoId('a'), photoId('b'), photoId('d'), photoId('e')]]
+    ])('%sときも、各日の最初の写真を補って撮影の順で保存する', async (_label, deleted, starts, saved) => {
+      // 控えを取った後に消えた写真
+      for (const head of deleted) {
+        cosmosBackend.documents.delete(photoId(head));
+      }
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: starts });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual(saved);
+    });
+
     it('応答の日と場面には、控えを取った後に消えた写真を出さない', async () => {
       // 控えを取った後に b を消した
       cosmosBackend.documents.delete(photoId('b'));
@@ -658,9 +719,7 @@ describe('タイムラインの下書きAPI', () => {
       ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
       ['同じ写真を重ねて含む', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
       ['先頭で同じ写真を重ねて含む', [photoId('a'), photoId('a'), photoId('d')]],
-      ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]],
-      ['1日目の最初の写真を含まない', [photoId('b'), photoId('d')]],
-      ['2日目の最初の写真を含まない', [photoId('a'), photoId('e')]]
+      ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]]
     ])('区切りが%sときは、400（区切りが無効です）', async (_label, starts) => {
       const timeline = timelineWith(reviewing());
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
