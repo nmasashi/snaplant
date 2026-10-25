@@ -38,8 +38,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Timer? _pollTimer;
   // 操作（作る・もう一度・やめる）を送っている間は、操作のボタンを押せなくする（二重に送らない。§8.1）
   bool _sending = false;
-  // タイムラインの読み込みを始めるたびに進める。読み込みが重なったとき、最後に始めたものの結果だけを使う（§8.1）
-  int _loadRequest = 0;
+  // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
+  // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
+  int _generation = 0;
 
   @override
   void initState() {
@@ -57,7 +58,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）
   Future<void> _load(
       {bool showLoading = true, bool keepOnFailure = false}) async {
-    final request = ++_loadRequest;
+    final generation = ++_generation;
     _pollTimer?.cancel();
     if (showLoading) {
       setState(() {
@@ -67,8 +68,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     try {
       final overview = await widget.apiService.getTimeline(widget.tripId);
-      // 後から始めた読み込みがある。先に始めたこの読み込みの結果（古い状態）では上書きしない
-      if (!mounted || request != _loadRequest) return;
+      // 後から始めた読み込み・操作がある。先に始めたこの読み込みの結果（古い状態）では上書きしない
+      if (!mounted || generation != _generation) return;
       _show(overview);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの読み込みエラー: $e');
@@ -77,10 +78,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         widget.onTripNotFound();
         return;
       }
-      if (request != _loadRequest) return;
-      final shown = _overview;
-      if (keepOnFailure && shown != null) {
-        _show(shown);
+      if (generation != _generation) return;
+      if (keepOnFailure && _overview != null) {
+        _schedulePoll();
         return;
       }
       setState(() => _errorMessage =
@@ -96,7 +96,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       _overview = overview;
       _errorMessage = null;
     });
-    if (overview.timeline?.draft?.isWorking ?? false) {
+    _schedulePoll();
+  }
+
+  /// 出している下書きが作っている途中なら、次の読み直しを予約する
+  void _schedulePoll() {
+    _pollTimer?.cancel();
+    if (_overview?.timeline?.draft?.isWorking ?? false) {
       _pollTimer = Timer(_pollInterval, _poll);
     }
   }
@@ -106,22 +112,24 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     final shown = _overview;
     final shownDraft = shown?.timeline?.draft;
     if (shown == null || shownDraft == null) return;
+    final generation = _generation;
     TimelineDraftStatus? draft;
     try {
       draft = await widget.apiService.getTimelineDraft(widget.tripId);
     } catch (e) {
       debugPrint('TripTimelineView: 下書きの読み直しのエラー: $e');
-      if (!mounted || !identical(_overview, shown)) return;
+      if (!mounted) return;
       if (e is ApiException && e.isTripNotFound) {
         widget.onTripNotFound();
         return;
       }
+      if (generation != _generation) return;
       // 読み直しの失敗は出さず、次の回にもう一度読む
-      _show(shown);
+      _schedulePoll();
       return;
     }
-    // 待っている間に操作で表示が替わっていたら、古い表示を元にした読み直しの結果は使わない
-    if (!mounted || !identical(_overview, shown)) return;
+    // 待っている間に読み込みや操作を始めていたら、古い表示を元にした読み直しの結果は使わない
+    if (!mounted || generation != _generation) return;
     if (draft == null || draft.phase != shownDraft.phase || !draft.isWorking) {
       await _load(showLoading: false, keepOnFailure: true);
       return;
@@ -137,9 +145,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 受け付けた下書きの状態（作る・書かせるの応答）で、読み直さずに表示を進める
   Future<void> _accept(Future<TimelineDraftStatus> Function(String) send) =>
-      _send(() async {
+      _send((generation) async {
         final draft = await send(widget.tripId);
-        if (!mounted) return;
+        if (!mounted || generation != _generation) return;
         _show(_overview!.withDraft(draft));
       });
 
@@ -160,7 +168,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await _send(() async {
+    await _send((_) async {
       await widget.apiService.discardTimelineDraft(widget.tripId);
       if (!mounted) return;
       await _load(showLoading: false);
@@ -168,10 +176,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインの操作を送る。送っている間は操作のボタンを押せなくし、失敗を §8.1 のとおりに扱う
-  Future<void> _send(Future<void> Function() operation) async {
+  Future<void> _send(Future<void> Function(int generation) operation) async {
+    // 操作を始めたら、それより前に始めた読み直し・読み込みの応答は使わない（§8.1）
+    final generation = ++_generation;
+    _pollTimer?.cancel();
     setState(() => _sending = true);
     try {
-      await operation();
+      await operation(generation);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの操作のエラー: $e');
       if (!mounted) return;
@@ -193,6 +204,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       messenger.showSnackBar(SnackBar(
           content:
               Text(e is ApiException ? e.userMessage : 'タイムラインの操作に失敗しました')));
+      // 表示はそのまま。作っている途中の下書きなら読み直しを続ける
+      if (generation == _generation) _schedulePoll();
     } finally {
       if (mounted) setState(() => _sending = false);
     }
