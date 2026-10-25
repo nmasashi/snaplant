@@ -50,6 +50,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
   // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
   bool _sending = false;
+  // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）
+  bool _changesNoticeHidden = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
   int _generation = 0;
@@ -82,6 +84,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       final overview = await widget.apiService.getTimeline(widget.tripId);
       // 後から始めた読み込み・操作がある。先に始めたこの読み込みの結果（古い状態）では上書きしない
       if (!mounted || generation != _generation) return;
+      _changesNoticeHidden = false;
       _show(overview);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの読み込みエラー: $e');
@@ -402,6 +405,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       onEditDay: _sending ? null : _editDay,
       onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildRebuildBanner(draft),
+      notices: [
+        if (timeline.droppedEdits.isNotEmpty)
+          _buildDroppedEditsNotice(timeline.droppedEdits),
+        if (draft == null && !_changesNoticeHidden)
+          if (_changesNoticeText(timeline.changes) case final text?)
+            _buildChangesNotice(text, overview.pendingPhotoCount),
+      ],
     );
   }
 
@@ -418,6 +428,86 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       ],
       note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
+    );
+  }
+
+  /// 残せなかった文の案内（§8.3）。文は選んで写せる。「閉じる」で知らせを消す
+  Widget _buildDroppedEditsNotice(List<TimelineDroppedEdit> edits) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('場面や日が無くなったため、手で直した文のうち ${edits.length} 件を残せませんでした',
+                style: AppTextStyles.body1),
+            const SizedBox(height: 8),
+            for (final edit in edits)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: SelectableText(edit.text, style: AppTextStyles.body2),
+              ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _sending ? null : _dismissDroppedEdits,
+                child: const Text('閉じる'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 残せなかった文の知らせを閉じ、応答で描き直す（失敗は §8.1 の操作と同じ）
+  Future<void> _dismissDroppedEdits() => _send(() async {
+        final overview =
+            await widget.apiService.dismissTimelineDroppedEdits(widget.tripId);
+        if (!mounted) return;
+        _show(overview);
+      });
+
+  /// 写真が変わった案内の文（§8.3）。変わっていなければ null
+  String? _changesNoticeText(TimelineChanges? changes) {
+    if (changes == null || changes.added + changes.removed == 0) return null;
+    final what = [
+      if (changes.added > 0) '${changes.added} 枚増え',
+      if (changes.removed > 0) '${changes.removed} 枚消え',
+    ].join('、');
+    return '作った後に写真が $whatました。今のタイムラインには入っていません。';
+  }
+
+  /// 写真が変わった案内（§8.3）と「あとで」「作り直す」
+  Widget _buildChangesNotice(String text, int pendingPhotoCount) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(text, style: AppTextStyles.body1),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () => setState(() => _changesNoticeHidden = true),
+                  child: const Text('あとで'),
+                ),
+                OutlinedButton(
+                  onPressed:
+                      _sending || pendingPhotoCount > 0 ? null : _rebuild,
+                  child: const Text('作り直す'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
