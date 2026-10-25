@@ -243,12 +243,12 @@ function isWriteFailed(draft: TimelineDraft): boolean {
 }
 
 /** 旅行の今の写真の id（控えを取った後に消えた写真を見分ける） */
-async function readExistingPhotoIds(timelines: TimelineService, tripId: string): Promise<Set<string>> {
+export async function readExistingPhotoIds(timelines: TimelineService, tripId: string): Promise<Set<string>> {
   return new Set((await timelines.readTripPhotoStates(tripId)).map((photo) => photo.id));
 }
 
 /** 確かめ中の下書きの応答（状態に、日ごと・場面ごとの写真と日時なしを足す。05 §5.15） */
-function reviewingDraftOf(
+export function reviewingDraftOf(
   draft: TimelineDraft,
   photos: TimelinePhotoSnapshot[],
   existing: Set<string>,
