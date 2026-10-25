@@ -94,7 +94,9 @@ Map<String, Object?> _timelineOf({Map<String, Object?>? draft}) => {
 Future<FakeTripBackend> _openTimeline(WidgetTester tester,
     {Map<String, Object?>? draft,
     int pendingPhotoCount = 0,
-    Map<String, Object?>? current}) async {
+    Map<String, Object?>? current,
+    Map<String, Object?>? changes,
+    List<Object?>? droppedEdits}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 10)],
     functionKey: 'test-key',
@@ -111,6 +113,8 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
   backend.timelinesByTripId[hokkaidoTripId] = {
     ..._timelineOf(draft: draft),
     if (current != null) 'current': current,
+    if (changes != null) 'changes': changes,
+    if (droppedEdits != null) 'droppedEdits': droppedEdits,
   };
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
   await openTripsTab(tester, backend);
@@ -684,6 +688,106 @@ void main() {
 
       expect(find.text('市場の朝ごはん'), findsOneWidget);
       semantics.dispose();
+    });
+  });
+
+  group('作った後に写真が変わった案内・残せなかった文', () {
+    for (final (label, added, removed, text) in [
+      ('増えて消えた', 3, 2, '作った後に写真が 3 枚増え、2 枚消えました。今のタイムラインには入っていません。'),
+      ('増えただけ', 3, 0, '作った後に写真が 3 枚増えました。今のタイムラインには入っていません。'),
+      ('消えただけ', 0, 2, '作った後に写真が 2 枚消えました。今のタイムラインには入っていません。'),
+    ]) {
+      testWidgets('作った後に写真が$labelら、その枚数の案内と「あとで」「作り直す」を出す', (tester) async {
+        await _openTimeline(tester,
+            changes: {'added': added, 'removed': removed});
+
+        expect(find.text(text), findsOneWidget);
+        expect(find.text('あとで'), findsOneWidget);
+        // 上の「作り直す」と、案内の「作り直す」
+        expect(find.text('作り直す'), findsNWidgets(2));
+      });
+    }
+
+    testWidgets('「あとで」を押すと、写真が変わった案内を隠す', (tester) async {
+      await _openTimeline(tester, changes: {'added': 3, 'removed': 0});
+
+      await tester.tap(find.text('あとで'));
+      await letFramesRun(tester);
+      expect(find.textContaining('作った後に写真が'), findsNothing);
+      expect(find.text('作り直す'), findsOneWidget);
+    });
+
+    testWidgets('写真が変わった案内の「作り直す」は、作り直しの確認のダイアログを出す', (tester) async {
+      await _openTimeline(tester, changes: {'added': 3, 'removed': 0});
+
+      // 案内は作成日時の上に出すので、最初の「作り直す」が案内のもの
+      await tester.tap(find.text('作り直す').first);
+      await letFramesRun(tester);
+      expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
+    });
+
+    testWidgets('写真が変わっても、下書きがある間は案内を出さない', (tester) async {
+      await _openTimeline(tester, changes: {
+        'added': 3,
+        'removed': 2
+      }, draft: {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'rebuild',
+        'phase': 'proposing',
+        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'startedAt': '2026-10-26T09:00:00.000Z',
+      });
+
+      expect(find.textContaining('作った後に写真が'), findsNothing);
+      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+    });
+
+    testWidgets('残せなかった文があれば、件数とその文・「閉じる」を出し、「閉じる」で消す', (tester) async {
+      final backend = await _openTimeline(tester, droppedEdits: [
+        {
+          'kind': 'scene',
+          'key': 'c4ca42',
+          'field': 'label',
+          'text': '小樽運河をのんびり'
+        },
+        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
+      ]);
+
+      expect(find.text('場面や日が無くなったため、手で直した文のうち 2 件を残せませんでした'), findsOneWidget);
+      expect(find.text('小樽運河をのんびり'), findsOneWidget);
+      expect(find.text('札幌の休日'), findsOneWidget);
+
+      await tester.tap(find.text('閉じる'));
+      await letFramesRun(tester);
+      expect(
+          backend.timelinesByTripId[hokkaidoTripId]!['droppedEdits'], isEmpty);
+      expect(find.textContaining('残せませんでした'), findsNothing);
+    });
+
+    testWidgets('残せなかった文は、下書きがある間も出す', (tester) async {
+      await _openTimeline(tester, droppedEdits: [
+        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
+      ], draft: {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'rebuild',
+        'phase': 'proposing',
+        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'startedAt': '2026-10-26T09:00:00.000Z',
+      });
+
+      expect(find.text('場面や日が無くなったため、手で直した文のうち 1 件を残せませんでした'), findsOneWidget);
+    });
+
+    testWidgets('残せなかった文を閉じるのに失敗したら、エラーの文言を出し、文はそのまま', (tester) async {
+      final backend = await _openTimeline(tester, droppedEdits: [
+        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
+      ]);
+      backend.failNext(TripRoute.timelineDroppedEditsDelete);
+
+      await tester.tap(find.text('閉じる'));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('札幌の休日'), findsOneWidget);
     });
   });
 }
