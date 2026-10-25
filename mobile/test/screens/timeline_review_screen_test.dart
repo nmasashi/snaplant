@@ -87,6 +87,11 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
   return backend;
 }
 
+/// 文言が [label] のボタン（押せるかを見る）
+ButtonStyleButton _button(WidgetTester tester, String label) =>
+    tester.widget<ButtonStyleButton>(find.ancestor(
+        of: find.text(label), matching: find.bySubtype<ButtonStyleButton>()));
+
 /// 「区切りを確認する」で区切りの確認画面を開く
 Future<void> _openReview(WidgetTester tester) async {
   await tester.tap(find.text('区切りを確認する'));
@@ -215,6 +220,143 @@ void main() {
       await letFramesRun(tester);
       expect(find.text('区切りを確認'), findsNothing);
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
+    });
+  });
+
+  group('区切りを直す', () {
+    /// 偽のサーバの下書きの、日ごとの場面の最初の写真の id
+    List<List<String>> savedStarts(FakeTripBackend backend) {
+      final draft = backend.timelinesByTripId[hokkaidoTripId]!['draft']
+          as Map<String, Object?>;
+      return [
+        for (final day in draft['days'] as List)
+          [
+            for (final scene in (day as Map)['scenes'] as List)
+              (scene as Map)['startPhotoId'] as String
+          ]
+      ];
+    }
+
+    /// 番号の写真の id
+    String idOf(int number) => _photos[number]!['id'] as String;
+
+    testWidgets('写真を長押しして「この写真から新しい場面」を選ぶと、そこで区切って保存し、応答で描き直す', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.longPress(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      await tester.tap(find.text('この写真から新しい場面'));
+      await letFramesRun(tester);
+
+      expect(savedStarts(backend), [
+        [idOf(1), idOf(2), idOf(3)],
+        [idOf(5)]
+      ]);
+      expect(find.text('7:50 · 北海道千歳市 · 1枚'), findsOneWidget);
+      expect(find.text('7:58 · 北海道千歳市 · 1枚'), findsOneWidget);
+      expect(find.text('つなげる'), findsNWidgets(2));
+      semantics.dispose();
+    });
+
+    testWidgets('場面の最初の写真を長押ししても、「この写真から新しい場面」は出さない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.longPress(photoThumbnail('2026年10月5日 07:50'));
+      await letFramesRun(tester);
+      expect(find.text('この写真から新しい場面'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('「つなげる」を押すと、前の場面とまとめて保存し、応答で描き直す', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+
+      expect(savedStarts(backend), [
+        [idOf(1)],
+        [idOf(5)]
+      ]);
+      expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
+      expect(find.text('つなげる'), findsNothing);
+    });
+
+    testWidgets('保存している間は、ほかの操作を受け付けない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      final hold = backend.holdNextReply(TripRoute.timelineScenes);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(_button(tester, 'つなげる').onPressed, isNull);
+      expect(_button(tester, 'この区切りで見出しを付ける').onPressed, isNull);
+      await tester.longPress(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      expect(find.text('この写真から新しい場面'), findsNothing);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('保存に失敗したら、エラーの文言を出し、表示はそのまま', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      backend.failNext(TripRoute.timelineScenes);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('7:50〜7:58 · 北海道千歳市 · 2枚'), findsOneWidget);
+      expect(_button(tester, 'つなげる').onPressed, isNotNull);
+    });
+
+    testWidgets('保存のときに下書きが別の端末で変わっていたら（409）、知らせて旅行詳細に戻り、タイムラインを読み直す',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      // 別の端末が区切り案を出し直した
+      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf({
+        ..._reviewingDraft(),
+        'phase': 'proposing',
+        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+      });
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+    });
+
+    testWidgets('保存のときに旅行が別の端末で消されていたら、旅行詳細に戻って「この旅行は削除されています」を出す',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      backend.trips.clear();
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('この旅行は削除されています'), findsOneWidget);
+    });
+
+    testWidgets('見出しと一言を書けなかった下書きで区切りを直すと、確かめ待ちに戻る', (tester) async {
+      await _openTimeline(tester, draft: _writeFailedDraft());
+      await _openReview(tester);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      await tester.tap(find.byIcon(Icons.close));
+      await letFramesRun(tester);
+      expect(find.text('区切りの案ができました'), findsOneWidget);
     });
   });
 }
