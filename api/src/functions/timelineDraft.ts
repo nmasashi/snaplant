@@ -199,7 +199,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!isValidSceneStarts(sceneStarts, photos, draft.dayStartHour)) {
       return createValidationError('区切りが無効です');
     }
-    const saved: TimelineDraft = { ...draft, sceneStarts, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) };
+    const saved: TimelineDraft = {
+      ...draft,
+      sceneStarts: withDayStarts(sceneStarts, photos, draft.dayStartHour),
+      ...(writeFailed ? { phase: 'reviewing', job: null } : {})
+    };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
     const storage = new PhotoStorageService();
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
@@ -230,17 +234,24 @@ function isWriteFailed(draft: TimelineDraft): boolean {
 /**
  * 区切りが控えに合っているか（05 §5.15 の表の 4）
  *
- * どれも控えの撮影日時のある写真で、重ならず撮影の順に並び、各日の最初の写真が入っていること（場面は日をまたがない）
+ * どれも控えの撮影日時のある写真で、重ならず撮影の順に並ぶこと。各日の最初の写真は求めない（[withDayStarts] で補う）
  */
 function isValidSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): boolean {
-  const days = datedDaysOf(photos, dayStartHour);
-  const order = new Map(days.flatMap((day) => day.photos).map((photo, index) => [photo.id, index]));
+  const order = new Map(datedDaysOf(photos, dayStartHour).flatMap((day) => day.photos).map((photo, index) => [photo.id, index]));
   const positions = sceneStarts.map((id) => order.get(id));
-  if (positions.some((position, index) => position === undefined || (index > 0 && position <= positions[index - 1]!))) {
-    return false;
-  }
-  const starts = new Set(sceneStarts);
-  return days.every((day) => starts.has(day.photos[0].id));
+  return !positions.some((position, index) => position === undefined || (index > 0 && position <= positions[index - 1]!));
+}
+
+/**
+ * 区切りに各日の最初の写真を足したもの（撮影の順。05 §5.15）
+ *
+ * 場面は日をまたがないので、日の最初の写真は必ず場面の始まり。区切りの確認の画面は写真が全部消えた日や場面を見ないので、
+ * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる
+ */
+function withDayStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): string[] {
+  const days = datedDaysOf(photos, dayStartHour);
+  const starts = new Set([...sceneStarts, ...days.map((day) => day.photos[0].id)]);
+  return days.flatMap((day) => day.photos).map((photo) => photo.id).filter((id) => starts.has(id));
 }
 
 app.http('getTimelineDraft', {
