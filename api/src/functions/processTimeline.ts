@@ -48,8 +48,6 @@ export async function processTimelineHandler(message: unknown, context: Invocati
   try {
     const photos = await timelines.readSnapshotPhotos(draft.snapshotId);
     let apply: (doc: TimelineDocument & { draft: TimelineDraft }) => TimelineDocument;
-    // 入れ替えで使われなくなる前の完成版の控え（当て直しで読み直した、実際に置き換えた文書から取る）
-    let replacedSnapshotId: string | undefined;
     if (job.step === 'propose') {
       const starts = await proposeScenes(photos, draft, read.doc.current);
       apply = (doc) => ({ ...doc, draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts } });
@@ -58,19 +56,20 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       const { plan, texts } = await writeDraftTexts(photos, draft, read.doc.current);
       const now = new Date().toISOString();
       apply = (doc) => {
-        replacedSnapshotId = doc.current?.snapshotId;
         const { current, dropped } = assembleCurrent(doc.draft, plan, texts, doc.current, now);
         return { ...doc, current, draft: null, droppedEdits: mergeDroppedEdits(doc.droppedEdits, dropped) };
       };
     }
 
-    const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, apply);
-    if (!written) {
+    const replaced = await timelines.writeDraftResult(tripId, draftId, claimedJob, apply);
+    if (!replaced) {
       context.log(`${label}の間に下書きが変わったので、この結果は書きません: 旅行=${tripId}, 下書き=${draftId}`);
       return;
     }
     context.log(`タイムラインの${label}が済みました: 旅行=${tripId}, 下書き=${draftId}`);
-    // 完成版に入れ替えたら、前の完成版の控えは使われなくなる（作り直しの控えは別。recut は同じ控えなので残す）
+    // 完成版に入れ替えたら、前の完成版の控えは使われなくなる（作り直しの控えは別。recut は同じ控えなので残す）。
+    // 前の完成版は、当て直しで読み直して実際に置き換えた文書から取る
+    const replacedSnapshotId = job.step === 'write' ? replaced.current?.snapshotId : undefined;
     if (replacedSnapshotId && replacedSnapshotId !== draft.snapshotId) {
       await timelines.deleteUnusedSnapshot(replacedSnapshotId, (...args) => context.log(...args));
     }
