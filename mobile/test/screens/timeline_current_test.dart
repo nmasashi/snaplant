@@ -96,7 +96,13 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 10)],
     functionKey: 'test-key',
-    photosByTripId: {hokkaidoTripId: []},
+    // 写真ビューアで開く写真（07:58）。07:50 の写真は旅行に無い（作った後に消えた）
+    photosByTripId: {
+      hokkaidoTripId: [
+        photoJson(
+            number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T07:58:00'),
+      ],
+    },
   );
   backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: draft);
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
@@ -333,5 +339,87 @@ void main() {
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
       expect(find.text('作り直す'), findsOneWidget);
     });
+  });
+
+  group('サムネイルから写真ビューアを開く', () {
+    testWidgets('場面のサムネイルをタップすると、その写真を写真ビューアで開き、閉じたらタイムラインを読み直す',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      expect(find.text('2026年10月5日 07:58').hitTestable(), findsOneWidget);
+
+      // 開いている間に、別の端末が作り直しを始めた
+      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'rebuild',
+        'phase': 'proposing',
+        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'startedAt': '2026-10-26T09:00:00.000Z',
+      });
+      await tester.pageBack();
+      await letFramesRun(tester);
+      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('タップした写真が消えていたら、「この写真は削除されています」を出してタイムラインを読み直す',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      // 写真 1 は旅行に無い（作った後に消えた）。読み直したことを、作り直しの案内が出ることで確かめる
+      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'rebuild',
+        'phase': 'proposing',
+        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'startedAt': '2026-10-26T09:00:00.000Z',
+      });
+
+      await tester.tap(photoThumbnail('2026年10月5日 07:50'));
+      await letFramesRun(tester);
+      expect(find.text('この写真は削除されています'), findsOneWidget);
+      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('写真を読めなかったら、エラーの文言を出し、表示はそのまま', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      backend.failNext(TripRoute.getPhoto);
+
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
+  });
+
+  testWidgets('作り直しの区切りの確認画面の「やめる」は、作り直しをやめるダイアログを出し、完成版だけに戻る', (tester) async {
+    final backend = await _openTimeline(tester, draft: {
+      'id': '0b8e1c5a-0000-4000-8000-000000000099',
+      'reason': 'rebuild',
+      'phase': 'reviewing',
+      'job': null,
+      'startedAt': '2026-10-26T09:00:00.000Z',
+      'days': <Object?>[],
+      'undatedPhotos': <Object?>[],
+    });
+    await tester.tap(find.text('区切りを確認する'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await letFramesRun(tester);
+    await tester.tap(find.text('やめる'));
+    await letFramesRun(tester);
+    expect(inDialog(find.text('作り直しをやめて、今のタイムラインのままにしますか？')), findsOneWidget);
+    await tapInDialog(tester, 'やめる');
+
+    expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+    expect(find.text('区切りを確認'), findsNothing);
+    expect(find.text('区切りを直す'), findsOneWidget);
   });
 }
