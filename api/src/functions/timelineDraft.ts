@@ -47,7 +47,8 @@ async function readDraftResponse(tripId: string): Promise<HttpResponseInit> {
   if (!draft) {
     return createSuccessResponse({ draft: null, urlExpiresAt: expiresOn.toISOString() });
   }
-  if (draft.phase !== 'reviewing') {
+  // 確かめ中と、文を書くのに失敗した下書き（区切りの確認の画面で直せる。保存と文の受付と同じ条件）だけが日と場面を返す
+  if (!isEditableDraft(draft)) {
     return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
   }
   // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
