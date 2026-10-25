@@ -2,12 +2,12 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { TimelineConflictError, TimelineService, rereadIfSnapshotMissing } from '../services/timelineService';
+import { TimelineConflictError, TimelineService } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
 import { TimelineCurrent, TimelineDraft } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
-import { readTimelineResponse } from './timeline';
+import { readTimelineBody } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
   createNotFoundError,
@@ -167,7 +167,8 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       throw error;
     }
     // 画面は直した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
-    return await rereadIfSnapshotMissing(() => readTimelineResponse(tripId));
+    const body = await readTimelineBody(tripId);
+    return body ? createSuccessResponse(body) : createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
   } catch (error: any) {
     context.log('タイムラインの文の更新エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
