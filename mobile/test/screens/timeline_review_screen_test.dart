@@ -18,6 +18,8 @@ final _photos = {
   4: timelinePhotoJson(4, '2026-10-05T11:40:00', placeName: '北海道小樽市'),
   5: timelinePhotoJson(5, '2026-10-06T09:10:00', placeName: '北海道札幌市'),
   6: timelinePhotoJson(6, null, category: 'other'),
+  // 地名の無い写真（2日目の昼）。地名の無い場面のテストでだけ使う
+  7: timelinePhotoJson(7, '2026-10-06T12:00:00'),
 };
 
 /// 区切りを確かめられる下書き（既定は確かめ待ち）。[scenes] は日ごとの場面の写真の番号
@@ -133,6 +135,25 @@ void main() {
       expect(find.text('この区切りで見出しを付ける'), findsOneWidget);
       expect(find.text('2日で 3 場面 · 見出しと一言は AI が書きます'), findsOneWidget);
       semantics.dispose();
+    });
+
+    testWidgets('地名の無い場面は、カードの上を「{時刻} · {N}枚」にする', (tester) async {
+      await _openTimeline(tester,
+          draft: _reviewingDraft(scenes: const [
+            [
+              [1, 2],
+              [3, 4]
+            ],
+            [
+              [5],
+              [7]
+            ],
+          ]));
+      await _openReview(tester);
+
+      await tester.scrollUntilVisible(find.text('12:00 · 1枚'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('12:00 · 1枚'), findsOneWidget);
     });
 
     testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出す', (tester) async {

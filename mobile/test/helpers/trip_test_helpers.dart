@@ -535,6 +535,11 @@ class FakeTripBackend {
       }
     }
     if (starts.toSet().length != starts.length || !starts.every(photoIds.contains)) return null;
+    // 撮影の順でなければ無効（本物と同じ。photoIds は日・場面・写真の順に足したので撮影の順）
+    final order = photoIds.toList();
+    for (var i = 1; i < starts.length; i++) {
+      if (order.indexOf(starts[i - 1]) > order.indexOf(starts[i])) return null;
+    }
     final result = <Map<String, Object?>>[];
     for (final day in days) {
       final photos = [
