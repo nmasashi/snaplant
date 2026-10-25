@@ -153,7 +153,7 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
 }
 
 /** タイムラインを読んで応答を組む（控えが無ければ投げる。呼ぶ側が一度だけ読み直す） */
-async function readTimelineResponse(tripId: string): Promise<HttpResponseInit> {
+export async function readTimelineResponse(tripId: string): Promise<HttpResponseInit> {
   if (!(await new AlbumService().tripExists(tripId))) {
     return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
   }

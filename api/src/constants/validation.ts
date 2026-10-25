@@ -184,5 +184,7 @@ export const TIMELINE_VALIDATION = {
     SUMMARY: positiveIntFromEnv(process.env.TIMELINE_SUMMARY_MAX_LENGTH, 400),
     LABEL: positiveIntFromEnv(process.env.TIMELINE_LABEL_MAX_LENGTH, 30),
     NOTE: positiveIntFromEnv(process.env.TIMELINE_NOTE_MAX_LENGTH, 200)
-  }
+  },
+  // 日の文を直す API の日付（YYYY-MM-DD。加えて実在する日付であること。05 §4）
+  DATE_REGEX: /^\d{4}-\d{2}-\d{2}$/
 } as const;
