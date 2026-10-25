@@ -217,6 +217,17 @@ describe('タイムラインのワーカー', () => {
       );
     });
 
+    it('作り直しの区切り案を書いても、完成版の控えは消さない（完成版はまだ使っている）', async () => {
+      const currentSnapshotId = `timeline-photos-${TRIP_ID}-33333333-3333-4333-8333-333333333333`;
+      cosmosBackend.documents.set(currentSnapshotId, timelinePhotosDocument(currentSnapshotId, TRIP_ID, PHOTOS));
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ current: timelineCurrent(currentSnapshotId), draft: proposingDraft({ reason: 'rebuild' }) }));
+
+      await runWorker();
+
+      expect(cosmosBackend.documents.has(currentSnapshotId)).toBe(true);
+      expect(storedTimeline()!.draft!.phase).toBe('reviewing');
+    });
+
     it('作り直しでは、完成版で利用者が足した区切りを足し、消した区切りを消し（控えに無い写真の区切りは捨てる）、最後に各日の最初の写真を足す', async () => {
       // 完成版: AI の案 a・c・d に対して、利用者が b と控えに無い写真 z を足し、c と d を消した
       const current = timelineCurrent(`timeline-photos-${TRIP_ID}-old`, {
@@ -651,6 +662,15 @@ describe('タイムラインのワーカー', () => {
       aiReturns(allTexts);
     });
 
+    it('文もタイムライン用のデプロイが設定されていれば、そこへ送る', async () => {
+      process.env.AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME = 'timeline-deployment';
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+
+      await runWorker();
+
+      expect(sent[0].body.model).toBe('timeline-deployment');
+    });
+
     it('完成版の日付の切り替えの時刻は、下書きのものを写す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ dayStartHour: 5 }) }));
 
@@ -804,7 +824,6 @@ describe('タイムラインのワーカー', () => {
       /** 区切り（AI の案も同じ）の文を書く待ちの下書きを置く */
       const useWritingDraft = (starts: string[]) =>
         cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
-      const linesAsking = (prompt: string, words: string) => nonPhotoLines(prompt).filter((line) => line.includes(words));
 
       it('上限を超える旅行は日の境目で分けて順に呼び、番号は呼び出しごとに 0 から振って、その呼び出しの場面と日だけを書かせる', async () => {
         const day1 = photosOfDay('2026-10-05', 1, 250);
@@ -823,8 +842,9 @@ describe('タイムラインのワーカー', () => {
         expect(promptLineOf(sentPrompt(0), 249)).toBeDefined();
         expect(promptLineOf(sentPrompt(0), 250)).toBeUndefined();
         expect(promptLineOf(sentPrompt(1), 199)).toContain('2日目');
-        expect(linesAsking(sentPrompt(0), '書いてほしい日')[0]).not.toContain('2026-10-06');
-        expect(linesAsking(sentPrompt(1), '書いてほしい日')[0]).not.toContain('2026-10-05');
+        // 日付（YYYY-MM-DD）は頼む日にしか出ない（写真の行と日の区切りは月日と何日目で書く）
+        expect(nonPhotoLines(sentPrompt(0)).some((line) => line.includes('2026-10-06'))).toBe(false);
+        expect(nonPhotoLines(sentPrompt(1)).some((line) => line.includes('2026-10-05'))).toBe(false);
         const current = storedTimeline()!.current!;
         expect(Object.fromEntries(starts.map((id) => [id, current.sceneTexts[id].label]))).toEqual({
           [day1[0].id]: '朝',
@@ -833,6 +853,18 @@ describe('タイムラインのワーカー', () => {
           [day2[50].id]: '昼2'
         });
         expect(current.dayTexts['2026-10-06'].title).toBe('2日目');
+      });
+
+      it('ちょうど上限の枚数なら、日をまたいでも1回で呼ぶ', async () => {
+        const day1 = photosOfDay('2026-10-05', 1, 250);
+        const day2 = photosOfDay('2026-10-06', 2, 150);
+        useSnapshot([...day1, ...day2]);
+        useWritingDraft([day1[0].id, day2[0].id]);
+        aiReturns({ days: [day('2026-10-05', '1日目'), day('2026-10-06', '2日目')], scenes: [scene(0, '朝'), scene(250, '朝2')] });
+
+        await runWorker();
+
+        expect(sent).toHaveLength(1);
       });
 
       it('1日で上限を超える日は場面の境目で分けて呼び、日の文はその日の最初の場面を含む呼び出しで書かせる', async () => {
@@ -887,7 +919,8 @@ describe('タイムラインのワーカー', () => {
        */
       const oldCurrent = () =>
         timelineCurrent(OLD_SNAPSHOT_ID, {
-          proposedStarts: [photoId('a'), photoId('c'), photoId('e')],
+          // AI の案は下書きと違う（b を出していた）。完成版の AI の案は下書きのものに置き換わる
+          proposedStarts: [photoId('a'), photoId('b'), photoId('e')],
           sceneStarts: [photoId('a'), photoId('c'), photoId('e')],
           sceneTexts: {
             [photoId('a')]: userScene('空港の朝', '朝ごはん', [photoId('a'), photoId('b')]),
@@ -943,21 +976,15 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
+        // どの場面と日を頼んだかは、頼んだ数ちょうどの応答（changedTexts）で成功する上のテストが固定している（多く頼めば検証で失敗する）
         const otherLines = nonPhotoLines(sentPrompt());
-        const scenesLine = otherLines.find((line) => line.includes('書いてほしい場面'))!;
-        expect(scenesLine).toEqual(expect.stringContaining('2番'));
-        expect(scenesLine).toEqual(expect.stringContaining('4番'));
-        expect(scenesLine).toEqual(expect.stringContaining('5番'));
-        expect(scenesLine).not.toContain('0番');
-        const daysLine = otherLines.find((line) => line.includes('書いてほしい日'))!;
-        expect(daysLine).toContain('2026-10-06');
-        expect(daysLine).not.toContain('2026-10-05');
         for (const text of ['空港の朝', '北海道1日目', '札幌ラーメン', '運河の日']) {
           expect(otherLines.some((line) => line.includes(text))).toBe(true);
         }
         // 引き継ぐ場面は AI の文も渡し、書き直す場面の AI の前の文は渡さない（書き直させるため）
         expect(otherLines.some((line) => line.includes('朝ごはんの一言'))).toBe(true);
         expect(otherLines.some((line) => line.includes('昼ごはんの一言'))).toBe(false);
+        expect(otherLines.some((line) => line.includes('小樽のまとめ'))).toBe(false);
         // 今の区切り（全部の場面）と日の区切り（何番から何日目か）も渡す
         expect(otherLines.some((line) => ['0番', '2番', '4番', '5番'].every((start) => line.includes(start)))).toBe(true);
         expect(otherLines.some((line) => ['2日目', '4番', '5番'].every((text) => line.includes(text)))).toBe(true);
@@ -1030,6 +1057,39 @@ describe('タイムラインのワーカー', () => {
         expect(lines.filter((line) => PHOTO_LINE.test(line.trimStart()))).toHaveLength(6);
       });
 
+      it('作り直しでも、完成版の日付の切り替えの時刻は下書きのものにする（前の完成版は 4 時）', async () => {
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current: oldCurrent(), draft: writingDraft({ reason: 'rebuild', dayStartHour: 5 }) }));
+
+        await runWorker();
+
+        expect(storedTimeline()!.current!.dayStartHour).toBe(5);
+      });
+
+      it('最初の写真と枚数が同じでも、写真が入れ替わった場面と、区切りが入れ替わった日は書き直す', async () => {
+        const current = oldCurrent();
+        current.sceneTexts[photoId('c')] = { ...current.sceneTexts[photoId('c')], photoIds: [photoId('c'), photoId('z')] };
+        current.dayTexts['2026-10-06'] = { ...current.dayTexts['2026-10-06'], sceneStarts: [photoId('e'), photoId('z')] };
+        cosmosBackend.documents.set(TIMELINE_ID, rebuilding(current));
+
+        await runWorker();
+
+        expect(storedTimeline()!.current!.sceneTexts[photoId('c')].aiNote).toBe('札幌のラーメン');
+        expect(storedTimeline()!.current!.dayTexts['2026-10-06'].aiSummary).toBe('運河を歩いて一休み。');
+      });
+
+      it('文を書いている間に利用者が残せなかった文の知らせを閉じたら、閉じた後の知らせに足す', async () => {
+        const current = oldCurrent();
+        current.sceneStarts = [...current.sceneStarts, photoId('b')];
+        current.sceneTexts[photoId('b')] = userScene('空港の売店', '売店', [photoId('b')]);
+        const earlier = { kind: 'day' as const, key: '2026-10-04', field: 'summary' as const, text: '前日の移動' };
+        cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilding(current), droppedEdits: [earlier] } as any);
+        othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [] }));
+
+        await runWorker();
+
+        expect(storedTimeline()!.droppedEdits).toEqual([{ kind: 'scene', key: photoId('b'), field: 'label', text: '空港の売店' }]);
+      });
+
       it('書き直す場面と日でも、利用者が書いた一言とまとめは残す（AI の文だけ新しくする）', async () => {
         const current = oldCurrent();
         current.sceneTexts[photoId('c')] = { ...current.sceneTexts[photoId('c')], note: '自分で書いた一言', noteSource: 'user' };
@@ -1059,8 +1119,9 @@ describe('タイムラインのワーカー', () => {
         // 前の完成版には b の場面（見出しは利用者、一言は AI）と、今は写真の無い 10/07 の日（タイトルは利用者）があった
         const current = oldCurrent();
         current.sceneStarts = [...current.sceneStarts, photoId('b')];
-        current.sceneTexts[photoId('b')] = userScene('空港の売店', '売店', [photoId('b')]);
-        current.dayTexts['2026-10-07'] = userDay('帰りの日', '帰る', [photoId('z')]);
+        // 一言とまとめも利用者が書いた
+        current.sceneTexts[photoId('b')] = { ...userScene('空港の売店', '売店', [photoId('b')]), noteSource: 'user' };
+        current.dayTexts['2026-10-07'] = { ...userDay('帰りの日', '帰る', [photoId('z')]), summarySource: 'user' };
         const already = { kind: 'scene' as const, key: photoId('b'), field: 'label' as const, text: '空港の売店' };
         // 前の書き直しで残せなかった、別の文の知らせも残る
         const earlier = { kind: 'day' as const, key: '2026-10-04', field: 'summary' as const, text: '前日の移動' };
@@ -1068,7 +1129,13 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
-        expect(storedTimeline()!.droppedEdits).toEqual([earlier, already, { kind: 'day', key: '2026-10-07', field: 'title', text: '帰りの日' }]);
+        expect(storedTimeline()!.droppedEdits).toEqual([
+          earlier,
+          already,
+          { kind: 'scene', key: photoId('b'), field: 'note', text: '売店の一言' },
+          { kind: 'day', key: '2026-10-07', field: 'title', text: '帰りの日' },
+          { kind: 'day', key: '2026-10-07', field: 'summary', text: '帰るのまとめ' }
+        ]);
         expect(Object.keys(storedTimeline()!.current!.sceneTexts).sort()).toEqual(STARTS.slice().sort());
         expect(Object.keys(storedTimeline()!.current!.dayTexts).sort()).toEqual(['2026-10-05', '2026-10-06']);
       });
