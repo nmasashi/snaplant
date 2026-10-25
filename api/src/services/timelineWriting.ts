@@ -8,6 +8,7 @@ import {
 } from '../types/timeline';
 import { TIMELINE_MAX_PHOTOS_PER_CALL } from '../constants/album';
 import { TimelineWriterService } from './timelineWriterService';
+import { oneLine } from './timelineProposerService';
 import { TimelineDatedDay, datedDaysOf, scenesOfDay } from './timelineView';
 
 /** 下書きの区切りで組んだ場面（控えの撮影日時のある写真。控えを取った後に消えた写真も含める） */
@@ -287,7 +288,8 @@ function contextOf(
   }
   const lines: string[] = [];
   const line = (subject: string, fields: [string, string, boolean][]) => {
-    const shown = fields.filter(([, , keep]) => keep).map(([name, text]) => `${name}「${text}」`);
+    // 前の文（利用者が直した文を含む）の改行は空白にする（写真の行と同じ。改行の後ろが別の行に見えないように）
+    const shown = fields.filter(([, , keep]) => keep).map(([name, text]) => `${name}「${oneLine(text)}」`);
     if (shown.length > 0) {
       lines.push(`${subject}: ${shown.join(' ')}`);
     }

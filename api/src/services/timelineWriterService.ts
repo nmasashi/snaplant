@@ -164,5 +164,8 @@ function textOf(value: unknown, maxLength: number): string {
   if (text === '') {
     throw new Error('空の文があります');
   }
-  return text.slice(0, maxLength);
+  const cut = text.slice(0, maxLength);
+  // 文字数は UTF-16 の数で数える（05 §4）。絵文字などの途中で切ると前半（上位サロゲート）だけが残るので、それは落とす
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 }
