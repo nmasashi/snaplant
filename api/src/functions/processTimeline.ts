@@ -52,11 +52,9 @@ export async function processTimelineHandler(message: unknown, context: Invocati
     const photos = await timelines.readSnapshotPhotos(draft.snapshotId);
     const starts = await proposeScenes(photos, draft, read.doc.current);
 
-    const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, (current) => ({
-      ...current,
-      phase: 'reviewing',
-      job: null,
-      ...starts,
+    const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, (doc) => ({
+      ...doc,
+      draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts },
     }));
     if (!written) {
       context.log(`区切り案の間に下書きが変わったので、この結果は書きません: 旅行=${tripId}, 下書き=${draftId}`);

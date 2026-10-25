@@ -262,14 +262,14 @@ export class TimelineService {
    * @param tripId 旅行の ID
    * @param draftId 担当した下書きの id
    * @param claimedJob 担当したときに書いた job
-   * @param apply 読み直した下書きに結果を当てた下書きを返す
+   * @param apply 読み直した文書（下書きは自分のもの）に結果を当てた文書を返す（区切り案は下書きを、文は完成版と残せなかった文も書く）
    * @returns 書けたら true。下書きが自分のものでなくなっていた・タイムラインが消えていたら false
    */
   async writeDraftResult(
     tripId: string,
     draftId: string,
     claimedJob: TimelineJob,
-    apply: (draft: TimelineDraft) => TimelineDraft
+    apply: (doc: TimelineDocument & { draft: TimelineDraft }) => TimelineDocument
   ): Promise<boolean> {
     for (let attempt = 0; attempt <= RESULT_RETRIES; attempt += 1) {
       const read = await this.readTimeline(tripId);
@@ -278,7 +278,7 @@ export class TimelineService {
         return false;
       }
       try {
-        await this.replaceTimeline({ ...read.doc, draft: apply(draft), updatedAt: new Date().toISOString() }, read.etag);
+        await this.replaceTimeline({ ...apply({ ...read.doc, draft }), updatedAt: new Date().toISOString() }, read.etag);
         return true;
       } catch (error: any) {
         if (!(error instanceof TimelineConflictError)) {
