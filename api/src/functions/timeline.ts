@@ -127,7 +127,8 @@ function snapshotPhotosOf(rows: TimelinePhotoRow[]): TimelinePhotoSnapshot[] {
       category: row.category,
       name: identification?.matchesKind === true && typeof identification.name === 'string' ? identification.name : null,
       placeName: row.location?.placeName ?? null,
-      comment: row.comment === null ? null : row.comment.slice(0, TIMELINE_SNAPSHOT_COMMENT_LENGTH),
+      // 文字はコードポイントで数える（UTF-16 の単位で切ると、絵文字の前半だけが残る）
+      comment: row.comment === null ? null : Array.from(row.comment).slice(0, TIMELINE_SNAPSHOT_COMMENT_LENGTH).join(''),
       blobName: row.blobName,
       thumbnailBlobName: row.thumbnailBlobName,
     };

@@ -196,7 +196,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       }
       throw error;
     }
-    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour);
+    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, existing);
     if (!normalized) {
       return createValidationError('区切りが無効です');
     }
@@ -237,9 +237,18 @@ function isWriteFailed(draft: TimelineDraft): boolean {
  *
  * どれも控えの撮影日時のある写真で、重ならず撮影の順に並ぶこと。合っていれば、各日の最初の写真を足した区切り（撮影の順）を返し、合わなければ null。
  * 場面は日をまたがないので、日の最初の写真は必ず場面の始まり。区切りの確認の画面は写真が全部消えた日や場面を見ないので、
- * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる（5-3b）
+ * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる（5-3b）。
+ * 同じく、今の区切り（[previousStarts]）のうち写真が全部消えた（[existing] に1枚も無い）場面の区切りも送れないので補う（5-4a）。
+ * 補わないと、見えない場面の写真が前の場面に混ざり、文を書くときに前の場面と日の文を引き継げなくなる。
+ * ただし、同じ日でその次にある見える場面の区切りを外した（前の場面とつなげた）ときは補わない（補うと、つなげた場面が見えない場面に付く）
  */
-function normalizedSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): string[] | null {
+function normalizedSceneStarts(
+  sceneStarts: string[],
+  photos: TimelinePhotoSnapshot[],
+  dayStartHour: number,
+  previousStarts: string[],
+  existing: Set<string>
+): string[] | null {
   const days = datedDaysOf(photos, dayStartHour);
   const ordered = days.flatMap((day) => day.photos.map((photo) => photo.id));
   const order = new Map(ordered.map((id, index) => [id, index]));
@@ -247,8 +256,46 @@ function normalizedSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnaps
   if (positions.some((position, index) => position === undefined || (index > 0 && position <= positions[index - 1]!))) {
     return null;
   }
-  const starts = new Set([...sceneStarts, ...days.map((day) => day.photos[0].id)]);
+  const sent = new Set(sceneStarts);
+  const starts = new Set([...sceneStarts, ...days.map((day) => day.photos[0].id), ...hiddenStartsToKeep(days, previousStarts, existing, sent)]);
   return ordered.filter((id) => starts.has(id));
+}
+
+/**
+ * 今の区切りで分けた場面のうち、写真が全部消えて画面に見えない場面の区切りで、残すもの（[normalizedSceneStarts] の説明）
+ *
+ * 同じ日でその後に見える場面が無いか、その次の見える場面の区切りが送られていれば残す
+ */
+function hiddenStartsToKeep(
+  days: { photos: TimelinePhotoSnapshot[] }[],
+  previousStarts: string[],
+  existing: Set<string>,
+  sent: Set<string>
+): string[] {
+  const previous = new Set(previousStarts);
+  const kept: string[] = [];
+  for (const day of days) {
+    // 日の最初の写真と今の区切りで、日を場面に分ける（場面の最初の写真の id と、今も見える写真があるか）
+    const scenes: { start: string; visible: boolean }[] = [];
+    day.photos.forEach((photo, index) => {
+      if (index === 0 || previous.has(photo.id)) {
+        scenes.push({ start: photo.id, visible: false });
+      }
+      if (existing.has(photo.id)) {
+        scenes[scenes.length - 1].visible = true;
+      }
+    });
+    scenes.forEach((scene, index) => {
+      if (scene.visible) {
+        return;
+      }
+      const nextVisible = scenes.slice(index + 1).find((later) => later.visible);
+      if (!nextVisible || sent.has(nextVisible.start)) {
+        kept.push(scene.start);
+      }
+    });
+  }
+  return kept;
 }
 
 app.http('getTimelineDraft', {
