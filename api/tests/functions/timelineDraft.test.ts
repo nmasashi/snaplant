@@ -622,6 +622,19 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[0].photos.map((photo: any) => photo.id)).toContain(photoId('k'));
     });
 
+    it('各日の最初の写真が区切りに無ければ、補って保存する（画面は写真が全部消えた日や場面の区切りを知らない）', async () => {
+      // 控えを取った後に、1日目の最初の写真 a と、2日目の写真 d・e を全部消した。画面には b と c の場面しか見えない
+      for (const head of ['a', 'd', 'e']) {
+        cosmosBackend.documents.delete(photoId(head));
+      }
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual([photoId('a'), photoId('b'), photoId('d')]);
+    });
+
     it('応答の日と場面には、控えを取った後に消えた写真を出さない', async () => {
       // 控えを取った後に b を消した
       cosmosBackend.documents.delete(photoId('b'));
@@ -702,9 +715,7 @@ describe('タイムラインの下書きAPI', () => {
       ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
       ['同じ写真を重ねて含む', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
       ['先頭で同じ写真を重ねて含む', [photoId('a'), photoId('a'), photoId('d')]],
-      ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]],
-      ['1日目の最初の写真を含まない', [photoId('b'), photoId('d')]],
-      ['2日目の最初の写真を含まない', [photoId('a'), photoId('e')]]
+      ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]]
     ])('区切りが%sときは、400（区切りが無効です）', async (_label, starts) => {
       const timeline = timelineWith(reviewing());
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
