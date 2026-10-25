@@ -14,6 +14,7 @@ import './functions/processTimeline';
 import './functions/requeueStalePhotos';
 import './functions/sweepAlbum';
 import './functions/timeline';
+import './functions/timelineCurrent';
 import './functions/timelineDraft';
 import './functions/tripDetail';
 import './functions/trips';

@@ -190,3 +190,12 @@ export function createDatabaseErrorResponse(error: any, internalMessage: string)
   }
   return createInternalError(internalMessage, error.message);
 }
+
+/**
+ * 完成版を読んだ形（readTimelineBody の結果）の応答。旅行が無ければ（null）404 TRIP_NOT_FOUND
+ *
+ * GET …/timeline と、完成版の文を直す・残せなかった文を閉じる操作が返す（05 §5.15）
+ */
+export function createTimelineBodyResponse(body: object | null): HttpResponseInit {
+  return body ? createSuccessResponse(body) : createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+}

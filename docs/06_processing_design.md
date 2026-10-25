@@ -419,7 +419,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 5. **最後に各日の最初の写真を足す**（4 で利用者が消した区切りが、日付の切り替えの時刻を変えた後などに日の最初になっていても、場面が日をまたがないように）。1日で上限を超えて切って呼んだ日の切れ目の写真（§8.4）も、同じく必ず足す
 6. 下書きの `proposedStarts` を AI の案（3 の後、各日の最初の写真と切れ目の写真を足したもの）、`sceneStarts` を 5 の結果にし（どちらも撮影の順）、`phase: "reviewing"`・`job: null` にする。下書きのほかの欄（`reason`・`snapshotId`・`dayStartHour`・`startedAt`）と、完成版・`droppedEdits` は変えない
 
-完成版の区切りを直すとき（`reason: "recut"`）は区切り案を出さない（`POST …/recut` が完成版の区切りを写して `reviewing` から始める）。
+完成版の区切りを直すとき（`reason: "recut"`）は区切り案を出さない（`POST …/recut` が完成版の控え・日付の切り替えの時刻・区切り（`proposedStarts`・`sceneStarts`）を写して `reviewing` から始め、キューには積まない。5-2b で実装済み。[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
 
 ### 8.3 文を書く（`step: "write"`）
 

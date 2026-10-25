@@ -1,12 +1,14 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
-import { TimelineConflictError, TimelinePhotoRow, TimelineService, rereadIfSnapshotMissing, timelineIdOf } from '../services/timelineService';
+import { TimelineConflictError, TimelinePhotoRow, TimelineService, timelineIdOf } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
-import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
-import { currentTimelineOf, draftStatusOf } from '../services/timelineView';
+import { photoUrlExpiresOn } from '../services/photoStorageService';
+import { draftStatusOf } from '../services/timelineView';
+import { readTimelineBody } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
+  createTimelineBodyResponse,
   createErrorResponse,
   createTimelineStateConflict,
   createNotFoundError,
@@ -145,50 +147,11 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
     return createValidationError('旅行IDの形式が無効です');
   }
   try {
-    return await rereadIfSnapshotMissing(() => readTimelineResponse(tripId));
+    return createTimelineBodyResponse(await readTimelineBody(tripId));
   } catch (error: any) {
     context.log('タイムラインの取得エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの取得に失敗しました');
   }
-}
-
-/** タイムラインを読んで応答を組む（控えが無ければ投げる。呼ぶ側が一度だけ読み直す） */
-async function readTimelineResponse(tripId: string): Promise<HttpResponseInit> {
-  if (!(await new AlbumService().tripExists(tripId))) {
-    return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-  }
-  const timelines = new TimelineService();
-  const [read, photos] = await Promise.all([timelines.readTimeline(tripId), timelines.readTripPhotoStates(tripId)]);
-  const expiresOn = photoUrlExpiresOn();
-  const pendingPhotoCount = photos.filter((photo) => UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
-  if (!read) {
-    return createSuccessResponse({ timeline: null, pendingPhotoCount, urlExpiresAt: expiresOn.toISOString() });
-  }
-  const doc = read.doc;
-  let current = null;
-  let changes = null;
-  if (doc.current) {
-    const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
-    const existing = new Set(photos.map((photo) => photo.id));
-    const snapshotIds = new Set(snapshot.map((photo) => photo.id));
-    const storage = new PhotoStorageService();
-    current = currentTimelineOf(
-      doc.current,
-      snapshot,
-      (photoId) => existing.has(photoId),
-      (blobName) => storage.readUrl(blobName, expiresOn)
-    );
-    // 日時の無い写真も数える（作り直せば控えに入る）
-    changes = {
-      added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,
-      removed: snapshot.filter((photo) => !existing.has(photo.id)).length,
-    };
-  }
-  return createSuccessResponse({
-    timeline: { current, draft: doc.draft ? draftStatusOf(doc.draft) : null, changes, droppedEdits: doc.droppedEdits },
-    pendingPhotoCount,
-    urlExpiresAt: expiresOn.toISOString(),
-  });
 }
 
 app.http('getTimeline', {

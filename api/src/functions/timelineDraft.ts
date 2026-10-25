@@ -1,8 +1,8 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineConflictError, TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
-import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
-import { datedDaysOf, draftStatusOf, layoutTimeline } from '../services/timelineView';
+import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
+import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
+import { datedDaysOf, draftStatusOf, reviewingDraftOf } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import {
@@ -51,9 +51,9 @@ async function readDraftResponse(tripId: string): Promise<HttpResponseInit> {
     return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
   }
   // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
-  const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+  const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
   return createSuccessResponse({
-    draft: reviewingDraftOf(draft, photos, existing, new PhotoStorageService(), expiresOn),
+    draft: reviewingDraftOf(draft, photos, existing, urlOfPhotos(new PhotoStorageService(), expiresOn)),
     urlExpiresAt: expiresOn.toISOString(),
   });
 }
@@ -80,17 +80,11 @@ export async function deleteTimelineDraftHandler(request: HttpRequest, context: 
     if (!read || !draft) {
       return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    try {
-      if (read.doc.current) {
-        await timelines.replaceTimeline({ ...read.doc, draft: null, updatedAt: new Date().toISOString() }, read.etag);
-      } else {
-        await timelines.deleteTimeline(tripId, read.etag);
-      }
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const written = read.doc.current
+      ? await timelines.replaceTimelineIfUnchanged({ ...read.doc, draft: null, updatedAt: new Date().toISOString() }, read.etag)
+      : await timelines.deleteTimelineIfUnchanged(tripId, read.etag);
+    if (!written) {
+      return createTimelineStateConflict();
     }
     // 下書きの控えは、完成版から指されていなければ使われなくなる
     if (draft.snapshotId !== read.doc.current?.snapshotId) {
@@ -131,13 +125,8 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
     }
     const now = new Date().toISOString();
     draft = { ...read, phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: now } };
-    try {
-      await timelines.replaceTimeline({ ...timeline.doc, draft, updatedAt: now }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
+      return createTimelineStateConflict();
     }
   } catch (error: any) {
     context.log('タイムラインの文を書く受付エラー:', error);
@@ -191,7 +180,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     let photos: TimelinePhotoSnapshot[];
     let existing: Set<string>;
     try {
-      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
     } catch (error: any) {
       // 読んだ後に他の操作が旅行を消した・下書きをやめた・作り直した（控えを消した）なら重なり。下書きが同じまま控えだけ無ければ壊れている。
       // 最初から読み直して保存はしない（出し直した新しい下書きに、前の下書きへの直しを書いてしまう）
@@ -212,16 +201,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     const saved: TimelineDraft = { ...draft, sceneStarts, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
     const storage = new PhotoStorageService();
-    try {
-      await timelines.replaceTimeline({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
+      return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, storage, expiresOn), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
@@ -240,30 +224,6 @@ function isEditableDraft(draft: TimelineDraft): boolean {
 /** 文を書くのに失敗した下書きか */
 function isWriteFailed(draft: TimelineDraft): boolean {
   return draft.phase === 'writing' && draft.job?.state === 'failed';
-}
-
-/** 旅行の今の写真の id（控えを取った後に消えた写真を見分ける） */
-async function readExistingPhotoIds(timelines: TimelineService, tripId: string): Promise<Set<string>> {
-  return new Set((await timelines.readTripPhotoStates(tripId)).map((photo) => photo.id));
-}
-
-/** 確かめ中の下書きの応答（状態に、日ごと・場面ごとの写真と日時なしを足す。05 §5.15） */
-function reviewingDraftOf(
-  draft: TimelineDraft,
-  photos: TimelinePhotoSnapshot[],
-  existing: Set<string>,
-  storage: PhotoStorageService,
-  expiresOn: Date
-) {
-  const layout = layoutTimeline({
-    photos,
-    sceneStarts: draft.sceneStarts,
-    proposedStarts: draft.proposedStarts,
-    dayStartHour: draft.dayStartHour,
-    exists: (photoId) => existing.has(photoId),
-    urlOf: (blobName) => storage.readUrl(blobName, expiresOn),
-  });
-  return { ...draftStatusOf(draft), ...layout };
 }
 
 /**

@@ -74,6 +74,10 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/trips/{tripId}/timeline/draft` | DELETE | タイムラインの下書きをやめる |
 | `/api/trips/{tripId}/timeline/draft/scenes` | PUT | タイムラインの下書きの区切りを保存する（確かめ中の日と場面を返す） |
 | `/api/trips/{tripId}/timeline/draft/write` | POST | タイムラインの下書きの区切りで文を書く（文を書く待ちにしてキューに積む。202。書き終えると下書きが完成版に入れ替わる） |
+| `/api/trips/{tripId}/timeline/recut` | POST | タイムラインの完成版の区切りを直し始める（完成版の区切りを写した確かめ中の下書きを作り、その日と場面を返す） |
+| `/api/trips/{tripId}/timeline/days/{date}` | PATCH | タイムラインの完成版の日のタイトル・まとめを直す（空か `null` なら AI の文に戻す） |
+| `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | タイムラインの完成版の場面の見出し・一言を直す（`photoId` は場面の最初の写真。空か `null` なら AI の文に戻す） |
+| `/api/trips/{tripId}/timeline/dropped-edits` | DELETE | タイムラインの残せなかった文の知らせを閉じる |
 
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。

@@ -120,6 +120,14 @@ export class TimelineService {
   }
 
   /**
+   * 旅行の今の写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分ける）
+   * @param tripId 旅行の ID
+   */
+  async readTripPhotoIds(tripId: string): Promise<Set<string>> {
+    return new Set((await this.readTripPhotoStates(tripId)).map((photo) => photo.id));
+  }
+
+  /**
    * 旅行の今の写真の id と解析の状態を読む（04 §5 の 5.13）
    *
    * 控えを取った後に消えた写真を見分ける（下書きの表示・区切りの保存・完成版）。完成版を開くときは、控えとの差で写真の増えた・消えた枚数を、
@@ -211,6 +219,44 @@ export class TimelineService {
     } catch (error: any) {
       if (error.code === 412 || error.code === 404) {
         throw new TimelineConflictError();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * タイムラインを置き換える。読んだときの _etag のままのときだけ書き、他が書いていた（412）・消えていた（404）なら false
+   *
+   * 利用者の操作（区切りの保存・文の編集など）は、false なら 409 TIMELINE_STATE_CONFLICT を返す
+   * @param doc 書く文書
+   * @param etag 読んだときの _etag
+   * @returns 書けたら true
+   */
+  async replaceTimelineIfUnchanged(doc: TimelineDocument, etag: string): Promise<boolean> {
+    try {
+      await this.replaceTimeline(doc, etag);
+      return true;
+    } catch (error: any) {
+      if (error instanceof TimelineConflictError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * タイムラインの文書を消す。読んだときの _etag のままのときだけ消し、他が書いていた（412）・消えていた（404）なら false
+   * @param tripId 旅行の ID
+   * @param etag 読んだときの _etag
+   * @returns 消せたら true
+   */
+  async deleteTimelineIfUnchanged(tripId: string, etag: string): Promise<boolean> {
+    try {
+      await this.deleteTimeline(tripId, etag);
+      return true;
+    } catch (error: any) {
+      if (error instanceof TimelineConflictError) {
+        return false;
       }
       throw error;
     }
