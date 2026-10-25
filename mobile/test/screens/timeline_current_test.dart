@@ -619,7 +619,8 @@ void main() {
       expect(_button(tester, '保存').onPressed, isNull);
       expect(_button(tester, 'キャンセル').onPressed, isNull);
       await tester.pageBack();
-      await tester.pump();
+      // 閉じていくシートも、閉じ終えるまでは見つかる。閉じ終えるだけの時間を進めてから見る
+      await letFramesRun(tester);
       expect(find.text('場面を編集'), findsOneWidget);
 
       reply.complete();
@@ -693,11 +694,11 @@ void main() {
 
   group('作った後に写真が変わった案内・残せなかった文', () {
     for (final (label, added, removed, text) in [
-      ('増えて消えた', 3, 2, '作った後に写真が 3 枚増え、2 枚消えました。今のタイムラインには入っていません。'),
-      ('増えただけ', 3, 0, '作った後に写真が 3 枚増えました。今のタイムラインには入っていません。'),
-      ('消えただけ', 0, 2, '作った後に写真が 2 枚消えました。今のタイムラインには入っていません。'),
+      ('増えて消えたら', 3, 2, '作った後に写真が 3 枚増え、2 枚消えました。今のタイムラインには入っていません。'),
+      ('増えただけなら', 3, 0, '作った後に写真が 3 枚増えました。今のタイムラインには入っていません。'),
+      ('消えただけなら', 0, 2, '作った後に写真が 2 枚消えました。今のタイムラインには入っていません。'),
     ]) {
-      testWidgets('作った後に写真が$labelら、その枚数の案内と「あとで」「作り直す」を出す', (tester) async {
+      testWidgets('作った後に写真が$label、その枚数の案内と「あとで」「作り直す」を出す', (tester) async {
         await _openTimeline(tester,
             changes: {'added': added, 'removed': removed});
 
