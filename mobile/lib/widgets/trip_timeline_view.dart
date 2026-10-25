@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'message_view.dart';
+import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
 ///
@@ -155,21 +156,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
   Future<void> _discard() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: const Text('作りかけのタイムラインを捨てますか？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('キャンセル')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('捨てる')),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+    if (!await confirmDiscardTimeline(context) || !mounted) return;
     await _send(() async {
       await widget.apiService.discardTimelineDraft(widget.tripId);
       if (!mounted) return;

@@ -7,6 +7,7 @@ import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/taken_at.dart';
 import '../widgets/message_view.dart';
+import '../widgets/timeline_confirm_dialog.dart';
 
 /// 区切りの確認画面（docs/03_screen_design.md §8.4）
 ///
@@ -30,7 +31,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
   // 区切りの保存や操作を送っている間は、ほかの操作を受け付けない（§8.4）
-  bool _saving = false;
+  bool _sending = false;
 
   @override
   void initState() {
@@ -95,7 +96,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）
   Future<void> _save(List<String> sceneStarts) async {
-    setState(() => _saving = true);
+    setState(() => _sending = true);
     try {
       final draft = await widget.apiService
           .saveTimelineScenes(widget.tripId, sceneStarts);
@@ -106,7 +107,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       if (!mounted) return;
       _handleOperationError(e, '区切りの保存に失敗しました');
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -116,7 +117,10 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから区切り案を出し直し、旅行詳細に戻る
   Future<void> _repropose() async {
-    if (!await _confirm('AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。', '出し直す')) {
+    if (!await confirmTimelineAction(context,
+            message: 'AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。',
+            confirmLabel: '出し直す') ||
+        !mounted) {
       return;
     }
     await _sendAndClose(
@@ -125,33 +129,14 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから下書きをやめ、旅行詳細に戻る（§8.2 と同じダイアログ）
   Future<void> _discard() async {
-    if (!await _confirm('作りかけのタイムラインを捨てますか？', '捨てる')) return;
+    if (!await confirmDiscardTimeline(context) || !mounted) return;
     await _sendAndClose(
         () => widget.apiService.discardTimelineDraft(widget.tripId));
   }
 
-  /// 「キャンセル」と [confirmLabel] のダイアログ。[confirmLabel] を押したら true
-  Future<bool> _confirm(String message, String confirmLabel) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Text(message),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('キャンセル')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(confirmLabel)),
-        ],
-      ),
-    );
-    return confirmed == true && mounted;
-  }
-
   /// 操作を送り、できたら旅行詳細に戻る（旅行詳細が読み直す）。送っている間はほかの操作を受け付けない
   Future<void> _sendAndClose(Future<void> Function() operation) async {
-    setState(() => _saving = true);
+    setState(() => _sending = true);
     try {
       await operation();
       if (!mounted) return;
@@ -161,7 +146,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       if (!mounted) return;
       _handleOperationError(e, 'タイムラインの操作に失敗しました');
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -210,7 +195,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           if (draft != null)
             PopupMenuButton<Future<void> Function()>(
               icon: const Icon(Icons.more_vert),
-              enabled: !_saving,
+              enabled: !_sending,
               onSelected: (action) => action(),
               itemBuilder: (context) => [
                 PopupMenuItem(
@@ -295,7 +280,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         if (index > 0)
           Center(
             child: TextButton.icon(
-              onPressed: _saving ? null : () => _merge(scene),
+              onPressed: _sending ? null : () => _merge(scene),
               icon: const Icon(Icons.link),
               label: const Text('つなげる'),
             ),
@@ -336,7 +321,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       children: [
         for (final (index, photo) in photos.indexed)
           GestureDetector(
-            onLongPress: scene == null || index == 0 || _saving
+            onLongPress: scene == null || index == 0 || _sending
                 ? null
                 : () => _showPhotoMenu(scene, photo),
             child: _buildThumbnail(photo),
@@ -377,7 +362,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ElevatedButton(
-              onPressed: _saving ? null : _write,
+              onPressed: _sending ? null : _write,
               child: const Text('この区切りで見出しを付ける'),
             ),
             const SizedBox(height: 4),
