@@ -222,6 +222,47 @@ describe('タイムラインの完成版の操作API', () => {
   describe('区切りを直し始める（POST …/recut）', () => {
     const recut = () => postTimelineRecutHandler(createRequest(TRIP_ID, 'recut'), mockContext);
 
+    it('写真の保存先の設定に鍵が無ければ、下書きを書かずに 500 を返す', async () => {
+      process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const timeline = timelineDocument(TRIP_ID, { current });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await recut();
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの作成の受付に失敗しました' } });
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
+    it('控えを読む直前に完成版が別の控えに変わっていたら（前の控えは消えた）、409 で下書きを作らない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+      const rebuilt = timelineDocument(TRIP_ID, { current: { ...current, snapshotId: `timeline-photos-${TRIP_ID}-22222222-2222-4222-8222-222222222222` } });
+      cosmosBackend.beforeRead = (id) => {
+        if (id === CURRENT_SNAPSHOT_ID) {
+          cosmosBackend.documents.delete(CURRENT_SNAPSHOT_ID);
+          cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilt } as any);
+        }
+      };
+
+      const response = await recut();
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(storedTimeline()).toEqual(rebuilt);
+    });
+
+    it('完成版が同じままで控えだけが無ければ（壊れている）、500 で下書きを作らない', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+      cosmosBackend.documents.delete(CURRENT_SNAPSHOT_ID);
+
+      const response = await recut();
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの作成の受付に失敗しました' } });
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
     it('完成版を読んだ後に旅行が消されていたら（控えも消えた）、404（TRIP_NOT_FOUND）で下書きを作らない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
       // 控えを読む直前に、旅行の削除がタイムラインと控えと旅行を消した
@@ -247,7 +288,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(scenes[0].photos.map((photo: any) => photo.id)).toEqual([photoId('a')]);
     });
 
-    it('完成版の控えと区切りを写した確かめ中の下書き（recut）を作り、確かめ中の日と場面を返す（AI は呼ばない。完成版はそのまま）', async () => {
+    it('完成版の控えと区切りを写した確かめ中の下書き（recut。裏の処理なし）を作り、確かめ中の日と場面を返す（完成版はそのまま）', async () => {
       const timeline = timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -315,13 +356,24 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' }));
     });
 
-    it('日のタイトルを前後の空白を除いて保存して書いた主を利用者にし、完成版を読んだ形で返す（まとめはそのまま）', async () => {
+    it('日のタイトルを前後の空白を除いて保存して書いた主を利用者にし、完成版を読んだ形で返す（送らなかった、利用者が直したまとめはそのまま）', async () => {
+      const edited = { ...current, dayTexts: { ...current.dayTexts, '2026-10-05': { ...current.dayTexts['2026-10-05'], summary: '自分のまとめ', summarySource: 'user' as const } } };
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited, updatedAt: '2026-10-08T12:14:00.000Z' }));
+
       const response = await patchDay('2026-10-05', { title: '  小樽の旅 ' });
 
       expect(response.status).toBe(200);
-      expect(storedTimeline()!.current!.dayTexts['2026-10-05']).toEqual({ ...dayText('1日目', [photoId('a'), photoId('c')]), title: '小樽の旅', titleSource: 'user' });
+      expect(storedTimeline()!.current!.dayTexts['2026-10-05']).toEqual({
+        title: '小樽の旅',
+        titleSource: 'user',
+        aiTitle: '1日目',
+        summary: '自分のまとめ',
+        summarySource: 'user',
+        aiSummary: '1日目のまとめ',
+        sceneStarts: [photoId('a'), photoId('c')]
+      });
       expect(storedTimeline()!.updatedAt).toBe(NOW);
-      expect(data(response).timeline.current.days[0]).toMatchObject({ date: '2026-10-05', title: '小樽の旅', titleSource: 'user', summary: '1日目のまとめ', summarySource: 'ai' });
+      expect(data(response).timeline.current.days[0]).toMatchObject({ date: '2026-10-05', title: '小樽の旅', titleSource: 'user', summary: '自分のまとめ', summarySource: 'user' });
       expect(data(response)).toMatchObject({ pendingPhotoCount: 0, urlExpiresAt: '2026-10-25T10:00:00.000Z' });
     });
 
@@ -336,7 +388,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(data(response).timeline.current.days[0].scenes[1]).toMatchObject({ startPhotoId: photoId('c'), label: 'ラーメン', labelSource: 'user', note: '昼ごはんの一言', noteSource: 'ai' });
     });
 
-    it('null を送った欄は AI が書いた文に戻す（日のタイトルとまとめ）', async () => {
+    it('null か空の文字列を送った欄は AI が書いた文に戻す（タイトルは null、まとめは空）', async () => {
       const edited = { ...current, dayTexts: { ...current.dayTexts, '2026-10-06': { ...current.dayTexts['2026-10-06'], title: '自分の題', titleSource: 'user' as const, summary: '自分のまとめ', summarySource: 'user' as const } } };
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited }));
 
@@ -370,7 +422,10 @@ describe('タイムラインの完成版の操作API', () => {
       ['タイトルが上限を超える', () => patchDay('2026-10-05', { title: '題'.repeat(41) }), 'タイトルは40文字以内で指定してください'],
       ['まとめが上限を超える', () => patchDay('2026-10-05', { summary: 'ま'.repeat(401) }), 'まとめは400文字以内で指定してください'],
       ['見出しが上限を超える', () => patchScene(photoId('a'), { label: '見'.repeat(31) }), '見出しは30文字以内で指定してください'],
-      ['一言が上限を超える', () => patchScene(photoId('a'), { note: '一'.repeat(201) }), '一言は200文字以内で指定してください']
+      ['一言が上限を超える', () => patchScene(photoId('a'), { note: '一'.repeat(201) }), '一言は200文字以内で指定してください'],
+      // 欄ごとに（日はタイトル → まとめの順に）型 → 上限を見て、最初に当たったものを返す
+      ['タイトルの型とまとめの上限がどちらも違う', () => patchDay('2026-10-05', { title: 1, summary: 'ま'.repeat(401) }), 'タイトルは文字列で指定してください'],
+      ['タイトルの上限とまとめの型がどちらも違う', () => patchDay('2026-10-05', { title: '題'.repeat(41), summary: 1 }), 'タイトルは40文字以内で指定してください']
     ])('%sときは、400 で何も変えない', async (_label, send, message) => {
       const before = storedTimeline();
 
@@ -379,6 +434,26 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
       expect(storedTimeline()).toEqual(before);
+    });
+
+    it('入力が無効なら、旅行が無くても 400（データベースを読む前に確かめる）', async () => {
+      cosmosBackend.documents.delete(TRIP_ID);
+
+      const response = await patchDay('2026-10-05', {});
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '更新する項目が指定されていません' } });
+    });
+
+    it('書いた後に読み直したときに旅行が消えていたら、404（TRIP_NOT_FOUND）を返す', async () => {
+      cosmosBackend.beforeReplace = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TRIP_ID);
+      };
+
+      const response = await patchDay('2026-10-05', { title: 'x' });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
     });
 
     it('上限は前後の空白を除いて数える（40 文字のタイトルの前後に空白があっても保存できる）', async () => {
@@ -443,6 +518,18 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(200);
       // 書き込めば更新日時が今になる
       expect(storedTimeline()).toEqual(timeline);
+    });
+
+    it('書いた後に読み直したときに旅行が消えていたら、404（TRIP_NOT_FOUND）を返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED }));
+      cosmosBackend.beforeReplace = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TRIP_ID);
+      };
+
+      const response = await close();
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
     });
 
     it('完成版が無く下書きだけのタイムラインでも閉じられる', async () => {
