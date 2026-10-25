@@ -149,9 +149,15 @@ void main() {
       expect(find.text('エラーが発生しました'), findsOneWidget);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
 
+      // 読み直している間は、エラーの表示を残さず読み込み中にする
+      final hold = backend.holdNextReply(TripRoute.timeline);
       await tester.tap(find.text('再試行'));
       await letFramesRun(tester);
+      expect(find.text('タイムラインを読み込み中...'), findsOneWidget);
       expect(find.text('エラーが発生しました'), findsNothing);
+
+      hold.complete();
+      await letFramesRun(tester);
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
     });
 
@@ -230,6 +236,52 @@ void main() {
       expect(backend.timelineDraftReadsReceived, reads);
     });
 
+    testWidgets('作っている間の読み直しで旅行が消えていたと分かったら、「この旅行は削除されています」を出す',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      backend.trips.clear();
+
+      await _waitForPoll(tester);
+      expect(find.text('この旅行は削除されています'), findsOneWidget);
+    });
+
+    testWidgets('下書きの読み直しに失敗しても表示は変えず、5 秒後にもう一度読む', (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      backend.failNext(TripRoute.timelineDraft);
+
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('エラーが発生しました'), findsNothing);
+
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 2);
+    });
+
+    testWidgets('読み直しの応答を待つ間に「やめる」で表示が替わったら、遅れて届いた応答で作っている表示に戻さない',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      // 応答の中身は届いた時点（まだ作っている途中）で決まる
+      final hold = backend.holdNextReply(TripRoute.timelineDraft);
+      await _waitForPoll(tester);
+
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '捨てる');
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
+      expect(find.text('区切りの案を作っています'), findsNothing);
+    });
+
     testWidgets('「写真」に戻すと、下書きの読み直しを止める', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
@@ -268,6 +320,8 @@ void main() {
       for (final step in ['区切りの案', '区切りの確認', '見出しと一言']) {
         expect(find.text(step), findsOneWidget);
       }
+      // 済んだ2つ（区切りの案・区切りの確認）に印
+      expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
 
       // 書き終えると、下書きが完成版に入れ替わる（06 §8.3）
       backend.timelinesByTripId[hokkaidoTripId] = _timeline(current: _current);
