@@ -249,6 +249,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Icons.arrow_back,
           size: isLargeScreen ? 28 : 24,
         ),
+        // 自動の戻るボタンと同じ説明（読み上げや長押しで出る）
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         onPressed: () => Navigator.pop(context),
       ),
     );
