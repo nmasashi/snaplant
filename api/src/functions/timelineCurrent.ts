@@ -2,9 +2,9 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { TimelineConflictError, TimelineService } from '../services/timelineService';
+import { TimelineConflictError, TimelineService, TimelineSnapshotMissingError } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
-import { TimelineCurrent, TimelineDraft } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
 import { readTimelineBody } from '../services/timelineRead';
@@ -58,7 +58,24 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
     };
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
-    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)]);
+    let photos: TimelinePhotoSnapshot[];
+    let existing: Set<string>;
+    try {
+      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)]);
+    } catch (error: any) {
+      // 完成版の控えが無いのは、読んだ後に旅行の削除と重なったとき（区切りの保存と同じ扱い）。完成版が変わっていれば重なり、
+      // 同じ完成版のまま控えだけ無ければ壊れている
+      if (!(error instanceof TimelineSnapshotMissingError)) {
+        throw error;
+      }
+      if (!(await new AlbumService().tripExists(tripId))) {
+        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+      }
+      if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
+        return createTimelineStateConflict();
+      }
+      throw error;
+    }
     try {
       await timelines.replaceTimeline({ ...timeline.doc, draft, updatedAt: now }, timeline.etag);
     } catch (error: any) {
