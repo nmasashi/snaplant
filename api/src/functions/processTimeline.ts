@@ -61,15 +61,16 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       };
     }
 
-    const replaced = await timelines.writeDraftResult(tripId, draftId, claimedJob, apply);
-    if (!replaced) {
+    // 書けたら、結果を当てる前の文書が返る（前の完成版を見るため）
+    const previous = await timelines.writeDraftResult(tripId, draftId, claimedJob, apply);
+    if (!previous) {
       context.log(`${label}の間に下書きが変わったので、この結果は書きません: 旅行=${tripId}, 下書き=${draftId}`);
       return;
     }
     context.log(`タイムラインの${label}が済みました: 旅行=${tripId}, 下書き=${draftId}`);
     // 完成版に入れ替えたら、前の完成版の控えは使われなくなる（作り直しの控えは別。recut は同じ控えなので残す）。
     // 前の完成版は、当て直しで読み直して実際に置き換えた文書から取る
-    const replacedSnapshotId = job.step === 'write' ? replaced.current?.snapshotId : undefined;
+    const replacedSnapshotId = job.step === 'write' ? previous.current?.snapshotId : undefined;
     if (replacedSnapshotId && replacedSnapshotId !== draft.snapshotId) {
       await timelines.deleteUnusedSnapshot(replacedSnapshotId, (...args) => context.log(...args));
     }

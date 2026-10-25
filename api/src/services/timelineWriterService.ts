@@ -165,7 +165,10 @@ function textsByKey<K, T>(items: unknown, requested: K[], keyOf: (item: any) => 
   return texts;
 }
 
-/** 前後の空白を除いた文。空なら投げ、上限を超える分は切り詰める */
+/** 文を見た目の1文字（書記素）ずつに分ける */
+const GRAPHEMES = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+
+/** 前後の空白を除いた文。空なら投げ、上限を超える分は切り詰める（切り詰めて空になるときも投げる） */
 function textOf(value: unknown, maxLength: number): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (text === '') {
@@ -174,18 +177,20 @@ function textOf(value: unknown, maxLength: number): string {
   if (text.length <= maxLength) {
     return text;
   }
-  // 文字数は UTF-16 の数で数える（05 §4）が、見た目の1文字（書記素。結合した絵文字・国旗・サロゲートペア）の途中では切らない。
+  // 文字数は UTF-16 の数で数える（05 §4）が、見た目の1文字（結合した絵文字・国旗・サロゲートペア）の途中では切らない。
   // 途中で切ると、絵文字の前の部分や国旗の片方だけが残って壊れた文字になる
-  let cut = '';
-  for (const { segment } of GRAPHEMES.segment(text)) {
-    if (cut.length + segment.length > maxLength) {
+  let end = 0;
+  for (const { index, segment } of GRAPHEMES.segment(text)) {
+    if (index + segment.length > maxLength) {
       break;
     }
-    cut += segment;
+    end = index + segment.length;
   }
   // 切った位置の直前が空白なら、それも除く（前後の空白を除いた文にする）
-  return cut.trimEnd();
+  const cut = text.slice(0, end).trimEnd();
+  if (cut === '') {
+    // 最初の1文字だけで上限を超える（結合文字を重ねた文字など）。空の文は保存しない
+    throw new Error('上限に収まる文がありません');
+  }
+  return cut;
 }
-
-/** 文を見た目の1文字ずつに分ける */
-const GRAPHEMES = new Intl.Segmenter('ja', { granularity: 'grapheme' });
