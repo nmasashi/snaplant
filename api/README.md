@@ -47,7 +47,7 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 | 関数（`app.storageQueue` の第1引数） | ファイル | キュー（アプリの設定） | 内容 |
 |---|---|---|---|
 | `processPhoto` | `src/functions/processPhoto.ts` | `PHOTO_QUEUE_NAME` | 写真の分類・識別（`docs/06_processing_design.md` §1〜§3） |
-| `processTimeline` | `src/functions/processTimeline.ts` | `TIMELINE_QUEUE_NAME` | タイムラインの下書きの区切り案（段階5。`docs/06_processing_design.md` §8。文を書く段は未実装） |
+| `processTimeline` | `src/functions/processTimeline.ts` | `TIMELINE_QUEUE_NAME` | タイムラインの下書きの区切り案と文（段階5。`docs/06_processing_design.md` §8。文を書き終えると下書きを完成版に入れ替える） |
 
 タイマーの関数は旅行アルバムの2つ（スケジュールは UTC の cron。設計は `docs/06_processing_design.md` §1.1）。
 

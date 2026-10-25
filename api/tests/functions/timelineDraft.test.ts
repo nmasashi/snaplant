@@ -1,9 +1,16 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
-import { deleteTimelineDraftHandler, getTimelineDraftHandler, putTimelineDraftScenesHandler } from '../../src/functions/timelineDraft';
+import { QueueClient } from '@azure/storage-queue';
+import {
+  deleteTimelineDraftHandler,
+  getTimelineDraftHandler,
+  postTimelineDraftWriteHandler,
+  putTimelineDraftScenesHandler
+} from '../../src/functions/timelineDraft';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import {
   photoDocument,
   timelineCurrent,
@@ -24,10 +31,12 @@ jest.mock('@azure/storage-blob', () => ({
   StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
   generateBlobSASQueryParameters: jest.fn()
 }));
+jest.mock('@azure/storage-queue', () => ({ QueueClient: jest.fn() }));
 
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<typeof generateBlobSASQueryParameters>;
+const MockedQueueClient = QueueClient as jest.MockedClass<typeof QueueClient>;
 
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
 const TIMELINE_ID = `timeline-${TRIP_ID}`;
@@ -774,6 +783,138 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+    });
+  });
+
+  describe('文を書く受付（POST …/draft/write）', () => {
+    let queueBackend: FakeQueueBackend;
+    const queuedMessages = (): Array<[string, unknown[]]> =>
+      [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
+    const reviewing = (overrides: Partial<TimelineDraft> = {}) =>
+      draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a'), photoId('b')], ...overrides });
+    const postWrite = () => postTimelineDraftWriteHandler(createRequest(TRIP_ID, 'POST'), mockContext);
+
+    beforeEach(() => {
+      queueBackend = { queues: new Map(), forcedSendError: null };
+      MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
+        createFakeQueueClient(queueBackend, queueName)) as any);
+      process.env.AzureWebJobsStorage = 'UseDevelopmentStorage=true';
+      process.env.TIMELINE_QUEUE_NAME = 'timeline-processing';
+    });
+
+    afterEach(() => {
+      delete process.env.AzureWebJobsStorage;
+      delete process.env.TIMELINE_QUEUE_NAME;
+    });
+
+    it.each<[string, Partial<TimelineDraft>]>([
+      ['確かめ中の下書き', {}],
+      ['文を書くのに失敗した下書き', { phase: 'writing', job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:30:00.000Z' } }]
+    ])('%sは、文を書く待ちにしてキューに積み、202 で状態を返す（区切りと完成版はそのまま）', async (_label, overrides) => {
+      const timeline = timelineDocument(TRIP_ID, { current: currentVersion, draft: reviewing(overrides), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(202);
+      const job = { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW };
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({
+        ...timeline,
+        draft: { ...reviewing(overrides), phase: 'writing', job },
+        updatedAt: NOW
+      });
+      expect(response.jsonBody).toEqual({
+        success: true,
+        data: {
+          draft: { id: DRAFT_ID, reason: 'create', phase: 'writing', job: { step: 'write', state: 'pending', lastError: null }, startedAt: '2026-10-25T08:50:00.000Z' },
+          urlExpiresAt: '2026-10-25T10:00:00.000Z'
+        }
+      });
+      expect(queuedMessages()).toEqual([['timeline-processing', [{ tripId: TRIP_ID, draftId: DRAFT_ID }]]]);
+    });
+
+    it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）でキューに積まない', async (_label, timelines) => {
+      timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインの下書きが見つかりません' }
+      });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it.each<[string, Partial<TimelineDraft>]>([
+      ['区切り案を作っている', { phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }],
+      ['区切り案に失敗した', { phase: 'proposing', job: { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: NOW } }],
+      ['文を書く順番を待っている', { phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW } }],
+      ['文を書いている', { phase: 'writing', job: { step: 'write', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }]
+    ])('下書きが%sときは、409（TIMELINE_STATE_CONFLICT）で下書きを変えずキューに積まない', async (_label, overrides) => {
+      const timeline = timelineWith(reviewing(overrides));
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'TIMELINE_STATE_CONFLICT', message: 'タイムラインが変わったか、作っている途中です。読み直してください' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('読んでから書くまでに他の操作がタイムラインを書いたら、409 で書いたものを変えずキューに積まない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      const written = timelineWith(reviewing({ sceneStarts: [photoId('a')] }));
+      cosmosBackend.beforeReplace = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
+      };
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(409);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('キューへの投入に失敗しても、202 で受け付ける（下書きは待ちのまま残り、再投入のタイマーが積む）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      queueBackend.forcedSendError = new Error('queue unavailable');
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(202);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: { phase: 'writing', job: { state: 'pending' } } });
+    });
+
+    it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
+      cosmosBackend.documents.delete(TRIP_ID);
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+    });
+
+    it('旅行IDがUUIDの形でなければ、400を返す', async () => {
+      const response = await postTimelineDraftWriteHandler(createRequest('not-a-uuid', 'POST'), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
+    });
+
+    it.each(databaseFailureCases('タイムラインの作成の受付に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      cosmosBackend.forcedReplaceError = error;
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+      expect(queuedMessages()).toEqual([]);
     });
   });
 });

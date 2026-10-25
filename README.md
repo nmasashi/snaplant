@@ -31,7 +31,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 - **Azure Functions**: サーバーレス API ホスティング
 - **Azure Cosmos DB**: 旅行と写真の情報の永続化（無料枠活用）
 - **Azure Blob Storage**: 写真の保存（非公開。SAS URL で渡す）と、解析の待ちのキュー（Storage Queue）
-- **Azure OpenAI Service**: `gpt-6-luna` デプロイメントによる写真の分類と識別（画像入力）と、タイムラインの区切り案（文字だけ）
+- **Azure OpenAI Service**: `gpt-6-luna` デプロイメントによる写真の分類と識別（画像入力）と、タイムラインの区切り案と文（文字だけ）
 - **Application Insights**: 監視・ログ・分析
 
 ## 🚀 CI/CD
@@ -73,6 +73,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/trips/{tripId}/timeline/draft` | GET | タイムラインの下書きの状態（確かめ中なら日と場面も） |
 | `/api/trips/{tripId}/timeline/draft` | DELETE | タイムラインの下書きをやめる |
 | `/api/trips/{tripId}/timeline/draft/scenes` | PUT | タイムラインの下書きの区切りを保存する（確かめ中の日と場面を返す） |
+| `/api/trips/{tripId}/timeline/draft/write` | POST | タイムラインの下書きの区切りで文を書く（文を書く待ちにしてキューに積む。202。書き終えると下書きが完成版に入れ替わる） |
 
 全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
@@ -80,7 +81,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 （OpenAPI の仕様書は置いていません。API 設計が正です）。
 植物図鑑の API（`/api/images/upload`・`/api/plants/*`）は 4-6 で削除しました。
 
-HTTP 以外に、2つのワーカー（Storage Queue のトリガー。写真の解析とタイムラインの区切り案）と2つのタイマー（止まった解析とタイムラインの下書きの再投入・孤児の掃除）があります（`api/README.md`）。
+HTTP 以外に、2つのワーカー（Storage Queue のトリガー。写真の解析とタイムラインの区切り案・文）と2つのタイマー（止まった解析とタイムラインの下書きの再投入・孤児の掃除）があります（`api/README.md`）。
 
 ## 🛠️ 開発
 

@@ -62,25 +62,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *   （写真を消しても日の番号や区切りが動かないように）。写真が全部消えた場面と日は出さない
  */
 export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayLayout[]; undatedPhotos: TimelinePhotoView[] } {
-  const starts = new Set(input.sceneStarts);
   const proposed = new Set(input.proposedStarts);
-
-  const starters = new Map<string, TimelineSceneLayout['startedBy']>();
-  const days = datedDaysOf(input.photos, input.dayStartHour).map((day) => {
-    const scenes: TimelinePhotoSnapshot[][] = [];
-    day.photos.forEach((photo, index) => {
-      if (index === 0) {
-        scenes.push([photo]);
-        starters.set(photo.id, 'day');
-      } else if (starts.has(photo.id)) {
-        scenes.push([photo]);
-        starters.set(photo.id, proposed.has(photo.id) ? 'ai' : 'user');
-      } else {
-        scenes[scenes.length - 1].push(photo);
-      }
-    });
-    return { date: day.date, dayNumber: day.dayNumber, scenes };
-  });
+  const days = datedDaysOf(input.photos, input.dayStartHour).map((day) => ({ ...day, scenes: scenesOfDay(day.photos, input.sceneStarts) }));
+  // 区切りを入れた主: その日の最初の写真なら day、AI の案にあれば ai、無ければ user
+  const startedByOf = (scenes: TimelinePhotoSnapshot[][], index: number): TimelineSceneLayout['startedBy'] =>
+    index === 0 ? 'day' : proposed.has(scenes[index][0].id) ? 'ai' : 'user';
 
   const view = (photo: TimelinePhotoSnapshot): TimelinePhotoView => ({
     id: photo.id,
@@ -96,11 +82,15 @@ export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayL
       date: day.date,
       dayNumber: day.dayNumber,
       scenes: day.scenes
-        .map((scene) => ({ startPhotoId: scene[0].id, photos: scene.filter((photo) => input.exists(photo.id)) }))
+        .map((scene, index) => ({
+          startPhotoId: scene[0].id,
+          startedBy: startedByOf(day.scenes, index),
+          photos: scene.filter((photo) => input.exists(photo.id)),
+        }))
         .filter((scene) => scene.photos.length > 0)
-        .map(({ startPhotoId, photos }) => ({
+        .map(({ startPhotoId, startedBy, photos }) => ({
           startPhotoId,
-          startedBy: starters.get(startPhotoId)!,
+          startedBy,
           hasFood: photos.some((photo) => photo.category === 'food'),
           firstTakenAt: photos[0].takenAt!,
           lastTakenAt: photos[photos.length - 1].takenAt!,
@@ -155,6 +145,24 @@ export function currentTimelineOf(
     }),
     undatedPhotos: layout.undatedPhotos,
   };
+}
+
+/**
+ * 1日の写真を場面に分ける（04 §1.6。その日の最初の写真と、区切りの写真が場面の始まり。場面は日をまたがない）
+ * @param photos その日の写真（撮影の順）
+ * @param sceneStarts 区切り（場面の最初の写真の id。ほかの日の写真や、控えに無い写真の id があっても無視する）
+ */
+export function scenesOfDay(photos: TimelinePhotoSnapshot[], sceneStarts: string[]): TimelinePhotoSnapshot[][] {
+  const starts = new Set(sceneStarts);
+  const scenes: TimelinePhotoSnapshot[][] = [];
+  photos.forEach((photo, index) => {
+    if (index === 0 || starts.has(photo.id)) {
+      scenes.push([photo]);
+    } else {
+      scenes[scenes.length - 1].push(photo);
+    }
+  });
+  return scenes;
 }
 
 /** 撮影日時のある写真の1日分 */

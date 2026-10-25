@@ -110,3 +110,10 @@ export const TIMELINE_PROPOSE_MAX_TOKENS = 4000;
  * 超える旅行は日の境目で分けて呼ぶ（06 §8.4）。写真1枚が 30〜50 トークンなので、400 枚で入力は 2 万トークン以下に収まる
  */
 export const TIMELINE_MAX_PHOTOS_PER_CALL = 400;
+
+/**
+ * タイムラインの文の max_completion_tokens（推論のトークンも含む）
+ *
+ * 文の出力は 300 枚の旅行で 2,000〜4,000 トークンの見込み（06 §8.5）。推論のトークンも同じ枠から使うので、それより大きく取る
+ */
+export const TIMELINE_WRITE_MAX_TOKENS = 16000;

@@ -13,7 +13,8 @@ import {
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { ErrorCode } from '../types/api';
+import { ErrorCode, HttpStatusCode } from '../types/api';
+import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 
 /**
  * タイムラインの下書きを読む API（状態と、確かめ中なら日と場面）
@@ -103,6 +104,54 @@ export async function deleteTimelineDraftHandler(request: HttpRequest, context: 
 }
 
 /**
+ * タイムラインの下書きの区切りで文を書く受付 API
+ * POST /api/trips/{tripId}/timeline/draft/write?code={FUNCTION_KEY}
+ *
+ * 下書きを文を書く待ちにしてキューに積む（ワーカーが文を書き、書き終えると下書きが完成版に入れ替わる。05 §5.15・06 §8.3）
+ */
+export async function postTimelineDraftWriteHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const tripId = request.params.tripId;
+  context.log(`タイムラインの文を書く受付リクエストを受信: 旅行=${tripId}`);
+  if (!isValidUUID(tripId)) {
+    return createValidationError('旅行IDの形式が無効です');
+  }
+  let draft: TimelineDraft;
+  try {
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const timelines = new TimelineService();
+    const timeline = await timelines.readTimeline(tripId);
+    const read = timeline?.doc.draft;
+    if (!timeline || !read) {
+      return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
+    }
+    if (!isEditableDraft(read)) {
+      return createTimelineStateConflict();
+    }
+    const now = new Date().toISOString();
+    draft = { ...read, phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: now } };
+    try {
+      await timelines.replaceTimeline({ ...timeline.doc, draft, updatedAt: now }, timeline.etag);
+    } catch (error: any) {
+      if (error instanceof TimelineConflictError) {
+        return createTimelineStateConflict();
+      }
+      throw error;
+    }
+  } catch (error: any) {
+    context.log('タイムラインの文を書く受付エラー:', error);
+    return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');
+  }
+  // 投入に失敗しても受け付ける（下書きは待ちのまま残り、再投入のタイマーが積む。作る受付と同じ）
+  await enqueueTimelineOrLog(tripId, draft.id, (...args) => context.log(...args));
+  return createSuccessResponse(
+    { draft: draftStatusOf(draft), urlExpiresAt: photoUrlExpiresOn().toISOString() },
+    HttpStatusCode.ACCEPTED
+  );
+}
+
+/**
  * タイムラインの下書きの区切りを保存する API
  * PUT /api/trips/{tripId}/timeline/draft/scenes?code={FUNCTION_KEY}  { sceneStarts: string[] }
  *
@@ -131,8 +180,8 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!timeline || !draft) {
       return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    const writeFailed = draft.phase === 'writing' && draft.job?.state === 'failed';
-    if (draft.phase !== 'reviewing' && !writeFailed) {
+    const writeFailed = isWriteFailed(draft);
+    if (!isEditableDraft(draft)) {
       return createTimelineStateConflict();
     }
     const { sceneStarts } = read.body as { sceneStarts?: unknown };
@@ -177,6 +226,20 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
   }
+}
+
+/**
+ * 区切りを直せる・文を書かせられる下書きか（確かめ中か、文を書くのに失敗した下書き。05 §5.15 の区切りの保存と文を書く受付）
+ *
+ * 文の失敗からは、区切りを直して確かめ中に戻すことも、そのまま書き直させることもできる
+ */
+function isEditableDraft(draft: TimelineDraft): boolean {
+  return draft.phase === 'reviewing' || isWriteFailed(draft);
+}
+
+/** 文を書くのに失敗した下書きか */
+function isWriteFailed(draft: TimelineDraft): boolean {
+  return draft.phase === 'writing' && draft.job?.state === 'failed';
 }
 
 /** 旅行の今の写真の id（控えを取った後に消えた写真を見分ける） */
@@ -231,6 +294,13 @@ app.http('putTimelineDraftScenes', {
   authLevel: 'function',
   route: 'trips/{tripId}/timeline/draft/scenes',
   handler: putTimelineDraftScenesHandler,
+});
+
+app.http('postTimelineDraftWrite', {
+  methods: ['POST'],
+  authLevel: 'function',
+  route: 'trips/{tripId}/timeline/draft/write',
+  handler: postTimelineDraftWriteHandler,
 });
 
 app.http('deleteTimelineDraft', {
