@@ -41,6 +41,9 @@ const photoId = (head: string): string => head.repeat(64);
 /** AI に渡す写真の行の頭（06 §8.4 の `[番号] 何日目 …`） */
 const PHOTO_LINE = /^\[\d+\] \d+日目/;
 
+/** プロンプトのうち、写真の行でない行（日の区切り・書いてほしい場面と日・前に書いた文など） */
+const nonPhotoLines = (prompt: string): string[] => prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
+
 /** 控えの写真。既定は名前・地名・コメントの無い風景の写真 */
 const snapshotPhoto = (id: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}): TimelinePhotoSnapshot => ({
   id,
@@ -53,6 +56,14 @@ const snapshotPhoto = (id: string, takenAt: string | null, overrides: Partial<Ti
   thumbnailBlobName: `${id}.thumb.jpg`,
   ...overrides
 });
+
+/** 写真の多い旅行の、その日の 6:00 から1分おきに撮った写真（id は日ごとの頭の数と通し番号から作る） */
+const photosOfDay = (date: string, head: number, count: number): TimelinePhotoSnapshot[] =>
+  Array.from({ length: count }, (_, index) => {
+    const minutes = 6 * 60 + index;
+    const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
+    return snapshotPhoto((head * 100000 + index).toString(16).padStart(64, '0'), `${date}T${time}`);
+  });
 
 /**
  * 2日の旅行の控え（日付の切り替えは4時）。撮影日時のある写真が撮影の順で先、無い写真が後
@@ -98,6 +109,13 @@ describe('タイムラインのワーカー', () => {
   const aiReturns = (body: unknown) => {
     reply = answering(body);
   };
+  /** 分けて呼ぶとき、AI が呼ばれた順に bodies を1つずつ返す */
+  const replies = (...bodies: unknown[]) => {
+    reply = async () => ({ choices: [{ message: { content: JSON.stringify(bodies.shift()) } }] });
+  };
+  /** 下書きの控えの写真を置き換える */
+  const useSnapshot = (photos: TimelinePhotoSnapshot[]) =>
+    cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, photos));
 
   /** キューのトリガーが渡すメッセージ（本文の JSON は読まれた後のオブジェクトで届く） */
   const runWorker = (message: unknown = { tripId: TRIP_ID, draftId: DRAFT_ID }) => processTimelineHandler(message, mockContext);
@@ -111,6 +129,21 @@ describe('タイムラインのワーカー', () => {
   /** プロンプトのうち、その写真の番号の行 */
   const promptLineOf = (prompt: string, index: number): string | undefined =>
     prompt.split('\n').find((line) => line.includes(`[${index}]`));
+
+  /** 結果を書く直前に、他の操作が書いた文書を置く（count 回まで。置いた文書は別の _etag になるので、読んだ _etag 付きの置き換えは 412 になる） */
+  const othersWriteBeforeReplace = (write: (doc: TimelineDocument) => TimelineDocument | null, count = 1) => {
+    let left = count;
+    cosmosBackend.beforeReplace = (id) => {
+      if (id !== TIMELINE_ID || left === 0) return;
+      left -= 1;
+      const doc = write(storedTimeline()!);
+      if (doc === null) {
+        cosmosBackend.documents.delete(TIMELINE_ID);
+      } else {
+        cosmosBackend.documents.set(TIMELINE_ID, doc as any);
+      }
+    };
+  };
 
   beforeEach(() => {
     savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -245,7 +278,7 @@ describe('タイムラインのワーカー', () => {
       expect(promptLineOf(prompt, 6)).toBeUndefined();
       expect(prompt).not.toContain('日時の無い写真');
       // 日の区切り（何番から何日目か）も渡す。写真の行（[番号] で始まる）とは別の行
-      const dayLines = prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
+      const dayLines = nonPhotoLines(prompt);
       expect(dayLines.find((line) => line.includes('1日目'))).toEqual(expect.stringMatching(/0.*3/));
       expect(dayLines.find((line) => line.includes('2日目'))).toEqual(expect.stringMatching(/4.*5/));
     });
@@ -356,21 +389,6 @@ describe('タイムラインのワーカー', () => {
     const proposedDraft = () =>
       proposingDraft({ phase: 'reviewing', job: null, proposedStarts: [photoId('a'), photoId('e')], sceneStarts: [photoId('a'), photoId('e')] });
 
-    /** 結果を書く直前に、他の操作が書いた文書を置く（count 回まで。置いた文書は別の _etag になるので、読んだ _etag 付きの置き換えは 412 になる） */
-    const othersWriteBeforeReplace = (write: (doc: TimelineDocument) => TimelineDocument | null, count = 1) => {
-      let left = count;
-      cosmosBackend.beforeReplace = (id) => {
-        if (id !== TIMELINE_ID || left === 0) return;
-        left -= 1;
-        const doc = write(storedTimeline()!);
-        if (doc === null) {
-          cosmosBackend.documents.delete(TIMELINE_ID);
-        } else {
-          cosmosBackend.documents.set(TIMELINE_ID, doc as any);
-        }
-      };
-    };
-
     it('下書きがまだ自分のもので処理も担当したときのままなら、3回まで重なっても、読み直した文書に同じ結果を当て直す（他の操作が書いたものは残す）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
       // 区切り案の間に、利用者が残せなかった文の知らせを閉じた（書くたびに他の操作がまた書く）
@@ -428,19 +446,6 @@ describe('タイムラインのワーカー', () => {
   });
 
   describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
-    /** その日の 6:00 から1分おきに撮った写真（id は日ごとの頭の数と通し番号から作る） */
-    const photosOfDay = (date: string, head: number, count: number): TimelinePhotoSnapshot[] =>
-      Array.from({ length: count }, (_, index) => {
-        const minutes = 6 * 60 + index;
-        const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
-        return snapshotPhoto((head * 100000 + index).toString(16).padStart(64, '0'), `${date}T${time}`);
-      });
-    const replies = (...bodies: unknown[]) => {
-      reply = async () => ({ choices: [{ message: { content: JSON.stringify(bodies.shift()) } }] });
-    };
-    const useSnapshot = (photos: TimelinePhotoSnapshot[]) =>
-      cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, photos));
-
     it('上限を超える旅行は日の境目で分けて順に呼び、番号は呼び出しごとに 0 から振る', async () => {
       const day1 = photosOfDay('2026-10-05', 1, 250);
       const day2 = photosOfDay('2026-10-06', 2, 200);
@@ -688,7 +693,7 @@ describe('タイムラインのワーカー', () => {
       for (const element of ['1日目', '10/05 07:50 ', '食べ物', '海鮮丼', '北海道千歳市', '空港で']) {
         expect(promptLineOf(prompt, 0)).toContain(element);
       }
-      const otherLines = prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
+      const otherLines = nonPhotoLines(prompt);
       for (const start of ['0番', '2番', '4番', '5番']) {
         expect(otherLines.some((line) => line.includes(start))).toBe(true);
       }
@@ -741,10 +746,11 @@ describe('タイムラインのワーカー', () => {
       });
     });
 
+    // 重なりと頼んでいないものの行は、数を頼んだ数に合わせる（数が違うと、数の検査で先に落ちて、その行の検査に届かない）
     it.each<[string, unknown]>([
       ['頼んだ日が無い', { ...allTexts, days: allTexts.days.slice(1) }],
-      ['同じ日が2回ある', { ...allTexts, days: [...allTexts.days, allTexts.days[0]] }],
-      ['頼んでいない場面がある', { ...allTexts, scenes: [...allTexts.scenes, { start: 1, label: 'x', note: 'x' }] }],
+      ['同じ日が2回ある', { ...allTexts, days: [allTexts.days[0], allTexts.days[0]] }],
+      ['頼んでいない場面がある', { ...allTexts, scenes: [{ start: 1, label: 'x', note: 'x' }, ...allTexts.scenes.slice(1)] }],
       ['頼んだ場面が無い', { ...allTexts, scenes: allTexts.scenes.slice(1) }],
       ['空白だけの見出しがある', { ...allTexts, scenes: [{ ...allTexts.scenes[0], label: '  ' }, ...allTexts.scenes.slice(1)] }],
       ['空のまとめがある', { ...allTexts, days: [{ ...allTexts.days[0], summary: '' }, allTexts.days[1]] }],
@@ -773,28 +779,21 @@ describe('タイムラインのワーカー', () => {
       expect(current.dayTexts['2026-10-05']).toMatchObject({ title: '題'.repeat(40), aiTitle: '題'.repeat(40), summary: 'ま'.repeat(400) });
       expect(current.sceneTexts[photoId('a')]).toMatchObject({ label: '見'.repeat(30), aiLabel: '見'.repeat(30), note: '一'.repeat(200) });
     });
+
     describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
-      /** その日の 6:00 から1分おきに撮った写真（id は日ごとの頭の数と通し番号から作る） */
-      const photosOfDay = (date: string, head: number, count: number): TimelinePhotoSnapshot[] =>
-        Array.from({ length: count }, (_, index) => {
-          const minutes = 6 * 60 + index;
-          const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
-          return snapshotPhoto((head * 100000 + index).toString(16).padStart(64, '0'), `${date}T${time}`);
-        });
-      const replies = (...bodies: unknown[]) => {
-        reply = async () => ({ choices: [{ message: { content: JSON.stringify(bodies.shift()) } }] });
-      };
       const scene = (start: number, label: string) => ({ start, label, note: `${label}の一言` });
       const day = (date: string, title: string) => ({ date, title, summary: `${title}のまとめ` });
-      const linesAsking = (prompt: string, words: string) =>
-        prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()) && line.includes(words));
+      /** 区切り（AI の案も同じ）の文を書く待ちの下書きを置く */
+      const useWritingDraft = (starts: string[]) =>
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+      const linesAsking = (prompt: string, words: string) => nonPhotoLines(prompt).filter((line) => line.includes(words));
 
       it('上限を超える旅行は日の境目で分けて順に呼び、番号は呼び出しごとに 0 から振って、その呼び出しの場面と日だけを書かせる', async () => {
         const day1 = photosOfDay('2026-10-05', 1, 250);
         const day2 = photosOfDay('2026-10-06', 2, 200);
-        cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, [...day1, ...day2]));
+        useSnapshot([...day1, ...day2]);
         const starts = [day1[0].id, day1[100].id, day2[0].id, day2[50].id];
-        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+        useWritingDraft(starts);
         replies(
           { days: [day('2026-10-05', '1日目')], scenes: [scene(0, '朝'), scene(100, '昼')] },
           { days: [day('2026-10-06', '2日目')], scenes: [scene(0, '朝2'), scene(50, '昼2')] }
@@ -820,10 +819,9 @@ describe('タイムラインのワーカー', () => {
 
       it('1日で上限を超える日は場面の境目で分けて呼び、日の文はその日の最初の場面を含む呼び出しで書かせる', async () => {
         const day1 = photosOfDay('2026-10-05', 1, 450);
-        cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, day1));
+        useSnapshot(day1);
         // 区切り案で 400 枚目は切れ目になっているが、利用者が消して 300 枚目に区切りを入れた
-        const starts = [day1[0].id, day1[300].id];
-        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+        useWritingDraft([day1[0].id, day1[300].id]);
         replies({ days: [day('2026-10-05', '長い1日')], scenes: [scene(0, '午前')] }, { days: [], scenes: [scene(0, '午後')] });
 
         await runWorker();
@@ -840,9 +838,8 @@ describe('タイムラインのワーカー', () => {
       it('分けて呼ぶ途中で失敗したら、途中までの文は書かずに全体を失敗にする', async () => {
         const day1 = photosOfDay('2026-10-05', 1, 250);
         const day2 = photosOfDay('2026-10-06', 2, 200);
-        cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, [...day1, ...day2]));
-        const starts = [day1[0].id, day2[0].id];
-        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+        useSnapshot([...day1, ...day2]);
+        useWritingDraft([day1[0].id, day2[0].id]);
         // 2回目は頼んだ場面が無い
         replies({ days: [day('2026-10-05', '1日目')], scenes: [scene(0, '朝')] }, { days: [day('2026-10-06', '2日目')], scenes: [] });
 
@@ -928,7 +925,7 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
-        const otherLines = sentPrompt().split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
+        const otherLines = nonPhotoLines(sentPrompt());
         const scenesLine = otherLines.find((line) => line.includes('書いてほしい場面'))!;
         expect(scenesLine).toEqual(expect.stringContaining('2番'));
         expect(scenesLine).toEqual(expect.stringContaining('4番'));
@@ -944,13 +941,10 @@ describe('タイムラインのワーカー', () => {
 
       it('文を書いている間に利用者が完成版の文を直したら、引き継ぐ文は直した後のものにする（当て直し）', async () => {
         cosmosBackend.documents.set(TIMELINE_ID, rebuilding());
-        let left = 1;
-        cosmosBackend.beforeReplace = (id) => {
-          if (id !== TIMELINE_ID || left-- <= 0) return;
-          const doc = storedTimeline()!;
+        othersWriteBeforeReplace((doc) => {
           const edited = { ...doc.current!.sceneTexts[photoId('a')], label: '空港で朝ごはん' };
-          cosmosBackend.documents.set(TIMELINE_ID, { ...doc, current: { ...doc.current!, sceneTexts: { ...doc.current!.sceneTexts, [photoId('a')]: edited } } } as any);
-        };
+          return { ...doc, current: { ...doc.current!, sceneTexts: { ...doc.current!.sceneTexts, [photoId('a')]: edited } } };
+        });
 
         await runWorker();
 
