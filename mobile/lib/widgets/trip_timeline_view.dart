@@ -38,6 +38,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Timer? _pollTimer;
   // 操作（作る・もう一度・やめる）を送っている間は、操作のボタンを押せなくする（二重に送らない。§8.1）
   bool _sending = false;
+  // タイムラインの読み込みを始めるたびに進める。読み込みが重なったとき、最後に始めたものの結果だけを使う（§8.1）
+  int _loadRequest = 0;
 
   @override
   void initState() {
@@ -51,8 +53,11 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     super.dispose();
   }
 
-  /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）
-  Future<void> _load({bool showLoading = true}) async {
+  /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
+  /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）
+  Future<void> _load(
+      {bool showLoading = true, bool keepOnFailure = false}) async {
+    final request = ++_loadRequest;
     _pollTimer?.cancel();
     if (showLoading) {
       setState(() {
@@ -62,7 +67,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     try {
       final overview = await widget.apiService.getTimeline(widget.tripId);
-      if (!mounted) return;
+      // 後から始めた読み込みがある。先に始めたこの読み込みの結果（古い状態）では上書きしない
+      if (!mounted || request != _loadRequest) return;
       setState(() => _errorMessage = null);
       _show(overview);
     } catch (e) {
@@ -70,6 +76,12 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       if (!mounted) return;
       if (e is ApiException && e.isTripNotFound) {
         widget.onTripNotFound();
+        return;
+      }
+      if (request != _loadRequest) return;
+      final shown = _overview;
+      if (keepOnFailure && shown != null) {
+        _show(shown);
         return;
       }
       setState(() => _errorMessage =
@@ -108,7 +120,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     // 待っている間に操作で表示が替わっていたら、古い表示を元にした読み直しの結果は使わない
     if (!mounted || !identical(_overview, shown)) return;
     if (draft == null || draft.phase != shownDraft.phase || !draft.isWorking) {
-      await _load(showLoading: false);
+      await _load(showLoading: false, keepOnFailure: true);
       return;
     }
     _show(shown.withDraft(draft));
