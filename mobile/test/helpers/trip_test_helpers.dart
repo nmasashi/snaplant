@@ -520,8 +520,10 @@ class FakeTripBackend {
       ..remove('undatedPhotos');
   }
 
-  /// 下書きの日ごとの写真を [starts] で場面に分け直す。区切りが無効（下書きに無い写真・重なり・日の最初の写真が無い）なら null。
-  /// 本物と同じく、日の最初の写真の場面は `day`、前の下書きでも区切りだった写真はその主、新しい区切りは `user` にする
+  /// 下書きの日ごとの写真を [starts] で場面に分け直す。区切りが無効（下書きに無い写真・重なり・撮影の順でない）なら null。
+  /// 本物と同じく、各日の最初の写真は区切りに無くても場面の始まりにする（補う）。
+  /// 区切りを入れた主は本物と違い、日の最初は `day`、前の下書きでも区切りだった写真はその主を引き継ぎ、新しい区切りは `user` にする
+  /// （本物は AI の案にあれば `ai`。クライアントはまだ読まないので、読むようになったら本物に合わせる）。消えた写真（控えにだけある写真）は表さない
   List<Map<String, Object?>>? _recutDays(Map<String, Object?> draft, List<String> starts) {
     final previous = <String, Object?>{};
     final days = (draft['days'] as List).cast<Map<String, Object?>>();
@@ -546,7 +548,6 @@ class FakeTripBackend {
         for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
           ...(scene['photos'] as List).cast<Map<String, Object?>>(),
       ];
-      if (!starts.contains(photos.first['id'])) return null;
       final scenes = <Map<String, Object?>>[];
       var current = <Map<String, Object?>>[];
       for (final photo in photos) {
