@@ -378,6 +378,7 @@ describe('タイムラインの完成版の操作API', () => {
       ['その日が完成版に無い', () => patchDay('2026-10-07', { title: 'x' }), 'その日はタイムラインにありません'],
       ['日付の形が違う', () => patchDay('2026-10-5', { title: 'x' }), 'その日はタイムラインにありません'],
       ['実在しない日付', () => patchDay('2026-02-30', { title: 'x' }), 'その日はタイムラインにありません'],
+      ['暦に無い月の日付', () => patchDay('2026-13-01', { title: 'x' }), 'その日はタイムラインにありません'],
       ['その場面が完成版に無い', () => patchScene(photoId('b'), { label: 'x' }), 'その場面はタイムラインにありません']
     ])('%sときは、404（TIMELINE_NOT_FOUND）で何も変えない', async (_label, send, message) => {
       const before = storedTimeline();
