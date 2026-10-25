@@ -179,6 +179,11 @@ enum TripRoute {
 ///   `sortAt` の昇順に `limit`（無ければ [pageSize]）枚ずつ返す。`entry` は信頼度が最も高い写真（同じなら識別の新しい写真）の識別から作り、`photoCount` は合う写真の枚数（本物と同じ。05 §5.14）。
 ///   合う写真が無ければ `entry: null`・`photos: []`・`continuationToken: null`。続きのトークンは次の位置（`entry:<位置>`）。
 ///   種類が無効・名前が無い（空白だけ）・トークンの形が違うときは 400（文言は本物と同じ）。受け取った名前とトークンは [catalogEntryQueriesReceived] に残す
+/// - タイムライン（05 §5.15。段階5）: `GET …/timeline` は [timelinesByTripId] と [pendingPhotoCountByTripId] を返す。
+///   `POST …/timeline` は、作っている途中なら 409 `TIMELINE_STATE_CONFLICT`、解析中の写真があれば 409 `TIMELINE_PHOTOS_PROCESSING`、それ以外は区切りの案の待ちの下書きを書いて 202。
+///   `GET …/timeline/draft` は下書きの状態を返し、届いた回数を [timelineDraftReadsReceived] に数える。`DELETE …/timeline/draft` は下書きを消し（完成版も無ければタイムラインごと）、
+///   `POST …/draft/write` は確かめ待ち・文の失敗の下書きを文の待ちにする（どちらも下書きが無ければ 404 `TIMELINE_NOT_FOUND`、状態が合わなければ 409）。
+///   ワーカーが進んだことは、テストが [timelinesByTripId] を直接書き換えて表す。旅行が無ければどれも 404 `TRIP_NOT_FOUND`
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
