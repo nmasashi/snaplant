@@ -29,6 +29,8 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   TimelineDraftStatus? _draft;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
+  // 区切りを保存している間は、ほかの操作を受け付けない（§8.4）
+  bool _saving = false;
 
   @override
   void initState() {
@@ -69,6 +71,73 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     Navigator.pop(context);
     messenger
         .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
+  }
+
+  /// 今の区切り（場面の最初の写真の id。撮影の順）
+  List<String> _sceneStarts() => [
+        for (final day in _draft!.days!)
+          for (final scene in day.scenes) scene.startPhotoId,
+      ];
+
+  /// [photo] から新しい場面にする（[photo] を、その場面の区切りの次に足す）
+  Future<void> _split(TimelineScene scene, TimelinePhoto photo) => _save([
+        for (final start in _sceneStarts()) ...[
+          start,
+          if (start == scene.startPhotoId) photo.id,
+        ],
+      ]);
+
+  /// [scene] を前の場面とつなげる（[scene] の区切りを外す）
+  Future<void> _merge(TimelineScene scene) => _save([
+        for (final start in _sceneStarts())
+          if (start != scene.startPhotoId) start
+      ]);
+
+  /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）
+  Future<void> _save(List<String> sceneStarts) async {
+    setState(() => _saving = true);
+    try {
+      final draft = await widget.apiService
+          .saveTimelineScenes(widget.tripId, sceneStarts);
+      if (!mounted) return;
+      setState(() => _draft = draft);
+    } catch (e) {
+      debugPrint('TimelineReviewScreen: 区切りの保存のエラー: $e');
+      if (!mounted) return;
+      _handleOperationError(e, '区切りの保存に失敗しました');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// 操作の失敗（§8.4）。下書きが変わった・旅行が無いなら旅行詳細に戻り、それ以外は文言を出す
+  void _handleOperationError(Object e, String fallback) {
+    if (e is ApiException && e.isTripNotFound) {
+      Navigator.pop(context);
+      return;
+    }
+    if (e is ApiException && e.isTimelineChanged) {
+      _closeBecauseChanged();
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.userMessage : fallback)));
+  }
+
+  /// 写真の長押しのメニュー（場面の最初の写真では出さない）
+  Future<void> _showPhotoMenu(TimelineScene scene, TimelinePhoto photo) async {
+    final split = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListTile(
+          leading: const Icon(Icons.content_cut),
+          title: const Text('この写真から新しい場面'),
+          onTap: () => Navigator.pop(context, true),
+        ),
+      ),
+    );
+    if (split != true || !mounted) return;
+    await _split(scene, photo);
   }
 
   @override
@@ -158,7 +227,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         if (index > 0)
           Center(
             child: TextButton.icon(
-              onPressed: () {},
+              onPressed: _saving ? null : () => _merge(scene),
               icon: const Icon(Icons.link),
               label: const Text('つなげる'),
             ),
@@ -180,7 +249,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           children: [
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
-            _buildPhotos(scene.photos),
+            _buildPhotos(scene.photos, scene: scene),
           ],
         ),
       ),
@@ -188,14 +257,23 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   }
 
   /// 写真を5列のサムネイルで全部並べる
-  Widget _buildPhotos(List<TimelinePhoto> photos) {
+  /// [scene] があれば、最初の写真を除いて長押しで「この写真から新しい場面」を出す（日時なしの写真は区切らない）
+  Widget _buildPhotos(List<TimelinePhoto> photos, {TimelineScene? scene}) {
     return GridView.count(
       crossAxisCount: _columns,
       mainAxisSpacing: 2,
       crossAxisSpacing: 2,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      children: [for (final photo in photos) _buildThumbnail(photo)],
+      children: [
+        for (final (index, photo) in photos.indexed)
+          GestureDetector(
+            onLongPress: scene == null || index == 0 || _saving
+                ? null
+                : () => _showPhotoMenu(scene, photo),
+            child: _buildThumbnail(photo),
+          ),
+      ],
     );
   }
 
@@ -231,7 +309,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ElevatedButton(
-              onPressed: () {},
+              onPressed: _saving ? null : () {},
               child: const Text('この区切りで見出しを付ける'),
             ),
             const SizedBox(height: 4),
