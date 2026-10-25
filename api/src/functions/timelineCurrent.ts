@@ -113,7 +113,8 @@ export async function deleteTimelineDroppedEditsHandler(request: HttpRequest, co
     if (!timeline) {
       return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    try {
+    // 既に無ければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
+    if (timeline.doc.droppedEdits.length > 0) try {
       await timelines.replaceTimeline({ ...timeline.doc, droppedEdits: [], updatedAt: new Date().toISOString() }, timeline.etag);
     } catch (error: any) {
       if (error instanceof TimelineConflictError) {
