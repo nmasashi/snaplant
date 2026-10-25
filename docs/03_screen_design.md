@@ -1012,7 +1012,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 - 端末の文字サイズ設定は反映しない（倍率 1.0 に固定。`main.dart`）
 - 言語の設定は日本語（ja_JP）だけ（`main.dart` の `supportedLocales`。Material の文言は `flutter_localizations`）。端末の言語が英語でも、文字を描く部品に日本語が渡るので、端末では日本語の字形を選ぶ
   （設定が無いと英語として動き、英語の設定の端末では中国語の字形になりうる）。
-  Web 版は、Flutter が漢字・かなの補いのフォントをブラウザの言語で選ぶ（`navigator.language` がちょうど `ja` のときだけ Noto Sans JP、ほかは Noto Sans SC）ので、アプリの設定では変わらない。
+  Web 版は、Flutter が漢字・かなの補いのフォントをブラウザの言語の設定で選ぶので、アプリの設定では変わらない（Flutter 3.32.8 で確かめた）。
   2026-10-26 に Web 版で「ヰ」などの字形が日本語のものでなかったが、Web 版は確認用なので直していない（実装済み。日本語の設定の作業単位）
 
 ### 9.2 エラー表示（`ApiException.userMessage`）
