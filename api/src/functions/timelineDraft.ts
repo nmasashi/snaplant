@@ -126,8 +126,7 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
     if (!timeline || !read) {
       return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    const writeFailed = read.phase === 'writing' && read.job?.state === 'failed';
-    if (read.phase !== 'reviewing' && !writeFailed) {
+    if (!isEditableDraft(read)) {
       return createTimelineStateConflict();
     }
     const now = new Date().toISOString();
@@ -181,8 +180,8 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!timeline || !draft) {
       return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    const writeFailed = draft.phase === 'writing' && draft.job?.state === 'failed';
-    if (draft.phase !== 'reviewing' && !writeFailed) {
+    const writeFailed = isWriteFailed(draft);
+    if (!isEditableDraft(draft)) {
       return createTimelineStateConflict();
     }
     const { sceneStarts } = read.body as { sceneStarts?: unknown };
@@ -227,6 +226,20 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
   }
+}
+
+/**
+ * 区切りを直せる・文を書かせられる下書きか（確かめ中か、文を書くのに失敗した下書き。05 §5.15 の区切りの保存と文を書く受付）
+ *
+ * 文の失敗からは、区切りを直して確かめ中に戻すことも、そのまま書き直させることもできる
+ */
+function isEditableDraft(draft: TimelineDraft): boolean {
+  return draft.phase === 'reviewing' || isWriteFailed(draft);
+}
+
+/** 文を書くのに失敗した下書きか */
+function isWriteFailed(draft: TimelineDraft): boolean {
+  return draft.phase === 'writing' && draft.job?.state === 'failed';
 }
 
 /** 旅行の今の写真の id（控えを取った後に消えた写真を見分ける） */
