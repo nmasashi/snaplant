@@ -119,6 +119,21 @@ enum TripRoute {
 
   /// GET /api/catalog/entry?kind=...&name=...&continuationToken=...（図鑑の項目の詳細。段階4）
   catalogEntry,
+
+  /// GET /api/trips/{tripId}/timeline（タイムライン。段階5）
+  timeline,
+
+  /// POST /api/trips/{tripId}/timeline（タイムラインを作る・作り直す受付。段階5）
+  timelineCreate,
+
+  /// GET /api/trips/{tripId}/timeline/draft（下書きを読む。段階5）
+  timelineDraft,
+
+  /// DELETE /api/trips/{tripId}/timeline/draft（下書きをやめる。段階5）
+  timelineDraftDelete,
+
+  /// POST /api/trips/{tripId}/timeline/draft/write（文を書く受付。段階5）
+  timelineWrite,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`・項目の詳細 `GET /api/catalog/entry`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
@@ -164,6 +179,11 @@ enum TripRoute {
 ///   `sortAt` の昇順に `limit`（無ければ [pageSize]）枚ずつ返す。`entry` は信頼度が最も高い写真（同じなら識別の新しい写真）の識別から作り、`photoCount` は合う写真の枚数（本物と同じ。05 §5.14）。
 ///   合う写真が無ければ `entry: null`・`photos: []`・`continuationToken: null`。続きのトークンは次の位置（`entry:<位置>`）。
 ///   種類が無効・名前が無い（空白だけ）・トークンの形が違うときは 400（文言は本物と同じ）。受け取った名前とトークンは [catalogEntryQueriesReceived] に残す
+/// - タイムライン（05 §5.15。段階5）: `GET …/timeline` は [timelinesByTripId] と [pendingPhotoCountByTripId] を返す。
+///   `POST …/timeline` は、作っている途中なら 409 `TIMELINE_STATE_CONFLICT`、解析中の写真があれば 409 `TIMELINE_PHOTOS_PROCESSING`、それ以外は区切りの案の待ちの下書きを書いて 202。
+///   `GET …/timeline/draft` は下書きの状態を返し、届いた回数を [timelineDraftReadsReceived] に数える。`DELETE …/timeline/draft` は下書きを消し（完成版も無ければタイムラインごと）、
+///   `POST …/draft/write` は確かめ待ち・文の失敗の下書きを文の待ちにする（どちらも下書きが無ければ 404 `TIMELINE_NOT_FOUND`、状態が合わなければ 409）。
+///   ワーカーが進んだことは、テストが [timelinesByTripId] を直接書き換えて表す。旅行が無ければどれも 404 `TRIP_NOT_FOUND`
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
@@ -279,10 +299,25 @@ class FakeTripBackend {
   /// （既にある id の再送では、サムネイルを足さない。docs/05_api_design.md §5.1 の 3）
   final Map<String, List<int>> thumbnailsByPhotoId = {};
 
+  /// 旅行ごとのタイムライン（`GET …/timeline` の `timeline`。キーが無ければ null）。
+  /// ワーカーが区切り案を出した・文を書き終えた（完成版に入れ替わった）は、テストがここを直接書き換えて表す
+  final Map<String, Map<String, Object?>> timelinesByTripId = {};
+
+  /// 旅行ごとの、解析が済んでいない写真の枚数（`GET …/timeline` の `pendingPhotoCount`。無ければ 0）
+  final Map<String, int> pendingPhotoCountByTripId = {};
+
+  /// 下書きの読み取り（`GET …/timeline/draft`）の要求が届いた回数。画面が読み直しを止めたかを確かめる印として使う
+  /// （5 秒ごとに読み直すこと・閉じたら止めることは 03 §8.1 の振る舞い）
+  int timelineDraftReadsReceived = 0;
+
+  /// 作る受付で書く下書きの開始時刻
+  static const timelineStartedAt = '2026-10-25T09:00:00.000Z';
+
   // 次の呼び出しの失敗を、届いた時点で作る（応答を返すものと、通信が切れて例外になるもの）
   final Map<TripRoute, List<http.Response Function()>> _failures = {};
   final Map<TripRoute, List<Future<void>>> _replyHolds = {};
   var _createdCount = 0;
+  var _timelineDraftCount = 0;
 
   /// [route] の次の1回の呼び出しを、[status] の封筒つきのエラーで失敗させる。呼ぶたびに1回分積まれ、順に使われる
   void failNext(
@@ -331,6 +366,7 @@ class FakeTripBackend {
     if (route == TripRoute.upload) uploadsReceived++;
     if (route == TripRoute.detail) tripFetchesReceived++;
     if (route == TripRoute.photos) photoPagesReceived++;
+    if (route == TripRoute.timelineDraft) timelineDraftReadsReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す
@@ -378,8 +414,97 @@ class FakeTripBackend {
         return _listCatalogEntries(request);
       case TripRoute.catalogEntry:
         return _catalogEntry(request);
+      case TripRoute.timeline:
+      case TripRoute.timelineCreate:
+      case TripRoute.timelineDraft:
+      case TripRoute.timelineDraftDelete:
+      case TripRoute.timelineWrite:
+        return _timeline(route, request);
     }
   }
+
+  /// タイムラインの API（05 §5.15）。旅行が無ければ 404 `TRIP_NOT_FOUND`
+  http.Response _timeline(TripRoute route, http.Request request) {
+    final tripId = request.url.pathSegments[2];
+    if (_find(tripId) == null) return _notFound();
+    final timeline = timelinesByTripId[tripId];
+    final draft = timeline?['draft'] as Map<String, Object?>?;
+    final job = draft?['job'] as Map<String, Object?>?;
+    final working = job != null && (job['state'] == 'pending' || job['state'] == 'running');
+    switch (route) {
+      case TripRoute.timeline:
+        return _ok(200, {
+          'timeline': timeline,
+          'pendingPhotoCount': pendingPhotoCountByTripId[tripId] ?? 0,
+          'urlExpiresAt': '2026-10-10T04:12:45.000Z',
+        });
+      case TripRoute.timelineCreate:
+        if (working) return _timelineConflict();
+        if ((pendingPhotoCountByTripId[tripId] ?? 0) > 0) {
+          return _error(409, 'TIMELINE_PHOTOS_PROCESSING', '解析中の写真があります。終わってから作ってください');
+        }
+        final created = {
+          'id': '0b8e1c5a-0000-4000-8000-${(_timelineDraftCount++).toString().padLeft(12, '0')}',
+          'reason': timeline?['current'] == null ? 'create' : 'rebuild',
+          'phase': 'proposing',
+          'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+          'startedAt': timelineStartedAt,
+        };
+        timelinesByTripId[tripId] = {
+          'current': timeline?['current'],
+          'draft': created,
+          'changes': timeline?['changes'],
+          'droppedEdits': timeline?['droppedEdits'] ?? <Object?>[],
+        };
+        return _ok(202, {'draft': created, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      case TripRoute.timelineDraft:
+        return _ok(200, {'draft': draft, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      case TripRoute.timelineDraftDelete:
+        if (timeline == null || draft == null) {
+          return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
+        }
+        if (timeline['current'] == null) {
+          timelinesByTripId.remove(tripId);
+        } else {
+          timelinesByTripId[tripId] = {...timeline, 'draft': null};
+        }
+        return _ok(200, {'draft': null});
+      case TripRoute.timelineWrite:
+        if (timeline == null || draft == null) {
+          return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
+        }
+        final writeFailed = draft['phase'] == 'writing' && job?['state'] == 'failed';
+        if (draft['phase'] != 'reviewing' && !writeFailed) return _timelineConflict();
+        final writing = {
+          ...draft,
+          'phase': 'writing',
+          'job': {'step': 'write', 'state': 'pending', 'lastError': null},
+        };
+        timelinesByTripId[tripId] = {...timeline, 'draft': writing};
+        return _ok(202, {'draft': writing, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      default:
+        throw StateError('タイムラインの宛先ではありません: $route');
+    }
+  }
+
+  http.Response _timelineConflict() =>
+      _error(409, 'TIMELINE_STATE_CONFLICT', 'タイムラインが変わったか、作っている途中です。読み直してください');
+
+  /// タイムラインの宛先（/api/trips/{tripId}/timeline・…/draft・…/draft/write）
+  TripRoute? _timelineRouteOf(http.Request request) {
+    final segments = request.url.pathSegments;
+    if (segments.length < 4 || segments[0] != 'api' || segments[1] != 'trips' || segments[3] != 'timeline') return null;
+    final rest = segments.sublist(4).join('/');
+    return switch ((rest, request.method)) {
+      ('', 'GET') => TripRoute.timeline,
+      ('', 'POST') => TripRoute.timelineCreate,
+      ('draft', 'GET') => TripRoute.timelineDraft,
+      ('draft', 'DELETE') => TripRoute.timelineDraftDelete,
+      ('draft/write', 'POST') => TripRoute.timelineWrite,
+      _ => null,
+    };
+  }
+
 
   http.Response _catalogEntry(http.Request request) {
     final query = request.url.queryParameters;
@@ -459,6 +584,8 @@ class FakeTripBackend {
 
   TripRoute? _routeOf(http.Request request) {
     final path = request.url.path;
+    final timelineRoute = _timelineRouteOf(request);
+    if (timelineRoute != null) return timelineRoute;
     if (path == '/api/trips') {
       return switch (request.method) {
         'GET' => TripRoute.list,

@@ -252,6 +252,10 @@ void main() {
     backend.holds[TripRoute.photos] = releaseSecondPage.future;
     releaseFirstPage.complete();
     await letFramesRun(tester);
+    // 「写真」「タイムライン」の切り替え（03 §8.1）の分だけグリッドが下がり、10:15 は画面の下端の外にある。
+    // 画面の下端に合うところまでだけ送る（上端まで送ると末尾の写真まで組み立て、グリッドが2ページ目を読んでしまう）
+    await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
+    await tester.pump();
     expect(find.text('読み込み中...'), findsNothing);
     await tester.tap(photoThumbnail('2026年10月5日 10:15'));
     await letFramesRun(tester);
@@ -287,6 +291,10 @@ void main() {
     backend.holds[TripRoute.photos] = releaseSecondPage.future;
     releaseFirstPage.complete();
     await letFramesRun(tester);
+    // 「写真」「タイムライン」の切り替え（03 §8.1）の分だけグリッドが下がり、10:15 は画面の下端の外にある。
+    // 画面の下端に合うところまでだけ送る（上端まで送ると末尾の写真まで組み立て、グリッドが2ページ目を読んでしまう）
+    await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
+    await tester.pump();
     expect(find.text('読み込み中...'), findsNothing);
     await tester.tap(photoThumbnail('2026年10月5日 10:15'));
     await letFramesRun(tester);
@@ -359,6 +367,10 @@ void main() {
     backend.holds[TripRoute.photos] = releaseSecondPage.future;
     releaseFirstPage.complete();
     await letFramesRun(tester);
+    // 「写真」「タイムライン」の切り替え（03 §8.1）の分だけグリッドが下がり、10:15 は画面の下端の外にある。
+    // 画面の下端に合うところまでだけ送る（上端まで送ると末尾の写真まで組み立て、グリッドが2ページ目を読んでしまう）
+    await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
+    await tester.pump();
     await tester.tap(photoThumbnail('2026年10月5日 10:15'));
     await letFramesRun(tester);
     for (var i = 0; i < 14; i++) {
