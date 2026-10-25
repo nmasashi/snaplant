@@ -325,6 +325,49 @@ class ApiService {
     }
   }
 
+  /// タイムラインの下書きの状態を読む（作っている間の読み直し）。下書きが無ければ null
+  /// GET /api/trips/{tripId}/timeline/draft
+  Future<TimelineDraftStatus?> getTimelineDraft(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/draft');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) => _draftOf(json));
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// タイムラインを作る・作り直す（区切りの案から）。受け付けた下書きの状態を返す
+  /// POST /api/trips/{tripId}/timeline
+  Future<TimelineDraftStatus> createTimeline(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline');
+      final response = await _client.post(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) => _draftOf(json)!);
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す
+  /// POST /api/trips/{tripId}/timeline/draft/write
+  Future<TimelineDraftStatus> writeTimeline(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/draft/write');
+      final response = await _client.post(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) => _draftOf(json)!);
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 応答の封筒から下書き（`data.draft`）を読む
+  TimelineDraftStatus? _draftOf(Map<String, dynamic> json) {
+    final draft = (json['data'] as Map<String, dynamic>)['draft']
+        as Map<String, dynamic>?;
+    return draft == null ? null : TimelineDraftStatus.fromJson(draft);
+  }
+
   /// 写真をまとめて旅行に入れる（[tripId] が null なら旅行から外す）
   /// POST /api/photos/move
   ///

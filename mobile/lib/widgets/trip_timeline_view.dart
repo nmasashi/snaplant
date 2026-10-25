@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
 import '../services/api_service.dart';
@@ -26,9 +28,14 @@ class TripTimelineView extends StatefulWidget {
 }
 
 class _TripTimelineViewState extends State<TripTimelineView> {
+  /// 下書きを作っている間に、下書きを読み直す間隔（§8.1）
+  static const _pollInterval = Duration(seconds: 5);
+
   TimelineOverview? _overview;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
+  // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -36,15 +43,26 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _overview = null;
-      _errorMessage = null;
-    });
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）
+  Future<void> _load({bool showLoading = true}) async {
+    _pollTimer?.cancel();
+    if (showLoading) {
+      setState(() {
+        _overview = null;
+        _errorMessage = null;
+      });
+    }
     try {
       final overview = await widget.apiService.getTimeline(widget.tripId);
       if (!mounted) return;
-      setState(() => _overview = overview);
+      setState(() => _errorMessage = null);
+      _show(overview);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの読み込みエラー: $e');
       if (!mounted) return;
@@ -55,6 +73,57 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       setState(() => _errorMessage =
           e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました');
     }
+  }
+
+  /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
+  void _show(TimelineOverview overview) {
+    _pollTimer?.cancel();
+    setState(() => _overview = overview);
+    if (overview.timeline?.draft?.isWorking ?? false) {
+      _pollTimer = Timer(_pollInterval, _poll);
+    }
+  }
+
+  /// 下書きを読み直す。無くなった（完成版に入れ替わった）・段が変わった・作り終えた（失敗した）ら、タイムラインを読み直す（§8.1）
+  Future<void> _poll() async {
+    final shown = _overview;
+    final shownDraft = shown?.timeline?.draft;
+    if (shown == null || shownDraft == null) return;
+    TimelineDraftStatus? draft;
+    try {
+      draft = await widget.apiService.getTimelineDraft(widget.tripId);
+    } catch (e) {
+      debugPrint('TripTimelineView: 下書きの読み直しのエラー: $e');
+      if (!mounted || !identical(_overview, shown)) return;
+      if (e is ApiException && e.isTripNotFound) {
+        widget.onTripNotFound();
+        return;
+      }
+      // 読み直しの失敗は出さず、次の回にもう一度読む
+      _show(shown);
+      return;
+    }
+    // 待っている間に操作で表示が替わっていたら、古い表示を元にした読み直しの結果は使わない
+    if (!mounted || !identical(_overview, shown)) return;
+    if (draft == null || draft.phase != shownDraft.phase || !draft.isWorking) {
+      await _load(showLoading: false);
+      return;
+    }
+    _show(shown.withDraft(draft));
+  }
+
+  /// タイムラインを作る（失敗した区切りの案の「もう一度」も同じ）
+  Future<void> _create() async {
+    final draft = await widget.apiService.createTimeline(widget.tripId);
+    if (!mounted) return;
+    _show(_overview!.withDraft(draft));
+  }
+
+  /// 見出しと一言を書かせる（失敗した文の「もう一度」）
+  Future<void> _write() async {
+    final draft = await widget.apiService.writeTimeline(widget.tripId);
+    if (!mounted) return;
+    _show(_overview!.withDraft(draft));
   }
 
   @override
@@ -90,41 +159,157 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       );
     }
-    if (overview.timeline == null) return _buildEmpty(overview);
-    return const SizedBox.shrink();
+    final timeline = overview.timeline;
+    if (timeline == null) return _buildEmpty(overview);
+    final draft = timeline.draft;
+    if (draft != null) return _buildDraft(draft);
+    // 完成版の表示は段階5の 5-4 で入れる。それまでの仮の案内
+    return const Center(child: Text('タイムラインができました'));
   }
 
   /// 完成版も下書きも無い（§8.2 の1・2行目）
   Widget _buildEmpty(TimelineOverview overview) {
     final pending = overview.pendingPhotoCount;
+    return _StatusView(
+      title: 'タイムラインはまだありません',
+      message: '写真を送り終えたら、日ごと・食事ごとにまとめたタイムラインを作れます。',
+      actions: [
+        ElevatedButton(
+          onPressed: pending > 0 ? null : _create,
+          child: const Text('タイムラインを作る'),
+        ),
+      ],
+      note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
+    );
+  }
+
+  /// 下書きの状態（§8.2 の3行目から）
+  Widget _buildDraft(TimelineDraftStatus draft) {
+    final discard = OutlinedButton(onPressed: () {}, child: const Text('やめる'));
+    if (draft.phase == 'writing') {
+      if (draft.isFailed) {
+        return _StatusView(title: '見出しと一言を書けませんでした', actions: [
+          ElevatedButton(onPressed: _write, child: const Text('もう一度')),
+          discard,
+        ]);
+      }
+      return const _StatusView(
+        title: '見出しと一言を書いています',
+        message: 'この画面を閉じても続きます。',
+        actions: [_WritingSteps()],
+      );
+    }
+    if (draft.phase == 'reviewing') {
+      return _StatusView(title: '区切りの案ができました', actions: [discard]);
+    }
+    if (draft.isFailed) {
+      return _StatusView(title: '区切りの案を作れませんでした', actions: [
+        ElevatedButton(onPressed: _create, child: const Text('もう一度')),
+        discard,
+      ]);
+    }
+    return _StatusView(
+      title: '区切りの案を作っています',
+      message: 'この画面を閉じても続きます。',
+      showsProgress: true,
+      actions: [discard],
+    );
+  }
+}
+
+/// 見出し・説明・操作を中央に縦に並べた、タイムラインの状態の表示
+class _StatusView extends StatelessWidget {
+  const _StatusView(
+      {required this.title,
+      this.message,
+      this.showsProgress = false,
+      required this.actions,
+      this.note});
+
+  final String title;
+  final String? message;
+
+  /// 裏の処理が進んでいる印を出すか
+  final bool showsProgress;
+  final List<Widget> actions;
+
+  /// 操作の下に添える一言
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = this.message;
+    final note = this.note;
+    final secondary =
+        AppTextStyles.body2.copyWith(color: AppColors.textSecondary);
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('タイムラインはまだありません',
+            if (showsProgress) ...[
+              const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation(AppColors.primary)),
+              const SizedBox(height: 16),
+            ],
+            Text(title,
                 style: AppTextStyles.headline3, textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            Text('写真を送り終えたら、日ごと・食事ごとにまとめたタイムラインを作れます。',
-                style: AppTextStyles.body2
-                    .copyWith(color: AppColors.textSecondary),
-                textAlign: TextAlign.center),
+            if (message != null) ...[
+              const SizedBox(height: 8),
+              Text(message, style: secondary, textAlign: TextAlign.center),
+            ],
             const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: pending > 0 ? null : () {},
-              child: const Text('タイムラインを作る'),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 12,
+              children: actions,
             ),
-            if (pending > 0) ...[
+            if (note != null) ...[
               const SizedBox(height: 12),
-              Text('解析中の写真があと $pending 枚あります。終わると作れます。',
-                  style: AppTextStyles.body2
-                      .copyWith(color: AppColors.textSecondary),
-                  textAlign: TextAlign.center),
+              Text(note, style: secondary, textAlign: TextAlign.center),
             ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 文を書いている間の3つの段（区切りの案・区切りの確認は済み、見出しと一言を書いている。§8.2）
+class _WritingSteps extends StatelessWidget {
+  const _WritingSteps();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget step(Widget mark, String label) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(width: 20, height: 20, child: Center(child: mark)),
+              const SizedBox(width: 8),
+              Text(label, style: AppTextStyles.body1),
+            ],
+          ),
+        );
+    const done = Icon(Icons.check_circle, size: 20, color: AppColors.primary);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        step(done, '区切りの案'),
+        step(done, '区切りの確認'),
+        step(
+            const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation(AppColors.primary))),
+            '見出しと一言'),
+      ],
     );
   }
 }
