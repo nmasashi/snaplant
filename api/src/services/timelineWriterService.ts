@@ -100,8 +100,8 @@ ${dayRangesOf(request.photos)}
 
 場面の区切り（場面の最初の写真の番号）: ${request.sceneStarts.map((start) => `${start}番`).join('、')}
 
-書いてほしい場面（最初の写真の番号）: ${request.scenesToWrite.map((start) => `${start}番`).join('、')}
-書いてほしい日: ${request.daysToWrite.map(({ date, dayNumber }) => `${date}（${dayNumber}日目）`).join('、')}
+書いてほしい場面（最初の写真の番号）: ${listOrNone(request.scenesToWrite.map((start) => `${start}番`), 'scenes')}
+書いてほしい日: ${listOrNone(request.daysToWrite.map(({ date, dayNumber }) => `${date}（${dayNumber}日目）`), 'days')}
 ${request.context.length > 0 ? `\n前に書いた文（文脈として読み、書き換えないでください）:\n${request.context.join('\n')}\n` : ''}
 写真（[番号] 何日目 撮影時刻 カテゴリ 名前 地名「コメント」）:
 ${lines.join('\n')}
@@ -138,6 +138,13 @@ ${lines.join('\n')}
       throw new UpstreamError(`タイムラインの文に失敗しました: ${error.message}`, 'ai', error);
     }
   }
+}
+
+/**
+ * 書いてほしいものの並び。無ければ、空の配列で返すよう頼む（頼んでいない日・場面を返すと検証で AI の失敗になるので、はっきり書く）
+ */
+function listOrNone(items: string[], field: string): string {
+  return items.length > 0 ? items.join('、') : `なし（${field} は空の配列にしてください）`;
 }
 
 /**
