@@ -134,6 +134,9 @@ enum TripRoute {
 
   /// POST /api/trips/{tripId}/timeline/draft/write（文を書く受付。段階5）
   timelineWrite,
+
+  /// PUT /api/trips/{tripId}/timeline/draft/scenes（区切りを保存する。段階5）
+  timelineScenes,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`・項目の詳細 `GET /api/catalog/entry`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
@@ -419,6 +422,7 @@ class FakeTripBackend {
       case TripRoute.timelineDraft:
       case TripRoute.timelineDraftDelete:
       case TripRoute.timelineWrite:
+      case TripRoute.timelineScenes:
         return _timeline(route, request);
     }
   }
@@ -434,7 +438,7 @@ class FakeTripBackend {
     switch (route) {
       case TripRoute.timeline:
         return _ok(200, {
-          'timeline': timeline,
+          'timeline': timeline == null ? null : {...timeline, 'draft': _draftStatusOf(draft)},
           'pendingPhotoCount': pendingPhotoCountByTripId[tripId] ?? 0,
           'urlExpiresAt': '2026-10-10T04:12:45.000Z',
         });
@@ -458,7 +462,8 @@ class FakeTripBackend {
         };
         return _ok(202, {'draft': created, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraft:
-        return _ok(200, {'draft': draft, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+        // 日と場面を返すのは、区切りを確かめられる下書きだけ（本物と同じ）
+        return _ok(200, {'draft': draft != null && _isEditableDraft(draft) ? draft : _draftStatusOf(draft), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraftDelete:
         if (timeline == null || draft == null) {
           return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
@@ -481,10 +486,75 @@ class FakeTripBackend {
           'job': {'step': 'write', 'state': 'pending', 'lastError': null},
         };
         timelinesByTripId[tripId] = {...timeline, 'draft': writing};
-        return _ok(202, {'draft': writing, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+        return _ok(202, {'draft': _draftStatusOf(writing), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      case TripRoute.timelineScenes:
+        if (timeline == null || draft == null) {
+          return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
+        }
+        if (!_isEditableDraft(draft)) return _timelineConflict();
+        final starts = (jsonDecode(request.body) as Map<String, Object?>)['sceneStarts'];
+        if (starts is! List || starts.any((start) => start is! String)) {
+          return _error(400, 'INVALID_REQUEST', '区切りは写真IDの配列で指定してください');
+        }
+        final days = _recutDays(draft, starts.cast<String>());
+        if (days == null) return _error(400, 'INVALID_REQUEST', '区切りが無効です');
+        final saved = {...draft, 'phase': 'reviewing', 'job': null, 'days': days};
+        timelinesByTripId[tripId] = {...timeline, 'draft': saved};
+        return _ok(200, {'draft': saved, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       default:
         throw StateError('タイムラインの宛先ではありません: $route');
     }
+  }
+
+  /// 区切りを確かめられる下書き（確かめ待ちか、文を書くのに失敗した。05 §5.15）
+  bool _isEditableDraft(Map<String, Object?> draft) {
+    final job = draft['job'] as Map<String, Object?>?;
+    return draft['phase'] == 'reviewing' || (draft['phase'] == 'writing' && job?['state'] == 'failed');
+  }
+
+  /// 状態だけの下書き（`days`・`undatedPhotos` を外す。GET …/timeline と受付の応答の形）
+  Map<String, Object?>? _draftStatusOf(Map<String, Object?>? draft) {
+    if (draft == null) return null;
+    return {...draft}
+      ..remove('days')
+      ..remove('undatedPhotos');
+  }
+
+  /// 下書きの日ごとの写真を [starts] で場面に分け直す。区切りが無効（下書きに無い写真・重なり・日の最初の写真が無い）なら null。
+  /// 本物と同じく、日の最初の写真の場面は `day`、前の下書きでも区切りだった写真はその主、新しい区切りは `user` にする
+  List<Map<String, Object?>>? _recutDays(Map<String, Object?> draft, List<String> starts) {
+    final previous = <String, Object?>{};
+    final days = (draft['days'] as List).cast<Map<String, Object?>>();
+    final photoIds = <String>{};
+    for (final day in days) {
+      for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>()) {
+        previous[scene['startPhotoId'] as String] = scene['startedBy'];
+        for (final photo in (scene['photos'] as List).cast<Map<String, Object?>>()) {
+          photoIds.add(photo['id'] as String);
+        }
+      }
+    }
+    if (starts.toSet().length != starts.length || !starts.every(photoIds.contains)) return null;
+    final result = <Map<String, Object?>>[];
+    for (final day in days) {
+      final photos = [
+        for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
+          ...(scene['photos'] as List).cast<Map<String, Object?>>(),
+      ];
+      if (!starts.contains(photos.first['id'])) return null;
+      final scenes = <Map<String, Object?>>[];
+      var current = <Map<String, Object?>>[];
+      for (final photo in photos) {
+        if (current.isNotEmpty && starts.contains(photo['id'])) {
+          scenes.add(timelineSceneJson(current, startedBy: scenes.isEmpty ? 'day' : (previous[current.first['id']] as String? ?? 'user')));
+          current = [];
+        }
+        current.add(photo);
+      }
+      scenes.add(timelineSceneJson(current, startedBy: scenes.isEmpty ? 'day' : (previous[current.first['id']] as String? ?? 'user')));
+      result.add({...day, 'scenes': scenes});
+    }
+    return result;
   }
 
   http.Response _timelineConflict() =>
@@ -501,6 +571,7 @@ class FakeTripBackend {
       ('draft', 'GET') => TripRoute.timelineDraft,
       ('draft', 'DELETE') => TripRoute.timelineDraftDelete,
       ('draft/write', 'POST') => TripRoute.timelineWrite,
+      ('draft/scenes', 'PUT') => TripRoute.timelineScenes,
       _ => null,
     };
   }
@@ -1003,6 +1074,38 @@ class FakeTripBackend {
 
 // ---------------------------------------------------------------------------
 // 旅行のテストが共有する前置き
+
+/// タイムラインの下書き・完成版の写真の1枚（05 §5.15 の `photos`）。id は [photoJson] と同じく [number] から作る
+Map<String, Object?> timelinePhotoJson(int number, String? takenAt,
+    {String category = 'landscape', String? name, String? placeName}) {
+  final id = number.toRadixString(16).padLeft(64, '0');
+  return {
+    'id': id,
+    'takenAt': takenAt,
+    'category': category,
+    'name': name,
+    'placeName': placeName,
+    'thumbnailUrl': 'https://stsnaplant.blob.core.windows.net/photos/$id.thumb.jpg?sv=2024-01-01&sig=test',
+  };
+}
+
+/// 場面（05 §5.15 の確かめ中の `scenes` の1つ）。印・時刻・地名・名前は [photos] から本物と同じ決まりで組む
+Map<String, Object?> timelineSceneJson(List<Map<String, Object?>> photos, {String startedBy = 'ai'}) {
+  List<String> distinct(String key) => [
+        for (final value in {for (final photo in photos) photo[key]})
+          if (value != null) value as String,
+      ];
+  return {
+    'startPhotoId': photos.first['id'],
+    'startedBy': startedBy,
+    'hasFood': photos.any((photo) => photo['category'] == 'food'),
+    'firstTakenAt': photos.first['takenAt'],
+    'lastTakenAt': photos.last['takenAt'],
+    'placeNames': distinct('placeName'),
+    'names': distinct('name'),
+    'photos': photos,
+  };
+}
 
 /// 旅行「北海道 2026秋」の id
 const hokkaidoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
