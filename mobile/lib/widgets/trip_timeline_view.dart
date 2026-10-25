@@ -12,6 +12,7 @@ import '../theme/app_text_styles.dart';
 import 'message_view.dart';
 import 'timeline_current_view.dart';
 import 'timeline_edit_sheet.dart';
+import 'timeline_notices.dart';
 import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
@@ -407,10 +408,19 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       banner: draft == null ? null : _buildRebuildBanner(draft),
       notices: [
         if (timeline.droppedEdits.isNotEmpty)
-          _buildDroppedEditsNotice(timeline.droppedEdits),
-        if (draft == null && !_changesNoticeHidden)
-          if (_changesNoticeText(timeline.changes) case final text?)
-            _buildChangesNotice(text, overview.pendingPhotoCount),
+          TimelineDroppedEditsNotice(
+            edits: timeline.droppedEdits,
+            onDismiss: _sending ? null : _dismissDroppedEdits,
+          ),
+        if (draft == null &&
+            !_changesNoticeHidden &&
+            TimelineChangesNotice.shows(timeline.changes))
+          TimelineChangesNotice(
+            changes: timeline.changes!,
+            onLater: () => setState(() => _changesNoticeHidden = true),
+            onRebuild:
+                _sending || overview.pendingPhotoCount > 0 ? null : _rebuild,
+          ),
       ],
     );
   }
@@ -431,36 +441,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     );
   }
 
-  /// 残せなかった文の案内（§8.3）。文は選んで写せる。「閉じる」で知らせを消す
-  Widget _buildDroppedEditsNotice(List<TimelineDroppedEdit> edits) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('場面や日が無くなったため、手で直した文のうち ${edits.length} 件を残せませんでした',
-                style: AppTextStyles.body1),
-            const SizedBox(height: 8),
-            for (final edit in edits)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: SelectableText(edit.text, style: AppTextStyles.body2),
-              ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: _sending ? null : _dismissDroppedEdits,
-                child: const Text('閉じる'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// 残せなかった文の知らせを閉じ、応答で描き直す（失敗は §8.1 の操作と同じ）
   Future<void> _dismissDroppedEdits() => _send(() async {
         final overview =
@@ -468,48 +448,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         if (!mounted) return;
         _show(overview);
       });
-
-  /// 写真が変わった案内の文（§8.3）。変わっていなければ null
-  String? _changesNoticeText(TimelineChanges? changes) {
-    if (changes == null || changes.added + changes.removed == 0) return null;
-    final what = [
-      if (changes.added > 0) '${changes.added} 枚増え',
-      if (changes.removed > 0) '${changes.removed} 枚消え',
-    ].join('、');
-    return '作った後に写真が $whatました。今のタイムラインには入っていません。';
-  }
-
-  /// 写真が変わった案内（§8.3）と「あとで」「作り直す」
-  Widget _buildChangesNotice(String text, int pendingPhotoCount) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(text, style: AppTextStyles.body1),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                TextButton(
-                  onPressed: () => setState(() => _changesNoticeHidden = true),
-                  child: const Text('あとで'),
-                ),
-                OutlinedButton(
-                  onPressed:
-                      _sending || pendingPhotoCount > 0 ? null : _rebuild,
-                  child: const Text('作り直す'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
   Widget _buildRebuildBanner(TimelineDraftStatus draft) {
@@ -536,22 +474,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       _ => ('作り直しの区切りの案を作っています', [discard]),
     };
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(title, style: AppTextStyles.body1),
-            if (actions.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: actions),
-            ],
-          ],
-        ),
-      ),
-    );
+    return TimelineNoticeCard(text: title, actions: actions);
   }
 
   /// 下書きの状態（§8.2 の3行目から）
