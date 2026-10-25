@@ -773,6 +773,86 @@ describe('タイムラインのワーカー', () => {
       expect(current.dayTexts['2026-10-05']).toMatchObject({ title: '題'.repeat(40), aiTitle: '題'.repeat(40), summary: 'ま'.repeat(400) });
       expect(current.sceneTexts[photoId('a')]).toMatchObject({ label: '見'.repeat(30), aiLabel: '見'.repeat(30), note: '一'.repeat(200) });
     });
+    describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
+      /** その日の 6:00 から1分おきに撮った写真（id は日ごとの頭の数と通し番号から作る） */
+      const photosOfDay = (date: string, head: number, count: number): TimelinePhotoSnapshot[] =>
+        Array.from({ length: count }, (_, index) => {
+          const minutes = 6 * 60 + index;
+          const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
+          return snapshotPhoto((head * 100000 + index).toString(16).padStart(64, '0'), `${date}T${time}`);
+        });
+      const replies = (...bodies: unknown[]) => {
+        reply = async () => ({ choices: [{ message: { content: JSON.stringify(bodies.shift()) } }] });
+      };
+      const scene = (start: number, label: string) => ({ start, label, note: `${label}の一言` });
+      const day = (date: string, title: string) => ({ date, title, summary: `${title}のまとめ` });
+      const linesAsking = (prompt: string, words: string) =>
+        prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()) && line.includes(words));
+
+      it('上限を超える旅行は日の境目で分けて順に呼び、番号は呼び出しごとに 0 から振って、その呼び出しの場面と日だけを書かせる', async () => {
+        const day1 = photosOfDay('2026-10-05', 1, 250);
+        const day2 = photosOfDay('2026-10-06', 2, 200);
+        cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, [...day1, ...day2]));
+        const starts = [day1[0].id, day1[100].id, day2[0].id, day2[50].id];
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+        replies(
+          { days: [day('2026-10-05', '1日目')], scenes: [scene(0, '朝'), scene(100, '昼')] },
+          { days: [day('2026-10-06', '2日目')], scenes: [scene(0, '朝2'), scene(50, '昼2')] }
+        );
+
+        await runWorker();
+
+        expect(sent).toHaveLength(2);
+        expect(promptLineOf(sentPrompt(0), 249)).toBeDefined();
+        expect(promptLineOf(sentPrompt(0), 250)).toBeUndefined();
+        expect(promptLineOf(sentPrompt(1), 199)).toContain('2日目');
+        expect(linesAsking(sentPrompt(0), '書いてほしい日')[0]).not.toContain('2026-10-06');
+        expect(linesAsking(sentPrompt(1), '書いてほしい日')[0]).not.toContain('2026-10-05');
+        const current = storedTimeline()!.current!;
+        expect(Object.fromEntries(starts.map((id) => [id, current.sceneTexts[id].label]))).toEqual({
+          [day1[0].id]: '朝',
+          [day1[100].id]: '昼',
+          [day2[0].id]: '朝2',
+          [day2[50].id]: '昼2'
+        });
+        expect(current.dayTexts['2026-10-06'].title).toBe('2日目');
+      });
+
+      it('1日で上限を超える日は場面の境目で分けて呼び、日の文はその日の最初の場面を含む呼び出しで書かせる', async () => {
+        const day1 = photosOfDay('2026-10-05', 1, 450);
+        cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, day1));
+        // 区切り案で 400 枚目は切れ目になっているが、利用者が消して 300 枚目に区切りを入れた
+        const starts = [day1[0].id, day1[300].id];
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+        replies({ days: [day('2026-10-05', '長い1日')], scenes: [scene(0, '午前')] }, { days: [], scenes: [scene(0, '午後')] });
+
+        await runWorker();
+
+        expect(sent).toHaveLength(2);
+        expect(promptLineOf(sentPrompt(0), 299)).toBeDefined();
+        expect(promptLineOf(sentPrompt(0), 300)).toBeUndefined();
+        expect(promptLineOf(sentPrompt(1), 149)).toBeDefined();
+        const current = storedTimeline()!.current!;
+        expect(current.sceneTexts[day1[300].id].label).toBe('午後');
+        expect(current.dayTexts['2026-10-05'].title).toBe('長い1日');
+      });
+
+      it('分けて呼ぶ途中で失敗したら、途中までの文は書かずに全体を失敗にする', async () => {
+        const day1 = photosOfDay('2026-10-05', 1, 250);
+        const day2 = photosOfDay('2026-10-06', 2, 200);
+        cosmosBackend.documents.set(SNAPSHOT_ID, timelinePhotosDocument(SNAPSHOT_ID, TRIP_ID, [...day1, ...day2]));
+        const starts = [day1[0].id, day2[0].id];
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ proposedStarts: starts, sceneStarts: starts }) }));
+        // 2回目は頼んだ場面が無い
+        replies({ days: [day('2026-10-05', '1日目')], scenes: [scene(0, '朝')] }, { days: [day('2026-10-06', '2日目')], scenes: [] });
+
+        await expect(runWorker()).rejects.toThrow();
+
+        expect(storedTimeline()!.current).toBeNull();
+        expect(storedTimeline()!.draft!.job).toEqual(writingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }));
+      });
+    });
+
     describe('作り直し（完成版があるとき）', () => {
       const OLD_SNAPSHOT_ID = `timeline-photos-${TRIP_ID}-33333333-3333-4333-8333-333333333333`;
       const userScene = (label: string, aiLabel: string, photoIds: string[]) => ({
