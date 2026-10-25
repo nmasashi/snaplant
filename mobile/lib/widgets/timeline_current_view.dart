@@ -15,6 +15,7 @@ class TimelineCurrentView extends StatelessWidget {
     required this.pendingPhotoCount,
     required this.onRecut,
     required this.onRebuild,
+    required this.onOpenPhoto,
     this.banner,
   });
 
@@ -28,6 +29,9 @@ class TimelineCurrentView extends StatelessWidget {
 
   /// 「作り直す」。null なら押せない（解析中の写真があるときは、渡されても押せない）
   final VoidCallback? onRebuild;
+
+  /// サムネイルをタップした（写真ビューアで開く。§8.3）
+  final void Function(TimelinePhoto photo) onOpenPhoto;
 
   /// 完成版の上に出す下書きの案内（§8.3）。あれば「区切りを直す」「作り直す」と解析中の枚数を出さない
   final Widget? banner;
@@ -75,7 +79,8 @@ class TimelineCurrentView extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             children: [
               for (final photo in current.undatedPhotos)
-                TimelineThumbnail(photo: photo),
+                TimelineThumbnail(
+                    photo: photo, onTap: () => onOpenPhoto(photo)),
             ],
           ),
         ],
@@ -161,7 +166,9 @@ class TimelineCurrentView extends StatelessWidget {
                     child: AspectRatio(
                       aspectRatio: 1,
                       child: i < shown.length
-                          ? TimelineThumbnail(photo: shown[i])
+                          ? TimelineThumbnail(
+                              photo: shown[i],
+                              onTap: () => onOpenPhoto(shown[i]))
                           : i == _thumbnailCount && rest > 0
                               ? ColoredBox(
                                   color: AppColors.surfaceVariant,

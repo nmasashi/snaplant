@@ -7,13 +7,16 @@ import '../utils/taken_at.dart';
 
 /// タイムラインの写真のサムネイル（区切りの確認画面と完成版。読み上げのラベルは撮影日時。docs/03_screen_design.md §8.3・§8.4）
 class TimelineThumbnail extends StatelessWidget {
-  const TimelineThumbnail({super.key, required this.photo});
+  const TimelineThumbnail({super.key, required this.photo, this.onTap});
 
   final TimelinePhoto photo;
 
+  /// タップしたとき（完成版のサムネイルは写真ビューアを開く）。null ならタップを受けない
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
-    return Semantics(
+    final image = Semantics(
       label: formatTakenAt(photo.takenAt),
       container: true,
       child: CachedNetworkImage(
@@ -29,5 +32,7 @@ class TimelineThumbnail extends StatelessWidget {
             const ColoredBox(color: AppColors.surfaceVariant),
       ),
     );
+    final onTap = this.onTap;
+    return onTap == null ? image : GestureDetector(onTap: onTap, child: image);
   }
 }

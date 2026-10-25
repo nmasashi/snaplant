@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
+import '../models/photo.dart';
+import '../screens/photo_viewer_screen.dart';
 import '../screens/timeline_review_screen.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'message_view.dart';
@@ -17,10 +20,14 @@ class TripTimelineView extends StatefulWidget {
   const TripTimelineView(
       {super.key,
       required this.apiService,
+      required this.uploadQueue,
       required this.tripId,
       required this.onTripNotFound});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（写真ビューアに渡す）
+  final UploadQueue uploadQueue;
   final String tripId;
 
   /// 旅行が既に無いと分かった（旅行詳細が「この旅行は削除されています」にする。写真の一覧と同じ）
@@ -190,6 +197,46 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     await _create();
   }
 
+  /// 写真を読み、写真ビューアでその1枚を開く。閉じたらタイムラインを読み直す（ビューアで消した・直したことを出す。§8.3）
+  Future<void> _openPhoto(TimelinePhoto photo) async {
+    final Photo loaded;
+    try {
+      loaded = await widget.apiService.getPhoto(photo.id);
+    } catch (e) {
+      debugPrint('TripTimelineView: 写真の読み込みエラー: $e');
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      if (e is ApiException && e.isPhotoNotFound) {
+        messenger.showSnackBar(const SnackBar(content: Text('この写真は削除されています')));
+        await _load(showLoading: false);
+        return;
+      }
+      messenger.showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
+      return;
+    }
+    if (!mounted) return;
+    final photos = ValueNotifier<List<Photo>>([loaded]);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PhotoViewerScreen(
+          apiService: widget.apiService,
+          uploadQueue: widget.uploadQueue,
+          photos: photos,
+          initialIndex: 0,
+          onReachEnd: () {},
+          hasMore: () => false,
+          onDeleted: (_) => photos.value = const [],
+          onUpdated: (updated) => photos.value = [updated],
+        ),
+      ),
+    );
+    photos.dispose();
+    if (!mounted) return;
+    await _load(showLoading: false);
+  }
+
   /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
   Future<void> _review() async {
     await Navigator.push(
@@ -282,6 +329,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       pendingPhotoCount: overview.pendingPhotoCount,
       onRecut: _sending ? null : _recut,
       onRebuild: _sending ? null : _rebuild,
+      onOpenPhoto: _openPhoto,
       banner: draft == null ? null : _buildRebuildBanner(draft),
     );
   }

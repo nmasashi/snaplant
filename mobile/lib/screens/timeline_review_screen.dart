@@ -128,7 +128,12 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから下書きをやめ、旅行詳細に戻る（§8.2 と同じダイアログ）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context) || !mounted) return;
+    // 作り直し・区切りの直しなら完成版がある（§8.3 のダイアログ）
+    final confirmed = await (_draft?.reason == 'create'
+        ? confirmDiscardTimeline(context)
+        : confirmTimelineAction(context,
+            message: '作り直しをやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる'));
+    if (!confirmed || !mounted) return;
     await _sendAndClose(
         () => widget.apiService.discardTimelineDraft(widget.tripId));
   }

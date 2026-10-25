@@ -312,6 +312,21 @@ class ApiService {
     }
   }
 
+  /// 写真を1枚読む（タイムラインのサムネイルから写真ビューアを開くとき）
+  /// GET /api/photos/{photoId}
+  Future<Photo> getPhoto(String photoId) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 旅行のタイムライン（完成版と下書きの状態）を読む
   /// GET /api/trips/{tripId}/timeline
   Future<TimelineOverview> getTimeline(String tripId) async {
