@@ -1028,6 +1028,9 @@ describe('タイムラインのワーカー', () => {
         expect(otherLines.some((line) => line.includes('朝ごはんの一言'))).toBe(true);
         expect(otherLines.some((line) => line.includes('昼ごはんの一言'))).toBe(false);
         expect(otherLines.some((line) => line.includes('小樽のまとめ'))).toBe(false);
+        // 前の文の場面も、今の区切りと同じく最初と最後の写真の番号の範囲で指す（c の場面は今は c・d の2枚）
+        expect(otherLines.find((line) => line.includes('空港の朝'))).toContain('0番〜1番');
+        expect(otherLines.find((line) => line.includes('札幌ラーメン'))).toContain('2番〜3番');
         // 今の区切り（全部の場面）と日の区切り（何番から何日目か）も渡す
         expect(otherLines.some((line) => ['0番', '2番', '4番', '5番'].every((start) => line.includes(start)))).toBe(true);
         expect(otherLines.some((line) => ['2日目', '4番', '5番'].every((text) => line.includes(text)))).toBe(true);
