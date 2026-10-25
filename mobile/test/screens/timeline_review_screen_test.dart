@@ -115,7 +115,9 @@ void main() {
       expect(find.text('10:10〜11:40 · 北海道小樽市 · 2枚'), findsOneWidget);
       expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
 
-      await tester.scrollUntilVisible(find.text('日時なし'), 200);
+      // 場面のサムネイルの並びも Scrollable なので、送るのは画面のリストに限る
+      await tester.scrollUntilVisible(find.text('日時なし'), 200,
+          scrollable: find.byType(Scrollable).first);
       await tester.pump();
       expect(find.text('9:10 · 北海道札幌市 · 1枚'), findsOneWidget);
       expect(photoThumbnail('撮影日時なし'), findsOneWidget);

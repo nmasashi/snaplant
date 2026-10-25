@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
+import '../screens/timeline_review_screen.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -176,6 +177,19 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     });
   }
 
+  /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
+  Future<void> _review() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TimelineReviewScreen(
+            apiService: widget.apiService, tripId: widget.tripId),
+      ),
+    );
+    if (!mounted) return;
+    await _load(showLoading: false);
+  }
+
   /// タイムラインの操作を送る。送っている間は操作のボタンを押せなくし、失敗を §8.1 のとおりに扱う
   Future<void> _send(Future<void> Function() operation) async {
     // 操作を始めたら、それより前に始めた読み直し・読み込みの応答は使わない（§8.1）
@@ -273,6 +287,15 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Widget _buildDraft(TimelineDraftStatus draft) {
     final discard = OutlinedButton(
         onPressed: _sending ? null : _discard, child: const Text('やめる'));
+    // 区切りの確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
+    Widget review({required bool primary}) {
+      final onPressed = _sending ? null : _review;
+      const label = Text('区切りを確認する');
+      return primary
+          ? ElevatedButton(onPressed: onPressed, child: label)
+          : OutlinedButton(onPressed: onPressed, child: label);
+    }
+
     // 失敗した段をやり直す
     Widget retry(Future<void> Function() send) => ElevatedButton(
         onPressed: _sending ? null : send, child: const Text('もう一度'));
@@ -280,6 +303,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       if (draft.isFailed) {
         return _StatusView(title: '見出しと一言を書けませんでした', actions: [
           retry(_write),
+          review(primary: false),
           discard,
         ]);
       }
@@ -290,7 +314,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       );
     }
     if (draft.phase == 'reviewing') {
-      return _StatusView(title: '区切りの案ができました', actions: [discard]);
+      return _StatusView(
+          title: '区切りの案ができました', actions: [review(primary: true), discard]);
     }
     if (draft.isFailed) {
       return _StatusView(title: '区切りの案を作れませんでした', actions: [
