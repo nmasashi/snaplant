@@ -245,6 +245,24 @@ export class TimelineService {
   }
 
   /**
+   * タイムラインの文書を消す。読んだときの _etag のままのときだけ消し、他が書いていた（412）・消えていた（404）なら false
+   * @param tripId 旅行の ID
+   * @param etag 読んだときの _etag
+   * @returns 消せたら true
+   */
+  async deleteTimelineIfUnchanged(tripId: string, etag: string): Promise<boolean> {
+    try {
+      await this.deleteTimeline(tripId, etag);
+      return true;
+    } catch (error: any) {
+      if (error instanceof TimelineConflictError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * タイムラインの文書を消す。読んだときの _etag のままのときだけ消す
    * @param tripId 旅行の ID
    * @param etag 読んだときの _etag

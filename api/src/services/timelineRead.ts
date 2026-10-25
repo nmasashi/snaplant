@@ -1,7 +1,4 @@
-import { HttpResponseInit } from '@azure/functions';
 import { UNFINISHED_PROCESSING_STATES } from '../constants/album';
-import { ErrorCode } from '../types/api';
-import { createNotFoundError, createSuccessResponse } from '../utils/response';
 import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
 import { TimelineService, rereadIfSnapshotMissing } from './timelineService';
@@ -16,14 +13,6 @@ import { currentTimelineOf, draftStatusOf } from './timelineView';
  */
 export async function readTimelineBody(tripId: string) {
   return rereadIfSnapshotMissing(() => readTimelineBodyOnce(tripId));
-}
-
-/**
- * 完成版を読んだ形の応答（200）。旅行が無ければ 404 TRIP_NOT_FOUND（GET …/timeline と、完成版の文を直す・残せなかった文を閉じる操作が返す）
- */
-export async function readTimelineResponse(tripId: string): Promise<HttpResponseInit> {
-  const body = await readTimelineBody(tripId);
-  return body ? createSuccessResponse(body) : createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
 }
 
 async function readTimelineBodyOnce(tripId: string) {

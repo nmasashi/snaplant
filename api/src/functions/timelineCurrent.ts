@@ -7,9 +7,10 @@ import { ErrorCode } from '../types/api';
 import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
-import { readTimelineResponse } from '../services/timelineRead';
+import { readTimelineBody } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
+  createTimelineBodyResponse,
   createNotFoundError,
   createSuccessResponse,
   createTimelineStateConflict,
@@ -115,7 +116,7 @@ export async function deleteTimelineDroppedEditsHandler(request: HttpRequest, co
     ) {
       return createTimelineStateConflict();
     }
-    return await readTimelineResponse(tripId);
+    return createTimelineBodyResponse(await readTimelineBody(tripId));
   } catch (error: any) {
     context.log('タイムラインの残せなかった文を閉じるエラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
@@ -212,7 +213,7 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       return createTimelineStateConflict();
     }
     // 画面は直した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
-    return await readTimelineResponse(tripId);
+    return createTimelineBodyResponse(await readTimelineBody(tripId));
   } catch (error: any) {
     context.log('タイムラインの文の更新エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');

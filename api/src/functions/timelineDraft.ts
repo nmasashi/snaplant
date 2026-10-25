@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineConflictError, TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
+import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
@@ -80,17 +80,11 @@ export async function deleteTimelineDraftHandler(request: HttpRequest, context: 
     if (!read || !draft) {
       return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    try {
-      if (read.doc.current) {
-        await timelines.replaceTimeline({ ...read.doc, draft: null, updatedAt: new Date().toISOString() }, read.etag);
-      } else {
-        await timelines.deleteTimeline(tripId, read.etag);
-      }
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const written = read.doc.current
+      ? await timelines.replaceTimelineIfUnchanged({ ...read.doc, draft: null, updatedAt: new Date().toISOString() }, read.etag)
+      : await timelines.deleteTimelineIfUnchanged(tripId, read.etag);
+    if (!written) {
+      return createTimelineStateConflict();
     }
     // 下書きの控えは、完成版から指されていなければ使われなくなる
     if (draft.snapshotId !== read.doc.current?.snapshotId) {
