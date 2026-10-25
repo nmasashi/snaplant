@@ -1,6 +1,7 @@
 import { TIMELINE_MAX_PHOTOS_PER_CALL } from '../constants/album';
 import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
-import { TimelineProposalPhoto, TimelineProposerService } from './timelineProposerService';
+import { TimelineProposerService } from './timelineProposerService';
+import { TimelinePromptPhoto } from './timelinePrompt';
 import { TimelineDatedDay, datedDaysOf } from './timelineView';
 
 /**
@@ -49,10 +50,10 @@ export async function proposeScenes(
  *
  * 日の境目で分け、入る日はまとめる。1日で上限を超える日は撮影の順に上限ごとに切り、切れ目の写真を返す（区切りにする）
  */
-function proposalCallsOf(days: TimelineDatedDay[]): { calls: TimelineProposalPhoto[][]; cuts: string[] } {
-  const calls: TimelineProposalPhoto[][] = [];
+function proposalCallsOf(days: TimelineDatedDay[]): { calls: TimelinePromptPhoto[][]; cuts: string[] } {
+  const calls: TimelinePromptPhoto[][] = [];
   const cuts: string[] = [];
-  let call: TimelineProposalPhoto[] = [];
+  let call: TimelinePromptPhoto[] = [];
   for (const day of days) {
     const photos = day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber }));
     if (call.length > 0 && call.length + photos.length > TIMELINE_MAX_PHOTOS_PER_CALL) {

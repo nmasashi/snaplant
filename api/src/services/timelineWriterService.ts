@@ -2,7 +2,7 @@ import { TIMELINE_WRITE_MAX_TOKENS } from '../constants/album';
 import { TIMELINE_VALIDATION } from '../constants/validation';
 import { UpstreamError } from '../utils/errors';
 import { OpenAIVisionService } from './openAIVisionService';
-import { TimelineProposalPhoto, dayRangesOf, photoLineOf } from './timelineProposerService';
+import { TimelinePromptPhoto, dayRangesOf, photoLineOf } from './timelinePrompt';
 
 /**
  * 文の応答の形（Structured Outputs。docs/06_processing_design.md §8.3）
@@ -48,7 +48,7 @@ const TIMELINE_TEXTS_SCHEMA = {
 /** 文を書かせる1回分 */
 export interface TimelineWriteRequest {
   /** 撮影日時のある写真（撮影の順）。番号は渡した順に 0 から振る */
-  photos: TimelineProposalPhoto[];
+  photos: TimelinePromptPhoto[];
   /** 区切り（場面の最初の写真の番号。この呼び出しの写真のぶん全部） */
   sceneStarts: number[];
   /** 文を書いてほしい場面（最初の写真の番号） */

@@ -8,7 +8,7 @@ import {
 } from '../types/timeline';
 import { TIMELINE_MAX_PHOTOS_PER_CALL } from '../constants/album';
 import { TimelineWriterService } from './timelineWriterService';
-import { oneLine } from './timelineProposerService';
+import { oneLine } from './timelinePrompt';
 import { TimelineDatedDay, datedDaysOf, scenesOfDay } from './timelineView';
 
 /** 下書きの区切りで組んだ場面（控えの撮影日時のある写真。控えを取った後に消えた写真も含める） */
