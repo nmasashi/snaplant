@@ -352,7 +352,8 @@ void main() {
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
       await tapInDialog(tester, '捨てる');
-      // 遅れて届いた読み直しが続けて読むタイムラインは、読めない
+      // 遅れて届いた読み直しの応答を使ってしまうと、段の変化を見て続けてタイムラインを読み、その失敗で捨てた下書きを出し直す（直す前の誤り）。
+      // その読み込みを失敗させておき、退行したら「区切りの案を作っています」が出るようにする（今は読まないので、この失敗は使われない）
       backend.failNext(TripRoute.timeline);
       draftHold.complete();
       await letFramesRun(tester);
