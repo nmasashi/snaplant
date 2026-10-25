@@ -100,7 +100,8 @@ Future<void> _openReview(WidgetTester tester) async {
 
 void main() {
   group('区切りの確認画面を開く', () {
-    testWidgets('確かめ待ちの「区切りを確認する」で開き、説明・日ごとの見出し・場面のカード・日時なし・見出しを付けるボタンを出す',
+    testWidgets(
+        '確かめ待ちの「区切りを確認する」で開き、説明・日ごとの見出し・場面のカード・同じ日の場面の間の「つなげる」（日の境目には置かない）・日時なし・見出しを付けるボタンを出す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester);
@@ -119,6 +120,8 @@ void main() {
       expect(find.text('7:50〜7:58 · 北海道千歳市 · 2枚'), findsOneWidget);
       expect(find.text('10:10〜11:40 · 北海道小樽市 · 2枚'), findsOneWidget);
       expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
+      // 1日目の朝ごはんと小樽の間だけ。1日目と2日目の境目には置かない
+      expect(find.text('つなげる'), findsOneWidget);
 
       // 場面のサムネイルの並びも Scrollable なので、送るのは画面のリストに限る
       await tester.scrollUntilVisible(find.text('日時なし'), 200,
@@ -132,28 +135,12 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('場面の境目の「つなげる」は同じ日の場面の間にだけ置き、日の境目には置かない', (tester) async {
-      await _openTimeline(tester);
-      await _openReview(tester);
-
-      expect(find.text('つなげる'), findsOneWidget);
-    });
-
     testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出す', (tester) async {
       await _openTimeline(tester, draft: _reviewingDraft(reason: 'recut'));
       await _openReview(tester);
 
       expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
           findsOneWidget);
-    });
-
-    testWidgets('見出しと一言を書けなかった下書きにも「区切りを確認する」を出し、区切りの確認画面を開ける', (tester) async {
-      await _openTimeline(tester, draft: _writeFailedDraft());
-      expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
-
-      await _openReview(tester);
-      expect(find.text('区切りを確認'), findsOneWidget);
-      expect(find.text('7:50〜7:58 · 北海道千歳市 · 2枚'), findsOneWidget);
     });
 
     testWidgets('読み込んでいる間は「区切りを読み込み中...」を出す', (tester) async {
@@ -271,22 +258,8 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('「つなげる」を押すと、前の場面とまとめて保存し、応答で描き直す', (tester) async {
-      final backend = await _openTimeline(tester);
-      await _openReview(tester);
-
-      await tester.tap(find.text('つなげる'));
-      await letFramesRun(tester);
-
-      expect(savedStarts(backend), [
-        [idOf(1)],
-        [idOf(5)]
-      ]);
-      expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
-      expect(find.text('つなげる'), findsNothing);
-    });
-
-    testWidgets('保存している間は、ほかの操作を受け付けない', (tester) async {
+    testWidgets('「つなげる」を押すと、保存している間はほかの操作を受け付けず、前の場面とまとめて保存して応答で描き直す',
+        (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       await _openReview(tester);
@@ -302,7 +275,12 @@ void main() {
 
       hold.complete();
       await letFramesRun(tester);
+      expect(savedStarts(backend), [
+        [idOf(1)],
+        [idOf(5)]
+      ]);
       expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
+      expect(find.text('つなげる'), findsNothing);
       semantics.dispose();
     });
 
@@ -348,9 +326,14 @@ void main() {
       expect(find.text('この旅行は削除されています'), findsOneWidget);
     });
 
-    testWidgets('見出しと一言を書けなかった下書きで区切りを直すと、確かめ待ちに戻る', (tester) async {
+    testWidgets('見出しと一言を書けなかった下書きにも「区切りを確認する」を出して区切りの確認画面を開け、区切りを直すと確かめ待ちに戻る',
+        (tester) async {
       await _openTimeline(tester, draft: _writeFailedDraft());
+      expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
+
       await _openReview(tester);
+      expect(find.text('区切りを確認'), findsOneWidget);
+      expect(find.text('7:50〜7:58 · 北海道千歳市 · 2枚'), findsOneWidget);
 
       await tester.tap(find.text('つなげる'));
       await letFramesRun(tester);
@@ -361,19 +344,6 @@ void main() {
   });
 
   group('見出しを付ける・出し直す・やめる', () {
-    testWidgets('「この区切りで見出しを付ける」を押すと、見出しと一言を書かせて旅行詳細に戻る', (tester) async {
-      final backend = await _openTimeline(tester);
-      await _openReview(tester);
-
-      await tester.tap(find.text('この区切りで見出しを付ける'));
-      await letFramesRun(tester);
-      expect(
-          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
-          'writing');
-      expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('見出しと一言を書いています'), findsOneWidget);
-    });
-
     testWidgets('見出しを付けるのに失敗したら、エラーの文言を出し、区切りの確認画面のまま', (tester) async {
       final backend = await _openTimeline(tester);
       await _openReview(tester);
@@ -386,7 +356,8 @@ void main() {
       expect(_button(tester, 'この区切りで見出しを付ける').onPressed, isNotNull);
     });
 
-    testWidgets('見出しを付けるのを送っている間は、ほかの操作を受け付けない', (tester) async {
+    testWidgets('「この区切りで見出しを付ける」を押すと、送っている間はほかの操作を受け付けず、見出しと一言を書かせて旅行詳細に戻る',
+        (tester) async {
       final backend = await _openTimeline(tester);
       await _openReview(tester);
       final hold = backend.holdNextReply(TripRoute.timelineWrite);
@@ -398,6 +369,10 @@ void main() {
 
       hold.complete();
       await letFramesRun(tester);
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'writing');
+      expect(find.text('区切りを確認'), findsNothing);
       expect(find.text('見出しと一言を書いています'), findsOneWidget);
     });
 
