@@ -1,8 +1,8 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
-import { PhotoDocument } from '../types/album';
-import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotosDocument } from '../types/timeline';
+import { PhotoDocument, PhotoProcessing } from '../types/album';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<
@@ -23,6 +23,41 @@ export class TimelineConflictError extends Error {
     this.name = 'TimelineConflictError';
   }
 }
+
+/**
+ * 写真の控えが無い
+ *
+ * 控えを消すのはタイムラインの書き込みの後（下書きをやめる・作り直す・旅行の削除）なので、読んだタイムラインが指す控えが、
+ * 読む前に消えていることがある（他の操作と重なった）。読み直しても無ければ壊れている
+ */
+export class TimelineSnapshotMissingError extends Error {
+  constructor(id: string) {
+    super(`写真の控えがありません: ${id}`);
+    this.name = 'TimelineSnapshotMissingError';
+  }
+}
+
+/**
+ * タイムラインと控えを読んで応答を組む処理を、控えが無ければ最初から読み直す（05 §5.15。3回まで）
+ *
+ * 控えが無いのは、読んだ後に他の操作が下書きをやめた・作り直した・旅行を消したとき。読み直すと今の状態になる。
+ * 続けて重なることもある（作り直しを続けて押した）ので数回は読み直し、それでも無ければ壊れているとして投げる（500）
+ * @param read タイムラインを読むところから応答を組むまで
+ */
+export async function rereadIfSnapshotMissing<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error: any) {
+      if (!(error instanceof TimelineSnapshotMissingError) || attempt > SNAPSHOT_REREADS) {
+        throw error;
+      }
+    }
+  }
+}
+
+/** 控えが無いときに読み直す回数 */
+const SNAPSHOT_REREADS = 3;
 
 /**
  * タイムライン（段階5）の Cosmos DB の操作（docs/04_data_design.md §1.6・§5.7）
@@ -69,32 +104,40 @@ export class TimelineService {
   }
 
   /**
-   * 写真の控えを読む
+   * 写真の控えの写真を読む。無ければ投げる
+   *
+   * 空として扱うと、日と場面が空になり、全部の写真が増えたと知らせ、区切りを無効と返してしまう。
+   * 他の操作と重なったのか壊れているのかは、呼ぶ側が読み直して見分ける（rereadIfSnapshotMissing）
    * @param id 控えの id
-   * @returns 控え。無ければ null
+   * @throws TimelineSnapshotMissingError 控えが無い
    */
-  async readSnapshot(id: string): Promise<TimelinePhotosDocument | null> {
+  async readSnapshotPhotos(id: string): Promise<TimelinePhotoSnapshot[]> {
     const { resource } = await this.container.item(id, id).read<TimelinePhotosDocument>();
-    return resource?.type === 'timelinePhotos' ? resource : null;
+    if (resource?.type !== 'timelinePhotos') {
+      throw new TimelineSnapshotMissingError(id);
+    }
+    return resource.photos;
   }
 
   /**
-   * 旅行の今の写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分ける）
+   * 旅行の今の写真の id と解析の状態を読む（04 §5 の 5.13）
    *
-   * id だけの射影なので軽い。区切りの確認と完成版を開くときに読む
+   * 控えを取った後に消えた写真を見分ける（下書きの表示・区切りの保存・完成版）。完成版を開くときは、控えとの差で写真の増えた・消えた枚数を、
+   * 同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）。射影は id と解析の状態だけなので軽い
+   * （processing の中の state だけをオブジェクトの射影で読む。processing の無い文書は none（解析の対象でない）として扱う）
    * @param tripId 旅行の ID
    */
-  async readTripPhotoIds(tripId: string): Promise<Set<string>> {
+  async readTripPhotoStates(tripId: string): Promise<{ id: string; state: PhotoProcessing['state'] }[]> {
     const { resources } = await this.container.items
-      .query<{ id: string }>({
-        query: 'SELECT c.id FROM c WHERE c.type = @type AND c.tripId = @tripId',
+      .query<{ id: string; processing?: { state?: PhotoProcessing['state'] } }>({
+        query: 'SELECT c.id, { "state": c.processing.state } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@tripId', value: tripId },
         ],
       })
       .fetchAll();
-    return new Set(resources.map((row) => row.id));
+    return resources.map((row) => ({ id: row.id, state: row.processing?.state ?? 'none' }));
   }
 
   /**

@@ -2,11 +2,11 @@ import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { QueueClient } from '@azure/storage-queue';
-import { createTimelineHandler } from '../../src/functions/timeline';
+import { createTimelineHandler, getTimelineHandler } from '../../src/functions/timeline';
 import { PhotoDocument, PhotoProcessing } from '../../src/types/album';
-import { TimelineDocument, TimelineDraft, TimelineJob } from '../../src/types/timeline';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot } from '../../src/types/timeline';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
-import { FakeBlobBackend, createFakeBlobServiceClient } from '../fakes/blob';
+import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import {
   photoDocument,
@@ -72,18 +72,56 @@ const existingTimeline = (overrides: Partial<TimelineDocument> = {}) =>
     ...overrides
   });
 
-const createRequest = (tripId: string): HttpRequest =>
+const createRequest = (tripId: string, method = 'POST'): HttpRequest =>
   ({
-    method: 'POST',
+    method,
     url: `https://func-snaplant.azurewebsites.net/api/trips/${tripId}/timeline?code=test-key`,
     query: new Map([['code', 'test-key']]),
     headers: new Map(),
     params: { tripId }
   }) as any as HttpRequest;
 
+const SAS = 'sig=test';
+
+let mockContext: InvocationContext;
+let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
+
+// 作る・読むに共通の前提（Cosmos DB と Blob の偽物、SAS、環境変数、旅行）
+beforeEach(() => {
+  jest.useFakeTimers({
+    now: new Date(NOW),
+    doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
+  });
+  mockContext = { log: jest.fn() } as any;
+
+  cosmosBackend = { documents: new Map() };
+  const fakeContainer = createFakeContainer(cosmosBackend);
+  MockedCosmosClient.mockImplementation(() => ({
+    database: () => ({ container: () => fakeContainer })
+  }) as unknown as CosmosClient);
+
+  const blobBackend: FakeBlobBackend = { store: new Map() };
+  MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
+  mockedGenerateSas.mockReturnValue({ toString: () => SAS } as any);
+
+  process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
+  process.env.COSMOS_DB_KEY = 'test-key';
+  process.env.COSMOS_DB_DATABASE = 'test-db';
+  process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
+  process.env.STORAGE_CONNECTION_STRING =
+    'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+  process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
+  process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
+
+  cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+  jest.clearAllMocks();
+});
+
 describe('タイムラインを作るAPI', () => {
-  let mockContext: InvocationContext;
-  let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let queueBackend: FakeQueueBackend;
 
   const storedTimeline = () => cosmosBackend.documents.get(TIMELINE_ID) as any;
@@ -92,45 +130,17 @@ describe('タイムラインを作るAPI', () => {
     [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
 
   beforeEach(() => {
-    jest.useFakeTimers({
-      now: new Date(NOW),
-      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval']
-    });
-    mockContext = { log: jest.fn() } as any;
-
-    cosmosBackend = { documents: new Map() };
-    const fakeContainer = createFakeContainer(cosmosBackend);
-    MockedCosmosClient.mockImplementation(() => ({
-      database: () => ({ container: () => fakeContainer })
-    }) as unknown as CosmosClient);
-
-    const blobBackend: FakeBlobBackend = { store: new Map() };
-    MockedBlobServiceClient.fromConnectionString = jest.fn().mockReturnValue(createFakeBlobServiceClient(blobBackend));
-    mockedGenerateSas.mockReturnValue({ toString: () => 'sig=test' } as any);
-
     queueBackend = { queues: new Map(), forcedSendError: null };
     MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
       createFakeQueueClient(queueBackend, queueName)) as any);
 
-    process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
-    process.env.COSMOS_DB_KEY = 'test-key';
-    process.env.COSMOS_DB_DATABASE = 'test-db';
-    process.env.COSMOS_DB_ALBUM_CONTAINER = 'test-album';
-    process.env.STORAGE_CONNECTION_STRING =
-      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
-    process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
-    process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
     process.env.AzureWebJobsStorage =
       'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
     process.env.TIMELINE_QUEUE_NAME = 'timeline-processing';
     delete process.env.TIMELINE_DAY_START_HOUR;
-
-    cosmosBackend.documents.set(TRIP_ID, tripDocument(TRIP_ID, '北海道 2026秋'));
   });
 
   afterEach(() => {
-    jest.useRealTimers();
-    jest.clearAllMocks();
     delete process.env.TIMELINE_QUEUE_NAME;
     delete process.env.TIMELINE_DAY_START_HOUR;
     delete process.env.AzureWebJobsStorage;
@@ -494,5 +504,322 @@ describe('タイムラインを作るAPI', () => {
     expect(response.status).toBe(status);
     expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
     expect(storedTimeline()).toBeUndefined();
+  });
+});
+
+describe('タイムラインを読むAPI（GET）', () => {
+  const DRAFT_ID = '44444444-4444-4444-8444-444444444444';
+
+  /** 完成版の控えの1枚（既定は名前・地名の無い風景の写真） */
+  const snap = (head: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}): TimelinePhotoSnapshot => ({
+    id: photoId(head),
+    takenAt,
+    category: 'landscape',
+    name: null,
+    placeName: null,
+    comment: null,
+    blobName: `${photoId(head)}.jpg`,
+    thumbnailBlobName: `${photoId(head)}.thumb.jpg`,
+    ...overrides
+  });
+
+  /** 控えの1枚の、応答での形 */
+  const shown = (photo: TimelinePhotoSnapshot) => ({
+    id: photo.id,
+    takenAt: photo.takenAt,
+    category: photo.category,
+    name: photo.name,
+    placeName: photo.placeName,
+    thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${photo.thumbnailBlobName ?? photo.blobName}?${SAS}`
+  });
+
+  // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、日時なし: u
+  const A = snap('a', '2026-10-05T07:50:12', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市' });
+  const B = snap('b', '2026-10-05T08:10:00', { placeName: '北海道千歳市', thumbnailBlobName: null });
+  const C = snap('c', '2026-10-05T12:30:00', { category: 'food', name: 'ラーメン', placeName: '札幌市' });
+  const D = snap('d', '2026-10-06T09:00:00', { name: '小樽運河', placeName: '小樽市' });
+  const E = snap('e', '2026-10-06T11:00:00', { placeName: '小樽市' });
+  const U = snap('u', null);
+  const PHOTOS = [A, B, C, D, E, U];
+
+  const sceneText = (label: string, labelSource: 'ai' | 'user', photoIds: string[]) => ({
+    label,
+    labelSource,
+    aiLabel: `AIの${label}`,
+    note: `${label}の一言`,
+    noteSource: 'ai' as const,
+    aiNote: `${label}の一言`,
+    photoIds
+  });
+  const dayText = (title: string, sceneStarts: string[]) => ({
+    title,
+    titleSource: 'user' as const,
+    aiTitle: `AIの${title}`,
+    summary: `${title}のまとめ`,
+    summarySource: 'ai' as const,
+    aiSummary: `${title}のまとめ`,
+    sceneStarts
+  });
+
+  /** 完成版。AI の案は a・c・d で、利用者が e を足した */
+  const current = timelineCurrent(CURRENT_SNAPSHOT_ID, {
+    proposedStarts: [A.id, C.id, D.id],
+    sceneStarts: [A.id, C.id, D.id, E.id],
+    sceneTexts: {
+      [A.id]: sceneText('朝ごはん', 'ai', [A.id, B.id]),
+      [C.id]: sceneText('昼ごはん', 'user', [C.id]),
+      [D.id]: sceneText('運河', 'ai', [D.id]),
+      [E.id]: sceneText('散歩', 'ai', [E.id])
+    },
+    dayTexts: {
+      '2026-10-05': dayText('千歳と札幌', [A.id, C.id]),
+      '2026-10-06': dayText('小樽', [D.id, E.id])
+    },
+    writtenAt: '2026-10-08T12:14:00.000Z'
+  });
+  const DROPPED = [{ kind: 'scene' as const, key: photoId('z'), field: 'label' as const, text: '小樽運河さんぽ' }];
+
+  /** 旅行の写真の文書（解析の状態を指定する） */
+  const placePhoto = (id: string, state: PhotoProcessing['state'] = 'done', tripId: string = TRIP_ID) =>
+    cosmosBackend.documents.set(
+      id,
+      photoDocument(id, { tripId, processing: { state, step: 'identify', attempts: 1, lastError: null, updatedAt: '2026-10-08T00:00:00.000Z' } })
+    );
+
+  /** 完成版の控えを置き、removed 以外の控えの写真を旅行の写真として置く */
+  const placeCurrentSnapshot = (removed: string[] = []) => {
+    cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, PHOTOS));
+    PHOTOS.filter((photo) => !removed.includes(photo.id)).forEach((photo) => placePhoto(photo.id));
+  };
+
+  const getRequest = (tripId: string) => createRequest(tripId, 'GET');
+
+  const read = async () => {
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+    expect(response.status).toBe(200);
+    return (response.jsonBody as any).data;
+  };
+
+  it('タイムラインが無ければ null で、解析が済んでいない写真の枚数を返す（別の旅行の写真は数えない）', async () => {
+    placePhoto(photoId('1'), 'pending');
+    placePhoto(photoId('2'), 'classifying');
+    placePhoto(photoId('3'), 'identifying');
+    placePhoto(photoId('4'), 'none');
+    placePhoto(photoId('5'), 'done');
+    placePhoto(photoId('6'), 'failed');
+    placePhoto(photoId('7'), 'pending', OTHER_TRIP_ID);
+
+    expect(await read()).toEqual({ timeline: null, pendingPhotoCount: 3, urlExpiresAt: '2026-10-25T10:00:00.000Z' });
+  });
+
+  it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、日時の無い写真は別にまとめる', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED }));
+
+    expect(await read()).toEqual({
+      timeline: {
+        current: {
+          writtenAt: '2026-10-08T12:14:00.000Z',
+          days: [
+            {
+              date: '2026-10-05',
+              dayNumber: 1,
+              title: '千歳と札幌',
+              titleSource: 'user',
+              summary: '千歳と札幌のまとめ',
+              summarySource: 'ai',
+              scenes: [
+                {
+                  startPhotoId: A.id, startedBy: 'day', hasFood: true,
+                  label: '朝ごはん', labelSource: 'ai', note: '朝ごはんの一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-05T07:50:12', lastTakenAt: '2026-10-05T08:10:00',
+                  placeNames: ['北海道千歳市'], names: ['海鮮丼'], photos: [shown(A), shown(B)]
+                },
+                {
+                  startPhotoId: C.id, startedBy: 'ai', hasFood: true,
+                  label: '昼ごはん', labelSource: 'user', note: '昼ごはんの一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-05T12:30:00', lastTakenAt: '2026-10-05T12:30:00',
+                  placeNames: ['札幌市'], names: ['ラーメン'], photos: [shown(C)]
+                }
+              ]
+            },
+            {
+              date: '2026-10-06',
+              dayNumber: 2,
+              title: '小樽',
+              titleSource: 'user',
+              summary: '小樽のまとめ',
+              summarySource: 'ai',
+              scenes: [
+                {
+                  startPhotoId: D.id, startedBy: 'day', hasFood: false,
+                  label: '運河', labelSource: 'ai', note: '運河の一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-06T09:00:00', lastTakenAt: '2026-10-06T09:00:00',
+                  placeNames: ['小樽市'], names: ['小樽運河'], photos: [shown(D)]
+                },
+                {
+                  startPhotoId: E.id, startedBy: 'user', hasFood: false,
+                  label: '散歩', labelSource: 'ai', note: '散歩の一言', noteSource: 'ai',
+                  firstTakenAt: '2026-10-06T11:00:00', lastTakenAt: '2026-10-06T11:00:00',
+                  placeNames: ['小樽市'], names: [], photos: [shown(E)]
+                }
+              ]
+            }
+          ],
+          undatedPhotos: [shown(U)]
+        },
+        draft: null,
+        changes: { added: 0, removed: 0 },
+        droppedEdits: DROPPED
+      },
+      pendingPhotoCount: 0,
+      urlExpiresAt: '2026-10-25T10:00:00.000Z'
+    });
+  });
+
+  it('控えを取った後に消えた写真は出さない（写真が全部消えた場面と日も出さない）', async () => {
+    // b と2日目の写真（d・e）と日時の無い写真が消えた
+    placeCurrentSnapshot([B.id, D.id, E.id, U.id]);
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.current.days.map((day: any) => [day.date, day.scenes.map((s: any) => s.photos.map((p: any) => p.id))])).toEqual([
+      ['2026-10-05', [[A.id], [C.id]]]
+    ]);
+    expect(data.timeline.current.undatedPhotos).toEqual([]);
+  });
+
+  it('完成版の控えと比べて増えた・消えた写真の枚数を返し（日時の無い写真も数える）、完成版があっても解析中の写真を数える', async () => {
+    // b と日時の無い写真が消え、控えに無い写真が2枚増えた（1枚は解析中）
+    placeCurrentSnapshot([B.id, U.id]);
+    placePhoto(photoId('n'));
+    placePhoto(photoId('m'), 'pending');
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 2, removed: 2 });
+    expect(data.pendingPhotoCount).toBe(1);
+  });
+
+  it('タイムラインを読んだ後に旅行が消されていたら（控えも消えた）、読み直して 404（TRIP_NOT_FOUND）を返す', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+    // 控えを読む直前に、旅行の削除がタイムラインと控えと旅行を消した
+    cosmosBackend.beforeRead = (id) => {
+      if (id === CURRENT_SNAPSHOT_ID) {
+        [TIMELINE_ID, CURRENT_SNAPSHOT_ID, TRIP_ID].forEach((docId) => cosmosBackend.documents.delete(docId));
+      }
+    };
+
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(404);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+  });
+
+  it('完成版の写真の控えが無ければ（壊れている）、500 を返す（空の完成版や、全部の写真が増えたとは返さない）', async () => {
+    PHOTOS.forEach((photo) => placePhoto(photo.id));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(500);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの取得に失敗しました' } });
+  });
+
+  it('文の無い日と場面は、文と書いた主を null にして返す（項目は省かない）', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, sceneTexts: {}, dayTexts: {} } }));
+
+    const day = (await read()).timeline.current.days[0];
+
+    expect(day).toMatchObject({ title: null, titleSource: null, summary: null, summarySource: null });
+    expect(day.scenes[0]).toMatchObject({ label: null, labelSource: null, note: null, noteSource: null });
+  });
+
+  it('完成版の日は、完成版の日付の切り替えの時刻で分ける（5時なら翌日の 4:30 は前の日に入る）', async () => {
+    // 既定（4時）と違う値にして、今の設定ではなく完成版に書いた値で分けることを見る
+    const K = snap('k', '2026-10-06T04:30:00');
+    cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, [A, K, D]));
+    [A, K, D].forEach((photo) => placePhoto(photo.id));
+    cosmosBackend.documents.set(
+      TIMELINE_ID,
+      timelineDocument(TRIP_ID, { current: timelineCurrent(CURRENT_SNAPSHOT_ID, { dayStartHour: 5, proposedStarts: [A.id, D.id], sceneStarts: [A.id, D.id] }) })
+    );
+
+    const data = await read();
+
+    expect(data.timeline.current.days.map((day: any) => [day.date, day.scenes[0].photos.map((photo: any) => photo.id)])).toEqual([
+      ['2026-10-05', [A.id, K.id]],
+      ['2026-10-06', [D.id]]
+    ]);
+  });
+
+  it('下書きがあれば状態だけを返す（区切りの中身は返さない）', async () => {
+    placeCurrentSnapshot();
+    const draft = timelineDraft(DRAFT_ID, OLD_DRAFT_SNAPSHOT_ID, {
+      reason: 'rebuild',
+      phase: 'proposing',
+      job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' },
+      proposedStarts: [A.id],
+      sceneStarts: [A.id],
+      startedAt: '2026-10-25T08:58:00.000Z'
+    });
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));
+
+    const data = await read();
+
+    expect(data.timeline.draft).toEqual({
+      id: DRAFT_ID,
+      reason: 'rebuild',
+      phase: 'proposing',
+      job: { step: 'propose', state: 'running', lastError: null },
+      startedAt: '2026-10-25T08:58:00.000Z'
+    });
+    expect(data.timeline.current.days).toHaveLength(2);
+  });
+
+  it('完成版が無く下書きだけなら、完成版と写真の変化は null', async () => {
+    placePhoto(A.id);
+    const draft = timelineDraft(DRAFT_ID, OLD_DRAFT_SNAPSHOT_ID, { startedAt: '2026-10-25T08:58:00.000Z' });
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { draft }));
+
+    expect(await read()).toEqual({
+      timeline: {
+        current: null,
+        draft: { id: DRAFT_ID, reason: 'create', phase: 'reviewing', job: null, startedAt: '2026-10-25T08:58:00.000Z' },
+        changes: null,
+        droppedEdits: []
+      },
+      pendingPhotoCount: 0,
+      urlExpiresAt: '2026-10-25T10:00:00.000Z'
+    });
+  });
+
+  it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
+    cosmosBackend.documents.delete(TRIP_ID);
+
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(404);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+  });
+
+  it('旅行IDがUUIDの形でなければ、400を返す', async () => {
+    const response = await getTimelineHandler(getRequest('not-a-uuid'), mockContext);
+
+    expect(response.status).toBe(400);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
+  });
+
+  it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('旅行の写真を読むときに%s', async (_case, error, status, code, message) => {
+    cosmosBackend.forcedQueryError = error;
+
+    const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(status);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
   });
 });

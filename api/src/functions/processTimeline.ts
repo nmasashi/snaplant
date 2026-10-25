@@ -49,11 +49,8 @@ export async function processTimelineHandler(message: unknown, context: Invocati
   }
 
   try {
-    const snapshot = await timelines.readSnapshot(draft.snapshotId);
-    if (!snapshot) {
-      throw new Error(`写真の控えがありません: ${draft.snapshotId}`);
-    }
-    const starts = await proposeScenes(snapshot.photos, draft, read.doc.current);
+    const photos = await timelines.readSnapshotPhotos(draft.snapshotId);
+    const starts = await proposeScenes(photos, draft, read.doc.current);
 
     const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, (current) => ({
       ...current,

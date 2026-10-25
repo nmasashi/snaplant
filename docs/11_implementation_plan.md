@@ -143,7 +143,7 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 | 5-1 | 2,000 行に収めるため 5-1a・5-1b・5-1c に分ける（2026-10-25。5-1a の差分が 2,500 行になったので、5-1b をさらに分けた） | 5-0 |
 | 5-1a | **実装済み**（5-1a。Issue #97）。api: タイムラインと控えの文書（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）、`POST …/timeline`（作る・作り直す）、`GET …/draft`・`DELETE …/draft`、再投入のタイマーにタイムラインの下書きを足す（投入に失敗しても進むように、`POST` と同じ PR に入れる）、`timelineDayStartHour()`、旅行の削除でタイムラインと控えも消す。偽物の Cosmos に `_etag` と IfMatch の置き換え | 5-0 |
 | 5-1b | **実装済み**（5-1b。Issue #97）。api: ワーカー `processTimeline` の `propose`（担当・結果の当て直し・失敗・旅行の無いタイムラインの後始末。作り直しで完成版の区切りの差を当てる決まりまで。[06 §8.1・§8.2](./06_processing_design.md#82-区切り案step-propose)）と、AI に文字だけを渡す呼び出し | 5-1a |
-| 5-1c | api: `PUT …/draft/scenes`（区切りの保存）、`GET …/timeline`（完成版の表示・写真の変化・解析中の枚数） | 5-1b |
+| 5-1c | **実装済み**（5-1c。Issue #97）。api: `PUT …/draft/scenes`（区切りの保存）、`GET …/timeline`（完成版の表示・写真の変化・解析中の枚数。旅行の写真のクエリは 5.13 の1つにまとめ、5.14 の `COUNT` は使わない。[04 §5](./04_data_design.md#5-クエリ)） | 5-1b |
 | 5-2 | api: `POST …/draft/write`・`POST …/recut` とワーカーの `write`（文の引き継ぎ・残せなかった文・下書きと完成版の入れ替え。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）、`PATCH` の2つと `DELETE …/dropped-edits` | 5-1 |
 | 5-3 | mobile: 旅行詳細の切り替え、完成版が無いときの表示（[03 §8.1・§8.2](./03_screen_design.md#81-旅行詳細の切り替え)）、区切りの確認画面（[03 §8.4](./03_screen_design.md#84-区切りの確認画面)）、`ApiService` のタイムラインのメソッド | 5-2 |
 | 5-4 | mobile: 完成したタイムラインの表示と下書きの案内（[03 §8.3](./03_screen_design.md#83-完成したタイムライン)）、編集シート（§8.5）、区切りを直す・作り直す・写真が変わった案内・残せなかった文（§8.3・§8.6） | 5-3 |
