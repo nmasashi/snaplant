@@ -2,7 +2,7 @@ import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { TimelineService } from '../services/timelineService';
 import { proposeScenes } from '../services/timelineProposal';
-import { assembleCurrent, writeDraftTexts } from '../services/timelineWriting';
+import { assembleCurrent, mergeDroppedEdits, writeDraftTexts } from '../services/timelineWriting';
 import { photoProcessingMaxAttempts } from '../constants/album';
 import { TimelineDocument, TimelineDraft, TimelineJob } from '../types/timeline';
 import { UpstreamError } from '../utils/errors';
@@ -53,9 +53,12 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       apply = (doc) => ({ ...doc, draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts } });
     } else {
       // 書き終えたら、下書きを完成版に入れ替える（06 §8.3 の 6）
-      const { plan, texts } = await writeDraftTexts(photos, draft);
+      const { plan, texts } = await writeDraftTexts(photos, draft, read.doc.current);
       const now = new Date().toISOString();
-      apply = (doc) => ({ ...doc, current: assembleCurrent(doc.draft, plan, texts, now), draft: null });
+      apply = (doc) => {
+        const { current, dropped } = assembleCurrent(doc.draft, plan, texts, doc.current, now);
+        return { ...doc, current, draft: null, droppedEdits: mergeDroppedEdits(doc.droppedEdits, dropped) };
+      };
     }
 
     const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, apply);
@@ -64,6 +67,11 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       return;
     }
     context.log(`タイムラインの${label}が済みました: 旅行=${tripId}, 下書き=${draftId}`);
+    // 完成版に入れ替えたら、前の完成版の控えは使われなくなる（作り直しの控えは別。recut は同じ控えなので残す）
+    const replacedSnapshotId = read.doc.current?.snapshotId;
+    if (job.step === 'write' && replacedSnapshotId && replacedSnapshotId !== draft.snapshotId) {
+      await timelines.deleteUnusedSnapshot(replacedSnapshotId, (...args) => context.log(...args));
+    }
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が文書に残り続ける）
     const lastError = error instanceof UpstreamError ? error.service : 'internal';

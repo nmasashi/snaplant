@@ -55,6 +55,8 @@ export interface TimelineWriteRequest {
   scenesToWrite: number[];
   /** 文を書いてほしい日 */
   daysToWrite: { date: string; dayNumber: number }[];
+  /** 前の完成版の文（引き継ぐ文と、利用者が書いた文。書き換えさせない。1行ずつ） */
+  context: string[];
 }
 
 /** AI が書いた文（前後の空白を除き、上限で切り詰めた後） */
@@ -86,7 +88,7 @@ export class TimelineWriterService {
   async write(request: TimelineWriteRequest): Promise<TimelineWrittenTexts> {
     const lines = request.photos.map(({ photo, dayNumber }, index) => photoLineOf(photo, dayNumber, index));
     const prompt = `
-旅行の写真を撮影の順に並べ、場面に区切りました。書いてほしい場面と日に、文を書いてください。
+旅行の写真を撮影の順に並べ、場面に区切りました。下に挙げる場面と日に、文を書いてください。
 
 - 場面の見出しは短く（食事なら朝ごはん・昼ごはん・おやつ・夜ごはん・食べ歩き など、それ以外は場所や出来事）
 - 場面の一言は、写っているものについて書いてください（手がかりや判断の過程には触れない）
@@ -100,7 +102,7 @@ ${dayRangesOf(request.photos)}
 
 書いてほしい場面（最初の写真の番号）: ${request.scenesToWrite.map((start) => `${start}番`).join('、')}
 書いてほしい日: ${request.daysToWrite.map(({ date, dayNumber }) => `${date}（${dayNumber}日目）`).join('、')}
-
+${request.context.length > 0 ? `\n前に書いた文（文脈として読み、書き換えないでください）:\n${request.context.join('\n')}\n` : ''}
 写真（[番号] 何日目 撮影時刻 カテゴリ 名前 地名「コメント」）:
 ${lines.join('\n')}
 `;

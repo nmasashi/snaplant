@@ -1,4 +1,11 @@
-import { TimelineCurrent, TimelineDayText, TimelineDraft, TimelinePhotoSnapshot, TimelineSceneText } from '../types/timeline';
+import {
+  TimelineCurrent,
+  TimelineDayText,
+  TimelineDraft,
+  TimelineDroppedEdit,
+  TimelinePhotoSnapshot,
+  TimelineSceneText,
+} from '../types/timeline';
 import { TimelineWriterService } from './timelineWriterService';
 import { TimelineDatedDay, datedDaysOf, scenesOfDay } from './timelineView';
 
@@ -15,28 +22,40 @@ interface DayPlan {
   scenes: ScenePlan[];
 }
 
-/** AI が書いた文（場面は最初の写真の id、日は日付ごと） */
+/** AI が書いた文（場面は最初の写真の id、日は日付ごと）。書かせなかった場面と日は入らない */
 export interface TimelineAiTexts {
   scenes: Map<string, { label: string; note: string }>;
   days: Map<string, { title: string; summary: string }>;
 }
 
 /**
- * 下書きの区切りに文を書かせる（06 §8.3）
+ * 下書きの区切りに文を書かせる（06 §8.3 の 1〜5）
  *
+ * 前の完成版と、写真が同じ場面・区切りが同じ日は文を引き継ぐので書かせない。書かせるものが無ければ AI を呼ばない
+ * @param current 読んだときの完成版（無ければ全部を書かせる）
  * @returns 下書きの区切りで組んだ日と場面と、AI が書いた文（完成版を組むのは assembleCurrent）
  */
-export async function writeDraftTexts(photos: TimelinePhotoSnapshot[], draft: TimelineDraft): Promise<{ plan: DayPlan[]; texts: TimelineAiTexts }> {
+export async function writeDraftTexts(
+  photos: TimelinePhotoSnapshot[],
+  draft: TimelineDraft,
+  current: TimelineCurrent | null
+): Promise<{ plan: DayPlan[]; texts: TimelineAiTexts }> {
   const days = datedDaysOf(photos, draft.dayStartHour);
   const plan = planOf(days, draft.sceneStarts);
+  const scenesToWrite = plan.flatMap((day) => day.scenes).filter((scene) => !inheritsScene(current, scene));
+  const daysToWrite = plan.filter((day) => !inheritsDay(current, day));
+  if (scenesToWrite.length === 0 && daysToWrite.length === 0) {
+    return { plan, texts: { scenes: new Map(), days: new Map() } };
+  }
+
   const ordered = days.flatMap((day) => day.photos.map((photo) => ({ photo, dayNumber: day.dayNumber })));
   const indexOf = new Map(ordered.map(({ photo }, index) => [photo.id, index]));
-  const sceneStarts = plan.flatMap((day) => day.scenes.map((scene) => indexOf.get(scene.start)!));
   const written = await new TimelineWriterService().write({
     photos: ordered,
-    sceneStarts,
-    scenesToWrite: sceneStarts,
-    daysToWrite: plan.map(({ date, dayNumber }) => ({ date, dayNumber })),
+    sceneStarts: plan.flatMap((day) => day.scenes.map((scene) => indexOf.get(scene.start)!)),
+    scenesToWrite: scenesToWrite.map((scene) => indexOf.get(scene.start)!),
+    daysToWrite: daysToWrite.map(({ date, dayNumber }) => ({ date, dayNumber })),
+    context: contextOf(plan, current, (photoId) => indexOf.get(photoId)!),
   });
   return {
     plan,
@@ -48,37 +67,79 @@ export async function writeDraftTexts(photos: TimelinePhotoSnapshot[], draft: Ti
 }
 
 /**
- * 下書きと AI の文から完成版を組む（下書きを完成版に入れ替える。06 §8.3 の 6）
+ * 下書きと AI の文から完成版を組み、残せなかった利用者の文を返す（06 §8.3 の 2・3・6）
+ *
+ * 引き継ぐ文と利用者の文は、渡した完成版（結果を当て直すたびに読み直した最新のもの）から取る。
+ * 書いている間に利用者が完成版の文を直しても、直した後の文が残る
+ * @param latest 最新の完成版
  * @param now 書き終えた時刻
  */
-export function assembleCurrent(draft: TimelineDraft, plan: DayPlan[], texts: TimelineAiTexts, now: string): TimelineCurrent {
+export function assembleCurrent(
+  draft: TimelineDraft,
+  plan: DayPlan[],
+  texts: TimelineAiTexts,
+  latest: TimelineCurrent | null,
+  now: string
+): { current: TimelineCurrent; dropped: TimelineDroppedEdit[] } {
   const sceneTexts: Record<string, TimelineSceneText> = {};
   const dayTexts: Record<string, TimelineDayText> = {};
   for (const day of plan) {
     for (const scene of day.scenes) {
-      const { label, note } = texts.scenes.get(scene.start)!;
-      sceneTexts[scene.start] = { label, labelSource: 'ai', aiLabel: label, note, noteSource: 'ai', aiNote: note, photoIds: scene.photoIds };
+      const before = latest?.sceneTexts[scene.start];
+      const written = texts.scenes.get(scene.start);
+      if (!written) {
+        sceneTexts[scene.start] = inherited(before, `場面 ${scene.start}`);
+        continue;
+      }
+      const label = keepUserText(before?.labelSource, before?.label, written.label);
+      const note = keepUserText(before?.noteSource, before?.note, written.note);
+      sceneTexts[scene.start] = {
+        label: label.text,
+        labelSource: label.source,
+        aiLabel: written.label,
+        note: note.text,
+        noteSource: note.source,
+        aiNote: written.note,
+        photoIds: scene.photoIds,
+      };
     }
-    const { title, summary } = texts.days.get(day.date)!;
+    const before = latest?.dayTexts[day.date];
+    const written = texts.days.get(day.date);
+    if (!written) {
+      dayTexts[day.date] = inherited(before, `日 ${day.date}`);
+      continue;
+    }
+    const title = keepUserText(before?.titleSource, before?.title, written.title);
+    const summary = keepUserText(before?.summarySource, before?.summary, written.summary);
     dayTexts[day.date] = {
-      title,
-      titleSource: 'ai',
-      aiTitle: title,
-      summary,
-      summarySource: 'ai',
-      aiSummary: summary,
+      title: title.text,
+      titleSource: title.source,
+      aiTitle: written.title,
+      summary: summary.text,
+      summarySource: summary.source,
+      aiSummary: written.summary,
       sceneStarts: day.scenes.map((scene) => scene.start),
     };
   }
   return {
-    snapshotId: draft.snapshotId,
-    dayStartHour: draft.dayStartHour,
-    proposedStarts: draft.proposedStarts,
-    sceneStarts: draft.sceneStarts,
-    sceneTexts,
-    dayTexts,
-    writtenAt: now,
+    current: {
+      snapshotId: draft.snapshotId,
+      dayStartHour: draft.dayStartHour,
+      proposedStarts: draft.proposedStarts,
+      sceneStarts: draft.sceneStarts,
+      sceneTexts,
+      dayTexts,
+      writtenAt: now,
+    },
+    dropped: droppedEditsOf(latest, sceneTexts, dayTexts),
   };
+}
+
+/** 残せなかった文を、今までの知らせに足す（同じ日・場面・欄・文は重ねない） */
+export function mergeDroppedEdits(existing: TimelineDroppedEdit[], dropped: TimelineDroppedEdit[]): TimelineDroppedEdit[] {
+  const keyOf = (edit: TimelineDroppedEdit) => JSON.stringify([edit.kind, edit.key, edit.field, edit.text]);
+  const seen = new Set(existing.map(keyOf));
+  return [...existing, ...dropped.filter((edit) => !seen.has(keyOf(edit)))];
 }
 
 /** 日ごとに場面を組む（表示と同じ組み方。04 §1.6） */
@@ -88,4 +149,100 @@ function planOf(days: TimelineDatedDay[], sceneStarts: string[]): DayPlan[] {
     dayNumber: day.dayNumber,
     scenes: scenesOfDay(day.photos, sceneStarts).map((photos) => ({ start: photos[0].id, photoIds: photos.map((photo) => photo.id) })),
   }));
+}
+
+/** 前の完成版に、同じ最初の写真で写真も同じ場面があれば文を引き継ぐ */
+function inheritsScene(current: TimelineCurrent | null, scene: ScenePlan): boolean {
+  const before = current?.sceneTexts[scene.start];
+  return before !== undefined && sameIds(before.photoIds, scene.photoIds);
+}
+
+/** 前の完成版に、同じ日付で区切りも同じ日があれば文を引き継ぐ */
+function inheritsDay(current: TimelineCurrent | null, day: DayPlan): boolean {
+  const before = current?.dayTexts[day.date];
+  return before !== undefined && sameIds(before.sceneStarts, day.scenes.map((scene) => scene.start));
+}
+
+function sameIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/** 引き継ぐ文。最新の完成版に無ければ（書いている間に完成版が変わった）投げる（内部の失敗として書き直す） */
+function inherited<T>(before: T | undefined, what: string): T {
+  if (before === undefined) {
+    throw new Error(`引き継ぐ文が完成版にありません: ${what}`);
+  }
+  return before;
+}
+
+/** 利用者が書いた文は残し、AI の文なら新しい文にする（AI の文は ai* にも残す） */
+function keepUserText(
+  source: 'ai' | 'user' | undefined,
+  before: string | undefined,
+  written: string
+): { text: string; source: 'ai' | 'user' } {
+  return source === 'user' && before !== undefined ? { text: before, source: 'user' } : { text: written, source: 'ai' };
+}
+
+/** 前の完成版にあって新しい完成版に無い場面・日の、利用者が書いた文（AI の文は捨てる） */
+function droppedEditsOf(
+  latest: TimelineCurrent | null,
+  sceneTexts: Record<string, TimelineSceneText>,
+  dayTexts: Record<string, TimelineDayText>
+): TimelineDroppedEdit[] {
+  if (!latest) {
+    return [];
+  }
+  const dropped: TimelineDroppedEdit[] = [];
+  for (const [key, text] of Object.entries(latest.sceneTexts)) {
+    if (key in sceneTexts) continue;
+    if (text.labelSource === 'user') dropped.push({ kind: 'scene', key, field: 'label', text: text.label });
+    if (text.noteSource === 'user') dropped.push({ kind: 'scene', key, field: 'note', text: text.note });
+  }
+  for (const [key, text] of Object.entries(latest.dayTexts)) {
+    if (key in dayTexts) continue;
+    if (text.titleSource === 'user') dropped.push({ kind: 'day', key, field: 'title', text: text.title });
+    if (text.summarySource === 'user') dropped.push({ kind: 'day', key, field: 'summary', text: text.summary });
+  }
+  return dropped;
+}
+
+/**
+ * AI に文脈として渡す、前の完成版の文（06 §8.4。書き換えさせない）
+ *
+ * 引き継ぐ場面・日は文の全部を、書き直す場面・日は利用者が書いた欄だけを渡す（AI の前の文は渡さない。書き直させるため）
+ * @param indexOf 写真の id から番号
+ */
+function contextOf(plan: DayPlan[], current: TimelineCurrent | null, indexOf: (photoId: string) => number): string[] {
+  if (!current) {
+    return [];
+  }
+  const lines: string[] = [];
+  const line = (subject: string, fields: [string, string, boolean][]) => {
+    const shown = fields.filter(([, , keep]) => keep).map(([name, text]) => `${name}「${text}」`);
+    if (shown.length > 0) {
+      lines.push(`${subject}: ${shown.join(' ')}`);
+    }
+  };
+  for (const day of plan) {
+    const dayText = current.dayTexts[day.date];
+    if (dayText) {
+      const all = inheritsDay(current, day);
+      line(`${day.date}（${all ? '引き継ぐ' : '利用者が書いた'}）`, [
+        ['タイトル', dayText.title, all || dayText.titleSource === 'user'],
+        ['まとめ', dayText.summary, all || dayText.summarySource === 'user'],
+      ]);
+    }
+    for (const scene of day.scenes) {
+      const sceneText = current.sceneTexts[scene.start];
+      if (sceneText) {
+        const all = inheritsScene(current, scene);
+        line(`${indexOf(scene.start)}番の場面（${all ? '引き継ぐ' : '利用者が書いた'}）`, [
+          ['見出し', sceneText.label, all || sceneText.labelSource === 'user'],
+          ['一言', sceneText.note, all || sceneText.noteSource === 'user'],
+        ]);
+      }
+    }
+  }
+  return lines;
 }
