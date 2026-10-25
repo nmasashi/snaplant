@@ -858,7 +858,7 @@ describe('タイムラインのワーカー', () => {
         expect(promptLineOf(sentPrompt(0), 249)).toBeDefined();
         expect(promptLineOf(sentPrompt(0), 250)).toBeUndefined();
         expect(promptLineOf(sentPrompt(1), 199)).toContain('2日目');
-        // 日付（YYYY-MM-DD）は頼む日にしか出ない（写真の行と日の区切りは月日と何日目で書く）
+        // 日付（YYYY-MM-DD）は、頼む日と、その呼び出しの文脈の前の文の日にしか出ない（このテストは完成版が無いので頼む日だけ）
         expect(nonPhotoLines(sentPrompt(0)).some((line) => line.includes('2026-10-06'))).toBe(false);
         expect(nonPhotoLines(sentPrompt(1)).some((line) => line.includes('2026-10-05'))).toBe(false);
         const current = storedTimeline()!.current!;
