@@ -645,6 +645,46 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('保存している間は、シートを下に引いても閉じない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      final reply = backend.holdNextReply(TripRoute.timelineScenePatch);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await tester.tap(find.text('保存'));
+      await tester.pump();
+      await tester.drag(find.text('場面を編集'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('場面を編集'), findsOneWidget);
+
+      reply.complete();
+      await letFramesRun(tester);
+      expect(find.text('市場の朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('「保存」を続けて2回押しても、1回だけ保存して旅行詳細に戻る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      final reply = backend.holdNextReply(TripRoute.timelineScenePatch);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      // 2回目は、押せなくなった描き直しが届く前に押す
+      await tester.tap(find.text('保存'));
+      await tester.tap(find.text('保存'), warnIfMissed: false);
+      await tester.pump();
+      reply.complete();
+      await letFramesRun(tester);
+
+      // 旅行詳細のタイムラインのまま（2回目の応答で旅行詳細まで閉じない）
+      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('タイムライン'), findsOneWidget);
+      expect(find.text('市場の朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
+
     testWidgets('保存している間は、閉じられず「キャンセル」「保存」も押せない', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
