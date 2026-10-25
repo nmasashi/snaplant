@@ -17,10 +17,10 @@ import { ErrorCode, HttpStatusCode } from '../types/api';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 
 /**
- * タイムラインの下書きを読む API（状態と、確かめ中なら日と場面）
+ * タイムラインの下書きを読む API（状態と、確かめ中か文を書くのに失敗した下書きなら日と場面）
  * GET /api/trips/{tripId}/timeline/draft?code={FUNCTION_KEY}
  *
- * 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら。日と場面は確かめ中のときだけ組む（05 §5.15）
+ * 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら。日と場面は確かめ中と文を書くのに失敗したときだけ組む（05 §5.15）
  */
 export async function getTimelineDraftHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
