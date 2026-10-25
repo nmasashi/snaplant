@@ -818,6 +818,18 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe('見'.repeat(29));
     });
 
+    it('最初の1文字だけで上限を超える文は、空にせず AI の失敗にする', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+      // 結合文字を 31 個重ねた1文字（UTF-16 で 32 個分）。見出しの上限 30 に1文字も収まらない
+      const label = `a${String.fromCharCode(0x301).repeat(31)}`;
+      aiReturns({ ...allTexts, scenes: [{ start: 0, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedTimeline()!.current).toBeNull();
+      expect(storedTimeline()!.draft!.job).toEqual(writingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }));
+    });
+
     it.each<[string, string, string]>([
       // 家族の絵文字は 👨・👩・👧 を結合子でつないだ1文字。途中で切ると 👨 だけが残る
       ['結合した絵文字', `${'見'.repeat(28)}👨‍👩‍👧`, '見'.repeat(28)],
