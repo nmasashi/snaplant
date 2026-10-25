@@ -180,7 +180,7 @@ Future<void> resetSettingsAndGoBack(WidgetTester tester) async {
   await tester.tap(find.byIcon(Icons.settings));
   await letFramesRun(tester);
   await resetSettingsOnScreen(tester);
-  await tester.tap(find.byIcon(Icons.arrow_back));
+  await tapBack(tester);
   await letFramesRun(tester);
 }
 

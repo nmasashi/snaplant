@@ -82,7 +82,7 @@ void main() {
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
@@ -100,7 +100,7 @@ void main() {
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
@@ -155,7 +155,7 @@ void main() {
     expect(find.text('設定'), findsOneWidget);
     secureStorage.failReads = true;
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
@@ -168,7 +168,7 @@ void main() {
     await clearSavedEndpoint(tester);
     await openApp(tester);
     // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('API設定が完了していません'), findsOneWidget);
     await tester.tap(find.text('設定を開く'));
@@ -176,7 +176,7 @@ void main() {
     expect(find.text('設定'), findsOneWidget);
     secureStorage.failReads = true;
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);

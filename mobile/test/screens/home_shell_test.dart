@@ -54,7 +54,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings));
     await letFramesRun(tester);
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.descendant(of: find.byType(AppBar), matching: find.text('旅行')), findsOneWidget);
