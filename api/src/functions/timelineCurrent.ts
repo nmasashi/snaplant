@@ -258,7 +258,12 @@ function withEdits<T extends object>(text: T, edits: Partial<Record<string, stri
 
 /** 実在する日付か（YYYY-MM-DD の形で、暦にある日） */
 function isValidDate(date: string): boolean {
-  return TIMELINE_VALIDATION.DATE_REGEX.test(date) && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
+  if (!TIMELINE_VALIDATION.DATE_REGEX.test(date)) {
+    return false;
+  }
+  // 13 月などは Date が無効になる（toISOString が投げる）。2 月 30 日などは翌月にずれるので、戻した日付と比べる
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 }
 
 app.http('postTimelineRecut', {
