@@ -164,12 +164,11 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
   Future<void> _discard() async {
-    // 完成版があれば、作り直し（区切りの直し）をやめて完成版に戻る（§8.3）
-    final confirmed = await (_overview?.timeline?.current == null
-        ? confirmDiscardTimeline(context)
-        : confirmTimelineAction(context,
-            message: '作り直しをやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる'));
-    if (!confirmed || !mounted) return;
+    if (!await confirmDiscardTimeline(context,
+            hasCurrent: _overview?.timeline?.current != null) ||
+        !mounted) {
+      return;
+    }
     await _send(() async {
       await widget.apiService.discardTimelineDraft(widget.tripId);
       if (!mounted) return;
