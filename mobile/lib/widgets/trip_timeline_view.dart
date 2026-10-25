@@ -199,12 +199,16 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 写真を読み、写真ビューアでその1枚を開く。閉じたらタイムラインを読み直す（ビューアで消した・直したことを出す。§8.3）
   Future<void> _openPhoto(TimelinePhoto photo) async {
+    // 写真を読んでいる間は、ほかのタップと操作を受け付けない（写真ビューアや確認画面を重ねて開かない。§8.3）
+    if (_sending) return;
+    setState(() => _sending = true);
     final Photo loaded;
     try {
       loaded = await widget.apiService.getPhoto(photo.id);
     } catch (e) {
       debugPrint('TripTimelineView: 写真の読み込みエラー: $e');
       if (!mounted) return;
+      setState(() => _sending = false);
       final messenger = ScaffoldMessenger.of(context);
       if (e is ApiException && e.isPhotoNotFound) {
         messenger.showSnackBar(const SnackBar(content: Text('この写真は削除されています')));
@@ -216,6 +220,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       return;
     }
     if (!mounted) return;
+    setState(() => _sending = false);
     final photos = ValueNotifier<List<Photo>>([loaded]);
     await Navigator.push(
       context,
@@ -329,7 +334,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       pendingPhotoCount: overview.pendingPhotoCount,
       onRecut: _sending ? null : _recut,
       onRebuild: _sending ? null : _rebuild,
-      onOpenPhoto: _openPhoto,
+      onOpenPhoto: _sending ? null : _openPhoto,
       banner: draft == null ? null : _buildRebuildBanner(draft),
     );
   }
