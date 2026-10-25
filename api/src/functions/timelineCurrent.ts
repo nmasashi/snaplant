@@ -206,7 +206,9 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       }
       edited = { ...current, sceneTexts: { ...current.sceneTexts, [key]: withEdits(current.sceneTexts[key], edits.values) } };
     }
-    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
+    // 文が変わらなければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。残せなかった文を閉じるのと同じ）
+    const changed = JSON.stringify(edited) !== JSON.stringify(current);
+    if (changed && !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
       return createTimelineStateConflict();
     }
     // 画面は直した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
