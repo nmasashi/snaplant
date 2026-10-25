@@ -336,6 +336,57 @@ void main() {
       expect(find.text('区切りの案ができました'), findsNothing);
     });
 
+    testWidgets('読み直しの応答を待つ間に「捨てる」を押したら、遅れて届いた応答が段の変化を伝えても、捨てた下書きを出さない',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      // 読み直しの応答は「確かめ待ち」で決まり、届くのを止める
+      backend.timelinesByTripId[hokkaidoTripId] =
+          _timeline(draft: _draft('reviewing'));
+      final draftHold = backend.holdNextReply(TripRoute.timelineDraft);
+      await _waitForPoll(tester);
+
+      // 「捨てる」の後の読み直し（何も無い）も、届くのを止める
+      final reloadHold = backend.holdNextReply(TripRoute.timeline);
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '捨てる');
+      // 遅れて届いた読み直しが続けて読むタイムラインは、読めない
+      backend.failNext(TripRoute.timeline);
+      draftHold.complete();
+      await letFramesRun(tester);
+      reloadHold.complete();
+      await letFramesRun(tester);
+
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
+      expect(find.text('区切りの案を作っています'), findsNothing);
+    });
+
+    testWidgets('操作の後の読み直しに失敗してエラーを出したら、遅れて届いた下書きの読み直しでエラーを消さない',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      final draftHold = backend.holdNextReply(TripRoute.timelineDraft);
+      await _waitForPoll(tester);
+
+      backend.failNext(TripRoute.timelineDraftDelete,
+          status: 409,
+          code: 'TIMELINE_STATE_CONFLICT',
+          message: 'タイムラインが変わったか、作っている途中です。読み直してください');
+      backend.failNext(TripRoute.timeline);
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '捨てる');
+      expect(find.text('エラーが発生しました'), findsOneWidget);
+
+      draftHold.complete();
+      await letFramesRun(tester);
+      expect(find.text('エラーが発生しました'), findsOneWidget);
+      expect(find.text('区切りの案を作っています'), findsNothing);
+    });
+
     testWidgets('「写真」に戻すと、下書きの読み直しを止める', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
