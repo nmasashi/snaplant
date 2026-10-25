@@ -244,11 +244,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Widget _buildDraft(TimelineDraftStatus draft) {
     final discard = OutlinedButton(
         onPressed: _sending ? null : _discard, child: const Text('やめる'));
+    // 失敗した段をやり直す
+    Widget retry(Future<void> Function() send) => ElevatedButton(
+        onPressed: _sending ? null : send, child: const Text('もう一度'));
     if (draft.phase == 'writing') {
       if (draft.isFailed) {
         return _StatusView(title: '見出しと一言を書けませんでした', actions: [
-          ElevatedButton(
-              onPressed: _sending ? null : _write, child: const Text('もう一度')),
+          retry(_write),
           discard,
         ]);
       }
@@ -263,8 +265,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     if (draft.isFailed) {
       return _StatusView(title: '区切りの案を作れませんでした', actions: [
-        ElevatedButton(
-            onPressed: _sending ? null : _create, child: const Text('もう一度')),
+        retry(_create),
         discard,
       ]);
     }
