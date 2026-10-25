@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'message_view.dart';
+import 'timeline_current_view.dart';
 import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
@@ -250,8 +251,12 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
     if (draft != null) return _buildDraft(draft);
-    // 完成版の表示は段階5の 5-4 で入れる。それまでの仮の案内
-    return const Center(child: Text('タイムラインができました'));
+    return TimelineCurrentView(
+      current: timeline.current!,
+      pendingPhotoCount: overview.pendingPhotoCount,
+      onRecut: () {},
+      onRebuild: () {},
+    );
   }
 
   /// 完成版も下書きも無い（§8.2 の1・2行目）

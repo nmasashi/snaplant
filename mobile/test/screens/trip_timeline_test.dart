@@ -49,7 +49,7 @@ Map<String, Object?> _draft(String phase,
       'startedAt': '2026-10-25T09:00:00.000Z',
     };
 
-/// 完成版（中身は 5-4 で出す。5-3a では有る・無いだけを見る。完成版だけのときの「タイムラインができました」は、5-4 で §8.3 の表示に置き換える仮の案内）
+/// 完成版（中身の表示は timeline_current_test.dart が見る。ここでは日の無い形で、完成版を出したことだけを見る）
 const _current = {
   'writtenAt': '2026-10-25T09:10:00.000Z',
   'days': <Object?>[],
@@ -416,7 +416,7 @@ void main() {
       expect(backend.timelineDraftReadsReceived, 1);
     });
 
-    testWidgets('文を書いている間は、3つの段と「見出しと一言を書いています」を出し、書き終えたら読み直して完成版の仮の案内を出す',
+    testWidgets('文を書いている間は、3つの段と「見出しと一言を書いています」を出し、書き終えたら読み直して完成版を出す',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('writing', step: 'write')));
@@ -433,7 +433,7 @@ void main() {
       backend.timelinesByTripId[hokkaidoTripId] = _timeline(current: _current);
       await _waitForPoll(tester);
       expect(find.text('見出しと一言を書いています'), findsNothing);
-      expect(find.text('タイムラインができました'), findsOneWidget);
+      expect(find.text('作り直す'), findsOneWidget);
     });
 
     testWidgets(
