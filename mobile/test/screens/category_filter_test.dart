@@ -147,7 +147,7 @@ void main() {
       await tester.tap(_chip('食べ物'));
       await letFramesRun(tester);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       await tester.tap(find.text('北海道 2026秋'));
       await letFramesRun(tester);

@@ -104,7 +104,7 @@ void main() {
       expect(photoThumbnail('2026年10月5日 10:01'), findsNothing);
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       await tester.tap(find.text('北海道 2026秋'));
       await letFramesRun(tester);
@@ -409,7 +409,7 @@ void main() {
       await _waitForPoll(tester);
       expect(backend.timelineDraftReadsReceived, 1);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       await _waitForPoll(tester);
       await _waitForPoll(tester);

@@ -483,7 +483,7 @@ void main() {
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(find.bySemanticsLabel('$_takenAt、分類中'), findsOneWidget);

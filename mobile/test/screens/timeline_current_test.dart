@@ -390,7 +390,7 @@ void main() {
         'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
         'startedAt': '2026-10-26T09:00:00.000Z',
       });
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
       semantics.dispose();
@@ -408,7 +408,7 @@ void main() {
       reply.complete();
       await letFramesRun(tester);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       expect(find.text('2026年10月5日 07:58'), findsNothing);
       expect(find.text('朝ごはん'), findsOneWidget);
@@ -717,7 +717,7 @@ void main() {
       expect(_button(tester, '保存').onPressed, isNull);
       expect(_button(tester, 'キャンセル').onPressed, isNull);
       // 端末の戻る操作（Android の戻るジェスチャーと同じ経路で PopScope を通る）。
-      // pageBack() はシートの下の旅行詳細の戻るボタンを狙い、実際はシートの外の幕に当たってしまう
+      // 画面の戻るボタン（tapBack）はシートの下の旅行詳細の戻るボタンを狙い、実際はシートの外の幕に当たってしまう
       await tester.binding.handlePopRoute();
       // 閉じていくシートも、閉じ終えるまでは見つかる。閉じ終えるだけの時間を進めてから見る
       await letFramesRun(tester);
@@ -932,7 +932,7 @@ void main() {
       // 写真ビューアを開いて閉じると、同じ表示のままタイムラインを読み直す（§8.3）
       await tester.tap(photoThumbnail('2026年10月5日 07:58'));
       await letFramesRun(tester);
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       expect(find.text('作った後に写真が 3 枚増えました。今のタイムラインには入っていません。'), findsOneWidget);
       semantics.dispose();

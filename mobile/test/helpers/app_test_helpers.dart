@@ -35,6 +35,14 @@ Future<void> openApp(WidgetTester tester,
   await letFramesRun(tester);
 }
 
+/// 画面の左上の戻るボタンを押す。
+/// `tester.pageBack()` は英語の「Back」の吹き出しで探すので、日本語の設定のアプリでは見つからない
+Future<void> tapBack(WidgetTester tester) async {
+  final backButton = find.byType(BackButton);
+  expect(backButton, findsOneWidget, reason: '戻るボタンが1つだけ出ているはず');
+  await tester.tap(backButton);
+}
+
 /// 読み込み中のスピナーで pumpAndSettle が終わらないため、pump で数フレーム進める。
 /// 画面遷移のアニメーションや非同期の設定の読み出しが終わるまで繰り返す
 Future<void> letFramesRun(WidgetTester tester) async {
