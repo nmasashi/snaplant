@@ -1,13 +1,12 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
-import '../utils/photo_cache_manager.dart';
-import '../utils/taken_at.dart';
+import '../utils/timeline_format.dart';
 import '../widgets/message_view.dart';
 import '../widgets/timeline_confirm_dialog.dart';
+import '../widgets/timeline_thumbnail.dart';
 
 /// 区切りの確認画面（docs/03_screen_design.md §8.4）
 ///
@@ -129,7 +128,12 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから下書きをやめ、旅行詳細に戻る（§8.2 と同じダイアログ）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context) || !mounted) return;
+    // この画面は完成版を読まない。作り直し・区切りの直しの下書きなら完成版がある（作る受付が完成版の有無で create / rebuild を決める）
+    if (!await confirmDiscardTimeline(context,
+            hasCurrent: (_draft?.reason ?? 'create') != 'create') ||
+        !mounted) {
+      return;
+    }
     await _sendAndClose(
         () => widget.apiService.discardTimelineDraft(widget.tripId));
   }
@@ -271,7 +275,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         children: [
           Text('${day.dayNumber}日目', style: AppTextStyles.headline3),
           const SizedBox(width: 8),
-          Text(_dateLabel(day.date),
+          Text(timelineDateLabel(day.date),
               style:
                   AppTextStyles.body2.copyWith(color: AppColors.textSecondary)),
         ],
@@ -324,28 +328,9 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             onLongPress: scene == null || index == 0 || _sending
                 ? null
                 : () => _showPhotoMenu(scene, photo),
-            child: _buildThumbnail(photo),
+            child: TimelineThumbnail(photo: photo),
           ),
       ],
-    );
-  }
-
-  Widget _buildThumbnail(TimelinePhoto photo) {
-    return Semantics(
-      label: formatTakenAt(photo.takenAt),
-      container: true,
-      child: CachedNetworkImage(
-        imageUrl: photo.thumbnailUrl,
-        cacheKey: thumbnailCacheKey(photo.id),
-        cacheManager: PhotoCacheManager.thumbnails,
-        // サムネイルが無い写真は原寸の URL が来るので、マスの大きさに縮めて読む
-        memCacheWidth: 200,
-        fit: BoxFit.cover,
-        placeholder: (context, url) =>
-            const ColoredBox(color: AppColors.surfaceVariant),
-        errorWidget: (context, url, error) =>
-            const ColoredBox(color: AppColors.surfaceVariant),
-      ),
     );
   }
 
@@ -379,27 +364,11 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   }
 }
 
-/// 日の日付の表記「10月5日（月）」（日付は文字列の暦の日。端末のタイムゾーンに直さない）
-String _dateLabel(String date) {
-  final day = DateTime.utc(int.parse(date.substring(0, 4)),
-      int.parse(date.substring(5, 7)), int.parse(date.substring(8, 10)));
-  const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
-  return '${day.month}月${day.day}日（${weekdays[day.weekday - 1]}）';
-}
-
 /// 場面のカードの見出し「7:50〜7:58 · 北海道千歳市 · 2枚」（時刻は1枚なら1つ。地名が無ければ省く）
 String _sceneLabel(TimelineScene scene) {
-  final photos = scene.photos;
-  final first = _clock(photos.first.takenAt!);
-  final time =
-      photos.length == 1 ? first : '$first〜${_clock(photos.last.takenAt!)}';
   return [
-    time,
+    timelineTimeRange(scene.photos),
     if (scene.placeNames.isNotEmpty) scene.placeNames.join('、'),
-    '${photos.length}枚',
+    '${scene.photos.length}枚',
   ].join(' · ');
 }
-
-/// 撮影時刻「7:50」（撮影日時の文字列から。タイムゾーンを変換しない）
-String _clock(String takenAt) =>
-    '${int.parse(takenAt.substring(11, 13))}:${takenAt.substring(14, 16)}';

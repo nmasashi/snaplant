@@ -333,6 +333,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           Expanded(
             child: TripTimelineView(
               apiService: widget.apiService,
+              uploadQueue: widget.uploadQueue,
               tripId: trip.id,
               onTripNotFound: _markTripDeleted,
             ),

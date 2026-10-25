@@ -19,6 +19,7 @@ import {
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, UNFINISHED_PROCESSING_STATES, timelineDayStartHour } from '../constants/album';
+import { GRAPHEMES } from '../utils/graphemes';
 
 /**
  * タイムラインを作る・作り直す API（区切り案の下書きを作って、キューに積む。区切り案はワーカーが後で出す）
@@ -127,7 +128,13 @@ function snapshotPhotosOf(rows: TimelinePhotoRow[]): TimelinePhotoSnapshot[] {
       category: row.category,
       name: identification?.matchesKind === true && typeof identification.name === 'string' ? identification.name : null,
       placeName: row.location?.placeName ?? null,
-      comment: row.comment === null ? null : row.comment.slice(0, TIMELINE_SNAPSHOT_COMMENT_LENGTH),
+      // 文字は見た目の1文字（書記素）で数える。UTF-16 やコードポイントの単位で切ると、絵文字・国旗・つないだ絵文字の一部だけが残る
+      comment:
+        row.comment === null
+          ? null
+          : Array.from(GRAPHEMES.segment(row.comment), ({ segment }) => segment)
+              .slice(0, TIMELINE_SNAPSHOT_COMMENT_LENGTH)
+              .join(''),
       blobName: row.blobName,
       thumbnailBlobName: row.thumbnailBlobName,
     };

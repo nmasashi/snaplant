@@ -19,29 +19,55 @@ class TimelineOverview {
 
   /// 下書きを [draft] に替えたもの（作る・文を書く受付の応答で、読み直さずに表示を進める）
   TimelineOverview withDraft(TimelineDraftStatus draft) => TimelineOverview(
-        timeline: TripTimeline(
-            hasCurrent: timeline?.hasCurrent ?? false, draft: draft),
+        timeline: TripTimeline(current: timeline?.current, draft: draft),
         pendingPhotoCount: pendingPhotoCount,
       );
 }
 
 /// タイムライン（完成版と下書き）
 class TripTimeline {
-  /// 完成版があるか（完成版の中身は段階5の 5-4 で読む）
-  final bool hasCurrent;
+  /// 完成版。下書きだけのときは null
+  final TimelineCurrent? current;
 
   /// 下書き（作っている途中・確かめ待ち・失敗）。無ければ null
   final TimelineDraftStatus? draft;
 
-  const TripTimeline({required this.hasCurrent, required this.draft});
+  const TripTimeline({required this.current, required this.draft});
 
   factory TripTimeline.fromJson(Map<String, dynamic> json) {
     final draft = json['draft'] as Map<String, dynamic>?;
+    final current = json['current'] as Map<String, dynamic>?;
     return TripTimeline(
-      hasCurrent: json['current'] != null,
+      current: current == null ? null : TimelineCurrent.fromJson(current),
       draft: draft == null ? null : TimelineDraftStatus.fromJson(draft),
     );
   }
+}
+
+/// 完成版（`current`。docs/05_api_design.md §5.15）
+class TimelineCurrent {
+  /// 文を書き終えた時刻（UTC の ISO 8601。画面は端末の時刻で出す）
+  final String writtenAt;
+  final List<TimelineDay> days;
+
+  /// 撮影日時の無い写真
+  final List<TimelinePhoto> undatedPhotos;
+
+  const TimelineCurrent(
+      {required this.writtenAt,
+      required this.days,
+      required this.undatedPhotos});
+
+  factory TimelineCurrent.fromJson(Map<String, dynamic> json) =>
+      TimelineCurrent(
+        writtenAt: json['writtenAt'] as String,
+        days: (json['days'] as List<dynamic>)
+            .map((e) => TimelineDay.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        undatedPhotos: (json['undatedPhotos'] as List<dynamic>)
+            .map((e) => TimelinePhoto.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
 }
 
 /// 下書きの状態（`draft` の `id`・`reason`・`phase`・`job`・`startedAt`）
@@ -119,8 +145,20 @@ class TimelineDay {
   final int dayNumber;
   final List<TimelineScene> scenes;
 
+  /// 日のタイトルとまとめ（完成版だけ。文が無ければ null）と、書いた主（`ai` / `user`）
+  final String? title;
+  final String? titleSource;
+  final String? summary;
+  final String? summarySource;
+
   const TimelineDay(
-      {required this.date, required this.dayNumber, required this.scenes});
+      {required this.date,
+      required this.dayNumber,
+      required this.scenes,
+      this.title,
+      this.titleSource,
+      this.summary,
+      this.summarySource});
 
   factory TimelineDay.fromJson(Map<String, dynamic> json) => TimelineDay(
         date: json['date'] as String,
@@ -128,6 +166,10 @@ class TimelineDay {
         scenes: (json['scenes'] as List<dynamic>)
             .map((e) => TimelineScene.fromJson(e as Map<String, dynamic>))
             .toList(),
+        title: json['title'] as String?,
+        titleSource: json['titleSource'] as String?,
+        summary: json['summary'] as String?,
+        summarySource: json['summarySource'] as String?,
       );
 }
 
@@ -142,10 +184,24 @@ class TimelineScene {
   /// 地名（重なりを除いて撮影の順）
   final List<String> placeNames;
 
+  /// 写真の識別の名前（重なりを除いて撮影の順）
+  final List<String> names;
+
+  /// 食べ物の写真がある場面か（見出しの印の色）
+  final bool hasFood;
+
+  /// 場面の見出しと一言（完成版だけ。文が無ければ null）
+  final String? label;
+  final String? note;
+
   const TimelineScene(
       {required this.startPhotoId,
       required this.photos,
-      required this.placeNames});
+      required this.placeNames,
+      required this.names,
+      required this.hasFood,
+      this.label,
+      this.note});
 
   factory TimelineScene.fromJson(Map<String, dynamic> json) => TimelineScene(
         startPhotoId: json['startPhotoId'] as String,
@@ -153,6 +209,10 @@ class TimelineScene {
             .map((e) => TimelinePhoto.fromJson(e as Map<String, dynamic>))
             .toList(),
         placeNames: (json['placeNames'] as List<dynamic>).cast<String>(),
+        names: (json['names'] as List<dynamic>).cast<String>(),
+        hasFood: json['hasFood'] as bool,
+        label: json['label'] as String?,
+        note: json['note'] as String?,
       );
 }
 

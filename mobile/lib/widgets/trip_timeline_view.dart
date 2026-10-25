@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
+import '../models/photo.dart';
+import '../screens/photo_viewer_screen.dart';
 import '../screens/timeline_review_screen.dart';
 import '../services/api_service.dart';
+import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'message_view.dart';
+import 'timeline_current_view.dart';
 import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
@@ -16,10 +20,14 @@ class TripTimelineView extends StatefulWidget {
   const TripTimelineView(
       {super.key,
       required this.apiService,
+      required this.uploadQueue,
       required this.tripId,
       required this.onTripNotFound});
 
   final ApiService apiService;
+
+  /// 写真の送信の列（写真ビューアに渡す）
+  final UploadQueue uploadQueue;
   final String tripId;
 
   /// 旅行が既に無いと分かった（旅行詳細が「この旅行は削除されています」にする。写真の一覧と同じ）
@@ -38,7 +46,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   String? _errorMessage;
   // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
-  // 操作（作る・もう一度・やめる）を送っている間は、操作のボタンを押せなくする（二重に送らない。§8.1）
+  // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
+  // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
   bool _sending = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
@@ -156,12 +165,87 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context) || !mounted) return;
+    if (!await confirmDiscardTimeline(context,
+            hasCurrent: _overview?.timeline?.current != null) ||
+        !mounted) {
+      return;
+    }
     await _send(() async {
       await widget.apiService.discardTimelineDraft(widget.tripId);
       if (!mounted) return;
       await _load(showLoading: false);
     });
+  }
+
+  /// 完成版の区切りを直し始め、受け付けたら区切りの確認画面を開く（§8.3）
+  Future<void> _recut() => _send(() async {
+        await widget.apiService.recutTimeline(widget.tripId);
+        if (!mounted) return;
+        await _review();
+      });
+
+  /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
+  Future<void> _rebuild() async {
+    if (!await confirmTimelineAction(context,
+            title: 'タイムラインを作り直しますか？',
+            message:
+                '今の写真で区切りの案を出し直し、確認した後に見出しと一言を書き直します。書き終えるまでは今のタイムラインのままです。手で直した文と区切りは、同じ日・同じ場面なら残ります。',
+            confirmLabel: '作り直す') ||
+        !mounted) {
+      return;
+    }
+    await _create();
+  }
+
+  /// 写真を読み、写真ビューアでその1枚を開く。閉じたらタイムラインを読み直す（ビューアで消した・直したことを出す。§8.3）
+  Future<void> _openPhoto(TimelinePhoto photo) async {
+    if (_sending) return;
+    // 写真を読む間も操作と同じに扱う（前に始めた読み直しの応答を使わず、ほかのタップと操作を受け付けない。§8.1・§8.3）
+    final generation = ++_generation;
+    _pollTimer?.cancel();
+    setState(() => _sending = true);
+    Photo? loaded;
+    try {
+      loaded = await widget.apiService.getPhoto(photo.id);
+    } catch (e) {
+      debugPrint('TripTimelineView: 写真の読み込みエラー: $e');
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      if (e is ApiException && e.isPhotoNotFound) {
+        messenger.showSnackBar(const SnackBar(content: Text('この写真は削除されています')));
+        await _load(showLoading: false);
+        return;
+      }
+      messenger.showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+    if (!mounted) return;
+    if (loaded == null) {
+      // 表示はそのまま。作っている途中の下書きなら読み直しを続ける
+      if (generation == _generation) _schedulePoll();
+      return;
+    }
+    final photos = ValueNotifier<List<Photo>>([loaded]);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PhotoViewerScreen(
+          apiService: widget.apiService,
+          uploadQueue: widget.uploadQueue,
+          photos: photos,
+          initialIndex: 0,
+          onReachEnd: () {},
+          hasMore: () => false,
+          onDeleted: (_) => photos.value = const [],
+          onUpdated: (updated) => photos.value = [updated],
+        ),
+      ),
+    );
+    photos.dispose();
+    if (!mounted) return;
+    await _load(showLoading: false);
   }
 
   /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
@@ -249,9 +333,16 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     final timeline = overview.timeline;
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
-    if (draft != null) return _buildDraft(draft);
-    // 完成版の表示は段階5の 5-4 で入れる。それまでの仮の案内
-    return const Center(child: Text('タイムラインができました'));
+    final current = timeline.current;
+    if (current == null) return _buildDraft(draft!);
+    return TimelineCurrentView(
+      current: current,
+      pendingPhotoCount: overview.pendingPhotoCount,
+      onRecut: _sending ? null : _recut,
+      onRebuild: _sending ? null : _rebuild,
+      onOpenPhoto: _sending ? null : _openPhoto,
+      banner: draft == null ? null : _buildRebuildBanner(draft),
+    );
   }
 
   /// 完成版も下書きも無い（§8.2 の1・2行目）
@@ -267,6 +358,49 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       ],
       note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
+    );
+  }
+
+  /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
+  Widget _buildRebuildBanner(TimelineDraftStatus draft) {
+    final discard = OutlinedButton(
+        onPressed: _sending ? null : _discard, child: const Text('やめる'));
+    Widget review(String label) => OutlinedButton(
+        onPressed: _sending ? null : _review, child: Text(label));
+    Widget retry(Future<void> Function() send) => ElevatedButton(
+        onPressed: _sending ? null : send, child: const Text('もう一度'));
+    final (String title, List<Widget> actions) = switch (draft.phase) {
+      'writing' when draft.isFailed => (
+          '見出しと一言を書き直せませんでした',
+          [retry(_write), review('区切りを確認する'), discard]
+        ),
+      'writing' => ('見出しと一言を書き直しています', const <Widget>[]),
+      'reviewing' when draft.reason == 'recut' => (
+          '区切りを直している途中です',
+          [review('続ける'), discard]
+        ),
+      'reviewing' => ('作り直しの区切りの案ができました', [review('区切りを確認する'), discard]),
+      _ when draft.isFailed => (
+          '作り直しの区切りの案を作れませんでした',
+          [retry(_create), discard]
+        ),
+      _ => ('作り直しの区切りの案を作っています', [discard]),
+    };
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: AppTextStyles.body1),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: actions),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

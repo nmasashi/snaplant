@@ -784,6 +784,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 1〜4 のどれかで返すときは何も書かない
 - 4 は控えで見るので、控えを取った後に消えた写真の id も区切りに使える（表示では消えた写真を出さず、場面の `startPhotoId` はその id のまま）
 - 各日の最初の写真（日は下書きの `dayStartHour` で分ける）が入っていなければ、補って保存する（場面は日をまたがない。5-3b）。区切りの確認の画面は写真が全部消えた日や場面を見ず、その区切りを送れないため（以前は 400 にしていて、日の最初の場面の写真を全部消すと区切りを直せなくなった）
+- 同じく、今の下書きの区切りのうち、その場面の写真が全部消えている（旅行に今は無い）区切りも、送られなければ補う（5-4a）。補わないと、見えない場面の写真が前の場面に混ざり、文を書くときに前の場面と日の文を引き継げなくなる（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。
+  ただし、同じ日でその次にある見える場面（今もある写真を含む場面）の区切りが送られていない（利用者がその場面を前の場面とつなげた）ときは補わない（補うと、つなげた場面が見えない場面に付く）。同じ日にその後の見える場面が無ければ補う。場面の分け方（どの区切りが見えない場面か）は、今の下書きの `sceneStarts` と各日の最初の写真で見る
 - 応答の `draft` は `GET …/timeline/draft` の確かめ中と同じ形（状態に、保存した区切りで組んだ `days` と `undatedPhotos`。控えを取った後に消えた写真は出さない）
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの区切りの保存に失敗しました`（§7.2）
@@ -927,11 +929,11 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `deleteTrip(tripId, {required bool deletePhotos})` | `DELETE /api/trips/{tripId}?deletePhotos=` | `data['deletedPhotoCount']`・`data['detachedPhotoCount']` |
 | `uploadPhoto(...)` | `POST /api/photos` | `data['photo']`（`urlExpiresAt` と 201 / 200 の区別は読まない。200（別の場所）は、呼び出し側の `UploadQueue` が応答の `photo.tripId` と送った `tripId` を比べて判断する。区別が要らないので、201 / 200 を返す目標は 2026-10-15 に外した） |
 | `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。`continuationToken` は省略でき、`tripId` は必須（`required`。省くとコンパイルできない）。渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`。`category` は旅行の中の絞り込み（API は `tripId` を省いて `category` だけでも取れるが、アプリはその形で呼ばない。カテゴリ横断画面は 2026-10-24 に消した。[03 §5.2](./03_screen_design.md#52-カテゴリ横断画面削除した)）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b）。呼び出し側の `PhotoGrid` は、読む先（`loadPage`）が無ければ `tripId` を渡す（`tripId` も読む先も無い `PhotoGrid` は、デバッグ版では `assert` が組み立てたところで止め、リリース版では読み込みの失敗になる） |
-| `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']` |
-| `getTimeline(tripId)` | `GET /api/trips/{tripId}/timeline` | `data['timeline']`（null 可）・`data['pendingPhotoCount']`（段階5）。**実装済み**（5-3a。`models/timeline.dart` の `TimelineOverview`）: `timeline` の `current` は有る・無いだけを読み（中身は 5-4）、`draft` は状態（下の `getTimelineDraft` と同じ）。`changes`・`droppedEdits`・`urlExpiresAt` は読まない |
-| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` は読まない。区切りを確かめられる下書きの `days`（`date`・`dayNumber`・`scenes` の `startPhotoId`・`placeNames`・`photos`（`id`・`takenAt`・`thumbnailUrl`））と `undatedPhotos` は、あれば読む（5-3b。区切りの確認画面） |
+| `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']`。**実装済み**（5-4a。タイムラインのサムネイルから写真ビューアを開くとき。`urlExpiresAt` は読まない） |
+| `getTimeline(tripId)` | `GET /api/trips/{tripId}/timeline` | `data['timeline']`（null 可）・`data['pendingPhotoCount']`（段階5）。**実装済み**（5-3a。`models/timeline.dart` の `TimelineOverview`）: `draft` は状態（下の `getTimelineDraft` と同じ）。`changes`・`droppedEdits`・`urlExpiresAt` は読まない（`changes`・`droppedEdits` は 5-4b）。**`current` の中身は実装済み**（5-4a。`TimelineCurrent`。5-3a では有る・無いだけを読んでいた）: `writtenAt`・`days`・`undatedPhotos` を必須として読む。日は `getTimelineDraft` の `days` と同じ欄に加えて `title`・`titleSource`・`summary`・`summarySource`（null 可）、場面は同じ欄に加えて `label`・`note`（null 可。`labelSource`・`noteSource`・`startedBy`・`firstTakenAt`・`lastTakenAt` は読まない）。写真の `category`・`name`・`placeName` は読まない |
+| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` は読まない。区切りを確かめられる下書きの `days`（`date`・`dayNumber`・`scenes` の `startPhotoId`・`placeNames`・`names`・`hasFood`・`photos`（`id`・`takenAt`・`thumbnailUrl`））と `undatedPhotos` は、あれば読む（5-3b。区切りの確認画面。`names`・`hasFood` を必須として読むのは 5-4a から。完成版と同じ `TimelineDay`・`TimelineScene` で読むため、下書きにも要る） |
 | `createTimeline(tripId)` | `POST …/timeline` | `data['draft']`。**実装済み**（5-3a。読み方は `getTimelineDraft` と同じで、null は受け付けない） |
-| `recutTimeline(tripId)` | `POST …/timeline/recut` | `data['draft']` |
+| `recutTimeline(tripId)` | `POST …/timeline/recut` | `data['draft']`。**実装済み**（5-4a。読み方は `saveTimelineScenes` と同じ。画面は応答の下書きを使わず、区切りの確認画面が読み直す） |
 | `saveTimelineScenes(tripId, sceneStarts)` | `PUT …/timeline/draft/scenes` | `data['draft']`。**実装済み**（5-3b。読み方は `getTimelineDraft` と同じで、null は受け付けない）。ボディは `{ sceneStarts }`（渡したリストをそのまま。中身の決め方は [03 §8.4](./03_screen_design.md#84-区切りの確認画面)） |
 | `writeTimeline(tripId)` | `POST …/timeline/draft/write` | `data['draft']`。**実装済み**（5-3a。読み方は `createTimeline` と同じ） |
 | `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | 読まない（続けて `getTimeline` で読み直す）。**実装済み**（5-3a） |

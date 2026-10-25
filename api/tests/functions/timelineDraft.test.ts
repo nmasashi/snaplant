@@ -639,6 +639,58 @@ describe('タイムラインの下書きAPI', () => {
       expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual(saved);
     });
 
+    it('写真が全部消えた場面の区切りは、送られなくても残す（画面に見えない場面が前の場面に混ざり、文を引き継げなくならないように）', async () => {
+      // 1日目は a・b の場面と c の場面。控えを取った後に c を消したので、画面には c の場面が見えず、c の区切りを送れない
+      cosmosBackend.documents.delete(photoId('c'));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      // 2日目の e で区切りを足した
+      const response = await put({ sceneStarts: [photoId('a'), photoId('d'), photoId('e')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual([
+        photoId('a'),
+        photoId('c'),
+        photoId('d'),
+        photoId('e')
+      ]);
+    });
+
+    it('写真が全部消えた場面の次の場面を前の場面とつなげたら、消えた場面の区切りも外す（つなげた場面が見えない場面に付かないように）', async () => {
+      // 1日目は a・b・c の3つの場面。控えを取った後に b を消したので、画面には a と c の場面だけが見える
+      cosmosBackend.documents.delete(photoId('b'));
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(reviewing({ sceneStarts: [photoId('a'), photoId('b'), photoId('c'), photoId('d')] }))
+      );
+
+      // 画面で c の場面を a の場面とつなげた
+      const response = await put({ sceneStarts: [photoId('a'), photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual([photoId('a'), photoId('d')]);
+    });
+
+    it('写真が全部消えた場面の次の場面の区切りを残したまま送ったら、消えた場面の区切りも残す', async () => {
+      // 1日目は a・b・c の3つの場面。控えを取った後に b を消したので、画面には a と c の場面だけが見える
+      cosmosBackend.documents.delete(photoId('b'));
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(reviewing({ sceneStarts: [photoId('a'), photoId('b'), photoId('c'), photoId('d')] }))
+      );
+
+      // 画面の区切りをそのまま送った（c の場面はつなげていない）
+      const response = await put({ sceneStarts: [photoId('a'), photoId('c'), photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual([
+        photoId('a'),
+        photoId('b'),
+        photoId('c'),
+        photoId('d')
+      ]);
+    });
+
     it('応答の日と場面には、控えを取った後に消えた写真を出さない', async () => {
       // 控えを取った後に b を消した
       cosmosBackend.documents.delete(photoId('b'));
