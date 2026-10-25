@@ -2,7 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { AlbumService } from '../services/albumService';
 import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { datedDaysOf, draftStatusOf, reviewingDraftOf } from '../services/timelineView';
+import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import {
@@ -272,19 +272,13 @@ function hiddenStartsToKeep(
   existing: Set<string>,
   sent: Set<string>
 ): string[] {
-  const previous = new Set(previousStarts);
   const kept: string[] = [];
   for (const day of days) {
-    // 日の最初の写真と今の区切りで、日を場面に分ける（場面の最初の写真の id と、今も見える写真があるか）
-    const scenes: { start: string; visible: boolean }[] = [];
-    day.photos.forEach((photo, index) => {
-      if (index === 0 || previous.has(photo.id)) {
-        scenes.push({ start: photo.id, visible: false });
-      }
-      if (existing.has(photo.id)) {
-        scenes[scenes.length - 1].visible = true;
-      }
-    });
+    // 今の区切りで日を場面に分け（画面と同じ分け方）、場面の最初の写真の id と、今も見える写真があるかを見る
+    const scenes = scenesOfDay(day.photos, previousStarts).map((photos) => ({
+      start: photos[0].id,
+      visible: photos.some((photo) => existing.has(photo.id))
+    }));
     scenes.forEach((scene, index) => {
       if (scene.visible) {
         return;
