@@ -200,6 +200,50 @@ describe('タイムラインの下書きAPI', () => {
       });
     });
 
+    it('文を書くのに失敗した下書きは、確かめ中と同じく日と場面も返す（区切りの確認の画面で直してから書き直せる）', async () => {
+      placeSnapshot([snap('a', '2026-10-05T07:50:00'), snap('b', null, { category: 'other' })]);
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(
+          draftOf({
+            phase: 'writing',
+            sceneStarts: [photoId('a')],
+            job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:59:00.000Z' }
+          })
+        )
+      );
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.draft).toEqual({
+        id: DRAFT_ID,
+        reason: 'create',
+        phase: 'writing',
+        job: { step: 'write', state: 'failed', lastError: 'ai' },
+        startedAt: '2026-10-25T08:50:00.000Z',
+        days: [
+          {
+            date: '2026-10-05',
+            dayNumber: 1,
+            scenes: [
+              {
+                startPhotoId: photoId('a'),
+                startedBy: 'day',
+                hasFood: false,
+                firstTakenAt: '2026-10-05T07:50:00',
+                lastTakenAt: '2026-10-05T07:50:00',
+                placeNames: [],
+                names: [],
+                photos: [shown('a', '2026-10-05T07:50:00')]
+              }
+            ]
+          }
+        ],
+        undatedPhotos: [shown('b', null, { category: 'other' })]
+      });
+    });
+
     it('確かめ中の下書きは、日ごと・場面ごとに写真を並べて返す（日付の切り替えは朝4時、日時なしは最後）', async () => {
       placeSnapshot([
         // 1日目: 朝ごはん（AI の区切り）と午前（利用者が足した区切り）。深夜 2:30 の写真は前の日（1日目）に入る
