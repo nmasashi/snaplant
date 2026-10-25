@@ -406,6 +406,33 @@ class ApiService {
     }
   }
 
+  /// 完成版の日の文を直す（[changes] は `title`・`summary` のうち変えた欄。null なら AI の文に戻す）。直した後のタイムラインを返す
+  /// PATCH /api/trips/{tripId}/timeline/days/{date}
+  Future<TimelineOverview> updateTimelineDay(
+          String tripId, String date, Map<String, String?> changes) =>
+      _patchTimelineText('/api/trips/$tripId/timeline/days/$date', changes);
+
+  /// 完成版の場面の文を直す（[changes] は `label`・`note` のうち変えた欄。null なら AI の文に戻す）。直した後のタイムラインを返す
+  /// PATCH /api/trips/{tripId}/timeline/scenes/{photoId}
+  Future<TimelineOverview> updateTimelineScene(
+          String tripId, String photoId, Map<String, String?> changes) =>
+      _patchTimelineText(
+          '/api/trips/$tripId/timeline/scenes/$photoId', changes);
+
+  /// 文を直す PATCH を送り、応答（`GET …/timeline` と同じ形）を読む
+  Future<TimelineOverview> _patchTimelineText(
+      String path, Map<String, String?> changes) async {
+    try {
+      final url = _buildUrl(path);
+      final response = await _client.patch(Uri.parse(url),
+          headers: _headers, body: jsonEncode(changes));
+      return _parseResponse(response,
+          (json) => TimelineOverview.fromJson(json['data'] as Map<String, dynamic>));
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 応答の封筒から下書き（`data.draft`）を読む
   TimelineDraftStatus? _draftOf(Map<String, dynamic> json) {
     final draft = (json['data'] as Map<String, dynamic>)['draft']

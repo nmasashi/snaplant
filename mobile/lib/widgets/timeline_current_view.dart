@@ -16,6 +16,8 @@ class TimelineCurrentView extends StatelessWidget {
     required this.onRecut,
     required this.onRebuild,
     required this.onOpenPhoto,
+    required this.onEditDay,
+    required this.onEditScene,
     this.banner,
   });
 
@@ -32,6 +34,10 @@ class TimelineCurrentView extends StatelessWidget {
 
   /// サムネイルをタップした（写真ビューアで開く。§8.3）。null ならタップを受けない（写真を読んでいる間・操作を送っている間）
   final void Function(TimelinePhoto photo)? onOpenPhoto;
+
+  /// 日・場面の編集のボタン（§8.5）。null なら押せない（操作を送っている間）
+  final void Function(TimelineDay day)? onEditDay;
+  final void Function(TimelineScene scene)? onEditScene;
 
   /// 完成版の上に出す下書きの案内（§8.3）。あれば「区切りを直す」「作り直す」と解析中の枚数を出さない
   final Widget? banner;
@@ -109,6 +115,12 @@ class TimelineCurrentView extends StatelessWidget {
             const SizedBox(width: 8),
             Text(mark, style: AppTextStyles.caption),
           ],
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, semanticLabel: 'この日を編集'),
+            tooltip: 'この日を編集',
+            onPressed: onEditDay == null ? null : () => onEditDay!(day),
+          ),
         ],
       ),
       if (day.title != null) ...[
@@ -141,10 +153,10 @@ class TimelineCurrentView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (scene.label != null)
-              Row(
-                children: [
-                  // 食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）
+            Row(
+              children: [
+                // 見出しの印と見出し（見出しが無ければ出さない）。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）
+                if (scene.label != null) ...[
                   Icon(Icons.circle,
                       size: 10,
                       color:
@@ -154,8 +166,17 @@ class TimelineCurrentView extends StatelessWidget {
                       child: Text(scene.label!,
                           style: AppTextStyles.body1
                               .copyWith(fontWeight: FontWeight.bold))),
-                ],
-              ),
+                ] else
+                  const Spacer(),
+                IconButton(
+                  icon:
+                      const Icon(Icons.edit_outlined, semanticLabel: 'この場面を編集'),
+                  tooltip: 'この場面を編集',
+                  onPressed:
+                      onEditScene == null ? null : () => onEditScene!(scene),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(details, style: secondary),
             if (scene.note != null) ...[

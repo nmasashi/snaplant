@@ -11,6 +11,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'message_view.dart';
 import 'timeline_current_view.dart';
+import 'timeline_edit_sheet.dart';
 import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
@@ -248,6 +249,63 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     await _load(showLoading: false);
   }
 
+  /// 日の文を直す（§8.5）
+  Future<void> _editDay(TimelineDay day) => _edit(
+        title: '${day.dayNumber}日目を編集',
+        fields: [
+          TimelineEditField(
+              key: 'title', label: 'タイトル', maxLength: 40, initial: day.title),
+          TimelineEditField(
+              key: 'summary',
+              label: 'まとめ',
+              maxLength: 400,
+              initial: day.summary),
+        ],
+        save: (changes) => widget.apiService
+            .updateTimelineDay(widget.tripId, day.date, changes),
+      );
+
+  /// 場面の文を直す（§8.5）。場面は最初の写真の id で指す
+  Future<void> _editScene(TimelineScene scene) => _edit(
+        title: '場面を編集',
+        fields: [
+          TimelineEditField(
+              key: 'label', label: '見出し', maxLength: 30, initial: scene.label),
+          TimelineEditField(
+              key: 'note', label: '一言', maxLength: 200, initial: scene.note),
+        ],
+        save: (changes) => widget.apiService
+            .updateTimelineScene(widget.tripId, scene.startPhotoId, changes),
+      );
+
+  /// 編集シートを開き、保存できたら応答で描き直す。タイムラインが変わった・旅行が無いなら §8.1 のとおりに扱う
+  Future<void> _edit({
+    required String title,
+    required List<TimelineEditField> fields,
+    required Future<TimelineOverview> Function(Map<String, String?>) save,
+  }) async {
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) =>
+          TimelineEditSheet(title: title, fields: fields, onSave: save),
+    );
+    if (!mounted || result == null) return;
+    if (result is TimelineOverview) {
+      // 直した後の完成版で描き直す。前に始めた読み直しの応答は使わない（§8.1）
+      ++_generation;
+      _show(result);
+      return;
+    }
+    if (result is ApiException && result.isTripNotFound) {
+      widget.onTripNotFound();
+      return;
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
+    await _load(showLoading: false);
+  }
+
   /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
   Future<void> _review() async {
     await Navigator.push(
@@ -341,6 +399,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       onRecut: _sending ? null : _recut,
       onRebuild: _sending ? null : _rebuild,
       onOpenPhoto: _sending ? null : _openPhoto,
+      onEditDay: _sending ? null : _editDay,
+      onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildRebuildBanner(draft),
     );
   }
