@@ -90,7 +90,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
   void _show(TimelineOverview overview) {
-    _pollTimer?.cancel();
     // 出すものがあればエラーの表示は外す（build はエラーを先に見るので、残すと出したものが隠れる）
     setState(() {
       _overview = overview;
@@ -99,10 +98,12 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     _schedulePoll();
   }
 
-  /// 出している下書きが作っている途中なら、次の読み直しを予約する
+  /// 出している下書きが作っている途中なら、次の読み直しを予約する。
+  /// エラーを出している間は予約しない（読み直しの結果でエラーの表示が黙って消えないように。「再試行」で読み直す）
   void _schedulePoll() {
     _pollTimer?.cancel();
-    if (_overview?.timeline?.draft?.isWorking ?? false) {
+    if (_errorMessage == null &&
+        (_overview?.timeline?.draft?.isWorking ?? false)) {
       _pollTimer = Timer(_pollInterval, _poll);
     }
   }
@@ -145,9 +146,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 受け付けた下書きの状態（作る・書かせるの応答）で、読み直さずに表示を進める
   Future<void> _accept(Future<TimelineDraftStatus> Function(String) send) =>
-      _send((generation) async {
+      _send(() async {
         final draft = await send(widget.tripId);
-        if (!mounted || generation != _generation) return;
+        if (!mounted) return;
         _show(_overview!.withDraft(draft));
       });
 
@@ -168,7 +169,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await _send((_) async {
+    await _send(() async {
       await widget.apiService.discardTimelineDraft(widget.tripId);
       if (!mounted) return;
       await _load(showLoading: false);
@@ -176,13 +177,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインの操作を送る。送っている間は操作のボタンを押せなくし、失敗を §8.1 のとおりに扱う
-  Future<void> _send(Future<void> Function(int generation) operation) async {
+  Future<void> _send(Future<void> Function() operation) async {
     // 操作を始めたら、それより前に始めた読み直し・読み込みの応答は使わない（§8.1）
     final generation = ++_generation;
     _pollTimer?.cancel();
     setState(() => _sending = true);
     try {
-      await operation(generation);
+      await operation();
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの操作のエラー: $e');
       if (!mounted) return;
