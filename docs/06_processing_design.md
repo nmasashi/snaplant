@@ -386,7 +386,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 **実装済み**（5-1a）: 表の「キュー」「メッセージ」の投入する側（`services/timelineQueueService.ts`。`POST …/timeline` と再投入のタイマーが積む）、「再試行」の上限の共有、「止まったものの再投入」（`requeueStalePhotos.ts`）。
 **実装済み**（5-1b。`functions/processTimeline.ts`、結果の当て直しは `TimelineService.writeDraftResult()`、AI は `services/timelineProposerService.ts`）: 表の「ワーカー」「AI」（区切り案だけ）と、下の「担当・結果・失敗の書き込み」「何もせずに終える」「旅行が無い」を、`step: "propose"` の下書きについて。
-未実装: `step: "write"` の下書きの処理（5-2。今のワーカーは `write` の下書きを担当せず、何もせずに終える）。
+**実装済み**（5-2a。`functions/processTimeline.ts`、文は `services/timelineWriting.ts`・`services/timelineWriterService.ts`）: 表の「ワーカー」「AI」（文）と、下の「担当・結果・失敗の書き込み」「何もせずに終える」「旅行が無い」を、`step: "write"` の下書きについて（§8.3）。
 
 | 項目 | 値 | 理由 |
 |---|---|---|
@@ -423,29 +423,33 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 ### 8.3 文を書く（`step: "write"`）
 
+**実装済み**（5-2a。`services/timelineWriting.ts` の `writeDraftTexts()`・`assembleCurrent()`・`mergeDroppedEdits()`、AI の呼び出しと応答の検証は `services/timelineWriterService.ts`、場面の組み方は `services/timelineView.ts` の `scenesOfDay()`）。
+
 完成版（あれば）から文を引き継ぎ、下書きの区切りに文を書く。
 
-1. 下書きの区切りで、場面ごとの写真（控えにあって、撮影日時のあるもの）と、日ごとの区切りを求める
+1. 下書きの区切りで、場面ごとの写真（控えにあって、撮影日時のあるもの。控えを取った後に消えた写真も含める）と、日ごとの区切りを求める（日の分け方は下書きの `dayStartHour`。組み方は表示と同じ [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり）
 2. **引き継ぐ**: 完成版の文のうち、同じ場面（最初の写真が同じ）・同じ日（日付が同じ）のものを引き継ぐ
-   - 写真が完成版と同じ場面・区切りが完成版と同じ日は、文をそのまま使う（AI に書かせない）
+   - 写真が完成版と同じ場面（完成版の `sceneTexts` の `photoIds` と、写真も並びも同じ）・区切りが完成版と同じ日（`dayTexts` の `sceneStarts` と同じ）は、文をそのまま使う（AI に書かせない）
    - 写真や区切りが変わった場面・日は、AI に書かせる。そのうち書いた主が `user` の欄は、利用者の文を残し、AI の文（`aiLabel` など。利用者が空にしたときに戻す先）だけを新しくする
    - 完成版に無い場面・日（新しくできた）は、AI に書かせる
 3. **残せない文**: 完成版にあって下書きの区切りに無い場面（最初の写真が区切りでなくなった）・無い日の文のうち、書いた主が `user` のものを `droppedEdits` に足す（重なりは除く。`ai` のものは捨てる）
 4. 書かせるものが無ければ AI を呼ばずに 6 へ
 5. AI に書かせる（§8.4）。応答は `{ days: [{ date, title, summary }], scenes: [{ start, label, note }] }`（`start` は場面の最初の写真の番号）。
-   頼んだ日と場面がちょうど1回ずつあり、文字列が前後の空白を除いて空でないこと。違反は AI の失敗。上限（[05 §4](./05_api_design.md#4-入力検証の定数) の `TIMELINE_VALIDATION`）を超える文は上限で切り詰める
-6. 下書きを完成版に入れ替える（`current` = 下書きの控え・区切り ＋ 文、`writtenAt` を今に。`draft` を `null` に）。前の完成版の控えが使われなくなれば消す（失敗はログだけ）
+   `days`・`scenes` が配列で、頼んだ日と場面がちょうど1回ずつあり（頼んでいない日・場面、重なりがあれば違反。頼む日が無い呼び出しでは `days` は空）、文字列が前後の空白を除いて空でないこと。違反は AI の失敗。文は前後の空白を除き、上限（[05 §4](./05_api_design.md#4-入力検証の定数) の `TIMELINE_VALIDATION.MAX_LENGTH`。既定はタイトル 40・まとめ 400・見出し 30・一言 200 文字）を超える分は切り詰める（`aiTitle` などにも切り詰めた文を入れる）
+6. 下書きを完成版に入れ替える（`current` = 下書きの `snapshotId`・`dayStartHour`・`proposedStarts`・`sceneStarts` ＋ 文、`writtenAt` を今に。`draft` を `null` に。3 の残せなかった文を `droppedEdits` に足す）。結果の書き込みは読み直した文書に当て直す（§8.1）ので、引き継ぐ文・利用者の文・残せなかった文は、当てるたびに読み直した**最新の完成版**から取る（文を書いている間に利用者が完成版の文を直しても、直した後の文が残る）。
+   引き継ぐと決めた文が最新の完成版に無ければ（書いている間に完成版が変わった）内部の失敗（`"internal"`。§8.1 の「失敗」）として数え、キューの再試行で最初から書き直す。
+   前の完成版の控えが、下書きの控えと違えば（作り直し。`recut` は同じ控えを指すので消さない）消す（失敗はログだけで、入れ替えは済ませて例外を投げない。残っても旅行の削除で消える）
 
 ### 8.4 AI に渡すもの
 
 **実装済み**（5-1b。`services/timelineProposerService.ts`・`services/timelineProposal.ts`）: 表とプロンプトの要素と呼び出しの細部の「区切り案」の分、要求の形。
-未実装: 「文」の分（5-2。`TIMELINE_WRITE_MAX_TOKENS` もまだ無い）。
+**実装済み**（5-2a。`services/timelineWriterService.ts`・`services/timelineWriting.ts`）: 表とプロンプトの要素と呼び出しの細部の「文」の分、要求の形の文の分。
 
 **画像は渡さない。** 写真1枚を1行の文字にする（例: `[12] 1日目 10/05 14:25 食べ物 たい焼き 小樽市「店の前で」`）。
 無い要素は書かない（名前・地名・コメントが無い写真、分類していない（カテゴリが `null` の）写真のカテゴリ）。カテゴリの表示名は、図鑑の種類なら定義表（`CATALOG_KINDS`）の名前、それ以外（`other`）は「その他」。撮影時刻は控えの `takenAt`（現地の時刻）のままで、タイムゾーンを変換しない。
 
 要求の形（[05 §9.5](./05_api_design.md#95-ai-識別サービスへの接続) の共通の要素に加えて）: `user` ロールのメッセージ1件に、テキスト（プロンプト）の1パートだけ（`image_url` パートは付けない）。
-`response_format` は `json_schema`（区切り案は名前 `timeline_proposal`、`strict: true`、スキーマは `{ sceneStarts: integer[] }` を `required`・`additionalProperties: false`）。`temperature` は送らない。
+`response_format` は `json_schema`（`strict: true`。区切り案は名前 `timeline_proposal`、スキーマは `{ sceneStarts: integer[] }`。文は名前 `timeline_texts`、スキーマは `{ days: { date: string, title: string, summary: string }[], scenes: { start: integer, label: string, note: string }[] }`。どちらもすべてのオブジェクトで全プロパティを `required`・`additionalProperties: false`）。`temperature` は送らない。
 
 | 要素 | 区切り案 | 文 |
 |---|---|---|
@@ -453,6 +457,8 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 | 日の区切り（何番から何日目か） | ○（日をまたいで区切らない） | ○ |
 | 今の区切りと、書かせる場面・日 | — | ○ |
 | 引き継いだ文・利用者が書いた文 | — | ○（文脈として。書き換えさせない） |
+
+文脈として渡す前の文（文。完成版があるときだけ）: 引き継ぐ場面・日は文の全部（見出しと一言、タイトルとまとめ）、書き直させる場面・日は書いた主が `user` の欄だけを渡す（書き直させる欄の AI の前の文は渡さない。書き直させるため）。新しい区切りに無い場面・日の文は渡さない。日の文は、その日の最初の場面を含む呼び出しだけで渡す（下の「呼び出しの細部」）。
 
 プロンプトで指示する要素（文言は契約外。完全一致で固定しない）:
 

@@ -166,7 +166,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 **実装済み**（5-1a。型は `api/src/types/timeline.ts`、文書の操作は `services/timelineService.ts`、控えの作り方は `functions/timeline.ts`、日と場面の組み方は `services/timelineView.ts`）: 2種類の文書の形、控えの中身、`draft` の書き方、日の分け方・場面・消えた写真の扱い（下書きの表示で）、使われなくなった控えのうち下書きの置き換え・やめるときのもの。
 **実装済み**（5-1b。`functions/processTimeline.ts`・`services/timelineProposal.ts`）: ワーカーが区切り案の結果として `draft` の `proposedStarts`・`sceneStarts`・`phase`・`job` を書くこと、作り直しで「利用者が直した区切り」を当てること（[06 §8.2](./06_processing_design.md#82-区切り案step-propose)）。
 **実装済み**（5-1c。`functions/timelineDraft.ts`・`functions/timeline.ts`、完成版の組み方は `services/timelineView.ts` の `currentTimelineOf()`）: 利用者が直した区切りを `draft.sceneStarts` に書くこと（区切りの保存。控えに合わない区切りは弾く）、完成版の表示での日の分け方・場面・消えた写真の扱い、写真が増えた・消えた枚数の知らせ（`GET …/timeline`。[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
-未実装: `current`（完成版）・`droppedEdits` を書くこと（5-2 のワーカーの `write`）、完成版に入れ替わったときの控えの後始末（5-2）。
+**実装済み**（5-2a。`functions/processTimeline.ts`・`services/timelineWriting.ts`、文を書く受付は `functions/timelineDraft.ts`）: 文を書く受付が `draft` の `phase`・`job` を書くこと、ワーカーが `current`（完成版）を組んで下書きと入れ替え、`droppedEdits` に足すこと（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）、完成版に入れ替わったときの前の完成版の控えの後始末。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)）。文書は2種類に分ける。
 
@@ -260,7 +260,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 - **利用者が直した区切り**: `sceneStarts` と `proposedStarts` の差。足した区切り = `sceneStarts` にあって `proposedStarts` に無いもの、消した区切り = その逆
 - **控えは作るとき・作り直すときに取る**。その後に写真が増えた・消えたときは、作り直すまで控えのまま（画面は増えた・消えた枚数を知らせる。消えた写真は出さず、写真が全部消えた場面と日は出さない）。やり直しで名前やカテゴリが変わったことは知らせない（作り直せば新しい控えになる）。
   何日目かと場面の分け方は、消えた写真も含めた控えで決め、出すときに消えた写真を除く（写真を消しても日の番号や区切りが動かない。場面の最初の写真が消えても、場面の id は控えの最初の写真のまま）
-- **使われなくなった控え**は消す。下書きが完成版に入れ替わったとき・下書きをやめたとき・作り直しで前の下書きを置き換えたときに、どちらからも指されなくなった控えを消す（失敗はログだけ。残っても害は無く、旅行の削除でまとめて消える）。
+- **使われなくなった控え**は消す。下書きが完成版に入れ替わったとき（前の完成版の控え。`recut` の下書きは完成版と同じ控えを指すので消さない）・下書きをやめたとき・作り直しで前の下書きを置き換えたときに、どちらからも指されなくなった控えを消す（失敗はログだけ。残っても害は無く、旅行の削除でまとめて消える）。
   作る・作り直すときにタイムラインの書き込みが他の操作と重なった（412・409）ときも、作ったばかりの控えを消す
 
 ## 2. カテゴリとタグ
@@ -618,9 +618,10 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | タイムラインを作る・作り直す（段階5。5-1a で実装済み） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: { type: 'IfMatch', condition: <読んだ _etag> } })`、無ければ `items.create(timeline)` → 置き換えた下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）→ キューへ `{ tripId, draftId }`。replace の 412（読んでから書くまでに他が書いた）・404（読んだ後に消えた）と create の 409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`。置き換える文書には読んだ Cosmos のシステム項目（`_etag` など）を書き戻さない |
 | 下書きをやめる（段階5。5-1a で実装済み） | 完成版があれば `item(id, id).replace({ ...読んだ文書, draft: null, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`、無ければ `item(id, id).delete({ accessCondition: IfMatch <読んだ _etag> })` → 下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（控えも消さない） |
 | 区切りの保存（段階5。5-1c で実装済み。`TimelineService.replaceTimeline()`） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 控えを `item(id, id).read()` と旅行の写真（5.13）を並べて読む → `item(id, id).replace({ ...読んだ文書, draft: { ...読んだ下書き, sceneStarts（文を書くのに失敗した下書きなら phase・job も） }, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう）。読んだシステム項目は書き戻さない |
-| 文の編集・下書きの受付・残せなかった文を閉じる（段階5） | `item(id, id).replace({ ...読んだ文書, 変えた欄, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう） |
+| 文を書く受付（段階5。5-2a で実装済み。`POST …/draft/write`。`TimelineService.replaceTimeline()`） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ `item(id, id).replace({ ...読んだ文書, draft: { ...読んだ下書き, phase: "writing", job: { step: "write", state: "pending", attempts: 0, lastError: null, updatedAt } }, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })` → キューへ `{ tripId, draftId }`。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（キューに積まない）。読んだシステム項目は書き戻さない |
+| 文の編集・区切りを直し始める受付（`recut`）・残せなかった文を閉じる（段階5） | `item(id, id).replace({ ...読んだ文書, 変えた欄, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう） |
 | 再投入のタイマーが止まった下書きを戻す（段階5。5-1a で実装済み。`TimelineService.writeDraftJob()`） | `item(id, id).patch({ operations: [{ op: 'set', path: '/draft/job', value: <job> }], condition: 'FROM c WHERE c.draft.id = "<読んだ draft.id>" AND c.draft.job.state = "<読んだ state>" AND c.draft.job.step = "<読んだ step>" AND c.draft.job.attempts = <読んだ attempts> AND c.draft.job.updatedAt = "<読んだ updatedAt>"' })`（写真の `writeProcessing()` と同じ形に、下書きの id を足したもの）。412・404 なら触らずに次へ |
-| ワーカーの担当・結果・失敗（段階5。5-1b で `propose` の分を実装済み。担当と失敗は `TimelineService.writeDraftJob()`、結果は `writeDraftResult()`） | 担当は `item(id, id).patch({ operations: [{ op: 'set', path: '/draft/job', value: <job> }], condition: "FROM c WHERE c.draft.id = <メッセージの draftId> AND c.draft.job.state = 'pending' AND c.draft.job.step = <読んだ step> AND c.draft.job.attempts = <読んだ attempts> AND c.draft.job.updatedAt = <読んだ時刻>" })`（再投入のタイマーと同じ `writeDraftJob()`。写真の担当と同じ条件の形）。412・404 なら何もせずに終える。<br>結果は `item(id, id).read()` で読み直した文書に結果を当てた IfMatch 付きの replace（読んだシステム項目は書き戻さない）で、412・404 なら読み直し、下書きがまだ自分のもの（同じ `draft.id`・担当したときの `job`）なら同じ結果を当て直す（3回まで。利用者が文を直した・残せなかった文を閉じたなどと重なっても、結果を捨てない。4回続けて重なれば内部の失敗）。読み直したときに自分のものでない・タイムラインが無い（旅行の削除で消えた）なら何もせずに終える。<br>失敗は `job` だけを、担当と同じ形の条件付き patch（条件は担当したときの `job`。`state: 'running'`）で書き、412・404 なら書かずに終える。詳細は [06 §8.1](./06_processing_design.md#81-構成) |
+| ワーカーの担当・結果・失敗（段階5。5-1b で `propose` の分を、5-2a で `write` の分を実装済み。担当と失敗は `TimelineService.writeDraftJob()`、結果は `writeDraftResult()`。文の結果は `draft: null`・`current`（組み直した完成版）・`droppedEdits` を書き、続けて前の完成版の控えを `delete()`（下書きと違う控えのとき。404 は無視、失敗はログだけ）） | 担当は `item(id, id).patch({ operations: [{ op: 'set', path: '/draft/job', value: <job> }], condition: "FROM c WHERE c.draft.id = <メッセージの draftId> AND c.draft.job.state = 'pending' AND c.draft.job.step = <読んだ step> AND c.draft.job.attempts = <読んだ attempts> AND c.draft.job.updatedAt = <読んだ時刻>" })`（再投入のタイマーと同じ `writeDraftJob()`。写真の担当と同じ条件の形）。412・404 なら何もせずに終える。<br>結果は `item(id, id).read()` で読み直した文書に結果を当てた IfMatch 付きの replace（読んだシステム項目は書き戻さない）で、412・404 なら読み直し、下書きがまだ自分のもの（同じ `draft.id`・担当したときの `job`）なら同じ結果を当て直す（3回まで。利用者が文を直した・残せなかった文を閉じたなどと重なっても、結果を捨てない。4回続けて重なれば内部の失敗）。読み直したときに自分のものでない・タイムラインが無い（旅行の削除で消えた）なら何もせずに終える。<br>失敗は `job` だけを、担当と同じ形の条件付き patch（条件は担当したときの `job`。`state: 'running'`）で書き、412・404 なら書かずに終える。詳細は [06 §8.1](./06_processing_design.md#81-構成) |
 | 旅行の削除のときのタイムライン（段階5。5-1a で実装済み。`TimelineService.deleteTripTimeline()`） | 写真の後、旅行の前に、旅行の控えの id を読み（`SELECT c.id FROM c WHERE c.type = @type AND c.tripId = @tripId`、`@type = 'timelinePhotos'`。`fetchAll()`）、タイムライン（`timeline-<tripId>`）→ 控えの順に1件ずつ `item(id, id).delete()`（404 は無視。条件は付けない）。それ以外の失敗は投げ、旅行は消さない。旅行の削除の再実行で続きができる。旅行の無いタイムラインを見つけたワーカーも同じ操作で消す（5-1b。[06 §8.1](./06_processing_design.md#81-構成)） |
 
 ## 6. 無料枠と RU の見積もり
@@ -734,6 +735,25 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 控えの読み取り・AI・応答の検証・結果の書き込み（重なりが4回続いたときを含む） | `draft.job` が `pending`（上限なら `failed`）、`lastError` が `"ai"` / `"internal"`。区切りは書かれない（分けて呼んだ途中までの結果も書かない） | 「作っています」のまま（上限なら「作れませんでした」） | 自動（キューの再試行）。上限なら利用者が押し直す |
 | 区切り案の間に、下書きをやめた・出し直した・タイマーが待ちに戻した | やめた・出し直した・戻した後の状態 | その状態 | 結果も失敗も書かずに終える（担当したときの `job` の条件で見分ける） |
 | 区切り案の間に、利用者が完成版の文を直した・残せなかった文を閉じた（結果の置き換えが 412） | 両方 | 両方 | 読み直して同じ結果を当て直す（3回まで） |
+
+**タイムラインの文を書く受付**（段階5。`POST /api/trips/{tripId}/timeline/draft/write`。[05 §5.15](./05_api_design.md#515-タイムライン段階5)。順: 旅行を読む → タイムラインを読む → タイムラインを置き換える（下書きを文を書く待ちに）→ キューへ投入。文書1つの書き込み）。
+**実装済み**（5-2a）。
+
+| 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
+|---|---|---|---|
+| 旅行・タイムラインの読み取り | 何も変わらない | 失敗（503 / 500） | 押し直す |
+| 置き換えが 412・404（読んでから書くまでに、ワーカー・別の操作が書いた・消した） | 何も変わらない（他が書いたもののまま。キューにも積まない） | 409 `TIMELINE_STATE_CONFLICT` | 読み直して押し直す |
+| 置き換えがそれ以外で失敗 | 何も変わらない | 失敗（503 / 500） | 押し直す |
+| キューへの投入 | `phase: "writing"`・`draft.job` が `pending` のまま | 受付は成功（202）。「見出しと一言を書いています」のまま | 再投入のタイマー（10 分ごと）が積む |
+
+**タイムラインのワーカーの文**（段階5。[06 §8.1・§8.3](./06_processing_design.md#83-文を書くstep-write)。順: タイムラインを読む → 旅行を読む → `job` を処理中に（条件付き patch）→ 控えを読む → AI（書かせるものがあるときだけ）→ 完成版と入れ替える（置き換え）→ 前の完成版の控えを消す）。
+**実装済み**（5-2a）。担当の前の読み取り・担当した後に落ちる・下書きをやめた・出し直した・タイマーが待ちに戻したときは、上の区切り案の表と同じ。
+
+| 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
+|---|---|---|---|
+| 控えの読み取り・AI・応答の検証・結果の書き込み（重なりが4回続いたとき、引き継ぐ文が最新の完成版に無いときを含む） | `draft.job` が `pending`（上限なら `failed`）、`lastError` が `"ai"` / `"internal"`。完成版は前のまま（分けて呼んだ途中までの文も書かない） | 「見出しと一言を書いています」のまま（上限なら「見出しと一言を書けませんでした」） | 自動（キューの再試行）。上限なら利用者が押し直す（区切りを直してからでもよい） |
+| 文を書いている間に、利用者が完成版の文を直した・残せなかった文を閉じた（結果の置き換えが 412） | 両方（引き継ぐ文・利用者の文は直した後のもの） | 両方 | 読み直した最新の完成版に同じ AI の文を当て直す（3回まで） |
+| 前の完成版の控えの削除 | どこからも指されない控え | 無し（完成版は入れ替わっている。失敗はログだけ） | 旅行の削除で消える |
 
 **旅行の作成・更新**（`POST` / `PUT /api/trips`。文書1つ）
 

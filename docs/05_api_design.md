@@ -57,7 +57,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/trips/{tripId}/timeline/draft` | GET | `{ draft, urlExpiresAt }` | 下書きの状態と、確かめ中なら区切り | 5（5-1a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft` | DELETE | `{ draft: null }` | 下書きをやめる | 5（5-1a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/draft/scenes` | PUT | `{ draft, urlExpiresAt }` | `{ sceneStarts }`。下書きの区切りを保存。`draft` は `GET …/draft` の確かめ中と同じ形 | 5（5-1c。実装済み） | `timelineDraft.ts` |
-| `/api/trips/{tripId}/timeline/draft/write` | POST | `{ draft, urlExpiresAt }` 202 | 確かめた区切りで文を書く | 5 | `timelineDraft.ts` |
+| `/api/trips/{tripId}/timeline/draft/write` | POST | `{ draft, urlExpiresAt }` 202 | 確かめた区切りで文を書く（文を書く待ちにしてキューに積む） | 5（5-2a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/days/{date}` | PATCH | `{ timeline, pendingPhotoCount, urlExpiresAt }` | `{ title?, summary? }`。完成版の文 | 5 | `timelineTexts.ts` |
 | `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | 同上 | `{ label?, note? }`。完成版の文 | 5 | `timelineTexts.ts` |
 | `/api/trips/{tripId}/timeline/dropped-edits` | DELETE | 同上 | 残せなかった文の知らせを閉じる | 5 | `timelineTexts.ts` |
@@ -69,7 +69,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 - 同じルートを複数ファイルが別々のメソッドで登録してもよい（植物図鑑の `plants/{id}` はそうしていた。4-6 で削除）が、ここでは `photoDetail.ts` が GET / DELETE / PATCH を、
   `tripDetail.ts` が GET / PUT / DELETE を1つのファイルで登録する。
   実装済みの旅行と写真の関数は**メソッドごとに別の `app.http`** で登録している（`trips.ts` が `listTrips`（GET）・`createTrip`（POST）、`tripDetail.ts` が `getTrip`（GET）・`updateTrip`（PUT）・`deleteTrip`（DELETE）、
-  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）、`catalogEntry.ts` が `getCatalogEntry`（GET。4-2b）、`timeline.ts` が `getTimeline`（GET。5-1c）・`createTimeline`（POST。5-1a）、`timelineDraft.ts` が `getTimelineDraft`（GET）・`deleteTimelineDraft`（DELETE。どちらも 5-1a）・`putTimelineDraftScenes`（PUT。`…/draft/scenes`。5-1c）。
+  `photos.ts` が `listPhotos`（GET）・`createPhoto`（POST）、`photoDetail.ts` が `getPhoto`（GET）・`deletePhoto`（DELETE）・`updatePhoto`（PATCH）、`photoMove.ts` が `movePhotos`（POST）、`photoProcess.ts` が `requestPhotoProcessing`（POST。段階3）、`catalogKinds.ts` が `listCatalogKinds`（GET。4-2a）、`catalogEntries.ts` が `listCatalogEntries`（GET。4-2a）、`catalogEntry.ts` が `getCatalogEntry`（GET。4-2b）、`timeline.ts` が `getTimeline`（GET。5-1c）・`createTimeline`（POST。5-1a）、`timelineDraft.ts` が `getTimelineDraft`（GET）・`deleteTimelineDraft`（DELETE。どちらも 5-1a）・`putTimelineDraftScenes`（PUT。`…/draft/scenes`。5-1c）・`postTimelineDraftWrite`（POST。`…/draft/write`。5-2a）。
   植物図鑑の `plantDetail.ts`（4-6 で削除）のように1つの登録で複数のメソッドを受けてハンドラの中で振り分ける形ではない）。Azure ポータルの「関数」にはこの名前で出る
 - **新しい関数ファイルは `api/src/app.ts` に import を足す**（足さないと登録されない）
 - `/api/photos/move` と `/api/photos/{photoId}` は、メソッドが違う（POST と GET / DELETE / PATCH）うえ、リテラルのセグメントは変数より優先されると思われる（推測）。
@@ -215,7 +215,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 コメント・タグ・move の上限も `message` に値を埋め込む（`コメントは500文字以内で指定してください`・`タグは1〜30文字で指定してください`・`一度に移動できる写真は200枚までです`）。
 `PHOTO_SAS_EXPIRY_MINUTES` は定数にせず、`photoUrlExpiresOn()` が応答を作るたびに `positiveIntFromEnv()` で読む（正の整数として読めない値（数字でない・0・負）は 60）。
 `limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。
-`TIMELINE_VALIDATION` はまだ無い（使う `PATCH` の2つと一緒に 5-2 で足す）。`constants/validation.ts` には、入力検証ではないが時刻（0〜23）の環境変数を読む `hourFromEnv()` も置いた（5-1a。実装済み。`TIMELINE_DAY_START_HOUR` を読む。読み方は [07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
+`TIMELINE_VALIDATION.MAX_LENGTH` は 5-2a で足した（実装済み。今使うのは、タイムラインのワーカーが AI の文を上限で切り詰めるところだけ。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。`PATCH` の2つの 400 に使うのと `TIMELINE_VALIDATION.DATE_REGEX` は、`PATCH` と一緒に 5-2b で足す。`constants/validation.ts` には、入力検証ではないが時刻（0〜23）の環境変数を読む `hourFromEnv()` も置いた（5-1a。実装済み。`TIMELINE_DAY_START_HOUR` を読む。読み方は [07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
 
 文字数は既存と同じく `String.length`（UTF-16 コードユニット）で数える（`docs/09_backlog.md`「contextInfo の文字数の数え方」と同じ扱い）。
 
@@ -664,7 +664,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1a。`timeline.ts`・`timelineDraft.ts`、文書の操作は `services/timelineService.ts`、日と場面の組み立ては `services/timelineView.ts`）: 「共通」（ボディの行を除く）、「応答の形」のうち `draft`（状態）、`GET …/timeline/draft`・`POST …/timeline`・`DELETE …/timeline/draft`。
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`・`timelineDraft.ts` の `putTimelineDraftScenes`、完成版の組み立ては `services/timelineView.ts` の `currentTimelineOf()`）: 「共通」のボディの行（`PUT` の分）、「応答の形」の全部（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）、`GET …/timeline`・`PUT …/draft/scenes`。
-未実装: `POST …/recut`・`POST …/draft/write`・`PATCH` の2つ・`DELETE …/dropped-edits`（5-2）。完成版（`current`）と `droppedEdits` を書くのは 5-2 のワーカーなので、5-1c の時点では `GET …/timeline` が読む完成版はまだ作られない。
+**実装済み**（5-2a。`timelineDraft.ts` の `postTimelineDraftWrite`）: `POST …/draft/write`。完成版（`current`）と `droppedEdits` は、文を書くワーカー（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）が書き終えたときに書く。
+未実装: `POST …/recut`・`PATCH` の2つ・`DELETE …/dropped-edits`（5-2b）。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)、文書は [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
 完成版（`current`）と下書き（`draft`）を分けて持ち、下書きの文を書き終えるまで完成版は変わらない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。
@@ -784,8 +785,14 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **`POST /api/trips/{tripId}/timeline/draft/write`**（この区切りで文を書く）→ 202 `{ draft, urlExpiresAt }`
 
-- 下書きが無ければ 404 `TIMELINE_NOT_FOUND`（上と同じ文言）。`phase` が `reviewing` でも、文を書くのに失敗した下書きでもなければ 409 `TIMELINE_STATE_CONFLICT`
-- それ以外は `phase: "writing"`・`job: { step: "write", state: "pending" }` にしてキューへ投入し 202（投入の失敗は上と同じ扱い）。書き終えると、下書きが完成版に入れ替わる
+**実装済み**（5-2a。`timelineDraft.ts` の `postTimelineDraftWrite`）。ボディは読まない。
+
+- 下書きが無ければ（タイムラインが無いときも、完成版だけのときも）404 `TIMELINE_NOT_FOUND`（上と同じ文言 `タイムラインの下書きが見つかりません`）。`phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）下書きでもなければ（区切り案を作っている・区切り案に失敗した・文を書く順番を待っている・文を書いている）409 `TIMELINE_STATE_CONFLICT`
+- それ以外は `phase: "writing"`・`job: { step: "write", state: "pending", attempts: 0, lastError: null, updatedAt: <今> }`（文を書くのに失敗した下書きでも `attempts` は 0 から数え直す）、`updatedAt` を今にして書き、キューへ `{ tripId, draftId }` を投入して 202。区切り（`proposedStarts`・`sceneStarts`）など下書きのほかの欄・完成版・残せなかった文は変えない。投入に失敗しても 202（下書きは待ちのまま残り、再投入のタイマーが積む。`POST …/timeline` と同じ）。書き終えると、下書きが完成版に入れ替わる（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）
+- 404・409 で返すときは何も書かず、キューにも積まない
+- 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かずキューにも積まない
+- 応答の `draft` は状態だけ（上の「応答の形」の `draft`。`phase: "writing"`・`job: { step: "write", state: "pending", lastError: null }`）。`urlExpiresAt` は URL を含まないが他の応答と同じく付ける
+- 500 の `message` は `タイムラインの作成の受付に失敗しました`（§7.2）
 
 **`DELETE /api/trips/{tripId}/timeline/draft`**（下書きをやめる）→ 200 `{ draft: null }`（画面は続けて `GET …/timeline` を読み直す。完成版の表示を組むのは `GET …/timeline` の1か所にする。2026-10-25、5-1a）
 
@@ -846,7 +853,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 409 | `TIMELINE_NO_DATED_PHOTOS` | 撮影日時のある写真が無い | 同上 |
 | 400 / 413 / 415 / 500 / 502 / 503 | 既存のコード | 既存と同じ意味 | |
 
-段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c。どちらも `タイムラインの下書きが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。ほかのタイムラインのエンドポイントは未実装（§5.15）。
+段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。ほかのタイムラインのエンドポイントは未実装（§5.15）。
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
@@ -878,7 +885,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `PUT …/draft/scenes` | `タイムラインの区切りの保存に失敗しました` |
 | `DELETE …/draft`・`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | `タイムラインの更新に失敗しました` |
 
-段階5の行のうち実装済みは `GET …/timeline/draft`・`POST …/timeline`・`DELETE …/draft`（5-1a）と `GET …/timeline`・`PUT …/draft/scenes`（5-1c）。
+段階5の行のうち実装済みは `GET …/timeline/draft`・`POST …/timeline`・`DELETE …/draft`（5-1a）と `GET …/timeline`・`PUT …/draft/scenes`（5-1c）と `POST …/draft/write`（5-2a）。
 
 ### 7.3 502 / 503
 
@@ -1003,8 +1010,8 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 
 ### 9.5 AI 識別サービスへの接続
 
-写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）と、タイムラインの区切り案（段階5。5-1b。[06 §8](./06_processing_design.md#8-タイムライン段階5)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
-AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案は1回の作成につき1回。写真の多い旅行は分けて複数回。[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)）。
+写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）と、タイムラインの区切り案（段階5。5-1b）と文（5-2a。[06 §8](./06_processing_design.md#8-タイムライン段階5)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
+AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案・文はそれぞれ1回の作成につき1回。写真の多い旅行は分けて複数回、文は書かせるものが無ければ呼ばない。[06 §8.3・§8.4](./06_processing_design.md#84-ai-に渡すもの)）。
 管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは共通の要素で、
 送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4](./06_processing_design.md#21-モデルとサービス) にある。
 
@@ -1017,8 +1024,8 @@ AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回�
 | モデル | デプロイ名。Azure OpenAI Service では `baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、デプロイ名が決まらなければ `gpt-5.6-luna` を使う |
 | メッセージ | `user` ロールの1件。分類・識別はテキスト（プロンプト）と画像の2パート、タイムラインはテキストの1パートだけ（画像を渡さない。06 §8.4） |
 | 画像 | 分類・識別だけ。`image_url` パート。`detail: "low"`（トークン節約）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
-| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タイムラインの区切り案は `timeline_proposal`） |
-| トークン上限 | `max_completion_tokens`（`max_tokens` は送らない）。分類・識別は 4000、タイムラインの区切り案は `TIMELINE_PROPOSE_MAX_TOKENS`（4000。06 §8.4） |
+| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タイムラインの区切り案は `timeline_proposal`、文は `timeline_texts`） |
+| トークン上限 | `max_completion_tokens`（`max_tokens` は送らない）。分類・識別は 4000、タイムラインの区切り案は `TIMELINE_PROPOSE_MAX_TOKENS`（4000）、文は `TIMELINE_WRITE_MAX_TOKENS`（16000。06 §8.4） |
 | 送らないパラメータ | `temperature` |
 
 応答が空・JSON として読めない場合は、AI の失敗として扱う。応答の中身の検証は呼び出し側が行う（06 §2.1・§3.1）。

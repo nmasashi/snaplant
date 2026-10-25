@@ -10,7 +10,7 @@ SnapPlant は Azure Functions を使用した旅行アルバム（写真の分�
 - **Azure Cosmos DB**: 旅行と写真の情報（`album` コンテナ）
 - **Azure Blob Storage**: 写真（`photos` コンテナ）と、解析・タイムラインの待ちのキュー（Storage Queue）
 - **Application Insights**: 監視・ログ
-- **Azure OpenAI**: 写真の分類と識別（Vision + Structured Outputs）と、タイムラインの区切り案（文字だけ + Structured Outputs）の AI
+- **Azure OpenAI**: 写真の分類と識別（Vision + Structured Outputs）と、タイムラインの区切り案と文（文字だけ + Structured Outputs）の AI
 
 植物図鑑の API は 4-6 で削除し、植物図鑑が使っていた Cosmos DB の `plants` コンテナ、Blob の `images`・`temp-images` コンテナ、
 `temp-images` のライフサイクル管理、Function App の環境変数 `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は
@@ -233,7 +233,7 @@ Function App に設定される主要な環境変数：
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
-| `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
+| `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・`POST …/timeline/draft/write`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
