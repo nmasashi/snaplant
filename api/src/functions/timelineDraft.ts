@@ -196,12 +196,13 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       }
       throw error;
     }
-    if (!isValidSceneStarts(sceneStarts, photos, draft.dayStartHour)) {
+    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour);
+    if (!normalized) {
       return createValidationError('区切りが無効です');
     }
     const saved: TimelineDraft = {
       ...draft,
-      sceneStarts: withDayStarts(sceneStarts, photos, draft.dayStartHour),
+      sceneStarts: normalized,
       ...(writeFailed ? { phase: 'reviewing', job: null } : {})
     };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
@@ -234,24 +235,20 @@ function isWriteFailed(draft: TimelineDraft): boolean {
 /**
  * 区切りが控えに合っているか（05 §5.15 の表の 4）
  *
- * どれも控えの撮影日時のある写真で、重ならず撮影の順に並ぶこと。各日の最初の写真は求めない（[withDayStarts] で補う）
- */
-function isValidSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): boolean {
-  const order = new Map(datedDaysOf(photos, dayStartHour).flatMap((day) => day.photos).map((photo, index) => [photo.id, index]));
-  const positions = sceneStarts.map((id) => order.get(id));
-  return !positions.some((position, index) => position === undefined || (index > 0 && position <= positions[index - 1]!));
-}
-
-/**
- * 区切りに各日の最初の写真を足したもの（撮影の順。05 §5.15）
- *
+ * どれも控えの撮影日時のある写真で、重ならず撮影の順に並ぶこと。合っていれば、各日の最初の写真を足した区切り（撮影の順）を返し、合わなければ null。
  * 場面は日をまたがないので、日の最初の写真は必ず場面の始まり。区切りの確認の画面は写真が全部消えた日や場面を見ないので、
- * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる
+ * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる（5-3b）
  */
-function withDayStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): string[] {
+function normalizedSceneStarts(sceneStarts: string[], photos: TimelinePhotoSnapshot[], dayStartHour: number): string[] | null {
   const days = datedDaysOf(photos, dayStartHour);
+  const ordered = days.flatMap((day) => day.photos.map((photo) => photo.id));
+  const order = new Map(ordered.map((id, index) => [id, index]));
+  const positions = sceneStarts.map((id) => order.get(id));
+  if (positions.some((position, index) => position === undefined || (index > 0 && position <= positions[index - 1]!))) {
+    return null;
+  }
   const starts = new Set([...sceneStarts, ...days.map((day) => day.photos[0].id)]);
-  return days.flatMap((day) => day.photos).map((photo) => photo.id).filter((id) => starts.has(id));
+  return ordered.filter((id) => starts.has(id));
 }
 
 app.http('getTimelineDraft', {
