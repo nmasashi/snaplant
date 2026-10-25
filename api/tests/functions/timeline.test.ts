@@ -247,6 +247,25 @@ describe('タイムラインを作るAPI', () => {
     expect(storedSnapshots()[0].photos.map((photo: { id: string }) => photo.id)).toEqual([photoId('a'), photoId('b'), photoId('c'), photoId('e')]);
   });
 
+  it('控えのコメントは文字（コードポイント）で数えて切り、絵文字を途中で切らない', async () => {
+    // 100 文字目が絵文字（UTF-16 では2つ分）。UTF-16 の単位で切ると、絵文字の前半だけが残る
+    cosmosBackend.documents.set(
+      photoId('a'),
+      analyzedPhoto(photoId('a'), {
+        takenAt: '2026-10-05T07:50:12',
+        takenAtSource: 'exif',
+        sortAt: '2026-10-05T07:50:12',
+        comment: 'あ'.repeat(99) + '😀' + 'い'.repeat(10),
+        commentSource: 'user'
+      })
+    );
+
+    const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(202);
+    expect(storedSnapshots()[0].photos[0].comment).toBe('あ'.repeat(99) + '😀');
+  });
+
   it('撮影日時のある写真が1枚も無ければ、409（TIMELINE_NO_DATED_PHOTOS）で、何も作らずキューにも積まない', async () => {
     cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: null }));
 
