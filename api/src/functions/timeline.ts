@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { TimelineConflictError, TimelinePhotoRow, TimelineService, rereadIfSnapshotMissing, timelineIdOf } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
-import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
+import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { currentTimelineOf, draftStatusOf } from '../services/timelineView';
 import {
   createDatabaseErrorResponse,
@@ -176,7 +176,7 @@ async function readTimelineResponse(tripId: string): Promise<HttpResponseInit> {
       doc.current,
       snapshot,
       (photoId) => existing.has(photoId),
-      (blobName) => storage.readUrl(blobName, expiresOn)
+      urlOfPhotos(storage, expiresOn)
     );
     // 日時の無い写真も数える（作り直せば控えに入る）
     changes = {

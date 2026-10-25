@@ -200,6 +200,25 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
   }));
 }
 
+/**
+ * 確かめ中の下書きの応答（状態に、日ごと・場面ごとの写真と日時なしを足す。05 §5.15）
+ *
+ * 下書きの読み取り・区切りの保存・区切りの直しの受付が同じ形で返す
+ * @param existing 旅行の今の写真の id（控えを取った後に消えた写真は出さない）
+ * @param urlOf Blob 名から読み取りの SAS 付き URL
+ */
+export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
+  const layout = layoutTimeline({
+    photos,
+    sceneStarts: draft.sceneStarts,
+    proposedStarts: draft.proposedStarts,
+    dayStartHour: draft.dayStartHour,
+    exists: (photoId) => existing.has(photoId),
+    urlOf,
+  });
+  return { ...draftStatusOf(draft), ...layout };
+}
+
 /** 下書きの状態（応答の形。05 §5.15） */
 export function draftStatusOf(draft: TimelineDraft): TimelineDraftStatus {
   return {

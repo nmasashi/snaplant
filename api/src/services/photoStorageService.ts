@@ -121,3 +121,12 @@ export function photoUrlExpiresOn(): Date {
   // ぎりぎりまで使ったクライアントが 403 を受ける
   return new Date(Math.floor(expiresAt / 1000) * 1000);
 }
+
+/**
+ * Blob 名から、同じ期限の読み取りの SAS 付き URL を作る関数（応答の写真の URL をそろえる）
+ * @param storage 保存先（設定が足りなければ作るときに投げるので、呼び出し側は書き込みの前に作る）
+ * @param expiresOn URL の期限（応答の urlExpiresAt と同じ）
+ */
+export function urlOfPhotos(storage: PhotoStorageService, expiresOn: Date): (blobName: string) => string {
+  return (blobName) => storage.readUrl(blobName, expiresOn);
+}

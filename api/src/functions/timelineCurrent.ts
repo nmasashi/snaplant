@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
-import { PhotoStorageService, photoUrlExpiresOn } from '../services/photoStorageService';
+import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { TimelineConflictError, TimelineService } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
 import { TimelineDraft } from '../types/timeline';
@@ -13,7 +13,7 @@ import {
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { readExistingPhotoIds, reviewingDraftOf } from './timelineDraft';
+import { reviewingDraftOf } from '../services/timelineView';
 
 /**
  * タイムラインの完成版の区切りを直し始める API
@@ -55,7 +55,7 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
     };
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
-    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(current.snapshotId), readExistingPhotoIds(timelines, tripId)]);
+    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)]);
     try {
       await timelines.replaceTimeline({ ...timeline.doc, draft, updatedAt: now }, timeline.etag);
     } catch (error: any) {
@@ -65,7 +65,7 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
       throw error;
     }
     const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse({ draft: reviewingDraftOf(draft, photos, existing, storage, expiresOn), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({ draft: reviewingDraftOf(draft, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの区切りの直しの受付エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');

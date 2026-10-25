@@ -120,6 +120,14 @@ export class TimelineService {
   }
 
   /**
+   * 旅行の今の写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分ける）
+   * @param tripId 旅行の ID
+   */
+  async readTripPhotoIds(tripId: string): Promise<Set<string>> {
+    return new Set((await this.readTripPhotoStates(tripId)).map((photo) => photo.id));
+  }
+
+  /**
    * 旅行の今の写真の id と解析の状態を読む（04 §5 の 5.13）
    *
    * 控えを取った後に消えた写真を見分ける（下書きの表示・区切りの保存・完成版）。完成版を開くときは、控えとの差で写真の増えた・消えた枚数を、
