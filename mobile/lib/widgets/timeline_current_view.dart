@@ -109,18 +109,24 @@ class TimelineCurrentView extends StatelessWidget {
     final mark = _dayMark(day);
     return [
       const SizedBox(height: 24),
+      // 見出しの文字は基準線で揃え、編集のボタンは行の中央に置く（ボタンまで基準線に揃えると行が崩れる）
       Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
         children: [
-          Text('${day.dayNumber}日目', style: AppTextStyles.headline3),
-          const SizedBox(width: 8),
-          Text(timelineDateLabel(day.date), style: secondary),
-          if (mark != null) ...[
-            const SizedBox(width: 8),
-            Text(mark, style: AppTextStyles.caption),
-          ],
-          const Spacer(),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text('${day.dayNumber}日目', style: AppTextStyles.headline3),
+                const SizedBox(width: 8),
+                Text(timelineDateLabel(day.date), style: secondary),
+                if (mark != null) ...[
+                  const SizedBox(width: 8),
+                  Text(mark, style: AppTextStyles.caption),
+                ],
+              ],
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.edit_outlined, semanticLabel: 'この日を編集'),
             tooltip: 'この日を編集',

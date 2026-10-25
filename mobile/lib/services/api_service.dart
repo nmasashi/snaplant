@@ -334,7 +334,7 @@ class ApiService {
       final url = _buildUrl('/api/trips/$tripId/timeline');
       final response = await _client.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response,
-          (json) => TimelineOverview.fromJson(json['data'] as Map<String, dynamic>));
+          _overviewOf);
     } catch (error) {
       throw _handleError(error);
     }
@@ -426,7 +426,7 @@ class ApiService {
       final url = _buildUrl('/api/trips/$tripId/timeline/dropped-edits');
       final response = await _client.delete(Uri.parse(url), headers: _headers);
       return _parseResponse(response,
-          (json) => TimelineOverview.fromJson(json['data'] as Map<String, dynamic>));
+          _overviewOf);
     } catch (error) {
       throw _handleError(error);
     }
@@ -440,11 +440,15 @@ class ApiService {
       final response = await _client.patch(Uri.parse(url),
           headers: _headers, body: jsonEncode(changes));
       return _parseResponse(response,
-          (json) => TimelineOverview.fromJson(json['data'] as Map<String, dynamic>));
+          _overviewOf);
     } catch (error) {
       throw _handleError(error);
     }
   }
+
+  /// 応答の封筒からタイムライン（`data`。`GET …/timeline` の形）を読む。文を直す・残せなかった文を閉じる応答も同じ形
+  TimelineOverview _overviewOf(Map<String, dynamic> json) =>
+      TimelineOverview.fromJson(json['data'] as Map<String, dynamic>);
 
   /// 応答の封筒から下書き（`data.draft`）を読む
   TimelineDraftStatus? _draftOf(Map<String, dynamic> json) {
