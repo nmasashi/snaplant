@@ -126,7 +126,7 @@ GitHub Actions は以下の条件で自動実行されます：
 
 1. **テスト & ビルド**（ci.yml）:
    - 依存関係のインストール（`npm ci`）
-   - テスト実行（`npm test` / `npm run test:coverage`）
+   - テスト実行（`npm test`。カバレッジは CI では取らない。手元の `npm run test:coverage` で見る）
    - ビルド（`npm run build`）とビルド成果物のアーカイブ
    - `npm run lint` は存在しないためスキップされる（リンター未設定）
    - 上とは別ジョブ（Security Scan）で CodeQL を並列に実行する。解析ステップは

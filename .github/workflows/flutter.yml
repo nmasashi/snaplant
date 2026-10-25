@@ -32,7 +32,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     # 手元（Windows）と同じ版にそろえる。版を上げるときは手元と一緒に上げる
     - name: Setup Flutter

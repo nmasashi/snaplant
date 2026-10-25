@@ -27,10 +27,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+      uses: hashicorp/setup-terraform@v4
 
     # 以下はいずれも Azure へ通信せず、認証情報も不要。
     # 定義ファイルの構文と内部整合性を見るだけで、npx tsc --noEmit が
