@@ -152,6 +152,6 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 | 5-3b | **実装済み**（5-3b。Issue #97）。mobile: 区切りの確認画面（[03 §8.4](./03_screen_design.md#84-区切りの確認画面)）と「区切りを確認する」、`saveTimelineScenes` | 5-3a |
 | 5-4 | 2,000 行に収めるため 5-4a・5-4b に分ける（2026-10-26） | 5-3b |
 | 5-4a | **実装済み**（5-4a。Issue #97）。mobile: 完成したタイムラインの表示（[03 §8.3](./03_screen_design.md#83-完成したタイムライン)。作成日時・日・場面のカード・日時なし・サムネイルから写真ビューア）と下書きの案内、「区切りを直す」（`recutTimeline` → §8.4）・「作り直す」（§8.6）。5-3a の仮の案内を置き換える | 5-3b |
-| 5-4b | mobile: 編集シート（§8.5。`updateTimelineDay`・`updateTimelineScene`）、写真が変わった案内・残せなかった文（§8.3。`dismissTimelineDroppedEdits`） | 5-4a |
+| 5-4b | **実装済み**（5-4b。Issue #97）。mobile: 編集シート（§8.5。`updateTimelineDay`・`updateTimelineScene`）、写真が変わった案内・残せなかった文（§8.3。`dismissTimelineDroppedEdits`） | 5-4a |
 
 デプロイ後に [08 §5.4](./08_test_plan.md#54-段階5タイムラインで足すもの) を手で確かめる（5-1・5-2 のクエリ、区切り案と文の質、トークンの実測）。

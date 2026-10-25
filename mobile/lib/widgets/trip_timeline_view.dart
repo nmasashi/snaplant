@@ -11,6 +11,8 @@ import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'message_view.dart';
 import 'timeline_current_view.dart';
+import 'timeline_edit_sheet.dart';
+import 'timeline_notices.dart';
 import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
@@ -49,6 +51,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
   // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
   bool _sending = false;
+  // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）
+  bool _changesNoticeHidden = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
   int _generation = 0;
@@ -81,6 +85,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       final overview = await widget.apiService.getTimeline(widget.tripId);
       // 後から始めた読み込み・操作がある。先に始めたこの読み込みの結果（古い状態）では上書きしない
       if (!mounted || generation != _generation) return;
+      _changesNoticeHidden = false;
       _show(overview);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの読み込みエラー: $e');
@@ -248,6 +253,65 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     await _load(showLoading: false);
   }
 
+  /// 日の文を直す（§8.5）
+  Future<void> _editDay(TimelineDay day) => _edit(
+        title: '${day.dayNumber}日目を編集',
+        fields: [
+          TimelineEditField(
+              key: 'title', label: 'タイトル', maxLength: 40, initial: day.title),
+          TimelineEditField(
+              key: 'summary',
+              label: 'まとめ',
+              maxLength: 400,
+              initial: day.summary),
+        ],
+        save: (changes) => widget.apiService
+            .updateTimelineDay(widget.tripId, day.date, changes),
+      );
+
+  /// 場面の文を直す（§8.5）。場面は最初の写真の id で指す
+  Future<void> _editScene(TimelineScene scene) => _edit(
+        title: '場面を編集',
+        fields: [
+          TimelineEditField(
+              key: 'label', label: '見出し', maxLength: 30, initial: scene.label),
+          TimelineEditField(
+              key: 'note', label: '一言', maxLength: 200, initial: scene.note),
+        ],
+        save: (changes) => widget.apiService
+            .updateTimelineScene(widget.tripId, scene.startPhotoId, changes),
+      );
+
+  /// 編集シートを開き、保存できたら応答で描き直す。タイムラインが変わった・旅行が無いなら §8.1 のとおりに扱う
+  Future<void> _edit({
+    required String title,
+    required List<TimelineEditField> fields,
+    required Future<TimelineOverview> Function(Map<String, String?>) save,
+  }) async {
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
+      enableDrag: false,
+      builder: (context) =>
+          TimelineEditSheet(title: title, fields: fields, onSave: save),
+    );
+    if (!mounted || result == null) return;
+    if (result is TimelineOverview) {
+      // 直した後の完成版で描き直す。前に始めた読み直しの応答は使わない（§8.1）
+      ++_generation;
+      _show(result);
+      return;
+    }
+    if (result is ApiException && result.isTripNotFound) {
+      widget.onTripNotFound();
+      return;
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
+    await _load(showLoading: false);
+  }
+
   /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
   Future<void> _review() async {
     await Navigator.push(
@@ -341,7 +405,25 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       onRecut: _sending ? null : _recut,
       onRebuild: _sending ? null : _rebuild,
       onOpenPhoto: _sending ? null : _openPhoto,
+      onEditDay: _sending ? null : _editDay,
+      onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildRebuildBanner(draft),
+      notices: [
+        if (timeline.droppedEdits.isNotEmpty)
+          TimelineDroppedEditsNotice(
+            edits: timeline.droppedEdits,
+            onDismiss: _sending ? null : _dismissDroppedEdits,
+          ),
+        if (draft == null &&
+            !_changesNoticeHidden &&
+            TimelineChangesNotice.shows(timeline.changes))
+          TimelineChangesNotice(
+            changes: timeline.changes!,
+            onLater: () => setState(() => _changesNoticeHidden = true),
+            onRebuild:
+                _sending || overview.pendingPhotoCount > 0 ? null : _rebuild,
+          ),
+      ],
     );
   }
 
@@ -360,6 +442,14 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
     );
   }
+
+  /// 残せなかった文の知らせを閉じ、応答で描き直す（失敗は §8.1 の操作と同じ）
+  Future<void> _dismissDroppedEdits() => _send(() async {
+        final overview =
+            await widget.apiService.dismissTimelineDroppedEdits(widget.tripId);
+        if (!mounted) return;
+        _show(overview);
+      });
 
   /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
   Widget _buildRebuildBanner(TimelineDraftStatus draft) {
@@ -386,22 +476,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       _ => ('作り直しの区切りの案を作っています', [discard]),
     };
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(title, style: AppTextStyles.body1),
-            if (actions.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: actions),
-            ],
-          ],
-        ),
-      ),
-    );
+    return TimelineNoticeCard(text: title, actions: actions);
   }
 
   /// 下書きの状態（§8.2 の3行目から）
