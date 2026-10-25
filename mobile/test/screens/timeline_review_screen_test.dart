@@ -359,4 +359,114 @@ void main() {
       expect(find.text('区切りの案ができました'), findsOneWidget);
     });
   });
+
+  group('見出しを付ける・出し直す・やめる', () {
+    testWidgets('「この区切りで見出しを付ける」を押すと、見出しと一言を書かせて旅行詳細に戻る', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await letFramesRun(tester);
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'writing');
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+    });
+
+    testWidgets('見出しを付けるのに失敗したら、エラーの文言を出し、区切りの確認画面のまま', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      backend.failNext(TripRoute.timelineWrite);
+
+      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('区切りを確認'), findsOneWidget);
+      expect(_button(tester, 'この区切りで見出しを付ける').onPressed, isNotNull);
+    });
+
+    testWidgets('見出しを付けるのを送っている間は、ほかの操作を受け付けない', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      final hold = backend.holdNextReply(TripRoute.timelineWrite);
+
+      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await letFramesRun(tester);
+      expect(_button(tester, 'この区切りで見出しを付ける').onPressed, isNull);
+      expect(_button(tester, 'つなげる').onPressed, isNull);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+    });
+
+    testWidgets('メニューの「区切り案を出し直す」は確認のダイアログを出し、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
+        (tester) async {
+      await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('区切り案を出し直す'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。')),
+          findsOneWidget);
+      await tapInDialog(tester, '出し直す');
+
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+    });
+
+    testWidgets('「区切り案を出し直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('区切り案を出し直す'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, 'キャンセル');
+
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'reviewing');
+      expect(find.text('区切りを確認'), findsOneWidget);
+    });
+
+    testWidgets('メニューの「やめる」は「作りかけのタイムラインを捨てますか？」を出し、「捨てる」で下書きを消して旅行詳細に戻る',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('作りかけのタイムラインを捨てますか？')), findsOneWidget);
+      await tapInDialog(tester, '捨てる');
+
+      expect(backend.timelinesByTripId[hokkaidoTripId], isNull);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
+    });
+
+    testWidgets('メニューの操作で下書きが別の端末で変わっていたら（409）、知らせて旅行詳細に戻る', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      backend.failNext(TripRoute.timelineCreate,
+          status: 409,
+          code: 'TIMELINE_STATE_CONFLICT',
+          message: 'タイムラインが変わったか、作っている途中です。読み直してください');
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('区切り案を出し直す'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '出し直す');
+
+      expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
+      expect(find.text('区切りを確認'), findsNothing);
+    });
+  });
 }
