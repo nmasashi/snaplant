@@ -174,4 +174,164 @@ void main() {
       expect(_button(tester, '区切りを直す').onPressed, isNotNull);
     });
   });
+
+  group('完成版の上の下書きの案内', () {
+    /// 完成版の上の下書き（作り直し・区切りの直し）
+    Map<String, Object?> draftOf(String reason, String phase,
+            {String? step, String state = 'pending'}) =>
+        {
+          'id': '0b8e1c5a-0000-4000-8000-000000000099',
+          'reason': reason,
+          'phase': phase,
+          'job': step == null
+              ? null
+              : {
+                  'step': step,
+                  'state': state,
+                  'lastError': state == 'failed' ? 'ai' : null
+                },
+          'startedAt': '2026-10-26T09:00:00.000Z',
+        };
+
+    for (final (label, draft, texts) in [
+      (
+        '作り直しで区切りの案を作っている',
+        draftOf('rebuild', 'proposing', step: 'propose'),
+        ['作り直しの区切りの案を作っています', 'やめる']
+      ),
+      (
+        '作り直しの確かめ待ち',
+        draftOf('rebuild', 'reviewing'),
+        ['作り直しの区切りの案ができました', '区切りを確認する', 'やめる']
+      ),
+      (
+        '区切りの直しの途中',
+        draftOf('recut', 'reviewing'),
+        ['区切りを直している途中です', '続ける', 'やめる']
+      ),
+      (
+        '文を書き直している',
+        draftOf('rebuild', 'writing', step: 'write'),
+        ['見出しと一言を書き直しています']
+      ),
+      (
+        '作り直しの区切りの案を作れなかった',
+        draftOf('rebuild', 'proposing', step: 'propose', state: 'failed'),
+        ['作り直しの区切りの案を作れませんでした', 'もう一度', 'やめる']
+      ),
+      (
+        '文を書き直せなかった',
+        draftOf('recut', 'writing', step: 'write', state: 'failed'),
+        ['見出しと一言を書き直せませんでした', 'もう一度', '区切りを確認する', 'やめる']
+      ),
+    ]) {
+      testWidgets('$labelときは、完成版を出したまま上に案内を出し、「区切りを直す」「作り直す」を出さない',
+          (tester) async {
+        await _openTimeline(tester, draft: draft);
+
+        for (final text in texts) {
+          expect(find.text(text), findsOneWidget);
+        }
+        expect(find.text('朝ごはん'), findsOneWidget);
+        expect(find.text('区切りを直す'), findsNothing);
+        expect(find.text('作り直す'), findsNothing);
+      });
+    }
+
+    testWidgets('「やめる」は「作り直しをやめて、今のタイムラインのままにしますか？」を出し、「やめる」で下書きを消して完成版だけに戻る',
+        (tester) async {
+      final backend =
+          await _openTimeline(tester, draft: draftOf('rebuild', 'reviewing'));
+
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('作り直しをやめて、今のタイムラインのままにしますか？')), findsOneWidget);
+      await tapInDialog(tester, 'やめる');
+
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+      expect(find.text('作り直しの区切りの案ができました'), findsNothing);
+      expect(find.text('区切りを直す'), findsOneWidget);
+    });
+
+    testWidgets('「続ける」で区切りの直しの確認画面を開く', (tester) async {
+      await _openTimeline(tester, draft: {
+        ...draftOf('recut', 'reviewing'),
+        'days': <Object?>[],
+        'undatedPhotos': <Object?>[],
+      });
+
+      await tester.tap(find.text('続ける'));
+      await letFramesRun(tester);
+      expect(find.text('区切りを確認'), findsOneWidget);
+    });
+  });
+
+  group('区切りを直す・作り直す', () {
+    testWidgets('「区切りを直す」を押すと、完成版の区切りを写した下書きを作り、区切りの確認画面を開く', (tester) async {
+      final backend = await _openTimeline(tester);
+
+      await tester.tap(find.text('区切りを直す'));
+      await letFramesRun(tester);
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft']
+              as Map)['reason'],
+          'recut');
+      expect(find.text('区切りを確認'), findsOneWidget);
+      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
+          findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await letFramesRun(tester);
+      expect(find.text('区切りを直している途中です'), findsOneWidget);
+    });
+
+    testWidgets('「区切りを直す」のときに別の端末が作り直しを始めていたら（409）、知らせて読み直す', (tester) async {
+      final backend = await _openTimeline(tester);
+      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'rebuild',
+        'phase': 'proposing',
+        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'startedAt': '2026-10-26T09:00:00.000Z',
+      });
+
+      await tester.tap(find.text('区切りを直す'));
+      await letFramesRun(tester);
+      expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+    });
+
+    testWidgets('「作り直す」は確認のダイアログを出し、「作り直す」で作り直しを始めて、完成版の上に案内を出す',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+
+      await tester.tap(find.text('作り直す'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
+      expect(
+          inDialog(find.text(
+              '今の写真で区切りの案を出し直し、確認した後に見出しと一言を書き直します。書き終えるまでは今のタイムラインのままです。手で直した文と区切りは、同じ日・同じ場面なら残ります。')),
+          findsOneWidget);
+      await tapInDialog(tester, '作り直す');
+
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft']
+              as Map)['reason'],
+          'rebuild');
+      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsOneWidget);
+    });
+
+    testWidgets('「作り直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
+      final backend = await _openTimeline(tester);
+
+      await tester.tap(find.text('作り直す'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, 'キャンセル');
+
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+      expect(find.text('作り直す'), findsOneWidget);
+    });
+  });
 }
