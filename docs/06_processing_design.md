@@ -27,7 +27,7 @@
 | 再投入のタイマー | **実装済み**（3-3b）。`api/src/functions/requeueStalePhotos.ts`。`app.timer('requeueStalePhotos')`、10 分ごと（`0 */10 * * * *`）。`processing.state` が `pending` / `classifying` / `identifying` のまま、`processing.updatedAt` が 10 分（`PHOTO_REQUEUE_AFTER_MINUTES`。コードの定数）より前の写真を再投入（`{ photoId }`。やる処理は写真の `processing.step` にある）。**処理中（`classifying` / `identifying`）の写真も、先に `pending` に戻してから（`step`・`attempts`・`lastError` はそのまま、`updatedAt` は今）投入する**（ワーカーは `pending` の写真しか担当しないので、処理中のまま投入しても担当されない）。**`failed` と `none`（と `done`）は拾わない**。クエリの条件（[04 §5](./04_data_design.md#5-クエリ) の 5.8）と同じ条件をコードでも見直し、外れた写真は読んでも触らない（SQL の絞り込みは単体テストで確かめられないので、崩れても `failed`・`none` を拾わないように） | poison に落ちたもの、投入前にプロセスが落ちたもの、投入に失敗したものを拾う。`attempts` が上限（3 回）なら再投入せず `failed` にする。`failed` を拾わないので、同じ画像で永遠に失敗し続けることが無い（§1.3） |
 | 掃除のタイマー | **実装済み**（3-3b）。`api/src/functions/sweepAlbum.ts`。`app.timer('sweepAlbum')`、1日1回、日本時間の午前3時（cron は UTC で `0 0 18 * * *`）。文書の無い Blob（最終更新から1日より古いもの）を消し、消えた旅行を指す写真を未所属に戻し、原寸の Blob の無い文書をログに出す | 途中で止まった操作の残骸を消す（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） |
 
-キュー名は環境変数 `PHOTO_QUEUE_NAME`。**投入する側もワーカーも必須で、既定値は無い**（ワーカーのトリガーはアプリの設定から `%PHOTO_QUEUE_NAME%` を解決するので既定値を持てず、投入する側だけ既定のキューに積むと誰も拾わないキューに溜まるため）。投入する側（`PhotoQueueService`）は、未設定・空・空白だけなら投げる（前後の空白は除いて使う）。`POST /api/photos` ではこれも投入の失敗として扱い、ログだけで 201 を返す（[05 §5.1](./05_api_design.md#51-post-apiphotos)）。キューと設定は Terraform で作る（[07 §2](./07_infrastructure_design.md#2-段階3)・[07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
+キュー名は環境変数 `PHOTO_QUEUE_NAME`。**投入する側もワーカーも必須で、既定値は無い**（ワーカーのトリガーはアプリの設定から `%PHOTO_QUEUE_NAME%` を解決するので既定値を持てず、投入する側だけ既定のキューに積むと誰も拾わないキューに溜まるため）。投入する側（`PhotoQueueService`）は、未設定・空・空白だけなら投げる（前後の空白は落とさずに、設定の値のまま使う。ワーカーのトリガーも設定の値をそのまま使うので、落とすと別のキューに送ることになる）。`POST /api/photos` ではこれも投入の失敗として扱い、ログだけで 201 を返す（[05 §5.1](./05_api_design.md#51-post-apiphotos)）。キューと設定は Terraform で作る（[07 §2](./07_infrastructure_design.md#2-段階3)・[07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
 
 再投入のタイマーの細部（3-3b）:
 
@@ -39,6 +39,7 @@
   投入に失敗した写真はログだけ出して残りを続ける（写真は `pending` のまま残り、次の回に拾う）
 - 写真の読み取り（クエリ）に失敗したら例外を投げる（何も変えず、次の回に読み直す）
 - 件数（止まっていた写真・積んだ写真・失敗にした写真）をログに出す
+- 同じタイマーが、写真の後にタイムラインの下書きも拾う（5-1a で実装済み。[§8.1](#81-構成)）
 
 ### 1.2 流れ
 
@@ -382,13 +383,16 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 ### 8.1 構成
 
+**実装済み**（5-1a）: 表の「キュー」「メッセージ」の投入する側（`services/timelineQueueService.ts`。`POST …/timeline` と再投入のタイマーが積む）、「再試行」の上限の共有、「止まったものの再投入」（`requeueStalePhotos.ts`）。
+未実装: 「ワーカー」「AI」と、下の「担当・結果・失敗の書き込み」（5-1b の `propose`、5-2 の `write`）。
+
 | 項目 | 値 | 理由 |
 |---|---|---|
-| キュー | `timeline-processing`（写真のキューと同じストレージアカウント。名前は環境変数 `TIMELINE_QUEUE_NAME`、必須で既定値なし） | 写真の解析と混ぜない（メッセージの形と処理の重さが違う。写真のキューが溜まっていても、タイムラインは待たされない） |
+| キュー | `timeline-processing`（写真のキューと同じストレージアカウント。名前は環境変数 `TIMELINE_QUEUE_NAME`、必須で既定値なし。投入する側は、未設定・空・空白だけなら投げ（投入の失敗としてログだけ）、前後の空白は落とさずに使う。写真の `PHOTO_QUEUE_NAME` と同じ。§1.1） | 写真の解析と混ぜない（メッセージの形と処理の重さが違う。写真のキューが溜まっていても、タイムラインは待たされない） |
 | メッセージ | `{ "tripId": "<旅行の id>", "draftId": "<下書きの id>" }`（写真と同じく JSON を base64 にした本文） | やること（`draft.job.step`）は文書に持ち、ワーカーは文書を読み直す。`draftId` で、やめた・出し直した下書きの古いメッセージを見分ける |
 | ワーカー | `api/src/functions/processTimeline.ts`。`app.storageQueue('processTimeline', { queueName: '%TIMELINE_QUEUE_NAME%', … })` | 写真のワーカーと同じ Function App |
 | 再試行 | `host.json` は写真と同じ（`maxDequeueCount: 3`）。上限は `PHOTO_PROCESSING_MAX_ATTEMPTS` を共有する（`draft.job.attempts` で数える） | 写真と同じ止め方（§1.3） |
-| 止まったものの再投入 | 再投入のタイマー（`requeueStalePhotos`）が、`draft.job.state` が `pending` / `running` のまま 10 分（`PHOTO_REQUEUE_AFTER_MINUTES`）以上たった下書きも拾う（[04 §5](./04_data_design.md#5-クエリ) の 5.15）。写真と同じく、読んだときの `job`（`state`・`step`・`attempts`・`updatedAt`）のままかの条件付き patch で `state: "pending"`・`updatedAt` を今にしてから積む（`step`・`attempts`・`lastError` はそのまま）。`attempts` が上限なら `failed` にして積まない。412 か 404 なら触らない | 投入に失敗した・ワーカーが落ちたときに、利用者が押し直さなくても進む |
+| 止まったものの再投入 | 再投入のタイマー（`requeueStalePhotos`）が、写真の後に、`draft.job.state` が `pending` / `running` のまま 10 分（`PHOTO_REQUEUE_AFTER_MINUTES`）以上たった下書きも拾う（[04 §5](./04_data_design.md#5-クエリ) の 5.15）。クエリと同じ条件（下書きと `job` があり、`state` が `pending` / `running`、`updatedAt` が 10 分より前）をコードでも見直し、外れた下書き（確かめ中で `job` が無い・`failed`・まだ 10 分たっていない・下書きが無い）は読んでも触らない。写真と同じく、読んだときの下書きの id と `job`（`state`・`step`・`attempts`・`updatedAt`）のままかの条件付き patch（[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）で `state: "pending"`・`updatedAt` を今にしてから積む（`step`・`attempts`・`lastError` はそのまま。メッセージは `{ tripId, draftId }`）。`attempts` が上限なら `failed` にして積まない。412 か 404（読んだ後に下書きをやめた・出し直した・ワーカーが担当した、タイムラインが消えた）なら触らない。投入の失敗はログだけで残りを続ける。下書きの読み取り（クエリ）に失敗したら例外を投げる。件数（止まっていた下書き・積んだ・失敗にした）をログに出す | 投入に失敗した・ワーカーが落ちたときに、利用者が押し直さなくても進む |
 | AI | `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME`（未設定なら識別と同じ `AZURE_OPENAI_DEPLOYMENT_NAME`。[07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。**画像は渡さず、文字だけ**（§8.4）。Structured Outputs の strict（[§3.1](#31-契約) と同じ制約） | 費用が小さい。ふつうは1回の作成で2回（区切り案・文）。写真の多い旅行は分けて呼ぶので増える（§8.4） |
 
 担当・結果・失敗の書き込み:

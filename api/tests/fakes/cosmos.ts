@@ -107,8 +107,11 @@ import { PhotoDocument, TripDocument } from '../../src/types/album';
  *   図鑑の項目の詳細の枚数（photoCount）と「枚数が 0 なら項目は無い」は確かめられない
  * - パラメータでない条件（SQL に書いた値）。例えば図鑑のクエリの `c.identification.matchesKind = true` は
  *   偽物が見ないので、`matchesKind: false` で名前の残った文書を置いても絞られない（テストの写真は、写っていなければ名前を null にする）
- * - Cosmos のシステム項目（_rid・_self・_etag・_attachments・_ts）。偽物は付けない。応答への漏れを見るテストは、
- *   偽物に置くドキュメントに自分で足す（tests/helpers/albumDocuments.ts の COSMOS_SYSTEM_FIELDS）
+ * - Cosmos のシステム項目（_rid・_self・_attachments・_ts）。偽物は付けない。応答への漏れを見るテストは、
+ *   偽物に置くドキュメントに自分で足す（tests/helpers/albumDocuments.ts の COSMOS_SYSTEM_FIELDS）。
+ *   `_etag` は `item(id).read()` / `replace()` の結果にだけ付ける（クエリの結果には付けない。実 SDK は付ける）
+ * - 同じオブジェクトを `documents` に置き直したときの `_etag` の更新（実 SDK は書くたびに変える）。偽物はオブジェクトごとに
+ *   振るので、`beforeReplace` などで「他が書いた」を作るときは、必ず新しいオブジェクトを置く
  */
 
 /**
@@ -137,6 +140,13 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocume
   beforeCreate?: () => void;
   forcedReadError?: Error | null;
   forcedReplaceError?: Error | null;
+  /**
+   * `item(id).replace()` の冒頭（`_etag` を比べる前）で呼ばれる。「読んだ後・置き換える直前に、他のリクエストが書き換えた」を再現する
+   * （コールバックの中で `documents` に別の文書を置く。置いた文書は別の `_etag` になるので、読んだ `_etag` 付きの置き換えは 412 になる）
+   */
+  beforeReplace?: (id: string) => void;
+  /** `item(id).delete()` の冒頭で呼ばれる。`beforeReplace` と同じく、読んだ後・消す直前に他のリクエストが書き換えたを再現する */
+  beforeDelete?: (id: string) => void;
   forcedDeleteError?: Error | null;
   /** `item().patch()` が投げるエラー。ドキュメントは変わらない */
   forcedPatchError?: Error | null;
@@ -159,6 +169,25 @@ export interface FakeCosmosBackend<TDoc extends FakeCosmosDocument = PhotoDocume
    * （ファイル冒頭の説明を参照）。既定は未設定（0）
    */
   emptyPagesBeforeResults?: number;
+}
+
+/**
+ * 文書の `_etag`。文書のオブジェクトごとに振る（`documents` に別のオブジェクトを置くと、別の `_etag` になる）
+ *
+ * 実 SDK は書くたびに `_etag` を振り直し、読んだ結果に `_etag` を付ける。タイムラインの文書は読んだ `_etag` 付きの
+ * 置き換え（IfMatch）で書くので、「読んでから書くまでに他が書いた」を 412 で検出できるよう、偽物も持つ。
+ * `documents` の中身には足さない（置いた文書を `toEqual` で見るテストが多いため）。読み取りの結果にだけ付ける
+ */
+const etags = new WeakMap<object, string>();
+let etagCounter = 0;
+function etagOf(doc: object): string {
+  let etag = etags.get(doc);
+  if (etag === undefined) {
+    etagCounter += 1;
+    etag = `"fake-etag-${etagCounter}"`;
+    etags.set(doc, etag);
+  }
+  return etag;
 }
 
 /** 実 SDK が、patch の condition を満たさないときに投げる形（数値 `code` 412） */
@@ -254,12 +283,13 @@ function applyPatchOperations(doc: object, operations: FakePatchOperation[]): ob
       parent = next[segments[0]];
       if (parent === null || typeof parent !== 'object') throw cosmosBadPatchError(`親の path がありません: ${path}`);
     }
+    // 値も複製する（実 SDK は JSON で送るので、呼び出し側が後で値のオブジェクトを書き換えても、置いた文書は変わらない）
     if (op === 'set') {
-      parent[key] = value;
+      parent[key] = structuredClone(value);
     } else if (!(key in parent)) {
       throw cosmosBadPatchError(`存在しない path への ${op} です: ${path}`);
     } else if (op === 'replace') {
-      parent[key] = value;
+      parent[key] = structuredClone(value);
     } else {
       delete parent[key];
     }
@@ -342,8 +372,10 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         if (backend.forcedCreateError) throw backend.forcedCreateError;
         // 実 SDK は同じ id（パーティションキーも id なので同じ論理パーティション）の create を 409 にする
         if (backend.documents.has(doc.id)) throw cosmosConflictError();
-        backend.documents.set(doc.id, doc);
-        return { resource: doc };
+        // 実 SDK は JSON を送って読み直すので、置いた文書と返す文書は呼び出し側のオブジェクトと別物になる
+        const stored = structuredClone(doc);
+        backend.documents.set(doc.id, stored);
+        return { resource: structuredClone(stored) };
       },
       query: (
         querySpec: any,
@@ -381,7 +413,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         return {
           fetchAll: async () => {
             if (backend.forcedQueryError) throw backend.forcedQueryError;
-            return { resources: docs };
+            return { resources: structuredClone(docs) };
           },
           fetchNext: async () => {
             if (backend.forcedQueryError) throw backend.forcedQueryError;
@@ -411,7 +443,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
               options?.maxItemCount === undefined ? docs.length : current.position + options.maxItemCount;
             cursor = { position: end, emptyPagesLeft: emptyPages };
             return {
-              resources: docs.slice(current.position, end),
+              resources: structuredClone(docs.slice(current.position, end)),
               continuationToken:
                 queryControl && end < docs.length ? continuationTokenOf({ fakePosition: end }) : undefined
             };
@@ -426,14 +458,26 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         if (id !== partitionKey || !backend.documents.has(id)) {
           return { resource: undefined };
         }
-        return { resource: backend.documents.get(id) };
+        const doc = backend.documents.get(id)!;
+        // 実 SDK は JSON を読み直した新しいオブジェクトを返す。浅いコピーだと中の draft などが置いた文書と同じものを指し、
+        // 読んだ結果をその場で書き換えるだけで（書き込まずに）偽物の中身が変わって、テストが緑になってしまう
+        return { resource: { ...structuredClone(doc), _etag: etagOf(doc) } };
       },
-      replace: async (doc: TDoc) => {
+      replace: async (doc: TDoc, options?: { accessCondition?: { type: string; condition: string } }) => {
         assertSdkItemId(id);
+        backend.beforeReplace?.(id);
         if (backend.forcedReplaceError) throw backend.forcedReplaceError;
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
-        backend.documents.set(id, doc);
-        return { resource: doc };
+        // 実 SDK は IfMatch の _etag が今の文書と違えば 412 を投げる（読んでから書くまでに他が書いた）
+        if (options?.accessCondition?.type === 'IfMatch' && options.accessCondition.condition !== etagOf(backend.documents.get(id)!)) {
+          throw cosmosPreconditionFailedError();
+        }
+        // 置いた文書は新しいオブジェクトにして、_etag を進める（呼び出し側が渡したオブジェクトを後で書き換えても、置いた文書は変わらない）
+        const stored = structuredClone(doc);
+        // 渡された _etag などのシステム項目は、そのまま置く（実 SDK は振り直すので本番では害が無いが、読んだ結果をそのまま書き戻す
+        // 誤りをテストが置いた文書で見つけられるように。落とすと、システム項目を書き戻さない決まり（04 §5.7）を守るテストが効かなくなる）
+        backend.documents.set(id, stored);
+        return { resource: { ...structuredClone(stored), _etag: etagOf(stored) } };
       },
       patch: async (body: FakePatchBody) => {
         assertSdkItemId(id);
@@ -447,13 +491,18 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         const operations = Array.isArray(body) ? body : body.operations;
         const patched = applyPatchOperations(backend.documents.get(id)!, operations) as TDoc;
         backend.documents.set(id, patched);
-        return { resource: patched };
+        return { resource: structuredClone(patched) };
       },
-      delete: async () => {
+      delete: async (options?: { accessCondition?: { type: string; condition: string } }) => {
         assertSdkItemId(id);
+        backend.beforeDelete?.(id);
         if (backend.forcedDeleteError) throw backend.forcedDeleteError;
         if (backend.forcedErrorById?.[id]) throw backend.forcedErrorById[id];
         if (id !== partitionKey || !backend.documents.has(id)) throw cosmosNotFoundError();
+        // 置き換えと同じく、IfMatch の _etag が今の文書と違えば 412
+        if (options?.accessCondition?.type === 'IfMatch' && options.accessCondition.condition !== etagOf(backend.documents.get(id)!)) {
+          throw cosmosPreconditionFailedError();
+        }
         backend.documents.delete(id);
         return { resource: { id } };
       }

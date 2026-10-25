@@ -1,4 +1,11 @@
 import { PhotoDocument, TripDocument } from '../../src/types/album';
+import {
+  TimelineCurrent,
+  TimelineDocument,
+  TimelineDraft,
+  TimelinePhotoSnapshot,
+  TimelinePhotosDocument
+} from '../../src/types/timeline';
 
 /**
  * Cosmos DB が保存したドキュメントに実際に付けるシステム項目。
@@ -60,4 +67,67 @@ export const photoDocument = (id: string, overrides: Partial<PhotoDocument> = {}
   uploadedAt: '2026-10-10T03:00:00.000Z',
   updatedAt: '2026-10-10T03:00:00.000Z',
   ...overrides
+});
+
+/** タイムラインの文書と控えの既定の日時（意味を持たせない仮の値） */
+const TIMELINE_DEFAULT_AT = '2026-10-08T12:10:00.000Z';
+
+/**
+ * タイムラインの文書（段階5。偽物の documents に置いて「タイムラインがある」状態を作る）。id は `timeline-<旅行の id>`
+ *
+ * 既定は完成版も下書きも無い形で、日時は仮の値（意味を持たせない）。
+ * テストの期待に関わる値（完成版・下書き・残せなかった文・日時など）は、テスト側で overrides に書く
+ */
+export const timelineDocument = (tripId: string, overrides: Partial<TimelineDocument> = {}): TimelineDocument => ({
+  id: `timeline-${tripId}`,
+  type: 'timeline',
+  tripId,
+  current: null,
+  draft: null,
+  droppedEdits: [],
+  createdAt: TIMELINE_DEFAULT_AT,
+  updatedAt: TIMELINE_DEFAULT_AT,
+  ...overrides
+});
+
+/**
+ * タイムラインの下書き。既定は確かめ中（reviewing）で裏の処理が無く、日付の切り替えは4時、区切りは無い。
+ * 下書きの id と控えの id は、取り違えを見分けるのに使うので、テスト側で渡す
+ */
+export const timelineDraft = (id: string, snapshotId: string, overrides: Partial<TimelineDraft> = {}): TimelineDraft => ({
+  id,
+  reason: 'create',
+  phase: 'reviewing',
+  job: null,
+  snapshotId,
+  dayStartHour: 4,
+  proposedStarts: [],
+  sceneStarts: [],
+  startedAt: TIMELINE_DEFAULT_AT,
+  ...overrides
+});
+
+/** タイムラインの完成版（文の無い形）。控えの id はテスト側で渡す */
+export const timelineCurrent = (snapshotId: string, overrides: Partial<TimelineCurrent> = {}): TimelineCurrent => ({
+  snapshotId,
+  dayStartHour: 4,
+  proposedStarts: [],
+  sceneStarts: [],
+  sceneTexts: {},
+  dayTexts: {},
+  writtenAt: TIMELINE_DEFAULT_AT,
+  ...overrides
+});
+
+/** タイムラインの写真の控えの文書。写真を指定しなければ空（中身を確かめに使わないとき） */
+export const timelinePhotosDocument = (
+  id: string,
+  tripId: string,
+  photos: TimelinePhotoSnapshot[] = []
+): TimelinePhotosDocument => ({
+  id,
+  type: 'timelinePhotos',
+  tripId,
+  photos,
+  createdAt: TIMELINE_DEFAULT_AT
 });

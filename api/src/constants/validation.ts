@@ -22,6 +22,22 @@ export function positiveIntFromEnv(value: string | undefined, fallback: number):
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * 環境変数を時刻（0〜23 時）として読む。0〜23 の整数として読めなければ既定値に戻す
+ *
+ * positiveIntFromEnv() は 0 を受け付けない（0 は「上限なし」になりうるので既定値に戻す）が、時刻の 0（深夜0時）は正しい値。
+ * parseInt は "4abc" を 4 と読むので、数字だけの値に限る
+ * @param value 環境変数の値
+ * @param fallback 読めないときの値
+ */
+export function hourFromEnv(value: string | undefined, fallback: number): number {
+  if (value === undefined || !/^\d{1,2}$/.test(value)) {
+    return fallback;
+  }
+  const hour = Number(value);
+  return hour <= 23 ? hour : fallback;
+}
+
 // ファイルアップロード制限
 export const FILE_UPLOAD = {
   // 最大ファイルサイズ（バイト）

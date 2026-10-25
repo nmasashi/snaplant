@@ -4,7 +4,7 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import { deleteTripHandler, getTripHandler, updateTripHandler } from '../../src/functions/tripDetail';
 import { FakeCosmosBackend, FakeCosmosDocument, cosmosNotFoundError, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
-import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
+import { COSMOS_SYSTEM_FIELDS, photoDocument, timelineDocument, timelinePhotosDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
 // 外部依存のみモック
@@ -775,6 +775,46 @@ describe('旅行詳細API', () => {
         tripId: null,
         updatedAt: DELETED_AT
       });
+    });
+
+    it.each(['true', 'false'])('旅行を削除すると（deletePhotos=%s）、その旅行のタイムラインと写真の控えも消え、別の旅行のものは残る', async (deletePhotos) => {
+      const snapshotOf = (tripId: string, suffix: string) => timelinePhotosDocument(`timeline-photos-${tripId}-${suffix}`, tripId);
+      const kyotoSnapshots = [
+        snapshotOf(KYOTO_TRIP_ID, '11111111-1111-4111-8111-111111111111'),
+        snapshotOf(KYOTO_TRIP_ID, '22222222-2222-4222-8222-222222222222')
+      ];
+      const sapporoTimeline = timelineDocument(SAPPORO_TRIP_ID);
+      const sapporoSnapshot = snapshotOf(SAPPORO_TRIP_ID, '33333333-3333-4333-8333-333333333333');
+      [
+        tripDocument(KYOTO_TRIP_ID, '京都旅行'),
+        timelineDocument(KYOTO_TRIP_ID),
+        ...kyotoSnapshots,
+        sapporoTimeline,
+        sapporoSnapshot
+      ].forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
+
+      const response = await deleteTripHandler(createDeleteRequest(KYOTO_TRIP_ID, deletePhotos), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents).toEqual(
+        new Map<string, FakeCosmosDocument>([
+          [sapporoTimeline.id, sapporoTimeline],
+          [sapporoSnapshot.id, sapporoSnapshot]
+        ])
+      );
+    });
+
+    it('タイムラインを消すときに失敗したら、旅行を消さずに失敗を返す', async () => {
+      const kyoto = tripDocument(KYOTO_TRIP_ID, '京都旅行');
+      cosmosBackend.documents.set(KYOTO_TRIP_ID, kyoto);
+      cosmosBackend.documents.set(`timeline-${KYOTO_TRIP_ID}`, timelineDocument(KYOTO_TRIP_ID));
+      cosmosBackend.forcedErrorById = { [`timeline-${KYOTO_TRIP_ID}`]: new Error('something went wrong') };
+
+      const response = await deleteTripHandler(createDeleteRequest(KYOTO_TRIP_ID, 'false'), mockContext);
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: '旅行の削除に失敗しました' } });
+      expect(cosmosBackend.documents.get(KYOTO_TRIP_ID)).toEqual(kyoto);
     });
 
     // 「写真は残す」は画像に触れないので、写真の保存先(Blob Storage)の設定に頼らない。外側の beforeEach は設定を

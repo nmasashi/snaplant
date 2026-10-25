@@ -1,4 +1,6 @@
-import { CosmosClient, Container } from '@azure/cosmos';
+import { Container } from '@azure/cosmos';
+import { openAlbumContainer } from './albumContainer';
+import { sqlString } from '../utils/sqlString';
 import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS } from '../catalog/kinds';
@@ -7,10 +9,7 @@ import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from 
 import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
 import { catalogEntryOf, catalogPageOf } from './catalogEntries';
 import { buildTripSummaries } from './tripSummaries';
-import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES } from '../constants/album';
-
-/** album コンテナにつなぐのに要る設定（Terraform が Function App に入れる。手で回すスクリプトは local.settings.json から） */
-const COSMOS_SETTINGS = ['COSMOS_DB_ENDPOINT', 'COSMOS_DB_KEY', 'COSMOS_DB_DATABASE', 'COSMOS_DB_ALBUM_CONTAINER'] as const;
+import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES, UNFINISHED_PROCESSING_STATES } from '../constants/album';
 
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
@@ -32,19 +31,7 @@ export class AlbumService {
   private container: Container;
 
   constructor() {
-    // 足りない設定の名前を言って止める。SDK に任せると、エンドポイントが無いときは TypeError（Invalid URL）になり、
-    // 何が足りないか分からない（手で回すスクリプトを、手元の設定が無いまま回したときに起きた）
-    // 確かめた値（前後の空白を除いたもの）で使う。空白の付いた値が確かめを通って SDK で分かりにくく落ちないように
-    const setting = (name: (typeof COSMOS_SETTINGS)[number]) => process.env[name]?.trim() ?? '';
-    const missing = COSMOS_SETTINGS.filter((name) => setting(name) === '');
-    if (missing.length > 0) {
-      throw new Error(`Cosmos の設定がありません: ${missing.join(', ')}`);
-    }
-    const client = new CosmosClient({
-      endpoint: setting('COSMOS_DB_ENDPOINT'),
-      key: setting('COSMOS_DB_KEY'),
-    });
-    this.container = client.database(setting('COSMOS_DB_DATABASE')).container(setting('COSMOS_DB_ALBUM_CONTAINER'));
+    this.container = openAlbumContainer();
   }
 
   /**
@@ -436,8 +423,11 @@ export class AlbumService {
   async listStalePhotos(before: string): Promise<{ id: string; processing: PhotoProcessing }[]> {
     const { resources } = await this.container.items
       .query<{ id: string; processing: PhotoProcessing }>({
+        // 状態の一覧は、タイマーがコードで見直す条件・タイムラインを作れない条件と同じ定数から作る（片方だけ増えて拾われない状態を作らない）。
+        // 値はサーバの定数なので埋め込む（できる文は今までの IN ('pending', 'classifying', 'identifying') と同じ）
         query:
-          "SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before",
+          `SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN (${UNFINISHED_PROCESSING_STATES.map((state) => `'${state}'`).join(', ')})` +
+          ' AND c.processing.updatedAt < @before',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@before', value: before },
@@ -632,12 +622,14 @@ export class AlbumService {
    * @param id 旅行 ID
    * @param deletePhotos 中の写真も消すなら true、残すなら false
    * @param onPhotoDeleted 写真のドキュメントを消した後に呼ぶ（Blob を消すため）
+   * @param beforeTripDeleted 写真を処理した後、旅行を消す前に呼ぶ（タイムラインを消すため。失敗したら旅行は残る）
    * @returns 消した写真と未所属に戻した写真の枚数。旅行が無ければ null
    */
   async deleteTrip(
     id: string,
     deletePhotos: boolean,
-    onPhotoDeleted: (photo: PhotoBlobNames) => Promise<void>
+    onPhotoDeleted: (photo: PhotoBlobNames) => Promise<void>,
+    beforeTripDeleted: () => Promise<void> = async () => {}
   ): Promise<{ deletedPhotoCount: number; detachedPhotoCount: number } | null> {
     if (!(await this.readTrip(id))) {
       return null;
@@ -666,6 +658,7 @@ export class AlbumService {
         }
       }
     }
+    await beforeTripDeleted();
     try {
       await this.container.item(id, id).delete();
     } catch (error: any) {
@@ -787,12 +780,3 @@ function processingCondition(expected: PhotoProcessing): string {
   );
 }
 
-/**
- * patch の condition に埋める文字列のリテラル
- *
- * condition はパラメータを取れないので値を埋め込む。埋める値はどれもサーバが書いた列挙・時刻・UUID だが、
- * 引用符が混ざっても条件が壊れないよう、JSON の文字列としてエスケープする（Cosmos SQL の文字列リテラルと同じ書き方）
- */
-function sqlString(value: string): string {
-  return JSON.stringify(value);
-}

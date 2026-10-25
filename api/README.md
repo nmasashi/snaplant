@@ -49,7 +49,7 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 
 | 関数（`app.timer` の第1引数） | ファイル | スケジュール | 内容 |
 |---|---|---|---|
-| `requeueStalePhotos` | `src/functions/requeueStalePhotos.ts` | `0 */10 * * * *`（10 分ごと） | 解析待ち・処理中のまま 10 分以上止まった写真を解析待ちに戻してキューに積む。回数が上限なら失敗にする |
+| `requeueStalePhotos` | `src/functions/requeueStalePhotos.ts` | `0 */10 * * * *`（10 分ごと） | 解析待ち・処理中のまま 10 分以上止まった写真を解析待ちに戻してキューに積む。回数が上限なら失敗にする。タイムラインの下書き（段階5）も同じ形で、タイムラインのキュー（`TIMELINE_QUEUE_NAME`）に積み直す |
 | `sweepAlbum` | `src/functions/sweepAlbum.ts` | `0 0 18 * * *`（毎日 UTC 18 時 = 日本時間の午前3時） | 文書の無い古い Blob を消し、消えた旅行を指す写真を未所属に戻し、原寸の Blob の無い写真をログに出す |
 
 ## 手で回すスクリプト

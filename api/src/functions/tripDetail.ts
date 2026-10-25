@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { AlbumService } from '../services/albumService';
 import { coverUrlMaker } from '../services/photoView';
 import { PhotoStorageService } from '../services/photoStorageService';
+import { TimelineService } from '../services/timelineService';
 import {
   createDatabaseErrorResponse,
   createNotFoundError,
@@ -82,9 +83,15 @@ export async function deleteTripHandler(request: HttpRequest, context: Invocatio
     const deletePhotos = deletePhotosParam === 'true';
     // 写真の画像を消すときだけ保存先を使う。設定が足りなければ、何も消す前に失敗させる
     const storage = deletePhotos ? new PhotoStorageService() : null;
-    const result = await new AlbumService().deleteTrip(tripId, deletePhotos, async (photo) => {
-      await storage?.deletePhotoBlobs(photo, (message, error) => context.log(message, error));
-    });
+    const result = await new AlbumService().deleteTrip(
+      tripId,
+      deletePhotos,
+      async (photo) => {
+        await storage?.deletePhotoBlobs(photo, (message, error) => context.log(message, error));
+      },
+      // 写真の後、旅行の前に、タイムラインと写真の控えを消す（段階5。05 §5.12 の手順 4）
+      () => new TimelineService().deleteTripTimeline(tripId)
+    );
     if (!result) {
       return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
     }

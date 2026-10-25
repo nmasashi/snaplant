@@ -5,7 +5,8 @@ import { requeueStalePhotosHandler } from '../../src/functions/requeueStalePhoto
 import { PhotoDocument, PhotoProcessing } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
-import { photoDocument, tripDocument } from '../helpers/albumDocuments';
+import { photoDocument, timelineDocument, timelineDraft, tripDocument } from '../helpers/albumDocuments';
+import { TimelineDraft, TimelineJob } from '../../src/types/timeline';
 
 // 外部依存のみモック。Cosmos DB とキューは状態持ちの偽物
 jest.mock('@azure/cosmos');
@@ -195,5 +196,140 @@ describe('再投入のタイマー', () => {
     await expect(requeueStalePhotosHandler(timer, mockContext)).rejects.toBe(queryError);
 
     expect(queuedPhotoIds()).toEqual([]);
+  });
+  describe('タイムラインの下書き（段階5）', () => {
+    const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
+    const TIMELINE_ID = `timeline-${TRIP_ID}`;
+    const DRAFT_ID = '33333333-3333-4333-8333-333333333333';
+    /** 処理（job）を指定した、区切り案を作っている下書きを持つタイムライン */
+    const timelineWithJob = (job: TimelineJob | null, overrides: Partial<TimelineDraft> = {}) =>
+      timelineDocument(TRIP_ID, {
+        draft: timelineDraft(DRAFT_ID, `timeline-photos-${TRIP_ID}-22222222-2222-4222-8222-222222222222`, { phase: 'proposing', job, ...overrides })
+      });
+    const storedTimeline = () => cosmosBackend.documents.get(TIMELINE_ID) as any;
+    const queuedTimelines = (): unknown[] => (queueBackend.queues.get('timeline-processing') ?? []).map(decodeQueueMessage);
+
+    beforeEach(() => {
+      process.env.TIMELINE_QUEUE_NAME = 'timeline-processing';
+    });
+
+    afterEach(() => {
+      delete process.env.TIMELINE_QUEUE_NAME;
+    });
+
+    it.each(['pending', 'running'] as const)('10分以上止まっている下書き（%s）を、待ちに戻して（処理と回数はそのまま）タイムラインのキューに積む', async (state) => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state, attempts: 1, lastError: 'ai', updatedAt: STALE })
+      );
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline().draft.job).toEqual({ step: 'propose', state: 'pending', attempts: 1, lastError: 'ai', updatedAt: NOW });
+      expect(queuedTimelines()).toEqual([{ tripId: TRIP_ID, draftId: DRAFT_ID }]);
+      expect(queuedPhotoIds()).toEqual([]);
+    });
+
+    it('回数が上限（3回）に達した下書きは、積まずに失敗（failed）にする', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'write', state: 'running', attempts: 3, lastError: null, updatedAt: STALE }, { phase: 'writing' })
+      );
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline().draft.job).toEqual({ step: 'write', state: 'failed', attempts: 3, lastError: null, updatedAt: NOW });
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it.each<[string, TimelineJob | null, Partial<TimelineDraft>]>([
+      ['確かめ中で処理の無い', null, { phase: 'reviewing' }],
+      ['失敗した', { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: STALE }, {}],
+      ['止まってまだ10分たっていない', { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: FRESH }, {}]
+    ])('%s下書きは拾わない（変えず、積まない）', async (_label, job, overrides) => {
+      const timeline = timelineWithJob(job, overrides);
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(timeline);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('写真の再投入で失敗しても、タイムラインの下書きは積み直し、タイマーは失敗として終わる', async () => {
+      // 写真の側の障害（1枚の書き込みの失敗など）で、止まった下書きがいつまでも積み直されない、ということにしない
+      cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
+      const photoError = Object.assign(new Error('something went wrong'), { code: 500 });
+      cosmosBackend.forcedErrorById = { [photoId('a')]: photoError };
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+
+      await expect(requeueStalePhotosHandler(timer, mockContext)).rejects.toBe(photoError);
+
+      expect(storedTimeline().draft.job).toEqual({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW });
+      expect(queuedTimelines()).toEqual([{ tripId: TRIP_ID, draftId: DRAFT_ID }]);
+    });
+
+    it('下書きの無いタイムラインは拾わない', async () => {
+      const timeline = timelineDocument(TRIP_ID);
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(timeline);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('読んだ後に下書きが置き換えられていたら（やめた・出し直した）、触らない', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+      const replaced = timelineWithJob(
+        { step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE },
+        { id: '44444444-4444-4444-8444-444444444444' }
+      );
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, replaced);
+      };
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(replaced);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('読んだ後にワーカーが下書きの処理を担当していたら、触らず、積まない', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+      const taken = timelineWithJob({ step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: FRESH });
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, taken);
+      };
+
+      await requeueStalePhotosHandler(timer, mockContext);
+
+      expect(storedTimeline()).toEqual(taken);
+      expect(queuedTimelines()).toEqual([]);
+    });
+
+    it('読んだ後にタイムラインが消えていたら（旅行の削除など）、触らず、積まず、タイマーは失敗にしない', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWithJob({ step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: STALE })
+      );
+      cosmosBackend.beforePatch = (id) => {
+        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TIMELINE_ID);
+      };
+
+      await expect(requeueStalePhotosHandler(timer, mockContext)).resolves.toBeUndefined();
+
+      expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
+      expect(queuedTimelines()).toEqual([]);
+    });
   });
 });
