@@ -434,6 +434,17 @@ describe('タイムラインの完成版の操作API', () => {
       expect((response.jsonBody as any).data.timeline.current.days).toHaveLength(2);
     });
 
+    it('残せなかった文が既に無ければ、書き込まずに完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current, droppedEdits: [], updatedAt: '2026-10-08T12:14:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await close();
+
+      expect(response.status).toBe(200);
+      // 書き込めば更新日時が今になる
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
     it('完成版が無く下書きだけのタイムラインでも閉じられる', async () => {
       const timeline = timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID), droppedEdits: DROPPED });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
