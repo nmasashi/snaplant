@@ -143,6 +143,15 @@ enum TripRoute {
 
   /// GET /api/photos/{photoId}（写真を1枚読む。タイムラインのサムネイルから写真ビューアを開くとき）
   getPhoto,
+
+  /// PATCH /api/trips/{tripId}/timeline/days/{date}（完成版の日の文を直す。段階5）
+  timelineDayPatch,
+
+  /// PATCH /api/trips/{tripId}/timeline/scenes/{photoId}（完成版の場面の文を直す。段階5）
+  timelineScenePatch,
+
+  /// DELETE /api/trips/{tripId}/timeline/dropped-edits（残せなかった文の知らせを閉じる。段階5）
+  timelineDroppedEditsDelete,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`・項目の詳細 `GET /api/catalog/entry`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
@@ -319,6 +328,10 @@ class FakeTripBackend {
   /// （5 秒ごとに読み直すこと・閉じたら止めることは 03 §8.1 の振る舞い）
   int timelineDraftReadsReceived = 0;
 
+  /// 完成版の AI が書いた文（本物の `aiTitle` などの欄）。文を空にして直すと、この文に戻す。
+  /// 鍵は `<日付か場面の最初の写真の id>:<欄>`（例 `2026-10-05:title`）。無ければ文は null に戻る
+  final Map<String, String> timelineAiTexts = {};
+
   /// 作る受付で書く下書きの開始時刻
   static const timelineStartedAt = '2026-10-25T09:00:00.000Z';
 
@@ -430,6 +443,9 @@ class FakeTripBackend {
       case TripRoute.timelineWrite:
       case TripRoute.timelineScenes:
       case TripRoute.timelineRecut:
+      case TripRoute.timelineDayPatch:
+      case TripRoute.timelineScenePatch:
+      case TripRoute.timelineDroppedEditsDelete:
         return _timeline(route, request);
       case TripRoute.getPhoto:
         return _getPhoto(request);
@@ -446,11 +462,14 @@ class FakeTripBackend {
     final working = job != null && (job['state'] == 'pending' || job['state'] == 'running');
     switch (route) {
       case TripRoute.timeline:
-        return _ok(200, {
-          'timeline': timeline == null ? null : {...timeline, 'draft': _draftStatusOf(draft)},
-          'pendingPhotoCount': pendingPhotoCountByTripId[tripId] ?? 0,
-          'urlExpiresAt': '2026-10-10T04:12:45.000Z',
-        });
+        return _ok(200, _timelineBody(tripId));
+      case TripRoute.timelineDayPatch:
+      case TripRoute.timelineScenePatch:
+        return _patchTimelineText(route, request, tripId, timeline);
+      case TripRoute.timelineDroppedEditsDelete:
+        if (timeline == null) return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインが見つかりません');
+        timelinesByTripId[tripId] = {...timeline, 'droppedEdits': <Object?>[]};
+        return _ok(200, _timelineBody(tripId));
       case TripRoute.timelineCreate:
         if (working) return _timelineConflict();
         if ((pendingPhotoCountByTripId[tripId] ?? 0) > 0) {
@@ -543,6 +562,51 @@ class FakeTripBackend {
     }
   }
 
+  /// `GET …/timeline` の応答の `data`（下書きは状態だけ）。文を直す・残せなかった文を閉じる応答も同じ形
+  Map<String, Object?> _timelineBody(String tripId) {
+    final timeline = timelinesByTripId[tripId];
+    return {
+      'timeline': timeline == null
+          ? null
+          : {...timeline, 'draft': _draftStatusOf(timeline['draft'] as Map<String, Object?>?)},
+      'pendingPhotoCount': pendingPhotoCountByTripId[tripId] ?? 0,
+      'urlExpiresAt': '2026-10-10T04:12:45.000Z',
+    };
+  }
+
+  /// 完成版の日・場面の文を直す（05 §5.15 の PATCH）。送った欄だけを前後の空白を除いて書き、書いた主を `user` にする。
+  /// 空か null なら AI が書いた文（[timelineAiTexts]）に戻し、主を `ai` にする。上限の文字数は見ない（画面が欄で止める）
+  http.Response _patchTimelineText(TripRoute route, http.Request request, String tripId, Map<String, Object?>? timeline) {
+    final isDay = route == TripRoute.timelineDayPatch;
+    final key = request.url.pathSegments[5];
+    final body = jsonDecode(request.body) as Map<String, Object?>;
+    final fields = isDay ? const ['title', 'summary'] : const ['label', 'note'];
+    if (!fields.any(body.containsKey)) return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
+    final current = timeline?['current'] as Map<String, Object?>?;
+    if (current == null) return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインが見つかりません');
+    Map<String, Object?>? target;
+    for (final day in (current['days'] as List).cast<Map<String, Object?>>()) {
+      if (isDay && day['date'] == key) target = day;
+      for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>()) {
+        if (!isDay && scene['startPhotoId'] == key) target = scene;
+      }
+    }
+    if (target == null) {
+      return _error(404, 'TIMELINE_NOT_FOUND', isDay ? 'その日はタイムラインにありません' : 'その場面はタイムラインにありません');
+    }
+    for (final field in fields.where(body.containsKey)) {
+      final text = (body[field] as String?)?.trim() ?? '';
+      if (text.isEmpty) {
+        target[field] = timelineAiTexts['$key:$field'];
+        target['${field}Source'] = target[field] == null ? null : 'ai';
+      } else {
+        target[field] = text;
+        target['${field}Source'] = 'user';
+      }
+    }
+    return _ok(200, _timelineBody(tripId));
+  }
+
   /// 区切りを確かめられる下書き（確かめ待ちか、文を書くのに失敗した。05 §5.15）
   bool _isEditableDraft(Map<String, Object?> draft) {
     final job = draft['job'] as Map<String, Object?>?;
@@ -608,6 +672,10 @@ class FakeTripBackend {
   TripRoute? _timelineRouteOf(http.Request request) {
     final segments = request.url.pathSegments;
     if (segments.length < 4 || segments[0] != 'api' || segments[1] != 'trips' || segments[3] != 'timeline') return null;
+    if (segments.length == 6 && request.method == 'PATCH') {
+      if (segments[4] == 'days') return TripRoute.timelineDayPatch;
+      if (segments[4] == 'scenes') return TripRoute.timelineScenePatch;
+    }
     final rest = segments.sublist(4).join('/');
     return switch ((rest, request.method)) {
       ('', 'GET') => TripRoute.timeline,
@@ -617,6 +685,7 @@ class FakeTripBackend {
       ('draft/write', 'POST') => TripRoute.timelineWrite,
       ('draft/scenes', 'PUT') => TripRoute.timelineScenes,
       ('recut', 'POST') => TripRoute.timelineRecut,
+      ('dropped-edits', 'DELETE') => TripRoute.timelineDroppedEditsDelete,
       _ => null,
     };
   }
