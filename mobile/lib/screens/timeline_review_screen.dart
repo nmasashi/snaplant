@@ -130,7 +130,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   Future<void> _discard() async {
     // この画面は完成版を読まない。作り直し・区切りの直しの下書きなら完成版がある（作る受付が完成版の有無で create / rebuild を決める）
     if (!await confirmDiscardTimeline(context,
-            hasCurrent: _draft?.reason != 'create') ||
+            hasCurrent: (_draft?.reason ?? 'create') != 'create') ||
         !mounted) {
       return;
     }

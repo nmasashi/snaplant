@@ -46,7 +46,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   String? _errorMessage;
   // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
-  // 操作（作る・もう一度・やめる）を送っている間は、操作のボタンを押せなくする（二重に送らない。§8.1）
+  // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
+  // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
   bool _sending = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
@@ -198,16 +199,17 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 写真を読み、写真ビューアでその1枚を開く。閉じたらタイムラインを読み直す（ビューアで消した・直したことを出す。§8.3）
   Future<void> _openPhoto(TimelinePhoto photo) async {
-    // 写真を読んでいる間は、ほかのタップと操作を受け付けない（写真ビューアや確認画面を重ねて開かない。§8.3）
     if (_sending) return;
+    // 写真を読む間も操作と同じに扱う（前に始めた読み直しの応答を使わず、ほかのタップと操作を受け付けない。§8.1・§8.3）
+    final generation = ++_generation;
+    _pollTimer?.cancel();
     setState(() => _sending = true);
-    final Photo loaded;
+    Photo? loaded;
     try {
       loaded = await widget.apiService.getPhoto(photo.id);
     } catch (e) {
       debugPrint('TripTimelineView: 写真の読み込みエラー: $e');
       if (!mounted) return;
-      setState(() => _sending = false);
       final messenger = ScaffoldMessenger.of(context);
       if (e is ApiException && e.isPhotoNotFound) {
         messenger.showSnackBar(const SnackBar(content: Text('この写真は削除されています')));
@@ -216,10 +218,15 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       }
       messenger.showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
-      return;
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
     if (!mounted) return;
-    setState(() => _sending = false);
+    if (loaded == null) {
+      // 表示はそのまま。作っている途中の下書きなら読み直しを続ける
+      if (generation == _generation) _schedulePoll();
+      return;
+    }
     final photos = ValueNotifier<List<Photo>>([loaded]);
     await Navigator.push(
       context,

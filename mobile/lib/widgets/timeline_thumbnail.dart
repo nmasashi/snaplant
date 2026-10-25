@@ -32,7 +32,7 @@ class TimelineThumbnail extends StatelessWidget {
             const ColoredBox(color: AppColors.surfaceVariant),
       ),
     );
-    final onTap = this.onTap;
-    return onTap == null ? image : GestureDetector(onTap: onTap, child: image);
+    // タップを受けないときも GestureDetector で包む（包み方が変わると、下の画像の部品を組み立て直して読み込み直すため）
+    return GestureDetector(onTap: onTap, child: image);
   }
 }
