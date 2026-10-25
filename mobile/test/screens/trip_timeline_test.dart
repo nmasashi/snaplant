@@ -282,6 +282,45 @@ void main() {
       expect(find.text('区切りの案を作っています'), findsNothing);
     });
 
+    testWidgets('区切りの案ができて読み直したタイムラインが読めなくても、表示は変えず、5 秒後にもう一度読む',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      backend.timelinesByTripId[hokkaidoTripId] =
+          _timeline(draft: _draft('reviewing'));
+      backend.failNext(TripRoute.timeline);
+
+      await _waitForPoll(tester);
+      expect(find.text('エラーが発生しました'), findsNothing);
+      expect(find.text('区切りの案を作っています'), findsOneWidget);
+
+      await _waitForPoll(tester);
+      expect(find.text('区切りの案ができました'), findsOneWidget);
+    });
+
+    testWidgets('読み直したタイムラインの応答を待つ間に「捨てる」で読み直したら、遅れて届いた先の応答で表示を戻さない',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      // 区切りの案ができ、読み直しの GET …/timeline を止める（応答の中身は届いた時点の「確かめ待ち」で決まる）
+      backend.timelinesByTripId[hokkaidoTripId] =
+          _timeline(draft: _draft('reviewing'));
+      final hold = backend.holdNextReply(TripRoute.timeline);
+      await _waitForPoll(tester);
+
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '捨てる');
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
+      expect(find.text('区切りの案ができました'), findsNothing);
+    });
+
     testWidgets('「写真」に戻すと、下書きの読み直しを止める', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
