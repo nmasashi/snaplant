@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -305,13 +306,16 @@ void main() {
     expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
   });
 
-  testWidgets('アプリは日本語の設定で動く（Material の部品が出す文言も日本語になる。戻るボタンの説明は「戻る」）', (tester) async {
+  testWidgets('端末が英語の設定でも、アプリは日本語で動く（文字は日本語として描き、戻るボタンの説明は「戻る」）', (tester) async {
     await _givenNoSettingsSaved(tester);
+    tester.platformDispatcher.localesTestValue = const [Locale('en', 'US')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
 
+    // 起動時に設定画面が自動で開く
     await openApp(tester);
 
-    final context = tester.element(find.text('設定'));
-    expect(Localizations.localeOf(context), const Locale('ja', 'JP'));
-    expect(MaterialLocalizations.of(context).backButtonTooltip, '戻る');
+    // 字形はテスト環境のフォントでは見分けられないので、文字を描く部品に渡る言語を見る（端末では、これで日本語の字形を選ぶ）
+    expect(tester.renderObject<RenderParagraph>(find.text('設定')).locale?.languageCode, 'ja');
+    expect(find.byTooltip('戻る'), findsOneWidget);
   });
 }
