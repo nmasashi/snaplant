@@ -225,6 +225,26 @@ export class TimelineService {
   }
 
   /**
+   * タイムラインを置き換える。読んだときの _etag のままのときだけ書き、他が書いていた（412）・消えていた（404）なら false
+   *
+   * 利用者の操作（区切りの保存・文の編集など）は、false なら 409 TIMELINE_STATE_CONFLICT を返す
+   * @param doc 書く文書
+   * @param etag 読んだときの _etag
+   * @returns 書けたら true
+   */
+  async replaceTimelineIfUnchanged(doc: TimelineDocument, etag: string): Promise<boolean> {
+    try {
+      await this.replaceTimeline(doc, etag);
+      return true;
+    } catch (error: any) {
+      if (error instanceof TimelineConflictError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * タイムラインの文書を消す。読んだときの _etag のままのときだけ消す
    * @param tripId 旅行の ID
    * @param etag 読んだときの _etag

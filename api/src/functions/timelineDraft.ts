@@ -131,13 +131,8 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
     }
     const now = new Date().toISOString();
     draft = { ...read, phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: now } };
-    try {
-      await timelines.replaceTimeline({ ...timeline.doc, draft, updatedAt: now }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
+      return createTimelineStateConflict();
     }
   } catch (error: any) {
     context.log('タイムラインの文を書く受付エラー:', error);
@@ -212,13 +207,8 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     const saved: TimelineDraft = { ...draft, sceneStarts, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
     const storage = new PhotoStorageService();
-    try {
-      await timelines.replaceTimeline({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
+      return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
     return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });

@@ -2,12 +2,12 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { TimelineConflictError, TimelineService, TimelineSnapshotMissingError } from '../services/timelineService';
+import { TimelineService, TimelineSnapshotMissingError } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
 import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
-import { readTimelineBody } from '../services/timelineRead';
+import { readTimelineResponse } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
   createNotFoundError,
@@ -76,13 +76,8 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
       }
       throw error;
     }
-    try {
-      await timelines.replaceTimeline({ ...timeline.doc, draft, updatedAt: now }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
+      return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
     return createSuccessResponse({ draft: reviewingDraftOf(draft, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
@@ -114,16 +109,13 @@ export async function deleteTimelineDroppedEditsHandler(request: HttpRequest, co
       return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
     // 既に無ければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
-    if (timeline.doc.droppedEdits.length > 0) try {
-      await timelines.replaceTimeline({ ...timeline.doc, droppedEdits: [], updatedAt: new Date().toISOString() }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (
+      timeline.doc.droppedEdits.length > 0 &&
+      !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, droppedEdits: [], updatedAt: new Date().toISOString() }, timeline.etag))
+    ) {
+      return createTimelineStateConflict();
     }
-    const body = await readTimelineBody(tripId);
-    return body ? createSuccessResponse(body) : createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    return await readTimelineResponse(tripId);
   } catch (error: any) {
     context.log('タイムラインの残せなかった文を閉じるエラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
@@ -214,17 +206,11 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       }
       edited = { ...current, sceneTexts: { ...current.sceneTexts, [key]: withEdits(current.sceneTexts[key], edits.values) } };
     }
-    try {
-      await timelines.replaceTimeline({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag);
-    } catch (error: any) {
-      if (error instanceof TimelineConflictError) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
+      return createTimelineStateConflict();
     }
     // 画面は直した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
-    const body = await readTimelineBody(tripId);
-    return body ? createSuccessResponse(body) : createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    return await readTimelineResponse(tripId);
   } catch (error: any) {
     context.log('タイムラインの文の更新エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');

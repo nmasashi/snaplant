@@ -5,7 +5,7 @@ import { TimelineConflictError, TimelinePhotoRow, TimelineService, timelineIdOf 
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 import { photoUrlExpiresOn } from '../services/photoStorageService';
 import { draftStatusOf } from '../services/timelineView';
-import { readTimelineBody } from '../services/timelineRead';
+import { readTimelineResponse } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
   createErrorResponse,
@@ -146,8 +146,7 @@ export async function getTimelineHandler(request: HttpRequest, context: Invocati
     return createValidationError('旅行IDの形式が無効です');
   }
   try {
-    const body = await readTimelineBody(tripId);
-    return body ? createSuccessResponse(body) : createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    return await readTimelineResponse(tripId);
   } catch (error: any) {
     context.log('タイムラインの取得エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの取得に失敗しました');
