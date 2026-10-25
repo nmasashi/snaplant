@@ -154,6 +154,7 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 送り先のデプロイはコンストラクタの引数で決める（省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は落とす）。写真の識別は引数なしで作る。
 クライアントもコンストラクタで1つ作り、設定の誤り（デプロイ名が無い、SDK がクライアントを作れない）はコンストラクタで例外にする
 （`analyze()` の中で作ると、呼び出し側が AI の失敗に包んで AI の障害に見える）。
+5-1b で、`imageUrl` を省くと画像のパートを付けずに文字だけを送る形と、`maxCompletionTokens`（省くと 4,000）を足した（タイムラインの区切り案。§8.4）。分類・識別は今までどおり画像を渡し、上限を渡さない。
 
 ### 2.2 契約（Structured Outputs）
 
@@ -384,7 +385,8 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 ### 8.1 構成
 
 **実装済み**（5-1a）: 表の「キュー」「メッセージ」の投入する側（`services/timelineQueueService.ts`。`POST …/timeline` と再投入のタイマーが積む）、「再試行」の上限の共有、「止まったものの再投入」（`requeueStalePhotos.ts`）。
-未実装: 「ワーカー」「AI」と、下の「担当・結果・失敗の書き込み」（5-1b の `propose`、5-2 の `write`）。
+**実装済み**（5-1b。`functions/processTimeline.ts`、結果の当て直しは `TimelineService.writeDraftResult()`、AI は `services/timelineProposerService.ts`）: 表の「ワーカー」「AI」（区切り案だけ）と、下の「担当・結果・失敗の書き込み」「何もせずに終える」「旅行が無い」を、`step: "propose"` の下書きについて。
+未実装: `step: "write"` の下書きの処理（5-2。今のワーカーは `write` の下書きを担当せず、何もせずに終える）。
 
 | 項目 | 値 | 理由 |
 |---|---|---|
@@ -393,25 +395,29 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 | ワーカー | `api/src/functions/processTimeline.ts`。`app.storageQueue('processTimeline', { queueName: '%TIMELINE_QUEUE_NAME%', … })` | 写真のワーカーと同じ Function App |
 | 再試行 | `host.json` は写真と同じ（`maxDequeueCount: 3`）。上限は `PHOTO_PROCESSING_MAX_ATTEMPTS` を共有する（`draft.job.attempts` で数える） | 写真と同じ止め方（§1.3） |
 | 止まったものの再投入 | 再投入のタイマー（`requeueStalePhotos`）が、写真の後に、`draft.job.state` が `pending` / `running` のまま 10 分（`PHOTO_REQUEUE_AFTER_MINUTES`）以上たった下書きも拾う（[04 §5](./04_data_design.md#5-クエリ) の 5.15）。クエリと同じ条件（下書きと `job` があり、`state` が `pending` / `running`、`updatedAt` が 10 分より前）をコードでも見直し、外れた下書き（確かめ中で `job` が無い・`failed`・まだ 10 分たっていない・下書きが無い）は読んでも触らない。写真と同じく、読んだときの下書きの id と `job`（`state`・`step`・`attempts`・`updatedAt`）のままかの条件付き patch（[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）で `state: "pending"`・`updatedAt` を今にしてから積む（`step`・`attempts`・`lastError` はそのまま。メッセージは `{ tripId, draftId }`）。`attempts` が上限なら `failed` にして積まない。412 か 404（読んだ後に下書きをやめた・出し直した・ワーカーが担当した、タイムラインが消えた）なら触らない。投入の失敗はログだけで残りを続ける。下書きの読み取り（クエリ）に失敗したら例外を投げる。件数（止まっていた下書き・積んだ・失敗にした）をログに出す | 投入に失敗した・ワーカーが落ちたときに、利用者が押し直さなくても進む |
-| AI | `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME`（未設定なら識別と同じ `AZURE_OPENAI_DEPLOYMENT_NAME`。[07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。**画像は渡さず、文字だけ**（§8.4）。Structured Outputs の strict（[§3.1](#31-契約) と同じ制約） | 費用が小さい。ふつうは1回の作成で2回（区切り案・文）。写真の多い旅行は分けて呼ぶので増える（§8.4） |
+| AI | `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME`（未設定・空・空白だけなら識別と同じ `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は落とす。[07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)。送り先の決め方と設定の誤りの扱いは分類と同じ。[§2.1](#21-モデルとサービス)・[05 §9.5](./05_api_design.md#95-ai-識別サービスへの接続)）。**画像は渡さず、文字だけ**（§8.4）。Structured Outputs の strict（[§3.1](#31-契約) と同じ制約） | 費用が小さい。ふつうは1回の作成で2回（区切り案・文）。写真の多い旅行は分けて呼ぶので増える（§8.4） |
 
 担当・結果・失敗の書き込み:
 
-- **担当**: `draft.id = <メッセージの draftId>` かつ `draft.job` が読んだとおり（`state: "pending"`・`step`・`attempts`・`updatedAt`）、の条件付き patch で `running`・`attempts + 1`・`updatedAt` を今にする（写真の担当と同じ条件の形。§1.3）。412 なら担当済みか、やめた・出し直した下書きなので何もしない
-- **結果・失敗**: 読んだ文書の `_etag` 付きの置き換え（[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）。写真と違って `_etag` を使うのは、同じ文書の同じ欄（`draft`・`current`・`droppedEdits`）を利用者の操作も書くため（写真はワーカーが AI の担当の欄だけを patch するので要らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
-  412 なら読み直し、**下書きがまだ自分のもの（同じ `draft.id`）で、`job` が担当したときのまま**なら、読み直した文書に同じ結果を当て直す（3回まで。利用者が完成版の文を直した・残せなかった文を閉じたなどと重なっても、AI の結果を捨てない）。自分のものでなくなっていれば何も書かずに終える
-- **失敗**: AI の失敗（`UpstreamError('ai')`。応答の検証違反を含む）とそれ以外の失敗で `lastError` を `"ai"` / `"internal"` にする。`attempts` が上限未満なら `pending` に戻して例外を投げ、キューの再試行に任せる。上限なら `failed` にして例外を投げずに終える。`phase` はそのまま（画面は「作れませんでした」と「もう一度」）
-- **何もせずに終える**: `tripId`・`draftId` が無いメッセージ、タイムラインか下書きが無い（やめた・旅行の削除で消えた。置き換えが 404 のときも同じ）
-- **旅行が無い**（旅行の削除と作る操作が重なって、旅行の無いタイムラインが残った。[04 §7.1](./04_data_design.md#71-操作ごとの表)）: タイムラインと控えを消して終える
+- **担当**: `draft.id = <メッセージの draftId>` かつ `draft.job` が読んだとおり（`state: "pending"`・`step`・`attempts`・`updatedAt`）、の条件付き patch で `running`・`attempts + 1`・`updatedAt` を今にする（写真の担当と同じ条件の形。§1.3）。412 なら担当済みか、やめた・出し直した下書き、404 ならタイムラインが消えたので、何もしない（例外を投げない）
+- **結果**: 読んだ文書の `_etag` 付きの置き換え（[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）。写真と違って `_etag` を使うのは、同じ文書の同じ欄（`draft`・`current`・`droppedEdits`）を利用者の操作も書くため（写真はワーカーが AI の担当の欄だけを patch するので要らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
+  412・404 なら読み直し、**下書きがまだ自分のもの（同じ `draft.id`）で、`job` が担当したときのまま**なら、読み直した文書に同じ結果を当て直す（3回まで。利用者が完成版の文を直した・残せなかった文を閉じたなどと重なっても、AI の結果を捨てない。4回続けて重なれば内部の失敗として下の「失敗」に進む）。自分のものでなくなっていれば（やめた・出し直した・再投入のタイマーが待ちに戻した、タイムラインが消えた）何も書かずに終える
+- **失敗**: AI の失敗（`UpstreamError('ai')`。応答の検証違反を含む）とそれ以外の失敗で `lastError` を `"ai"` / `"internal"` にする。書くのは `job` だけで、担当と同じ条件付き patch（同じ下書きの id で、`job` が担当したときのまま。5-1b。`job` 以外を書かないので `_etag` は要らず、利用者の操作と重なっても失敗の記録を落とさない）。条件が合わなければ（下書きが変わった）書かずに終える。`job.updatedAt` は失敗した時刻にする（再投入のタイマーはそこから数える）。`attempts` が上限未満なら `pending` に戻して例外を投げ、キューの再試行に任せる。上限なら `failed` にして例外を投げずに終える。`phase` はそのまま（画面は「作れませんでした」と「もう一度」）
+- **何もせずに終える**（例外を投げない）: `tripId`・`draftId` が無い・UUID の形でない・本文が読めないメッセージ（何度送り直しても読めないので poison に落とさない）、タイムラインか下書きが無い（やめた・旅行の削除で消えた。置き換えが 404 のときも同じ）、下書きの id がメッセージの `draftId` と違う（出し直した）、`draft.job` が無いか `state` が `pending` でない（処理中・失敗・確かめ中）
+- **旅行が無い**（旅行の削除と作る操作が重なって、旅行の無いタイムラインが残った。[04 §7.1](./04_data_design.md#71-操作ごとの表)）: タイムラインと控えを消して終える。旅行があるかは、下書きが処理を待っている（上の「何もせずに終える」に当たらない）ときだけ、担当の前に見る
+- **担当の前の読み取りの失敗**（タイムライン・旅行の読み取り、旅行の無いタイムラインの削除）: 下書きを変えずに例外を投げ、キューの再試行に任せる（`attempts` は増えない。写真の担当の前と同じ。§5）
+- 写真の控えが無いなど、担当の後で AI 以外の所で失敗したときは、上の「失敗」の `"internal"` として数える（AI は呼ばない）
 
 ### 8.2 区切り案（`step: "propose"`）
 
-1. 下書きの控え（`timelinePhotos`）を読み、撮影日時のある写真を撮影の順に並べて、下書きの `dayStartHour` で日に分ける
+**実装済み**（5-1b。`services/timelineProposal.ts` の `proposeScenes()`、AI の呼び出しと応答の検証は `services/timelineProposerService.ts`、日の分け方は `services/timelineView.ts` の `datedDaysOf()`）。
+
+1. 下書きの控え（`timelinePhotos`）を読み、撮影日時のある写真を控えの順（撮影の順）のまま、下書きの `dayStartHour` で日に分ける（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の「日の分け方」。撮影日時の無い写真は AI に渡さない）
 2. AI に区切り案を出させる（§8.4）。応答は `{ sceneStarts: number[] }`（場面の最初の写真の番号。呼び出しの中の 0 始まり）
-3. 応答を検証する: 整数で、0 以上・渡した写真の数未満であること。違反は AI の失敗。重なりは除いて並べ直す
-4. 作り直し（`reason: "rebuild"`）なら、完成版で利用者が直した区切りを当てる。`sceneStarts` = 新しい案 ＋ 完成版で利用者が足した区切り − 完成版で利用者が消した区切り（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の「利用者が直した区切り」）。控えに無い写真の区切りは捨てる
-5. **最後に各日の最初の写真を足す**（4 で利用者が消した区切りが、日付の切り替えの時刻を変えた後などに日の最初になっていても、場面が日をまたがないように）
-6. 下書きの `proposedStarts` を AI の案（3 の後、各日の最初の写真を足したもの）、`sceneStarts` を 5 の結果にし、`phase: "reviewing"`・`job: null` にする
+3. 応答を検証する: 配列で、どの値も整数で、0 以上・渡した写真の数未満であること。違反は AI の失敗。重なりは除いて並べ直す
+4. 作り直し（`reason: "rebuild"`）で完成版があれば、完成版で利用者が直した区切りを当てる。`sceneStarts` = 新しい案 ＋ 完成版で利用者が足した区切り − 完成版で利用者が消した区切り（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の「利用者が直した区切り」）。控えに無い・撮影日時の無い写真の区切りは捨てる
+5. **最後に各日の最初の写真を足す**（4 で利用者が消した区切りが、日付の切り替えの時刻を変えた後などに日の最初になっていても、場面が日をまたがないように）。1日で上限を超えて切って呼んだ日の切れ目の写真（§8.4）も、同じく必ず足す
+6. 下書きの `proposedStarts` を AI の案（3 の後、各日の最初の写真と切れ目の写真を足したもの）、`sceneStarts` を 5 の結果にし（どちらも撮影の順）、`phase: "reviewing"`・`job: null` にする。下書きのほかの欄（`reason`・`snapshotId`・`dayStartHour`・`startedAt`）と、完成版・`droppedEdits` は変えない
 
 完成版の区切りを直すとき（`reason: "recut"`）は区切り案を出さない（`POST …/recut` が完成版の区切りを写して `reviewing` から始める）。
 
@@ -432,7 +438,14 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 ### 8.4 AI に渡すもの
 
+**実装済み**（5-1b。`services/timelineProposerService.ts`・`services/timelineProposal.ts`）: 表とプロンプトの要素と呼び出しの細部の「区切り案」の分、要求の形。
+未実装: 「文」の分（5-2。`TIMELINE_WRITE_MAX_TOKENS` もまだ無い）。
+
 **画像は渡さない。** 写真1枚を1行の文字にする（例: `[12] 1日目 10/05 14:25 食べ物 たい焼き 小樽市「店の前で」`）。
+無い要素は書かない（名前・地名・コメントが無い写真、分類していない（カテゴリが `null` の）写真のカテゴリ）。カテゴリの表示名は、図鑑の種類なら定義表（`CATALOG_KINDS`）の名前、それ以外（`other`）は「その他」。撮影時刻は控えの `takenAt`（現地の時刻）のままで、タイムゾーンを変換しない。
+
+要求の形（[05 §9.5](./05_api_design.md#95-ai-識別サービスへの接続) の共通の要素に加えて）: `user` ロールのメッセージ1件に、テキスト（プロンプト）の1パートだけ（`image_url` パートは付けない）。
+`response_format` は `json_schema`（区切り案は名前 `timeline_proposal`、`strict: true`、スキーマは `{ sceneStarts: integer[] }` を `required`・`additionalProperties: false`）。`temperature` は送らない。
 
 | 要素 | 区切り案 | 文 |
 |---|---|---|
@@ -449,7 +462,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 呼び出しの細部:
 
 - `max_completion_tokens` は区切り案 4,000、文 16,000（推論のトークンも含むため、文の出力の見込み（§8.5）より大きく取る。分類・識別は 4,000）。コードの定数 `TIMELINE_PROPOSE_MAX_TOKENS`・`TIMELINE_WRITE_MAX_TOKENS`
-- 一度に渡す写真が `TIMELINE_MAX_PHOTOS_PER_CALL`（コードの定数。既定 400）を超える旅行は、日の境目で分けて複数回呼ぶ（番号は呼び出しごとに 0 から振り直す）。1日で上限を超える日は、撮影の順に上限ごとに切って呼び、切れ目は区切りにする
+- 一度に渡す写真が `TIMELINE_MAX_PHOTOS_PER_CALL`（コードの定数。既定 400）を超える旅行は、日の境目で分けて複数回呼ぶ（番号は呼び出しごとに 0 から振り直す。何日目は旅行全体の数え方のまま）。前から順に、上限に収まる日はまとめて1回にする（ちょうど上限なら日をまたいでも1回）。1日で上限を超える日は、撮影の順に上限ごとに切って呼び、切れ目は区切りにする（§8.2 の 5）
 - `functionTimeout`（5 分）に収める。分けて呼ぶときは順に呼び、途中で失敗したら全体を失敗にする（途中までの結果は書かない）
 
 ### 8.5 費用

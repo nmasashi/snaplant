@@ -14,7 +14,10 @@ export interface AnalyzeRequest {
 	/** Structured Outputs のスキーマ（strict） */
 	schema: Record<string, unknown>;
 	prompt: string;
-	imageUrl: string;
+	/** 見せる画像（読み取りの SAS 付き URL）。省略すると文字だけを渡す（タイムライン。06 §8.4） */
+	imageUrl?: string;
+	/** 出力の上限（推論のトークンも含む）。省略すると 4,000（分類・識別） */
+	maxCompletionTokens?: number;
 }
 
 export class OpenAIVisionService {
@@ -66,7 +69,7 @@ export class OpenAIVisionService {
 	}
 
 	/**
-	 * プロンプトと画像を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
+	 * プロンプト（と画像）を渡して Structured Outputs で答えさせ、JSON として読んだ応答を返す
 	 *
 	 * 応答の中身の検証は呼び出し側が行う（スキーマの strict では範囲などを強制できないため）
 	 */
@@ -78,18 +81,22 @@ export class OpenAIVisionService {
 					role: "user",
 					content: [
 						{ type: "text", text: request.prompt },
-						{
-							type: "image_url",
-							image_url: {
-								url: request.imageUrl,
-								detail: "low", // トークン消費を抑制
-							},
-						},
+						...(request.imageUrl
+							? [
+									{
+										type: "image_url" as const,
+										image_url: {
+											url: request.imageUrl,
+											detail: "low" as const, // トークン消費を抑制
+										},
+									},
+								]
+							: []),
 					],
 				},
 			],
 			// reasoning モデルは推論トークンも max_completion_tokens から消費するため余裕を持たせる
-			max_completion_tokens: 4000,
+			max_completion_tokens: request.maxCompletionTokens ?? 4000,
 			// temperature は指定しない（このモデルはデフォルト値(1)のみサポート）
 			// JSON形式に加えて、フィールド構成・型・必須項目までモデル側で強制する
 			response_format: {

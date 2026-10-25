@@ -6,11 +6,11 @@ SnapPlant は Azure Functions を使用した旅行アルバム（写真の分�
 
 ## アーキテクチャ
 
-- **Azure Functions**: サーバーレス API ホスティング（HTTP の関数と、写真の解析のワーカー・タイマー）
+- **Azure Functions**: サーバーレス API ホスティング（HTTP の関数と、写真の解析・タイムラインのワーカー・タイマー）
 - **Azure Cosmos DB**: 旅行と写真の情報（`album` コンテナ）
-- **Azure Blob Storage**: 写真（`photos` コンテナ）と、解析の待ちのキュー（Storage Queue）
+- **Azure Blob Storage**: 写真（`photos` コンテナ）と、解析・タイムラインの待ちのキュー（Storage Queue）
 - **Application Insights**: 監視・ログ
-- **Azure OpenAI**: 写真の分類と識別の AI（Vision + Structured Outputs）
+- **Azure OpenAI**: 写真の分類と識別（Vision + Structured Outputs）と、タイムラインの区切り案（文字だけ + Structured Outputs）の AI
 
 植物図鑑の API は 4-6 で削除し、植物図鑑が使っていた Cosmos DB の `plants` コンテナ、Blob の `images`・`temp-images` コンテナ、
 `temp-images` のライフサイクル管理、Function App の環境変数 `COSMOS_DB_CONTAINER`・`STORAGE_CONTAINER_NAME`・`TEMP_STORAGE_CONTAINER_NAME` は
@@ -233,7 +233,7 @@ Function App に設定される主要な環境変数：
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
-| `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。読むのは 5-1 から |
+| `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI APIキー |
@@ -252,11 +252,11 @@ Terraform が設定しない任意の設定（分類用のデプロイ名 `AZURE
 
 `AZURE_OPENAI_ENDPOINT` が未設定の場合のみ、コードは OpenAI 公式 API にフォールバックし
 `OPENAI_API_KEY` を参照します（`api/src/services/openAIVisionService.ts`）。
-このときモデル名は送り先のデプロイ名（分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、無ければ `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は取り除く）、
+このときモデル名は送り先のデプロイ名（分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、タイムラインは `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME`、無ければ `AZURE_OPENAI_DEPLOYMENT_NAME`。前後の空白は取り除く）、
 どちらも未設定（空文字列・空白だけを含む）なら `gpt-5.6-luna` です。
 
 `AZURE_OPENAI_ENDPOINT` を設定して送り先のデプロイ名を設定しない（空文字列・空白だけを含む）と、写真の解析のワーカーは
-AI 識別サービスを呼ばずに失敗し、写真の解析は内部の失敗（`processing.lastError: "internal"`）として数えられます
+AI 識別サービスを呼ばずに失敗し、写真の解析は内部の失敗（`processing.lastError: "internal"`）として数えられます（タイムラインのワーカーも同じで、下書きの `job.lastError: "internal"`）
 （上限の回数で `failed`。`docs/06_processing_design.md` §2.1・§5）。HTTP の応答には現れません。
 Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定するので、手で設定するローカル開発で踏みやすい設定です。API キーが無いなど、`openai` SDK がクライアントを作れない設定も同じ扱いです。
 
