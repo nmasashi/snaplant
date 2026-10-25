@@ -601,6 +601,180 @@ describe('タイムラインのワーカー', () => {
     });
   });
 
+  describe('文を書く', () => {
+    // 区切り: 1日目は a（a・b）と c（c・d）、2日目は e と、利用者が足した f
+    const PROPOSED = [photoId('a'), photoId('c'), photoId('e')];
+    const STARTS = [photoId('a'), photoId('c'), photoId('e'), photoId('f')];
+    const writingJob = (overrides: Partial<TimelineJob> = {}) => pendingJob({ step: 'write', ...overrides });
+    const writingDraft = (overrides: Partial<TimelineDraft> = {}) =>
+      proposingDraft({ phase: 'writing', job: writingJob(), proposedStarts: PROPOSED, sceneStarts: STARTS, ...overrides });
+    const writingTimeline = (overrides: Partial<TimelineDocument> = {}) => proposingTimeline({ draft: writingDraft(), ...overrides });
+
+    /** AI の応答（撮影日時のある写真の番号は a=0・b=1・c=2・d=3・e=4・f=5） */
+    const allTexts = {
+      days: [
+        { date: '2026-10-05', title: '千歳と札幌', summary: '空港で海鮮丼を食べ、札幌でラーメン。' },
+        { date: '2026-10-06', title: '小樽', summary: '小樽運河を歩いた。' }
+      ],
+      scenes: [
+        { start: 0, label: '朝ごはん', note: '空港の海鮮丼' },
+        { start: 2, label: '昼ごはん', note: '札幌のラーメン' },
+        { start: 4, label: '運河', note: '小樽運河' },
+        { start: 5, label: 'おやつ', note: '小樽で一休み' }
+      ]
+    };
+    const aiScene = (label: string, note: string, photoIds: string[]) => ({
+      label,
+      labelSource: 'ai' as const,
+      aiLabel: label,
+      note,
+      noteSource: 'ai' as const,
+      aiNote: note,
+      photoIds
+    });
+    const aiDay = (title: string, summary: string, sceneStarts: string[]) => ({
+      title,
+      titleSource: 'ai' as const,
+      aiTitle: title,
+      summary,
+      summarySource: 'ai' as const,
+      aiSummary: summary,
+      sceneStarts
+    });
+
+    beforeEach(() => {
+      aiReturns(allTexts);
+    });
+
+    it('完成版の無い下書きは、AI が全部の日と場面の文を書き、完成版に入れ替わって下書きが消える', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+
+      await runWorker();
+
+      expect(storedTimeline()).toEqual(
+        proposingTimeline({
+          current: {
+            snapshotId: SNAPSHOT_ID,
+            dayStartHour: 4,
+            proposedStarts: PROPOSED,
+            sceneStarts: STARTS,
+            sceneTexts: {
+              [photoId('a')]: aiScene('朝ごはん', '空港の海鮮丼', [photoId('a'), photoId('b')]),
+              [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン', [photoId('c'), photoId('d')]),
+              [photoId('e')]: aiScene('運河', '小樽運河', [photoId('e')]),
+              [photoId('f')]: aiScene('おやつ', '小樽で一休み', [photoId('f')])
+            },
+            dayTexts: {
+              '2026-10-05': aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。', [photoId('a'), photoId('c')]),
+              '2026-10-06': aiDay('小樽', '小樽運河を歩いた。', [photoId('e'), photoId('f')])
+            },
+            writtenAt: NOW
+          },
+          draft: null,
+          droppedEdits: [],
+          updatedAt: NOW
+        })
+      );
+    });
+
+    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい場面（最初の写真の番号）と日を渡す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].body.messages[0].content.some((part: any) => part.type === 'image_url')).toBe(false);
+      const prompt = sentPrompt();
+      for (const element of ['1日目', '10/05 07:50 ', '食べ物', '海鮮丼', '北海道千歳市', '空港で']) {
+        expect(promptLineOf(prompt, 0)).toContain(element);
+      }
+      const otherLines = prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
+      for (const start of ['0番', '2番', '4番', '5番']) {
+        expect(otherLines.some((line) => line.includes(start))).toBe(true);
+      }
+      for (const date of ['2026-10-05', '2026-10-06']) {
+        expect(otherLines.some((line) => line.includes(date))).toBe(true);
+      }
+    });
+
+    it('応答は Structured Outputs（strict）で日と場面の文に縛り、出力の上限は 16,000 トークン', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+
+      await runWorker();
+
+      const body = sent[0].body;
+      expect(body.max_completion_tokens).toBe(16000);
+      expect(body.response_format.json_schema.strict).toBe(true);
+      // strict では全プロパティが required に要るので、外側は完全一致で見る（項目の説明の文言は契約外）
+      expect(body.response_format.json_schema.schema).toEqual({
+        type: 'object',
+        properties: {
+          days: expect.objectContaining({
+            type: 'array',
+            items: expect.objectContaining({
+              type: 'object',
+              properties: {
+                date: expect.objectContaining({ type: 'string' }),
+                title: expect.objectContaining({ type: 'string' }),
+                summary: expect.objectContaining({ type: 'string' })
+              },
+              required: ['date', 'title', 'summary'],
+              additionalProperties: false
+            })
+          }),
+          scenes: expect.objectContaining({
+            type: 'array',
+            items: expect.objectContaining({
+              type: 'object',
+              properties: {
+                start: expect.objectContaining({ type: 'integer' }),
+                label: expect.objectContaining({ type: 'string' }),
+                note: expect.objectContaining({ type: 'string' })
+              },
+              required: ['start', 'label', 'note'],
+              additionalProperties: false
+            })
+          })
+        },
+        required: ['days', 'scenes'],
+        additionalProperties: false
+      });
+    });
+
+    it.each<[string, unknown]>([
+      ['頼んだ日が無い', { ...allTexts, days: allTexts.days.slice(1) }],
+      ['同じ日が2回ある', { ...allTexts, days: [...allTexts.days, allTexts.days[0]] }],
+      ['頼んでいない場面がある', { ...allTexts, scenes: [...allTexts.scenes, { start: 1, label: 'x', note: 'x' }] }],
+      ['頼んだ場面が無い', { ...allTexts, scenes: allTexts.scenes.slice(1) }],
+      ['空白だけの見出しがある', { ...allTexts, scenes: [{ ...allTexts.scenes[0], label: '  ' }, ...allTexts.scenes.slice(1)] }],
+      ['空のまとめがある', { ...allTexts, days: [{ ...allTexts.days[0], summary: '' }, allTexts.days[1]] }],
+      ['日が配列でない', { ...allTexts, days: null }]
+    ])('AI の応答に%sときは AI の失敗として、下書きを待ちに戻して例外を投げる（完成版は作らない）', async (_label, body) => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+      aiReturns(body);
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedTimeline()).toEqual(
+        writingTimeline({ draft: writingDraft({ job: writingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }) }) })
+      );
+    });
+
+    it('AI の文は前後の空白を除き、上限（タイトル 40・まとめ 400・見出し 30・一言 200 文字）を超える分は切り詰める', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+      aiReturns({
+        days: [{ date: '2026-10-05', title: ` ${'題'.repeat(41)} `, summary: 'ま'.repeat(401) }, allTexts.days[1]],
+        scenes: [{ start: 0, label: `　${'見'.repeat(31)}`, note: '一'.repeat(201) }, ...allTexts.scenes.slice(1)]
+      });
+
+      await runWorker();
+
+      const current = storedTimeline()!.current!;
+      expect(current.dayTexts['2026-10-05']).toMatchObject({ title: '題'.repeat(40), aiTitle: '題'.repeat(40), summary: 'ま'.repeat(400) });
+      expect(current.sceneTexts[photoId('a')]).toMatchObject({ label: '見'.repeat(30), aiLabel: '見'.repeat(30), note: '一'.repeat(200) });
+    });
+  });
+
   describe('何もしない・後始末だけするメッセージ', () => {
     it.each<[string, unknown]>([
       ['旅行の id が無い', { draftId: DRAFT_ID }],
