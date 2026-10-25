@@ -36,6 +36,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   String? _errorMessage;
   // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
+  // 操作（作る・もう一度・やめる）を送っている間は、操作のボタンを押せなくする（二重に送らない。§8.1）
+  bool _sending = false;
 
   @override
   void initState() {
@@ -113,17 +115,72 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインを作る（失敗した区切りの案の「もう一度」も同じ）
-  Future<void> _create() async {
-    final draft = await widget.apiService.createTimeline(widget.tripId);
-    if (!mounted) return;
-    _show(_overview!.withDraft(draft));
-  }
+  Future<void> _create() => _accept(widget.apiService.createTimeline);
 
   /// 見出しと一言を書かせる（失敗した文の「もう一度」）
-  Future<void> _write() async {
-    final draft = await widget.apiService.writeTimeline(widget.tripId);
-    if (!mounted) return;
-    _show(_overview!.withDraft(draft));
+  Future<void> _write() => _accept(widget.apiService.writeTimeline);
+
+  /// 受け付けた下書きの状態（作る・書かせるの応答）で、読み直さずに表示を進める
+  Future<void> _accept(Future<TimelineDraftStatus> Function(String) send) =>
+      _send(() async {
+        final draft = await send(widget.tripId);
+        if (!mounted) return;
+        _show(_overview!.withDraft(draft));
+      });
+
+  /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
+  Future<void> _discard() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: const Text('作りかけのタイムラインを捨てますか？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('捨てる')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _send(() async {
+      await widget.apiService.discardTimelineDraft(widget.tripId);
+      if (!mounted) return;
+      await _load(showLoading: false);
+    });
+  }
+
+  /// タイムラインの操作を送る。送っている間は操作のボタンを押せなくし、失敗を §8.1 のとおりに扱う
+  Future<void> _send(Future<void> Function() operation) async {
+    setState(() => _sending = true);
+    try {
+      await operation();
+    } catch (e) {
+      debugPrint('TripTimelineView: タイムラインの操作のエラー: $e');
+      if (!mounted) return;
+      if (e is ApiException && e.isTripNotFound) {
+        widget.onTripNotFound();
+        return;
+      }
+      final messenger = ScaffoldMessenger.of(context);
+      if (e is ApiException &&
+          (e.isTimelineChanged || e.isTimelineNotCreatable)) {
+        // 読んだ後に別の端末が変えた・写真の状態が変わった。今の状態を読み直して出す
+        messenger.showSnackBar(SnackBar(
+            content: Text(e.isTimelineChanged
+                ? 'タイムラインが変わりました。読み直しました'
+                : e.userMessage)));
+        await _load(showLoading: false);
+        return;
+      }
+      messenger.showSnackBar(SnackBar(
+          content:
+              Text(e is ApiException ? e.userMessage : 'タイムラインの操作に失敗しました')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -175,7 +232,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       message: '写真を送り終えたら、日ごと・食事ごとにまとめたタイムラインを作れます。',
       actions: [
         ElevatedButton(
-          onPressed: pending > 0 ? null : _create,
+          onPressed: pending > 0 || _sending ? null : _create,
           child: const Text('タイムラインを作る'),
         ),
       ],
@@ -185,11 +242,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 下書きの状態（§8.2 の3行目から）
   Widget _buildDraft(TimelineDraftStatus draft) {
-    final discard = OutlinedButton(onPressed: () {}, child: const Text('やめる'));
+    final discard = OutlinedButton(
+        onPressed: _sending ? null : _discard, child: const Text('やめる'));
     if (draft.phase == 'writing') {
       if (draft.isFailed) {
         return _StatusView(title: '見出しと一言を書けませんでした', actions: [
-          ElevatedButton(onPressed: _write, child: const Text('もう一度')),
+          ElevatedButton(
+              onPressed: _sending ? null : _write, child: const Text('もう一度')),
           discard,
         ]);
       }
@@ -204,7 +263,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     if (draft.isFailed) {
       return _StatusView(title: '区切りの案を作れませんでした', actions: [
-        ElevatedButton(onPressed: _create, child: const Text('もう一度')),
+        ElevatedButton(
+            onPressed: _sending ? null : _create, child: const Text('もう一度')),
         discard,
       ]);
     }

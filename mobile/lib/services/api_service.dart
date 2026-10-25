@@ -361,6 +361,20 @@ class ApiService {
     }
   }
 
+  /// タイムラインの下書きをやめる（作っている途中でも）。応答は読まない（画面が続けてタイムラインを読み直す）
+  /// DELETE /api/trips/{tripId}/timeline/draft
+  Future<void> discardTimelineDraft(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/draft');
+      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException.fromResponse(response);
+      }
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 応答の封筒から下書き（`data.draft`）を読む
   TimelineDraftStatus? _draftOf(Map<String, dynamic> json) {
     final draft = (json['data'] as Map<String, dynamic>)['draft']
@@ -600,6 +614,16 @@ class ApiException implements Exception {
 
   /// 旅行が無い（404 `TRIP_NOT_FOUND`）。別の端末で消された、送信中に消されたなど
   bool get isTripNotFound => code == 'TRIP_NOT_FOUND';
+
+  /// タイムラインが読んだ後に変わった（409 `TIMELINE_STATE_CONFLICT`、または下書きが別の端末でやめられた・書き終えた 404 `TIMELINE_NOT_FOUND`）。
+  /// 画面は読み直す（docs/03_screen_design.md §8.1）
+  bool get isTimelineChanged =>
+      code == 'TIMELINE_STATE_CONFLICT' || code == 'TIMELINE_NOT_FOUND';
+
+  /// タイムラインを作れない写真の状態（409 `TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS`）。画面は文言を出して読み直す
+  bool get isTimelineNotCreatable =>
+      code == 'TIMELINE_PHOTOS_PROCESSING' ||
+      code == 'TIMELINE_NO_DATED_PHOTOS';
 
   /// 写真が無い（404 `PHOTO_NOT_FOUND`）。別の端末で消されたなど。
   /// ステータスだけで見ると、宛先の誤り（封筒の無い 404）まで「消せた」と数えてしまうので、コードで判定する
