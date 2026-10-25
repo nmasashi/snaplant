@@ -208,37 +208,37 @@ void main() {
 
     for (final (label, draft, texts) in [
       (
-        '作り直しで区切りの案を作っている',
+        '作り直しで区切りの案を作っているとき',
         draftOf('rebuild', 'proposing', step: 'propose'),
         ['作り直しの区切りの案を作っています', 'やめる']
       ),
       (
-        '作り直しの確かめ待ち',
+        '作り直しの確かめ待ちのとき',
         draftOf('rebuild', 'reviewing'),
         ['作り直しの区切りの案ができました', '区切りを確認する', 'やめる']
       ),
       (
-        '区切りの直しの途中',
+        '区切りの直しの途中のとき',
         draftOf('recut', 'reviewing'),
         ['区切りを直している途中です', '続ける', 'やめる']
       ),
       (
-        '文を書き直している',
+        '文を書き直しているとき',
         draftOf('rebuild', 'writing', step: 'write'),
         ['見出しと一言を書き直しています']
       ),
       (
-        '作り直しの区切りの案を作れなかった',
+        '作り直しの区切りの案を作れなかったとき',
         draftOf('rebuild', 'proposing', step: 'propose', state: 'failed'),
         ['作り直しの区切りの案を作れませんでした', 'もう一度', 'やめる']
       ),
       (
-        '文を書き直せなかった',
+        '文を書き直せなかったとき',
         draftOf('recut', 'writing', step: 'write', state: 'failed'),
         ['見出しと一言を書き直せませんでした', 'もう一度', '区切りを確認する', 'やめる']
       ),
     ]) {
-      testWidgets('$labelときは、完成版を出したまま上に案内を出し、「区切りを直す」「作り直す」を出さない',
+      testWidgets('$labelは、完成版を出したまま上に案内を出し、「区切りを直す」「作り直す」を出さない',
           (tester) async {
         await _openTimeline(tester, draft: draft);
 
@@ -334,6 +334,20 @@ void main() {
           'rebuild');
       expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
       expect(find.text('朝ごはん'), findsOneWidget);
+    });
+
+    testWidgets('「区切りを直す」を送っている間は、「区切りを直す」「作り直す」を押せない', (tester) async {
+      // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
+      final backend = await _openTimeline(tester);
+      final reply = backend.holdNextReply(TripRoute.timelineRecut);
+
+      await tester.tap(find.text('区切りを直す'));
+      await tester.pump();
+      expect(_button(tester, '区切りを直す').onPressed, isNull);
+      expect(_button(tester, '作り直す').onPressed, isNull);
+
+      reply.complete();
+      await letFramesRun(tester);
     });
 
     testWidgets('「作り直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
@@ -454,6 +468,10 @@ void main() {
     expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
     expect(find.text('AI のまとめ'), findsNothing);
     expect(find.text('編集済み'), findsNothing);
+    // 見出しの行（印と見出し）を出さない
+    expect(find.byIcon(Icons.circle), findsNothing);
+    // 日時なしの写真が無ければ、見出しも出さない
+    expect(find.text('日時なし'), findsNothing);
   });
 
   testWidgets('日時なしの写真のサムネイルをタップしても、写真ビューアで開く', (tester) async {
