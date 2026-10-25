@@ -2,8 +2,9 @@ import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { TimelineService } from '../services/timelineService';
 import { proposeScenes } from '../services/timelineProposal';
+import { assembleCurrent, writeDraftTexts } from '../services/timelineWriting';
 import { photoProcessingMaxAttempts } from '../constants/album';
-import { TimelineJob } from '../types/timeline';
+import { TimelineDocument, TimelineDraft, TimelineJob } from '../types/timeline';
 import { UpstreamError } from '../utils/errors';
 import { isValidUUID } from '../utils/response';
 
@@ -35,11 +36,7 @@ export async function processTimelineHandler(message: unknown, context: Invocati
     return;
   }
   const job = draft.job;
-  if (job.step !== 'propose') {
-    // 文を書く段（write）は 5-2 で入れる
-    context.log(`まだ扱えない処理です（何もしません）: 旅行=${tripId}, 処理=${job.step}`);
-    return;
-  }
+  const label = job.step === 'propose' ? '区切り案' : '文';
 
   const claimedJob: TimelineJob = { ...job, state: 'running', attempts: job.attempts + 1, updatedAt: new Date().toISOString() };
   // 読んだときのまま（同じ下書きで、待ちのまま）のときだけ担当する
@@ -50,24 +47,30 @@ export async function processTimelineHandler(message: unknown, context: Invocati
 
   try {
     const photos = await timelines.readSnapshotPhotos(draft.snapshotId);
-    const starts = await proposeScenes(photos, draft, read.doc.current);
+    let apply: (doc: TimelineDocument & { draft: TimelineDraft }) => TimelineDocument;
+    if (job.step === 'propose') {
+      const starts = await proposeScenes(photos, draft, read.doc.current);
+      apply = (doc) => ({ ...doc, draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts } });
+    } else {
+      // 書き終えたら、下書きを完成版に入れ替える（06 §8.3 の 6）
+      const { plan, texts } = await writeDraftTexts(photos, draft);
+      const now = new Date().toISOString();
+      apply = (doc) => ({ ...doc, current: assembleCurrent(doc.draft, plan, texts, now), draft: null });
+    }
 
-    const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, (doc) => ({
-      ...doc,
-      draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts },
-    }));
+    const written = await timelines.writeDraftResult(tripId, draftId, claimedJob, apply);
     if (!written) {
-      context.log(`区切り案の間に下書きが変わったので、この結果は書きません: 旅行=${tripId}, 下書き=${draftId}`);
+      context.log(`${label}の間に下書きが変わったので、この結果は書きません: 旅行=${tripId}, 下書き=${draftId}`);
       return;
     }
-    context.log(`タイムラインの区切り案が済みました: 旅行=${tripId}, 下書き=${draftId}, 区切り=${starts.sceneStarts.length}`);
+    context.log(`タイムラインの${label}が済みました: 旅行=${tripId}, 下書き=${draftId}`);
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が文書に残り続ける）
     const lastError = error instanceof UpstreamError ? error.service : 'internal';
     // 上限で止める。同じ旅行で AI が毎回失敗しても、再試行を占有し続けない（06 §8.1）
     const failed = claimedJob.attempts >= photoProcessingMaxAttempts();
     // 失敗の記録より先にログを出す。記録も失敗したときに、元の原因が残らなくなるため
-    context.log(`タイムラインの区切り案に失敗しました: 旅行=${tripId}, 回数=${claimedJob.attempts}, 失敗した所=${lastError}${failed ? '（上限のため失敗にします）' : ''}`, error);
+    context.log(`タイムラインの${label}に失敗しました: 旅行=${tripId}, 回数=${claimedJob.attempts}, 失敗した所=${lastError}${failed ? '（上限のため失敗にします）' : ''}`, error);
     const written = await timelines.writeDraftJob(tripId, draftId, claimedJob, {
       ...claimedJob,
       state: failed ? 'failed' : 'pending',
@@ -75,7 +78,7 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       updatedAt: new Date().toISOString(),
     });
     if (!written) {
-      context.log(`区切り案の間に下書きが変わったので、この失敗は書きません: 旅行=${tripId}, 下書き=${draftId}`);
+      context.log(`${label}の間に下書きが変わったので、この失敗は書きません: 旅行=${tripId}, 下書き=${draftId}`);
       return;
     }
     if (!failed) {

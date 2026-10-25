@@ -95,7 +95,7 @@ ${lines.join('\n')}
  * 無い要素は書かない。撮影日時は現地の時刻のまま（タイムゾーンを変換しない）。
  * 名前・地名・コメントの改行は空白にする（利用者が書いたコメントの改行の後ろが、別の写真の行に見えないように）
  */
-function photoLineOf(photo: TimelinePhotoSnapshot, dayNumber: number, index: number): string {
+export function photoLineOf(photo: TimelinePhotoSnapshot, dayNumber: number, index: number): string {
   const takenAt = photo.takenAt!;
   const time = `${takenAt.slice(5, 7)}/${takenAt.slice(8, 10)} ${takenAt.slice(11, 16)}`;
   const parts = [`[${index}]`, `${dayNumber}日目`, time, categoryLabelOf(photo.category), oneLine(photo.name), oneLine(photo.placeName)];
@@ -117,7 +117,7 @@ function categoryLabelOf(category: string | null): string | null {
 }
 
 /** 日ごとの番号の範囲（例: `1日目: 0番〜3番`）。区切りが日をまたがないように渡す */
-function dayRangesOf(photos: TimelineProposalPhoto[]): string {
+export function dayRangesOf(photos: TimelineProposalPhoto[]): string {
   const ranges: { dayNumber: number; first: number; last: number }[] = [];
   photos.forEach(({ dayNumber }, index) => {
     const range = ranges[ranges.length - 1];

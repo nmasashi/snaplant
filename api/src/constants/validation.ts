@@ -175,3 +175,14 @@ export const CATALOG_VALIDATION = {
     NAME_TOO_LONG: `図鑑の項目の名前は${CATALOG_NAME_MAX_LENGTH}文字以内で指定してください`
   }
 } as const;
+
+// 旅行アルバムのタイムラインの文（段階5）
+export const TIMELINE_VALIDATION = {
+  // 文の最大文字数。AI が書いた文はこの長さで切り詰め、利用者が直す文（5-2b の PATCH）はこれを超えると 400（docs/05_api_design.md §4）
+  MAX_LENGTH: {
+    TITLE: positiveIntFromEnv(process.env.TIMELINE_TITLE_MAX_LENGTH, 40),
+    SUMMARY: positiveIntFromEnv(process.env.TIMELINE_SUMMARY_MAX_LENGTH, 400),
+    LABEL: positiveIntFromEnv(process.env.TIMELINE_LABEL_MAX_LENGTH, 30),
+    NOTE: positiveIntFromEnv(process.env.TIMELINE_NOTE_MAX_LENGTH, 200)
+  }
+} as const;
