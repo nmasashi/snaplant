@@ -92,7 +92,9 @@ Map<String, Object?> _timelineOf({Map<String, Object?>? draft}) => {
 
 /// 旅行詳細の「タイムライン」を開く
 Future<FakeTripBackend> _openTimeline(WidgetTester tester,
-    {Map<String, Object?>? draft, int pendingPhotoCount = 0}) async {
+    {Map<String, Object?>? draft,
+    int pendingPhotoCount = 0,
+    Map<String, Object?>? current}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 10)],
     functionKey: 'test-key',
@@ -101,10 +103,15 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
       hokkaidoTripId: [
         photoJson(
             number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T07:58:00'),
+        // 日時なしの写真
+        photoJson(number: 10, tripId: hokkaidoTripId),
       ],
     },
   );
-  backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: draft);
+  backend.timelinesByTripId[hokkaidoTripId] = {
+    ..._timelineOf(draft: draft),
+    if (current != null) 'current': current,
+  };
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
@@ -421,5 +428,44 @@ void main() {
     expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
     expect(find.text('区切りを確認'), findsNothing);
     expect(find.text('区切りを直す'), findsOneWidget);
+  });
+
+  testWidgets('タイトルもまとめも無い日は印を出さず、見出しも一言も無い場面はその行を出さない', (tester) async {
+    await _openTimeline(tester, current: {
+      'writtenAt': '2026-10-25T09:10:00.000Z',
+      'days': [
+        {
+          'date': '2026-10-05',
+          'dayNumber': 1,
+          'title': null,
+          'titleSource': null,
+          'summary': null,
+          'summarySource': null,
+          'scenes': [
+            _scene([_photo(1, '2026-10-05T07:50:00')],
+                label: null, note: null, placeNames: ['北海道千歳市']),
+          ],
+        },
+      ],
+      'undatedPhotos': <Object?>[],
+    });
+
+    expect(find.text('1日目'), findsOneWidget);
+    expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
+    expect(find.text('AI のまとめ'), findsNothing);
+    expect(find.text('編集済み'), findsNothing);
+  });
+
+  testWidgets('日時なしの写真のサムネイルをタップしても、写真ビューアで開く', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _openTimeline(tester);
+
+    await _scrollTo(tester, find.text('日時なし'));
+    await tester.tap(photoThumbnail('撮影日時なし'));
+    await letFramesRun(tester);
+    // 写真ビューアは撮影日時の代わりに「撮影日時なし」を出す
+    expect(find.text('撮影日時なし').hitTestable(), findsOneWidget);
+    expect(find.text('日時なし'), findsNothing);
+    semantics.dispose();
   });
 }
