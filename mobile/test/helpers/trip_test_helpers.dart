@@ -137,6 +137,12 @@ enum TripRoute {
 
   /// PUT /api/trips/{tripId}/timeline/draft/scenes（区切りを保存する。段階5）
   timelineScenes,
+
+  /// POST /api/trips/{tripId}/timeline/recut（完成版の区切りを直し始める。段階5）
+  timelineRecut,
+
+  /// GET /api/photos/{photoId}（写真を1枚読む。タイムラインのサムネイルから写真ビューアを開くとき）
+  getPhoto,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`・項目の詳細 `GET /api/catalog/entry`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
@@ -423,7 +429,10 @@ class FakeTripBackend {
       case TripRoute.timelineDraftDelete:
       case TripRoute.timelineWrite:
       case TripRoute.timelineScenes:
+      case TripRoute.timelineRecut:
         return _timeline(route, request);
+      case TripRoute.getPhoto:
+        return _getPhoto(request);
     }
   }
 
@@ -487,6 +496,34 @@ class FakeTripBackend {
         };
         timelinesByTripId[tripId] = {...timeline, 'draft': writing};
         return _ok(202, {'draft': _draftStatusOf(writing), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      case TripRoute.timelineRecut:
+        final current = timeline?['current'] as Map<String, Object?>?;
+        if (timeline == null || current == null) {
+          return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインが見つかりません');
+        }
+        if (draft != null) return _timelineConflict();
+        // 完成版の区切りを写した、確かめ中の下書き（本物と同じく文は持たない）
+        final recut = {
+          'id': '0b8e1c5a-0000-4000-8000-${(_timelineDraftCount++).toString().padLeft(12, '0')}',
+          'reason': 'recut',
+          'phase': 'reviewing',
+          'job': null,
+          'startedAt': timelineStartedAt,
+          'days': [
+            for (final day in (current['days'] as List).cast<Map<String, Object?>>())
+              {
+                'date': day['date'],
+                'dayNumber': day['dayNumber'],
+                'scenes': [
+                  for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
+                    {...scene}..removeWhere((key, _) => const {'label', 'labelSource', 'note', 'noteSource'}.contains(key)),
+                ],
+              },
+          ],
+          'undatedPhotos': current['undatedPhotos'],
+        };
+        timelinesByTripId[tripId] = {...timeline, 'draft': recut};
+        return _ok(200, {'draft': recut, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineScenes:
         if (timeline == null || draft == null) {
           return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
@@ -579,6 +616,7 @@ class FakeTripBackend {
       ('draft', 'DELETE') => TripRoute.timelineDraftDelete,
       ('draft/write', 'POST') => TripRoute.timelineWrite,
       ('draft/scenes', 'PUT') => TripRoute.timelineScenes,
+      ('recut', 'POST') => TripRoute.timelineRecut,
       _ => null,
     };
   }
@@ -696,6 +734,9 @@ class FakeTripBackend {
     }
     if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'PATCH') {
       return TripRoute.updatePhoto;
+    }
+    if (path.startsWith('/api/photos/') && request.url.pathSegments.length == 3 && request.method == 'GET') {
+      return TripRoute.getPhoto;
     }
     return null;
   }
@@ -987,6 +1028,14 @@ class FakeTripBackend {
     photo['commentSource'] = null;
     photo['updatedAt'] = processAcceptedAt;
     return _ok(202, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
+  }
+
+  /// GET /api/photos/{photoId}: どの旅行（と旅行に属さない写真）にも無ければ 404 `PHOTO_NOT_FOUND`（本物と同じ文言）
+  http.Response _getPhoto(http.Request request) {
+    final photoId = request.url.pathSegments[2];
+    final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
+    if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+    return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
   }
 
   http.Response _updatePhoto(http.Request request) {
