@@ -420,6 +420,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 関数の登録（5-2a）: ポータルの「関数」に `postTimelineDraftWrite` がある。`POST …/timeline/draft/write` が `…/timeline/draft` の関数に取られない
 - 文（5-2a）: 確かめ中の下書きで `POST …/draft/write` を押すと、数十秒で `GET …/timeline` に完成版が出て下書きが消える（ログに「タイムラインの文が済みました」）。文の要求（`timeline_texts` のスキーマ、`max_completion_tokens` 16,000）が今のデプロイで 400 にならずに通る。作り直しを書き終えた後に、前の `timeline-photos-<tripId>-…` が消えている（上の「使われなくなった控え」）
 - 関数の登録（5-2b）: ポータルの「関数」に `postTimelineRecut`・`patchTimelineDay`・`patchTimelineScene`・`deleteTimelineDroppedEdits` がある。`POST …/timeline/recut`・`DELETE …/timeline/dropped-edits` が `…/timeline/draft` などほかの関数に取られない
+- 編集シートと案内（5-4b。実機）: 日・場面の編集シートで欄を押してキーボードを出しても、欄と「保存」が隠れない（シートはキーボードの分だけ上がる。テストはキーボードを出さない）。残せなかった文を長押しで選んでコピーできる（クリップボードはテストで見ていない）
 - 書き込みの条件（5-2b）: 実環境で、完成版のある旅行で区切りを直し始める（`POST …/recut`）・文を直す（`PATCH …/days/{date}`・`…/scenes/{photoId}`）・残せなかった文を閉じる（`DELETE …/dropped-edits`。残せなかった文があるときだけ書く）が、重なっていなければ 200 で通る（IfMatch の渡し方が違えば常に 409）
 
 CLAUDE.md の「Cosmos のクエリを変更したら手で確認する」は、旅行アルバムの項目としてこの節を指す（クエリを変えたら、ここの該当する行を手で確かめる）。

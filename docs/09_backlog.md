@@ -526,6 +526,8 @@ URL を受け取って検証する API も無い。ただし Azurite で動く�
 （2026-10-13 の `/code-review` で指摘）。上限の値もサーバの環境変数（`TRIP_NAME_MAX_LENGTH` など）と連動しない。
 越えた場合はサーバの 400 の文言がダイアログにそのまま出て、入力は残るので、直して送り直せる。同じ判断で許容する。
 解析のやり直しダイアログ（`mobile/lib/widgets/retry_processing_dialog.dart` の手がかり 500。サーバは `CONTEXT_INFO_MAX_LENGTH`）も同じ差があり、同じ判断で許容する（2026-10-18 の `/code-review` で指摘）。
+タイムラインの編集シート（5-4b。`mobile/lib/widgets/timeline_edit_sheet.dart`、上限は `trip_timeline_view.dart` の見出し 30・一言 200・タイトル 40・まとめ 400。サーバは `TIMELINE_*_MAX_LENGTH`）も同じ差がある（2026-10-26 の `contract-auditor` で確認）。
+越えた場合はサーバの 400 の文言（`見出しは30文字以内で指定してください` など）がシートに出て、シートと入力は残る。旅行のダイアログと同じ扱いなので、同じ判断で許容してよいかを人間が確かめる。
 
 ---
 
