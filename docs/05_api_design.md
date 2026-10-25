@@ -937,7 +937,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `saveTimelineScenes(tripId, sceneStarts)` | `PUT …/timeline/draft/scenes` | `data['draft']`。**実装済み**（5-3b。読み方は `getTimelineDraft` と同じで、null は受け付けない）。ボディは `{ sceneStarts }`（渡したリストをそのまま。中身の決め方は [03 §8.4](./03_screen_design.md#84-区切りの確認画面)） |
 | `writeTimeline(tripId)` | `POST …/timeline/draft/write` | `data['draft']`。**実装済み**（5-3a。読み方は `createTimeline` と同じ） |
 | `discardTimelineDraft(tripId)` | `DELETE …/timeline/draft` | 読まない（続けて `getTimeline` で読み直す）。**実装済み**（5-3a） |
-| `updateTimelineDay(tripId, date, {title, summary})`・`updateTimelineScene(tripId, photoId, {label, note})`・`dismissTimelineDroppedEdits(tripId)` | `PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | 読まない（続けて `getTimeline` で読み直す） |
+| `updateTimelineDay(tripId, date, changes)`・`updateTimelineScene(tripId, photoId, changes)`・`dismissTimelineDroppedEdits(tripId)` | `PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`DELETE …/dropped-edits` | `data`（`getTimeline` と同じ読み方の `TimelineOverview`。画面は直した後・閉じた後の完成版で描き直す）。**実装済み**（5-4b）。`changes` は変えた欄だけ（`title`・`summary` / `label`・`note`。空にした欄は `null`。[03 §8.5](./03_screen_design.md#85-編集シート)）。`getTimeline` は 5-4b から `changes`（null 可。`added`・`removed`）と `droppedEdits`（各項の `text` だけ）も読む |
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグを直すメソッドは、タグを付ける画面と一緒に足す |

@@ -912,7 +912,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 
 ### 8.3 完成したタイムライン
 
-**実装済み**（5-4a。`widgets/timeline_current_view.dart`・`widgets/trip_timeline_view.dart`、サムネイルは `widgets/timeline_thumbnail.dart`、日付と時刻の表記は `utils/timeline_format.dart`）: 写真が変わった案内・残せなかった文・日と場面の編集のボタン（5-4b）を除く。
+**実装済み**（5-4a・5-4b。`widgets/timeline_current_view.dart`・`widgets/trip_timeline_view.dart`、サムネイルは `widgets/timeline_thumbnail.dart`、日付と時刻の表記は `utils/timeline_format.dart`、写真が変わった案内と残せなかった文は `widgets/timeline_notices.dart`（5-4b））。
 
 - 上に「{M}月{d}日 {H}:{mm} に作成」（`writtenAt` を端末の時刻で。時は 0 埋めしない）と、「区切りを直す」（`POST …/recut` → §8.4）・「作り直す」（§8.6）。下書きがある間はこの2つを出さない（解析中の枚数も出さない）。
   解析中の写真がある（`pendingPhotoCount > 0`）間は「作り直す」を押せず、「解析中の写真があと {N} 枚あります」を添える（「区切りを直す」は解析中でも押せる）。操作を送っている間はどちらも押せない（§8.1）
@@ -961,6 +961,8 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 - 旅行詳細に戻ったら（「×」・戻る操作も）、旅行詳細の「タイムライン」は `GET …/timeline` を読み直す（読み込み中にはせず、読めたら表示を替える。失敗したら §8.1 の操作の後の読み直しと同じく、読み込みの失敗の表示）
 
 ### 8.5 編集シート
+
+**実装済み**（5-4b。`widgets/timeline_edit_sheet.dart`）。
 
 - 場面: 見出し（30 文字まで）・一言（200 文字まで）。日: タイトル（40 文字まで）・まとめ（400 文字まで）。下から出るシートで、「キャンセル」「保存」。
   シートの見出しは「場面を編集」・「{N}日目を編集」、欄の名前は「見出し」「一言」・「タイトル」「まとめ」。今の文を入れて開く（文が無ければ空）。欄の文字数は上限で止める
