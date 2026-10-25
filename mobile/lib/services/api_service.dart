@@ -6,6 +6,7 @@ import 'package:http_parser/http_parser.dart';
 import '../models/api_response.dart';
 import '../models/catalog.dart';
 import '../models/photo.dart';
+import '../models/timeline.dart';
 import '../models/trip.dart';
 import '../utils/image_mime_type.dart';
 
@@ -306,6 +307,19 @@ class ApiService {
           ),
         );
       });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 旅行のタイムライン（完成版と下書きの状態）を読む
+  /// GET /api/trips/{tripId}/timeline
+  Future<TimelineOverview> getTimeline(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline');
+      final response = await _client.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response,
+          (json) => TimelineOverview.fromJson(json['data'] as Map<String, dynamic>));
     } catch (error) {
       throw _handleError(error);
     }

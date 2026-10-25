@@ -14,6 +14,7 @@ import '../widgets/photo_selection.dart';
 import '../widgets/photo_selection_scaffold.dart';
 import '../widgets/trip_delete_dialog.dart';
 import '../widgets/trip_edit_dialog.dart';
+import '../widgets/trip_timeline_view.dart';
 import '../widgets/upload_banner.dart';
 
 /// 旅行詳細画面（docs/03_screen_design.md §4.4）
@@ -50,6 +51,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   int _gridVersion = 0;
   // チップで選んだカテゴリ。「すべて」なら null。画面を開き直すと「すべて」に戻る（§5.3）
   String? _category;
+  // 「タイムライン」を出しているか（切り替え。§8.1）。画面を開き直すと「写真」に戻る
+  bool _showsTimeline = false;
   StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
@@ -198,7 +201,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       appBar: _buildAppBar(trip),
       body: _buildBody(trip),
       onPhotosChanged: _reloadPhotos,
-      floatingActionButton: trip == null
+      floatingActionButton: trip == null || _showsTimeline
           ? null
           : AddPhotosButton(
               uploadQueue: widget.uploadQueue, tripId: widget.tripId),
@@ -227,6 +230,30 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Widget _uploadBanner() => UploadBanner(
       uploadQueue: widget.uploadQueue,
       includes: (tripId) => tripId == widget.tripId);
+
+  /// 「写真」「タイムライン」の切り替え（§8.1）。
+  /// 選択モードの間は出さない（選択モードは「写真」の中だけ。切り替えるとグリッドが外れ、選んだ写真が見えなくなるため）
+  Widget _buildViewSwitch() {
+    return ListenableBuilder(
+      listenable: _selection,
+      builder: (context, _) {
+        if (_selection.isActive) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('写真')),
+              ButtonSegment(value: true, label: Text('タイムライン')),
+            ],
+            selected: {_showsTimeline},
+            showSelectedIcon: false,
+            onSelectionChanged: (selected) =>
+                setState(() => _showsTimeline = selected.single),
+          ),
+        );
+      },
+    );
+  }
 
   /// カテゴリのチップ（すべて・植物・食べ物・風景・その他。§5.3）。1つだけ選べ、選ぶと一覧を先頭から取り直す。
   /// 選択モードの間は出さない（チップを変えると一覧が変わり、選んだ写真が見えなくなるため）
@@ -301,23 +328,34 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           ),
         ),
         _uploadBanner(),
-        _buildCategoryChips(),
-        Expanded(
-          child: PhotoGrid(
-            key: ValueKey(_gridVersion),
-            apiService: widget.apiService,
-            uploadQueue: widget.uploadQueue,
-            tripId: trip.id,
-            category: _category,
-            selection: _selection,
-            emptyTitle: _category == null
-                ? 'まだ写真がありません'
-                : 'この旅行に${categoryLabel(_category!)}の写真はありません',
-            emptyMessage: _category == null ? '「写真を追加」からギャラリーの写真を送りましょう' : null,
-            onTripNotFound: _markTripDeleted,
-            onViewerClosed: _reloadPhotos,
+        _buildViewSwitch(),
+        if (_showsTimeline)
+          Expanded(
+            child: TripTimelineView(
+              apiService: widget.apiService,
+              tripId: trip.id,
+              onTripNotFound: _markTripDeleted,
+            ),
           ),
-        ),
+        if (!_showsTimeline) _buildCategoryChips(),
+        if (!_showsTimeline)
+          Expanded(
+            child: PhotoGrid(
+              key: ValueKey(_gridVersion),
+              apiService: widget.apiService,
+              uploadQueue: widget.uploadQueue,
+              tripId: trip.id,
+              category: _category,
+              selection: _selection,
+              emptyTitle: _category == null
+                  ? 'まだ写真がありません'
+                  : 'この旅行に${categoryLabel(_category!)}の写真はありません',
+              emptyMessage:
+                  _category == null ? '「写真を追加」からギャラリーの写真を送りましょう' : null,
+              onTripNotFound: _markTripDeleted,
+              onViewerClosed: _reloadPhotos,
+            ),
+          ),
       ],
     );
   }
