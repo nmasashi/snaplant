@@ -818,6 +818,22 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe('見'.repeat(29));
     });
 
+    it.each<[string, string, string]>([
+      // 家族の絵文字は 👨・👩・👧 を結合子でつないだ1文字。途中で切ると 👨 だけが残る
+      ['結合した絵文字', `${'見'.repeat(28)}👨‍👩‍👧`, '見'.repeat(28)],
+      // 国旗は2つの記号で1文字。途中で切ると片方だけが残る
+      ['国旗', `${'見'.repeat(29)}🇯🇵`, '見'.repeat(29)],
+      // 切った最後が空白なら、それも除く
+      ['空白の後ろ', `${'見'.repeat(29)} ${'見'.repeat(5)}`, '見'.repeat(29)]
+    ])('上限で切り詰めるときは、%sの途中で切らず、切った後ろの空白も除く', async (_label, label, expected) => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+      aiReturns({ ...allTexts, scenes: [{ start: 0, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
+
+      await runWorker();
+
+      expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe(expected);
+    });
+
     describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
       const scene = (start: number, label: string) => ({ start, label, note: `${label}の一言` });
       const day = (date: string, title: string) => ({ date, title, summary: `${title}のまとめ` });
