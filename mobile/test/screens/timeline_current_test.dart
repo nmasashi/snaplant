@@ -386,6 +386,25 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('写真を読んでいる間にもう一度タップしても、写真ビューアは1つだけ開く', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      final reply = backend.holdNextReply(TripRoute.getPhoto);
+
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await tester.pump();
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await tester.pump();
+      reply.complete();
+      await letFramesRun(tester);
+
+      await tester.pageBack();
+      await letFramesRun(tester);
+      expect(find.text('2026年10月5日 07:58'), findsNothing);
+      expect(find.text('朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
+
     testWidgets('タップした写真が消えていたら、「この写真は削除されています」を出してタイムラインを読み直す',
         (tester) async {
       final semantics = tester.ensureSemantics();

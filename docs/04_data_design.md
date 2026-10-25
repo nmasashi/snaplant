@@ -249,7 +249,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 ```
 
 - `photos` は旅行の写真すべて（撮影日時の無い写真は `takenAt: null`）。撮影日時のある写真が撮影の順で先、無い写真が後（無い写真どうしは `sortAt`、つまりアップロードの順）
-- `name` は識別の名前（`identification.matchesKind` が `true` のときだけ。分類と合わない写真・識別していない写真は `null`）。`placeName` は `location.placeName`（位置情報が無ければ `null`）。`comment` は先頭 100 文字（`TIMELINE_SNAPSHOT_COMMENT_LENGTH`。文字はコードポイントで数え、絵文字を途中で切らない。AI に渡す分だけ。§6.2 の大きさを抑える）
+- `name` は識別の名前（`identification.matchesKind` が `true` のときだけ。分類と合わない写真・識別していない写真は `null`）。`placeName` は `location.placeName`（位置情報が無ければ `null`）。`comment` は先頭 100 文字（`TIMELINE_SNAPSHOT_COMMENT_LENGTH`。文字は見た目の1文字（書記素）で数え、絵文字・国旗・つないだ絵文字を途中で切らない。AI に渡す分だけ。§6.2 の大きさを抑える）
 - 1枚あたり 300〜700 バイト（id と Blob 名で 200 バイト余り。日本語のコメントは1文字 3 バイトで、100 文字なら 300 バイト）。1,000 枚で最大 700 KB 程度。文書の上限（2 MB）に届くのは、コメントの多い旅行で 3,000 枚前後から（届くと作る受付が 500 になる。[09](./09_backlog.md#タイムラインの写真の控えが文書の上限2-mbに届く旅行では作れないapi旅行アルバム)）
 
 決まり:
