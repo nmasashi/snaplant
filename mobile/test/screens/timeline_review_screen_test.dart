@@ -279,8 +279,22 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('「つなげる」を押すと、保存している間はほかの操作を受け付けず、前の場面とまとめて保存して応答で描き直す',
-        (tester) async {
+    testWidgets('「つなげる」を押すと、前の場面とまとめて保存し、応答で描き直す', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+
+      expect(savedStarts(backend), [
+        [idOf(1)],
+        [idOf(5)]
+      ]);
+      expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
+      expect(find.text('つなげる'), findsNothing);
+    });
+
+    testWidgets('保存している間は、ほかの操作（つなげる・長押し・メニュー・見出しを付ける）を受け付けない', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       await _openReview(tester);
@@ -293,15 +307,12 @@ void main() {
       await tester.longPress(photoThumbnail('2026年10月5日 07:58'));
       await letFramesRun(tester);
       expect(find.text('この写真から新しい場面'), findsNothing);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      expect(find.text('区切り案を出し直す'), findsNothing);
 
       hold.complete();
       await letFramesRun(tester);
-      expect(savedStarts(backend), [
-        [idOf(1)],
-        [idOf(5)]
-      ]);
-      expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
-      expect(find.text('つなげる'), findsNothing);
       semantics.dispose();
     });
 
@@ -347,7 +358,7 @@ void main() {
       expect(find.text('この旅行は削除されています'), findsOneWidget);
     });
 
-    testWidgets('見出しと一言を書けなかった下書きにも「区切りを確認する」を出して区切りの確認画面を開け、区切りを直すと確かめ待ちに戻る',
+    testWidgets('見出しと一言を書けなかった下書きでも「区切りを確認する」から区切りを直せ、戻ると旅行詳細が今の状態（確かめ待ち）を出す',
         (tester) async {
       await _openTimeline(tester, draft: _writeFailedDraft());
       expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
@@ -356,6 +367,7 @@ void main() {
       expect(find.text('区切りを確認'), findsOneWidget);
       expect(find.text('7:50〜7:58 · 北海道千歳市 · 2枚'), findsOneWidget);
 
+      // 区切りを直すと確かめ待ちに戻るのはサーバの決まり（05 §5.15）
       await tester.tap(find.text('つなげる'));
       await letFramesRun(tester);
       await tester.tap(find.byIcon(Icons.close));
@@ -377,8 +389,21 @@ void main() {
       expect(_button(tester, 'この区切りで見出しを付ける').onPressed, isNotNull);
     });
 
-    testWidgets('「この区切りで見出しを付ける」を押すと、送っている間はほかの操作を受け付けず、見出しと一言を書かせて旅行詳細に戻る',
-        (tester) async {
+    testWidgets('「この区切りで見出しを付ける」を押すと、見出しと一言を書かせて旅行詳細に戻る', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await letFramesRun(tester);
+
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'writing');
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+    });
+
+    testWidgets('見出しを付けるのを送っている間は、ほかの操作を受け付けない', (tester) async {
       final backend = await _openTimeline(tester);
       await _openReview(tester);
       final hold = backend.holdNextReply(TripRoute.timelineWrite);
@@ -387,14 +412,12 @@ void main() {
       await letFramesRun(tester);
       expect(_button(tester, 'この区切りで見出しを付ける').onPressed, isNull);
       expect(_button(tester, 'つなげる').onPressed, isNull);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      expect(find.text('区切り案を出し直す'), findsNothing);
 
       hold.complete();
       await letFramesRun(tester);
-      expect(
-          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
-          'writing');
-      expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('見出しと一言を書いています'), findsOneWidget);
     });
 
     testWidgets('メニューの「区切り案を出し直す」は確認のダイアログを出し、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
@@ -445,6 +468,22 @@ void main() {
       expect(backend.timelinesByTripId[hokkaidoTripId], isNull);
       expect(find.text('区切りを確認'), findsNothing);
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
+    });
+
+    testWidgets('「やめる」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, 'キャンセル');
+
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'reviewing');
+      expect(find.text('区切りを確認'), findsOneWidget);
     });
 
     testWidgets('メニューの操作で下書きが別の端末で変わっていたら（409）、知らせて旅行詳細に戻る', (tester) async {
