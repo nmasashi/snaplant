@@ -29,7 +29,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   TimelineDraftStatus? _draft;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
-  // 区切りを保存している間は、ほかの操作を受け付けない（§8.4）
+  // 区切りの保存や操作を送っている間は、ほかの操作を受け付けない（§8.4）
   bool _saving = false;
 
   @override
@@ -110,6 +110,61 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     }
   }
 
+  /// 文を書かせて旅行詳細に戻る
+  Future<void> _write() =>
+      _sendAndClose(() async => widget.apiService.writeTimeline(widget.tripId));
+
+  /// 確かめてから区切り案を出し直し、旅行詳細に戻る
+  Future<void> _repropose() async {
+    if (!await _confirm('AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。', '出し直す')) {
+      return;
+    }
+    await _sendAndClose(
+        () async => widget.apiService.createTimeline(widget.tripId));
+  }
+
+  /// 確かめてから下書きをやめ、旅行詳細に戻る（§8.2 と同じダイアログ）
+  Future<void> _discard() async {
+    if (!await _confirm('作りかけのタイムラインを捨てますか？', '捨てる')) return;
+    await _sendAndClose(
+        () => widget.apiService.discardTimelineDraft(widget.tripId));
+  }
+
+  /// 「キャンセル」と [confirmLabel] のダイアログ。[confirmLabel] を押したら true
+  Future<bool> _confirm(String message, String confirmLabel) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text(message),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(confirmLabel)),
+        ],
+      ),
+    );
+    return confirmed == true && mounted;
+  }
+
+  /// 操作を送り、できたら旅行詳細に戻る（旅行詳細が読み直す）。送っている間はほかの操作を受け付けない
+  Future<void> _sendAndClose(Future<void> Function() operation) async {
+    setState(() => _saving = true);
+    try {
+      await operation();
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      debugPrint('TimelineReviewScreen: 操作のエラー: $e');
+      if (!mounted) return;
+      _handleOperationError(e, 'タイムラインの操作に失敗しました');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   /// 操作の失敗（§8.4）。下書きが変わった・旅行が無いなら旅行詳細に戻り、それ以外は文言を出す
   void _handleOperationError(Object e, String fallback) {
     if (e is ApiException && e.isTripNotFound) {
@@ -151,6 +206,19 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('区切りを確認', style: AppTextStyles.appBarTitle),
+        actions: [
+          if (draft != null)
+            PopupMenuButton<Future<void> Function()>(
+              icon: const Icon(Icons.more_vert),
+              enabled: !_saving,
+              onSelected: (action) => action(),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                    value: _repropose, child: const Text('区切り案を出し直す')),
+                PopupMenuItem(value: _discard, child: const Text('やめる')),
+              ],
+            ),
+        ],
       ),
       body: _buildBody(draft),
       bottomNavigationBar: draft == null ? null : _buildWriteBar(draft),
@@ -309,7 +377,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ElevatedButton(
-              onPressed: _saving ? null : () {},
+              onPressed: _saving ? null : _write,
               child: const Text('この区切りで見出しを付ける'),
             ),
             const SizedBox(height: 4),
