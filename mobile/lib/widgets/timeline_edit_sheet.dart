@@ -73,6 +73,8 @@ class _TimelineEditSheetState extends State<TimelineEditSheet> {
   }
 
   Future<void> _save() async {
+    // 押せなくする描き直しが届く前に続けて押されても、送るのは1回（2回目の応答で、閉じかけのシートの下の画面まで閉じないように）
+    if (_saving) return;
     final changes = _changes();
     if (changes.isEmpty) {
       Navigator.pop(context);

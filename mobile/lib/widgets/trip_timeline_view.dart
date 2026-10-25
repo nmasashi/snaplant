@@ -291,6 +291,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     final result = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
+      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
+      enableDrag: false,
       builder: (context) =>
           TimelineEditSheet(title: title, fields: fields, onSave: save),
     );
