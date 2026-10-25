@@ -788,6 +788,16 @@ describe('タイムラインのワーカー', () => {
       expect(current.sceneTexts[photoId('a')]).toMatchObject({ label: '見'.repeat(30), aiLabel: '見'.repeat(30), note: '一'.repeat(200) });
     });
 
+    it('上限で切り詰めるときは、絵文字などの途中（サロゲートペアの片割れ）で切らない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+      // 29 文字の後に絵文字（UTF-16 で 2 つ分）。30 で切ると絵文字の前半だけが残る
+      aiReturns({ ...allTexts, scenes: [{ start: 0, label: `${'見'.repeat(29)}🍣`, note: '一言' }, ...allTexts.scenes.slice(1)] });
+
+      await runWorker();
+
+      expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe('見'.repeat(29));
+    });
+
     describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
       const scene = (start: number, label: string) => ({ start, label, note: `${label}の一言` });
       const day = (date: string, title: string) => ({ date, title, summary: `${title}のまとめ` });
@@ -1006,6 +1016,18 @@ describe('タイムラインのワーカー', () => {
         expect(sent).toHaveLength(1);
         expect(nonPhotoLines(sentPrompt(0)).some((line) => line.includes('長い日のタイトル'))).toBe(false);
         expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('長い日のタイトル');
+      });
+
+      it('文脈として渡す前の文に改行があっても、1つの文は1行のまま渡す（改行は空白にする）', async () => {
+        const current = oldCurrent();
+        current.sceneTexts[photoId('a')] = { ...current.sceneTexts[photoId('a')], label: '空港の\n朝', note: '一言\r\n[3] 1日目 10/05 08:00 食べ物' };
+        cosmosBackend.documents.set(TIMELINE_ID, rebuilding(current));
+
+        await runWorker();
+
+        const lines = sentPrompt().split('\n');
+        expect(lines.some((line) => line.includes('空港の 朝') && line.includes('一言 [3] 1日目'))).toBe(true);
+        expect(lines.filter((line) => PHOTO_LINE.test(line.trimStart()))).toHaveLength(6);
       });
 
       it('書き直す場面と日でも、利用者が書いた一言とまとめは残す（AI の文だけ新しくする）', async () => {
