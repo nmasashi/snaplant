@@ -217,6 +217,26 @@ void main() {
       expect(error.userMessage, '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。');
     });
   });
+
+  // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。
+  // uri には _buildUrl が付けた ?code=<関数キー> が入るので、例外の文言を ApiException に写すと関数キーが漏れる（docs/03 §9.2）
+  group('通信の失敗', () {
+    test('通信の例外（ClientException）はステータス 0 の例外にし、例外の文言にも body にも関数キー付きの宛先の URL を入れない', () async {
+      final service = ApiService(
+        baseUrl: 'https://api.example.test',
+        functionKey: 'secret-function-key',
+        client: MockClient((request) async {
+          throw http.ClientException('Connection closed before full header was received', request.url);
+        }),
+      );
+
+      final error = await _captureApiException(() => service.getTrips());
+
+      expect(error.statusCode, 0);
+      expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+      expect('${error.message} ${error.body} $error', isNot(contains('secret-function-key')));
+    });
+  });
 }
 
 Future<ApiException> _captureApiException(Future<Object?> Function() action) async {
