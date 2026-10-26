@@ -8,7 +8,7 @@ import { GRAPHEMES } from '../utils/graphemes';
 /**
  * 文の応答の形（Structured Outputs。docs/06_processing_design.md §8.3）
  *
- * strict モードでは配列の長さや文字数を強制できないので、頼んだ日と場面がちょうど1回ずつあることと、文の長さはコードで検査する
+ * strict モードでは配列の長さや文字数を強制できないので、頼んだ日と場面がちょうど1回ずつあること・場面の最後の写真の番号と、文の長さはコードで検査する
  */
 const TIMELINE_TEXTS_SCHEMA = {
   type: 'object',
@@ -51,7 +51,7 @@ const TIMELINE_TEXTS_SCHEMA = {
 export interface TimelineWriteRequest {
   /** 撮影日時のある写真（撮影の順）。番号は渡した順に 0 から振る */
   photos: TimelinePromptPhoto[];
-  /** 区切り（場面の最初の写真の番号。この呼び出しの写真のぶん全部） */
+  /** 区切り（場面の最初の写真の番号。この呼び出しの写真のぶん全部を昇順に。写真は場面ごとに並び、0 番は最初の場面の始まり） */
   sceneStarts: number[];
   /** 文を書いてほしい場面（最初の写真の番号） */
   scenesToWrite: number[];
@@ -85,7 +85,7 @@ export class TimelineWriterService {
   /**
    * 頼んだ場面と日の文を書かせる
    *
-   * @throws UpstreamError（ai） AI の失敗と、応答の検証違反（頼んだ日・場面がちょうど1回ずつ無い、空の文）
+   * @throws UpstreamError（ai） AI の失敗と、応答の検証違反（頼んだ日・場面がちょうど1回ずつ無い、場面の最後の写真の番号が合わない、空の文）
    */
   async write(request: TimelineWriteRequest): Promise<TimelineWrittenTexts> {
     const lines = request.photos.map(({ photo, dayNumber }, index) => photoLineOf(photo, dayNumber, index));
@@ -152,6 +152,8 @@ ${lines.join('\n')}
 
 /**
  * 場面の最初の写真の番号から、最後の写真の番号（次の場面の前、最後の場面はこの呼び出しの最後の写真）
+ *
+ * 区切りが昇順で、この呼び出しの写真を全部の場面で覆っていること（writeDraftTexts が場面ごとに写真を並べる）を前提にする
  */
 function sceneEndsOf(sceneStarts: number[], photoCount: number): Map<number, number> {
   return new Map(sceneStarts.map((start, index) => [start, (sceneStarts[index + 1] ?? photoCount) - 1]));
