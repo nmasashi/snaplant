@@ -5,6 +5,7 @@ import { requeueStalePhotosHandler } from '../../src/functions/requeueStalePhoto
 import { PhotoDocument, PhotoProcessing } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument, timelineDocument, timelineDraft, tripDocument } from '../helpers/albumDocuments';
 import { TimelineDraft, TimelineJob } from '../../src/types/timeline';
 
@@ -98,13 +99,13 @@ describe('再投入のタイマー', () => {
     expect(queuedPhotoIds()).toEqual([]);
   });
 
-  it.each([
+  it('止まっていない（失敗・対象外・済み・処理中で10分未満）写真は拾わない（写真も変えず、積まない）', () => forEachCase([
     ['上限まで失敗した（failed）', { state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: STALE }],
     ['解析の対象になっていない（none）', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
     ['済み（done）', { state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: STALE }],
     ['止まってまだ10分たっていない解析待ち', { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: FRESH }],
     ['止まってまだ10分たっていない処理中', { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: FRESH }]
-  ] as [string, PhotoProcessing][])('%sの写真は拾わない（写真も変えず、積まない）', async (_label, processing) => {
+  ] as [string, PhotoProcessing][], async (_label, processing) => {
     // failed を拾うと同じ画像で永遠に失敗し続け、none を拾うと段階2の写真すべてに意図せず課金する（06 §1.2）
     const photo = photoWith(photoId('a'), processing);
     cosmosBackend.documents.set(photoId('a'), photo);
@@ -113,7 +114,7 @@ describe('再投入のタイマー', () => {
 
     expect(stored(photoId('a'))).toEqual(photo);
     expect(queuedPhotoIds()).toEqual([]);
-  });
+  }));
 
   it('読んだ後にやり直しが受け付けられ、ワーカーが担当し直していたら（state・回数が同じ）、その写真には触らない', async () => {
     // 処理中に落ちた写真（classifying・回数 1）を読んだ後、やり直しで回数が 0 に戻り、新しい担当でまた classifying・1 になる
@@ -242,11 +243,11 @@ describe('再投入のタイマー', () => {
       expect(queuedTimelines()).toEqual([]);
     });
 
-    it.each<[string, TimelineJob | null, Partial<TimelineDraft>]>([
+    it('止まっていない（処理が無い・失敗した・10分未満の）下書きは拾わない（変えず、積まない）', () => forEachCase<[string, TimelineJob | null, Partial<TimelineDraft>]>([
       ['確かめ中で処理の無い', null, { phase: 'reviewing' }],
       ['失敗した', { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: STALE }, {}],
       ['止まってまだ10分たっていない', { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: FRESH }, {}]
-    ])('%s下書きは拾わない（変えず、積まない）', async (_label, job, overrides) => {
+    ], async (_label, job, overrides) => {
       const timeline = timelineWithJob(job, overrides);
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -254,7 +255,7 @@ describe('再投入のタイマー', () => {
 
       expect(storedTimeline()).toEqual(timeline);
       expect(queuedTimelines()).toEqual([]);
-    });
+    }));
 
     it('写真の再投入で失敗しても、タイムラインの下書きは積み直し、タイマーは失敗として終わる', async () => {
       // 写真の側の障害（1枚の書き込みの失敗など）で、止まった下書きがいつまでも積み直されない、ということにしない

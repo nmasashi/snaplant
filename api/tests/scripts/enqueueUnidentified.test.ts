@@ -2,6 +2,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { enqueueUnidentifiedPhotos } from '../../src/scripts/enqueueUnidentified';
 import { PhotoDocument, PhotoProcessing } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument, tripDocument } from '../helpers/albumDocuments';
 
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物。スクリプトはキューに積まない（積むのは再投入のタイマー。06 §1）
@@ -78,14 +79,14 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     expect(stored(photoId('c')).processing).toEqual(waitingForIdentify);
   });
 
-  it.each([
+  it('写真が対象でない（other・識別済み・分類の待ち・解析中）なら、書き込みを指定しても変えない', () => forEachCase([
     ['どの種類にも当てはまらない（other）', { category: 'other' }],
     ['識別が済んでいる', { identification: { kind: 'plant', matchesKind: true, name: 'ソメイヨシノ' } }],
     ['分類の待ち', { processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: CLASSIFIED_AT } }],
     ['識別中', { processing: { state: 'identifying', step: 'identify', attempts: 1, lastError: null, updatedAt: CLASSIFIED_AT } }],
     ['上限まで失敗した（failed）', { processing: { state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: CLASSIFIED_AT } }],
     ['解析の対象になっていない（段階2の none）', { category: null, processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null } }]
-  ] as const)('写真が%sなら、書き込みを指定しても変えない', async (_label, overrides) => {
+  ] as const, async (_label, overrides) => {
     // 対象の絞り込みはクエリでも行うが、クエリの WHERE はテストで確かめられないので、同じ条件をコードでも見る
     const photo = classifiedPhoto(photoId('a'), overrides as Partial<PhotoDocument>);
     cosmosBackend.documents.set(photoId('a'), photo);
@@ -94,7 +95,7 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
 
     expect(result).toEqual({ found: 0, marked: 0 });
     expect(stored(photoId('a'))).toEqual(photo);
-  });
+  }));
 
   it('書き込みを指定しなければ、対象の写真を数えるだけで何も変えない', async () => {
     // 本番のデータを書くので、先に件数を見てから回す（06 §1）

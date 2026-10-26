@@ -3,6 +3,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { processTimelineHandler } from '../../src/functions/processTimeline';
 import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot } from '../../src/types/timeline';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
+import { forEachCase } from '../helpers/cases';
 import { timelineCurrent, timelineDocument, timelineDraft, timelinePhotosDocument, tripDocument } from '../helpers/albumDocuments';
 
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物、AI（管理外）は送った要求を残すモック
@@ -421,7 +422,7 @@ describe('タイムラインのワーカー', () => {
       );
     });
 
-    it.each<[string, (doc: TimelineDocument) => TimelineDocument]>([
+    it('処理の間に下書きをやめた・別の下書きに変わったなら、結果も失敗も書かずに終える', () => forEachCase<[string, (doc: TimelineDocument) => TimelineDocument]>([
       ['下書きをやめた', (doc) => ({ ...doc, draft: null })],
       // 新しい下書きを別のインスタンスが同じ時刻に担当した（処理は自分が担当したときと同じ形になる。下書きの id だけで見分ける）
       [
@@ -436,7 +437,7 @@ describe('タイムラインのワーカー', () => {
         '再投入のタイマーが待ちに戻し、別のインスタンスが担当し直した',
         (doc) => ({ ...doc, draft: proposingDraft({ job: pendingJob({ state: 'running', attempts: 2, updatedAt: NOW }) }) })
       ]
-    ])('%sなら、結果も失敗も書かずに終える', async (_case, write) => {
+    ], async (_case, write) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
       let written: TimelineDocument | undefined;
       othersWriteBeforeReplace((doc) => (written = write(doc)));
@@ -444,7 +445,7 @@ describe('タイムラインのワーカー', () => {
       await expect(runWorker()).resolves.toBeUndefined();
 
       expect(storedTimeline()).toEqual(written);
-    });
+    }));
 
     it('タイムラインが消えていたら（旅行の削除など）、何も書かずに終える', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
@@ -532,7 +533,7 @@ describe('タイムラインのワーカー', () => {
   });
 
   describe('失敗', () => {
-    it.each<[string, () => Promise<unknown>]>([
+    it('AI がエラーを返した・接続できなかったら AI の失敗として、下書きを待ちに戻して例外を投げる（キューの再試行に任せる）', () => forEachCase<[string, () => Promise<unknown>]>([
       ['AI がエラーを返した', async () => {
         throw Object.assign(new Error('500 The server had an error while processing your request.'), { name: 'InternalServerError', status: 500 });
       }],
@@ -541,7 +542,7 @@ describe('タイムラインのワーカー', () => {
       ['AI の応答に整数でない番号があった', answering({ sceneStarts: [1.5] })],
       ['AI の応答に番号でない値があった', answering({ sceneStarts: ['1'] })],
       ['AI の応答が配列でなかった', answering({ sceneStarts: 1 })]
-    ])('%sら AI の失敗として、下書きを待ちに戻して例外を投げる（キューの再試行に任せる）', async (_case, aiReply) => {
+    ], async (_case, aiReply) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
       reply = aiReply;
 
@@ -550,16 +551,16 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()).toEqual(
         proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }) }) })
       );
-    });
+    }));
 
-    it.each<[string, TimelineDraft | null]>([
+    it('区切り案の間に下書きをやめていた・別の下書きに変わっていたら、AI が失敗しても失敗を書かずに終える（例外も投げない）', () => forEachCase<[string, TimelineDraft | null]>([
       ['下書きをやめていた', null],
       // 新しい下書きを別のインスタンスが同じ時刻に担当した（処理は自分の担当と同じ形。下書きの id だけで見分ける）
       [
         '下書きを出し直し、別のインスタンスが担当していた',
         proposingDraft({ id: '44444444-4444-4444-8444-444444444444', job: pendingJob({ state: 'running', attempts: 1, updatedAt: NOW }) })
       ]
-    ])('区切り案の間に%sら、AI が失敗しても失敗を書かずに終える（例外も投げない）', async (_case, draft) => {
+    ], async (_case, draft) => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
       let changed: TimelineDocument | undefined;
       reply = async () => {
@@ -571,7 +572,7 @@ describe('タイムラインのワーカー', () => {
       await expect(runWorker()).resolves.toBeUndefined();
 
       expect(storedTimeline()).toEqual(changed);
-    });
+    }));
 
     it('失敗を書くときは、処理の時刻を失敗した時刻にする（再投入のタイマーはそこから数える）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline());
@@ -788,7 +789,7 @@ describe('タイムラインのワーカー', () => {
     });
 
     // 重なりと頼んでいないものの行は、数を頼んだ数に合わせる（数が違うと、数の検査で先に落ちて、その行の検査に届かない）
-    it.each<[string, unknown]>([
+    it('AI の応答の日や場面が頼んだものと合わないときは AI の失敗として、下書きを待ちに戻して例外を投げる（完成版は作らない）', () => forEachCase<[string, unknown]>([
       ['頼んだ日が無い', { ...allTexts, days: allTexts.days.slice(1) }],
       ['同じ日が2回ある', { ...allTexts, days: [allTexts.days[0], allTexts.days[0]] }],
       ['頼んでいない場面がある', { ...allTexts, scenes: [{ start: 1, end: 1, label: 'x', note: 'x' }, ...allTexts.scenes.slice(1)] }],
@@ -800,7 +801,7 @@ describe('タイムラインのワーカー', () => {
       ['空白だけの見出しがある', { ...allTexts, scenes: [{ ...allTexts.scenes[0], label: '  ' }, ...allTexts.scenes.slice(1)] }],
       ['空のまとめがある', { ...allTexts, days: [{ ...allTexts.days[0], summary: '' }, allTexts.days[1]] }],
       ['日が配列でない', { ...allTexts, days: null }]
-    ])('AI の応答に%sときは AI の失敗として、下書きを待ちに戻して例外を投げる（完成版は作らない）', async (_label, body) => {
+    ], async (_label, body) => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       aiReturns(body);
 
@@ -809,7 +810,7 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()).toEqual(
         writingTimeline({ draft: writingDraft({ job: writingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }) }) })
       );
-    });
+    }));
 
     it('AI の文は前後の空白を除き、上限（タイトル 40・まとめ 400・見出し 30・一言 200 文字）を超える分は切り詰める', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
@@ -847,21 +848,21 @@ describe('タイムラインのワーカー', () => {
       expect(storedTimeline()!.draft!.job).toEqual(writingJob({ attempts: 1, lastError: 'ai', updatedAt: NOW }));
     });
 
-    it.each<[string, string, string]>([
+    it('上限で切り詰めるときは、見た目の1文字の途中で切らず、切った後ろの空白も除く', () => forEachCase<[string, string, string]>([
       // 家族の絵文字は 👨・👩・👧 を結合子でつないだ1文字。途中で切ると 👨 だけが残る
       ['結合した絵文字', `${'見'.repeat(28)}👨‍👩‍👧`, '見'.repeat(28)],
       // 国旗は2つの記号で1文字。途中で切ると片方だけが残る
       ['国旗', `${'見'.repeat(29)}🇯🇵`, '見'.repeat(29)],
       // 切った最後が空白なら、それも除く
       ['空白の後ろ', `${'見'.repeat(29)} ${'見'.repeat(5)}`, '見'.repeat(29)]
-    ])('上限で切り詰めるときは、%sの途中で切らず、切った後ろの空白も除く', async (_label, label, expected) => {
+    ], async (_label, label, expected) => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
 
       await runWorker();
 
       expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe(expected);
-    });
+    }));
 
     describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
       const scene = (start: number, end: number, label: string) => ({ start, end, label, note: `${label}の一言` });
@@ -1251,13 +1252,13 @@ describe('タイムラインのワーカー', () => {
   });
 
   describe('何もしない・後始末だけするメッセージ', () => {
-    it.each<[string, unknown]>([
+    it('旅行や下書きの id が無いメッセージは、何もせずに終える', () => forEachCase<[string, unknown]>([
       ['旅行の id が無い', { draftId: DRAFT_ID }],
       ['下書きの id が無い', { tripId: TRIP_ID }],
       ['旅行の id が UUID の形でない', { tripId: 'trip/1', draftId: DRAFT_ID }],
       ['下書きの id が UUID の形でない', { tripId: TRIP_ID, draftId: '' }],
       ['本文が読めない', null]
-    ])('%sメッセージは、何もせずに終える', async (_case, message) => {
+    ], async (_case, message) => {
       const timeline = proposingTimeline();
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -1265,15 +1266,15 @@ describe('タイムラインのワーカー', () => {
 
       expect(storedTimeline()).toEqual(timeline);
       expect(sent).toEqual([]);
-    });
+    }));
 
-    it.each<[string, TimelineDraft | null]>([
+    it('下書きが無い・別の下書きに変わったなら、何もせずに終える', () => forEachCase<[string, TimelineDraft | null]>([
       ['下書きが無い（やめた）', null],
       ['別の下書き（出し直した）', proposingDraft({ id: '44444444-4444-4444-8444-444444444444' })],
       ['処理中（別のインスタンスが担当した）', proposingDraft({ job: pendingJob({ state: 'running', attempts: 1 }) })],
       ['失敗した', proposingDraft({ job: pendingJob({ state: 'failed', attempts: 3 }) })],
       ['確かめ中（区切り案は済んだ）', proposingDraft({ phase: 'reviewing', job: null })]
-    ])('%sなら、何もせずに終える', async (_case, draft) => {
+    ], async (_case, draft) => {
       const timeline = proposingTimeline({ draft });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -1281,7 +1282,7 @@ describe('タイムラインのワーカー', () => {
 
       expect(storedTimeline()).toEqual(timeline);
       expect(sent).toEqual([]);
-    });
+    }));
 
     it('タイムラインが無ければ（旅行の削除で消えた）、何もせずに終える', async () => {
       await expect(runWorker()).resolves.toBeUndefined();

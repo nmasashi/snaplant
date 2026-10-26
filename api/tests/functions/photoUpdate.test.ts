@@ -7,6 +7,7 @@ import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../f
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { COSMOS_SYSTEM_FIELDS, photoDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -280,7 +281,7 @@ describe('写真更新API', () => {
 
   // 05 §5.6 の 1〜9 を、表の順に。どの行も、写真は保存済みで(404 で先に返らない)、何も変わらない。
   // 最後の 2 行は検証の順序の例(写真IDが先、コメントはタグより先)
-  it.each([
+  it('写真の更新で指定が正しくなければ、400で理由を返し、何も変えない', () => forEachCase([
     ['写真IDの形式が無効', 'abc', jest.fn().mockResolvedValue({ comment: '夕食' }), '写真IDの形式が無効です'],
     ['ボディがJSONとしてパースできない', PHOTO_ID, jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), 'リクエストボディの形式が無効です'],
     ['ボディがnull', PHOTO_ID, jest.fn().mockResolvedValue(null), 'リクエストボディが指定されていません'],
@@ -299,7 +300,7 @@ describe('写真更新API', () => {
     ['tagsが重複を除いて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: distinctTags(21) }), 'タグは20個までです'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
-  ])('写真の更新で指定が正しくなければ、400で理由を返し、何も変えない(%s)', async (_case, photoId, json, message) => {
+  ], async (_case, photoId, json, message) => {
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
     const before = structuredClone(cosmosBackend.documents);
     const request = createUpdatePhotoRequestWithJson(photoId, json);
@@ -312,7 +313,7 @@ describe('写真更新API', () => {
     expect(body.error.code).toBe('INVALID_REQUEST');
     expect(body.error.message).toBe(message);
     expect(cosmosBackend.documents).toEqual(before);
-  });
+  }));
 
   // 上限は前後の空白を除いた後の文字数で数える。空白を含めると上限を超えるものが、除いて上限ちょうどなら通る
   it('コメントが前後の空白を除いて500文字なら、空白を含めて500文字を超えていても保存できる', async () => {
@@ -444,9 +445,7 @@ describe('写真更新API', () => {
   });
 
   // データベースの失敗の分類(接続できない障害は503、それ以外は500で message は固定)を、写真の更新(patch)で確かめる
-  it.each(
-    databaseFailureCases('写真の更新に失敗しました')
-  )('写真の更新で%s', async (_case, error, status, code, message) => {
+  it('写真の更新で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('写真の更新に失敗しました'), async (_case, error, status, code, message) => {
     // 形式が正しい要求で、写真もある(検証や404で先に返らず、patch まで進む)
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
     const before = structuredClone(cosmosBackend.documents);
@@ -461,5 +460,5 @@ describe('写真更新API', () => {
     expect(body.error.code).toBe(code);
     expect(body.error.message).toBe(message);
     expect(cosmosBackend.documents).toEqual(before);
-  });
+  }));
 });

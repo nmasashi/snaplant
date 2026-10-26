@@ -21,6 +21,7 @@ import {
 } from '../helpers/albumDocuments';
 import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../../src/types/timeline';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // タイムラインの下書き（段階5。docs/05_api_design.md §5.15、文書は 04 §1.6）。
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物。SAS の署名は固定のトークンを返す形に差し替える
@@ -143,14 +144,14 @@ describe('タイムラインの下書きAPI', () => {
   });
 
   describe('下書きを読む（GET）', () => {
-    it.each(noDraftCases)('%sときは、下書きは null', async (_label, timelines) => {
+    it('タイムラインが無い・完成版だけで下書きが無いときは、下書きは null', () => forEachCase(noDraftCases, async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
 
       expect(response.status).toBe(200);
       expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
-    });
+    }));
 
     it('区切り案を作っている下書きは、状態だけを返す（日と場面は返さない）', async () => {
       placeSnapshot([snap('a', '2026-10-05T07:50:00')]);
@@ -417,27 +418,27 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの取得に失敗しました' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('旅行やタイムラインを読むときに%s', async (_case, error, status, code, message) => {
+    it('旅行やタイムラインを読むときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの取得に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.forcedReadError = error;
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-    });
+    }));
   });
   describe('下書きをやめる（DELETE）', () => {
     const snapshotDocument = (id: string) => timelinePhotosDocument(id, TRIP_ID);
     const storedSnapshotIds = () =>
       [...cosmosBackend.documents.values()].filter((doc) => doc.type === 'timelinePhotos').map((doc) => doc.id).sort();
 
-    it.each<[string, TimelineDraft]>([
+    it('完成版の無い（確かめ中・作っている途中の）下書きをやめると、タイムラインの文書ごと消え、下書きの控えも消える', () => forEachCase<[string, TimelineDraft]>([
       ['確かめ中の', draftOf()],
       [
         '作っている途中の',
         draftOf({ phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' } })
       ]
-    ])('完成版の無い%s下書きをやめると、タイムラインの文書ごと消え、下書きの控えも消える', async (_label, draft) => {
+    ], async (_label, draft) => {
       cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID));
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draft));
 
@@ -447,16 +448,16 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toEqual({ success: true, data: { draft: null } });
       expect(cosmosBackend.documents.has(TIMELINE_ID)).toBe(false);
       expect(storedSnapshotIds()).toEqual([]);
-    });
+    }));
 
-    it.each<[string, string[], TimelineDraft]>([
+    it('作り直し・区切りの直しの下書きをやめると、下書きだけが消え、完成版とその控えは残る', () => forEachCase<[string, string[], TimelineDraft]>([
       ['作り直しの下書き', [SNAPSHOT_ID, CURRENT_SNAPSHOT_ID], draftOf({ reason: 'rebuild' })],
       [
         '完成版の区切りを直している途中（recut）の下書き（完成版と同じ控えを指す）',
         [CURRENT_SNAPSHOT_ID],
         draftOf({ reason: 'recut', snapshotId: CURRENT_SNAPSHOT_ID })
       ]
-    ])('%sをやめると、下書きだけが消え、完成版とその控えは残る', async (_label, snapshotIds, draft) => {
+    ], async (_label, snapshotIds, draft) => {
       snapshotIds.forEach((id) => cosmosBackend.documents.set(id, snapshotDocument(id)));
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draft, currentVersion));
 
@@ -465,9 +466,9 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.status).toBe(200);
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({ ...timelineWith(null, currentVersion), updatedAt: NOW });
       expect(storedSnapshotIds()).toEqual([CURRENT_SNAPSHOT_ID]);
-    });
+    }));
 
-    it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）を返す', async (_label, timelines) => {
+    it('タイムラインが無い・完成版だけで下書きが無いときは、404（TIMELINE_NOT_FOUND）を返す', () => forEachCase(noDraftCases, async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
@@ -477,7 +478,7 @@ describe('タイムラインの下書きAPI', () => {
         success: false,
         error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインの下書きが見つかりません' }
       });
-    });
+    }));
 
     it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、何も消さない', async () => {
       cosmosBackend.documents.set(SNAPSHOT_ID, snapshotDocument(SNAPSHOT_ID));
@@ -545,14 +546,14 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの更新に失敗しました'))('旅行やタイムラインを読むときに%s', async (_case, error, status, code, message) => {
+    it('旅行やタイムラインを読むときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの更新に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.forcedReadError = error;
 
       const response = await deleteTimelineDraftHandler(createRequest(TRIP_ID, 'DELETE'), mockContext);
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-    });
+    }));
   });
 
   describe('区切りを保存する（PUT …/draft/scenes）', () => {
@@ -622,11 +623,11 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[0].photos.map((photo: any) => photo.id)).toContain(photoId('k'));
     });
 
-    it.each<[string, string[], string[], string[]]>([
+    it('日の最初の写真が送られないときも、各日の最初の写真を補って撮影の順で保存する', () => forEachCase<[string, string[], string[], string[]]>([
       // 画面には b と c の場面しか見えない（日の最初の場面と2日目を丸ごと見ない）
       ['日の最初の写真が消えていて送られない', ['a', 'd', 'e'], [photoId('b')], [photoId('a'), photoId('b'), photoId('d')]],
       ['日の最初の写真がまだあるのに送られない', [], [photoId('b'), photoId('e')], [photoId('a'), photoId('b'), photoId('d'), photoId('e')]]
-    ])('%sときも、各日の最初の写真を補って撮影の順で保存する', async (_label, deleted, starts, saved) => {
+    ], async (_label, deleted, starts, saved) => {
       // 控えを取った後に消えた写真
       for (const head of deleted) {
         cosmosBackend.documents.delete(photoId(head));
@@ -637,7 +638,7 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(200);
       expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual(saved);
-    });
+    }));
 
     it('写真が全部消えた場面の区切りは、送られなくても残す（画面に見えない場面が前の場面に混ざり、文を引き継げなくならないように）', async () => {
       // 1日目は a・b の場面と c の場面。控えを取った後に c を消したので、画面には c の場面が見えず、c の区切りを送れない
@@ -720,7 +721,7 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft).toMatchObject({ phase: 'reviewing', job: null });
     });
 
-    it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）', async (_label, timelines) => {
+    it('タイムラインが無い・完成版だけで下書きが無いときは、404（TIMELINE_NOT_FOUND）', () => forEachCase(noDraftCases, async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await put({ sceneStarts: proposed });
@@ -730,14 +731,14 @@ describe('タイムラインの下書きAPI', () => {
         success: false,
         error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインの下書きが見つかりません' }
       });
-    });
+    }));
 
-    it.each<[string, Partial<TimelineDraft>]>([
+    it('下書きが確かめ中でないときは、409（TIMELINE_STATE_CONFLICT）で区切りを変えない', () => forEachCase<[string, Partial<TimelineDraft>]>([
       ['区切り案を作っている', { phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }],
       ['区切り案に失敗した', { phase: 'proposing', job: { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: NOW } }],
       ['文を書く順番を待っている', { phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW } }],
       ['文を書いている', { phase: 'writing', job: { step: 'write', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }]
-    ])('下書きが%sときは、409（TIMELINE_STATE_CONFLICT）で区切りを変えない', async (_label, overrides) => {
+    ], async (_label, overrides) => {
       const timeline = timelineWith(reviewing(overrides));
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -746,13 +747,13 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.status).toBe(409);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
-    });
+    }));
 
-    it.each<[string, unknown]>([
+    it('区切りが無い・配列でない・文字列でない値を含むときは、400（区切りは写真IDの配列で指定してください）', () => forEachCase<[string, unknown]>([
       ['区切りが無い', {}],
       ['区切りが配列でない', { sceneStarts: 'aaaa' }],
       ['区切りに文字列でない値がある', { sceneStarts: ['aaaa', 1] }]
-    ])('%sときは、400（区切りは写真IDの配列で指定してください）', async (_label, body) => {
+    ], async (_label, body) => {
       const timeline = timelineWith(reviewing());
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -764,15 +765,15 @@ describe('タイムラインの下書きAPI', () => {
         error: { code: 'INVALID_REQUEST', message: '区切りは写真IDの配列で指定してください' }
       });
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
-    });
+    }));
 
-    it.each<[string, string[]]>([
+    it('区切りが控えに無い・撮影日時の無い・重なった写真を含むときは、400（区切りが無効です）', () => forEachCase<[string, string[]]>([
       ['控えに無い写真を含む', [photoId('a'), photoId('z'), photoId('d')]],
       ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
       ['同じ写真を重ねて含む', [photoId('a'), photoId('b'), photoId('b'), photoId('d')]],
       ['先頭で同じ写真を重ねて含む', [photoId('a'), photoId('a'), photoId('d')]],
       ['撮影の順に並んでいない', [photoId('a'), photoId('d'), photoId('b')]]
-    ])('区切りが%sときは、400（区切りが無効です）', async (_label, starts) => {
+    ], async (_label, starts) => {
       const timeline = timelineWith(reviewing());
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -781,19 +782,19 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '区切りが無効です' } });
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
-    });
+    }));
 
-    it.each<[string, () => HttpRequest, string]>([
+    it('ボディが JSON として読めない・null のときは、400', () => forEachCase<[string, () => HttpRequest, string]>([
       ['JSON として読めない', () => putRequest(TRIP_ID, undefined, '{'), 'リクエストボディの形式が無効です'],
       ['null の', () => putRequest(TRIP_ID, null), 'リクエストボディが指定されていません']
-    ])('ボディが%sときは、400', async (_label, request, message) => {
+    ], async (_label, request, message) => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
 
       const response = await putTimelineDraftScenesHandler(request(), mockContext);
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
-    });
+    }));
 
     it('タイムラインを読んだ後に下書きがやめられて控えが消えていたら、409（TIMELINE_STATE_CONFLICT）で何も書かない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
@@ -886,7 +887,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの区切りの保存に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {
+    it('タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの区切りの保存に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       cosmosBackend.forcedReplaceError = error;
 
@@ -894,7 +895,7 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-    });
+    }));
   });
 
   describe('文を書く受付（POST …/draft/write）', () => {
@@ -944,7 +945,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(queuedMessages()).toEqual([['timeline-processing', [{ tripId: TRIP_ID, draftId: DRAFT_ID }]]]);
     });
 
-    it.each(noDraftCases)('%sときは、404（TIMELINE_NOT_FOUND）でキューに積まない', async (_label, timelines) => {
+    it('タイムラインが無い・完成版だけで下書きが無いときは、404（TIMELINE_NOT_FOUND）でキューに積まない', () => forEachCase(noDraftCases, async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc));
 
       const response = await postWrite();
@@ -955,14 +956,14 @@ describe('タイムラインの下書きAPI', () => {
         error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインの下書きが見つかりません' }
       });
       expect(queuedMessages()).toEqual([]);
-    });
+    }));
 
-    it.each<[string, Partial<TimelineDraft>]>([
+    it('下書きが確かめ中でないときは、409（TIMELINE_STATE_CONFLICT）で下書きを変えずキューに積まない', () => forEachCase<[string, Partial<TimelineDraft>]>([
       ['区切り案を作っている', { phase: 'proposing', job: { step: 'propose', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }],
       ['区切り案に失敗した', { phase: 'proposing', job: { step: 'propose', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: NOW } }],
       ['文を書く順番を待っている', { phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: NOW } }],
       ['文を書いている', { phase: 'writing', job: { step: 'write', state: 'running', attempts: 1, lastError: null, updatedAt: NOW } }]
-    ])('下書きが%sときは、409（TIMELINE_STATE_CONFLICT）で下書きを変えずキューに積まない', async (_label, overrides) => {
+    ], async (_label, overrides) => {
       const timeline = timelineWith(reviewing(overrides));
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -975,7 +976,7 @@ describe('タイムラインの下書きAPI', () => {
       });
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
       expect(queuedMessages()).toEqual([]);
-    });
+    }));
 
     it('読んでから書くまでに他の操作がタイムラインを書いたら、409 で書いたものを変えずキューに積まない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
@@ -1017,7 +1018,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
 
-    it.each(databaseFailureCases('タイムラインの作成の受付に失敗しました'))('タイムラインを置き換えるときに%s', async (_case, error, status, code, message) => {
+    it('タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの作成の受付に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       cosmosBackend.forcedReplaceError = error;
 
@@ -1026,6 +1027,6 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
       expect(queuedMessages()).toEqual([]);
-    });
+    }));
   });
 });

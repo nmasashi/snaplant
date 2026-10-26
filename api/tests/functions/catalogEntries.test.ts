@@ -3,6 +3,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { listCatalogEntriesHandler } from '../../src/functions/catalogEntries';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // 外部依存のみモック。Cosmos DB は状態持ちの偽物
 // 偽物は GROUP BY と ORDER BY を解釈しないので、名前ごとの枚数と見出しの写真からページを組み立てる所は
@@ -58,18 +59,18 @@ describe('図鑑の項目の一覧API', () => {
     expect(response.jsonBody).toEqual({ success: true, data: { entries: [], total: 0 } });
   });
 
-  it.each([
+  it('ページの指定の境界は受け付ける', () => forEachCase([
     ['offset が 0', { offset: '0' }],
     ['limit が上限の 100', { limit: '100' }],
     ['limit が 1', { limit: '1' }]
-  ])('ページの指定の境界（%s）は受け付ける', async (_label, page) => {
+  ], async (_label, page) => {
     const response = await listCatalogEntriesHandler(createRequest({ kind: 'food', ...page }), mockContext);
 
     expect(response.status).toBe(200);
-  });
+  }));
 
   describe('受け付けないとき', () => {
-    it.each([
+    it('種類の指定が正しくなければ、400で理由を返す', () => forEachCase([
       ['種類が無い', {}, '図鑑の種類が無効です'],
       ['種類が定義表に無い（other）', { kind: 'other' }, '図鑑の種類が無効です'],
       ['種類が継承したキー（constructor）', { kind: 'constructor' }, '図鑑の種類が無効です'],
@@ -90,23 +91,20 @@ describe('図鑑の項目の一覧API', () => {
       ['limit が空', { kind: 'plant', limit: '' }, 'ページの指定が無効です'],
       // 検証の順: 種類 → ページ
       ['種類もページも不正（種類の指摘が先）', { kind: 'other', limit: '0' }, '図鑑の種類が無効です']
-    ])('%sなら、400で理由を返す', async (_label, query, message) => {
+    ], async (_label, query, message) => {
       const response = await listCatalogEntriesHandler(createRequest(query), mockContext);
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
-    });
+    }));
   });
 
-  it.each(databaseFailureCases('図鑑の一覧の取得に失敗しました'))(
-    'データベースの読み取りで%s',
-    async (_case, error, status, code, message) => {
-      cosmosBackend.forcedQueryError = error;
+  it('データベースの読み取りで、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('図鑑の一覧の取得に失敗しました'), async (_case, error, status, code, message) => {
+    cosmosBackend.forcedQueryError = error;
 
-      const response = await listCatalogEntriesHandler(createRequest({ kind: 'plant' }), mockContext);
+    const response = await listCatalogEntriesHandler(createRequest({ kind: 'plant' }), mockContext);
 
-      expect(response.status).toBe(status);
-      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-    }
-  );
+    expect(response.status).toBe(status);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+  }));
 });

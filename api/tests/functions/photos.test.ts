@@ -14,6 +14,7 @@ import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -1168,48 +1169,42 @@ describe('写真API', () => {
       ]
     ];
 
-    it.each(invalidInputCases)(
-      '入力が正しくなければ理由を返し、Blobにもデータベースにも何も保存しない（%s）',
-      async (_case, buildRequest, status, code, message) => {
-        const request = buildRequest();
+    it('入力が正しくなければ理由を返し、Blobにもデータベースにも何も保存しない', () => forEachCase(invalidInputCases, async (_case, buildRequest, status, code, message) => {
+      const request = buildRequest();
 
-        const response = await createPhotoHandler(request, mockContext);
+      const response = await createPhotoHandler(request, mockContext);
 
-        expect(response.status).toBe(status);
-        const body = response.jsonBody as any;
-        expect(body.success).toBe(false);
-        expect(body.error.code).toBe(code);
-        expect(body.error.message).toBe(message);
-        expect(blobStore).toEqual(new Map());
-        expect(cosmosBackend.documents).toEqual(new Map());
-      }
-    );
+      expect(response.status).toBe(status);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe(code);
+      expect(body.error.message).toBe(message);
+      expect(blobStore).toEqual(new Map());
+      expect(cosmosBackend.documents).toEqual(new Map());
+    }));
 
     // 緯度・経度は10進の数（符号は先頭の - だけ）しか受け付けない。どの行も JavaScript の Number() なら
     // 読める形で、値も範囲（緯度 ±90）の中に収まる（26・10・15・43.7・10・43.7）ので、範囲の検証では弾かれず、
     // 形の検証でだけ弾かれる。経度は正しい値のままにして、緯度の形だけを壊す
-    it.each([
+    it('緯度・経度が10進の数でなければ、400で位置情報の形式が無効ですを返し、何も保存しない（16進・2進・8進・空白・指数表記・先頭の+）', () => forEachCase([
       ['16進', '0x1A'],
       ['2進', '0b1010'],
       ['8進', '0o17'],
       ['前後に空白がある', ' 43.7 '],
       ['指数表記', '1e1'],
       ['先頭に+がある', '+43.7']
-    ])(
-      '緯度・経度が10進の数でなければ、400で位置情報の形式が無効ですを返し、何も保存しない（緯度が%s）',
-      async (_case, latitude) => {
-        const request = createPhotoRequest(formDataWith({ latitude, longitude: '142.365' }));
+    ], async (_case, latitude) => {
+      const request = createPhotoRequest(formDataWith({ latitude, longitude: '142.365' }));
 
-        const response = await createPhotoHandler(request, mockContext);
+      const response = await createPhotoHandler(request, mockContext);
 
-        expect(response.status).toBe(400);
-        const body = response.jsonBody as any;
-        expect(body.success).toBe(false);
-        expect(body.error.code).toBe('INVALID_REQUEST');
-        expect(body.error.message).toBe('位置情報の形式が無効です');
-        expect(blobStore).toEqual(new Map());
-        expect(cosmosBackend.documents).toEqual(new Map());
-      }
-    );
+      expect(response.status).toBe(400);
+      const body = response.jsonBody as any;
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('INVALID_REQUEST');
+      expect(body.error.message).toBe('位置情報の形式が無効です');
+      expect(blobStore).toEqual(new Map());
+      expect(cosmosBackend.documents).toEqual(new Map());
+    }));
   });
 });

@@ -7,6 +7,7 @@ import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
@@ -196,11 +197,11 @@ describe('写真の解析のやり直しAPI', () => {
     expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
   });
 
-  it.each([
+  it('手がかりを送らない・空白だけのときは、前回の手がかりを消して、手がかり無しで頼む', () => forEachCase([
     ['手がかりを送らなければ', {}],
     ['手がかりが空白だけなら', { hint: '   ' }],
     ['手がかりがnullなら', { hint: null }]
-  ])('%s、前回の手がかりを消して、手がかり無しで頼む', async (_label, extra) => {
+  ], async (_label, extra) => {
     cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ hint: '前回の手がかり' }));
 
     const response = await processPhotoRequestHandler(
@@ -210,7 +211,7 @@ describe('写真の解析のやり直しAPI', () => {
 
     expect(response.status).toBe(202);
     expect(storedPhoto().hint).toBeNull();
-  });
+  }));
 
   it('手がかりは500文字までなら受け付ける', async () => {
     cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
@@ -297,7 +298,7 @@ describe('写真の解析のやり直しAPI', () => {
       ['処理の種類も手がかりも不正（処理の種類の指摘が先）', PHOTO_ID, { step: 'name', hint: 123 }, 'やり直す処理の種類が無効です']
     ];
 
-    it.each(invalidCases)('%sなら、400で理由を返し、写真も変えずキューにも積まない', async (_case, photoId, body, message) => {
+    it('入力が正しくなければ、400で理由を返し、写真も変えずキューにも積まない', () => forEachCase(invalidCases, async (_case, photoId, body, message) => {
       cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
 
       const response = await processPhotoRequestHandler(createRequest(photoId, body), mockContext);
@@ -306,12 +307,12 @@ describe('写真の解析のやり直しAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
       expect(storedPhoto()).toEqual(classifiedPhoto());
       expect(queuedMessages()).toEqual([]);
-    });
+    }));
 
-    it.each([
+    it('写真のカテゴリが図鑑の種類でなければ（other・null）、識別のやり直しは400で理由を返し、写真も変えずキューにも積まない', () => forEachCase([
       ['どの種類にも当てはまらない（other）', 'other'],
       ['まだ分類されていない（null）', null]
-    ])('写真のカテゴリが%sなら、識別のやり直しは400で理由を返し、写真も変えずキューにも積まない', async (_case, category) => {
+    ], async (_case, category) => {
       // 識別は図鑑の種類（植物・食べ物・風景）の写真だけ（05 §5.7 の 8）。分類のやり直しなら受け付ける
       cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ category }));
 
@@ -324,7 +325,7 @@ describe('写真の解析のやり直しAPI', () => {
       });
       expect(storedPhoto()).toEqual(classifiedPhoto({ category }));
       expect(queuedMessages()).toEqual([]);
-    });
+    }));
 
     it('識別のやり直しでも、写真が無ければ（カテゴリを見る前に）404で理由を返す', async () => {
       const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify' }), mockContext);
@@ -364,35 +365,29 @@ describe('写真の解析のやり直しAPI', () => {
       expect(queuedMessages()).toEqual([]);
     });
 
-    it.each(databaseFailureCases('解析のやり直しの受付に失敗しました'))(
-      'データベースの書き込みで%s',
-      async (_case, error, status, code, message) => {
-        cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
-        cosmosBackend.forcedPatchError = error;
+    it('データベースの書き込みで、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('解析のやり直しの受付に失敗しました'), async (_case, error, status, code, message) => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+      cosmosBackend.forcedPatchError = error;
 
-        const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify' }), mockContext);
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify' }), mockContext);
 
-        expect(response.status).toBe(status);
-        expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-        expect(storedPhoto()).toEqual(classifiedPhoto());
-        expect(queuedMessages()).toEqual([]);
-      }
-    );
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+      expect(storedPhoto()).toEqual(classifiedPhoto());
+      expect(queuedMessages()).toEqual([]);
+    }));
 
-    it.each(databaseFailureCases('解析のやり直しの受付に失敗しました'))(
-      '識別のやり直しで、カテゴリを見るための写真の読み取りで%s',
-      async (_case, error, status, code, message) => {
-        // 識別だけが書く前に写真を読む。読めないのを「写真が無い」（404）と取り違えない
-        cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
-        cosmosBackend.forcedReadError = error;
+    it('識別のやり直しで、カテゴリを見るための写真の読み取りで、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('解析のやり直しの受付に失敗しました'), async (_case, error, status, code, message) => {
+      // 識別だけが書く前に写真を読む。読めないのを「写真が無い」（404）と取り違えない
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+      cosmosBackend.forcedReadError = error;
 
-        const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify' }), mockContext);
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify' }), mockContext);
 
-        expect(response.status).toBe(status);
-        expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-        expect(storedPhoto()).toEqual(classifiedPhoto());
-        expect(queuedMessages()).toEqual([]);
-      }
-    );
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+      expect(storedPhoto()).toEqual(classifiedPhoto());
+      expect(queuedMessages()).toEqual([]);
+    }));
   });
 });
