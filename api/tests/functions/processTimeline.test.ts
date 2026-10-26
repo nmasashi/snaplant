@@ -633,10 +633,10 @@ describe('タイムラインのワーカー', () => {
         { date: '2026-10-06', title: '小樽', summary: '小樽運河を歩いた。' }
       ],
       scenes: [
-        { start: 0, label: '朝ごはん', note: '空港の海鮮丼' },
-        { start: 2, label: '昼ごはん', note: '札幌のラーメン' },
-        { start: 4, label: '運河', note: '小樽運河' },
-        { start: 5, label: 'おやつ', note: '小樽で一休み' }
+        { start: 0, end: 1, label: '朝ごはん', note: '空港の海鮮丼' },
+        { start: 2, end: 3, label: '昼ごはん', note: '札幌のラーメン' },
+        { start: 4, end: 4, label: '運河', note: '小樽運河' },
+        { start: 5, end: 5, label: 'おやつ', note: '小樽で一休み' }
       ]
     };
     const aiScene = (label: string, note: string, photoIds: string[]) => ({
@@ -710,7 +710,21 @@ describe('タイムラインのワーカー', () => {
       );
     });
 
-    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい場面（最初の写真の番号）と日を渡す', async () => {
+    it('場面の区切りと書いてほしい場面は、最初と最後の写真の番号の範囲で渡す（AI が場面の写真を数え違えないように）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
+
+      await runWorker();
+
+      const otherLines = nonPhotoLines(sentPrompt());
+      for (const range of ['0番〜1番', '2番〜3番', '4番〜4番', '5番〜5番']) {
+        // 区切りの並びと、書いてほしい場面の並びの少なくとも2か所に出る（指示の例などで増えるのは構わない。日の区切りの行は 0番〜3番・4番〜5番 で、どの場面の範囲とも違う）。
+        // 前に数字が続くもの（10番〜11番 の 0番〜1番 など）は数えない
+        const pattern = new RegExp(`(?<![0-9])${range}`);
+        expect(otherLines.filter((line) => pattern.test(line)).length).toBeGreaterThanOrEqual(2);
+      }
+    });
+
+    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい日を渡す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
 
       await runWorker();
@@ -722,9 +736,7 @@ describe('タイムラインのワーカー', () => {
         expect(promptLineOf(prompt, 0)).toContain(element);
       }
       const otherLines = nonPhotoLines(prompt);
-      for (const start of ['0番', '2番', '4番', '5番']) {
-        expect(otherLines.some((line) => line.includes(start))).toBe(true);
-      }
+      // 書いてほしい場面は、上の範囲のテストが見る
       for (const date of ['2026-10-05', '2026-10-06']) {
         expect(otherLines.some((line) => line.includes(date))).toBe(true);
       }
@@ -761,10 +773,11 @@ describe('タイムラインのワーカー', () => {
               type: 'object',
               properties: {
                 start: expect.objectContaining({ type: 'integer' }),
+                end: expect.objectContaining({ type: 'integer' }),
                 label: expect.objectContaining({ type: 'string' }),
                 note: expect.objectContaining({ type: 'string' })
               },
-              required: ['start', 'label', 'note'],
+              required: ['start', 'end', 'label', 'note'],
               additionalProperties: false
             })
           })
@@ -778,8 +791,12 @@ describe('タイムラインのワーカー', () => {
     it.each<[string, unknown]>([
       ['頼んだ日が無い', { ...allTexts, days: allTexts.days.slice(1) }],
       ['同じ日が2回ある', { ...allTexts, days: [allTexts.days[0], allTexts.days[0]] }],
-      ['頼んでいない場面がある', { ...allTexts, scenes: [{ start: 1, label: 'x', note: 'x' }, ...allTexts.scenes.slice(1)] }],
+      ['頼んでいない場面がある', { ...allTexts, scenes: [{ start: 1, end: 1, label: 'x', note: 'x' }, ...allTexts.scenes.slice(1)] }],
       ['頼んだ場面が無い', { ...allTexts, scenes: allTexts.scenes.slice(1) }],
+      // 番号と文の組を取り違えた応答（最初の場面に、次の場面の範囲と文を返した）。最初の写真の番号だけでは見分けられない
+      ['場面の最後の写真の番号が、その場面と合わない', { ...allTexts, scenes: [{ ...allTexts.scenes[1], start: 0 }, ...allTexts.scenes.slice(1)] }],
+      // 逆向きの取り違え（1枚の場面 5番〜5番 に、前の場面 4番〜4番 の範囲と文を返した）。最後の番号が小さすぎる
+      ['場面の最後の写真の番号が、その場面より前で終わっている', { ...allTexts, scenes: [...allTexts.scenes.slice(0, 3), { ...allTexts.scenes[2], start: 5 }] }],
       ['空白だけの見出しがある', { ...allTexts, scenes: [{ ...allTexts.scenes[0], label: '  ' }, ...allTexts.scenes.slice(1)] }],
       ['空のまとめがある', { ...allTexts, days: [{ ...allTexts.days[0], summary: '' }, allTexts.days[1]] }],
       ['日が配列でない', { ...allTexts, days: null }]
@@ -798,7 +815,7 @@ describe('タイムラインのワーカー', () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       aiReturns({
         days: [{ date: '2026-10-05', title: ` ${'題'.repeat(41)} `, summary: 'ま'.repeat(401) }, allTexts.days[1]],
-        scenes: [{ start: 0, label: `　${'見'.repeat(31)}`, note: '一'.repeat(201) }, ...allTexts.scenes.slice(1)]
+        scenes: [{ start: 0, end: 1, label: `　${'見'.repeat(31)}`, note: '一'.repeat(201) }, ...allTexts.scenes.slice(1)]
       });
 
       await runWorker();
@@ -811,7 +828,7 @@ describe('タイムラインのワーカー', () => {
     it('上限で切り詰めるときは、絵文字などの途中（サロゲートペアの片割れ）で切らない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       // 29 文字の後に絵文字（UTF-16 で 2 つ分）。30 で切ると絵文字の前半だけが残る
-      aiReturns({ ...allTexts, scenes: [{ start: 0, label: `${'見'.repeat(29)}🍣`, note: '一言' }, ...allTexts.scenes.slice(1)] });
+      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label: `${'見'.repeat(29)}🍣`, note: '一言' }, ...allTexts.scenes.slice(1)] });
 
       await runWorker();
 
@@ -822,7 +839,7 @@ describe('タイムラインのワーカー', () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       // 結合文字を 31 個重ねた1文字（UTF-16 で 32 個分）。見出しの上限 30 に1文字も収まらない
       const label = `a${String.fromCharCode(0x301).repeat(31)}`;
-      aiReturns({ ...allTexts, scenes: [{ start: 0, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
+      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
 
       await expect(runWorker()).rejects.toThrow();
 
@@ -839,7 +856,7 @@ describe('タイムラインのワーカー', () => {
       ['空白の後ろ', `${'見'.repeat(29)} ${'見'.repeat(5)}`, '見'.repeat(29)]
     ])('上限で切り詰めるときは、%sの途中で切らず、切った後ろの空白も除く', async (_label, label, expected) => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
-      aiReturns({ ...allTexts, scenes: [{ start: 0, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
+      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
 
       await runWorker();
 
@@ -847,7 +864,7 @@ describe('タイムラインのワーカー', () => {
     });
 
     describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
-      const scene = (start: number, label: string) => ({ start, label, note: `${label}の一言` });
+      const scene = (start: number, end: number, label: string) => ({ start, end, label, note: `${label}の一言` });
       const day = (date: string, title: string) => ({ date, title, summary: `${title}のまとめ` });
       /** 区切り（AI の案も同じ）の文を書く待ちの下書きを置く */
       const useWritingDraft = (starts: string[]) =>
@@ -860,8 +877,8 @@ describe('タイムラインのワーカー', () => {
         const starts = [day1[0].id, day1[100].id, day2[0].id, day2[50].id];
         useWritingDraft(starts);
         replies(
-          { days: [day('2026-10-05', '1日目')], scenes: [scene(0, '朝'), scene(100, '昼')] },
-          { days: [day('2026-10-06', '2日目')], scenes: [scene(0, '朝2'), scene(50, '昼2')] }
+          { days: [day('2026-10-05', '1日目')], scenes: [scene(0, 99, '朝'), scene(100, 249, '昼')] },
+          { days: [day('2026-10-06', '2日目')], scenes: [scene(0, 49, '朝2'), scene(50, 199, '昼2')] }
         );
 
         await runWorker();
@@ -888,7 +905,7 @@ describe('タイムラインのワーカー', () => {
         const day2 = photosOfDay('2026-10-06', 2, 150);
         useSnapshot([...day1, ...day2]);
         useWritingDraft([day1[0].id, day2[0].id]);
-        aiReturns({ days: [day('2026-10-05', '1日目'), day('2026-10-06', '2日目')], scenes: [scene(0, '朝'), scene(250, '朝2')] });
+        aiReturns({ days: [day('2026-10-05', '1日目'), day('2026-10-06', '2日目')], scenes: [scene(0, 249, '朝'), scene(250, 399, '朝2')] });
 
         await runWorker();
 
@@ -900,7 +917,7 @@ describe('タイムラインのワーカー', () => {
         useSnapshot(day1);
         // 区切り案で 400 枚目は切れ目になっているが、利用者が消して 300 枚目に区切りを入れた
         useWritingDraft([day1[0].id, day1[300].id]);
-        replies({ days: [day('2026-10-05', '長い1日')], scenes: [scene(0, '午前')] }, { days: [], scenes: [scene(0, '午後')] });
+        replies({ days: [day('2026-10-05', '長い1日')], scenes: [scene(0, 299, '午前')] }, { days: [], scenes: [scene(0, 149, '午後')] });
 
         await runWorker();
 
@@ -919,7 +936,7 @@ describe('タイムラインのワーカー', () => {
         useSnapshot([...day1, ...day2]);
         useWritingDraft([day1[0].id, day2[0].id]);
         // 2回目は頼んだ場面が無い
-        replies({ days: [day('2026-10-05', '1日目')], scenes: [scene(0, '朝')] }, { days: [day('2026-10-06', '2日目')], scenes: [] });
+        replies({ days: [day('2026-10-05', '1日目')], scenes: [scene(0, 249, '朝')] }, { days: [day('2026-10-06', '2日目')], scenes: [] });
 
         await expect(runWorker()).rejects.toThrow();
 
@@ -968,9 +985,9 @@ describe('タイムラインのワーカー', () => {
       const changedTexts = {
         days: [{ date: '2026-10-06', title: '小樽散歩', summary: '運河を歩いて一休み。' }],
         scenes: [
-          { start: 2, label: '昼ごはん', note: '札幌のラーメン' },
-          { start: 4, label: '運河', note: '小樽運河' },
-          { start: 5, label: 'おやつ', note: '小樽で一休み' }
+          { start: 2, end: 3, label: '昼ごはん', note: '札幌のラーメン' },
+          { start: 4, end: 4, label: '運河', note: '小樽運河' },
+          { start: 5, end: 5, label: 'おやつ', note: '小樽で一休み' }
         ]
       };
 
@@ -1004,7 +1021,8 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
-        // どの場面と日を頼んだかは、頼んだ数ちょうどの応答（changedTexts）で成功する上のテストが固定している（多く頼めば検証で失敗する）
+        // 何を頼むかの選び方は、頼んだ数ちょうどの応答（changedTexts）で成功する上のテストが固定している（多く頼めば検証で失敗する）。
+        // 偽の AI はプロンプトを読まないので、プロンプトに書いた並びはここで見る
         const otherLines = nonPhotoLines(sentPrompt());
         for (const text of ['空港の朝', '北海道1日目', '札幌ラーメン', '運河の日']) {
           expect(otherLines.some((line) => line.includes(text))).toBe(true);
@@ -1013,8 +1031,16 @@ describe('タイムラインのワーカー', () => {
         expect(otherLines.some((line) => line.includes('朝ごはんの一言'))).toBe(true);
         expect(otherLines.some((line) => line.includes('昼ごはんの一言'))).toBe(false);
         expect(otherLines.some((line) => line.includes('小樽のまとめ'))).toBe(false);
-        // 今の区切り（全部の場面）と日の区切り（何番から何日目か）も渡す
-        expect(otherLines.some((line) => ['0番', '2番', '4番', '5番'].every((start) => line.includes(start)))).toBe(true);
+        // 前の文の場面も、今の区切りと同じく最初と最後の写真の番号の範囲で指す（c の場面は今は c・d の2枚）
+        expect(otherLines.find((line) => line.includes('空港の朝'))).toContain('0番〜1番');
+        expect(otherLines.find((line) => line.includes('札幌ラーメン'))).toContain('2番〜3番');
+        // 今の区切りは、書かせない a の場面も含めて全部の場面を範囲で渡す
+        expect(otherLines.some((line) => ['0番〜1番', '2番〜3番', '4番〜4番', '5番〜5番'].every((range) => line.includes(range)))).toBe(true);
+        // 書いてほしい場面の並びは、変わった場面だけ（引き継ぐ a の 0番〜1番 は無い）
+        expect(
+          otherLines.some((line) => ['2番〜3番', '4番〜4番', '5番〜5番'].every((range) => line.includes(range)) && !line.includes('0番〜1番'))
+        ).toBe(true);
+        // 日の区切り（何番から何日目か）も渡す
         expect(otherLines.some((line) => ['2日目', '4番', '5番'].every((text) => line.includes(text)))).toBe(true);
       });
 
@@ -1037,7 +1063,7 @@ describe('タイムラインのワーカー', () => {
           }
         });
         cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current, draft: writingDraft({ reason: 'rebuild', proposedStarts: starts, sceneStarts: starts }) }));
-        replies({ days: [], scenes: [{ start: 0, label: '新しい2日目', note: '一言' }] });
+        replies({ days: [], scenes: [{ start: 0, end: 199, label: '新しい2日目', note: '一言' }] });
 
         await runWorker();
 
@@ -1063,7 +1089,7 @@ describe('タイムラインのワーカー', () => {
           dayTexts: { '2026-10-05': aiDay('長い日のタイトル', '長い日のまとめ', starts) }
         });
         cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current, draft: writingDraft({ reason: 'rebuild', proposedStarts: starts, sceneStarts: starts }) }));
-        replies({ days: [], scenes: [{ start: 0, label: '新しい午後', note: '一言' }] });
+        replies({ days: [], scenes: [{ start: 0, end: 149, label: '新しい午後', note: '一言' }] });
 
         await runWorker();
 

@@ -307,7 +307,8 @@ function contextOf(
       const sceneText = current.sceneTexts[scene.start];
       if (sceneText) {
         const all = inheritsScene(current, scene);
-        line(`${indexOf(scene.start)}番の場面（${all ? '引き継ぐ' : '利用者が書いた'}）`, [
+        const range = `${indexOf(scene.start)}番〜${indexOf(scene.photoIds[scene.photoIds.length - 1])}番`;
+        line(`${range}の場面（${all ? '引き継ぐ' : '利用者が書いた'}）`, [
           ['見出し', sceneText.label, all || sceneText.labelSource === 'user'],
           ['一言', sceneText.note, all || sceneText.noteSource === 'user'],
         ]);

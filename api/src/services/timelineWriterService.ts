@@ -8,7 +8,7 @@ import { GRAPHEMES } from '../utils/graphemes';
 /**
  * 文の応答の形（Structured Outputs。docs/06_processing_design.md §8.3）
  *
- * strict モードでは配列の長さや文字数を強制できないので、頼んだ日と場面がちょうど1回ずつあることと、文の長さはコードで検査する
+ * strict モードでは配列の長さや文字数を強制できないので、頼んだ日と場面がちょうど1回ずつあること・場面の最後の写真の番号と、文の長さはコードで検査する
  */
 const TIMELINE_TEXTS_SCHEMA = {
   type: 'object',
@@ -34,10 +34,11 @@ const TIMELINE_TEXTS_SCHEMA = {
         type: 'object',
         properties: {
           start: { type: 'integer', description: '場面の最初の写真の番号（書いてほしい場面のどれか）' },
+          end: { type: 'integer', description: '場面の最後の写真の番号' },
           label: { type: 'string', description: '場面の短い見出し' },
           note: { type: 'string', description: '写っているものについての一言' },
         },
-        required: ['start', 'label', 'note'],
+        required: ['start', 'end', 'label', 'note'],
         additionalProperties: false,
       },
     },
@@ -50,7 +51,7 @@ const TIMELINE_TEXTS_SCHEMA = {
 export interface TimelineWriteRequest {
   /** 撮影日時のある写真（撮影の順）。番号は渡した順に 0 から振る */
   photos: TimelinePromptPhoto[];
-  /** 区切り（場面の最初の写真の番号。この呼び出しの写真のぶん全部） */
+  /** 区切り（場面の最初の写真の番号。この呼び出しの写真のぶん全部を昇順に。写真は場面ごとに並び、0 番は最初の場面の始まり） */
   sceneStarts: number[];
   /** 文を書いてほしい場面（最初の写真の番号） */
   scenesToWrite: number[];
@@ -84,10 +85,12 @@ export class TimelineWriterService {
   /**
    * 頼んだ場面と日の文を書かせる
    *
-   * @throws UpstreamError（ai） AI の失敗と、応答の検証違反（頼んだ日・場面がちょうど1回ずつ無い、空の文）
+   * @throws UpstreamError（ai） AI の失敗と、応答の検証違反（頼んだ日・場面がちょうど1回ずつ無い、場面の最後の写真の番号が合わない、空の文）
    */
   async write(request: TimelineWriteRequest): Promise<TimelineWrittenTexts> {
     const lines = request.photos.map(({ photo, dayNumber }, index) => photoLineOf(photo, dayNumber, index));
+    const endOf = sceneEndsOf(request.sceneStarts, request.photos.length);
+    const rangeOf = (start: number) => `${start}番〜${endOf.get(start)}番`;
     const prompt = `
 旅行の写真を撮影の順に並べ、場面に区切りました。下に挙げる場面と日に、文を書いてください。
 
@@ -99,9 +102,9 @@ export class TimelineWriterService {
 日の区切り:
 ${dayRangesOf(request.photos)}
 
-場面の区切り（場面の最初の写真の番号）: ${request.sceneStarts.map((start) => `${start}番`).join('、')}
+場面の区切り（場面の最初と最後の写真の番号）: ${request.sceneStarts.map(rangeOf).join('、')}
 
-書いてほしい場面（最初の写真の番号）: ${listOrNone(request.scenesToWrite.map((start) => `${start}番`), 'scenes')}
+書いてほしい場面（最初と最後の写真の番号）: ${listOrNone(request.scenesToWrite.map(rangeOf), 'scenes')}
 書いてほしい日: ${listOrNone(request.daysToWrite.map(({ date, dayNumber }) => `${date}（${dayNumber}日目）`), 'days')}
 ${request.context.length > 0 ? `\n前に書いた文（文脈として読み、書き換えないでください）:\n${request.context.join('\n')}\n` : ''}
 写真（[番号] 何日目 撮影時刻 カテゴリ 名前 地名「コメント」）:
@@ -129,16 +132,31 @@ ${lines.join('\n')}
           result.scenes,
           request.scenesToWrite,
           (item) => item.start,
-          (item) => ({
-            label: textOf(item.label, TIMELINE_VALIDATION.MAX_LENGTH.LABEL),
-            note: textOf(item.note, TIMELINE_VALIDATION.MAX_LENGTH.NOTE),
-          })
+          (item) => {
+            // 最初の番号だけでは、番号と文の組を取り違えた応答（次の場面の文を返した）を見分けられない
+            if (item.end !== endOf.get(item.start)) {
+              throw new Error(`場面の最後の写真の番号が合いません: ${item.start}番〜${String(item.end)}番`);
+            }
+            return {
+              label: textOf(item.label, TIMELINE_VALIDATION.MAX_LENGTH.LABEL),
+              note: textOf(item.note, TIMELINE_VALIDATION.MAX_LENGTH.NOTE),
+            };
+          }
         ),
       };
     } catch (error: any) {
       throw new UpstreamError(`タイムラインの文に失敗しました: ${error.message}`, 'ai', error);
     }
   }
+}
+
+/**
+ * 場面の最初の写真の番号から、最後の写真の番号（次の場面の前、最後の場面はこの呼び出しの最後の写真）
+ *
+ * 区切りが昇順で、この呼び出しの写真を全部の場面で覆っていること（writeDraftTexts が場面ごとに写真を並べる）を前提にする
+ */
+function sceneEndsOf(sceneStarts: number[], photoCount: number): Map<number, number> {
+  return new Map(sceneStarts.map((start, index) => [start, (sceneStarts[index + 1] ?? photoCount) - 1]));
 }
 
 /**
