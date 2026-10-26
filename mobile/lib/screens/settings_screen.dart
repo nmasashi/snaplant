@@ -244,12 +244,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           fontSize: isLargeScreen ? 26 : 22,
         ),
       ),
-      leading: IconButton(
-        icon: Icon(
-          Icons.arrow_back,
-          size: isLargeScreen ? 28 : 24,
+      // 大きな画面ではアイコンだけ大きくする。説明（「戻る」）と戻る動きは自動の戻るボタンと同じ
+      leading: BackButton(
+        style: ButtonStyle(
+          iconSize: WidgetStatePropertyAll(isLargeScreen ? 28 : 24),
         ),
-        onPressed: () => Navigator.pop(context),
       ),
     );
   }

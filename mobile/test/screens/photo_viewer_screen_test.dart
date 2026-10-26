@@ -657,7 +657,7 @@ void main() {
         number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-07T18:45:00'));
     backend.trips.single['photoCount'] = 3;
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
@@ -691,7 +691,7 @@ void main() {
         .add(photoJson(number: 3, takenAt: '2026-09-03T18:45:00'));
     backend.unassignedPhotoCount = 3;
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('3枚'), findsOneWidget);

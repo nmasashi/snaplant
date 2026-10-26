@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:http/http.dart' as http;
 import 'app_root.dart';
 import 'theme/app_theme.dart';
@@ -42,6 +43,14 @@ class SnapPlantApp extends StatelessWidget {
 
       // テーマ設定
       theme: AppTheme.lightTheme,
+
+      // 対応する言語を日本語だけにし、端末の言語によらず日本語で動かす。Material の部品の文言（戻るボタンの説明など）が日本語になり、
+      // 文字を描く部品に日本語が渡って、端末では漢字・かなを日本語の字形で描く（英語の設定の端末では中国語の字形になりうる）。
+      // Web 版の字形は、Flutter がブラウザの言語の設定で選ぶので、これでは変わらない（docs/03_screen_design.md §9.1）。
+      // 対応する言語を足すときは、端末の言語に従わせるのでなければ locale: で日本語を指定する
+      // （対応する言語が1つだけの今は、端末の言語によらずそれに決まる）
+      supportedLocales: const [Locale('ja', 'JP')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
 
       // 1440×2960画面向けのレスポンシブ対応
       builder: (context, child) {

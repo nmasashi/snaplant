@@ -2365,7 +2365,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     await resetSettingsAndGoBack(tester);
     expect(find.text('API設定が完了していません'), findsOneWidget);
@@ -3147,7 +3147,7 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(preparingBanner(_manyPhotos), findsOneWidget);
 
@@ -3157,7 +3157,7 @@ void main() {
     expect(find.byType(TripDetailScreen), findsOneWidget);
     expect(find.textContaining('写真を準備中'), findsNothing);
     // 否定が通るのは準備が終わったからではない（一覧に戻ると、準備はまだ続いている）
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(preparingBanner(_manyPhotos), findsOneWidget);
   });
@@ -3177,7 +3177,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploaded(tester, backend, kyotoTripId);
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('送信中 0/1'), findsOneWidget);
 

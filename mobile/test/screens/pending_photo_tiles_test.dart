@@ -344,7 +344,7 @@ void main() {
     await letFramesRun(tester);
     expect(deviceImageTiles, findsOneWidget);
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     await tester.tap(find.text('京都'));
     await letFramesRun(tester);
@@ -352,7 +352,7 @@ void main() {
     expect(photoThumbnail('2026年10月6日 09:00'), findsOneWidget);
     expect(deviceImageTiles, findsNothing);
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -390,7 +390,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     await tester.tap(find.text('旅行に属さない写真'));
     await letFramesRun(tester);
@@ -596,7 +596,7 @@ void main() {
     await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
     await letFramesRun(tester);
     expect(markInGrid, findsOneWidget);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
 
     await tester.tap(find.descendant(
@@ -608,7 +608,7 @@ void main() {
     expect(photoThumbnail('2026年10月5日 12:30'), findsOneWidget);
     expect(markInGrid, findsNothing);
     // 後始末: 旅行のタブの一覧に戻り、失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     await tester.tap(find.text('旅行'));
     await letFramesRun(tester);

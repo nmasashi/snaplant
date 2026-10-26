@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,7 +8,7 @@ import 'package:snaplant_mobile/main.dart';
 import 'helpers/app_test_helpers.dart';
 
 // アプリ全体（SnapPlantApp）を開き、利用者から見た設定の扱い（読み込み・未設定なら設定画面へ・
-// 設定画面から戻ったら読み直す・読めなかったときの再試行）を確かめる。
+// 設定画面から戻ったら読み直す・読めなかったときの再試行）と、アプリ全体の言語の設定（03 §3）を確かめる。
 // 設定の保存先（端末のセキュアストレージと SharedPreferences）は、アプリから見て
 // プロセス外の依存なので、パッケージ同梱のテスト用の仕組みで差し替える。
 // サーバ（Azure Functions）は、API キーがある状態で図鑑（起動時のタブ）を読み込むテストでは偽のサーバ（helpers の catalogServer）に差し替える。
@@ -81,7 +82,7 @@ void main() {
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
@@ -99,7 +100,7 @@ void main() {
     // 起動時に設定画面へ自動で移っている
     expect(find.text('設定'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定が完了していません'), findsOneWidget);
@@ -154,7 +155,7 @@ void main() {
     expect(find.text('設定'), findsOneWidget);
     secureStorage.failReads = true;
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
@@ -167,7 +168,7 @@ void main() {
     await clearSavedEndpoint(tester);
     await openApp(tester);
     // キー未設定なので起動時に設定画面へ自動で移る。キーを入れずに戻ると、設定を促す表示になる
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('API設定が完了していません'), findsOneWidget);
     await tester.tap(find.text('設定を開く'));
@@ -175,7 +176,7 @@ void main() {
     expect(find.text('設定'), findsOneWidget);
     secureStorage.failReads = true;
 
-    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('API設定の読み込みに失敗しました'), findsOneWidget);
@@ -303,5 +304,18 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
+  });
+
+  testWidgets('端末が英語の設定でも、アプリは日本語で動く（文字は日本語として描き、戻るボタンの説明は「戻る」）', (tester) async {
+    await _givenNoSettingsSaved(tester);
+    tester.platformDispatcher.localesTestValue = const [Locale('en', 'US')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+
+    // 起動時に設定画面が自動で開く
+    await openApp(tester);
+
+    // 字形はテスト環境のフォントでは見分けられないので、文字を描く部品に渡る言語を見る（端末では、これで日本語の字形を選ぶ）
+    expect(tester.renderObject<RenderParagraph>(find.text('設定')).locale?.languageCode, 'ja');
+    expect(find.byTooltip('戻る'), findsOneWidget);
   });
 }

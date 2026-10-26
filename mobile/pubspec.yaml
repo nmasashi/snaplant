@@ -14,6 +14,9 @@ dependencies:
   # 使わないパッケージは宣言しない
   flutter:
     sdk: flutter
+  # Material の部品の文言を日本語にし、日本語の字形で描く（main.dart の locale）
+  flutter_localizations:
+    sdk: flutter
 
   # UI & Material Design
   cupertino_icons: ^1.0.6

@@ -339,7 +339,7 @@ void main() {
       await _openEntry(tester, backend);
       expect(find.text('3枚'), findsOneWidget);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0]);
@@ -351,7 +351,7 @@ void main() {
       expect(find.text('3枚'), findsOneWidget);
       backend.catalogEntriesByKind['plant'] = [listRow()];
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
@@ -363,7 +363,7 @@ void main() {
       await _openEntry(tester, backend);
       backend.catalogEntriesByKind['plant'] = [listRow()];
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
@@ -375,7 +375,7 @@ void main() {
       final backend = backendWithRow(listRow(cover: otherThumbnail));
       await _openEntry(tester, backend);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
@@ -387,7 +387,7 @@ void main() {
       await _openEntry(tester, backend);
       expect(find.text('エラーが発生しました'), findsOneWidget);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0]);
@@ -401,11 +401,11 @@ void main() {
       await tester.tap(photoThumbnail(_label('10:00')));
       await letFramesRun(tester);
       backend.failNext(TripRoute.catalogEntry);
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       expect(find.text('エラーが発生しました'), findsOneWidget);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
@@ -418,12 +418,12 @@ void main() {
       await _openEntry(tester, backend);
       await tester.tap(photoThumbnail(_label('10:00')));
       await letFramesRun(tester);
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       // ビューアから戻った後の読み直しが届いた（見出しが一覧に届いたかは、最後の読み直さないことで確かめる）
       expect(backend.catalogEntryQueriesReceived, hasLength(2));
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0]);
@@ -444,7 +444,7 @@ void main() {
       expect(find.text('エラーが発生しました'), findsNothing);
       expect(find.text('3枚'), findsOneWidget);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0]);
@@ -458,11 +458,11 @@ void main() {
       await tester.tap(photoThumbnail(_label('10:00')));
       await letFramesRun(tester);
       final reply = backend.holdNextReply(TripRoute.catalogEntry);
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
       expect(find.text('項目を読み込み中...'), findsOneWidget);
 
-      await tester.pageBack();
+      await tapBack(tester);
       await letFramesRun(tester);
 
       expect(backend.catalogOffsetsReceived, [0, 0]);
@@ -499,7 +499,7 @@ void main() {
     backend.photosByTripId[kyotoTripId]!
         .add(_sakura(9, '13:00', tripId: kyotoTripId));
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(photoThumbnail(_label('13:00')), findsOneWidget);
@@ -545,7 +545,7 @@ void main() {
         tripId: kyotoTripId, confidence: 99, description: '新しい説明'));
     await tester.tap(photoThumbnail(_label('10:00')));
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('新しい説明'), findsOneWidget);
 

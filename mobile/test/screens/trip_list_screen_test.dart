@@ -263,7 +263,7 @@ void main() {
     // 開いている間に、旅行に属さない写真が旅行へ移るなどして枚数が変わった
     backend.unassignedPhotoCount = 3;
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.text('3枚'), findsOneWidget);
@@ -538,7 +538,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploaded(tester, backend, hokkaidoTripId);
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('送信中 0/1'), findsOneWidget);
 
@@ -565,7 +565,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('送信中 0/1'), findsOneWidget);
     backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
@@ -600,7 +600,7 @@ void main() {
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await letFramesRun(tester);
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
     expect(find.text('送信中 0/1'), findsOneWidget);
     backend.failNext(TripRoute.list);
@@ -630,7 +630,7 @@ void main() {
     await waitUntilUploadsReceived(tester, backend, 2);
     await letFramesRun(tester);
 
-    await tester.pageBack();
+    await tapBack(tester);
     await letFramesRun(tester);
 
     expect(find.byType(TripDetailScreen), findsNothing);
