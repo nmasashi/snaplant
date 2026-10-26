@@ -224,7 +224,7 @@ void main() {
     test('通信の例外（ClientException）はステータス 0 の例外にし、例外の文言にも body にも関数キー付きの宛先の URL を入れない', () async {
       final service = ApiService(
         baseUrl: 'https://api.example.test',
-        functionKey: 'secret-function-key',
+        functionKey: 'secret+key==',
         client: MockClient((request) async {
           throw http.ClientException('Connection closed before full header was received', request.url);
         }),
@@ -235,13 +235,13 @@ void main() {
       expect(error.statusCode, 0);
       expect(error.message, 'ネットワークに接続できません');
       expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
-      expect('${error.message} ${error.body}', isNot(contains('secret-function-key')));
+      expect('${error.message} ${error.body}', isNot(contains('secret')));
     });
 
     test('分類できない例外の文言に宛先の URL が入っていても、例外の文言にも body にも関数キーを入れない', () async {
       final service = ApiService(
         baseUrl: 'https://api.example.test',
-        functionKey: 'secret-function-key',
+        functionKey: 'secret+key==',
         client: MockClient((request) async {
           throw StateError('予期しない失敗: ${request.url}');
         }),
@@ -250,7 +250,7 @@ void main() {
       final error = await _captureApiException(() => service.getTrips());
 
       expect(error.statusCode, 0);
-      expect('${error.message} ${error.body}', isNot(contains('secret-function-key')));
+      expect('${error.message} ${error.body}', isNot(contains('secret')));
     });
   });
 }
