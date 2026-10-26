@@ -74,7 +74,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 ### 3.1 `utils/errors.ts` — `isConnectivityError()`
 
-- `ENOTFOUND` / `ECONNREFUSED` をトップレベルの `code` に持つエラーで真（`it.each`）
+- `ENOTFOUND` / `ECONNREFUSED` をトップレベルの `code` に持つエラーで真（表で回す）
 - 2段奥の `cause` に持つエラーでも真
 - `code` が無いエラー、`404` のエラーで偽
 
@@ -138,7 +138,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   `deletePhotos` が `TRUE`・空文字で 400、無い旅行に `deletePhotos` を付け忘れると 400（検証が 404 より先）。同じ id のドキュメントが写真だけなら 404。
   画像の削除に失敗しても 200 で写真と旅行の文書は消える。写真の無い旅行はどちらを選んでも 0 枚で消える。結果の揃わない空のページが挟まっても全部処理する。
   最後の旅行の削除が 404 でも 200。旅行の読み取り・射影・写真の patch・写真の削除のどこで失敗しても 503 / 500 で、旅行は残る
-- 各エンドポイントの 503 `DATABASE_ERROR`（`it.each(['ENOTFOUND', 'ECONNREFUSED'])`。`cause` の奥に持つ形も1本）と 500 の `message`
+- 各エンドポイントの 503 `DATABASE_ERROR`（表で `ENOTFOUND` と `ECONNREFUSED` を回す。`cause` の奥に持つ形も1本）と 500 の `message`
 
 ### 3.5 `functions/photos.ts`
 
@@ -152,7 +152,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - `tripId` 付きで再送した既存（`tripId: null`）の写真は 200 で `tripId: null` のまま
 - サムネイル無しで 201、`thumbnailUrl: null`
 - 検証がすべて Blob の `store` と Cosmos の `documents` を変えずに終わる（1 本は明示的に確かめる）
-- Blob の失敗で 502 `STORAGE_ERROR`（`RestError` の形）と 503（`it.each` の 3 code）。ドキュメントは作られない
+- Blob の失敗で 502 `STORAGE_ERROR`（`RestError` の形）と 503（表で 3 つの code を回す）。ドキュメントは作られない
 - Cosmos の接続失敗で 503 `DATABASE_ERROR`。500 の `message`
 
 `GET`:

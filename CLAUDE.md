@@ -77,6 +77,8 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 - **画面のテストは表示サイズを実機に合わせる。** 既定の 800×600 では
   画面の下の方のボタンが画面外に出てタップが空振りする（警告だけで失敗しない。`openApp` は実機の大きさにしている）。
   `tester.view.physicalSize` / `devicePixelRatio` を設定し、`addTearDown(tester.view.reset)` で戻す
+- **1つのテストの中でアプリを開き直すときは、先に `tester.pumpWidget(const SizedBox())` で木を消す。** 同じ `SnapPlantApp` を `pumpWidget` し直しても
+  状態（開いている画面・タブ）は残るので、2回目の `openTripsTab` が「旅行」を見つけられない（条件を取り替えて回すテストは、開く補助関数の冒頭でこれをしている）
 - **`tester.ensureVisible()` の後は `pump` が要る。** スクロール位置は次のフレームまで反映されない
 - **戻るボタンは `tapBack(tester)`（`helpers/app_test_helpers.dart`）で押す。** `tester.pageBack()` は英語の「Back」の説明で探すので、日本語の設定のアプリでは見つからない
 - **`ElevatedButton.icon` は `find.widgetWithText(ElevatedButton, ...)` で見つからない。**
@@ -587,6 +589,8 @@ SELECT の射影は検証できない。この3点は実エミュレータか E2
 - `tests/setup.ts` が `setupFilesAfterEnv` でグローバルに環境変数と `openai` のモックを設定し、`console.log` も抑制する。**Azure SDK のモックは置いていない**（完全に死んでいたため削除した）
 - 各テストファイルは**それに加えて**個別に `jest.mock()` と環境変数を設定する二重構造。追いにくいため新規テストはファイル内で完結させる
 - ディレクトリ構成は `src/` をミラーする。守り続けるテストは入口の `tests/functions/`（手で回すスクリプトは `tests/scripts/`）に置き、`tests/services/` には名簿のテストだけがある（`tests/utils/` は #46 で無くなった。開発中に足すのは構わないが、作業単位の終わりに入口へ寄せる）。`tests/fakes/`（偽物）と `tests/helpers/`（複数のテストファイルが使うケースの表など。例 `databaseFailures.ts` の 503 / 500 の表）だけが例外で、`src/` に対応するものが無い共有部品
+- **表のテストは `it.each` でなく `tests/helpers/cases.ts` の `forEachCase` で、1つのテストの中で回す**（2026-10-26 に人間が決定。件数を減らすため。落ちた行の名前はエラーに添えられる）。
+  行の間で偽物の状態は戻らないので、行ごとに新しい状態が要る表（保存の結果を見る表など）だけ `it.each` のまま
 - テスト名は非開発者にも通じる日本語の文で書く（この慣習は踏襲する）
 - `testTimeout` は 10 秒
 - **スタブへの呼び出し検証は解消済み。** 残る `toHaveBeenCalled*` は OpenAI（管理外の依存）に対するものだけで、これは正当。Cosmos / Blob に対して書き足さないこと
