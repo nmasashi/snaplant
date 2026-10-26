@@ -111,21 +111,15 @@ void main() {
     expect(find.text('ソメイヨシノ'), findsNothing);
   });
 
-  testWidgets('項目が無い種類は「{表示名}の項目はまだありません」と案内する', (tester) async {
-    await openCatalogTab(tester, _backend());
-
+  testWidgets('項目が無い種類は「{表示名}の項目はまだありません」と案内し、下に引っ張ると読み直す', (tester) async {
+    final backend = _backend();
+    await openCatalogTab(tester, backend);
     await tester.tap(_kindTab('風景'));
     await letFramesRun(tester);
 
     expect(find.text('風景の項目はまだありません'), findsOneWidget);
     expect(find.text('識別が済んだ写真が、ここにまとまります'), findsOneWidget);
-  });
 
-  testWidgets('項目が無い種類でも、下に引っ張ると読み直す', (tester) async {
-    final backend = _backend();
-    await openCatalogTab(tester, backend);
-    await tester.tap(_kindTab('風景'));
-    await letFramesRun(tester);
     backend.catalogEntriesByKind['landscape'] = [
       catalogEntryJson('landscape', '函館山')
     ];
@@ -204,29 +198,23 @@ void main() {
     expect(find.text('アジサイ'), findsOneWidget);
   });
 
-  testWidgets('読み込んでいる間は「図鑑を読み込み中...」を出す', (tester) async {
+  testWidgets('種類の一覧を読んでいる間も、種類のタブを出した後に項目を読んでいる間も「図鑑を読み込み中...」を出す', (tester) async {
     final backend = _backend();
-    final release = Completer<void>();
-    backend.holds[TripRoute.catalogKinds] = release.future;
+    final releaseKinds = Completer<void>();
+    final releaseEntries = Completer<void>();
+    backend.holds[TripRoute.catalogKinds] = releaseKinds.future;
+    backend.holds[TripRoute.catalogEntries] = releaseEntries.future;
     await openCatalogTab(tester, backend);
 
+    expect(_kindTab('植物'), findsNothing);
     expect(find.text('図鑑を読み込み中...'), findsOneWidget);
 
-    release.complete();
+    releaseKinds.complete();
     await letFramesRun(tester);
-    expect(find.text('ソメイヨシノ'), findsOneWidget);
-  });
-
-  testWidgets('種類のタブを出した後も、項目を読み込んでいる間は「図鑑を読み込み中...」を出す', (tester) async {
-    final backend = _backend();
-    final release = Completer<void>();
-    backend.holds[TripRoute.catalogEntries] = release.future;
-    await openCatalogTab(tester, backend);
-
     expect(_kindTab('植物'), findsOneWidget);
     expect(find.text('図鑑を読み込み中...'), findsOneWidget);
 
-    release.complete();
+    releaseEntries.complete();
     await letFramesRun(tester);
     expect(find.text('ソメイヨシノ'), findsOneWidget);
   });

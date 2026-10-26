@@ -46,6 +46,8 @@ Future<FakeTripBackend> _openViewer(
       hokkaidoTripId: [photo]
     },
   );
+  // 1つのテストの中で開き直すとき、前のアプリの木を残さない
+  await tester.pumpWidget(const SizedBox());
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
   await letFramesRun(tester);
@@ -163,17 +165,13 @@ void main() {
   });
 
   group('コメント', () {
-    testWidgets('AI のコメントを出す', (tester) async {
+    testWidgets('AI のコメントはそのまま出し、利用者が直したコメントには「（編集済み）」を付ける', (tester) async {
       await _openViewer(tester, _photo(comment: '満開のサクラ', commentSource: 'ai'));
-
       expect(find.text('満開のサクラ'), findsOneWidget);
       expect(find.textContaining('（編集済み）'), findsNothing);
-    });
 
-    testWidgets('利用者が直したコメントには「（編集済み）」を付ける', (tester) async {
       await _openViewer(
           tester, _photo(comment: '旅の最初の一枚', commentSource: 'user'));
-
       expect(find.text('旅の最初の一枚（編集済み）'), findsOneWidget);
     });
 

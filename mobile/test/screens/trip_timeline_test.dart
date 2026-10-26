@@ -24,6 +24,8 @@ Future<FakeTripBackend> _openTripDetail(WidgetTester tester,
   );
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
   if (timeline != null) backend.timelinesByTripId[hokkaidoTripId] = timeline;
+  // 1つのテストの中で開き直すとき、前のアプリの木を残さない
+  await tester.pumpWidget(const SizedBox());
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
   await letFramesRun(tester);
@@ -526,11 +528,12 @@ void main() {
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
     });
 
-    for (final (code, message) in [
-      ('TIMELINE_PHOTOS_PROCESSING', '解析中の写真があります。終わってから作ってください'),
-      ('TIMELINE_NO_DATED_PHOTOS', '撮影日時のある写真がありません'),
-    ]) {
-      testWidgets('作れなかったら（409 $code）、エラーの文言を出して読み直す', (tester) async {
+    testWidgets('作れなかったら（409 TIMELINE_PHOTOS_PROCESSING・TIMELINE_NO_DATED_PHOTOS）、エラーの文言を出して読み直す',
+        (tester) async {
+      for (final (code, message) in [
+        ('TIMELINE_PHOTOS_PROCESSING', '解析中の写真があります。終わってから作ってください'),
+        ('TIMELINE_NO_DATED_PHOTOS', '撮影日時のある写真がありません'),
+      ]) {
         final backend = await _openTripDetail(tester);
         await _showTimeline(tester);
         // 読み直したことを、解析中の枚数が出ることで確かめる（受け付けを断られた後に写真が増えた想定）
@@ -540,10 +543,11 @@ void main() {
 
         await tester.tap(find.text('タイムラインを作る'));
         await letFramesRun(tester);
-        expect(find.text(message), findsOneWidget);
-        expect(find.text('解析中の写真があと 2 枚あります。終わると作れます。'), findsOneWidget);
-      });
-    }
+        expect(find.text(message), findsOneWidget, reason: code);
+        expect(find.text('解析中の写真があと 2 枚あります。終わると作れます。'), findsOneWidget,
+            reason: code);
+      }
+    });
 
     testWidgets('操作で旅行が別の端末で消されていたと分かったら、「この旅行は削除されています」を出す', (tester) async {
       final backend = await _openTripDetail(tester);
