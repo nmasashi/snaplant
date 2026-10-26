@@ -628,6 +628,8 @@ describe('タイムラインの下書きAPI', () => {
       ['日の最初の写真が消えていて送られない', ['a', 'd', 'e'], [photoId('b')], [photoId('a'), photoId('b'), photoId('d')]],
       ['日の最初の写真がまだあるのに送られない', [], [photoId('b'), photoId('e')], [photoId('a'), photoId('b'), photoId('d'), photoId('e')]]
     ], async (_label, deleted, starts, saved) => {
+      // forEachCase は行の間で偽物を戻さない。前の行で消した写真を置き直してから、この行の分を消す
+      placeSnapshot(PHOTOS);
       // 控えを取った後に消えた写真
       for (const head of deleted) {
         cosmosBackend.documents.delete(photoId(head));

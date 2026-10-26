@@ -270,6 +270,8 @@ describe('写真の解析のワーカー', () => {
       ['位置情報が無い', null],
       ['位置はあるが地名が無い', { latitude: 43.06, longitude: 141.35, placeName: null, placeSource: 'device' as const }]
     ], async (_label, location) => {
+      // forEachCase は行の間で sent を空にしない。この行で送った要求だけを見る（前の行の要求を見て通らないように）
+      sent = [];
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ location }));
 
       await runWorker();

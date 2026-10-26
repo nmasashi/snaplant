@@ -176,14 +176,14 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timeline());
     });
 
-    it('日と場面のどちらの更新も、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
       const response = await send('not-a-uuid');
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     }));
 
-    it('日と場面のどちらの更新も、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       cosmosBackend.documents.delete(TRIP_ID);
 
       const response = await send(TRIP_ID);
@@ -193,7 +193,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline());
     }));
 
-    it('日と場面のどちらの更新も、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       const written = timelineDocument(TRIP_ID, {
         current,
         droppedEdits: [...DROPPED, ...DROPPED.map((edit) => ({ ...edit, field: 'note' as const }))],
@@ -210,7 +210,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(written);
     }));
 
-    it('日と場面のどちらの更新も、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
       cosmosBackend.forcedReplaceError = error;
 
       const response = await send(TRIP_ID);
