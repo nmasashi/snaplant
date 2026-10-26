@@ -74,6 +74,14 @@ class ApiService {
         message: 'ネットワークに接続できません',
         body: error.message,
       );
+    } else if (error is http.ClientException) {
+      // 接続できない・途中で切れたときに http の IOClient が包む例外。uri に関数キー付きの URL が入るので、
+      // toString() を写さない（docs/03_screen_design.md §9.2）
+      return ApiException(
+        statusCode: 0,
+        message: 'ネットワークに接続できません',
+        body: error.message,
+      );
     } else if (error is FormatException) {
       return ApiException(
         statusCode: 0,
