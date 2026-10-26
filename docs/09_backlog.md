@@ -395,15 +395,6 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **判断**: 4-2a のデプロイ後の実測（1種類の1ページを開く RU と時間。`docs/11_implementation_plan.md` §4）を見てから決める。
 遅ければ、同時に投げる本数を抑える（例 10 本ずつ）か、04 §3.1 の「まとめの控え」を足す。
 
-### 通信の失敗の例外の文言に、関数キー付きの URL が入りうる（Dart。判断待ち）
-
-`mobile/lib/services/api_service.dart` の `_handleError` は、分類できない例外の文言（`error.toString()`）を `ApiException.message` に入れる。
-`http` 1.4.0 の `IOClient` は `HttpException` を `ClientException(message, uri)` に包むので、その文言には `?code=<関数キー>` 付きの URL が入りうる
-（2026-10-26、5-4b のセキュリティの確認を Opus と Fable で回し、どちらも前からある弱点として挙げた）。
-今は、ステータス 0 の `userMessage` が決まった文言を返すので画面には出ず、リリース版は `debugPrint` を何も出さないのでログにも残らない。
-将来、ステータス 0 の `message` をそのまま画面に出したり、ログを残したりすると、関数キーが漏れる。
-**判断待ち**: `_handleError` で `ClientException` も `SocketException` と同じ扱い（`message` に文言を入れず、`body` にも URL を入れない）にするか。
-
 ### テストの変異の道具と、実行時間の計測（api・Dart）
 
 作業単位の終わりの `test-consolidator`・`test-reviewer` は変異のたびにテストを回し、時間のほとんどがテストの待ちだった（5-4b で 72 分・37 分）。
