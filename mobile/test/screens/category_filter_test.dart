@@ -68,7 +68,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('チップで「食べ物」を選ぶと、その旅行の食べ物の写真だけを並べ、「すべて」に戻すと全部を並べる',
+    testWidgets('チップで「食べ物」を選ぶと、その旅行の食べ物の写真だけを並べて見出しの枚数は旅行全体のままにし、0枚のカテゴリなら「この旅行に植物の写真はありません」と出し、「すべて」に戻すと全部を並べる',
         (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTripDetail(tester);
@@ -79,30 +79,17 @@ void main() {
       // 選べるのは1つだけ（§5.3）
       expect(tester.widget<ChoiceChip>(_chip('食べ物')).selected, isTrue);
       expect(tester.widget<ChoiceChip>(_chip('すべて')).selected, isFalse);
+      // 枚数も期間も旅行全体のまま（§5.3）
+      expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
+
+      await tester.tap(_chip('植物'));
+      await letFramesRun(tester);
+      expect(find.text('この旅行に植物の写真はありません'), findsOneWidget);
 
       await tester.tap(_chip('すべて'));
       await letFramesRun(tester);
       expect(_shown(['10:00', '11:00', '12:00']), [true, true, true]);
       semantics.dispose();
-    });
-
-    testWidgets('絞り込んだ結果が0枚なら「この旅行に植物の写真はありません」と出す', (tester) async {
-      await _openTripDetail(tester);
-
-      await tester.tap(_chip('植物'));
-      await letFramesRun(tester);
-
-      expect(find.text('この旅行に植物の写真はありません'), findsOneWidget);
-    });
-
-    testWidgets('絞り込んでも、見出しの枚数は旅行全体のまま', (tester) async {
-      await _openTripDetail(tester);
-
-      await tester.tap(_chip('食べ物'));
-      await letFramesRun(tester);
-
-      // 枚数も期間も旅行全体のまま（§5.3）
-      expect(find.text('3枚 · 2026/10/05 〜 2026/10/08'), findsOneWidget);
     });
 
     testWidgets('絞り込んでいる間は、続きのページも下に引っ張っての読み直しも、同じカテゴリで読む', (tester) async {
