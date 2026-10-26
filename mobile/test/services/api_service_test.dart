@@ -97,13 +97,13 @@ void main() {
       ('シグネチャに満たない短い画像は既定のimage/jpegとして送る', [0x89, 0x50], 'image/jpeg'),
     ];
 
-    for (final (title, bytes, mimeType) in signatureCases) {
-      test(title, () async {
+    test('中身の先頭バイトで PNG・JPEG・GIF・WebP を見分けて送り、それ以外は既定の image/jpeg として送る', () async {
+      for (final (title, bytes, mimeType) in signatureCases) {
         final sentBody = await uploadPhoto(bytes);
 
-        expect(sentBody, sendsContentType(mimeType));
-      });
-    }
+        expect(sentBody, sendsContentType(mimeType), reason: title);
+      }
+    });
   });
 
   group('エラーレスポンス', () {
@@ -190,16 +190,16 @@ void main() {
       ),
     ];
 
-    for (final (title, statusCode, body, expectedCode, expectedMessage) in userMessageCases) {
-      test(title, () async {
+    test('ステータスと封筒の有無に応じた日本語のメッセージを返す（413・429・401・404・500・503）', () async {
+      for (final (title, statusCode, body, expectedCode, expectedMessage) in userMessageCases) {
         final service = _serviceResponding('POST', '/api/trips', statusCode, body);
 
         final error = await _captureApiException(() => service.createTrip('北海道', null));
 
-        expect(error.code, expectedCode);
-        expect(error.userMessage, expectedMessage);
-      });
-    }
+        expect(error.code, expectedCode, reason: title);
+        expect(error.userMessage, expectedMessage, reason: title);
+      }
+    });
 
     // 502（上流のストレージがエラーを返した）は写真の送信が返す（docs/05_api_design.md §5.1）。
     // 写真の送信は MultipartRequest を送って http.Response.fromStream で応答を作るので、
