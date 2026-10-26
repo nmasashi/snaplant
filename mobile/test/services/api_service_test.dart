@@ -233,8 +233,24 @@ void main() {
       final error = await _captureApiException(() => service.getTrips());
 
       expect(error.statusCode, 0);
+      expect(error.message, 'ネットワークに接続できません');
       expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
-      expect('${error.message} ${error.body} $error', isNot(contains('secret-function-key')));
+      expect('${error.message} ${error.body}', isNot(contains('secret-function-key')));
+    });
+
+    test('分類できない例外の文言に宛先の URL が入っていても、例外の文言にも body にも関数キーを入れない', () async {
+      final service = ApiService(
+        baseUrl: 'https://api.example.test',
+        functionKey: 'secret-function-key',
+        client: MockClient((request) async {
+          throw StateError('予期しない失敗: ${request.url}');
+        }),
+      );
+
+      final error = await _captureApiException(() => service.getTrips());
+
+      expect(error.statusCode, 0);
+      expect('${error.message} ${error.body}', isNot(contains('secret-function-key')));
     });
   });
 }
