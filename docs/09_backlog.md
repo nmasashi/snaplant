@@ -478,6 +478,14 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **判断が要ること**: ビューアの末尾で失敗を知らせて「再試行」を出すか、ビューアからもう一度払ったら読み直すか、今のまま（戻って一覧で再試行）とするか。
 `docs/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
 
+### 関数キーを URL のクエリでなくヘッダで送る（Dart。判断待ち）
+
+アプリは関数キーを URL のクエリ（`?code=`。`ApiService._buildUrl()`）で送っている。URL は例外の文言（`ClientException` の `uri`）やログに出やすく、
+2026-10-26 に `_handleError` で例外の文言から関数キーを伏せる形で守った（03 §9.2）。ただし伏せるのは `_handleError` を通る文言だけで、
+今後 URL を文字にする経路（リクエストのログ、クラッシュの報告、プロキシのアクセスログ）を足すたびに同じ守りが要る。
+Azure Functions は関数キーをヘッダ `x-functions-key` でも受け付けるので、`_headers` に移せば URL から関数キーが無くなり、伏せる処理も要らなくなる（/code-review の指摘）。
+**判断待ち**: ヘッダに移すか。移すなら CLAUDE.md・03 §9.1 の「Function Key はクエリパラメータで送る」と、画面のテストの偽のサーバ（`code` で宛先を見分けている `catalogServer` など）も直す
+
 ### アプリの API の呼び出しに時間切れが無く、ダイアログの処理中に通信が返らないと閉じられない（Dart）
 
 `mobile/lib/services/api_service.dart` の呼び出しは、写真の送信（`upload_queue.dart` の 60 秒）を除いて時間切れを付けていない。
