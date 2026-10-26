@@ -149,51 +149,35 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('写真ビューアは、地名が無ければ緯度・経度を小数4桁で出す', (tester) async {
-    final semantics = tester.ensureSemantics();
-    final coordinatesOnly = photoJson(
-        number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
-      ..['location'] = {
-        'latitude': 43.77,
-        'longitude': 142.36,
-        'placeName': null,
-        'placeSource': null
-      };
-
-    await _openViewerOn(tester, [coordinatesOnly], '2026年10月5日 12:30');
-
-    expect(find.text('43.7700, 142.3600').hitTestable(), findsOneWidget);
-    semantics.dispose();
-  });
-
-  testWidgets('写真ビューアは、地名が無く小数が4桁を超える緯度・経度を、小数4桁で出す', (tester) async {
-    // 43.770649 は丸めても切り捨てても 43.7706 になるので、丸め方までは固定しない。4桁で出すことだけを見る
-    final semantics = tester.ensureSemantics();
-    final moreThanFourDigits = photoJson(
-        number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15')
-      ..['location'] = {
-        'latitude': 43.770649,
-        'longitude': 142.360049,
-        'placeName': null,
-        'placeSource': null
-      };
-
-    await _openViewerOn(tester, [moreThanFourDigits], '2026年10月5日 12:30');
-
-    expect(find.text('43.7706, 142.3600').hitTestable(), findsOneWidget);
-    semantics.dispose();
-  });
-
-  testWidgets('写真ビューアは、撮影日時が無ければ「撮影日時なし」を、位置情報が無ければ「位置情報なし」を出す',
+  testWidgets('写真ビューアは、地名が無ければ緯度・経度を小数4桁で出し（4桁を超える小数も4桁にする）、撮影日時が無ければ「撮影日時なし」を、位置情報が無ければ「位置情報なし」を出す',
       (tester) async {
     // サムネイルは撮影日時を読み上げ用ラベルとしてだけ持ち、Text は出さない
-    // （撮影日時の無いサムネイルのラベルは「撮影日時なし」）。よって find.text で見つかるのはビューアが出したもの
+    // （撮影日時の無いサムネイルのラベルは「撮影日時なし」）。よって find.text で見つかるのはビューアが出したもの。
+    // 43.770649 は丸めても切り捨てても 43.7706 になるので、丸め方までは固定しない。4桁で出すことだけを見る
     final semantics = tester.ensureSemantics();
-    final noTakenAtNoLocation =
-        photoJson(number: 1, tripId: hokkaidoTripId, takenAt: null);
+    Map<String, Object?> at(int number, String time, double lat, double lng) =>
+        photoJson(
+            number: number,
+            tripId: hokkaidoTripId,
+            takenAt: '2026-10-05T$time:15')
+          ..['location'] = {
+            'latitude': lat,
+            'longitude': lng,
+            'placeName': null,
+            'placeSource': null
+          };
 
-    await _openViewerOn(tester, [noTakenAtNoLocation], '撮影日時なし');
+    await _openViewerOn(tester, [
+      at(1, '12:30', 43.77, 142.36),
+      at(2, '12:40', 43.770649, 142.360049),
+      photoJson(number: 3, tripId: hokkaidoTripId, takenAt: null),
+    ], '2026年10月5日 12:30');
+    expect(find.text('43.7700, 142.3600').hitTestable(), findsOneWidget);
 
+    await _swipe(tester, toNext: true);
+    expect(find.text('43.7706, 142.3600').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: true);
     expect(find.text('撮影日時なし').hitTestable(), findsOneWidget);
     expect(find.text('位置情報なし').hitTestable(), findsOneWidget);
     semantics.dispose();
