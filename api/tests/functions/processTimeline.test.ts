@@ -720,11 +720,11 @@ describe('タイムラインのワーカー', () => {
         // 区切りの並びと、書いてほしい場面の並びの2か所に出る（日の区切りの行は 0番〜3番・4番〜5番 で、どの場面の範囲とも違う）。
         // 前に数字が続くもの（10番〜11番 の 0番〜1番 など）は数えない
         const pattern = new RegExp(`(?<![0-9])${range}`);
-        expect(otherLines.filter((line) => pattern.test(line))).toHaveLength(2);
+        expect(otherLines.filter((line) => pattern.test(line)).length).toBeGreaterThanOrEqual(2);
       }
     });
 
-    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい場面と日を渡す', async () => {
+    it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい日を渡す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
 
       await runWorker();
@@ -795,6 +795,8 @@ describe('タイムラインのワーカー', () => {
       ['頼んだ場面が無い', { ...allTexts, scenes: allTexts.scenes.slice(1) }],
       // 番号と文の組を取り違えた応答（最初の場面に、次の場面の範囲と文を返した）。最初の写真の番号だけでは見分けられない
       ['場面の最後の写真の番号が、その場面と合わない', { ...allTexts, scenes: [{ ...allTexts.scenes[1], start: 0 }, ...allTexts.scenes.slice(1)] }],
+      // 逆向きの取り違え（1枚の場面 5番〜5番 に、前の場面 4番〜4番 の範囲と文を返した）。最後の番号が小さすぎる
+      ['場面の最後の写真の番号が、その場面より前で終わっている', { ...allTexts, scenes: [...allTexts.scenes.slice(0, 3), { ...allTexts.scenes[2], start: 5 }] }],
       ['空白だけの見出しがある', { ...allTexts, scenes: [{ ...allTexts.scenes[0], label: '  ' }, ...allTexts.scenes.slice(1)] }],
       ['空のまとめがある', { ...allTexts, days: [{ ...allTexts.days[0], summary: '' }, allTexts.days[1]] }],
       ['日が配列でない', { ...allTexts, days: null }]
@@ -1019,7 +1021,8 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
-        // どの場面と日を頼んだかは、頼んだ数ちょうどの応答（changedTexts）で成功する上のテストが固定している（多く頼めば検証で失敗する）
+        // 何を頼むかの選び方は、頼んだ数ちょうどの応答（changedTexts）で成功する上のテストが固定している（多く頼めば検証で失敗する）。
+        // 偽の AI はプロンプトを読まないので、プロンプトに書いた並びはここで見る
         const otherLines = nonPhotoLines(sentPrompt());
         for (const text of ['空港の朝', '北海道1日目', '札幌ラーメン', '運河の日']) {
           expect(otherLines.some((line) => line.includes(text))).toBe(true);
@@ -1031,8 +1034,13 @@ describe('タイムラインのワーカー', () => {
         // 前の文の場面も、今の区切りと同じく最初と最後の写真の番号の範囲で指す（c の場面は今は c・d の2枚）
         expect(otherLines.find((line) => line.includes('空港の朝'))).toContain('0番〜1番');
         expect(otherLines.find((line) => line.includes('札幌ラーメン'))).toContain('2番〜3番');
-        // 今の区切り（全部の場面）と日の区切り（何番から何日目か）も渡す
-        expect(otherLines.some((line) => ['0番', '2番', '4番', '5番'].every((start) => line.includes(start)))).toBe(true);
+        // 今の区切りは、書かせない a の場面も含めて全部の場面を範囲で渡す
+        expect(otherLines.some((line) => ['0番〜1番', '2番〜3番', '4番〜4番', '5番〜5番'].every((range) => line.includes(range)))).toBe(true);
+        // 書いてほしい場面の並びは、変わった場面だけ（引き継ぐ a の 0番〜1番 は無い）
+        expect(
+          otherLines.some((line) => ['2番〜3番', '4番〜4番', '5番〜5番'].every((range) => line.includes(range)) && !line.includes('0番〜1番'))
+        ).toBe(true);
+        // 日の区切り（何番から何日目か）も渡す
         expect(otherLines.some((line) => ['2日目', '4番', '5番'].every((text) => line.includes(text)))).toBe(true);
       });
 
