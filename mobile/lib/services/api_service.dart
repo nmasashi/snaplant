@@ -123,9 +123,10 @@ class ApiService {
     if (key == null || key.isEmpty) {
       return text;
     }
+    // 符号化した形を先に伏せる（生の値が % を含むと、先に生の値を伏せたときに符号化した形の一部が残る）
     return text
-        .replaceAll(key, '***')
-        .replaceAll(Uri.encodeQueryComponent(key), '***');
+        .replaceAll(Uri.encodeQueryComponent(key), '***')
+        .replaceAll(key, '***');
   }
 
   /// 旅行一覧取得（旅行に属さない写真の枚数も同じ応答で返る）
