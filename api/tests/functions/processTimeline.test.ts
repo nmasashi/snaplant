@@ -717,8 +717,10 @@ describe('タイムラインのワーカー', () => {
 
       const otherLines = nonPhotoLines(sentPrompt());
       for (const range of ['0番〜1番', '2番〜3番', '4番〜4番', '5番〜5番']) {
-        // 区切りの並びと、書いてほしい場面の並びの2か所に出る
-        expect(otherLines.filter((line) => line.includes(range))).toHaveLength(2);
+        // 区切りの並びと、書いてほしい場面の並びの2か所に出る（日の区切りの行は 0番〜3番・4番〜5番 で、どの場面の範囲とも違う）。
+        // 前に数字が続くもの（10番〜11番 の 0番〜1番 など）は数えない
+        const pattern = new RegExp(`(?<![0-9])${range}`);
+        expect(otherLines.filter((line) => pattern.test(line))).toHaveLength(2);
       }
     });
 
@@ -734,9 +736,7 @@ describe('タイムラインのワーカー', () => {
         expect(promptLineOf(prompt, 0)).toContain(element);
       }
       const otherLines = nonPhotoLines(prompt);
-      for (const start of ['0番', '2番', '4番', '5番']) {
-        expect(otherLines.some((line) => line.includes(start))).toBe(true);
-      }
+      // 書いてほしい場面は、上の範囲のテストが見る
       for (const date of ['2026-10-05', '2026-10-06']) {
         expect(otherLines.some((line) => line.includes(date))).toBe(true);
       }
