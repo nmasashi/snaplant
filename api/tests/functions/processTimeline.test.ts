@@ -717,7 +717,7 @@ describe('タイムラインのワーカー', () => {
 
       const otherLines = nonPhotoLines(sentPrompt());
       for (const range of ['0番〜1番', '2番〜3番', '4番〜4番', '5番〜5番']) {
-        // 区切りの並びと、書いてほしい場面の並びの2か所に出る（日の区切りの行は 0番〜3番・4番〜5番 で、どの場面の範囲とも違う）。
+        // 区切りの並びと、書いてほしい場面の並びの少なくとも2か所に出る（指示の例などで増えるのは構わない。日の区切りの行は 0番〜3番・4番〜5番 で、どの場面の範囲とも違う）。
         // 前に数字が続くもの（10番〜11番 の 0番〜1番 など）は数えない
         const pattern = new RegExp(`(?<![0-9])${range}`);
         expect(otherLines.filter((line) => pattern.test(line)).length).toBeGreaterThanOrEqual(2);
