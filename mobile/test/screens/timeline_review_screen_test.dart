@@ -137,7 +137,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出し、地名の無い場面はカードの上を「{時刻} · {N}枚」にする',
+    testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出して足した場面とつなげた場面の文の扱いを添え、下のボタンを「この区切りで保存」にし（AI を使わない）、地名の無い場面はカードの上を「{時刻} · {N}枚」にする',
         (tester) async {
       await _openTimeline(tester,
           draft: _reviewingDraft(reason: 'recut', scenes: const [
@@ -152,8 +152,13 @@ void main() {
           ]));
       await _openReview(tester);
 
-      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
+      expect(
+          find.text(
+              '写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。新しくできた場面は見出しなしになります。つなげると、後ろの場面の見出しと一言は消えます。'),
           findsOneWidget);
+      expect(find.text('この区切りで保存'), findsOneWidget);
+      expect(find.text('2日で 4 場面 · 見出しと一言はそのまま残します'), findsOneWidget);
+      expect(find.text('この区切りで見出しを付ける'), findsNothing);
       await tester.scrollUntilVisible(find.text('12:00 · 1枚'), 200,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('12:00 · 1枚'), findsOneWidget);

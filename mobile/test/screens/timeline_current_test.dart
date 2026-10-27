@@ -332,7 +332,9 @@ void main() {
               as Map)['reason'],
           'recut');
       expect(find.text('区切りを確認'), findsOneWidget);
-      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
+      expect(
+          find.text(
+              '写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。新しくできた場面は見出しなしになります。つなげると、後ろの場面の見出しと一言は消えます。'),
           findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.close));
@@ -345,7 +347,7 @@ void main() {
       await tester.tap(find.text('区切りを直す'));
       await letFramesRun(tester);
 
-      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await tester.tap(find.text('この区切りで保存'));
       await letFramesRun(tester);
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
