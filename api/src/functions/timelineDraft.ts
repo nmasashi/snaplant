@@ -4,7 +4,7 @@ import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing 
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
-import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot, TimelineSceneText } from '../types/timeline';
 import {
   createDatabaseErrorResponse,
   createTimelineStateConflict,
@@ -102,7 +102,8 @@ export async function deleteTimelineDraftHandler(request: HttpRequest, context: 
  * タイムラインの下書きの区切りで文を書く受付 API
  * POST /api/trips/{tripId}/timeline/draft/write
  *
- * 下書きを文を書く待ちにしてキューに積む（ワーカーが文を書き、書き終えると下書きが完成版に入れ替わる。05 §5.15・06 §8.3）
+ * 下書きを文を書く待ちにしてキューに積む（ワーカーが文を書き、書き終えると下書きが完成版に入れ替わる。05 §5.15・06 §8.3）。
+ * 区切りを直している下書き（recut）は AI を使わず、その場で完成版に当てる（06 §8.6）
  */
 export async function postTimelineDraftWriteHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -125,6 +126,13 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
       return createTimelineStateConflict();
     }
     const now = new Date().toISOString();
+    if (read.reason === 'recut' && timeline.doc.current) {
+      const current = withRecutStarts(timeline.doc.current, read.sceneStarts);
+      if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current, draft: null, updatedAt: now }, timeline.etag))) {
+        return createTimelineStateConflict();
+      }
+      return createSuccessResponse({ draft: null, urlExpiresAt: photoUrlExpiresOn().toISOString() });
+    }
     draft = { ...read, phase: 'writing', job: { step: 'write', state: 'pending', attempts: 0, lastError: null, updatedAt: now } };
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
       return createTimelineStateConflict();
@@ -223,6 +231,21 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
  *
  * 文の失敗からは、区切りを直して確かめ中に戻すことも、そのまま書き直させることもできる
  */
+/**
+ * 完成版に直した区切りを当てる（06 §8.6）。残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨てる。
+ * 日の文・作成日時・控えはそのまま（区切りを直しても日は変わらない）
+ */
+function withRecutStarts(current: TimelineCurrent, sceneStarts: string[]): TimelineCurrent {
+  const sceneTexts: Record<string, TimelineSceneText> = {};
+  for (const start of sceneStarts) {
+    sceneTexts[start] = current.sceneTexts[start] ?? EMPTY_SCENE_TEXT;
+  }
+  return { ...current, sceneStarts, sceneTexts };
+}
+
+/** 区切りを直して足した場面の文（AI が書いていない） */
+const EMPTY_SCENE_TEXT: TimelineSceneText = { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] };
+
 function isEditableDraft(draft: TimelineDraft): boolean {
   return draft.phase === 'reviewing' || isWriteFailed(draft);
 }

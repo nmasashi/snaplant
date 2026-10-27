@@ -257,8 +257,10 @@ function withEdits<T extends object>(text: T, edits: Partial<Record<string, stri
   for (const [key, value] of Object.entries(edits)) {
     if (value === undefined) continue;
     const aiKey = `ai${key[0].toUpperCase()}${key.slice(1)}`;
-    next[key] = value === null ? next[aiKey] : value;
-    next[`${key}Source`] = value === null ? 'ai' : 'user';
+    // AI の文が無い欄（区切りを直して足した場面）は、空に戻して書いた主も無くす
+    const aiText = next[aiKey] ?? null;
+    next[key] = value === null ? aiText : value;
+    next[`${key}Source`] = value !== null ? 'user' : aiText === null ? null : 'ai';
   }
   return next as T;
 }

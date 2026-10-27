@@ -239,11 +239,11 @@ function inherited<T>(before: T | undefined, what: string): T {
 
 /** 利用者が書いた文は残し、AI の文なら新しい文にする（AI の文は ai* にも残す） */
 function keepUserText(
-  source: 'ai' | 'user' | undefined,
-  before: string | undefined,
+  source: 'ai' | 'user' | null | undefined,
+  before: string | null | undefined,
   written: string
 ): { text: string; source: 'ai' | 'user' } {
-  return source === 'user' && before !== undefined ? { text: before, source: 'user' } : { text: written, source: 'ai' };
+  return source === 'user' && before !== undefined && before !== null ? { text: before, source: 'user' } : { text: written, source: 'ai' };
 }
 
 /** 前の完成版にあって新しい完成版に無い場面・日の、利用者が書いた文（AI の文は捨てる） */
@@ -258,8 +258,8 @@ function droppedEditsOf(
   const dropped: TimelineDroppedEdit[] = [];
   for (const [key, text] of Object.entries(latest.sceneTexts)) {
     if (key in sceneTexts) continue;
-    if (text.labelSource === 'user') dropped.push({ kind: 'scene', key, field: 'label', text: text.label });
-    if (text.noteSource === 'user') dropped.push({ kind: 'scene', key, field: 'note', text: text.note });
+    if (text.labelSource === 'user' && text.label !== null) dropped.push({ kind: 'scene', key, field: 'label', text: text.label });
+    if (text.noteSource === 'user' && text.note !== null) dropped.push({ kind: 'scene', key, field: 'note', text: text.note });
   }
   for (const [key, text] of Object.entries(latest.dayTexts)) {
     if (key in dayTexts) continue;
@@ -287,9 +287,10 @@ function contextOf(
     return [];
   }
   const lines: string[] = [];
-  const line = (subject: string, fields: [string, string, boolean][]) => {
-    // 前の文（利用者が直した文を含む）の改行は空白にする（写真の行と同じ。改行の後ろが別の行に見えないように）
-    const shown = fields.filter(([, , keep]) => keep).map(([name, text]) => `${name}「${oneLine(text)}」`);
+  const line = (subject: string, fields: [string, string | null, boolean][]) => {
+    // 前の文（利用者が直した文を含む）の改行は空白にする（写真の行と同じ。改行の後ろが別の行に見えないように）。
+    // 文の無い欄（区切りを直して足した場面）は渡さない
+    const shown = fields.filter(([, text, keep]) => keep && text !== null).map(([name, text]) => `${name}「${oneLine(text)}」`);
     if (shown.length > 0) {
       lines.push(`${subject}: ${shown.join(' ')}`);
     }
