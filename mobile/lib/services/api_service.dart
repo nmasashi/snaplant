@@ -369,12 +369,12 @@ class ApiService {
   /// タイムラインを作る・作り直す（区切りの案から）。受け付けた下書きの状態を返す
   /// POST /api/trips/{tripId}/timeline
   Future<TimelineDraftStatus> createTimeline(String tripId) =>
-      _postForDraft('/api/trips/$tripId/timeline');
+      _postForRequiredDraft('/api/trips/$tripId/timeline');
 
   /// 完成版の区切りを直し始める（完成版の区切りを写した確かめ中の下書きを作る）。作った下書き（日と場面つき）を返す
   /// POST /api/trips/{tripId}/timeline/recut
   Future<TimelineDraftStatus> recutTimeline(String tripId) =>
-      _postForDraft('/api/trips/$tripId/timeline/recut');
+      _postForRequiredDraft('/api/trips/$tripId/timeline/recut');
 
   /// 下書きの区切りを保存する（場面の最初の写真の id を撮影の順に）。保存した後の下書き（日と場面つき）を返す
   /// PUT /api/trips/{tripId}/timeline/draft/scenes
@@ -393,15 +393,8 @@ class ApiService {
   /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す。
   /// 区切りを直している下書き（recut）は、AI を使わずその場で完成版に当てて下書きが無くなるので null を返す（06 §8.6）
   /// POST /api/trips/{tripId}/timeline/draft/write
-  Future<TimelineDraftStatus?> writeTimeline(String tripId) async {
-    try {
-      final url = _buildUrl('/api/trips/$tripId/timeline/draft/write');
-      final response = await _client.post(Uri.parse(url), headers: _headers);
-      return _parseResponse(response, (json) => _draftOf(json));
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
+  Future<TimelineDraftStatus?> writeTimeline(String tripId) =>
+      _postForDraft('/api/trips/$tripId/timeline/draft/write');
 
   /// タイムラインの下書きをやめる（作っている途中でも）。応答は読まない（画面が続けてタイムラインを読み直す）
   /// DELETE /api/trips/{tripId}/timeline/draft
@@ -417,12 +410,21 @@ class ApiService {
     }
   }
 
-  /// ボディの無い POST を送り、受け付けた下書き（`data.draft`）を返す（作る・区切りを直す・文を書く受付）
-  Future<TimelineDraftStatus> _postForDraft(String path) async {
+  /// 下書きを必ず返す受付（作る・区切りを直す）。応答に下書きが無ければ、形式の誤りとして ApiException にする
+  Future<TimelineDraftStatus> _postForRequiredDraft(String path) async {
+    final draft = await _postForDraft(path);
+    if (draft == null) {
+      throw _handleError(const FormatException('応答に下書きがありません'));
+    }
+    return draft;
+  }
+
+  /// ボディの無い POST を送り、受け付けた下書き（`data.draft`。無ければ null）を返す（作る・区切りを直す・文を書く受付）
+  Future<TimelineDraftStatus?> _postForDraft(String path) async {
     try {
       final url = _buildUrl(path);
       final response = await _client.post(Uri.parse(url), headers: _headers);
-      return _parseResponse(response, (json) => _draftOf(json)!);
+      return _parseResponse(response, (json) => _draftOf(json));
     } catch (error) {
       throw _handleError(error);
     }

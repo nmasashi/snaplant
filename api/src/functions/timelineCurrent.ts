@@ -159,7 +159,7 @@ export async function patchTimelineSceneHandler(request: HttpRequest, context: I
 /**
  * 完成版の文を直す（日と場面で共有する。05 §5.15 の表の 1〜8）
  *
- * 前後の空白を除いて保存し、書いた主を user にする。空か null なら AI が書いた文に戻して ai にする。
+ * 前後の空白を除いて保存し、書いた主を user にする。空か null なら AI が書いた文に戻して ai にする（AI の文が無い欄は null にし、書いた主も null）。
  * 下書きがあっても直せる（下書きの文を書くときに、完成版から引き継ぐ。06 §8.3）
  */
 async function editTimelineText(request: HttpRequest, context: InvocationContext, target: 'day' | 'scene'): Promise<HttpResponseInit> {
@@ -250,7 +250,7 @@ function readTextEdits<K extends string>(
 }
 
 /**
- * 文に直しを当てる。文字列なら利用者の文にし、null なら AI が書いた文（ai* の欄）に戻す
+ * 文に直しを当てる。文字列なら利用者の文にし、null なら AI が書いた文（ai* の欄）に戻す（AI の文が無ければ null に戻し、書いた主も null）
  */
 function withEdits<T extends object>(text: T, edits: Partial<Record<string, string | null>>): T {
   const next = { ...text } as Record<string, unknown>;

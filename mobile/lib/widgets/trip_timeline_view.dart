@@ -160,7 +160,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 見出しと一言を書かせる（失敗した文の「もう一度」）
   Future<void> _write() => _accept(widget.apiService.writeTimeline);
 
-  /// 受け付けた下書きの状態（作る・書かせるの応答）で、読み直さずに表示を進める
+  /// 受け付けた下書きの状態（作る・書かせるの応答）で、読み直さずに表示を進める。
+  /// 下書きが無い応答（区切りの直しをその場で完成版に当てた）なら、直した完成版を読み直す
   Future<void> _accept(Future<TimelineDraftStatus?> Function(String) send) =>
       _send(() async {
         final draft = await send(widget.tripId);
