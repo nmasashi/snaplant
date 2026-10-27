@@ -996,27 +996,32 @@ describe('タイムラインの下書きAPI', () => {
         },
         writtenAt: '2026-10-20T09:00:00.000Z'
       });
-      const recutting = () =>
+      const recutting = (overrides: Partial<TimelineDraft> = {}) =>
         timelineDocument(TRIP_ID, {
           current,
           draft: reviewing({
             reason: 'recut',
             snapshotId: CURRENT_SNAPSHOT_ID,
             proposedStarts: current.proposedStarts,
-            sceneStarts: [photoId('a'), photoId('b'), photoId('e')]
+            sceneStarts: [photoId('a'), photoId('b'), photoId('e')],
+            ...overrides
           }),
           updatedAt: '2026-10-25T08:55:00.000Z'
         });
 
-      it('完成版の区切りを直したものにし、残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨て、日の文と作成日時は変えず、下書きを消して 200（キューには積まない）', async () => {
-        cosmosBackend.documents.set(TIMELINE_ID, recutting());
+      it.each<[string, Partial<TimelineDraft>]>([
+        ['確かめ中の下書き', {}],
+        // AI なしにする前に、文を書く段で失敗した下書き（今は recut で文を書かないので、デプロイの前からあるものだけ）
+        ['文を書くのに失敗した下書き', { phase: 'writing', job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:30:00.000Z' } }]
+      ])('%sは、完成版の区切りを直したものにし、残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨て、日の文と作成日時は変えず、下書きを消して 200（キューには積まない）', async (_label, overrides) => {
+        cosmosBackend.documents.set(TIMELINE_ID, recutting(overrides));
 
         const response = await postWrite();
 
         expect(response.status).toBe(200);
         expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
         expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({
-          ...recutting(),
+          ...recutting(overrides),
           current: {
             ...current,
             sceneStarts: [photoId('a'), photoId('b'), photoId('e')],
@@ -1029,6 +1034,18 @@ describe('タイムラインの下書きAPI', () => {
           draft: null,
           updatedAt: NOW
         });
+        expect(queuedMessages()).toEqual([]);
+      });
+
+      it('完成版が無いのに区切りを直している下書きは、AI に書かせず 409（TIMELINE_STATE_CONFLICT）で何も変えない', async () => {
+        const broken = { ...recutting(), current: null };
+        cosmosBackend.documents.set(TIMELINE_ID, broken);
+
+        const response = await postWrite();
+
+        expect(response.status).toBe(409);
+        expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+        expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(broken);
         expect(queuedMessages()).toEqual([]);
       });
 
