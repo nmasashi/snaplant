@@ -130,7 +130,7 @@ class _TimelineEditSheetState extends State<TimelineEditSheet> {
                 ),
                 const SizedBox(height: 8),
               ],
-              Text('空にすると、AI が書いた文に戻ります',
+              Text('空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）',
                   style: AppTextStyles.caption
                       .copyWith(color: AppColors.textSecondary)),
               if (errorMessage != null) ...[
