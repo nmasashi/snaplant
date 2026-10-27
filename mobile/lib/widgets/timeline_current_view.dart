@@ -174,7 +174,8 @@ class TimelineCurrentView extends StatelessWidget {
           children: [
             Row(
               children: [
-                // 見出しの印と見出し（見出しが無ければ出さない）。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）
+                // 見出しの印と見出し。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）。
+                // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（編集のボタンで書ける）
                 if (scene.label != null) ...[
                   Icon(Icons.circle,
                       size: 10,
@@ -186,7 +187,7 @@ class TimelineCurrentView extends StatelessWidget {
                           style: AppTextStyles.body1
                               .copyWith(fontWeight: FontWeight.bold))),
                 ] else
-                  const Spacer(),
+                  Expanded(child: Text('見出しなし', style: secondary)),
                 IconButton(
                   icon:
                       const Icon(Icons.edit_outlined, semanticLabel: 'この場面を編集'),
