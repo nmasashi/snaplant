@@ -242,6 +242,27 @@ void main() {
     }
   });
 
+  // ヘッダの値に使えない文字（全角文字や改行）は、http が送る前に FormatException にし、その文言に値（関数キー）がそのまま入る。
+  // 送らずに「APIキーが無効です」にして、例外の文言にも関数キーを入れない
+  test('関数キーにヘッダで送れない文字（全角文字）があれば、送らずに 401 と同じ「APIキーが無効です」にし、例外の文言にも body にも関数キーを入れない', () async {
+    var sent = 0;
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      functionKey: 'secret＝key',
+      client: MockClient((request) async {
+        sent++;
+        return http.Response('', 500);
+      }),
+    );
+
+    final error = await _captureApiException(() => service.getTrips());
+
+    expect(sent, 0);
+    expect(error.statusCode, 401);
+    expect(error.userMessage, 'APIキーが無効です。設定を確認してください。');
+    expect('${error.message} ${error.body}', isNot(contains('secret')));
+  });
+
   // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。
   // uri には宛先の URL が入る。関数キーは URL に載せずヘッダで送るので、例外の文言を写しても関数キーは入らない（以前は ?code= で載せていて漏れた。docs/03 §9.2）
   group('通信の失敗', () {
