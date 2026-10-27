@@ -42,7 +42,7 @@ const photoId = (head: string): string => head.repeat(64);
 /** AI に渡す写真の行の頭（06 §8.4 の `[番号] 何日目 …`） */
 const PHOTO_LINE = /^\[\d+\] \d+日目/;
 
-/** プロンプトのうち、写真の行でない行（日の区切り・書いてほしい場面と日・前に書いた文など） */
+/** プロンプトのうち、写真の行でない行（日の区切り・書いてほしい場面と日など） */
 const nonPhotoLines = (prompt: string): string[] => prompt.split('\n').filter((line) => !PHOTO_LINE.test(line.trimStart()));
 
 /** 控えの写真。既定は名前・地名・コメントの無い風景の写真 */
@@ -888,7 +888,7 @@ describe('タイムラインのワーカー', () => {
         expect(promptLineOf(sentPrompt(0), 249)).toBeDefined();
         expect(promptLineOf(sentPrompt(0), 250)).toBeUndefined();
         expect(promptLineOf(sentPrompt(1), 199)).toContain('2日目');
-        // 日付（YYYY-MM-DD）は、頼む日と、その呼び出しの文脈の前の文の日にしか出ない（このテストは完成版が無いので頼む日だけ）
+        // 日付（YYYY-MM-DD）は、頼む日にしか出ない
         expect(nonPhotoLines(sentPrompt(0)).some((line) => line.includes('2026-10-06'))).toBe(false);
         expect(nonPhotoLines(sentPrompt(1)).some((line) => line.includes('2026-10-05'))).toBe(false);
         const current = storedTimeline()!.current!;
@@ -1023,16 +1023,18 @@ describe('タイムラインのワーカー', () => {
         expect(storedTimeline()!.droppedEdits).toEqual([earlier]);
       });
 
-      it('文を書いている間に利用者が前の完成版の文を直しても、新しい完成版に入れ替える（直した文は残らない。当て直す）', async () => {
-        cosmosBackend.documents.set(TIMELINE_ID, rebuilding());
+      it('文を書いている間に利用者が前の完成版の文を直したり知らせを閉じたりしても、読み直した文書に新しい完成版を当てる（直した文は残らず、閉じた知らせは閉じたまま）', async () => {
+        const earlier = { kind: 'day' as const, key: '2026-10-04', field: 'summary' as const, text: '前日の移動' };
+        cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilding(), droppedEdits: [earlier] } as any);
         othersWriteBeforeReplace((doc) => {
           const edited = { ...doc.current!.sceneTexts[photoId('e')], label: '小樽で散歩', labelSource: 'user' as const };
-          return { ...doc, current: { ...doc.current!, sceneTexts: { ...doc.current!.sceneTexts, [photoId('e')]: edited } } };
+          return { ...doc, current: { ...doc.current!, sceneTexts: { ...doc.current!.sceneTexts, [photoId('e')]: edited } }, droppedEdits: [] };
         });
 
         await runWorker();
 
         expect(storedTimeline()!.current!.sceneTexts[photoId('e')]).toEqual(aiScene('運河', '小樽運河'));
+        expect(storedTimeline()!.droppedEdits).toEqual([]);
         expect(storedTimeline()!.draft).toBeNull();
       });
 
