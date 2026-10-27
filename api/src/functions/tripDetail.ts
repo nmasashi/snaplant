@@ -15,7 +15,7 @@ import { ErrorCode } from '../types/api';
 
 /**
  * 旅行詳細 API（写真の集計を付ける）
- * GET /api/trips/{tripId}?code={FUNCTION_KEY}
+ * GET /api/trips/{tripId}
  */
 export async function getTripHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -37,7 +37,7 @@ export async function getTripHandler(request: HttpRequest, context: InvocationCo
 
 /**
  * 旅行更新 API（名前と説明の全体置き換え。タグは変えない）
- * PUT /api/trips/{tripId}?code={FUNCTION_KEY}
+ * PUT /api/trips/{tripId}
  */
 export async function updateTripHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;

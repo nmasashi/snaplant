@@ -23,7 +23,7 @@ import { GRAPHEMES } from '../utils/graphemes';
 
 /**
  * タイムラインを作る・作り直す API（区切り案の下書きを作って、キューに積む。区切り案はワーカーが後で出す）
- * POST /api/trips/{tripId}/timeline?code={FUNCTION_KEY}
+ * POST /api/trips/{tripId}/timeline
  */
 export async function createTimelineHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -143,7 +143,7 @@ function snapshotPhotosOf(rows: TimelinePhotoRow[]): TimelinePhotoSnapshot[] {
 
 /**
  * タイムラインを読む API（完成版の日と場面、下書きの状態、写真の変化、解析中の枚数）
- * GET /api/trips/{tripId}/timeline?code={FUNCTION_KEY}
+ * GET /api/trips/{tripId}/timeline
  *
  * 完成版の表示を組むのはここだけ（下書きをやめた後も、画面はここを読み直す。05 §5.15）
  */

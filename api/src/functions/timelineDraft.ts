@@ -18,7 +18,7 @@ import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 
 /**
  * タイムラインの下書きを読む API（状態と、確かめ中か文を書くのに失敗した下書きなら日と場面）
- * GET /api/trips/{tripId}/timeline/draft?code={FUNCTION_KEY}
+ * GET /api/trips/{tripId}/timeline/draft
  *
  * 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら。日と場面は確かめ中と文を書くのに失敗したときだけ組む（05 §5.15）
  */
@@ -61,7 +61,7 @@ async function readDraftResponse(tripId: string): Promise<HttpResponseInit> {
 
 /**
  * タイムラインの下書きをやめる API（完成版はそのまま。完成版も無ければタイムラインごと消す）
- * DELETE /api/trips/{tripId}/timeline/draft?code={FUNCTION_KEY}
+ * DELETE /api/trips/{tripId}/timeline/draft
  *
  * 作っている途中でもやめられる。ワーカーは下書きの id を確かめるので、やめた下書きに結果を書かない（06 §8.1）
  */
@@ -100,7 +100,7 @@ export async function deleteTimelineDraftHandler(request: HttpRequest, context: 
 
 /**
  * タイムラインの下書きの区切りで文を書く受付 API
- * POST /api/trips/{tripId}/timeline/draft/write?code={FUNCTION_KEY}
+ * POST /api/trips/{tripId}/timeline/draft/write
  *
  * 下書きを文を書く待ちにしてキューに積む（ワーカーが文を書き、書き終えると下書きが完成版に入れ替わる。05 §5.15・06 §8.3）
  */
@@ -143,7 +143,7 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
 
 /**
  * タイムラインの下書きの区切りを保存する API
- * PUT /api/trips/{tripId}/timeline/draft/scenes?code={FUNCTION_KEY}  { sceneStarts: string[] }
+ * PUT /api/trips/{tripId}/timeline/draft/scenes  { sceneStarts: string[] }
  *
  * 画面は区切りを1つ直すたびに送る（途中でやめても残る。05 §5.15）。文を書くのに失敗した下書きなら、確かめ中に戻す
  */

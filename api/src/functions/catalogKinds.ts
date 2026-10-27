@@ -4,7 +4,7 @@ import { createSuccessResponse } from '../utils/response';
 
 /**
  * 図鑑の種類の一覧 API（定義表から。DB に触らない）
- * GET /api/catalog/kinds?code={FUNCTION_KEY}
+ * GET /api/catalog/kinds
  *
  * アプリは種類のタブと項目詳細の欄をここから作る（docs/04_data_design.md §3.2）。
  * AI に渡す指示（各項目の prompt・namingRule）はアプリに要らないので返さない

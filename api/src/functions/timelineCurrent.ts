@@ -21,7 +21,7 @@ import { reviewingDraftOf } from '../services/timelineView';
 
 /**
  * タイムラインの完成版の区切りを直し始める API
- * POST /api/trips/{tripId}/timeline/recut?code={FUNCTION_KEY}
+ * POST /api/trips/{tripId}/timeline/recut
  *
  * 完成版の控えと区切りを写した確かめ中の下書きを作る（AI の区切り案は出さない。05 §5.15）。
  * 区切りを直して文を書かせると、変わった場面と日だけが書き直される（06 §8.3）
@@ -90,7 +90,7 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
 
 /**
  * 残せなかった文の知らせを閉じる API
- * DELETE /api/trips/{tripId}/timeline/dropped-edits?code={FUNCTION_KEY}
+ * DELETE /api/trips/{tripId}/timeline/dropped-edits
  *
  * 文を書き直したときに残せなかった利用者の文（droppedEdits）を空にする（05 §5.15）
  */
@@ -142,7 +142,7 @@ const SCENE_FIELDS: TextField<'label' | 'note'>[] = [
 
 /**
  * 完成版の日の文を直す API
- * PATCH /api/trips/{tripId}/timeline/days/{date}?code={FUNCTION_KEY}  { title?, summary? }
+ * PATCH /api/trips/{tripId}/timeline/days/{date}  { title?, summary? }
  */
 export async function patchTimelineDayHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   return editTimelineText(request, context, 'day');
@@ -150,7 +150,7 @@ export async function patchTimelineDayHandler(request: HttpRequest, context: Inv
 
 /**
  * 完成版の場面の文を直す API
- * PATCH /api/trips/{tripId}/timeline/scenes/{photoId}?code={FUNCTION_KEY}  { label?, note? }
+ * PATCH /api/trips/{tripId}/timeline/scenes/{photoId}  { label?, note? }
  */
 export async function patchTimelineSceneHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   return editTimelineText(request, context, 'scene');

@@ -14,7 +14,7 @@ import { PHOTO_VALIDATION } from '../constants/validation';
 
 /**
  * 写真詳細 API（表示用の SAS 付き URL を付ける）
- * GET /api/photos/{photoId}?code={FUNCTION_KEY}
+ * GET /api/photos/{photoId}
  */
 export async function getPhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const photoId = request.params.photoId;
@@ -36,7 +36,7 @@ export async function getPhotoHandler(request: HttpRequest, context: InvocationC
 
 /**
  * 写真削除 API（ドキュメントを消してから、原寸とサムネイルの Blob を消す）
- * DELETE /api/photos/{photoId}?code={FUNCTION_KEY}
+ * DELETE /api/photos/{photoId}
  */
 export async function deletePhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const photoId = request.params.photoId;
@@ -63,7 +63,7 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
 
 /**
  * 写真更新 API（利用者のコメントとタグを直す）
- * PATCH /api/photos/{photoId}?code={FUNCTION_KEY}
+ * PATCH /api/photos/{photoId}
  */
 export async function updatePhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const photoId = request.params.photoId;

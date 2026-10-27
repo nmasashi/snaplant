@@ -6,7 +6,7 @@ import { ErrorCode } from '../types/api';
 
 /**
  * 写真の移動 API（写真をまとめて旅行に入れる、または tripId: null で旅行から外す）
- * POST /api/photos/move?code={FUNCTION_KEY}
+ * POST /api/photos/move
  */
 export async function movePhotosHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('写真の移動リクエストを受信');

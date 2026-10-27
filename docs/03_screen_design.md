@@ -1026,6 +1026,8 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 ステータス 0 の `ApiException` にする。通信の例外（`SocketException` と、`http` の `IOClient` が接続できない・途中で切れた例外を包む
 `ClientException(message, uri)`）の `message` は固定文言「ネットワークに接続できません」。
 例外の文言には宛先の URL が入りうるが、関数キーは URL に載せずヘッダで送るので、文言にキーは入らない（§9.1。2026-10-27。実装済み）。
+関数キーにヘッダで送れない文字（見える ASCII 以外。全角文字や改行）があれば、要求を送らずにステータス 401 の `ApiException`（`userMessage` は「APIキーが無効です。設定を確認してください。」）にする。
+そのまま送ろうとすると `http` が送る前に例外を投げ、その文言にキーがそのまま入るため（2026-10-27。実装済み）。
 
 画面に出す文言は `ApiException.userMessage` がステータスから決める。
 
