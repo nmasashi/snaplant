@@ -1023,7 +1023,10 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 ランタイムが返す 401、従量課金プランの過負荷時に返る 429 "Too Busy" など）では `code` は null、
 `message` はステータス付きの固定文言「サーバーでエラーが発生しました（ステータス: {ステータス}）」になる。
 それ以外の例外（通信例外や 2xx 応答の解析失敗など）は、`_handleError()` が
-ステータス 0 の `ApiException` にする。
+ステータス 0 の `ApiException` にする。通信の例外（`SocketException` と、`http` の `IOClient` が接続できない・途中で切れた例外を包む
+`ClientException(message, uri)`）の `message` は固定文言「ネットワークに接続できません」。
+例外の文言を `message`・`body`・デバッグのログに写すときは、関数キー（`?code=` の値。クエリとして符号化した形も）を `***` に伏せる。
+例外の文言には宛先の URL が入りうるため（2026-10-26。実装済み）。
 
 画面に出す文言は `ApiException.userMessage` がステータスから決める。
 
