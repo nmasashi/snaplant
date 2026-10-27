@@ -1087,14 +1087,26 @@ describe('タイムラインのワーカー', () => {
         expect(cosmosBackend.documents.has(SNAPSHOT_ID)).toBe(true);
       });
 
-      it('区切りを直した下書き（recut。AI なしにする前に積まれたもの）は前の完成版と同じ控えを指すので、控えを消さない', async () => {
+      it('区切りを直した下書き（recut。AI なしにする前に文を書く段へ積まれたもの）は、AI を呼ばずに直した区切りを当て、利用者の文を残し、控えを消さない', async () => {
+        // 当て方は POST …/draft/write の recut と同じ（06 §8.6）。残った場面の文と日の文・作成日時はそのまま、足した f の場面は空
         const current = { ...oldCurrent(), snapshotId: SNAPSHOT_ID };
         cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current, draft: writingDraft({ reason: 'recut' }) }));
 
         await runWorker();
 
+        expect(sent).toEqual([]);
+        expect(storedTimeline()!.current).toEqual({
+          ...current,
+          sceneStarts: STARTS,
+          sceneTexts: {
+            [photoId('a')]: current.sceneTexts[photoId('a')],
+            [photoId('c')]: current.sceneTexts[photoId('c')],
+            [photoId('e')]: current.sceneTexts[photoId('e')],
+            [photoId('f')]: { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null }
+          }
+        });
+        expect(storedTimeline()!.draft).toBeNull();
         expect(cosmosBackend.documents.has(SNAPSHOT_ID)).toBe(true);
-        expect(storedTimeline()!.current!.snapshotId).toBe(SNAPSHOT_ID);
       });
 
       it('前の完成版の控えを消すのに失敗しても、完成版の入れ替えは済ませて例外を投げない（控えは旅行の削除で消える）', async () => {
