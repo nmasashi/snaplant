@@ -58,10 +58,10 @@ class ApiService {
 
   /// エラーハンドリング
   ///
-  /// 例外の文言には宛先の URL が入りうる（http の ClientException は uri を持つ）。URL には _buildUrl が付けた関数キーがあるので、
-  /// 文言はログにも ApiException にも、関数キーを伏せてから写す（docs/03_screen_design.md §9.2）
+  /// 例外の文言には宛先の URL が入りうる（http の ClientException は uri を持つ）。関数キーは URL に載せずヘッダで送るので、
+  /// 文言をそのまま写しても関数キーは入らない（docs/03_screen_design.md §9.2）
   ApiException _handleError(dynamic error) {
-    final text = _withoutFunctionKey(error.toString());
+    final text = error.toString();
     // デバッグ用ログ出力
     if (kDebugMode) {
       debugPrint('ApiService Error: ${error.runtimeType} - $text');
@@ -74,13 +74,13 @@ class ApiService {
       return ApiException(
         statusCode: 0,
         message: 'ネットワークに接続できません',
-        body: _withoutFunctionKey(error.message),
+        body: error.message,
       );
     } else if (error is FormatException) {
       return ApiException(
         statusCode: 0,
         message: 'レスポンスの形式が無効です',
-        body: _withoutFunctionKey(error.message),
+        body: error.message,
       );
     } else if (text.contains('XMLHttpRequest')) {
       // Web環境でのCORSやネットワークエラー（BrowserClient の ClientException もここで見分ける）
@@ -113,18 +113,6 @@ class ApiService {
         body: text,
       );
     }
-  }
-
-  /// 文言の中の関数キーを伏せる（URL に入るときはクエリとして符号化されているので、その形も伏せる）
-  String _withoutFunctionKey(String text) {
-    final key = functionKey;
-    if (key == null || key.isEmpty) {
-      return text;
-    }
-    // 符号化した形を先に伏せる（生の値が % を含むと、先に生の値を伏せたときに符号化した形の一部が残る）
-    return text
-        .replaceAll(Uri.encodeQueryComponent(key), '***')
-        .replaceAll(key, '***');
   }
 
   /// 旅行一覧取得（旅行に属さない写真の枚数も同じ応答で返る）
