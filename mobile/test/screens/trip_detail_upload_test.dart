@@ -1260,6 +1260,8 @@ void main() {
     expect(find.textContaining('送信できませんでした'), findsNothing);
     expect(find.textContaining('枚を送信しました'), findsNothing);
     expect(preparingBanner(3), findsNothing);
+    // 残りの2枚は準備しない（地名を引くのは、削除の前に準備を始めていた1枚目だけ）
+    expect(geocoding.lookups, hasLength(1));
     // 後片付け: 残りの準備があっても時間切れのタイマーをテストの終わりに残さない
     await tester.pump(const Duration(seconds: 5));
     await _waitRealTime(tester);
