@@ -79,7 +79,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | タイムラインの完成版の場面の見出し・一言を直す（`photoId` は場面の最初の写真。空か `null` なら AI の文に戻す） |
 | `/api/trips/{tripId}/timeline/dropped-edits` | DELETE | タイムラインの残せなかった文の知らせを閉じる |
 
-全エンドポイントは Function Key 認証（`?code={FUNCTION_KEY}`）が必要です。
+全エンドポイントは Function Key 認証（ヘッダ `x-functions-key: {FUNCTION_KEY}`。`?code={FUNCTION_KEY}` でも通る）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。
 詳細は [API 設計](./docs/05_api_design.md) を参照してください
 （OpenAPI の仕様書は置いていません。API 設計が正です）。

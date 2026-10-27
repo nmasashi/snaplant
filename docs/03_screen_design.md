@@ -1007,7 +1007,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 使われないまま宣言されており、どれを使うべきか判断がぶれていた。
 
 - 設定の保存: API キーは `flutter_secure_storage`、エンドポイントは `shared_preferences`
-- 通信: `http`（multipart の Content-Type の指定に `http_parser` も使う）。Function Key はクエリパラメータで送る（`ApiService._buildUrl()` が `?code=` を付ける）。
+- 通信: `http`（multipart の Content-Type の指定に `http_parser` も使う）。Function Key はヘッダ `x-functions-key` で送る（`ApiService._headers`。写真の送信の multipart も同じヘッダを足す）。URL には載せない（[05 §9.1](./05_api_design.md#91-認証と宛先)）。
   ネットワーク状態の監視（`connectivity_plus`）は入れていない。通信の失敗は `ApiService._handleError()` が例外から見分ける
 - 端末の文字サイズ設定は反映しない（倍率 1.0 に固定。`main.dart`）
 - 言語の設定は日本語（ja_JP）だけ（`main.dart` の `supportedLocales`。Material の文言は `flutter_localizations`）。端末の言語が英語でも、文字を描く部品に日本語が渡るので、端末では日本語の字形を選ぶ
@@ -1025,8 +1025,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 それ以外の例外（通信例外や 2xx 応答の解析失敗など）は、`_handleError()` が
 ステータス 0 の `ApiException` にする。通信の例外（`SocketException` と、`http` の `IOClient` が接続できない・途中で切れた例外を包む
 `ClientException(message, uri)`）の `message` は固定文言「ネットワークに接続できません」。
-例外の文言を `message`・`body`・デバッグのログに写すときは、関数キー（`?code=` の値。クエリとして符号化した形も）を `***` に伏せる。
-例外の文言には宛先の URL が入りうるため（2026-10-26。実装済み）。
+例外の文言には宛先の URL が入りうるが、関数キーは URL に載せずヘッダで送るので、文言にキーは入らない（§9.1。2026-10-27。実装済み）。
 
 画面に出す文言は `ApiException.userMessage` がステータスから決める。
 

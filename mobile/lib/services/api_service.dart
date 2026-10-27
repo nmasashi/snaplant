@@ -34,7 +34,7 @@ class ApiService {
         ..._keyHeader,
       };
 
-  /// 関数キーのヘッダ。URL のクエリ（?code=）では送らない。URL は例外の文言やログに出やすいため（docs/05_api_design.md §1）
+  /// 関数キーのヘッダ。URL のクエリ（?code=）では送らない。URL は例外の文言やログに出やすいため（docs/05_api_design.md §9.1）
   Map<String, String> get _keyHeader => {
         if (functionKey != null && functionKey!.isNotEmpty)
           'x-functions-key': functionKey!,

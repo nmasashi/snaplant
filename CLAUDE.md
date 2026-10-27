@@ -117,7 +117,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 - **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)`（キューのワーカーは `app.storageQueue(...)`、タイマーは `app.timer(...)`）で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる（ワーカーならメッセージが誰にも拾われずに溜まる）
 - `photos/{photoId}` は `photoDetail.ts`（GET・PATCH・DELETE）、`photos/{photoId}/process` は `photoProcess.ts` と、同じ写真でもルートごとにファイルが分かれている。片方だけ見て全体を判断しない
 - `photos/move` は `photos/{photoId}` と同じ階層のリテラルのルート（`photoMove.ts`）。デプロイ後に `{photoId}` に取られていないことを確かめる
-- 呼び出しに要る `?code=` は、Flutter の `ApiService._buildUrl()` が付ける
+- 呼び出しに要る関数キーは、Flutter の `ApiService` がヘッダ `x-functions-key` で送る（URL の `?code=` には載せない。テストの偽のサーバもヘッダで照合する）
 
 ### Blob Storage
 

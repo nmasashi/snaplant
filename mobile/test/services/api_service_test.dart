@@ -218,7 +218,7 @@ void main() {
     });
   });
 
-  // 関数キーは、どの要求もヘッダ x-functions-key で送り、URL（?code=）には載せない（docs/05 §1）。
+  // 関数キーは、どの要求もヘッダ x-functions-key で送り、URL（?code=）には載せない（docs/05 §9.1）。
   // URL は例外の文言やログに出やすく、URL に載せると関数キーが漏れる。JSON の要求と写真の送信（multipart）は要求の組み立てが別なので両方を見る
   test('関数キーは JSON の要求でも写真の送信でもヘッダ x-functions-key で送り、URL には載せない', () async {
     final sent = <http.BaseRequest>[];
@@ -243,7 +243,7 @@ void main() {
   });
 
   // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。
-  // uri には _buildUrl が付けた ?code=<関数キー> が入るので、例外の文言を ApiException に写すと関数キーが漏れる（docs/03 §9.2）
+  // uri には宛先の URL が入る。関数キーは URL に載せずヘッダで送るので、例外の文言を写しても関数キーは入らない（以前は ?code= で載せていて漏れた。docs/03 §9.2）
   group('通信の失敗', () {
     test('通信の例外（ClientException）はステータス 0 の例外にし、例外の文言にも body にも関数キー付きの宛先の URL を入れない', () async {
       final service = ApiService(

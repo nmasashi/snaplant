@@ -39,7 +39,7 @@ npx tsc -p tsconfig.test.json --noEmit
 各関数ファイルは末尾で `app.http(...)`（キューのトリガーは `app.storageQueue(...)`、タイマーは `app.timer(...)`）を呼び、`app.ts` が全ファイルを import することで登録が走る。
 新しい関数を足したら `app.ts` に import を足す。足し忘れると、その関数は一切登録されない（HTTP の関数は 404 になり、キューのワーカーはメッセージを取らず、タイマーは走らない）。
 
-HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しには `?code={FUNCTION_KEY}` が要る。
+HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しには関数キーが要る（ヘッダ `x-functions-key` か `?code=`。アプリはヘッダで送る）。
 ルートの一覧は `README.md`（リポジトリ直下）のエンドポイント表。
 
 キューのトリガーの関数は旅行アルバムの2つ。キューの名前はアプリの設定から `%名前%` で解決し、接続はどちらも `AzureWebJobsStorage`（設定値は `docs/07_infrastructure_design.md` §6.1）。

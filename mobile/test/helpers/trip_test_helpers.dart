@@ -206,7 +206,7 @@ enum TripRoute {
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
 /// - 次の1回の呼び出しだけ、応答の中身（[failNext] の失敗を含む）は届いた時点の状態で決めたまま、返すのを止める（[holdNextReply]）こともできる。
 ///   遅れて届く古い応答（止めている間に別の端末で状態が変わる）を表す
-/// - ホストと API キー（`?code=`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`catalogServer` と同じ考え方）
+/// - ホストと API キー（ヘッダ `x-functions-key`）が合わなければ 404 を返す。宛先やキーの取り違えを検出するため（`catalogServer` と同じ考え方）
 /// - 削除の要求の `deletePhotos` を [deletePhotosSent] に記録する。写真が0枚の旅行は `true` でも `false` でも応答が同じで、
 ///   結果からは何を送ったか見分けられない。二重に送られたかどうか（2回目は 404 になって成功扱いと区別しにくい）も、これで見る。
 ///   API が必須にしている `deletePhotos` を載せたかという、クライアントが送る要求そのものを確かめたいときだけ使う
@@ -377,7 +377,7 @@ class FakeTripBackend {
   late final MockClient client = MockClient(_handle);
 
   Future<http.Response> _handle(http.Request request) async {
-    // 関数キーはヘッダで受け取る（Azure Functions は x-functions-key ヘッダでも ?code= でも受け付ける。アプリはヘッダで送る。docs/05 §1）
+    // 関数キーはヘッダで受け取る（Azure Functions は x-functions-key ヘッダでも ?code= でも受け付ける。アプリはヘッダで送る。docs/05 §9.1）
     if (request.url.host != testApiHost || request.headers['x-functions-key'] != functionKey) {
       return http.Response('', 404);
     }
