@@ -95,8 +95,7 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
     {Map<String, Object?>? draft,
     int pendingPhotoCount = 0,
     Map<String, Object?>? current,
-    Map<String, Object?>? changes,
-    List<Object?>? droppedEdits}) async {
+    Map<String, Object?>? changes}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 10)],
     functionKey: 'test-key',
@@ -114,7 +113,6 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
     ..._timelineOf(draft: draft),
     if (current != null) 'current': current,
     if (changes != null) 'changes': changes,
-    if (droppedEdits != null) 'droppedEdits': droppedEdits,
   };
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
   // 1つのテストの中で開き直すとき、前のアプリの木（開いている画面）を残さない
@@ -818,7 +816,7 @@ void main() {
     });
   });
 
-  group('作った後に写真が変わった案内・残せなかった文', () {
+  group('作った後に写真が変わった案内', () {
     testWidgets('作った後に写真が増えた・消えた枚数の案内を作成日時の上に「あとで」「作り直す」と出し、「作り直す」は作り直しの確認を出し、「あとで」で隠した案内は読み直すとまた出す',
         (tester) async {
       final semantics = tester.ensureSemantics();
@@ -857,13 +855,11 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('下書きがある間は、写真が変わっても案内を出さず、残せなかった文は出す', (tester) async {
+    testWidgets('下書きがある間は、写真が変わっても案内を出さない', (tester) async {
       await _openTimeline(tester, changes: {
         'added': 3,
         'removed': 2
-      }, droppedEdits: [
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ], draft: {
+      }, draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',
         'reason': 'rebuild',
         'phase': 'proposing',
@@ -873,36 +869,6 @@ void main() {
 
       expect(find.textContaining('作った後に写真が'), findsNothing);
       expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
-      expect(find.text('場面や日が無くなったため、手で直した文のうち 1 件を残せませんでした'), findsOneWidget);
-    });
-
-    testWidgets('残せなかった文があれば、件数とその文・「閉じる」を出し、閉じるのに失敗したらエラーの文言を出して文はそのまま、「閉じる」で消す',
-        (tester) async {
-      final backend = await _openTimeline(tester, droppedEdits: [
-        {
-          'kind': 'scene',
-          'key': 'c4ca42',
-          'field': 'label',
-          'text': '小樽運河をのんびり'
-        },
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ]);
-
-      expect(find.text('場面や日が無くなったため、手で直した文のうち 2 件を残せませんでした'), findsOneWidget);
-      expect(find.text('小樽運河をのんびり'), findsOneWidget);
-      expect(find.text('札幌の休日'), findsOneWidget);
-
-      backend.failNext(TripRoute.timelineDroppedEditsDelete);
-      await tester.tap(find.text('閉じる'));
-      await letFramesRun(tester);
-      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
-      expect(find.text('札幌の休日'), findsOneWidget);
-
-      await tester.tap(find.text('閉じる'));
-      await letFramesRun(tester);
-      expect(
-          backend.timelinesByTripId[hokkaidoTripId]!['droppedEdits'], isEmpty);
-      expect(find.textContaining('残せませんでした'), findsNothing);
     });
 
     testWidgets('解析中の写真がある間は、写真が変わった案内の「作り直す」も押せない', (tester) async {
@@ -918,25 +884,10 @@ void main() {
           isNull);
     });
 
-    testWidgets('作り直しを受け付けた後も、残せなかった文の案内を出したまま', (tester) async {
-      await _openTimeline(tester, droppedEdits: [
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ]);
-
-      await tester.tap(find.text('作り直す'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '作り直す');
-
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
-      expect(find.text('札幌の休日'), findsOneWidget);
-    });
-
-    testWidgets('操作を送っている間は、日と場面の編集のボタンも残せなかった文の「閉じる」も押せない', (tester) async {
+    testWidgets('操作を送っている間は、日と場面の編集のボタンも押せない', (tester) async {
       // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
       final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester, droppedEdits: [
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ]);
+      final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
       await tester.tap(find.text('区切りを直す'));
@@ -950,7 +901,6 @@ void main() {
                 .onPressed,
             isNull);
       }
-      expect(_button(tester, '閉じる').onPressed, isNull);
 
       reply.complete();
       await letFramesRun(tester);
