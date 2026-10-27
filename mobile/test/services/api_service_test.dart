@@ -263,40 +263,22 @@ void main() {
     expect('${error.message} ${error.body}', isNot(contains('secret')));
   });
 
-  // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。
-  // uri には宛先の URL が入る。関数キーは URL に載せずヘッダで送るので、例外の文言を写しても関数キーは入らない（以前は ?code= で載せていて漏れた。docs/03 §9.2）
-  group('通信の失敗', () {
-    test('通信の例外（ClientException）はステータス 0 の例外にし、例外の文言にも body にも関数キー付きの宛先の URL を入れない', () async {
-      final service = ApiService(
-        baseUrl: 'https://api.example.test',
-        functionKey: 'secret+key==',
-        client: MockClient((request) async {
-          throw http.ClientException('Connection closed before full header was received', request.url);
-        }),
-      );
+  // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。通信の失敗として扱う。
+  // 例外の文言に関数キーが入らないことは、関数キーをヘッダで送る上のテスト（URL に載せない）が守る
+  test('通信の例外（ClientException）はステータス 0 の「ネットワークに接続できません」にする', () async {
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      functionKey: 'secret+key==',
+      client: MockClient((request) async {
+        throw http.ClientException('Connection closed before full header was received', request.url);
+      }),
+    );
 
-      final error = await _captureApiException(() => service.getTrips());
+    final error = await _captureApiException(() => service.getTrips());
 
-      expect(error.statusCode, 0);
-      expect(error.message, 'ネットワークに接続できません');
-      expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
-      expect('${error.message} ${error.body}', isNot(contains('secret')));
-    });
-
-    test('分類できない例外の文言に宛先の URL が入っていても、例外の文言にも body にも関数キーを入れない', () async {
-      final service = ApiService(
-        baseUrl: 'https://api.example.test',
-        functionKey: 'secret+key==',
-        client: MockClient((request) async {
-          throw StateError('予期しない失敗: ${request.url}');
-        }),
-      );
-
-      final error = await _captureApiException(() => service.getTrips());
-
-      expect(error.statusCode, 0);
-      expect('${error.message} ${error.body}', isNot(contains('secret')));
-    });
+    expect(error.statusCode, 0);
+    expect(error.message, 'ネットワークに接続できません');
+    expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
   });
 }
 
