@@ -1042,8 +1042,18 @@ describe('タイムラインのワーカー', () => {
         await runWorker();
 
         expect(sent).toHaveLength(1);
-        expect(storedTimeline()!.current!.sceneTexts[photoId('a')]).toEqual(aiScene('朝ごはん', '空港の海鮮丼'));
-        expect(storedTimeline()!.current!.dayTexts['2026-10-05']).toEqual(aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。'));
+        // 前の文は、残さないうえに AI にも渡さない
+        expect(sentPrompt().includes('前の')).toBe(false);
+        expect(storedTimeline()!.current!.sceneTexts).toEqual({
+          [photoId('a')]: aiScene('朝ごはん', '空港の海鮮丼'),
+          [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン'),
+          [photoId('e')]: aiScene('運河', '小樽運河'),
+          [photoId('f')]: aiScene('おやつ', '小樽で一休み')
+        });
+        expect(storedTimeline()!.current!.dayTexts).toEqual({
+          '2026-10-05': aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。'),
+          '2026-10-06': aiDay('小樽', '小樽運河を歩いた。')
+        });
       });
 
       it('前の完成版で利用者が書いた文は、残せなかった文の知らせにも足さない（今ある知らせはそのまま）', async () => {
