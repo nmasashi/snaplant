@@ -390,10 +390,18 @@ class ApiService {
     }
   }
 
-  /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す
+  /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す。
+  /// 区切りを直している下書き（recut）は、AI を使わずその場で完成版に当てて下書きが無くなるので null を返す（06 §8.6）
   /// POST /api/trips/{tripId}/timeline/draft/write
-  Future<TimelineDraftStatus> writeTimeline(String tripId) =>
-      _postForDraft('/api/trips/$tripId/timeline/draft/write');
+  Future<TimelineDraftStatus?> writeTimeline(String tripId) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/draft/write');
+      final response = await _client.post(Uri.parse(url), headers: _headers);
+      return _parseResponse(response, (json) => _draftOf(json));
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
 
   /// タイムラインの下書きをやめる（作っている途中でも）。応答は読まない（画面が続けてタイムラインを読み直す）
   /// DELETE /api/trips/{tripId}/timeline/draft
