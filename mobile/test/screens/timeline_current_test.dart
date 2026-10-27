@@ -599,7 +599,7 @@ void main() {
 
       await openSceneSheet(tester);
       expect(find.text('場面を編集'), findsOneWidget);
-      expect(find.text('空にすると、AI が書いた文に戻ります'), findsOneWidget);
+      expect(find.text('空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）'), findsOneWidget);
       expect(tester.widget<TextField>(field('見出し')).controller!.text, '朝ごはん');
       expect(
           tester.widget<TextField>(field('一言')).controller!.text, '港の市場で海鮮丼。');
