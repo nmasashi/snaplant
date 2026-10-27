@@ -1,5 +1,5 @@
 import { TIMELINE_MAX_PHOTOS_PER_CALL } from '../constants/album';
-import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { TimelineProposerService } from './timelineProposerService';
 import { TimelinePromptPhoto } from './timelinePrompt';
 import { TimelineDatedDay, datedDaysOf } from './timelineView';
@@ -7,14 +7,13 @@ import { TimelineDatedDay, datedDaysOf } from './timelineView';
 /**
  * 区切りの案を出す（06 §8.2）
  *
- * AI の案に、作り直しなら完成版で利用者が直した区切り（足した・消した）を当て、最後に各日の最初の写真を足す
- * （利用者が消した区切りが、日付の切り替えの時刻を変えた後などに日の最初になっていても、場面が日をまたがないように）
+ * AI の案に各日の最初の写真を足す（AI の案が日の最初の写真を落としても、場面が日をまたがないように）。
+ * 作り直しでも、完成版で利用者が直した区切りは当てない（一から作る。2026-10-27 に人間が決定）
  * @returns AI の案（各日の最初の写真を足したもの）と区切り。どちらも場面の最初の写真の id で、撮影の順
  */
 export async function proposeScenes(
   photos: TimelinePhotoSnapshot[],
-  draft: TimelineDraft,
-  current: TimelineCurrent | null
+  draft: TimelineDraft
 ): Promise<{ proposedStarts: string[]; sceneStarts: string[] }> {
   const days = datedDaysOf(photos, draft.dayStartHour);
   // 撮影日時のある写真の id（撮影の順）
@@ -29,20 +28,10 @@ export async function proposeScenes(
   // 各日の最初の写真と、1日を上限で切った切れ目は、AI の案によらず場面の始まり
   const dayStarts = [...days.map((day) => day.photos[0].id), ...cuts];
 
-  let starts = new Set(proposed);
-  if (draft.reason === 'rebuild' && current) {
-    const aiStarts = new Set(current.proposedStarts);
-    const userStarts = new Set(current.sceneStarts);
-    const added = current.sceneStarts.filter((id) => !aiStarts.has(id));
-    const removed = new Set(current.proposedStarts.filter((id) => !userStarts.has(id)));
-    starts = new Set([...proposed, ...added].filter((id) => !removed.has(id)));
-  }
-  // 撮影の順に並べる。控えに無い・撮影日時の無い写真の区切りはここで落ちる
-  const inOrder = (ids: Set<string>) => ordered.filter((id) => ids.has(id));
-  return {
-    proposedStarts: inOrder(new Set([...proposed, ...dayStarts])),
-    sceneStarts: inOrder(new Set([...starts, ...dayStarts])),
-  };
+  // 撮影の順に並べる
+  const starts = new Set([...proposed, ...dayStarts]);
+  const inOrder = ordered.filter((id) => starts.has(id));
+  return { proposedStarts: inOrder, sceneStarts: inOrder };
 }
 
 /**

@@ -244,7 +244,7 @@ function withRecutStarts(current: TimelineCurrent, sceneStarts: string[]): Timel
 
 /** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */
 function emptySceneText(): TimelineSceneText {
-  return { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] };
+  return { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null };
 }
 
 /**
