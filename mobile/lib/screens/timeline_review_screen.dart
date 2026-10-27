@@ -116,10 +116,14 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから区切り案を出し直し、旅行詳細に戻る
   Future<void> _repropose() async {
-    if (!await confirmTimelineAction(context,
+    // 完成版がある下書き（作り直し・区切りの直し）なら、区切り案を出し直すことは最初から作り直すこと（手で直した文と区切りも消える。§8.4）
+    final rebuilds = _draft?.reason != 'create';
+    final confirmed = await (rebuilds
+        ? confirmRebuildTimeline(context)
+        : confirmTimelineAction(context,
             message: 'AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。',
-            confirmLabel: '出し直す') ||
-        !mounted) {
+            confirmLabel: '出し直す'));
+    if (!confirmed || !mounted) {
       return;
     }
     await _sendAndClose(

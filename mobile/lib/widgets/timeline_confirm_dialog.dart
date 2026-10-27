@@ -34,3 +34,12 @@ Future<bool> confirmDiscardTimeline(BuildContext context,
             message: '作り直しをやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる')
         : confirmTimelineAction(context,
             message: '作りかけのタイムラインを捨てますか？', confirmLabel: '捨てる');
+
+/// 「作り直す」の確認（§8.6）。旅行詳細の「作り直す」と、完成版がある下書きの「区切り案を出し直す」（§8.4）で同じものを出す。
+/// 作り直しは手で直した文と区切りも捨てて一から作るので、そのことを知らせる
+Future<bool> confirmRebuildTimeline(BuildContext context) =>
+    confirmTimelineAction(context,
+        title: 'タイムラインを作り直しますか？',
+        message:
+            '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。',
+        confirmLabel: '作り直す');

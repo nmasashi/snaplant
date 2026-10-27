@@ -197,12 +197,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
   Future<void> _rebuild() async {
-    if (!await confirmTimelineAction(context,
-            title: 'タイムラインを作り直しますか？',
-            message:
-                '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。',
-            confirmLabel: '作り直す') ||
-        !mounted) {
+    if (!await confirmRebuildTimeline(context) || !mounted) {
       return;
     }
     await _create();
