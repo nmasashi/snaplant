@@ -420,6 +420,26 @@ void main() {
       await letFramesRun(tester);
     });
 
+    testWidgets('完成版がある下書き（区切りの直し・作り直し）の「区切り案を出し直す」は、作り直しと同じダイアログで、手で直した文と区切りが消えると知らせる',
+        (tester) async {
+      await _openTimeline(tester, draft: _reviewingDraft(reason: 'recut'));
+      await _openReview(tester);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('区切り案を出し直す'));
+      await letFramesRun(tester);
+
+      // 完成版があれば、区切り案を出し直すことは最初から作り直すこと（03 §8.4・§8.6）
+      expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
+      expect(
+          inDialog(find.text(
+              '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。')),
+          findsOneWidget);
+      await tapInDialog(tester, '作り直す');
+      expect(find.text('区切りを確認'), findsNothing);
+    });
+
     testWidgets('メニューの「区切り案を出し直す」は確認のダイアログを出し、「キャンセル」なら何もせず、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
         (tester) async {
       final backend = await _openTimeline(tester);
