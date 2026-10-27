@@ -266,6 +266,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
               maxLength: 400,
               initial: day.summary),
         ],
+        hint: '空にすると、AI が書いた文に戻ります',
         save: (changes) => widget.apiService
             .updateTimelineDay(widget.tripId, day.date, changes),
       );
@@ -279,6 +280,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           TimelineEditField(
               key: 'note', label: '一言', maxLength: 200, initial: scene.note),
         ],
+        // 区切りを直して足した場面は AI の文が無いので、空にすると空に戻る（5-5a）
+        hint: '空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）',
         save: (changes) => widget.apiService
             .updateTimelineScene(widget.tripId, scene.startPhotoId, changes),
       );
@@ -287,6 +290,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Future<void> _edit({
     required String title,
     required List<TimelineEditField> fields,
+    required String hint,
     required Future<TimelineOverview> Function(Map<String, String?>) save,
   }) async {
     final result = await showModalBottomSheet<Object>(
@@ -295,7 +299,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
       enableDrag: false,
       builder: (context) =>
-          TimelineEditSheet(title: title, fields: fields, onSave: save),
+          TimelineEditSheet(
+              title: title, fields: fields, hint: hint, onSave: save),
     );
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
