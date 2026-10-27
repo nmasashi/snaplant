@@ -672,12 +672,24 @@ describe('タイムラインのワーカー', () => {
       expect(sent[0].body.model).toBe('timeline-deployment');
     });
 
-    it('完成版の日付の切り替えの時刻は、下書きのものを写す', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ dayStartHour: 5 }) }));
+    it('文を書く段は、下書きの日付の切り替えの時刻で日を分け、その時刻を完成版に写す', async () => {
+      // 2時にすると、10/06 02:30 の d は2日目の最初になる（4時なら1日目）
+      const starts = [photoId('a'), photoId('c'), photoId('d'), photoId('e')];
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ dayStartHour: 2, proposedStarts: starts, sceneStarts: starts }) }));
+      aiReturns({
+        days: allTexts.days,
+        scenes: [
+          { start: 0, end: 1, label: '朝', note: '一言' },
+          { start: 2, end: 2, label: '昼', note: '一言' },
+          { start: 3, end: 3, label: '夜中', note: '一言' },
+          { start: 4, end: 5, label: '運河', note: '一言' }
+        ]
+      });
 
       await runWorker();
 
-      expect(storedTimeline()!.current!.dayStartHour).toBe(5);
+      expect(promptLineOf(sentPrompt(), 3)).toContain('2日目');
+      expect(storedTimeline()!.current!.dayStartHour).toBe(2);
     });
 
     it('完成版の無い下書きは、AI が全部の日と場面の文を書き、完成版に入れ替わって下書きが消える', async () => {
@@ -1005,13 +1017,33 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
-        // 何を頼むかは、全部の場面と日を返す応答（allTexts）で成功する上のテストが固定している（頼む数が違えば検証で失敗する）
-        const otherLines = nonPhotoLines(sentPrompt());
+        // 何を頼むかは、全部の場面と日を返す応答（allTexts）で成功する上のテストが固定している（頼む数が違えば検証で失敗する）。
+        // 前の文は、写真の行に添える形でも渡さない（どの文も写真の名前・地名・コメントには無いので、プロンプト全体で探す）
+        const prompt = sentPrompt();
         for (const text of ['空港の朝', '朝ごはんの一言', '自分で書いた一言', '北海道1日目', '自分で書いたまとめ', '運河と店']) {
-          expect(otherLines.some((line) => line.includes(text))).toBe(false);
+          expect(prompt.includes(text)).toBe(false);
         }
-        // 書いてほしい場面の並びに、前の完成版と同じ a の場面（0番〜1番）も入る
-        expect(otherLines.some((line) => ['0番〜1番', '2番〜3番', '4番〜4番', '5番〜5番'].every((range) => line.includes(range)))).toBe(true);
+      });
+
+      it('写真も区切りも前の完成版と同じ作り直しでも、AI に全部を書かせ、前の文は残さない（函館の旅行で、AI が呼ばれずずれた文が残った）', async () => {
+        const same = timelineCurrent(OLD_SNAPSHOT_ID, {
+          proposedStarts: PROPOSED,
+          sceneStarts: STARTS,
+          sceneTexts: {
+            [photoId('a')]: aiScene('前の朝', '前の一言'),
+            [photoId('c')]: aiScene('前の昼', '前の一言'),
+            [photoId('e')]: aiScene('前の運河', '前の一言'),
+            [photoId('f')]: aiScene('前のおやつ', '前の一言')
+          },
+          dayTexts: { '2026-10-05': aiDay('前の1日目', '前のまとめ'), '2026-10-06': aiDay('前の2日目', '前のまとめ') }
+        });
+        cosmosBackend.documents.set(TIMELINE_ID, rebuilding(same));
+
+        await runWorker();
+
+        expect(sent).toHaveLength(1);
+        expect(storedTimeline()!.current!.sceneTexts[photoId('a')]).toEqual(aiScene('朝ごはん', '空港の海鮮丼'));
+        expect(storedTimeline()!.current!.dayTexts['2026-10-05']).toEqual(aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。'));
       });
 
       it('前の完成版で利用者が書いた文は、残せなかった文の知らせにも足さない（今ある知らせはそのまま）', async () => {
