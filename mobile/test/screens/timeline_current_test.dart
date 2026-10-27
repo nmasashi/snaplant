@@ -692,6 +692,32 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('「見出しなし」の場面（区切りを直して足した場面）は見出しを書けて、空にすると「見出しなし」に戻る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      // 最初の場面は AI の文が無い（区切りを直して足した場面。05 §5.15）
+      final current = _current();
+      final firstScene = ((current['days'] as List).first as Map<String, Object?>)['scenes'] as List;
+      firstScene[0] = {...firstScene[0] as Map<String, Object?>, 'label': null, 'labelSource': null};
+      final backend = await _openTimeline(tester, current: current);
+      backend.timelineAiTexts['$breakfastId:label'] = null;
+      expect(find.text('見出しなし'), findsOneWidget);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '市場');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('市場'), findsOneWidget);
+      expect(find.text('見出しなし'), findsNothing);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('見出しなし'), findsOneWidget);
+      expect(sceneOf(backend, breakfastId)['labelSource'], isNull);
+      semantics.dispose();
+    });
+
     testWidgets('保存している間は、「保存」をもう一度押しても1回だけ保存し、下に引いても端末の戻る操作でも閉じず「キャンセル」「保存」も押せず、応答が届いたら閉じてタイムラインに戻る',
         (tester) async {
       final semantics = tester.ensureSemantics();
