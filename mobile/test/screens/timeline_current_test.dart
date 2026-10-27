@@ -522,7 +522,7 @@ void main() {
     expect(find.text('区切りを直す'), findsOneWidget);
   });
 
-  testWidgets('タイトルもまとめも無い日は印を出さず、見出しも一言も無い場面はその行を出さない', (tester) async {
+  testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、一言の無い場面はその行を出さない', (tester) async {
     await _openTimeline(tester, current: {
       'writtenAt': '2026-10-25T09:10:00.000Z',
       'days': [
@@ -546,8 +546,9 @@ void main() {
     expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
     expect(find.text('AI のまとめ'), findsNothing);
     expect(find.text('編集済み'), findsNothing);
-    // 見出しの行（印と見出し）を出さない
+    // 見出しの印は出さず、見出しの所に「見出しなし」と出す（編集のボタンで書ける。§8.3）
     expect(find.byIcon(Icons.circle), findsNothing);
+    expect(find.text('見出しなし'), findsOneWidget);
     // 日時なしの写真が無ければ、見出しも出さない
     expect(find.text('日時なし'), findsNothing);
   });
