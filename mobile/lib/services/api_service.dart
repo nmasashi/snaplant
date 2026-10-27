@@ -31,19 +31,17 @@ class ApiService {
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        ..._keyHeader,
       };
 
-  /// Function Key付きのURLを構築
-  String _buildUrl(String endpoint) {
-    final uri = Uri.parse('$baseUrl$endpoint');
-    if (functionKey != null && functionKey!.isNotEmpty) {
-      return uri.replace(queryParameters: {
-        ...uri.queryParameters,
-        'code': functionKey!,
-      }).toString();
-    }
-    return uri.toString();
-  }
+  /// 関数キーのヘッダ。URL のクエリ（?code=）では送らない。URL は例外の文言やログに出やすいため（docs/05_api_design.md §1）
+  Map<String, String> get _keyHeader => {
+        if (functionKey != null && functionKey!.isNotEmpty)
+          'x-functions-key': functionKey!,
+      };
+
+  /// 要求の URL を組み立てる
+  String _buildUrl(String endpoint) => Uri.parse('$baseUrl$endpoint').toString();
 
   /// HTTP レスポンスをパース
   T _parseResponse<T>(
@@ -512,6 +510,8 @@ class ApiService {
     try {
       final url = _buildUrl('/api/photos');
       final request = http.MultipartRequest('POST', Uri.parse(url));
+      // Content-Type は multipart の境界付きのものを MultipartRequest が付けるので、関数キーのヘッダだけを足す
+      request.headers.addAll(_keyHeader);
       request.fields['photoId'] = photoId;
       if (tripId != null) request.fields['tripId'] = tripId;
       if (takenAt != null) request.fields['takenAt'] = takenAt;
