@@ -410,11 +410,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildRebuildBanner(draft),
       notices: [
-        if (timeline.droppedEdits.isNotEmpty)
-          TimelineDroppedEditsNotice(
-            edits: timeline.droppedEdits,
-            onDismiss: _sending ? null : _dismissDroppedEdits,
-          ),
         if (draft == null &&
             !_changesNoticeHidden &&
             TimelineChangesNotice.shows(timeline.changes))
@@ -443,14 +438,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
     );
   }
-
-  /// 残せなかった文の知らせを閉じ、応答で描き直す（失敗は §8.1 の操作と同じ）
-  Future<void> _dismissDroppedEdits() => _send(() async {
-        final overview =
-            await widget.apiService.dismissTimelineDroppedEdits(widget.tripId);
-        if (!mounted) return;
-        _show(overview);
-      });
 
   /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
   Widget _buildRebuildBanner(TimelineDraftStatus draft) {

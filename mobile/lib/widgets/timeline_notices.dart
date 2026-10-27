@@ -48,35 +48,6 @@ class TimelineNoticeCard extends StatelessWidget {
   }
 }
 
-/// 残せなかった文の案内（§8.3）。文は選んで写せる
-class TimelineDroppedEditsNotice extends StatelessWidget {
-  const TimelineDroppedEditsNotice(
-      {super.key, required this.edits, required this.onDismiss});
-
-  final List<TimelineDroppedEdit> edits;
-
-  /// 「閉じる」。null なら押せない（操作を送っている間）
-  final VoidCallback? onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    return TimelineNoticeCard(
-      text: '場面や日が無くなったため、手で直した文のうち ${edits.length} 件を残せませんでした',
-      details: [
-        for (final edit in edits)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: SelectableText(edit.text, style: AppTextStyles.body2),
-          ),
-      ],
-      alignActionsEnd: true,
-      actions: [
-        TextButton(onPressed: onDismiss, child: const Text('閉じる')),
-      ],
-    );
-  }
-}
-
 /// 作った後に写真が変わった案内（§8.3）と「あとで」「作り直す」
 class TimelineChangesNotice extends StatelessWidget {
   const TimelineChangesNotice(

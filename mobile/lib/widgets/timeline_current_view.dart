@@ -43,7 +43,7 @@ class TimelineCurrentView extends StatelessWidget {
   /// 完成版の上に出す下書きの案内（§8.3）。あれば「区切りを直す」「作り直す」と解析中の枚数を出さない
   final Widget? banner;
 
-  /// 一番上に出す案内（残せなかった文・写真が変わった案内。§8.3）
+  /// 一番上に出す案内（写真が変わった案内。§8.3）
   final List<Widget> notices;
 
   /// 場面のカードに並べるサムネイルの枚数（それより多ければ「+N枚」）
