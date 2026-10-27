@@ -57,8 +57,6 @@ export interface TimelineWriteRequest {
   scenesToWrite: number[];
   /** 文を書いてほしい日 */
   daysToWrite: { date: string; dayNumber: number }[];
-  /** 前の完成版の文（引き継ぐ文と、利用者が書いた文。書き換えさせない。1行ずつ） */
-  context: string[];
 }
 
 /** AI が書いた文（前後の空白を除き、上限で切り詰めた後） */
@@ -106,7 +104,6 @@ ${dayRangesOf(request.photos)}
 
 書いてほしい場面（最初と最後の写真の番号）: ${listOrNone(request.scenesToWrite.map(rangeOf), 'scenes')}
 書いてほしい日: ${listOrNone(request.daysToWrite.map(({ date, dayNumber }) => `${date}（${dayNumber}日目）`), 'days')}
-${request.context.length > 0 ? `\n前に書いた文（文脈として読み、書き換えないでください）:\n${request.context.join('\n')}\n` : ''}
 写真（[番号] 何日目 撮影時刻 カテゴリ 名前 地名「コメント」）:
 ${lines.join('\n')}
 `;

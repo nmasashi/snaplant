@@ -982,7 +982,7 @@ describe('タイムラインの下書きAPI', () => {
 
     describe('区切りを直している下書き（recut）は、AI を使わずその場で完成版に当てる（06 §8.6）', () => {
       // 完成版の区切りは a・c・e。直した区切りは a・b・e（a の場面の後ろを b から分け、c の場面を b の場面につなげた）
-      const aiText = (label: string) => ({ label, labelSource: 'ai' as const, aiLabel: label, note: `${label}の一言`, noteSource: 'ai' as const, aiNote: `${label}の一言`, photoIds: [] });
+      const aiText = (label: string) => ({ label, labelSource: 'ai' as const, aiLabel: label, note: `${label}の一言`, noteSource: 'ai' as const, aiNote: `${label}の一言` });
       const current = timelineCurrent(CURRENT_SNAPSHOT_ID, {
         proposedStarts: [photoId('a'), photoId('c'), photoId('e')],
         sceneStarts: [photoId('a'), photoId('c'), photoId('e')],
@@ -993,7 +993,7 @@ describe('タイムラインの下書きAPI', () => {
           [photoId('e')]: aiText('運河')
         },
         dayTexts: {
-          '2026-10-05': { title: '千歳と札幌', titleSource: 'ai', aiTitle: '千歳と札幌', summary: 'まとめ', summarySource: 'ai', aiSummary: 'まとめ', sceneStarts: [photoId('a'), photoId('c')] }
+          '2026-10-05': { title: '千歳と札幌', titleSource: 'ai', aiTitle: '千歳と札幌', summary: 'まとめ', summarySource: 'ai', aiSummary: 'まとめ' }
         },
         writtenAt: '2026-10-20T09:00:00.000Z'
       });
@@ -1028,7 +1028,7 @@ describe('タイムラインの下書きAPI', () => {
             sceneStarts: [photoId('a'), photoId('b'), photoId('e')],
             sceneTexts: {
               [photoId('a')]: current.sceneTexts[photoId('a')],
-              [photoId('b')]: { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] },
+              [photoId('b')]: { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null },
               [photoId('e')]: current.sceneTexts[photoId('e')]
             }
           },

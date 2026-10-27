@@ -401,7 +401,7 @@ describe('タイムラインの完成版の操作API', () => {
     });
 
     it('区切りを直して足した場面（AI の文が無い）は、書いた見出しを保存でき、空にすると空に戻って書いた主も無くなる', async () => {
-      const empty = { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] };
+      const empty = { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null };
       const edited = { ...current, sceneTexts: { ...current.sceneTexts, [photoId('c')]: { ...empty, note: '自分の一言', noteSource: 'user' as const } } };
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited as any }));
 

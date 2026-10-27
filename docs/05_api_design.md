@@ -60,7 +60,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/trips/{tripId}/timeline/draft/write` | POST | `{ draft, urlExpiresAt }` 202（区切りを直している下書きは `{ draft: null, urlExpiresAt }` 200） | 確かめた区切りで文を書く（文を書く待ちにしてキューに積む）。区切りを直している下書き（`recut`）は、キューに積まずその場で完成版に当てる | 5（5-2a。`recut` は 5-5a。実装済み） | `timelineDraft.ts` |
 | `/api/trips/{tripId}/timeline/days/{date}` | PATCH | `{ timeline, pendingPhotoCount, urlExpiresAt }` | `{ title?, summary? }`。完成版の文。`data` は `GET …/timeline` と同じ形 | 5（5-2b。実装済み） | `timelineCurrent.ts` |
 | `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | 同上 | `{ label?, note? }`。完成版の文 | 5（5-2b。実装済み） | `timelineCurrent.ts` |
-| `/api/trips/{tripId}/timeline/dropped-edits` | DELETE | 同上 | 残せなかった文の知らせを閉じる。**5-5b で消す**（作り直しで前の文を使わなくなり、残せなかった文が無くなる。2026-10-27 に人間が決定） | 5（5-2b。実装済み） | `timelineCurrent.ts` |
+| `/api/trips/{tripId}/timeline/dropped-edits` | DELETE | 同上 | 残せなかった文の知らせを閉じる。**5-5c で消す**（作り直しで前の文を使わなくなり（5-5b）、残せなかった文が無くなる。2026-10-27 に人間が決定。今のアプリが応答の `droppedEdits` を必ず読むので、アプリの変更と同じ PR で消す） | 5（5-2b。実装済み） | `timelineCurrent.ts` |
 
 図鑑の項目は文書として持たず、写真の `identification` からまとめる（[04 §3](./04_data_design.md#3-図鑑の項目と定義表段階4)）。
 そのため項目の id は無く、項目は `kind` と `name` で指定する。項目を削除する API は置かない。項目は写真の集まりに過ぎず、
@@ -666,10 +666,11 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`・`timelineDraft.ts` の `putTimelineDraftScenes`、完成版の組み立ては `services/timelineView.ts` の `currentTimelineOf()`）: 「共通」のボディの行（`PUT` の分）、「応答の形」の全部（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）、`GET …/timeline`・`PUT …/draft/scenes`。
 **実装済み**（5-2a。`timelineDraft.ts` の `postTimelineDraftWrite`）: `POST …/draft/write`。完成版（`current`）は、文を書くワーカー（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）が書き終えたときに書く。区切りを直している下書き（`recut`）は、AI を使わずその場で完成版に当てる（5-5a で実装済み）。
 **実装済み**（5-2b。`timelineCurrent.ts` の `postTimelineRecut`・`patchTimelineDay`・`patchTimelineScene`・`deleteTimelineDroppedEdits`、完成版を読んだ形（`GET …/timeline` の `data`）を組むのは `services/timelineRead.ts` の `readTimelineBody()`（応答にするのは `readTimelineResponse()`）、確かめ中の下書きの形は `services/timelineView.ts` の `reviewingDraftOf()`）: 「共通」のボディの行（`PATCH` の分）、`POST …/recut`・`PATCH` の2つ・`DELETE …/dropped-edits`。
+**実装済み**（5-5b。ワーカーの `functions/processTimeline.ts`・`services/timelineProposal.ts`・`services/timelineWriting.ts`）: 作り直し（`rebuild`）で前の完成版の文と区切りを使わないこと（書き終えたときに完成版をまるごと置き換え、残せなかった文に足さない）。応答の `droppedEdits` と `DELETE …/dropped-edits` は残っていて、5-5c で消す。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)、文書は [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
 完成版（`current`）と下書き（`draft`）を分けて持ち、下書きの文を書き終えるまで完成版は変わらない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。
-**AI を使うのは、作る（`create`）と、最初から作り直す（`rebuild`）ときだけ。** 作り直しは前の完成版の文と区切り（利用者が直したものも）を使わず、区切りを直す（`recut`）ときは AI を使わずに直した区切りを完成版に当てる（[06 §8](./06_processing_design.md#8-タイムライン段階5)。2026-10-27 に人間が決定。区切りを直すときは 5-5a で実装済み。作り直しで前の完成版の文と区切りを使わないのは 5-5b で実装する。未実装）。
+**AI を使うのは、作る（`create`）と、最初から作り直す（`rebuild`）ときだけ。** 作り直しは前の完成版の文と区切り（利用者が直したものも）を使わず、区切りを直す（`recut`）ときは AI を使わずに直した区切りを完成版に当てる（[06 §8](./06_processing_design.md#8-タイムライン段階5)。2026-10-27 に人間が決定。区切りを直すときは 5-5a、作り直しで前の完成版の文と区切りを使わないのは 5-5b で実装済み）。
 
 **共通**
 
@@ -705,7 +706,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
       "undatedPhotos": []
     },
     "draft": { "id": "0b8e1c5a-…", "reason": "rebuild", "phase": "reviewing", "job": null, "startedAt": "2026-10-09T09:00:00.000Z" },
-    "changes": { "added": 5, "removed": 2 }
+    "changes": { "added": 5, "removed": 2 },
+    "droppedEdits": [{ "kind": "scene", "key": "c4ca42…", "field": "label", "text": "小樽運河さんぽ" }]
   },
   "pendingPhotoCount": 0,
   "urlExpiresAt": "2026-10-10T04:12:45.000Z"
@@ -719,7 +721,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
   `thumbnailUrl` はサムネイル（無ければ原寸）の読み取りの SAS（§6）。`undatedPhotos` は撮影日時の無い写真（同じ形）
 - `draft`（下書き）は状態だけ（`id`・`reason`・`phase`・`job`（`step`・`state`・`lastError`）・`startedAt`）。区切りの中身は `GET …/timeline/draft` で読む
 - `changes` は、完成版の控えと今の写真の差（`added` は旅行の今の写真のうち控えに無いもの（解析中の写真も数える）、`removed` は控えの写真のうち旅行に今は無いもの（消えた・別の旅行へ移した）の枚数。どちらも日時の無い写真も数える）。完成版が無ければ `null`
-- （`droppedEdits`（文を書き直したときに残せなかった利用者の文）は 5-5b で応答から外す。残せなかった文が無くなるため）
+- `droppedEdits` は、文を書き直したときに残せなかった利用者の文（`key` は日付か場面の最初の写真の id、`field` は `title` / `summary` / `label` / `note`）。無ければ `[]`。5-5b からワーカーは足さない（作り直しは前の完成版の文を使わず、区切りの直しは AI を使わないので、残せなかった文が無くなる）ので、5-5b より前に足した分を閉じるまで返すだけになる。**5-5c で応答から外す**（今のアプリが必ず読むので、アプリの変更と同じ PR で外す）
 
 **`GET /api/trips/{tripId}/timeline`** → 200 `{ timeline, pendingPhotoCount, urlExpiresAt }`
 
@@ -751,7 +753,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 4 | それ以外 | 202。写真の控えを取り（`TIMELINE_DAY_START_HOUR` もこのときに読む）、新しい下書き（完成版が無ければ `reason: "create"`、あれば `"rebuild"`。`phase: "proposing"`・`job: { step: "propose", state: "pending", attempts: 0, lastError: null }`・`proposedStarts` と `sceneStarts` は空）を書いてキューへ投入。前の下書き（確かめ途中・失敗。区切りを直している途中の `recut` も）は置き換える。投入に失敗しても 202（再投入のタイマーが拾う。写真の `process` と同じ） |
 
 - 1〜3 のどれかで返すときは、控えも下書きも作らず、キューにも積まない
-- 置き換えても、完成版（`current`）・`createdAt` は変えない（作り直しの下書きが書き終えたときに、完成版をまるごと置き換える。前の完成版の文と、利用者が直した区切りは新しい完成版に残らない。5-5b）。置き換えた下書きの控えは、完成版から指されていなければ消す（失敗はログだけ）
+- 置き換えても、完成版（`current`）・`createdAt` は変えない（作り直しの下書きが書き終えたときに、完成版をまるごと置き換える。前の完成版の文と、利用者が直した区切りは新しい完成版に残らない。5-5b で実装済み）。残せなかった文（`droppedEdits`）も変えない（作り直しを書き終えても足さない。5-5b で実装済み）。置き換えた下書きの控えは、完成版から指されていなければ消す（失敗はログだけ）
 - 読んでから書くまでに他がタイムラインを書いた・同時に作られた（共通の行の 409 `TIMELINE_STATE_CONFLICT`）ときは、作った控えを消し（失敗はログだけ）、下書きを変えず、キューにも積まない
 - 応答の `draft` は状態だけ（上の「応答の形」の `draft`）。`urlExpiresAt` は URL を含まないが他の応答と同じく付ける
 - 500 の `message` は `タイムラインの作成の受付に失敗しました`（§7.2）
@@ -832,12 +834,12 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 - 4・5 は欄ごとに見る（日は `title` → `summary`、場面は `label` → `note` の順に、その欄の 4 → 5）。最初に当たった1件を返す
 - 1〜7 のどれかで返すときは何も書かない
-- 下書きがあっても直せる（下書きは変えない）。区切りを直している途中（`recut`）なら、直した文は当てるときに残る（同じ場面なら）。作り直しの途中（`rebuild`）なら、書き終えたときに新しい完成版に置き換わって消える（5-5b）
+- 下書きがあっても直せる（下書きは変えない）。区切りを直している途中（`recut`）なら、直した文は当てるときに残る（同じ場面なら）。作り直しの途中（`rebuild`）なら、書き終えたときに新しい完成版に置き換わって消える（残せなかった文にも足さない。5-5b で実装済み）
 - 応答は書いた後に読み直した `GET …/timeline` と同じ形（`{ timeline, pendingPhotoCount, urlExpiresAt }`。画面は直した後の完成版を描き直す）。読み直したときに旅行が消えていれば 404 `TRIP_NOT_FOUND`
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの更新に失敗しました`（§7.2）
 
-**`DELETE /api/trips/{tripId}/timeline/dropped-edits`**（残せなかった文の知らせを閉じる）→ 200（`GET …/timeline` と同じ形）。**5-5b で消す**（残せなかった文が無くなるため。2026-10-27 に人間が決定）
+**`DELETE /api/trips/{tripId}/timeline/dropped-edits`**（残せなかった文の知らせを閉じる）→ 200（`GET …/timeline` と同じ形）。**5-5c で消す**（5-5b から残せなかった文が足されなくなったため。2026-10-27 に人間が決定。今のアプリが応答の `droppedEdits` を必ず読むので、応答の `droppedEdits` と一緒にアプリの変更と同じ PR で消す）
 
 **実装済み**（5-2b。`timelineCurrent.ts` の `deleteTimelineDroppedEdits`）。ボディは読まない。
 
@@ -1041,7 +1043,7 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 ### 9.5 AI 識別サービスへの接続
 
 写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）と、タイムラインの区切り案（段階5。5-1b）と文（5-2a。[06 §8](./06_processing_design.md#8-タイムライン段階5)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
-AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案・文はそれぞれ1回の作成につき1回。写真の多い旅行は分けて複数回、文は書かせるものが無ければ呼ばない。[06 §8.3・§8.4](./06_processing_design.md#84-ai-に渡すもの)）。
+AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案・文はそれぞれ1回の作成につき1回。写真の多い旅行は分けて複数回。文は作り直しでも全部の場面と日を書かせる（5-5b。それまでは書かせるものが無ければ呼ばなかった）。[06 §8.3・§8.4](./06_processing_design.md#84-ai-に渡すもの)）。
 管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは共通の要素で、
 送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4](./06_processing_design.md#21-モデルとサービス) にある。
 

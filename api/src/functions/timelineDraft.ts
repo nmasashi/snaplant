@@ -4,7 +4,8 @@ import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing 
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
-import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot, TimelineSceneText } from '../types/timeline';
+import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { withRecutStarts } from '../services/timelineWriting';
 import {
   createDatabaseErrorResponse,
   createTimelineStateConflict,
@@ -231,23 +232,6 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
 }
 
 /**
- * 完成版に直した区切りを当てる（06 §8.6）。残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨てる。
- * 日の文・作成日時・控えはそのまま（区切りを直しても日は変わらない）
- */
-function withRecutStarts(current: TimelineCurrent, sceneStarts: string[]): TimelineCurrent {
-  const sceneTexts: Record<string, TimelineSceneText> = {};
-  for (const start of sceneStarts) {
-    sceneTexts[start] = current.sceneTexts[start] ?? emptySceneText();
-  }
-  return { ...current, sceneStarts, sceneTexts };
-}
-
-/** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */
-function emptySceneText(): TimelineSceneText {
-  return { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] };
-}
-
-/**
  * 区切りを直せる・文を書かせられる下書きか（確かめ中か、文を書くのに失敗した下書き。05 §5.15 の区切りの保存と文を書く受付）
  *
  * 文の失敗からは、区切りを直して確かめ中に戻すことも、そのまま書き直させることもできる
@@ -268,7 +252,7 @@ function isWriteFailed(draft: TimelineDraft): boolean {
  * 場面は日をまたがないので、日の最初の写真は必ず場面の始まり。区切りの確認の画面は写真が全部消えた日や場面を見ないので、
  * その日の最初の写真（控えにだけある）を送れない。求めて 400 にすると、その旅行では区切りを直せなくなる（5-3b）。
  * 同じく、今の区切り（[previousStarts]）のうち写真が全部消えた（[existing] に1枚も無い）場面の区切りも送れないので補う（5-4a）。
- * 補わないと、見えない場面の写真が前の場面に混ざり、文を書くときに前の場面と日の文を引き継げなくなる。
+ * 補わないと、見えない場面の写真が前の場面に混ざり、区切りの直しを当てるとき（06 §8.6）に、見えない場面の文が捨てられ、その写真は前の場面に入る。
  * ただし、同じ日でその次にある見える場面の区切りを外した（前の場面とつなげた）ときは補わない（補うと、つなげた場面が見えない場面に付く）
  */
 function normalizedSceneStarts(

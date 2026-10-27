@@ -2,7 +2,7 @@ import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { TimelineService } from '../services/timelineService';
 import { proposeScenes } from '../services/timelineProposal';
-import { assembleCurrent, mergeDroppedEdits, writeDraftTexts } from '../services/timelineWriting';
+import { assembleCurrent, withRecutStarts, writeDraftTexts } from '../services/timelineWriting';
 import { photoProcessingMaxAttempts } from '../constants/album';
 import { TimelineDocument, TimelineDraft, TimelineJob } from '../types/timeline';
 import { UpstreamError } from '../utils/errors';
@@ -48,17 +48,23 @@ export async function processTimelineHandler(message: unknown, context: Invocati
   try {
     const photos = await timelines.readSnapshotPhotos(draft.snapshotId);
     let apply: (doc: TimelineDocument & { draft: TimelineDraft }) => TimelineDocument;
-    if (job.step === 'propose') {
-      const starts = await proposeScenes(photos, draft, read.doc.current);
+    if (job.step === 'write' && draft.reason === 'recut') {
+      // 区切りの直しは AI を使わない（06 §8.6）。AI なしにする前に文を書く段へ積まれた下書きも、受付と同じく直した区切りを当てる
+      apply = (doc) => {
+        if (!doc.current) {
+          throw new Error('区切りを当てる完成版がありません');
+        }
+        return { ...doc, current: withRecutStarts(doc.current, doc.draft.sceneStarts), draft: null };
+      };
+    } else if (job.step === 'propose') {
+      const starts = await proposeScenes(photos, draft);
       apply = (doc) => ({ ...doc, draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts } });
     } else {
-      // 書き終えたら、下書きを完成版に入れ替える（06 §8.3 の 6）
-      const { plan, texts } = await writeDraftTexts(photos, draft, read.doc.current);
+      // 書き終えたら、下書きを完成版に入れ替える（06 §8.3 の 3）
+      // 前の完成版の文は使わず、まるごと置き換える（利用者が直した文も残さない。残せなかった文の知らせにも足さない）
+      const { plan, texts } = await writeDraftTexts(photos, draft);
       const now = new Date().toISOString();
-      apply = (doc) => {
-        const { current, dropped } = assembleCurrent(doc.draft, plan, texts, doc.current, now);
-        return { ...doc, current, draft: null, droppedEdits: mergeDroppedEdits(doc.droppedEdits, dropped) };
-      };
+      apply = (doc) => ({ ...doc, current: assembleCurrent(doc.draft, plan, texts, now), draft: null });
     }
 
     // 書けたら、結果を当てる前の文書が返る（前の完成版を見るため）

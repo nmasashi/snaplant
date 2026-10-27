@@ -200,7 +200,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (!await confirmTimelineAction(context,
             title: 'タイムラインを作り直しますか？',
             message:
-                '今の写真で区切りの案を出し直し、確認した後に見出しと一言を書き直します。書き終えるまでは今のタイムラインのままです。手で直した文と区切りは、同じ日・同じ場面なら残ります。',
+                '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。',
             confirmLabel: '作り直す') ||
         !mounted) {
       return;

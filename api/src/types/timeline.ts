@@ -48,8 +48,6 @@ export interface TimelineSceneText {
   note: string | null;
   noteSource: 'ai' | 'user' | null;
   aiNote: string | null;
-  /** 書いたときの場面の写真（区切りが変わったかの判定） */
-  photoIds: string[];
 }
 
 /** 日の文（タイトル・まとめと、書いた主） */
@@ -60,8 +58,6 @@ export interface TimelineDayText {
   summary: string;
   summarySource: 'ai' | 'user';
   aiSummary: string;
-  /** 書いたときのその日の区切り */
-  sceneStarts: string[];
 }
 
 /** 完成版 */
