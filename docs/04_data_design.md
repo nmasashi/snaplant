@@ -479,7 +479,7 @@ export const CATALOG_KINDS = {
 | # | 画面・処理 | クエリ | 単体テストで検証 | 手で確認 |
 |---|---|---|---|---|
 | 5.1 | 旅行一覧（集計） | 枚数: `SELECT c.tripId, COUNT(1) AS photoCount FROM c WHERE c.type = @type GROUP BY c.tripId`／期間: `SELECT c.tripId, MIN(c.takenAt) AS firstTakenAt, MAX(c.takenAt) AS lastTakenAt FROM c WHERE c.type = @type AND IS_STRING(c.takenAt) GROUP BY c.tripId`／表紙: 旅行ごとに `SELECT TOP 1 c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC` | 集計の行から `TripSummary` と未所属の枚数を組み立てる所は○ | `GROUP BY`（`null` の鍵）・`MIN` / `MAX`・`TOP 1` |
-| 5.2 | 旅行一覧（旅行） | `SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt DESC` | `@type` の絞り込みのみ | 並び順 |
+| 5.2 | 旅行一覧（旅行） | `SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt DESC` | `@type` の絞り込みのみ | なし（応答の並びは集計を足した後にコードで決める。05 §5.9） |
 | 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`（未所属は同じ SQL に `@tripId = null`）。`maxItemCount` と継続トークンでページ | `@tripId` で絞る（未所属は `tripId` が `null` のもの）。ページの切れ目と継続トークンの受け渡し | `@tripId = null` が `null` の写真だけに一致すること・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
 | 5.4 | カテゴリの絞り込み（段階3。実装済み。旅行詳細のチップは旅行と AND、設定画面の接続テストは `category` だけ。カテゴリ横断画面は 2026-10-24 に消した） | `WHERE c.type = @type AND c.category = @category ORDER BY c.sortAt ASC`。旅行も指定されたら 5.3 の `AND c.tripId = @tripId` を `category` の前に足す（`AlbumService.listPhotos()` が指定された条件だけをつなぐ）。ページは 5.3 と同じ | `@category` で絞る（旅行をまたぐ・旅行と AND） | `c.category = @category` の絞り込みと、`tripId` との AND・並び |
 | 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |

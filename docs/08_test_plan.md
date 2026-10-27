@@ -90,7 +90,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 旅行:
 - 作成すると `type: "trip"`・`tags: []`・`description: null`・同じ `createdAt` / `updatedAt` で保存される。`name` の前後の空白が除かれる
-- 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
+- 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null。並び（最初の撮影日時の新しい順、撮影日時の無い旅行は先頭に作成日時の新しい順）は集計を足した後にコードで並べるので `tripSummaries.test.ts` で見る
 - 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる
   （`tripSummaries.test.ts` は枚数と期間の行だけを渡す。表紙の URL は `buildTripSummaries()` の第4引数で、PR 4a-2 では
   `queryCover()` の結果を偽物が挿入順の先頭で返すことを使い、ハンドラのテスト（`trips.test.ts`・`tripDetail.test.ts`）で確かめた）。
@@ -350,7 +350,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 | `GROUP BY` の集計（旅行一覧） | `GET /api/trips` の `photoCount`・期間・表紙・`unassignedPhotoCount` が実際の写真と合う。`tripId` が `null` の写真が `unassignedPhotoCount` に数えられる（`null` の鍵がグループになるか）。撮影日時の無い写真があっても期間が `null` にならない | 枚数ずれ・未所属が 0・期間が `null` |
 | `ORDER BY c.sortAt` とページ | `GET /api/photos?tripId=…&limit=50` を `continuationToken` でめくり、撮影日時順で重複・欠落が無い。撮影日時の無い写真がアップロード日時（日本時間）の位置にある。別の `tripId` のトークンを渡すと 400。トークンの大きさの上限（2KB）でも 300 枚をめくり切れる | 順が崩れる・二重に出る・抜ける |
 | 表紙の `TOP 1 … ORDER BY c.sortAt` | `GET /api/trips` と `GET /api/trips/{tripId}` の `coverThumbnailUrl` が、その旅行の撮影日時で最初の写真のサムネイル（無ければ原寸）を指す | 別の写真が表紙になる |
-| 旅行一覧の並び | 新しく作った旅行が先頭 | 古いのが先頭 |
+| 旅行一覧の並び | 旅行が最初の撮影日時の新しい順に並び、作ったばかりで写真の無い旅行が先頭にある（古い日付の写真を入れた旅行は、その時期の位置に下がる） | 作成日時の順のまま・写真の無い旅行が下にある |
 | `/api/photos/move` のルート | `POST /api/photos/move` が 200 で `moved` を返す（400 `写真IDの形式が無効です` なら `{photoId}` に取られている） | move が 400 |
 | 応答に `_rid` などが出ない | `GET /api/photos/{photoId}` の JSON を目で見る | 余分なキー |
 | 匿名で読めない（4-7 の apply の後） | ポータルのストレージアカウントの「BLOB の匿名アクセスを許可する」が無効。アプリの旅行詳細と図鑑でサムネイルと原寸が出る（SAS 付きの URL で読める）。`photos` の Blob の URL から `?` 以降を外して開くと読めない（[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | 写真が出ない・SAS 無しで読める |

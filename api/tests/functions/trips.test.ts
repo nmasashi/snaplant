@@ -350,7 +350,7 @@ describe('旅行API', () => {
         // 京都と札幌の写真は交互に置く(京都1枚目 → 札幌 → 京都2枚目): 旅行での絞り込みが効いていないと、
         // 札幌と奈良が京都の1枚目を表紙にして取り違える。先頭ではなく最後の写真を取ると、京都は2枚目になる。
         // 旅行は、写真の無い奈良を京都と札幌の間に挟んで置く: 表紙を旅行に突き合わせる位置がずれると取り違える。
-        // 並び順(作成日時の降順)は偽物では見られないので、旅行の id ごとに表紙を取り出して比べる
+        // 一覧の並び（撮影日時の集計で決まる）は偽物では作れない（GROUP BY を解釈しない）ので、旅行の id ごとに表紙を取り出して比べる
         cosmosBackend.documents.set(KYOTO_TRIP_ID, tripDocument(KYOTO_TRIP_ID, '京都旅行'));
         cosmosBackend.documents.set(NARA_TRIP_ID, tripDocument(NARA_TRIP_ID, '奈良旅行'));
         cosmosBackend.documents.set(SAPPORO_TRIP_ID, tripDocument(SAPPORO_TRIP_ID, '札幌旅行'));
