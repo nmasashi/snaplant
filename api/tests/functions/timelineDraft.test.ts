@@ -988,7 +988,8 @@ describe('タイムラインの下書きAPI', () => {
         sceneStarts: [photoId('a'), photoId('c'), photoId('e')],
         sceneTexts: {
           [photoId('a')]: { ...aiText('朝ごはん'), label: '空港の朝', labelSource: 'user' },
-          [photoId('c')]: aiText('昼ごはん'),
+          // つなげて消える場面。利用者が書いた一言も捨て、知らせない（droppedEdits に書かない。06 §8.6）
+          [photoId('c')]: { ...aiText('昼ごはん'), note: '自分で書いた一言', noteSource: 'user' },
           [photoId('e')]: aiText('運河')
         },
         dayTexts: {
