@@ -36,7 +36,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | ルート | メソッド | `data` の中身 | 備考 | 段階 | ファイル（`api/src/functions/`） |
 |---|---|---|---|---|---|
 | `/api/trips` | POST | `{ trip }` 201 | `{ name, description? }` | 2 | `trips.ts` |
-| `/api/trips` | GET | `{ trips, total, unassignedPhotoCount }` | 各旅行に `photoCount`・`firstTakenAt`・`lastTakenAt`・`coverThumbnailUrl`。`createdAt` 降順。旅行に属さない写真の枚数も返す | 2 | `trips.ts` |
+| `/api/trips` | GET | `{ trips, total, unassignedPhotoCount }` | 各旅行に `photoCount`・`firstTakenAt`・`lastTakenAt`・`coverThumbnailUrl`。最初の撮影日時の新しい順（§5.9）。旅行に属さない写真の枚数も返す | 2 | `trips.ts` |
 | `/api/trips/{tripId}` | GET | `{ trip }` | 集計付き | 2 | `tripDetail.ts` |
 | `/api/trips/{tripId}` | PUT | `{ trip }` | `{ name, description? }` | 2 | `tripDetail.ts` |
 | `/api/trips/{tripId}` | DELETE | `{ message, deletedPhotoCount, detachedPhotoCount }` | `deletePhotos=true|false`（必須）。`true` なら中の写真と Blob も消す、`false` なら写真を未所属に移す | 2 | `tripDetail.ts` |
@@ -525,7 +525,7 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 
 **実装済み**（PR 3。`trips.ts`。表紙は PR 4a-2）。
 
-`{ trips: TripSummary[], total, unassignedPhotoCount }`。`createdAt` 降順。`total` は旅行の数。
+`{ trips: TripSummary[], total, unassignedPhotoCount }`。並びは最初の撮影日時（`firstTakenAt`）の新しい順。撮影日時のある写真が無い旅行は先頭に `createdAt` の新しい順。撮影日時が同じなら `createdAt` の新しい順（集計を足した後にコードで並べる。2026-10-27。実装済み）。`total` は旅行の数。
 集計は [04 §5.1](./04_data_design.md#51-旅行一覧)（枚数と期間は `GROUP BY`、表紙は旅行ごとの `TOP 1`。写真を全部読まない）。
 `unassignedPhotoCount` は旅行に属さない写真の枚数（`tripId` が `null` のもの。`GET /api/photos?tripId=none` が返す枚数と同じ定義）で、
 同じ `GROUP BY` の結果から出す。旅行一覧の画面はこれで先頭の行の枚数を出し、別のリクエストを送らない。ページングは無い（旅行は数十件）。

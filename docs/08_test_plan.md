@@ -90,7 +90,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 
 旅行:
 - 作成すると `type: "trip"`・`tags: []`・`description: null`・同じ `createdAt` / `updatedAt` で保存される。`name` の前後の空白が除かれる
-- 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null（並び順 `createdAt` 降順は SQL なので手で確かめる。§5.2）
+- 一覧: 写真が無い旅行は `photoCount: 0`・期間 null・表紙 null。並び（最初の撮影日時の新しい順、撮影日時の無い旅行は先頭に作成日時の新しい順）は集計を足した後にコードで並べるので `tripSummaries.test.ts` で見る
 - 集計（`tripSummaries.ts` に行を直接渡して）: 枚数の行 `{ tripId, photoCount }` と期間の行 `{ tripId, firstTakenAt, lastTakenAt }` と表紙の `TOP 1` の結果から、各旅行の `TripSummary` が組み立てられる
   （`tripSummaries.test.ts` は枚数と期間の行だけを渡す。表紙の URL は `buildTripSummaries()` の第4引数で、PR 4a-2 では
   `queryCover()` の結果を偽物が挿入順の先頭で返すことを使い、ハンドラのテスト（`trips.test.ts`・`tripDetail.test.ts`）で確かめた）。
