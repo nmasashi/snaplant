@@ -218,6 +218,30 @@ void main() {
     });
   });
 
+  // 関数キーは、どの要求もヘッダ x-functions-key で送り、URL（?code=）には載せない（docs/05 §1）。
+  // URL は例外の文言やログに出やすく、URL に載せると関数キーが漏れる。JSON の要求と写真の送信（multipart）は要求の組み立てが別なので両方を見る
+  test('関数キーは JSON の要求でも写真の送信でもヘッダ x-functions-key で送り、URL には載せない', () async {
+    final sent = <http.BaseRequest>[];
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      functionKey: 'secret+key==',
+      client: MockClient((request) async {
+        sent.add(request);
+        return http.Response('', 500);
+      }),
+    );
+
+    await _captureApiException(() => service.getTrips());
+    await _captureApiException(() =>
+        service.uploadPhoto(photoId: _photoId, bytes: Uint8List.fromList(_withBody([0xFF, 0xD8, 0xFF, 0xE0]))));
+
+    expect([for (final request in sent) request.url.path], ['/api/trips', '/api/photos']);
+    for (final request in sent) {
+      expect(request.headers['x-functions-key'], 'secret+key==', reason: request.url.path);
+      expect(request.url.queryParameters, isNot(contains('code')), reason: request.url.path);
+    }
+  });
+
   // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。
   // uri には _buildUrl が付けた ?code=<関数キー> が入るので、例外の文言を ApiException に写すと関数キーが漏れる（docs/03 §9.2）
   group('通信の失敗', () {

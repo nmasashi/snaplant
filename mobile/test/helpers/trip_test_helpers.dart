@@ -377,7 +377,8 @@ class FakeTripBackend {
   late final MockClient client = MockClient(_handle);
 
   Future<http.Response> _handle(http.Request request) async {
-    if (request.url.host != testApiHost || request.url.queryParameters['code'] != functionKey) {
+    // 関数キーはヘッダで受け取る（Azure Functions は x-functions-key ヘッダでも ?code= でも受け付ける。アプリはヘッダで送る。docs/05 §1）
+    if (request.url.host != testApiHost || request.headers['x-functions-key'] != functionKey) {
       return http.Response('', 404);
     }
     final route = _routeOf(request);
