@@ -264,6 +264,19 @@ void main() {
       }
     });
 
+    testWidgets('区切りの直しで見出しと一言を書き直せなかった下書き（AI なしにする前のもの）で「もう一度」を押すと、その場で保存されてタイムラインを読み直し、案内を消す', (tester) async {
+      final backend = await _openTimeline(tester,
+          draft: draftOf('recut', 'writing', step: 'write', state: 'failed'));
+
+      await tester.tap(find.text('もう一度'));
+      await letFramesRun(tester);
+
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+      expect(find.text('見出しと一言を書き直せませんでした'), findsNothing);
+      expect(find.text('区切りを直す'), findsOneWidget);
+      expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
+    });
+
     testWidgets('「やめる」は「作り直しをやめて、今のタイムラインのままにしますか？」を出し、「やめる」で下書きを消して完成版だけに戻る',
         (tester) async {
       final backend =
