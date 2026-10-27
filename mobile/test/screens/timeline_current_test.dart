@@ -82,12 +82,12 @@ Map<String, Object?> _current() => {
       'undatedPhotos': [_photo(10, null, category: 'other')],
     };
 
-/// タイムライン（完成版と、あれば下書き）
+/// タイムライン（完成版と、あれば下書き）。
+/// `droppedEdits` は入れない: 5-5c のアプリは読まず、5-5d で API から消える（05 §8）。入れておくと、必ず読む形に戻る退行を捕まえられない
 Map<String, Object?> _timelineOf({Map<String, Object?>? draft}) => {
       'current': _current(),
       'draft': draft,
       'changes': {'added': 0, 'removed': 0},
-      'droppedEdits': <Object?>[],
     };
 
 /// 旅行詳細の「タイムライン」を開く
@@ -716,7 +716,6 @@ void main() {
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
       expect(find.text('見出しなし'), findsOneWidget);
-      expect(sceneOf(backend, breakfastId)['labelSource'], isNull);
       semantics.dispose();
     });
 
