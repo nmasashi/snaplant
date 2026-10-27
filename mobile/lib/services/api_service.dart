@@ -59,10 +59,14 @@ class ApiService {
   }
 
   /// エラーハンドリング
+  ///
+  /// 例外の文言には宛先の URL が入りうる（http の ClientException は uri を持つ）。URL には _buildUrl が付けた関数キーがあるので、
+  /// 文言はログにも ApiException にも、関数キーを伏せてから写す（docs/03_screen_design.md §9.2）
   ApiException _handleError(dynamic error) {
+    final text = _withoutFunctionKey(error.toString());
     // デバッグ用ログ出力
     if (kDebugMode) {
-      debugPrint('ApiService Error: ${error.runtimeType} - $error');
+      debugPrint('ApiService Error: ${error.runtimeType} - $text');
     }
 
     if (error is ApiException) {
@@ -72,27 +76,29 @@ class ApiService {
       return ApiException(
         statusCode: 0,
         message: 'ネットワークに接続できません',
-        body: error.message,
+        body: _withoutFunctionKey(error.message),
       );
     } else if (error is FormatException) {
       return ApiException(
         statusCode: 0,
         message: 'レスポンスの形式が無効です',
-        body: error.message,
+        body: _withoutFunctionKey(error.message),
       );
-    } else if (error.toString().contains('XMLHttpRequest')) {
-      // Web環境でのCORSやネットワークエラー
+    } else if (text.contains('XMLHttpRequest')) {
+      // Web環境でのCORSやネットワークエラー（BrowserClient の ClientException もここで見分ける）
       return ApiException(
         statusCode: 0,
         message: 'API接続エラーが発生しました',
-        body: error.toString(),
+        body: text,
       );
-    } else if (error.toString().contains('NetworkException') ||
-        error.toString().contains('Failed host lookup')) {
+    } else if (text.contains('NetworkException') ||
+        text.contains('Failed host lookup') ||
+        error is http.ClientException) {
+      // 接続できない・途中で切れたときに http の IOClient が包む例外（ClientException）も、通信の失敗として扱う
       return ApiException(
         statusCode: 0,
         message: 'ネットワークに接続できません',
-        body: error.toString(),
+        body: text,
       );
     } else {
       // Web環境では多くのエラーが一般的な例外として扱われる
@@ -100,15 +106,27 @@ class ApiService {
         return ApiException(
           statusCode: 0,
           message: 'API通信でエラーが発生しました',
-          body: error.toString(),
+          body: text,
         );
       }
       return ApiException(
         statusCode: 0,
-        message: 'エラー詳細: ${error.runtimeType} - ${error.toString()}',
-        body: error.toString(),
+        message: 'エラー詳細: ${error.runtimeType} - $text',
+        body: text,
       );
     }
+  }
+
+  /// 文言の中の関数キーを伏せる（URL に入るときはクエリとして符号化されているので、その形も伏せる）
+  String _withoutFunctionKey(String text) {
+    final key = functionKey;
+    if (key == null || key.isEmpty) {
+      return text;
+    }
+    // 符号化した形を先に伏せる（生の値が % を含むと、先に生の値を伏せたときに符号化した形の一部が残る）
+    return text
+        .replaceAll(Uri.encodeQueryComponent(key), '***')
+        .replaceAll(key, '***');
   }
 
   /// 旅行一覧取得（旅行に属さない写真の枚数も同じ応答で返る）
