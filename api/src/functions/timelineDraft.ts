@@ -4,7 +4,8 @@ import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing 
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
-import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot, TimelineSceneText } from '../types/timeline';
+import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { withRecutStarts } from '../services/timelineWriting';
 import {
   createDatabaseErrorResponse,
   createTimelineStateConflict,
@@ -228,23 +229,6 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
   }
-}
-
-/**
- * 完成版に直した区切りを当てる（06 §8.6）。残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨てる。
- * 日の文・作成日時・控えはそのまま（区切りを直しても日は変わらない）
- */
-function withRecutStarts(current: TimelineCurrent, sceneStarts: string[]): TimelineCurrent {
-  const sceneTexts: Record<string, TimelineSceneText> = {};
-  for (const start of sceneStarts) {
-    sceneTexts[start] = current.sceneTexts[start] ?? emptySceneText();
-  }
-  return { ...current, sceneStarts, sceneTexts };
-}
-
-/** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */
-function emptySceneText(): TimelineSceneText {
-  return { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null };
 }
 
 /**

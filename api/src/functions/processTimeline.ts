@@ -2,7 +2,7 @@ import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { TimelineService } from '../services/timelineService';
 import { proposeScenes } from '../services/timelineProposal';
-import { assembleCurrent, writeDraftTexts } from '../services/timelineWriting';
+import { assembleCurrent, withRecutStarts, writeDraftTexts } from '../services/timelineWriting';
 import { photoProcessingMaxAttempts } from '../constants/album';
 import { TimelineDocument, TimelineDraft, TimelineJob } from '../types/timeline';
 import { UpstreamError } from '../utils/errors';
@@ -48,7 +48,15 @@ export async function processTimelineHandler(message: unknown, context: Invocati
   try {
     const photos = await timelines.readSnapshotPhotos(draft.snapshotId);
     let apply: (doc: TimelineDocument & { draft: TimelineDraft }) => TimelineDocument;
-    if (job.step === 'propose') {
+    if (job.step === 'write' && draft.reason === 'recut') {
+      // 区切りの直しは AI を使わない（06 §8.6）。AI なしにする前に文を書く段へ積まれた下書きも、受付と同じく直した区切りを当てる
+      apply = (doc) => {
+        if (!doc.current) {
+          throw new Error('区切りを当てる完成版がありません');
+        }
+        return { ...doc, current: withRecutStarts(doc.current, doc.draft.sceneStarts), draft: null };
+      };
+    } else if (job.step === 'propose') {
       const starts = await proposeScenes(photos, draft);
       apply = (doc) => ({ ...doc, draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts } });
     } else {

@@ -25,8 +25,8 @@ export interface TimelineAiTexts {
 /**
  * 下書きの区切りの全部の場面と日に、AI に文を書かせる（06 §8.3 の 1・2）
  *
- * 前の完成版の文は使わない（作り直しは一から作る。2026-10-27 に人間が決定）。区切りを直したとき（recut）は AI を使わずに当てる（06 §8.6）ので、
- * ここに来る recut の下書きは、AI なしにする前に文を書く段へ進んで残っていたものだけ（それも全部の場面と日を書き直す。06 §8.3）
+ * 前の完成版の文は使わない（作り直しは一から作る。2026-10-27 に人間が決定）。区切りを直したとき（recut）は AI を使わずに withRecutStarts で当てる（06 §8.6）ので、
+ * ここには来ない（文を書く段に積まれた recut の下書きも、ワーカーが withRecutStarts で当てる）
  * @returns 下書きの区切りで組んだ日と場面と、AI が書いた文（完成版を組むのは assembleCurrent）
  */
 export async function writeDraftTexts(
@@ -146,4 +146,21 @@ function written<T>(text: T | undefined, what: string): T {
     throw new Error(`AI の文がありません: ${what}`);
   }
   return text;
+}
+
+/**
+ * 完成版に直した区切りを当てる（06 §8.6）。残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨てる。
+ * 日の文・作成日時・控えはそのまま（区切りを直しても日は変わらない）
+ */
+export function withRecutStarts(current: TimelineCurrent, sceneStarts: string[]): TimelineCurrent {
+  const sceneTexts: Record<string, TimelineSceneText> = {};
+  for (const start of sceneStarts) {
+    sceneTexts[start] = current.sceneTexts[start] ?? emptySceneText();
+  }
+  return { ...current, sceneStarts, sceneTexts };
+}
+
+/** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */
+function emptySceneText(): TimelineSceneText {
+  return { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null };
 }
