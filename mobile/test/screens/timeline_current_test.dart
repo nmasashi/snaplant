@@ -383,7 +383,7 @@ void main() {
       expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
       expect(
           inDialog(find.text(
-              '今の写真で区切りの案を出し直し、確認した後に見出しと一言を書き直します。書き終えるまでは今のタイムラインのままです。手で直した文と区切りは、同じ日・同じ場面なら残ります。')),
+              '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。')),
           findsOneWidget);
       await tapInDialog(tester, '作り直す');
 
