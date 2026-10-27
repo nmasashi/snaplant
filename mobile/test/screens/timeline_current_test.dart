@@ -622,6 +622,8 @@ void main() {
       await tester.tap(find.bySemanticsLabel('この日を編集').first);
       await letFramesRun(tester);
       expect(find.text('1日目を編集'), findsOneWidget);
+      // 日は区切りを直しても足されないので、いつも AI の文がある（場面の「AI が書いていない場面は…」は添えない）
+      expect(find.text('空にすると、AI が書いた文に戻ります'), findsOneWidget);
       expect(
           tester.widget<TextField>(field('タイトル')).controller!.text, '小樽の運河と寿司');
       expect(tester.widget<TextField>(field('まとめ')).controller!.text,
