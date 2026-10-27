@@ -311,6 +311,23 @@ void main() {
       expect(find.text('区切りを直している途中です'), findsOneWidget);
     });
 
+    testWidgets('区切りを直して確認画面の下のボタンを押すと、AI を待たずにその場で保存して旅行詳細に戻り、直している途中の案内を出さずに完成版を出す', (tester) async {
+      final backend = await _openTimeline(tester);
+      await tester.tap(find.text('区切りを直す'));
+      await letFramesRun(tester);
+
+      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await letFramesRun(tester);
+
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('区切りを直している途中です'), findsNothing);
+      expect(find.text('見出しと一言を書き直しています'), findsNothing);
+      expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
+      expect(find.textContaining('ネットワーク'), findsNothing);
+      expect(find.text('朝ごはん'), findsOneWidget);
+    });
+
     testWidgets('「区切りを直す」のときに別の端末が作り直しを始めていたら（409）、知らせて読み直す', (tester) async {
       final backend = await _openTimeline(tester);
       backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
