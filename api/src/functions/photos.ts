@@ -19,7 +19,7 @@ import { FILE_UPLOAD, PHOTO_VALIDATION } from '../constants/validation';
 
 /**
  * 写真保存 API（冪等。同じ写真は何度送っても1枚）
- * POST /api/photos?code={FUNCTION_KEY}
+ * POST /api/photos
  */
 export async function createPhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('写真保存リクエストを受信');

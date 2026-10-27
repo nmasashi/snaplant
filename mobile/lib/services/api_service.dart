@@ -31,19 +31,27 @@ class ApiService {
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        ..._keyHeader,
       };
 
-  /// Function Key付きのURLを構築
-  String _buildUrl(String endpoint) {
-    final uri = Uri.parse('$baseUrl$endpoint');
-    if (functionKey != null && functionKey!.isNotEmpty) {
-      return uri.replace(queryParameters: {
-        ...uri.queryParameters,
-        'code': functionKey!,
-      }).toString();
+  /// 関数キーのヘッダ。URL のクエリ（?code=）では送らない。URL は例外の文言やログに出やすいため（docs/05_api_design.md §9.1）
+  ///
+  /// ヘッダに入れられない文字（全角文字・改行など）があるキーは送らずに 401 と同じ例外にする。
+  /// そのまま送ると http が FormatException を投げ、その文言にキーがそのまま入る（docs/03_screen_design.md §9.2）
+  Map<String, String> get _keyHeader {
+    final key = functionKey;
+    if (key == null || key.isEmpty) return const {};
+    if (key.codeUnits.any((unit) => unit < 0x21 || unit > 0x7E)) {
+      throw const ApiException(
+        statusCode: 401,
+        message: 'APIキーに使えない文字が含まれています',
+      );
     }
-    return uri.toString();
+    return {'x-functions-key': key};
   }
+
+  /// 要求の URL を組み立てる
+  String _buildUrl(String endpoint) => Uri.parse('$baseUrl$endpoint').toString();
 
   /// HTTP レスポンスをパース
   T _parseResponse<T>(
@@ -60,10 +68,10 @@ class ApiService {
 
   /// エラーハンドリング
   ///
-  /// 例外の文言には宛先の URL が入りうる（http の ClientException は uri を持つ）。URL には _buildUrl が付けた関数キーがあるので、
-  /// 文言はログにも ApiException にも、関数キーを伏せてから写す（docs/03_screen_design.md §9.2）
+  /// 例外の文言には宛先の URL が入りうる（http の ClientException は uri を持つ）。関数キーは URL に載せずヘッダで送るので、
+  /// 文言をそのまま写しても関数キーは入らない（docs/03_screen_design.md §9.2）
   ApiException _handleError(dynamic error) {
-    final text = _withoutFunctionKey(error.toString());
+    final text = error.toString();
     // デバッグ用ログ出力
     if (kDebugMode) {
       debugPrint('ApiService Error: ${error.runtimeType} - $text');
@@ -76,13 +84,13 @@ class ApiService {
       return ApiException(
         statusCode: 0,
         message: 'ネットワークに接続できません',
-        body: _withoutFunctionKey(error.message),
+        body: error.message,
       );
     } else if (error is FormatException) {
       return ApiException(
         statusCode: 0,
         message: 'レスポンスの形式が無効です',
-        body: _withoutFunctionKey(error.message),
+        body: error.message,
       );
     } else if (text.contains('XMLHttpRequest')) {
       // Web環境でのCORSやネットワークエラー（BrowserClient の ClientException もここで見分ける）
@@ -115,18 +123,6 @@ class ApiService {
         body: text,
       );
     }
-  }
-
-  /// 文言の中の関数キーを伏せる（URL に入るときはクエリとして符号化されているので、その形も伏せる）
-  String _withoutFunctionKey(String text) {
-    final key = functionKey;
-    if (key == null || key.isEmpty) {
-      return text;
-    }
-    // 符号化した形を先に伏せる（生の値が % を含むと、先に生の値を伏せたときに符号化した形の一部が残る）
-    return text
-        .replaceAll(Uri.encodeQueryComponent(key), '***')
-        .replaceAll(key, '***');
   }
 
   /// 旅行一覧取得（旅行に属さない写真の枚数も同じ応答で返る）
@@ -512,6 +508,8 @@ class ApiService {
     try {
       final url = _buildUrl('/api/photos');
       final request = http.MultipartRequest('POST', Uri.parse(url));
+      // Content-Type は multipart の境界付きのものを MultipartRequest が付けるので、関数キーのヘッダだけを足す
+      request.headers.addAll(_keyHeader);
       request.fields['photoId'] = photoId;
       if (tripId != null) request.fields['tripId'] = tripId;
       if (takenAt != null) request.fields['takenAt'] = takenAt;

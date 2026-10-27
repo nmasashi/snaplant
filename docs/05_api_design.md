@@ -15,7 +15,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 
 既存の API と同じ。
 
-- 全エンドポイントは `authLevel: 'function'`。`?code={FUNCTION_KEY}` が要る。`routePrefix` は `api`
+- 全エンドポイントは `authLevel: 'function'`。関数キーが要る（ヘッダ `x-functions-key`。§9.1）。`routePrefix` は `api`
 - 応答は封筒 `{ success: true, data }` / `{ success: false, error: { code, message, details? } }`。`utils/response.ts` のヘルパー経由で作る
 - **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
@@ -969,7 +969,7 @@ API 全体に共通する、認証・応答の封筒・エラー・AI 識別サ�
 
 ### 9.1 認証と宛先
 
-- Function Key 認証。`code` クエリパラメータでキーを渡す（例: `GET /api/trips?code={FUNCTION_KEY}`。POST なども同じ）。キーはアプリの設定画面で入れる（[03 §4.9](./03_screen_design.md#49-設定画面)）
+- Function Key 認証。キーはヘッダ `x-functions-key` で渡す（Azure Functions は `code` クエリパラメータでも受け付けるが、アプリはヘッダで送る。URL は例外の文言やログに出やすく、キーが漏れるため。2026-10-27）。キーはアプリの設定画面で入れる（[03 §4.9](./03_screen_design.md#49-設定画面)）
 - HTTP の関数はすべて `authLevel: 'function'`。キューとタイマーの関数は HTTP では呼べない
 - Base URL は `https://<Function App>.azurewebsites.net/api`（アプリは本番の URL を持たない。設定画面で入れる）
 - 消した植物図鑑のルート（`/api/plants` 系・`/api/images/upload`。4-6 で削除）には関数が登録されていないので、呼ぶと 404 になる（封筒の無い、Functions のランタイムの応答）

@@ -7,7 +7,7 @@ import { HttpStatusCode } from '../types/api';
 
 /**
  * 旅行作成 API
- * POST /api/trips?code={FUNCTION_KEY}
+ * POST /api/trips
  */
 export async function createTripHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('旅行作成リクエストを受信');
@@ -27,7 +27,7 @@ export async function createTripHandler(request: HttpRequest, context: Invocatio
 
 /**
  * 旅行一覧 API（作成日時の新しい順。写真の集計と、旅行に属さない写真の枚数を付ける）
- * GET /api/trips?code={FUNCTION_KEY}
+ * GET /api/trips
  */
 export async function listTripsHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log('旅行一覧リクエストを受信');

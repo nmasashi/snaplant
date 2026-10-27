@@ -11,7 +11,7 @@ import { isCatalogKind } from '../catalog/kinds';
 
 /**
  * 写真の解析のやり直し API（受け付けて、キューに積む。解析はワーカーが後で行う）
- * POST /api/photos/{photoId}/process?code={FUNCTION_KEY}
+ * POST /api/photos/{photoId}/process
  */
 export async function processPhotoRequestHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const photoId = request.params.photoId;

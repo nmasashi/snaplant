@@ -117,7 +117,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
 - **新しい関数を追加したら `api/src/app.ts` に import を追記する。** 各関数ファイルは末尾の `app.http(...)`（キューのワーカーは `app.storageQueue(...)`、タイマーは `app.timer(...)`）で登録し、`app.ts` が全ファイルを import することで登録が走る。足し忘れると黙って 404 になる（ワーカーならメッセージが誰にも拾われずに溜まる）
 - `photos/{photoId}` は `photoDetail.ts`（GET・PATCH・DELETE）、`photos/{photoId}/process` は `photoProcess.ts` と、同じ写真でもルートごとにファイルが分かれている。片方だけ見て全体を判断しない
 - `photos/move` は `photos/{photoId}` と同じ階層のリテラルのルート（`photoMove.ts`）。デプロイ後に `{photoId}` に取られていないことを確かめる
-- 呼び出しに要る `?code=` は、Flutter の `ApiService._buildUrl()` が付ける
+- 呼び出しに要る関数キーは、Flutter の `ApiService` がヘッダ `x-functions-key` で送る（URL の `?code=` には載せない。テストの偽のサーバもヘッダで照合する）
 
 ### Blob Storage
 
@@ -728,5 +728,5 @@ SQL の絞り込み・並び順・射影を検証しているテストは無い�
   **同じステータスでも `code` で意味が違うものがある**（404 は `TRIP_NOT_FOUND`・`PHOTO_NOT_FOUND` と宛先の誤り）。分岐はステータスではなく `code` で行う（例: `ApiException.isTripNotFound`）
 - 2xx の応答は `{ success, data }` の封筒に包まれていて、`_parseResponse()` は**ボディ全体**をコールバックに渡す。各メソッドが自分で `json['data']` を剥がす。
   忘れると実行時に `fromJson` がキーを見つけられず失敗する。`data` の中身はエンドポイントごとに違う（表は `docs/05_api_design.md` §2）
-- `mobile/test/services/api_service_test.dart` はエンドポイントによらない封筒の契約（エラーの例外と `userMessage`、写真の送信の Content-Type）だけを見る。各メソッドの `data` の読み方は画面のテストが偽のサーバ越しに通すので、
+- `mobile/test/services/api_service_test.dart` はエンドポイントによらない封筒の契約（エラーの例外と `userMessage`、写真の送信の Content-Type、関数キーをヘッダで送ること）だけを見る。各メソッドの `data` の読み方は画面のテストが偽のサーバ越しに通すので、
   `api_service_test.dart` にメソッドごとのテストは足さない（上位に従属するテストを作らない。#41）。メソッドを足したら、それを使う画面のテストで `data` の読み違いが落ちることを確かめる

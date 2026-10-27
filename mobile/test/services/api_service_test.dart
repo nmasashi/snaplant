@@ -218,40 +218,67 @@ void main() {
     });
   });
 
-  // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。
-  // uri には _buildUrl が付けた ?code=<関数キー> が入るので、例外の文言を ApiException に写すと関数キーが漏れる（docs/03 §9.2）
-  group('通信の失敗', () {
-    test('通信の例外（ClientException）はステータス 0 の例外にし、例外の文言にも body にも関数キー付きの宛先の URL を入れない', () async {
-      final service = ApiService(
-        baseUrl: 'https://api.example.test',
-        functionKey: 'secret+key==',
-        client: MockClient((request) async {
-          throw http.ClientException('Connection closed before full header was received', request.url);
-        }),
-      );
+  // 関数キーは、どの要求もヘッダ x-functions-key で送り、URL（?code=）には載せない（docs/05 §9.1）。
+  // URL は例外の文言やログに出やすく、URL に載せると関数キーが漏れる。JSON の要求と写真の送信（multipart）は要求の組み立てが別なので両方を見る
+  test('関数キーは JSON の要求でも写真の送信でもヘッダ x-functions-key で送り、URL には載せない', () async {
+    final sent = <http.BaseRequest>[];
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      functionKey: 'secret+key==',
+      client: MockClient((request) async {
+        sent.add(request);
+        return http.Response('', 500);
+      }),
+    );
 
-      final error = await _captureApiException(() => service.getTrips());
+    await _captureApiException(() => service.getTrips());
+    await _captureApiException(() =>
+        service.uploadPhoto(photoId: _photoId, bytes: Uint8List.fromList(_withBody([0xFF, 0xD8, 0xFF, 0xE0]))));
 
-      expect(error.statusCode, 0);
-      expect(error.message, 'ネットワークに接続できません');
-      expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
-      expect('${error.message} ${error.body}', isNot(contains('secret')));
-    });
+    expect([for (final request in sent) request.url.path], ['/api/trips', '/api/photos']);
+    for (final request in sent) {
+      expect(request.headers['x-functions-key'], 'secret+key==', reason: request.url.path);
+      expect(request.url.queryParameters, isNot(contains('code')), reason: request.url.path);
+    }
+  });
 
-    test('分類できない例外の文言に宛先の URL が入っていても、例外の文言にも body にも関数キーを入れない', () async {
-      final service = ApiService(
-        baseUrl: 'https://api.example.test',
-        functionKey: 'secret+key==',
-        client: MockClient((request) async {
-          throw StateError('予期しない失敗: ${request.url}');
-        }),
-      );
+  // ヘッダの値に使えない文字（全角文字や改行）は、http が送る前に FormatException にし、その文言に値（関数キー）がそのまま入る。
+  // 送らずに「APIキーが無効です」にして、例外の文言にも関数キーを入れない
+  test('関数キーにヘッダで送れない文字（全角文字）があれば、送らずに 401 と同じ「APIキーが無効です」にし、例外の文言にも body にも関数キーを入れない', () async {
+    var sent = 0;
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      functionKey: 'secret＝key',
+      client: MockClient((request) async {
+        sent++;
+        return http.Response('', 500);
+      }),
+    );
 
-      final error = await _captureApiException(() => service.getTrips());
+    final error = await _captureApiException(() => service.getTrips());
 
-      expect(error.statusCode, 0);
-      expect('${error.message} ${error.body}', isNot(contains('secret')));
-    });
+    expect(sent, 0);
+    expect(error.statusCode, 401);
+    expect(error.userMessage, 'APIキーが無効です。設定を確認してください。');
+    expect('${error.message} ${error.body}', isNot(contains('secret')));
+  });
+
+  // 接続できない・途中で切れたときの例外は、http の IOClient が ClientException(message, uri) に包む。通信の失敗として扱う。
+  // 例外の文言に関数キーが入らないことは、関数キーをヘッダで送る上のテスト（URL に載せない）が守る
+  test('通信の例外（ClientException）はステータス 0 の「ネットワークに接続できません」にする', () async {
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      functionKey: 'secret+key==',
+      client: MockClient((request) async {
+        throw http.ClientException('Connection closed before full header was received', request.url);
+      }),
+    );
+
+    final error = await _captureApiException(() => service.getTrips());
+
+    expect(error.statusCode, 0);
+    expect(error.message, 'ネットワークに接続できません');
+    expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
   });
 }
 

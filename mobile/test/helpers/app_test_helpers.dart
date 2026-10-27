@@ -60,7 +60,7 @@ const testApiEndpoint = 'https://func-test.example.net';
 /// [testApiEndpoint] のホスト。偽のサーバが宛先の照合に使う
 const testApiHost = 'func-test.example.net';
 
-/// 図鑑の API（GET /api/catalog/kinds・GET /api/catalog/entries）に、宛先のホストと API キー（`?code=`）の組ごとに決めた
+/// 図鑑の API（GET /api/catalog/kinds・GET /api/catalog/entries）に、宛先のホストと API キー（ヘッダ `x-functions-key`）の組ごとに決めた
 /// 表示名の種類1つ（植物）を返す偽のサーバ。項目は返さない（空の一覧）。旅行の一覧（GET /api/trips）は空で返す（[databaseDown] なら写真の一覧と一緒に 503）。図鑑のタブに出る種類のタブの名前で、どの設定で通信したかを見分ける。
 /// [kindLabels] に無い組は、宛先が合っていてキーだけが違えば 401、宛先が違えば 404。それ以外のメソッドやパスは 404 にする。写真の一覧（GET /api/photos）は空のページ。
 /// [succeedFirst] を渡すと、種類の一覧の取得はその回数目までだけ成功し、以降は 500 を返す
@@ -74,7 +74,7 @@ MockClient catalogServer(
   return MockClient((request) async {
     final label = kindLabels[(
       host: request.url.host,
-      code: request.url.queryParameters['code'] ?? '',
+      code: request.headers['x-functions-key'] ?? '',
     )];
     if (request.method != 'GET') return http.Response('', 404);
     if (label == null) {

@@ -420,6 +420,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 関数の登録（5-2a）: ポータルの「関数」に `postTimelineDraftWrite` がある。`POST …/timeline/draft/write` が `…/timeline/draft` の関数に取られない
 - 文（5-2a）: 確かめ中の下書きで `POST …/draft/write` を押すと、数十秒で `GET …/timeline` に完成版が出て下書きが消える（ログに「タイムラインの文が済みました」）。文の要求（`timeline_texts` のスキーマ、`max_completion_tokens` 16,000）が今のデプロイで 400 にならずに通る。作り直しを書き終えた後に、前の `timeline-photos-<tripId>-…` が消えている（上の「使われなくなった控え」）
 - 文の場面の範囲（2026-10-26。[06 §8.3](./06_processing_design.md#83-文を書くstep-write) の 5・§8.4）: 場面の `end` を足した `timeline_texts` のスキーマが今のデプロイで 400 にならずに通る。場面の見出し・一言が次の場面の内容になっていた函館の旅行のタイムラインを作り直し、見出し・一言が場面の写真と合っている（`end` が合わずに AI の失敗が続くなら、ログの「タイムラインの文に失敗しました」に出る番号を見る）
+- 関数キーのヘッダ（2026-10-27。[05 §9.1](./05_api_design.md#91-認証と宛先)）: アプリ（実機）で旅行の一覧・写真の送信・図鑑が今までどおり通る（ヘッダ `x-functions-key` で認証される）。Web 版（確認用）でも通る（独自のヘッダを付けるとブラウザが CORS の事前確認を送る。Functions の CORS が `x-functions-key` を許さなければ、どの要求も「ネットワークに接続できません」になる）
 - 関数の登録（5-2b）: ポータルの「関数」に `postTimelineRecut`・`patchTimelineDay`・`patchTimelineScene`・`deleteTimelineDroppedEdits` がある。`POST …/timeline/recut`・`DELETE …/timeline/dropped-edits` が `…/timeline/draft` などほかの関数に取られない
 - 編集シートと案内（5-4b。実機）: 日・場面の編集シートで欄を押してキーボードを出しても、欄と「保存」が隠れない（シートはキーボードの分だけ上がる。テストはキーボードを出さない）。残せなかった文を長押しで選んでコピーできる（クリップボードはテストで見ていない）
 - 書き込みの条件（5-2b）: 実環境で、完成版のある旅行で区切りを直し始める（`POST …/recut`）・文を直す（`PATCH …/days/{date}`・`…/scenes/{photoId}`）・残せなかった文を閉じる（`DELETE …/dropped-edits`。残せなかった文があるときだけ書く）が、重なっていなければ 200 で通る（IfMatch の渡し方が違えば常に 409）
