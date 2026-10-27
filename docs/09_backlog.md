@@ -395,6 +395,15 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 **判断**: 4-2a のデプロイ後の実測（1種類の1ページを開く RU と時間。`docs/11_implementation_plan.md` §4）を見てから決める。
 遅ければ、同時に投げる本数を抑える（例 10 本ずつ）か、04 §3.1 の「まとめの控え」を足す。
 
+### 通信の失敗の例外の文言に、関数キー付きの URL が入りうる（Dart。判断待ち）
+
+`mobile/lib/services/api_service.dart` の `_handleError` は、分類できない例外の文言（`error.toString()`）を `ApiException.message` に入れる。
+`http` 1.4.0 の `IOClient` は `HttpException` を `ClientException(message, uri)` に包むので、その文言には `?code=<関数キー>` 付きの URL が入りうる
+（2026-10-26、5-4b のセキュリティの確認を Opus と Fable で回し、どちらも前からある弱点として挙げた）。
+今は、ステータス 0 の `userMessage` が決まった文言を返すので画面には出ず、リリース版は `debugPrint` を何も出さないのでログにも残らない。
+将来、ステータス 0 の `message` をそのまま画面に出したり、ログを残したりすると、関数キーが漏れる。
+**判断待ち**: `_handleError` で `ClientException` も `SocketException` と同じ扱い（`message` に文言を入れず、`body` にも URL を入れない）にするか。
+
 ### テストの変異の回し方と、作業単位より前からあるテストの見直し（api・Dart。判断待ち）
 
 作業単位の終わりの `test-consolidator`・`test-reviewer` は、変異のたびに mobile の全体のテスト（2026-10-26 の時点で 440 件、1回およそ 1分45秒）を回している。
@@ -477,14 +486,6 @@ https の `POST /api/photos/move` は届くことを確かめた）。設定は�
 
 **判断が要ること**: ビューアの末尾で失敗を知らせて「再試行」を出すか、ビューアからもう一度払ったら読み直すか、今のまま（戻って一覧で再試行）とするか。
 `docs/03_screen_design.md` §4.6 に決めた扱いを書いてから直す。
-
-### 関数キーを URL のクエリでなくヘッダで送る（Dart。判断待ち）
-
-アプリは関数キーを URL のクエリ（`?code=`。`ApiService._buildUrl()`）で送っている。URL は例外の文言（`ClientException` の `uri`）やログに出やすく、
-2026-10-26 に `_handleError` で例外の文言から関数キーを伏せる形で守った（03 §9.2）。ただし伏せるのは `_handleError` を通る文言だけで、
-今後 URL を文字にする経路（リクエストのログ、クラッシュの報告、プロキシのアクセスログ）を足すたびに同じ守りが要る。
-Azure Functions は関数キーをヘッダ `x-functions-key` でも受け付けるので、`_headers` に移せば URL から関数キーが無くなり、伏せる処理も要らなくなる（/code-review の指摘）。
-**判断待ち**: ヘッダに移すか。移すなら CLAUDE.md・03 §9.1 の「Function Key はクエリパラメータで送る」と、画面のテストの偽のサーバ（`code` で宛先を見分けている `catalogServer` など）も直す
 
 ### アプリの API の呼び出しに時間切れが無く、ダイアログの処理中に通信が返らないと閉じられない（Dart）
 
