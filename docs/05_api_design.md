@@ -664,7 +664,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1a。`timeline.ts`・`timelineDraft.ts`、文書の操作は `services/timelineService.ts`、日と場面の組み立ては `services/timelineView.ts`）: 「共通」（ボディの行を除く）、「応答の形」のうち `draft`（状態）、`GET …/timeline/draft`・`POST …/timeline`・`DELETE …/timeline/draft`。
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`・`timelineDraft.ts` の `putTimelineDraftScenes`、完成版の組み立ては `services/timelineView.ts` の `currentTimelineOf()`）: 「共通」のボディの行（`PUT` の分）、「応答の形」の全部（`timeline`・`current`・`changes`・`droppedEdits`・`pendingPhotoCount`）、`GET …/timeline`・`PUT …/draft/scenes`。
-**実装済み**（5-2a。`timelineDraft.ts` の `postTimelineDraftWrite`）: `POST …/draft/write`。完成版（`current`）は、文を書くワーカー（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）が書き終えたときに書く。区切りを直している下書き（`recut`）をその場で完成版に当てる（AI を使わない）のは未実装（5-5a）。
+**実装済み**（5-2a。`timelineDraft.ts` の `postTimelineDraftWrite`）: `POST …/draft/write`。完成版（`current`）は、文を書くワーカー（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）が書き終えたときに書く。区切りを直している下書き（`recut`）は、AI を使わずその場で完成版に当てる（5-5a で実装済み）。
 **実装済み**（5-2b。`timelineCurrent.ts` の `postTimelineRecut`・`patchTimelineDay`・`patchTimelineScene`・`deleteTimelineDroppedEdits`、完成版を読んだ形（`GET …/timeline` の `data`）を組むのは `services/timelineRead.ts` の `readTimelineBody()`（応答にするのは `readTimelineResponse()`）、確かめ中の下書きの形は `services/timelineView.ts` の `reviewingDraftOf()`）: 「共通」のボディの行（`PATCH` の分）、`POST …/recut`・`PATCH` の2つ・`DELETE …/dropped-edits`。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)、文書は [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
@@ -798,7 +798,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 - 下書きが無ければ（タイムラインが無いときも、完成版だけのときも）404 `TIMELINE_NOT_FOUND`（上と同じ文言 `タイムラインの下書きが見つかりません`）。`phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）下書きでもなければ（区切り案を作っている・区切り案に失敗した・文を書く順番を待っている・文を書いている）409 `TIMELINE_STATE_CONFLICT`
 - それ以外は `phase: "writing"`・`job: { step: "write", state: "pending", attempts: 0, lastError: null, updatedAt: <今> }`（文を書くのに失敗した下書きでも `attempts` は 0 から数え直す）、`updatedAt` を今にして書き、キューへ `{ tripId, draftId }` を投入して 202。区切り（`proposedStarts`・`sceneStarts`）など下書きのほかの欄・完成版は変えない。投入に失敗しても 202（下書きは待ちのまま残り、再投入のタイマーが積む。`POST …/timeline` と同じ）。書き終えると、下書きが完成版に入れ替わる（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）
-- **区切りを直している下書き（`reason: "recut"`）は、キューに積まずその場で完成版に当てて 200 `{ draft: null, urlExpiresAt }`**（AI を使わない。[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)。5-5a。未実装）。完成版の区切りを下書きのものにし、残った場面の文はそのまま、新しくできた場面の文は空、つなげて消えた場面の文は捨てる。日の文と `writtenAt` は変えない。下書きは消す。画面は続けて `GET …/timeline` を読み直す
+- **区切りを直している下書き（`reason: "recut"`）は、キューに積まずその場で完成版に当てて 200 `{ draft: null, urlExpiresAt }`**（AI を使わない。[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)。5-5a で実装済み）。完成版の区切りを下書きのものにし、残った場面の文はそのまま、新しくできた場面の文は空、つなげて消えた場面の文は捨てる。日の文と `writtenAt` は変えない。下書きは消す。画面は続けて `GET …/timeline` を読み直す
 - 404・409 で返すときは何も書かず、キューにも積まない
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かずキューにも積まない
 - 応答の `draft` は状態だけ（上の「応答の形」の `draft`。`phase: "writing"`・`job: { step: "write", state: "pending", lastError: null }`）。`urlExpiresAt` は URL を含まないが他の応答と同じく付ける

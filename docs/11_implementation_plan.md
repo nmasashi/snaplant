@@ -154,7 +154,7 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 | 5-4a | **実装済み**（5-4a。Issue #97）。mobile: 完成したタイムラインの表示（[03 §8.3](./03_screen_design.md#83-完成したタイムライン)。作成日時・日・場面のカード・日時なし・サムネイルから写真ビューア）と下書きの案内、「区切りを直す」（`recutTimeline` → §8.4）・「作り直す」（§8.6）。5-3a の仮の案内を置き換える | 5-3b |
 | 5-4b | **実装済み**（5-4b。Issue #97）。mobile: 編集シート（§8.5。`updateTimelineDay`・`updateTimelineScene`）、写真が変わった案内・残せなかった文（§8.3。`dismissTimelineDroppedEdits`） | 5-4a |
 | 5-5 | 作り直しと区切りの直しを単純にする（2026-10-27 に人間が決定。AI が動くのは作るときと作り直すときだけ。[06 §8](./06_processing_design.md#8-タイムライン段階5)）。作り直しで写真が同じ場面の文を引き継いでいたため、ずれた文が作り直しても残った（函館の旅行） | 5-4 |
-| 5-5a | api: 区切りを直した下書き（`recut`）の `POST …/draft/write` は、AI を使わずその場で完成版に当てる（[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)）。新しい場面の文は `null`。応答は `{ draft: null }` なので、アプリの `writeTimeline` も下書きが無い応答を受け付ける形にする（API を先にデプロイすると、古いアプリは保存できても失敗と出す）。`PATCH` で空にすると AI の文が無い場面は `null` に戻る | 5-5 |
+| 5-5a | **実装済み**（5-5a）。api: 区切りを直した下書き（`recut`）の `POST …/draft/write` は、AI を使わずその場で完成版に当てる（[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)）。新しい場面の文は `null`。応答は `{ draft: null }` なので、アプリの `writeTimeline` も下書きが無い応答を受け付ける形にする（API を先にデプロイすると、古いアプリは保存できても失敗と出す）。`PATCH` で空にすると AI の文が無い場面は `null` に戻る | 5-5 |
 | 5-5b | api: 作り直し（`rebuild`）は前の完成版の文と区切りを使わない（区切り案に利用者の区切りを当てない、文は全部書かせる・文脈を渡さない、`droppedEdits` を書かない）。`DELETE …/dropped-edits` と応答の `droppedEdits` を消す。`sceneTexts.photoIds`・`dayTexts.sceneStarts` を書かない | 5-5a |
 | 5-5c | mobile: 残せなかった文の案内と `dismissTimelineDroppedEdits` を消す、「見出しなし」、区切りの確認画面の説明と「この区切りで保存」（`recut`）、作り直しと「区切り案を出し直す」の確認の文言、編集シートの「空にすると」の出し分け（[03 §8](./03_screen_design.md#8-段階5の画面タイムライン)） | 5-5b |
 
