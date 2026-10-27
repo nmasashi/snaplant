@@ -35,10 +35,20 @@ class ApiService {
       };
 
   /// 関数キーのヘッダ。URL のクエリ（?code=）では送らない。URL は例外の文言やログに出やすいため（docs/05_api_design.md §9.1）
-  Map<String, String> get _keyHeader => {
-        if (functionKey != null && functionKey!.isNotEmpty)
-          'x-functions-key': functionKey!,
-      };
+  ///
+  /// ヘッダに入れられない文字（全角文字・改行など）があるキーは送らずに 401 と同じ例外にする。
+  /// そのまま送ると http が FormatException を投げ、その文言にキーがそのまま入る（docs/03_screen_design.md §9.2）
+  Map<String, String> get _keyHeader {
+    final key = functionKey;
+    if (key == null || key.isEmpty) return const {};
+    if (key.codeUnits.any((unit) => unit < 0x21 || unit > 0x7E)) {
+      throw const ApiException(
+        statusCode: 401,
+        message: 'APIキーに使えない文字が含まれています',
+      );
+    }
+    return {'x-functions-key': key};
+  }
 
   /// 要求の URL を組み立てる
   String _buildUrl(String endpoint) => Uri.parse('$baseUrl$endpoint').toString();
