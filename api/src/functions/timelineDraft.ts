@@ -126,7 +126,11 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
       return createTimelineStateConflict();
     }
     const now = new Date().toISOString();
-    if (read.reason === 'recut' && timeline.doc.current) {
+    if (read.reason === 'recut') {
+      // 区切りの直しは AI を使わない（06 §8.6）。当てる完成版が無ければ（重なり・壊れた文書）書かない
+      if (!timeline.doc.current) {
+        return createTimelineStateConflict();
+      }
       const current = withRecutStarts(timeline.doc.current, read.sceneStarts);
       if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current, draft: null, updatedAt: now }, timeline.etag))) {
         return createTimelineStateConflict();
