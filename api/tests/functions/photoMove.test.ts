@@ -3,6 +3,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { movePhotosHandler } from '../../src/functions/photoMove';
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
@@ -223,7 +224,7 @@ describe('写真移動API', () => {
   // 05 §5.5 の 1〜8 を、表の順に。どの行も、保存済みの旅行 A と未所属の写真2枚は何も変わらない。
   // 形式の合わない要素の行は、正しい写真1の id を先頭に置く(後ろの不正な要素で、先頭の写真だけ移してしまう実装を見分ける)。
   // 最後の行は検証の順序の例(photoIds が空で tripId のキーも無いときは、表で先の「写真IDが指定されていません」)
-  it.each([
+  it('写真の移動で指定が正しくなければ、400で理由を返し、何も変えない', () => forEachCase([
     ['ボディがJSONとしてパースできない', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), 'リクエストボディの形式が無効です'],
     ['ボディがnull', jest.fn().mockResolvedValue(null), 'リクエストボディが指定されていません'],
     ['photoIdsが文字列', jest.fn().mockResolvedValue({ photoIds: PHOTO_1_ID, tripId: TRIP_A_ID }), '写真IDは配列で指定してください'],
@@ -239,7 +240,7 @@ describe('写真移動API', () => {
     ['tripIdが空の文字列', jest.fn().mockResolvedValue({ photoIds: [PHOTO_1_ID], tripId: '' }), '旅行IDの形式が無効です'],
     ['tripIdが数値', jest.fn().mockResolvedValue({ photoIds: [PHOTO_1_ID], tripId: 123 }), '旅行IDの形式が無効です'],
     ['photoIdsが空でtripIdのキーも無い(先の条件の理由を返す)', jest.fn().mockResolvedValue({ photoIds: [] }), '写真IDが指定されていません']
-  ])('写真の移動で指定が正しくなければ、400で理由を返し、何も変えない（%s）', async (_case, json, message) => {
+  ], async (_case, json, message) => {
     cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '京都'));
     cosmosBackend.documents.set(PHOTO_1_ID, savedPhoto(PHOTO_1_ID, null));
     cosmosBackend.documents.set(PHOTO_2_ID, savedPhoto(PHOTO_2_ID, null));
@@ -254,7 +255,7 @@ describe('写真移動API', () => {
     expect(body.error.code).toBe('INVALID_REQUEST');
     expect(body.error.message).toBe(message);
     expect(cosmosBackend.documents).toEqual(before);
-  });
+  }));
 
   it('移す先の旅行が無いと、404で理由を返し、何も変えない', async () => {
     // 旅行 A は置かない。写真は保存済みで、形式も正しい(旅行の確認で初めて断られる)

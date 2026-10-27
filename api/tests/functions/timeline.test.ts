@@ -17,6 +17,7 @@ import {
   tripDocument
 } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // タイムライン（段階5。docs/05_api_design.md §5.15、文書は 04 §1.6）。
 // 外部依存のみモック。Cosmos DB とキューは状態持ちの偽物。SAS の署名は固定のトークンを返す形に差し替える
@@ -443,10 +444,10 @@ describe('タイムラインを作るAPI', () => {
       expect(storedSnapshots().map((doc) => doc.id).sort()).toEqual([CURRENT_SNAPSHOT_ID, timeline.draft.snapshotId].sort());
     });
 
-    it.each<[string, TimelineJob['step'], TimelineDraft['phase']]>([
+    it('区切り案・文に失敗した下書きは置き換える', () => forEachCase<[string, TimelineJob['step'], TimelineDraft['phase']]>([
       ['区切り案', 'propose', 'proposing'],
       ['文', 'write', 'writing']
-    ])('%sに失敗した下書きは置き換える', async (_label, step, phase) => {
+    ], async (_label, step, phase) => {
       cosmosBackend.documents.set(
         TIMELINE_ID,
         existingTimeline({
@@ -458,7 +459,7 @@ describe('タイムラインを作るAPI', () => {
 
       expect(response.status).toBe(202);
       expect(storedTimeline().draft).toMatchObject({ phase: 'proposing', job: { step: 'propose', state: 'pending', attempts: 0 } });
-    });
+    }));
 
     it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない（前の下書きの控えは残す）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
@@ -520,7 +521,7 @@ describe('タイムラインを作るAPI', () => {
     expect(storedTimeline().draft).toMatchObject({ phase: 'proposing', job: { state: 'pending' } });
   });
 
-  it.each(databaseFailureCases('タイムラインの作成の受付に失敗しました'))('写真を読むときに%s', async (_case, error, status, code, message) => {
+  it('写真を読むときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの作成の受付に失敗しました'), async (_case, error, status, code, message) => {
     cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
     cosmosBackend.forcedQueryError = error;
 
@@ -529,7 +530,7 @@ describe('タイムラインを作るAPI', () => {
     expect(response.status).toBe(status);
     expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
     expect(storedTimeline()).toBeUndefined();
-  });
+  }));
 });
 
 describe('タイムラインを読むAPI（GET）', () => {
@@ -839,12 +840,12 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
   });
 
-  it.each(databaseFailureCases('タイムラインの取得に失敗しました'))('旅行の写真を読むときに%s', async (_case, error, status, code, message) => {
+  it('旅行の写真を読むときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの取得に失敗しました'), async (_case, error, status, code, message) => {
     cosmosBackend.forcedQueryError = error;
 
     const response = await getTimelineHandler(getRequest(TRIP_ID), mockContext);
 
     expect(response.status).toBe(status);
     expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-  });
+  }));
 });

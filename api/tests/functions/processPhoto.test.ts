@@ -7,6 +7,7 @@ import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument } from '../helpers/albumDocuments';
 import { CATALOG_KINDS } from '../../src/catalog/kinds';
 
@@ -265,10 +266,12 @@ describe('写真の解析のワーカー', () => {
       expect(text).toContain('北海道札幌市中央区');
     });
 
-    it.each([
+    it('撮影地が無ければ、無い値（null）を撮影地としてAIに渡さない', () => forEachCase([
       ['位置情報が無い', null],
       ['位置はあるが地名が無い', { latitude: 43.06, longitude: 141.35, placeName: null, placeSource: 'device' as const }]
-    ])('撮影地が無ければ（%s）、無い値（null）を撮影地としてAIに渡さない', async (_label, location) => {
+    ], async (_label, location) => {
+      // forEachCase は行の間で sent を空にしない。この行で送った要求だけを見る（前の行の要求を見て通らないように）
+      sent = [];
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ location }));
 
       await runWorker();
@@ -276,7 +279,7 @@ describe('写真の解析のワーカー', () => {
       // 文言は契約外なので、無い値（null）が文字として紛れ込んでいないことだけを見る
       const text = sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text;
       expect(text).not.toContain('null');
-    });
+    }));
 
     it('AIに送る要求は、テキストと画像の2パートと、定義表の種類とotherから1つ選ばせるstrictな応答の形（06 §2.1・§2.2）', async () => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
@@ -571,7 +574,7 @@ describe('写真の解析のワーカー', () => {
       expect(promptText()).not.toContain('null');
     });
 
-    it.each([
+    it('応答の検証に通らなければ、AIの失敗として識別の待ちに戻し、結果を書かない', () => forEachCase([
       ['写っているかが真偽値でない', { matchesKind: 'true' }],
       ['信頼度が0より小さい', { confidence: -1 }],
       ['信頼度が100より大きい', { confidence: 101 }],
@@ -581,7 +584,7 @@ describe('写真の解析のワーカー', () => {
       ['写っているのに名前が100文字を超える', { name: 'あ'.repeat(101) }],
       ['写っていないのに信頼度が100より大きい', { matchesKind: false, name: null, confidence: 101 }],
       ['種類ごとの項目の文字列が文字列でない', { attributes: { scientificName: 123, familyName: 'バラ科' } }]
-    ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻し、結果を書かない', async (_label, broken) => {
+    ], async (_label, broken) => {
       // strict のスキーマでも範囲や空は強制できない。通らない応答を書くと、図鑑に名前の無い項目や範囲外の信頼度が出る（06 §3.1）
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
       aiReturns({ ...plantAnswer, ...broken });
@@ -591,12 +594,12 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto()).toEqual(
         waitingPhoto({ processing: { state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW } })
       );
-    });
+    }));
 
-    it.each([
+    it('応答の検証に通らなければ、AIの失敗として識別の待ちに戻す', () => forEachCase([
       ['文字列の配列の項目が配列でない', { genre: 'ラーメン', mainIngredients: '中華麺' }],
       ['文字列の配列の項目に文字列でない値がある', { genre: 'ラーメン', mainIngredients: ['中華麺', 1] }]
-    ])('応答の検証に通らなければ（%s）、AIの失敗として識別の待ちに戻す', async (_label, attributes) => {
+    ], async (_label, attributes) => {
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
       aiReturns({ ...plantAnswer, attributes });
 
@@ -604,12 +607,12 @@ describe('写真の解析のワーカー', () => {
 
       expect(storedPhoto().identification).toBeNull();
       expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 1, lastError: 'ai', updatedAt: NOW });
-    });
+    }));
 
-    it.each([
+    it('種類ごとの項目が特定できず nullでも受け付けて、null のまま書く', () => forEachCase([
       ['植物の学名（文字列の項目）', 'plant', { scientificName: null, familyName: 'バラ科' }],
       ['食べ物の主な食材（文字列の配列の項目）', 'food', { genre: 'ラーメン', mainIngredients: null }]
-    ] as const)('種類ごとの項目が特定できず null（%s）でも受け付けて、null のまま書く', async (_label, category, attributes) => {
+    ] as const, async (_label, category, attributes) => {
       // 定義表の prompt は「特定できない場合は null」と頼むので、null はふつうに来る（06 §3.1）
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category }));
       aiReturns({ ...plantAnswer, attributes });
@@ -618,7 +621,7 @@ describe('写真の解析のワーカー', () => {
 
       expect(storedPhoto().identification).toMatchObject({ matchesKind: true, attributes });
       expect(storedPhoto().processing.state).toBe('done');
-    });
+    }));
 
     it('写っていて名前がちょうど100文字なら受け付けて、そのまま書く', async () => {
       // 上限の境界（04 §3.1 の 1〜100 文字）
@@ -838,12 +841,12 @@ describe('写真の解析のワーカー', () => {
   });
 
   describe('何もしないとき', () => {
-    it.each([
+    it('写真が解析の対象でない・別のインスタンスが処理中・済みなら、AIを呼ばず、写真も変えない', () => forEachCase([
       ['解析の対象になっていない（none）', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
       ['別のインスタンスが処理中（classifying）', { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T02:59:30.000Z' }],
       ['済み（done）', { state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: '2026-10-18T02:59:30.000Z' }],
       ['上限まで失敗した（failed）', { state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: '2026-10-18T02:59:30.000Z' }]
-    ] as const)('写真が%sなら、AIを呼ばず、写真も変えない', async (_label, processing) => {
+    ] as const, async (_label, processing) => {
       // 古いメッセージの重複配信や、やり直しの受付の後に残っていたメッセージ。06 §1.3
       const photo = pendingPhoto({ processing: { ...processing } });
       cosmosBackend.documents.set(PHOTO_ID, photo);
@@ -852,7 +855,7 @@ describe('写真の解析のワーカー', () => {
 
       expect(sent).toHaveLength(0);
       expect(storedPhoto()).toEqual(photo);
-    });
+    }));
 
     it('読んだ後に別のインスタンスが担当して失敗し、分類の待ちに戻していたら、担当せず失敗の回数を数え直さない', async () => {
       // 同じメッセージが2回届き、両方が回数 0 の分類の待ちとして読んだ。このワーカーが担当を書く直前に、
@@ -952,19 +955,19 @@ describe('写真の解析のワーカー', () => {
       expect(cosmosBackend.documents.size).toBe(0);
     });
 
-    it.each([
+    it('メッセージの写真IDが無い・文字列でないなら、何もせずに終える', () => forEachCase([
       ['写真IDが無い', {}],
       ['写真IDが文字列でない', { photoId: 123 }],
       ['写真IDの形式が違う', { photoId: '../photos/other' }],
       ['JSONのオブジェクトでない', 'not-json']
-    ])('メッセージの%sなら、何もせずに終える', async (_label, message) => {
+    ], async (_label, message) => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
 
       await expect(runWorker(message)).resolves.toBeUndefined();
 
       expect(sent).toHaveLength(0);
       expect(storedPhoto()).toEqual(pendingPhoto());
-    });
+    }));
   });
 
   describe('失敗したとき', () => {
@@ -1047,14 +1050,14 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'classify', attempts: 1, lastError: 'internal', updatedAt: NOW });
     });
 
-    it.each([
+    it('AIの応答が選択肢に無い種類・範囲外の信頼度なら、AIの失敗として分類の待ちに戻し、結果を書かない', () => forEachCase([
       ['選択肢に無い種類', JSON.stringify({ kind: 'animal', confidence: 90, reason: '犬が写っている' })],
       ['負の数の信頼度', JSON.stringify({ kind: 'food', confidence: -0.1, reason: 'テスト' })],
       ['100を超える信頼度', JSON.stringify({ kind: 'food', confidence: 100.5, reason: 'テスト' })],
       ['数値でない信頼度', JSON.stringify({ kind: 'food', confidence: '90', reason: 'テスト' })],
       ['空', null],
       ['JSONとして読めない', '{"kind": "food"']
-    ])('AIの応答が%sなら、AIの失敗として分類の待ちに戻し、結果を書かない', async (_label, content) => {
+    ], async (_label, content) => {
       // 検査を通らない応答を書き込むと、写真の category が図鑑の種類と食い違う（06 §2.1）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
       reply = async () => ({ choices: [{ message: { content } }] });
@@ -1066,7 +1069,7 @@ describe('写真の解析のワーカー', () => {
           processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: NOW }
         })
       );
-    });
+    }));
 
     it('写真を読めなければ、写真を変えずに例外を投げる（キューの再試行に任せる）', async () => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());

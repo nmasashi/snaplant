@@ -251,7 +251,7 @@ void main() {
     expect(find.text('旧キーの桜'), findsNothing);
   });
 
-  testWidgets('設定画面の「接続テスト」は、入れたエンドポイントとキーでサーバとデータベースに届けば「接続に成功しました」と出す', (tester) async {
+  testWidgets('設定画面の「接続テスト」は、保存済みの値ではなく入れたエンドポイントとキーで確かめ、サーバとデータベースに届けば「接続に成功しました」、届かないキーなら「接続に失敗しました」と出す', (tester) async {
     // 植物図鑑の API は消すので使わない
     useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
     SharedPreferences.setMockInitialValues({});
@@ -265,8 +265,18 @@ void main() {
 
     await tester.tap(find.text('接続テスト'));
     await letFramesRun(tester);
-
     expect(find.text('接続に成功しました'), findsOneWidget);
+
+    // 保存済みの値ではなく入力中のキーで確かめる。偽のサーバは保存済みのキーにだけ答え、入れたキーには 401 を返す。
+    // 結果のスナックバーは順に出るので、成功の表示が消えるまで進めてから次を試す
+    await tester.pump(const Duration(seconds: 5));
+    await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'typed-key');
+    await tester.ensureVisible(find.text('接続テスト'));
+    await tester.pump();
+    await tester.tap(find.text('接続テスト'));
+    await letFramesRun(tester);
+    await letFramesRun(tester);
+    expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
   });
 
   testWidgets('設定画面の「接続テスト」は、データベースに届かなければ（図鑑の種類の一覧は読めても）「接続に失敗しました」と出す', (tester) async {
@@ -278,25 +288,6 @@ void main() {
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     await tester.tap(find.byIcon(Icons.settings));
     await letFramesRun(tester);
-    await tester.ensureVisible(find.text('接続テスト'));
-    await tester.pump();
-
-    await tester.tap(find.text('接続テスト'));
-    await letFramesRun(tester);
-
-    expect(find.text('接続に失敗しました。設定を確認してください。'), findsOneWidget);
-  });
-
-  testWidgets('設定画面の「接続テスト」は、保存済みの値ではなく入力中のキーで確かめる（届かないキーなら「接続に失敗しました」）', (tester) async {
-    // 保存前の値で試せるようにする。偽のサーバは保存済みのキーにだけ答え、入れたキーには 401 を返す
-    useSecureStorage(TestFlutterSecureStoragePlatform({'api_key': 'saved-key'}));
-    SharedPreferences.setMockInitialValues({});
-    await saveTestEndpoint(tester);
-    final server = catalogServer({(host: testApiHost, code: 'saved-key'): '桜'});
-    await openApp(tester, app: SnapPlantApp(httpClient: server));
-    await tester.tap(find.byIcon(Icons.settings));
-    await letFramesRun(tester);
-    await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'typed-key');
     await tester.ensureVisible(find.text('接続テスト'));
     await tester.pump();
 

@@ -6,6 +6,7 @@ import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../f
 import { BlobEntry, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { allDatabaseFailureCases, databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -142,7 +143,7 @@ describe('旅行API', () => {
         json
       }) as any as HttpRequest;
 
-    it.each([
+    it('入力が正しくなければ400で理由を返し、何も保存しない', () => forEachCase([
       [
         'ボディがJSONとしてパースできない',
         jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')),
@@ -174,7 +175,7 @@ describe('旅行API', () => {
         jest.fn().mockResolvedValue({ name: 123, description: 456 }),
         '旅行名は文字列で指定してください'
       ]
-    ])('入力が正しくなければ400で理由を返し、何も保存しない（%s）', async (_case, json, message) => {
+    ], async (_case, json, message) => {
       const request = requestWith(json);
 
       const response = await createTripHandler(request, mockContext);
@@ -185,9 +186,9 @@ describe('旅行API', () => {
       expect(body.error.code).toBe('INVALID_REQUEST');
       expect(body.error.message).toBe(message);
       expect(cosmosBackend.documents.size).toBe(0);
-    });
+    }));
 
-    it.each([
+    it('旅行名と説明が上限ちょうどのときは、受け入れて保存する', () => forEachCase([
       [
         '旅行名が前後の空白を除いてちょうど100文字',
         { name: ` ${'あ'.repeat(100)} `, description: null },
@@ -198,7 +199,7 @@ describe('旅行API', () => {
         { name: '北海道', description: 'あ'.repeat(1000) },
         { name: '北海道', description: 'あ'.repeat(1000) }
       ]
-    ])('%sのときは、受け入れて保存する', async (_case, body, expected) => {
+    ], async (_case, body, expected) => {
       const request = requestWith(jest.fn().mockResolvedValue(body));
 
       const response = await createTripHandler(request, mockContext);
@@ -208,13 +209,13 @@ describe('旅行API', () => {
       expect(savedTrip.name).toBe(expected.name);
       expect(savedTrip.description).toBe(expected.description);
       expect(cosmosBackend.documents.get(savedTrip.id)).toMatchObject(expected);
-    });
+    }));
 
-    it.each([
+    it('説明を省略した・null・空文字のときは、説明なし（null）として保存される', () => forEachCase([
       ['説明を省略した', { name: '北海道' }],
       ['説明にnullを指定した', { name: '北海道', description: null }],
       ['説明に空文字を指定した', { name: '北海道', description: '' }]
-    ])('%sときは、説明なし（null）として保存される', async (_case, body) => {
+    ], async (_case, body) => {
       const request = requestWith(jest.fn().mockResolvedValue(body));
 
       const response = await createTripHandler(request, mockContext);
@@ -223,11 +224,9 @@ describe('旅行API', () => {
       const savedTrip = (response.jsonBody as any).data.trip;
       expect(savedTrip.description).toBeNull();
       expect(cosmosBackend.documents.get(savedTrip.id)).toMatchObject({ description: null });
-    });
+    }));
 
-    it.each(
-      allDatabaseFailureCases('旅行の作成に失敗しました')
-    )('旅行の作成で%s', async (_case, error, status, code, message) => {
+    it('旅行の作成で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す（接続の失敗は cause もたどる）', () => forEachCase(allDatabaseFailureCases('旅行の作成に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.forcedCreateError = error;
       const request = requestWith(jest.fn().mockResolvedValue({ name: '北海道' }));
 
@@ -238,7 +237,7 @@ describe('旅行API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
-    });
+    }));
 
     it('旅行の作成で、原因（cause）が循環したエラーのときも、止まらずに内部エラー（500）を返す', async () => {
       // 接続できない障害かは cause をたどって判定する。循環に歯止めが無いと、このテストは
@@ -387,9 +386,7 @@ describe('旅行API', () => {
       });
     });
 
-    it.each(
-      databaseFailureCases('旅行一覧の取得に失敗しました')
-    )('旅行の一覧取得で%s', async (_case, error, status, code, message) => {
+    it('旅行の一覧取得で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('旅行一覧の取得に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.forcedQueryError = error;
       const request = {
         method: 'GET',
@@ -405,6 +402,6 @@ describe('旅行API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
-    });
+    }));
   });
 });

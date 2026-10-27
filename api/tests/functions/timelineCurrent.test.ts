@@ -10,6 +10,7 @@ import {
 import { TimelineDocument, TimelinePhotoSnapshot } from '../../src/types/timeline';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { FakeBlobBackend, createFakeBlobServiceClient } from '../fakes/blob';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument, timelineCurrent, timelineDocument, timelineDraft, timelinePhotosDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
@@ -175,14 +176,14 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timeline());
     });
 
-    it.each(endpoints)('%s: 旅行IDがUUIDの形でなければ、400を返す', async (_name, send) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
       const response = await send('not-a-uuid');
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
-    });
+    }));
 
-    it.each(endpoints)('%s: 旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', async (_name, send) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       cosmosBackend.documents.delete(TRIP_ID);
 
       const response = await send(TRIP_ID);
@@ -190,9 +191,9 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(404);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
       expect(storedTimeline()).toEqual(timeline());
-    });
+    }));
 
-    it.each(endpoints)('%s: 読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', async (_name, send) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       const written = timelineDocument(TRIP_ID, {
         current,
         droppedEdits: [...DROPPED, ...DROPPED.map((edit) => ({ ...edit, field: 'note' as const }))],
@@ -207,16 +208,16 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(409);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
       expect(storedTimeline()).toEqual(written);
-    });
+    }));
 
-    it.each(databaseFailures)('%s: タイムラインを置き換えるときに%s', async (_name, _label, send, error, status, code, message) => {
+    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
       cosmosBackend.forcedReplaceError = error;
 
       const response = await send(TRIP_ID);
 
       expect(response.status).toBe(status);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-    });
+    }));
   });
 
   describe('区切りを直し始める（POST …/recut）', () => {
@@ -324,17 +325,17 @@ describe('タイムラインの完成版の操作API', () => {
       ]);
     });
 
-    it.each<[string, TimelineDocument[]]>([
+    it('タイムラインが無い・下書きだけで完成版が無いときは、404（TIMELINE_NOT_FOUND）', () => forEachCase<[string, TimelineDocument[]]>([
       ['タイムラインが無い', []],
       ['下書きだけで完成版が無い', [timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID) })]]
-    ])('%sときは、404（TIMELINE_NOT_FOUND）', async (_label, timelines) => {
+    ], async (_label, timelines) => {
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc as any));
 
       const response = await recut();
 
       expect(response.status).toBe(404);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
-    });
+    }));
 
     it('下書きがあれば（作り直しや区切りの直しの途中）、409（TIMELINE_STATE_CONFLICT）で下書きを変えない', async () => {
       const timeline = timelineDocument(TRIP_ID, { current, draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID) });
@@ -410,7 +411,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()!.current!.sceneTexts[photoId('a')]).toMatchObject({ note: '空港の海鮮丼', noteSource: 'user' });
     });
 
-    it.each<[string, () => Promise<any>, string]>([
+    it('入力が正しくないときは、400 で何も変えない', () => forEachCase<[string, () => Promise<any>, string]>([
       ['写真IDの形式が無効', () => patchScene('xyz', { label: 'x' }), '写真IDの形式が無効です'],
       ['ボディが JSON として読めない', () => patchTimelineDayHandler(patchRequest('days/2026-10-05', { date: '2026-10-05' }, undefined, '{'), mockContext), 'リクエストボディの形式が無効です'],
       ['ボディが null', () => patchDay('2026-10-05', null), 'リクエストボディが指定されていません'],
@@ -427,7 +428,7 @@ describe('タイムラインの完成版の操作API', () => {
       // 欄ごとに（日はタイトル → まとめの順に）型 → 上限を見て、最初に当たったものを返す
       ['タイトルの型とまとめの上限がどちらも違う', () => patchDay('2026-10-05', { title: 1, summary: 'ま'.repeat(401) }), 'タイトルは文字列で指定してください'],
       ['タイトルの上限とまとめの型がどちらも違う', () => patchDay('2026-10-05', { title: '題'.repeat(41), summary: 1 }), 'タイトルは40文字以内で指定してください']
-    ])('%sときは、400 で何も変えない', async (_label, send, message) => {
+    ], async (_label, send, message) => {
       const before = storedTimeline();
 
       const response = await send();
@@ -435,7 +436,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
       expect(storedTimeline()).toEqual(before);
-    });
+    }));
 
     it('直しても文が変わらなければ書き込まずに、完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
       // AI が書いた文のままの欄に null を送る（AI の文に戻す）＝ 変わらない
@@ -475,13 +476,13 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('題'.repeat(40));
     });
 
-    it.each<[string, () => Promise<any>, string]>([
+    it('その日や場面が完成版に無いときは、404（TIMELINE_NOT_FOUND）で何も変えない', () => forEachCase<[string, () => Promise<any>, string]>([
       ['その日が完成版に無い', () => patchDay('2026-10-07', { title: 'x' }), 'その日はタイムラインにありません'],
       ['日付の形が違う', () => patchDay('2026-10-5', { title: 'x' }), 'その日はタイムラインにありません'],
       ['実在しない日付', () => patchDay('2026-02-30', { title: 'x' }), 'その日はタイムラインにありません'],
       ['暦に無い月の日付', () => patchDay('2026-13-01', { title: 'x' }), 'その日はタイムラインにありません'],
       ['その場面が完成版に無い', () => patchScene(photoId('b'), { label: 'x' }), 'その場面はタイムラインにありません']
-    ])('%sときは、404（TIMELINE_NOT_FOUND）で何も変えない', async (_label, send, message) => {
+    ], async (_label, send, message) => {
       const before = storedTimeline();
 
       const response = await send();
@@ -489,12 +490,12 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(404);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message } });
       expect(storedTimeline()).toEqual(before);
-    });
+    }));
 
-    it.each<[string, TimelineDocument[]]>([
+    it('タイムラインが無い・下書きだけで完成版が無いときは、404（タイムラインが見つかりません）', () => forEachCase<[string, TimelineDocument[]]>([
       ['タイムラインが無い', []],
       ['下書きだけで完成版が無い', [timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID) })]]
-    ])('%sときは、404（タイムラインが見つかりません）', async (_label, timelines) => {
+    ], async (_label, timelines) => {
       cosmosBackend.documents.delete(TIMELINE_ID);
       timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc as any));
 
@@ -502,7 +503,7 @@ describe('タイムラインの完成版の操作API', () => {
 
       expect(response.status).toBe(404);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
-    });
+    }));
   });
 
   describe('残せなかった文の知らせを閉じる（DELETE …/dropped-edits）', () => {

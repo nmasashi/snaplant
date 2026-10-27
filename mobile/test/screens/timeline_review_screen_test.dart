@@ -137,9 +137,10 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('地名の無い場面は、カードの上を「{時刻} · {N}枚」にする', (tester) async {
+    testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出し、地名の無い場面はカードの上を「{時刻} · {N}枚」にする',
+        (tester) async {
       await _openTimeline(tester,
-          draft: _reviewingDraft(scenes: const [
+          draft: _reviewingDraft(reason: 'recut', scenes: const [
             [
               [1, 2],
               [3, 4]
@@ -151,17 +152,11 @@ void main() {
           ]));
       await _openReview(tester);
 
+      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
+          findsOneWidget);
       await tester.scrollUntilVisible(find.text('12:00 · 1枚'), 200,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('12:00 · 1枚'), findsOneWidget);
-    });
-
-    testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出す', (tester) async {
-      await _openTimeline(tester, draft: _reviewingDraft(reason: 'recut'));
-      await _openReview(tester);
-
-      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
-          findsOneWidget);
     });
 
     testWidgets('読み込んでいる間は「区切りを読み込み中...」を出す', (tester) async {
@@ -420,9 +415,9 @@ void main() {
       await letFramesRun(tester);
     });
 
-    testWidgets('メニューの「区切り案を出し直す」は確認のダイアログを出し、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
+    testWidgets('メニューの「区切り案を出し直す」は確認のダイアログを出し、「キャンセル」なら何もせず、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
         (tester) async {
-      await _openTimeline(tester);
+      final backend = await _openTimeline(tester);
       await _openReview(tester);
 
       await tester.tap(find.byIcon(Icons.more_vert));
@@ -431,29 +426,23 @@ void main() {
       await letFramesRun(tester);
       expect(inDialog(find.text('AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。')),
           findsOneWidget);
+      await tapInDialog(tester, 'キャンセル');
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'reviewing');
+      expect(find.text('区切りを確認'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('区切り案を出し直す'));
+      await letFramesRun(tester);
       await tapInDialog(tester, '出し直す');
 
       expect(find.text('区切りを確認'), findsNothing);
       expect(find.text('区切りの案を作っています'), findsOneWidget);
     });
 
-    testWidgets('「区切り案を出し直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
-      final backend = await _openTimeline(tester);
-      await _openReview(tester);
-
-      await tester.tap(find.byIcon(Icons.more_vert));
-      await letFramesRun(tester);
-      await tester.tap(find.text('区切り案を出し直す'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, 'キャンセル');
-
-      expect(
-          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
-          'reviewing');
-      expect(find.text('区切りを確認'), findsOneWidget);
-    });
-
-    testWidgets('メニューの「やめる」は「作りかけのタイムラインを捨てますか？」を出し、「捨てる」で下書きを消して旅行詳細に戻る',
+    testWidgets('メニューの「やめる」は「作りかけのタイムラインを捨てますか？」を出し、「キャンセル」なら何もせず、「捨てる」で下書きを消して旅行詳細に戻る',
         (tester) async {
       final backend = await _openTimeline(tester);
       await _openReview(tester);
@@ -463,27 +452,21 @@ void main() {
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
       expect(inDialog(find.text('作りかけのタイムラインを捨てますか？')), findsOneWidget);
-      await tapInDialog(tester, '捨てる');
-
-      expect(backend.timelinesByTripId[hokkaidoTripId], isNull);
-      expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('タイムラインはまだありません'), findsOneWidget);
-    });
-
-    testWidgets('「やめる」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
-      final backend = await _openTimeline(tester);
-      await _openReview(tester);
+      await tapInDialog(tester, 'キャンセル');
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'reviewing');
+      expect(find.text('区切りを確認'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.more_vert));
       await letFramesRun(tester);
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
-      await tapInDialog(tester, 'キャンセル');
+      await tapInDialog(tester, '捨てる');
 
-      expect(
-          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
-          'reviewing');
-      expect(find.text('区切りを確認'), findsOneWidget);
+      expect(backend.timelinesByTripId[hokkaidoTripId], isNull);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('タイムラインはまだありません'), findsOneWidget);
     });
 
     testWidgets('メニューの操作で下書きが別の端末で変わっていたら（409）、知らせて旅行詳細に戻る', (tester) async {

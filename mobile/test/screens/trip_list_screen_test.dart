@@ -117,12 +117,13 @@ void main() {
     expect(find.text('まだ旅行がありません'), findsOneWidget);
   });
 
-  testWidgets('旅行を作るダイアログで旅行名を入れて「作成」を押すと、ダイアログが閉じて「旅行を作成しました」と出て、一覧に新しい旅行が加わる', (tester) async {
+  testWidgets('旅行を作るダイアログで旅行名とメモを入れて「作成」を押すと、ダイアログが閉じて「旅行を作成しました」と出て一覧に新しい旅行が加わり、その旅行の編集を開くとメモが入っている', (tester) async {
     // 作った旅行は偽のサーバが覚え、読み直した一覧に載せる。最初の一覧は0件
     final backend = FakeTripBackend();
     await openTripsTab(tester, backend);
     await openCreateDialog(tester);
     await enterTripName(tester, '北海道 2026秋');
+    await enterTripMemo(tester, 'ひとり旅');
 
     await tapInDialog(tester, '作成');
 
@@ -131,15 +132,6 @@ void main() {
     expect(find.text('北海道 2026秋'), findsOneWidget);
     expect(find.text('0枚 · 撮影日時なし'), findsOneWidget);
     expect(find.text('まだ旅行がありません'), findsNothing);
-  });
-
-  testWidgets('メモを入れて旅行を作ると、作った旅行の編集を開いたときにそのメモが入っている', (tester) async {
-    final backend = FakeTripBackend();
-    await openTripsTab(tester, backend);
-    await openCreateDialog(tester);
-    await enterTripName(tester, '北海道 2026秋');
-    await enterTripMemo(tester, 'ひとり旅');
-    await tapInDialog(tester, '作成');
 
     // 作った旅行を開いて、編集ダイアログを出す
     await tester.tap(find.text('北海道 2026秋'));
@@ -302,7 +294,8 @@ void main() {
     expect(find.text('大阪'), findsOneWidget);
   });
 
-  testWidgets('旅行を作っている間は「作成」が「作成中...」になり、押し直しても旅行は二重に作られない', (tester) async {
+  testWidgets('旅行を作っている間は「作成」が「作成中...」になり、押し直しても「キャンセル」や外のタップ、戻る操作でもダイアログは閉じず、応答が返れば閉じて「旅行を作成しました」と出し、一覧に旅行が1つ載る', (tester) async {
+    // 閉じられると、旅行は作られるのに一覧は読み直されず、利用者はもう一度作って同じ名前の旅行が2つできる。
     // 作成の応答を止めておき、作成中の状態を見る
     final release = Completer<void>();
     final backend = FakeTripBackend();
@@ -310,30 +303,12 @@ void main() {
     await openTripsTab(tester, backend);
     await openCreateDialog(tester);
     await enterTripName(tester, '北海道 2026秋');
-
     await tapInDialog(tester, '作成');
 
     expect(inDialog(find.text('作成中...')), findsOneWidget);
     expect(inDialog(find.text('作成')), findsNothing);
-
     // 作成中のボタンを押し直しても、応答が返った後に旅行が1つしか載らない
     await tester.tap(inDialog(find.text('作成中...')));
-    release.complete();
-    await letFramesRun(tester);
-
-    expect(find.text('北海道 2026秋'), findsOneWidget);
-  });
-
-  testWidgets('旅行を作っている間は、「キャンセル」や外のタップ、戻る操作でもダイアログは閉じず、応答が返れば閉じて「旅行を作成しました」と出し、一覧に旅行が1つ載る', (tester) async {
-    // 閉じられると、旅行は作られるのに一覧は読み直されず、利用者はもう一度作って同じ名前の旅行が2つできる
-    final release = Completer<void>();
-    final backend = FakeTripBackend();
-    backend.holds[TripRoute.create] = release.future;
-    await openTripsTab(tester, backend);
-    await openCreateDialog(tester);
-    await enterTripName(tester, '北海道 2026秋');
-    await tapInDialog(tester, '作成');
-
     await tapInDialog(tester, 'キャンセル');
     expect(find.byType(Dialog), findsOneWidget);
     // ダイアログの外（画面の隅）のタップ

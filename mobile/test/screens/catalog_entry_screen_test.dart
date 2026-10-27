@@ -60,6 +60,8 @@ FakeTripBackend _backend({
 /// 図鑑のタブを開き、[name] の項目の行をタップする
 Future<void> _openEntry(WidgetTester tester, FakeTripBackend backend,
     {String name = 'ソメイヨシノ'}) async {
+  // 1つのテストの中で開き直すとき、前のアプリの木を残さない
+  await tester.pumpWidget(const SizedBox());
   await openCatalogTab(tester, backend);
   await tester.tap(find.text(name));
   await letFramesRun(tester);
@@ -82,11 +84,14 @@ void main() {
         lessThan(tester.getTopLeft(find.text('科名')).dy));
   });
 
-  testWidgets('説明・特徴・欄の値が無ければ「—」を出し、配列の欄は「、」でつなぐ', (tester) async {
+  testWidgets('説明・特徴・欄の値が無ければ「—」を出し、配列の欄は「、」でつなぎ、空の配列も「—」にする', (tester) async {
     final backend = FakeTripBackend(
       functionKey: 'test-key',
       catalogEntriesByKind: {
-        'food': [catalogEntryJson('food', '味噌ラーメン')],
+        'food': [
+          catalogEntryJson('food', '味噌ラーメン'),
+          catalogEntryJson('food', '塩ラーメン'),
+        ],
       },
       photosByTripId: {
         hokkaidoTripId: [
@@ -101,30 +106,8 @@ void main() {
               'mainIngredients': ['中華麺', '味噌', 'もやし']
             },
           ),
-        ],
-      },
-    );
-    await openCatalogTab(tester, backend);
-    await tester.tap(find.widgetWithText(Tab, '食べ物'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('味噌ラーメン'));
-    await letFramesRun(tester);
-
-    expect(find.text('中華麺、味噌、もやし'), findsOneWidget);
-    // 説明（null）・特徴（空）・料理のジャンル（キーが無い）
-    expect(find.text('—'), findsNWidgets(3));
-  });
-
-  testWidgets('配列の欄が空なら「—」を出す', (tester) async {
-    final backend = FakeTripBackend(
-      functionKey: 'test-key',
-      catalogEntriesByKind: {
-        'food': [catalogEntryJson('food', '塩ラーメン')],
-      },
-      photosByTripId: {
-        hokkaidoTripId: [
           identifiedPhotoJson(
-            number: 1,
+            number: 2,
             kind: 'food',
             name: '塩ラーメン',
             tripId: hokkaidoTripId,
@@ -137,6 +120,15 @@ void main() {
     );
     await openCatalogTab(tester, backend);
     await tester.tap(find.widgetWithText(Tab, '食べ物'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('味噌ラーメン'));
+    await letFramesRun(tester);
+
+    expect(find.text('中華麺、味噌、もやし'), findsOneWidget);
+    // 説明（null）・特徴（空）・料理のジャンル（キーが無い）
+    expect(find.text('—'), findsNWidgets(3));
+
+    await tapBack(tester);
     await letFramesRun(tester);
     await tester.tap(find.text('塩ラーメン'));
     await letFramesRun(tester);
@@ -279,7 +271,7 @@ void main() {
     expect(find.text('3枚'), findsOneWidget);
   });
 
-  testWidgets('その名前の写真が無ければ「この項目には写真がありません」と「戻る」を出し、戻ると図鑑の一覧を読み直す',
+  testWidgets('その名前の写真が無ければ「この項目には写真がありません」と「戻る」を出し、「戻る」でも端末の戻る操作でも図鑑の一覧を読み直す',
       (tester) async {
     // やり直しで名前が変わった直後など（一覧を読んだ後に写真が無くなった）
     final backend = _backend(hokkaidoPhotos: [], kyotoPhotos: []);
@@ -287,26 +279,19 @@ void main() {
 
     expect(find.text('この項目には写真がありません'), findsOneWidget);
     expect(find.text('写真が削除されたか、解析のやり直しで名前が変わりました'), findsOneWidget);
-    backend.catalogEntriesByKind['plant']!.clear();
 
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    expect(backend.catalogOffsetsReceived, [0, 0]);
+
+    await tester.tap(find.text('ソメイヨシノ'));
+    await letFramesRun(tester);
+    backend.catalogEntriesByKind['plant']!.clear();
     await tester.tap(find.text('戻る'));
     await letFramesRun(tester);
 
     expect(find.text('植物の項目はまだありません'), findsOneWidget);
-    expect(backend.catalogOffsetsReceived, [0, 0]);
-  });
-
-  testWidgets('その名前の写真が無いとき、端末の戻る操作で戻っても図鑑の一覧を読み直す', (tester) async {
-    final backend = _backend(hokkaidoPhotos: [], kyotoPhotos: []);
-    await _openEntry(tester, backend);
-    expect(find.text('この項目には写真がありません'), findsOneWidget);
-    backend.catalogEntriesByKind['plant']!.clear();
-
-    await tester.binding.handlePopRoute();
-    await letFramesRun(tester);
-
-    expect(find.text('植物の項目はまだありません'), findsOneWidget);
-    expect(backend.catalogOffsetsReceived, [0, 0]);
+    expect(backend.catalogOffsetsReceived, [0, 0, 0]);
   });
 
   group('項目詳細から戻ったときの一覧の読み直し（一覧の行に出すものが変わっていれば読み直す。02 §5 #35）', () {
@@ -345,42 +330,27 @@ void main() {
       expect(backend.catalogOffsetsReceived, [0]);
     });
 
-    testWidgets('枚数が一覧の行と違えば（項目詳細で写真を消したなど）、戻ると一覧を先頭から読み直す', (tester) async {
-      final backend = backendWithRow(listRow(photoCount: 4));
-      await _openEntry(tester, backend);
-      expect(find.text('3枚'), findsOneWidget);
-      backend.catalogEntriesByKind['plant'] = [listRow()];
-
-      await tapBack(tester);
-      await letFramesRun(tester);
-
-      expect(backend.catalogOffsetsReceived, [0, 0]);
-      expect(find.text('3枚'), findsOneWidget);
-    });
-
-    testWidgets('信頼度が一覧の行と違えば（見出しの写真をやり直したなど）、戻ると一覧を読み直す', (tester) async {
-      final backend = backendWithRow(listRow(confidence: 85));
-      await _openEntry(tester, backend);
-      backend.catalogEntriesByKind['plant'] = [listRow()];
-
-      await tapBack(tester);
-      await letFramesRun(tester);
-
-      expect(backend.catalogOffsetsReceived, [0, 0]);
-      expect(find.text('92%'), findsOneWidget);
-    });
-
-    testWidgets('表紙の写真が一覧の行と違えば（見出しの写真が別の写真になったなど）、戻ると一覧を読み直す', (tester) async {
+    testWidgets('枚数・信頼度・表紙の写真のどれかが一覧の行と違えば（写真を消した・見出しの写真をやり直したなど）、戻ると一覧を先頭から読み直す',
+        (tester) async {
       final otherThumbnail = _sakura(1, '10:00')['thumbnailUrl'] as String;
-      final backend = backendWithRow(listRow(cover: otherThumbnail));
-      await _openEntry(tester, backend);
+      for (final (label, row) in [
+        ('枚数', listRow(photoCount: 4)),
+        ('信頼度', listRow(confidence: 85)),
+        ('表紙', listRow(cover: otherThumbnail)),
+      ]) {
+        final backend = backendWithRow(row);
+        await _openEntry(tester, backend);
+        expect(find.text('3枚'), findsOneWidget, reason: label);
+        backend.catalogEntriesByKind['plant'] = [listRow()];
 
-      await tapBack(tester);
-      await letFramesRun(tester);
+        await tapBack(tester);
+        await letFramesRun(tester);
 
-      expect(backend.catalogOffsetsReceived, [0, 0]);
+        expect(backend.catalogOffsetsReceived, [0, 0], reason: label);
+        expect(find.text('3枚'), findsOneWidget, reason: label);
+        expect(find.text('92%'), findsOneWidget, reason: label);
+      }
     });
-
     testWidgets('項目詳細を一度も読めずに（取得に失敗して）戻ったら、一覧を読み直さない', (tester) async {
       final backend = backendWithRow(listRow());
       backend.failNext(TripRoute.catalogEntry);

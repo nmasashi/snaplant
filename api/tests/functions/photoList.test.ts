@@ -7,6 +7,7 @@ import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../f
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { COSMOS_SYSTEM_FIELDS, photoDocument, tripDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -409,7 +410,7 @@ describe('写真一覧API', () => {
       ]
     ];
 
-    it.each(invalidQueryCases)('写真の一覧で指定が正しくなければ、400で理由を返す（%s）', async (_case, query, message) => {
+    it('写真の一覧で指定が正しくなければ、400で理由を返す', () => forEachCase(invalidQueryCases, async (_case, query, message) => {
       cosmosBackend.forcedQueryError = new Error('検証より前にデータベースへ問い合わせた');
       const request = createListPhotosRequest(query);
 
@@ -420,15 +421,15 @@ describe('写真一覧API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe('INVALID_REQUEST');
       expect(body.error.message).toBe(message);
-    });
+    }));
 
     // 1ページの枚数の境界。下限の1と上限の200は受け付ける（0 と 201 は上の表で 400）。
     // 指定した枚数が効いていることも、返る写真とトークンで見る（1 なら1枚で続きがあり、200 なら全部で最後のページ）。
     // 旅行は置いておく（旅行の確認が入っても、この要求は受け付けられる）
-    it.each([
+    it('写真の一覧は、1ページの枚数が下限と上限ちょうどでも受け付ける', () => forEachCase([
       ['limitが下限の1', '1', [PHOTO_A1_ID], expect.any(String)],
       ['limitが上限の200', '200', [PHOTO_A1_ID, PHOTO_A2_ID], null]
-    ])('写真の一覧は、1ページの枚数が下限と上限ちょうどでも受け付ける（%s）', async (_case, limit, photoIds, continuationToken) => {
+    ], async (_case, limit, photoIds, continuationToken) => {
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
       cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID));
       cosmosBackend.documents.set(PHOTO_A2_ID, storedPhoto(PHOTO_A2_ID, TRIP_A_ID));
@@ -440,7 +441,7 @@ describe('写真一覧API', () => {
       const data = (response.jsonBody as any).data;
       expect(data.photos.map((photo: { id: string }) => photo.id)).toEqual(photoIds);
       expect(data.continuationToken).toEqual(continuationToken);
-    });
+    }));
 
     // limit を省略したときの1ページの枚数は 100(05 §5.2 の表。PHOTO_PAGE_SIZE の既定)。
     // 旅行の写真を 101 枚置き、1ページ目が 100 枚で切れて続きがあることを、返る枚数と継続トークンで見る。

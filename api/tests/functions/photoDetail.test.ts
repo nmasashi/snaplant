@@ -12,6 +12,7 @@ import { FakeCosmosBackend, FakeCosmosDocument, cosmosNotFoundError, createFakeC
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { COSMOS_SYSTEM_FIELDS, photoDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
+import { forEachCase } from '../helpers/cases';
 
 // 外部依存のみモック
 jest.mock('@azure/cosmos');
@@ -177,13 +178,13 @@ describe('写真詳細API', () => {
 
     // 写真IDの形式は小文字16進64文字だけ。大文字を許すと同じ写真に2つの id ができるので、大文字は400になる。
     // code は文字列で固定する（クライアントがこの値で分岐する）
-    it.each([
+    it('取り出す写真の指定の形式が正しくなければ、400で理由を返す', () => forEachCase([
       ['写真IDが3文字', 'abc'],
       ['写真IDが大文字の16進', PHOTO_ID.toUpperCase()],
       ['写真IDが63文字', PHOTO_ID.slice(1)],
       ['写真IDが65文字', `${PHOTO_ID}0`],
       ['写真IDに16進でない文字が入っている', `g${PHOTO_ID.slice(1)}`]
-    ])('取り出す写真の指定の形式が正しくなければ、400で理由を返す（%s）', async (_case, photoId) => {
+    ], async (_case, photoId) => {
       const request = createGetPhotoRequest(photoId);
 
       const response = await getPhotoHandler(request, mockContext);
@@ -193,7 +194,7 @@ describe('写真詳細API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe('INVALID_REQUEST');
       expect(body.error.message).toBe('写真IDの形式が無効です');
-    });
+    }));
 
     it('形式は正しいが該当する写真が無ければ、404で理由を返す', async () => {
       // documents は空のまま。形式の検証は通り、データベースの読み取りで見つからない
@@ -209,9 +210,7 @@ describe('写真詳細API', () => {
     });
 
     // 写真の読み取りで失敗したときの分類の表。接続できない障害は503、それ以外は500で、500の message は固定
-    it.each(
-      databaseFailureCases('写真詳細の取得に失敗しました')
-    )('写真の取得で%s', async (_case, error, status, code, message) => {
+    it('写真の取得で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('写真詳細の取得に失敗しました'), async (_case, error, status, code, message) => {
       // 形式が正しい photoId で呼ぶ（形式の検証で先に400にならず、データベースの読み取りまで進む）
       cosmosBackend.forcedReadError = error;
       const request = createGetPhotoRequest(PHOTO_ID);
@@ -223,7 +222,7 @@ describe('写真詳細API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
-    });
+    }));
 
     // 写真のURLは、接続文字列のアカウント名と鍵で署名して作る。鍵が無いまま空の鍵で署名すると、
     // 見かけは普通のURLなのに Blob Storage が403で拒む壊れたURLを返してしまう。
@@ -274,14 +273,14 @@ describe('写真詳細API', () => {
     // 写真IDの形式は GET と同じ(小文字16進64文字だけ)。404 の行は形式が正しく、写真だけが無い。
     // どの行でも保存済みの写真は PHOTO_ID と OTHER_PHOTO_ID の2枚で、削除は何も変えない。
     // 大文字の行は、小文字にした id の写真(PHOTO_ID)が実際にある。大文字を小文字に直して消してしまう実装は、この行で見分ける
-    it.each([
+    it('削除する写真の指定が正しくなければ、理由を返し何も消さない', () => forEachCase([
       ['写真IDが3文字', 'abc', 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
       ['写真IDが大文字の16進', PHOTO_ID.toUpperCase(), 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
       ['写真IDが63文字', PHOTO_ID.slice(1), 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
       ['写真IDが65文字', `${PHOTO_ID}0`, 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
       ['写真IDに16進でない文字が入っている', `g${PHOTO_ID.slice(1)}`, 400, 'INVALID_REQUEST', '写真IDの形式が無効です'],
       ['形式は正しいが該当する写真が無い', MISSING_PHOTO_ID, 404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません']
-    ])('削除する写真の指定が正しくなければ、理由を返し何も消さない（%s）', async (_case, photoId, status, code, message) => {
+    ], async (_case, photoId, status, code, message) => {
       cosmosBackend.documents.set(PHOTO_ID, savedPhotoWithThumbnail(PHOTO_ID));
       cosmosBackend.documents.set(OTHER_PHOTO_ID, savedPhotoWithThumbnail(OTHER_PHOTO_ID));
       blobBackend.store.set(`photos/${PHOTO_ID}.jpg`, { content: Buffer.from('原寸'), contentType: 'image/jpeg' });
@@ -305,7 +304,7 @@ describe('写真詳細API', () => {
         `photos/${OTHER_PHOTO_ID}.jpg`,
         `photos/${OTHER_PHOTO_ID}.thumb.jpg`
       ]);
-    });
+    }));
 
     it('サムネイルの無い写真を削除すると、原寸だけが消え、200で返る', async () => {
       // 削除する写真はサムネイルが無い(thumbnailBlobName が null で、Blob は原寸だけ)。

@@ -5,6 +5,7 @@ import { getCatalogEntryHandler } from '../../src/functions/catalogEntry';
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { forEachCase } from '../helpers/cases';
 import { photoDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 
@@ -187,18 +188,18 @@ describe('図鑑の項目の詳細API', () => {
     expect((second.jsonBody as any).data.continuationToken).toBeNull();
   });
 
-  it.each([
+  it('境界は受け付ける', () => forEachCase([
     ['名前が前後の空白を除いて100文字ちょうど', { kind: 'plant', name: ` ${'あ'.repeat(100)} ` }],
     ['写真の枚数が上限の200', { kind: 'plant', name: 'メロン', limit: '200' }]
-  ])('境界（%s）は受け付ける', async (_label, query) => {
+  ], async (_label, query) => {
     // 名前の長さは前後の空白を除いてから数える（05 §5.14 の検証の表の 3）
     const response = await getCatalogEntryHandler(createRequest(query), mockContext);
 
     expect(response.status).toBe(200);
-  });
+  }));
 
   describe('受け付けないとき', () => {
-    it.each([
+    it('種類・名前・枚数・継続トークンの指定が正しくなければ、400で理由を返す', () => forEachCase([
       ['種類が無い', { name: 'メロン' }, '図鑑の種類が無効です'],
       ['種類が定義表に無い（other）', { kind: 'other', name: 'メロン' }, '図鑑の種類が無効です'],
       // 種類は空白を除かずに比べる（項目の一覧と同じ）
@@ -213,27 +214,24 @@ describe('図鑑の項目の詳細API', () => {
       // 検証の順: 種類 → 名前 → 名前の長さ → ページ
       ['種類も名前も不正（種類の指摘が先）', { kind: 'other' }, '図鑑の種類が無効です'],
       ['名前もページも不正（名前の指摘が先）', { kind: 'plant', name: '', limit: '0' }, '図鑑の項目の名前が指定されていません']
-    ])('%sなら、400で理由を返す', async (_label, query, message) => {
+    ], async (_label, query, message) => {
       const response = await getCatalogEntryHandler(createRequest(query), mockContext);
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
-    });
+    }));
   });
 
-  it.each(databaseFailureCases('図鑑の項目の取得に失敗しました'))(
-    'データベースの読み取りで%s',
-    async (_case, error, status, code, message) => {
-      cosmosBackend.forcedQueryError = error;
+  it('データベースの読み取りで、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('図鑑の項目の取得に失敗しました'), async (_case, error, status, code, message) => {
+    cosmosBackend.forcedQueryError = error;
 
-      const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'メロン' }), mockContext);
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'メロン' }), mockContext);
 
-      expect(response.status).toBe(status);
-      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-    }
-  );
+    expect(response.status).toBe(status);
+    expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+  }));
 
-  it.each([
+  it('データベースの読み取りで Cosmos DB が 400 を返したときは、継続トークンの有無で 400 と 500 を分ける', () => forEachCase([
     [
       '継続トークンを渡していないのに Cosmos DB が 400 を返したときは、内部エラー（500）を返す',
       Object.assign(new Error('Bad Request'), { name: 'RestError', code: 400 }),
@@ -250,7 +248,7 @@ describe('図鑑の項目の詳細API', () => {
       'DATABASE_ERROR',
       'データベースに接続できません'
     ]
-  ])('データベースの読み取りで%s', async (_case, error, extra, status, code, message) => {
+  ], async (_case, error, extra, status, code, message) => {
     // 「継続トークンの形式が無効です」にするのは、トークンを渡した写真のページの 400 だけ（05 §5.14 の 6）
     cosmosBackend.forcedQueryError = error;
 
@@ -258,5 +256,5 @@ describe('図鑑の項目の詳細API', () => {
 
     expect(response.status).toBe(status);
     expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
-  });
+  }));
 });
