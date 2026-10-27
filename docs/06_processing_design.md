@@ -427,7 +427,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 ### 8.3 文を書く（`step: "write"`）
 
-**実装済み**（5-2a。`services/timelineWriting.ts` の `writeDraftTexts()`・`assembleCurrent()`、AI の呼び出しと応答の検証は `services/timelineWriterService.ts`、場面の組み方は `services/timelineView.ts` の `scenesOfDay()`）。ただし前の完成版の文を使わないことは未実装（5-5a）。
+**実装済み**（5-2a。`services/timelineWriting.ts` の `writeDraftTexts()`・`assembleCurrent()`、AI の呼び出しと応答の検証は `services/timelineWriterService.ts`、場面の組み方は `services/timelineView.ts` の `scenesOfDay()`）。ただし前の完成版の文を使わないことは未実装（5-5b）。
 
 下書きの区切りの全部の場面と日に、AI が文を書く。前の完成版の文は使わない（5-5 で変える。未実装。2026-10-27 に人間が決定）（以前は、写真が同じ場面と区切りが同じ日の文を引き継ぎ、利用者が書いた欄を残し、残せなかった利用者の文を `droppedEdits` に足していた）。
 
@@ -478,7 +478,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 ### 8.6 直した区切りを完成版に当てる（`recut`。AI を使わない）
 
-未実装（5-5b。2026-10-27 に人間が決定）。以前は、区切りを直した下書きも `POST …/draft/write` で文を書く段に進み、区切りが変わった場面だけ AI が書き直していた。
+未実装（5-5a。2026-10-27 に人間が決定）。以前は、区切りを直した下書きも `POST …/draft/write` で文を書く段に進み、区切りが変わった場面だけ AI が書き直していた。
 
 区切りを直している下書き（`reason: "recut"`）で `POST …/draft/write`（区切りの確認画面の「この区切りで保存」）を受けたら、キューに積まず、その場で完成版に当てる（[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
 
