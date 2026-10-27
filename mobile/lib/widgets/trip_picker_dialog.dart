@@ -75,7 +75,7 @@ class _TripPickerDialogState extends State<TripPickerDialog> {
   }
 
   /// 旅行の作成ダイアログ（§4.3）を重ねて開き、作った旅行を一覧の先頭に足して選ぶ
-  /// （`GET /api/trips` は作成日時の新しい順なので、取り直しても先頭に来る）
+  /// （`GET /api/trips` は撮影日時のある写真が無い旅行を先頭に作成日時の新しい順で返すので、作ったばかりの旅行は取り直しても先頭に来る）
   Future<void> _createTrip() async {
     Trip? created;
     final saved = await showDialog<bool>(

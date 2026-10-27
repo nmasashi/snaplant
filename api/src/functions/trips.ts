@@ -26,7 +26,7 @@ export async function createTripHandler(request: HttpRequest, context: Invocatio
 }
 
 /**
- * 旅行一覧 API（作成日時の新しい順。写真の集計と、旅行に属さない写真の枚数を付ける）
+ * 旅行一覧 API（最初の撮影日時の新しい順、撮影日時の無い旅行は先頭。写真の集計と、旅行に属さない写真の枚数を付ける）
  * GET /api/trips
  */
 export async function listTripsHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
