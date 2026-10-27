@@ -400,6 +400,18 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()!.current!.dayTexts['2026-10-06']).toEqual(dayText('2日目', [photoId('d')]));
     });
 
+    it('区切りを直して足した場面（AI の文が無い）は、書いた見出しを保存でき、空にすると空に戻って書いた主も無くなる', async () => {
+      const empty = { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] };
+      const edited = { ...current, sceneTexts: { ...current.sceneTexts, [photoId('c')]: { ...empty, note: '自分の一言', noteSource: 'user' as const } } };
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited as any }));
+
+      const response = await patchScene(photoId('c'), { label: '市場', note: null });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()!.current!.sceneTexts[photoId('c')]).toEqual({ ...empty, label: '市場', labelSource: 'user' });
+      expect(data(response).timeline.current.days[0].scenes[1]).toMatchObject({ startPhotoId: photoId('c'), label: '市場', labelSource: 'user', note: null, noteSource: null });
+    });
+
     it('下書きがあっても完成版の文を直せる（下書きはそのまま）', async () => {
       const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut' });
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));

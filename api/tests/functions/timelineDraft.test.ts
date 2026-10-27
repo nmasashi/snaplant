@@ -980,6 +980,73 @@ describe('タイムラインの下書きAPI', () => {
       expect(queuedMessages()).toEqual([]);
     }));
 
+    describe('区切りを直している下書き（recut）は、AI を使わずその場で完成版に当てる（06 §8.6）', () => {
+      // 完成版の区切りは a・c・e。直した区切りは a・b・e（a の場面の後ろを b から分け、c の場面を b の場面につなげた）
+      const aiText = (label: string) => ({ label, labelSource: 'ai' as const, aiLabel: label, note: `${label}の一言`, noteSource: 'ai' as const, aiNote: `${label}の一言`, photoIds: [] });
+      const current = timelineCurrent(CURRENT_SNAPSHOT_ID, {
+        proposedStarts: [photoId('a'), photoId('c'), photoId('e')],
+        sceneStarts: [photoId('a'), photoId('c'), photoId('e')],
+        sceneTexts: {
+          [photoId('a')]: { ...aiText('朝ごはん'), label: '空港の朝', labelSource: 'user' },
+          [photoId('c')]: aiText('昼ごはん'),
+          [photoId('e')]: aiText('運河')
+        },
+        dayTexts: {
+          '2026-10-05': { title: '千歳と札幌', titleSource: 'ai', aiTitle: '千歳と札幌', summary: 'まとめ', summarySource: 'ai', aiSummary: 'まとめ', sceneStarts: [photoId('a'), photoId('c')] }
+        },
+        writtenAt: '2026-10-20T09:00:00.000Z'
+      });
+      const recutting = () =>
+        timelineDocument(TRIP_ID, {
+          current,
+          draft: reviewing({
+            reason: 'recut',
+            snapshotId: CURRENT_SNAPSHOT_ID,
+            proposedStarts: current.proposedStarts,
+            sceneStarts: [photoId('a'), photoId('b'), photoId('e')]
+          }),
+          updatedAt: '2026-10-25T08:55:00.000Z'
+        });
+
+      it('完成版の区切りを直したものにし、残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨て、日の文と作成日時は変えず、下書きを消して 200（キューには積まない）', async () => {
+        cosmosBackend.documents.set(TIMELINE_ID, recutting());
+
+        const response = await postWrite();
+
+        expect(response.status).toBe(200);
+        expect(response.jsonBody).toEqual({ success: true, data: { draft: null, urlExpiresAt: '2026-10-25T10:00:00.000Z' } });
+        expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({
+          ...recutting(),
+          current: {
+            ...current,
+            sceneStarts: [photoId('a'), photoId('b'), photoId('e')],
+            sceneTexts: {
+              [photoId('a')]: current.sceneTexts[photoId('a')],
+              [photoId('b')]: { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null, photoIds: [] },
+              [photoId('e')]: current.sceneTexts[photoId('e')]
+            }
+          },
+          draft: null,
+          updatedAt: NOW
+        });
+        expect(queuedMessages()).toEqual([]);
+      });
+
+      it('読んでから書くまでに他の操作がタイムラインを書いたら、409 で書いたものを変えない', async () => {
+        cosmosBackend.documents.set(TIMELINE_ID, recutting());
+        const written = { ...recutting(), current: { ...current, sceneTexts: { ...current.sceneTexts, [photoId('e')]: aiText('小樽') } } };
+        cosmosBackend.beforeReplace = (id) => {
+          if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
+        };
+
+        const response = await postWrite();
+
+        expect(response.status).toBe(409);
+        expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
+        expect(queuedMessages()).toEqual([]);
+      });
+    });
+
     it('読んでから書くまでに他の操作がタイムラインを書いたら、409 で書いたものを変えずキューに積まない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       const written = timelineWith(reviewing({ sceneStarts: [photoId('a')] }));
