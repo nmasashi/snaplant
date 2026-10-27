@@ -38,7 +38,6 @@ class TripTimeline {
   /// 完成版を作った後に増えた・消えた写真の枚数（完成版が無ければ null）
   final TimelineChanges? changes;
 
-  /// 応答の `droppedEdits`（残せなかった文）は読まない。作り直しが前の文を使わなくなり（5-5b）、残せなかった文が無くなった
   const TripTimeline(
       {required this.current, required this.draft, this.changes});
 
@@ -46,6 +45,7 @@ class TripTimeline {
     final draft = json['draft'] as Map<String, dynamic>?;
     final current = json['current'] as Map<String, dynamic>?;
     final changes = json['changes'] as Map<String, dynamic>?;
+    // 応答の droppedEdits（残せなかった文）は読まない。作り直しが前の文を使わなくなり（5-5b）、残せなかった文が無くなった
     return TripTimeline(
       current: current == null ? null : TimelineCurrent.fromJson(current),
       draft: draft == null ? null : TimelineDraftStatus.fromJson(draft),

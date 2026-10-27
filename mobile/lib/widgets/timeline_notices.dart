@@ -7,18 +7,10 @@ class TimelineNoticeCard extends StatelessWidget {
   const TimelineNoticeCard(
       {super.key,
       required this.text,
-      this.details = const [],
-      required this.actions,
-      this.alignActionsEnd = false});
+      required this.actions});
 
   final String text;
-
-  /// 文の下に並べるもの（残せなかった文など）
-  final List<Widget> details;
   final List<Widget> actions;
-
-  /// 操作を右に寄せるか（左から並べるなら false）
-  final bool alignActionsEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -30,12 +22,9 @@ class TimelineNoticeCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(text, style: AppTextStyles.body1),
-            if (details.isNotEmpty) ...[const SizedBox(height: 8), ...details],
             if (actions.isNotEmpty) ...[
               const SizedBox(height: 8),
               Wrap(
-                alignment:
-                    alignActionsEnd ? WrapAlignment.end : WrapAlignment.start,
                 spacing: 8,
                 runSpacing: 8,
                 children: actions,
