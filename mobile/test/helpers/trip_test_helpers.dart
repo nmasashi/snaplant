@@ -509,6 +509,12 @@ class FakeTripBackend {
         }
         final writeFailed = draft['phase'] == 'writing' && job?['state'] == 'failed';
         if (draft['phase'] != 'reviewing' && !writeFailed) return _timelineConflict();
+        if (draft['reason'] == 'recut') {
+          // 区切りの直しは AI を使わず、その場で完成版に当てて下書きを消す（06 §8.6）。
+          // 偽物は完成版を描き直さない（区切りから日と場面を組み直すのは本物の API の仕事で、画面は返った完成版を出すだけ）
+          timelinesByTripId[tripId] = {...timeline, 'draft': null};
+          return _ok(200, {'draft': null, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+        }
         final writing = {
           ...draft,
           'phase': 'writing',

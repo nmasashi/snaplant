@@ -36,14 +36,18 @@ export interface TimelineDraft {
   startedAt: string;
 }
 
-/** 場面の文（見出し・一言と、書いた主） */
+/**
+ * 場面の文（見出し・一言と、書いた主）
+ *
+ * 区切りを直して足した場面は、AI が書いていないので全部 null（利用者が書くと、その欄だけ埋まる。06 §8.6）
+ */
 export interface TimelineSceneText {
-  label: string;
-  labelSource: 'ai' | 'user';
-  aiLabel: string;
-  note: string;
-  noteSource: 'ai' | 'user';
-  aiNote: string;
+  label: string | null;
+  labelSource: 'ai' | 'user' | null;
+  aiLabel: string | null;
+  note: string | null;
+  noteSource: 'ai' | 'user' | null;
+  aiNote: string | null;
   /** 書いたときの場面の写真（区切りが変わったかの判定） */
   photoIds: string[];
 }

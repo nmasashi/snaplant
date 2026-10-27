@@ -264,6 +264,35 @@ void main() {
       }
     });
 
+    testWidgets('区切りの直しで見出しと一言を書き直せなかった下書き（AI なしにする前のもの）で「もう一度」を押すと、その場で保存されてタイムラインを読み直し、案内を消す', (tester) async {
+      final backend = await _openTimeline(tester,
+          draft: draftOf('recut', 'writing', step: 'write', state: 'failed'));
+      // 本物は下書きの区切りを完成版に当てる（偽物は描き直さないので、当てた後の完成版をここで置く）。
+      // 1日目の2つの場面をつなげた区切り: 後ろの「小樽運河さんぽ」の文は捨てられる（06 §8.6）。読み直せば、それが消える
+      final applied = _current();
+      final day1 = (applied['days'] as List).first as Map<String, Object?>;
+      day1['scenes'] = [
+        _scene([
+          _photo(1, '2026-10-05T07:50:00', category: 'food'),
+          _photo(2, '2026-10-05T07:58:00', category: 'food'),
+          for (var n = 3; n <= 8; n++) _photo(n, '2026-10-05T1${n - 3}:10:00'),
+        ], label: '朝ごはん', note: '港の市場で海鮮丼。', startedBy: 'day'),
+      ];
+      backend.timelinesByTripId[hokkaidoTripId] = {
+        ...backend.timelinesByTripId[hokkaidoTripId]!,
+        'current': applied
+      };
+
+      await tester.tap(find.text('もう一度'));
+      await letFramesRun(tester);
+
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+      expect(find.text('小樽運河さんぽ'), findsNothing);
+      expect(find.text('見出しと一言を書き直せませんでした'), findsNothing);
+      expect(find.text('区切りを直す'), findsOneWidget);
+      expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
+    });
+
     testWidgets('「やめる」は「作り直しをやめて、今のタイムラインのままにしますか？」を出し、「やめる」で下書きを消して完成版だけに戻る',
         (tester) async {
       final backend =
@@ -309,6 +338,23 @@ void main() {
       await tester.tap(find.byIcon(Icons.close));
       await letFramesRun(tester);
       expect(find.text('区切りを直している途中です'), findsOneWidget);
+    });
+
+    testWidgets('区切りを直して確認画面の下のボタンを押すと、AI を待たずにその場で保存して旅行詳細に戻り、直している途中の案内を出さずに完成版を出す', (tester) async {
+      final backend = await _openTimeline(tester);
+      await tester.tap(find.text('区切りを直す'));
+      await letFramesRun(tester);
+
+      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await letFramesRun(tester);
+
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
+      expect(find.text('区切りを確認'), findsNothing);
+      expect(find.text('区切りを直している途中です'), findsNothing);
+      expect(find.text('見出しと一言を書き直しています'), findsNothing);
+      expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
+      expect(find.textContaining('ネットワーク'), findsNothing);
+      expect(find.text('朝ごはん'), findsOneWidget);
     });
 
     testWidgets('「区切りを直す」のときに別の端末が作り直しを始めていたら（409）、知らせて読み直す', (tester) async {
