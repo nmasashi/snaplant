@@ -142,10 +142,10 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 | 5-0 | （定義済み。apply は人間）infra: キュー `timeline-processing` と `app_settings` の `TIMELINE_QUEUE_NAME`（[07 §7](./07_infrastructure_design.md#7-段階5タイムライン)）。**apply は人間**（5-1 のデプロイより先） | — |
 | 5-1 | 2,000 行に収めるため 5-1a・5-1b・5-1c に分ける（2026-10-25。5-1a の差分が 2,500 行になったので、5-1b をさらに分けた） | 5-0 |
 | 5-1a | **実装済み**（5-1a。Issue #97）。api: タイムラインと控えの文書（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）、`POST …/timeline`（作る・作り直す）、`GET …/draft`・`DELETE …/draft`、再投入のタイマーにタイムラインの下書きを足す（投入に失敗しても進むように、`POST` と同じ PR に入れる）、`timelineDayStartHour()`、旅行の削除でタイムラインと控えも消す。偽物の Cosmos に `_etag` と IfMatch の置き換え | 5-0 |
-| 5-1b | **実装済み**（5-1b。Issue #97）。api: ワーカー `processTimeline` の `propose`（担当・結果の当て直し・失敗・旅行の無いタイムラインの後始末。作り直しで完成版の区切りの差を当てる決まりまで。[06 §8.1・§8.2](./06_processing_design.md#82-区切り案step-propose)）と、AI に文字だけを渡す呼び出し | 5-1a |
+| 5-1b | **実装済み**（5-1b。Issue #97）。api: ワーカー `processTimeline` の `propose`（担当・結果の当て直し・失敗・旅行の無いタイムラインの後始末。作り直しで完成版の区切りの差を当てる決まりまで（5-5b でやめた）。[06 §8.1・§8.2](./06_processing_design.md#82-区切り案step-propose)）と、AI に文字だけを渡す呼び出し | 5-1a |
 | 5-1c | **実装済み**（5-1c。Issue #97）。api: `PUT …/draft/scenes`（区切りの保存）、`GET …/timeline`（完成版の表示・写真の変化・解析中の枚数。旅行の写真のクエリは 5.13 の1つにまとめ、5.14 の `COUNT` は使わない。[04 §5](./04_data_design.md#5-クエリ)） | 5-1b |
 | 5-2 | 2,000 行に収めるため 5-2a・5-2b に分ける（2026-10-25） | 5-1 |
-| 5-2a | **実装済み**（5-2a。Issue #97）。api: `POST …/draft/write` とワーカーの `write`（文の引き継ぎ・残せなかった文・下書きと完成版の入れ替え・前の完成版の控えの後始末。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)・§8.4）、`TIMELINE_VALIDATION.MAX_LENGTH`（AI の文の切り詰め） | 5-1 |
+| 5-2a | **実装済み**（5-2a。Issue #97）。api: `POST …/draft/write` とワーカーの `write`（文の引き継ぎ・残せなかった文（どちらも 5-5b でやめた）・下書きと完成版の入れ替え・前の完成版の控えの後始末。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)・§8.4）、`TIMELINE_VALIDATION.MAX_LENGTH`（AI の文の切り詰め） | 5-1 |
 | 5-2b | **実装済み**（5-2b。Issue #97）。api: `POST …/recut`、`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`、`DELETE …/dropped-edits`、`TIMELINE_VALIDATION.DATE_REGEX` | 5-2a |
 | 5-3 | 2,000 行に収めるため 5-3a・5-3b に分ける（2026-10-25） | 5-2 |
 | 5-3a | **実装済み**（5-3a。Issue #97）。mobile: `ApiService` のタイムラインのメソッド（読む・作る・文を書かせる・やめる）、旅行詳細の切り替え（[03 §8.1](./03_screen_design.md#81-旅行詳細の切り替え)。下書きを作っている間の読み直しと、操作の 409・404 の扱いまで）、完成版が無いときの表示（§8.2）。「区切りを確認する」は 5-3b で出す。完成版があるときは仮の案内だけを出す（表示は 5-4） | 5-2 |
@@ -155,7 +155,7 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 | 5-4b | **実装済み**（5-4b。Issue #97）。mobile: 編集シート（§8.5。`updateTimelineDay`・`updateTimelineScene`）、写真が変わった案内・残せなかった文（§8.3。`dismissTimelineDroppedEdits`） | 5-4a |
 | 5-5 | 作り直しと区切りの直しを単純にする（2026-10-27 に人間が決定。AI が動くのは作るときと作り直すときだけ。[06 §8](./06_processing_design.md#8-タイムライン段階5)）。作り直しで写真が同じ場面の文を引き継いでいたため、ずれた文が作り直しても残った（函館の旅行） | 5-4 |
 | 5-5a | **実装済み**（5-5a）。api: 区切りを直した下書き（`recut`）の `POST …/draft/write` は、AI を使わずその場で完成版に当てる（[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)）。新しい場面の文は `null`。応答は `{ draft: null }` なので、アプリの `writeTimeline` も下書きが無い応答を受け付ける形にする（API を先にデプロイすると、古いアプリは保存できても失敗と出す）。`PATCH` で空にすると AI の文が無い場面は `null` に戻る | 5-5 |
-| 5-5b | api: 作り直し（`rebuild`）は前の完成版の文と区切りを使わない（区切り案に利用者の区切りを当てない、文は全部書かせる・文脈を渡さない、`droppedEdits` を書かない）。`DELETE …/dropped-edits` と応答の `droppedEdits` を消す。`sceneTexts.photoIds`・`dayTexts.sceneStarts` を書かない | 5-5a |
-| 5-5c | mobile: 残せなかった文の案内と `dismissTimelineDroppedEdits` を消す、「見出しなし」、区切りの確認画面の説明と「この区切りで保存」（`recut`）、作り直しと「区切り案を出し直す」の確認の文言、編集シートの「空にすると」の出し分け（[03 §8](./03_screen_design.md#8-段階5の画面タイムライン)） | 5-5b |
+| 5-5b | **実装済み**（5-5b）。api: 作り直し（`rebuild`）は前の完成版の文と区切りを使わない（区切り案に利用者の区切りを当てない、文は全部書かせる・文脈を渡さない、完成版をまるごと置き換える、ワーカーが `droppedEdits` に足さない（今ある分はそのまま））。`sceneTexts.photoIds`・`dayTexts.sceneStarts` を書かない（前に書いた文書に残っていても読まない）。応答の `droppedEdits` と `DELETE …/dropped-edits` は、今のアプリ（`mobile/lib/models/timeline.dart`）が応答の `droppedEdits` を必ず読む（無いと読み込みに失敗する）ので、消すのは 5-5c に回した。mobile: 作り直しの確認のダイアログを「手で直した文と区切りは消えます」に（API と同時に変えないと、利用者が残ると思って作り直す） | 5-5a |
+| 5-5c | api: 応答の `droppedEdits` と `DELETE …/dropped-edits` を消す（アプリと同じ PR）。mobile: 残せなかった文の案内と `dismissTimelineDroppedEdits` を消す、「見出しなし」、区切りの確認画面の説明と「この区切りで保存」（`recut`）、「区切り案を出し直す」の確認の文言（作り直しのダイアログの文言は 5-5b で変えた）、編集シートの「空にすると」の出し分け（[03 §8](./03_screen_design.md#8-段階5の画面タイムライン)） | 5-5b |
 
 デプロイ後に [08 §5.4](./08_test_plan.md#54-段階5タイムラインで足すもの) を手で確かめる（5-1・5-2 のクエリ、区切り案と文の質、トークンの実測）。

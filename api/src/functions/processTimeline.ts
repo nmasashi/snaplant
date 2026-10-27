@@ -52,7 +52,7 @@ export async function processTimelineHandler(message: unknown, context: Invocati
       const starts = await proposeScenes(photos, draft);
       apply = (doc) => ({ ...doc, draft: { ...doc.draft, phase: 'reviewing', job: null, ...starts } });
     } else {
-      // 書き終えたら、下書きを完成版に入れ替える（06 §8.3 の 6）
+      // 書き終えたら、下書きを完成版に入れ替える（06 §8.3 の 3）
       // 前の完成版の文は使わず、まるごと置き換える（利用者が直した文も残さない。残せなかった文の知らせにも足さない）
       const { plan, texts } = await writeDraftTexts(photos, draft);
       const now = new Date().toISOString();
