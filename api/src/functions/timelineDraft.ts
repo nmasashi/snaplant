@@ -187,7 +187,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!isEditableDraft(draft)) {
       return createTimelineStateConflict();
     }
-    const { sceneStarts } = read.body as { sceneStarts?: unknown };
+    const { sceneStarts, sceneComments } = read.body as { sceneStarts?: unknown; sceneComments?: Record<string, string> };
     if (!Array.isArray(sceneStarts) || !sceneStarts.every((id) => typeof id === 'string')) {
       return createValidationError('区切りは写真IDの配列で指定してください');
     }
@@ -216,6 +216,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     const saved: TimelineDraft = {
       ...draft,
       sceneStarts: normalized,
+      ...(sceneComments !== undefined ? { sceneComments: commentsOf(sceneComments) } : {}),
       ...(writeFailed ? { phase: 'reviewing', job: null } : {})
     };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
@@ -229,6 +230,15 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
   }
+}
+
+/** 場面のコメントを前後の空白を除いて持ち、空になったものは持たない */
+function commentsOf(comments: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(comments)
+      .map(([photoId, comment]) => [photoId, comment.trim()])
+      .filter(([, comment]) => comment !== '')
+  );
 }
 
 /**
