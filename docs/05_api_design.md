@@ -206,6 +206,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
 | `TIMELINE_VALIDATION.MAX_LENGTH.TITLE` / `SUMMARY` / `LABEL` / `NOTE` | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | 40 / 400 / 30 / 200 | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（段階5）。AI が書いた文は上限で切り詰める（[06 §8](./06_processing_design.md#8-タイムライン段階5)） |
+| `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT` | `TIMELINE_SCENE_COMMENT_MAX_LENGTH` | 100 | `PUT /api/trips/{tripId}/timeline/draft/scenes` の `sceneComments`（場面のコメント。5-7） |
 | `TIMELINE_VALIDATION.DATE_REGEX` | — | `/^\d{4}-\d{2}-\d{2}$/`（加えて実在する日付であること） | 同上の `date` |
 
 実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`MAX_LENGTH.COMMENT`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`MOVE_VALIDATION.MAX_IDS`、`TAG_VALIDATION.MAX_LENGTH`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4b 時点）。
@@ -736,7 +737,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1a。`timelineDraft.ts` の `getTimelineDraft`。文を書くのに失敗した下書きにも `days`・`undatedPhotos` を付けるのは 5-3b）。
 
-- 下書きが無ければ `draft: null`（タイムラインが無いときも、完成版だけのときも）。あれば状態（上と同じ）に加えて、`phase` が `reviewing` のときと、文を書くのに失敗した（`writing` で `job.state: "failed"`）ときだけ `days`（`date`・`dayNumber`・`scenes`。`scenes` は文の無い形で `startPhotoId`・`startedBy`・`hasFood`・`firstTakenAt`・`lastTakenAt`・`placeNames`・`names`・`photos`）と `undatedPhotos` を付ける（案の確認画面が読む）。
+- 下書きが無ければ `draft: null`（タイムラインが無いときも、完成版だけのときも）。あれば状態（上と同じ）に加えて、`phase` が `reviewing` のときと、文を書くのに失敗した（`writing` で `job.state: "failed"`）ときだけ `days`（`date`・`dayNumber`・`scenes`。`scenes` は文の無い形で `startPhotoId`・`startedBy`・`hasFood`・`firstTakenAt`・`lastTakenAt`・`placeNames`・`names`・`photos`、それに場面のコメントの `comment`（無ければ `null`。5-7 で入れる））と `undatedPhotos` を付ける（案の確認画面が読む）。
   日と場面の組み方は完成版と同じ（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり。日の切り替えは下書きの `dayStartHour`）で、控えを取った後に消えた写真は出さず、写真が全部消えた場面と日も出さない。
   何日目かと場面の分け方は、消えた写真も含めた控えで決める（写真を消しても日の番号や区切りが動かない）。そのため `startPhotoId` は、場面の最初の写真が消えていても控えの最初の写真の id のまま（`photos` の先頭とは限らない）
 - 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中と文を書くのに失敗したときだけ、控えと、消えた写真を見分けるための旅行の写真（5.13 のクエリ。id だけを使う）を読み、写真の保存先の設定を読む（それ以外では読まない。文を書くのに失敗した下書きも、案の確認画面（[03 §8.4](./03_screen_design.md#84-案の確認画面タイムラインを編集)）で直してから書き直せる。5-3b）
@@ -774,22 +775,29 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの作成の受付に失敗しました`（§7.2）
 
-**`PUT /api/trips/{tripId}/timeline/draft/scenes`**（下書きの区切りを保存する）`{ sceneStarts: string[] }` → 200 `{ draft, urlExpiresAt }`
+**`PUT /api/trips/{tripId}/timeline/draft/scenes`**（下書きの区切りと場面のコメントを保存する）`{ sceneStarts: string[], sceneComments?: { [photoId]: string } }` → 200 `{ draft, urlExpiresAt }`
 
-**実装済み**（5-1c。`timelineDraft.ts` の `putTimelineDraftScenes`）。
+**実装済み**（5-1c。`timelineDraft.ts` の `putTimelineDraftScenes`）: `sceneComments` の行（表の 4・5・7）を除く全部。`sceneComments`（場面のコメント。[03 §8.7](./03_screen_design.md#87-場面のコメント)）は 5-7 で入れる。
 
-判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 下の表の 1〜4。表の 3・4 はタイムラインを読んだ後に見る（4 は控えが要る。§1 の「Cosmos DB に触る前に全部弾く」の例外）。
+判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 下の表の 1〜7。表の 3〜7 はタイムラインを読んだ後に見る（6・7 は控えが要る。§1 の「Cosmos DB に触る前に全部弾く」の例外）。
 
 | # | 条件 | 応答 |
 |---|---|---|
 | 1 | 下書きが無い（タイムラインが無いときも、完成版だけのときも） | 404 `TIMELINE_NOT_FOUND` `タイムラインの下書きが見つかりません` |
 | 2 | `phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）のでもない（区切り案を作っている・区切り案に失敗した・文を書いている） | 409 `TIMELINE_STATE_CONFLICT` |
 | 3 | `sceneStarts` が無いか、文字列の配列でない | 400 `INVALID_REQUEST` `区切りは写真IDの配列で指定してください` |
-| 4 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない | 400 `INVALID_REQUEST` `区切りが無効です` |
-| 5 | それ以外 | 200。下書きの `sceneStarts` を置き換え、`updatedAt` を今にする（下書きのほかの欄・完成版は変えない）。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
+| 4 | `sceneComments` があり、オブジェクトでない（配列・`null` も）か、値に文字列でないものがある | 400 `INVALID_REQUEST` `場面のコメントは写真IDと文字列の組で指定してください` |
+| 5 | `sceneComments` の値が、前後の空白を除いて `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT`（100）文字を超える | 400 `INVALID_REQUEST` `場面のコメントは100文字以内で指定してください`（上限値を埋め込む） |
+| 6 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない | 400 `INVALID_REQUEST` `区切りが無効です` |
+| 7 | `sceneComments` の鍵が、保存する区切り（下の補ったものを含む）に無い | 400 `INVALID_REQUEST` `場面のコメントは場面の最初の写真に付けてください` |
+| 8 | それ以外 | 200。下書きの `sceneStarts` と `sceneComments` を置き換え、`updatedAt` を今にする（下書きのほかの欄・完成版は変えない）。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
 
-- 1〜4 のどれかで返すときは何も書かない
-- 4 は控えで見るので、控えを取った後に消えた写真の id も区切りに使える（表示では消えた写真を出さず、場面の `startPhotoId` はその id のまま）
+- 1〜7 のどれかで返すときは何も書かない
+- `sceneComments` の値は前後の空白を除いて保存し、空になったもの（空・空白だけ）は持たない（その場面のコメントを消す）。
+  `sceneComments` を送らなければ、今のコメントのうち保存する区切りに鍵があるものを残す（区切りだけを送る 5-6 までのアプリでも、場面ごと消えたコメントだけが消える）。
+  場面をつなげたときにどちらのコメントを残すかは、画面が決めて送る（[03 §8.7](./03_screen_design.md#87-場面のコメント)）
+- 区切りを直している下書き（`recut`）でも保存するが、使わない（文を書く AI を呼ばないため。画面はコメントの欄を出さない）
+- 6 は控えで見るので、控えを取った後に消えた写真の id も区切りに使える（表示では消えた写真を出さず、場面の `startPhotoId` はその id のまま）
 - 各日の最初の写真（日は下書きの `dayStartHour` で分ける）が入っていなければ、補って保存する（場面は日をまたがない。5-3b）。案の確認画面は写真が全部消えた日や場面を見ず、その区切りを送れないため（以前は 400 にしていて、日の最初の場面の写真を全部消すと区切りを直せなくなった）
 - 同じく、今の下書きの区切りのうち、その場面の写真が全部消えている（旅行に今は無い）区切りも、送られなければ補う（5-4a）。補わないと、見えない場面の写真が前の場面に混ざる（区切りを直して当てるときに、見えない場面の文が消える。[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)）。
   ただし、同じ日でその次にある見える場面（今もある写真を含む場面）の区切りが送られていない（利用者がその場面を前の場面とつなげた）ときは補わない（補うと、つなげた場面が見えない場面に付く）。同じ日にその後の見える場面が無ければ補う。場面の分け方（どの区切りが見えない場面か）は、今の下書きの `sceneStarts` と各日の最初の写真で見る

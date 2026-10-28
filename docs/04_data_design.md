@@ -240,6 +240,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | `draft.phase` | `"proposing"` \| `"reviewing"` \| `"writing"` | AI が区切り案を出している・利用者が区切りを確かめている・AI が文を書いている |
 | `draft.job` | `{ step: "propose" \| "write", state: "pending" \| "running" \| "failed", attempts, lastError, updatedAt }` \| null | 裏の処理（[06 §8](./06_processing_design.md#8-タイムライン段階5)）。`reviewing` では `null`。`lastError` は写真と同じく `"ai"` / `"internal"` だけ（例外の文言は入れない） |
 | `draft.snapshotId`・`dayStartHour`・`proposedStarts`・`sceneStarts` | | 完成版と同じ意味。`recut` は完成版の控えをそのまま指す |
+| `draft.sceneComments` | 場面の最初の写真の id → string（省略可） | 利用者が書いた場面のコメント（前後の空白を除いた空でない文。[03 §8.7](./03_screen_design.md#87-場面のコメント)）。文を書く AI に材料として渡す（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)）。鍵は `sceneStarts` にある写真だけ。下書きを作る・出し直す・区切りを直し始めるときは書かない（無ければ空とみなす）。完成版には写さない（5-7 で入れる） |
 
 以前は残せなかった利用者の文（`droppedEdits`）も持っていた（5-5d で消した）。5-5d より前に書いた文書に残っていても読まない（残っていても害は無いので、消すことは決まりにしない）。
 
