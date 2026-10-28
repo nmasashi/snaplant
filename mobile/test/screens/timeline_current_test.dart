@@ -460,6 +460,64 @@ void main() {
       await letFramesRun(tester);
     });
 
+    /// 1日目の2つ目の場面（小樽）の見出しと一言を [label]・[note] にした完成版
+    Map<String, Object?> currentWithSecondScene(
+        {required String? label, required String? note}) {
+      final current = _current();
+      final scenes = ((current['days'] as List).first as Map)['scenes'] as List;
+      scenes[1] = {...scenes[1] as Map<String, Object?>, 'label': label, 'note': note};
+      return current;
+    }
+
+    /// 偽のサーバの下書きの1日目の場面の数
+    int firstDaySceneCount(FakeTripBackend backend) =>
+        (((backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['days']
+                as List)
+            .first as Map)['scenes'].length as int;
+
+    testWidgets(
+        '編集で「つなげる」とき、後ろの場面に見出しか一言があれば、消える見出しと一言を添えて確かめ、「キャンセル」なら何もせず、「つなげる」でつなげる',
+        (tester) async {
+      final backend = await _openTimeline(tester,
+          current: currentWithSecondScene(label: '小樽運河さんぽ', note: '運河沿いを歩いた。'));
+      await _chooseFromMenu(tester, 'タイムラインを編集');
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('場面をつなげますか？')), findsOneWidget);
+      expect(inDialog(find.text('つなげると、後ろの場面の見出しと一言は消えます。')), findsOneWidget);
+      expect(inDialog(find.text('消える見出し: 小樽運河さんぽ')), findsOneWidget);
+      expect(inDialog(find.text('消える一言: 運河沿いを歩いた。')), findsOneWidget);
+      await tapInDialog(tester, 'キャンセル');
+      expect(firstDaySceneCount(backend), 2);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, 'つなげる');
+      expect(firstDaySceneCount(backend), 1);
+    });
+
+    testWidgets('編集で「つなげる」とき、後ろの場面に一言だけがあれば消える一言だけを添え、見出しも一言も無ければ確かめずにつなげる',
+        (tester) async {
+      final backend = await _openTimeline(tester,
+          current: currentWithSecondScene(label: null, note: '運河沿いを歩いた。'));
+      await _chooseFromMenu(tester, 'タイムラインを編集');
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('消える一言: 運河沿いを歩いた。')), findsOneWidget);
+      expect(inDialog(find.textContaining('消える見出し')), findsNothing);
+      await tapInDialog(tester, 'キャンセル');
+
+      final emptyBackend = await _openTimeline(tester,
+          current: currentWithSecondScene(label: null, note: null));
+      await _chooseFromMenu(tester, 'タイムラインを編集');
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('場面をつなげますか？')), findsNothing);
+      expect(firstDaySceneCount(emptyBackend), 1);
+      expect(firstDaySceneCount(backend), 2);
+    });
+
     testWidgets('「作り直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
       final backend = await _openTimeline(tester);
 
