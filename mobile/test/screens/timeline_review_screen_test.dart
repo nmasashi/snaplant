@@ -445,13 +445,15 @@ void main() {
       expect(_title('タイムラインを編集'), findsNothing);
     });
 
-    testWidgets('メニューの「AI に案を出し直してもらう」は確認のダイアログを出し、「キャンセル」なら何もせず、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
+    testWidgets('作る・作り直すときのメニューは「AI に案を出し直してもらう」だけで（「やめる」は出さない）、確認のダイアログを出し、「キャンセル」なら何もせず、「出し直す」で区切りの案から作り直して旅行詳細に戻る',
         (tester) async {
       final backend = await _openTimeline(tester);
       await _openReview(tester);
 
       await tester.tap(find.byIcon(Icons.more_vert));
       await letFramesRun(tester);
+      expect(_menuItems, findsOneWidget);
+      expect(find.text('AI に案を出し直してもらう'), findsOneWidget);
       await tester.tap(find.text('AI に案を出し直してもらう'));
       await letFramesRun(tester);
       expect(inDialog(find.text('AI がもう一度案を出します。この画面で直した場面の分け方は消えます。')),
@@ -470,17 +472,6 @@ void main() {
 
       expect(_title('タイムラインの案'), findsNothing);
       expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-    });
-
-    testWidgets('作る・作り直すときのメニューは「AI に案を出し直してもらう」だけで、「やめる」は出さない',
-        (tester) async {
-      await _openTimeline(tester);
-      await _openReview(tester);
-
-      await tester.tap(find.byIcon(Icons.more_vert));
-      await letFramesRun(tester);
-      expect(_menuItems, findsOneWidget);
-      expect(find.text('AI に案を出し直してもらう'), findsOneWidget);
     });
 
     testWidgets('メニューの操作で下書きが別の端末で変わっていたら（409）、知らせて旅行詳細に戻る', (tester) async {
