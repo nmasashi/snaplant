@@ -387,9 +387,10 @@ describe('タイムラインを作るAPI', () => {
       cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
     });
 
-    it('確かめ中の下書き（完成版なし）があれば、新しい下書きに置き換え、前の下書きの控えを消す。作った日時は残す', async () => {
+    it('確かめ中の下書き（完成版なし）があれば、新しい下書きに置き換え（場面のコメントも引き継がない）、前の下書きの控えを消す。作った日時は残す', async () => {
       cosmosBackend.documents.set(OLD_DRAFT_SNAPSHOT_ID, snapshotDocument(OLD_DRAFT_SNAPSHOT_ID));
-      cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
+      // AI に案を出し直してもらうと、区切りと一緒に場面のコメントも消える（03 §8.7）
+      cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft({ sceneComments: { [photoId('a')]: '朝市で海鮮丼' } }) }));
 
       const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
 
