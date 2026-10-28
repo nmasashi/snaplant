@@ -827,6 +827,23 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     }));
 
+    it('場面のコメントが、保存する区切りに無い写真に付いているときは、400（場面のコメントは場面の最初の写真に付けてください）で何も書かない', () => forEachCase<[string, string]>([
+      ['場面の途中の写真', photoId('b')],
+      ['控えに無い写真', photoId('z')]
+    ], async (_label, photo) => {
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: '朝市で海鮮丼', [photo]: '散歩' } });
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: '場面のコメントは場面の最初の写真に付けてください' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    }));
+
     it('場面のコメントは、前後の空白を除いて100文字までなら保存する', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
 
