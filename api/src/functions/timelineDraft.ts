@@ -221,10 +221,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!normalized) {
       return createValidationError('区切りが無効です');
     }
-    if (sceneComments !== undefined && Object.keys(sceneComments).some((photoId) => !normalized.includes(photoId))) {
+    const starts = new Set(normalized);
+    if (sceneComments !== undefined && Object.keys(sceneComments).some((photoId) => !starts.has(photoId))) {
       return createValidationError('場面のコメントは場面の最初の写真に付けてください');
     }
-    const comments = savedCommentsOf(sceneComments, draft.sceneComments, normalized);
+    const comments = savedCommentsOf(sceneComments, draft.sceneComments, starts);
     const saved: TimelineDraft = {
       ...draft,
       sceneStarts: normalized,
@@ -259,7 +260,7 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 function savedCommentsOf(
   sent: Record<string, string> | undefined,
   previous: Record<string, string> | undefined,
-  sceneStarts: string[]
+  starts: Set<string>
 ): Record<string, string> | undefined {
   if (sent !== undefined) {
     return Object.fromEntries(
@@ -271,7 +272,6 @@ function savedCommentsOf(
   if (previous === undefined) {
     return undefined;
   }
-  const starts = new Set(sceneStarts);
   return Object.fromEntries(Object.entries(previous).filter(([photoId]) => starts.has(photoId)));
 }
 
