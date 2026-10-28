@@ -171,6 +171,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 **実装済み**（5-5b。`functions/processTimeline.ts`・`services/timelineProposal.ts`・`services/timelineWriting.ts`、型は `types/timeline.ts`）: 作り直しで前の完成版の文と区切りを使わないこと（区切り案に利用者が直した区切りを当てず、ワーカーが完成版をまるごと置き換える）、`sceneTexts` の `photoIds`・`dayTexts` の `sceneStarts` を書かないこと。
 **実装済み**（5-5a。`functions/timelineDraft.ts`・`functions/timelineCurrent.ts`）: 区切りを直した下書き（`recut`）を文を書く受付で完成版に当てること（`current.sceneStarts` を下書きのものにし、新しくできた場面の文を全部 `null` にして、`draft` を `null` に。[06 §8.6](./06_processing_design.md#86-直した区切りを完成版に当てるrecutai-を使わない)）、AI の文が無い欄を空にすると `null`（書いた主も `null`）に戻すこと。
 **実装済み**（5-5d。`functions/timeline.ts`・`services/timelineService.ts`・`services/timelineRead.ts`、型は `types/timeline.ts`）: `droppedEdits`（文を書き直したときに残せなかった利用者の文）を書かず、読まないこと。5-5d より前に書いた文書に残っていても読まない（残っていても害は無いので、消すことは決まりにしない）。
+**実装済み**（5-7。`functions/timelineDraft.ts`・`services/timelineView.ts`・`services/timelineWriting.ts`、型は `types/timeline.ts`）: `draft.sceneComments`（区切りの保存で書き、確かめ中の下書きの場面に返し、文を書く AI に渡す）。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)）。文書は2種類に分ける。
 
@@ -240,7 +241,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | `draft.phase` | `"proposing"` \| `"reviewing"` \| `"writing"` | AI が区切り案を出している・利用者が区切りを確かめている・AI が文を書いている |
 | `draft.job` | `{ step: "propose" \| "write", state: "pending" \| "running" \| "failed", attempts, lastError, updatedAt }` \| null | 裏の処理（[06 §8](./06_processing_design.md#8-タイムライン段階5)）。`reviewing` では `null`。`lastError` は写真と同じく `"ai"` / `"internal"` だけ（例外の文言は入れない） |
 | `draft.snapshotId`・`dayStartHour`・`proposedStarts`・`sceneStarts` | | 完成版と同じ意味。`recut` は完成版の控えをそのまま指す |
-| `draft.sceneComments` | 場面の最初の写真の id → string（省略可） | 利用者が書いた場面のコメント（前後の空白を除いた空でない文。[03 §8.7](./03_screen_design.md#87-場面のコメント)）。文を書く AI に材料として渡す（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)）。鍵は `sceneStarts` にある写真だけ。下書きを作る・出し直す・区切りを直し始めるときは書かない（無ければ空とみなす）。完成版には写さない（5-7 で入れる） |
+| `draft.sceneComments` | 場面の最初の写真の id → string（省略可） | 利用者が書いた場面のコメント（前後の空白を除いた空でない文。[03 §8.7](./03_screen_design.md#87-場面のコメント)）。文を書く AI に材料として渡す（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)）。鍵は `sceneStarts` にある写真だけ。下書きを作る・出し直す・区切りを直し始めるときは書かない（無ければ空とみなす）。完成版には写さない（5-7 で実装済み。保存は `functions/timelineDraft.ts` の区切りの保存、AI に渡すのは `services/timelineWriting.ts`） |
 
 以前は残せなかった利用者の文（`droppedEdits`）も持っていた（5-5d で消した）。5-5d より前に書いた文書に残っていても読まない（残っていても害は無いので、消すことは決まりにしない）。
 
