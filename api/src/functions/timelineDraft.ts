@@ -216,7 +216,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     const saved: TimelineDraft = {
       ...draft,
       sceneStarts: normalized,
-      ...(sceneComments !== undefined ? { sceneComments: commentsOf(sceneComments) } : {}),
+      ...(sceneComments !== undefined
+        ? { sceneComments: commentsOf(sceneComments) }
+        : draft.sceneComments
+          ? { sceneComments: Object.fromEntries(Object.entries(draft.sceneComments).filter(([photoId]) => normalized.includes(photoId))) }
+          : {}),
       ...(writeFailed ? { phase: 'reviewing', job: null } : {})
     };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
