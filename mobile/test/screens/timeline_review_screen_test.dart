@@ -487,6 +487,56 @@ void main() {
       expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
       semantics.dispose();
     });
+
+    testWidgets(
+        '「つなげる」で、前の場面だけにコメントがあれば残し、後ろの場面だけにあれば引き継ぐ（確認のダイアログは出さない）',
+        (tester) async {
+      for (final (comments, saved) in [
+        ({1: '空港で朝ごはん'}, {1: '空港で朝ごはん'}),
+        ({3: '運河を散歩'}, {1: '運河を散歩'}),
+      ]) {
+        // 1つのテストの中で開き直すとき、前のアプリの木を残さない
+        await tester.pumpWidget(const SizedBox());
+        final backend = await _openTimeline(tester,
+            draft: _reviewingDraft(comments: comments));
+        await _openReview(tester);
+
+        await tester.tap(find.text('つなげる'));
+        await letFramesRun(tester);
+
+        expect(inDialog(find.text('場面をつなげますか？')), findsNothing,
+            reason: '$comments');
+        expect(savedComments(backend), saved, reason: '$comments');
+        expect(find.text('コメント: ${saved[1]}'), findsOneWidget,
+            reason: '$comments');
+      }
+    });
+
+    testWidgets(
+        '「つなげる」で、両方の場面にコメントがあれば確認のダイアログ（消えるコメント）を出し、「キャンセル」なら何もせず、「つなげる」で前の場面のコメントを残す',
+        (tester) async {
+      final backend = await _openTimeline(tester,
+          draft: _reviewingDraft(comments: {1: '空港で朝ごはん', 3: '運河を散歩'}));
+      await _openReview(tester);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('場面をつなげますか？')), findsOneWidget);
+      expect(inDialog(find.text('前の場面のコメントを残します。後ろの場面のコメントは消えます。')),
+          findsOneWidget);
+      expect(inDialog(find.text('消えるコメント: 運河を散歩')), findsOneWidget);
+      await tapInDialog(tester, 'キャンセル');
+      expect(savedComments(backend), {1: '空港で朝ごはん', 3: '運河を散歩'});
+      expect(find.text('10:10〜11:40 · 北海道小樽市 · 2枚'), findsOneWidget);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, 'つなげる');
+
+      expect(savedComments(backend), {1: '空港で朝ごはん'});
+      expect(find.text('7:50〜11:40 · 北海道千歳市、北海道小樽市 · 4枚'), findsOneWidget);
+      expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
+    });
   });
 
   group('見出しを付ける・出し直す・やめる', () {
