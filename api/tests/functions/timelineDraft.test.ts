@@ -639,6 +639,19 @@ describe('タイムラインの下書きAPI', () => {
       ]);
     });
 
+    it('場面のコメントを送らなければ、残る区切りのコメントは残し、無くなった区切りのコメントは消す（区切りだけを送る 5-6 までのアプリ）', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(reviewing({ sceneComments: { [photoId('a')]: '朝市で海鮮丼', [photoId('c')]: '小樽でお寿司' } }))
+      );
+
+      // c の場面を a の場面とつなげた
+      const response = await put({ sceneStarts: [photoId('a'), photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: '朝市で海鮮丼' });
+    });
+
     it('各日の最初の写真は、下書きの日付の切り替えの時刻で決める（5時なら翌日の 4:30 は前の日の途中）', async () => {
       // k は 10/06 4:30。下書きの切り替えが5時なので 10/05 に入り、2日目の最初は d のまま。
       // 既定（4時）と違う値にして、今の設定ではなく下書きに書いた値で分けることを見る
