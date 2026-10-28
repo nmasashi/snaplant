@@ -24,7 +24,7 @@ import { reviewingDraftOf } from '../services/timelineView';
  * POST /api/trips/{tripId}/timeline/recut
  *
  * 完成版の控えと区切りを写した確かめ中の下書きを作る（AI の区切り案は出さない。05 §5.15）。
- * 区切りを直して文を書かせると、変わった場面と日だけが書き直される（06 §8.3）
+ * 直した区切りは、AI を使わずにその場で完成版に当てる（POST …/draft/write。06 §8.6）
  */
 export async function postTimelineRecutHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -125,7 +125,7 @@ export async function patchTimelineSceneHandler(request: HttpRequest, context: I
  * 完成版の文を直す（日と場面で共有する。05 §5.15 の表の 1〜8）
  *
  * 前後の空白を除いて保存し、書いた主を user にする。空か null なら AI が書いた文に戻して ai にする（AI の文が無い欄は null にし、書いた主も null）。
- * 下書きがあっても直せる（下書きの文を書くときに、完成版から引き継ぐ。06 §8.3）
+ * 下書きがあっても直せる（区切りを直している途中なら当てるときに残り、作り直しの途中なら書き終えたときに新しい完成版に置き換わって消える。05 §5.15）
  */
 async function editTimelineText(request: HttpRequest, context: InvocationContext, target: 'day' | 'scene'): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
