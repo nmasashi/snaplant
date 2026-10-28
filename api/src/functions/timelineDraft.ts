@@ -221,6 +221,9 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!normalized) {
       return createValidationError('区切りが無効です');
     }
+    if (sceneComments !== undefined && Object.keys(sceneComments).some((photoId) => !normalized.includes(photoId))) {
+      return createValidationError('場面のコメントは場面の最初の写真に付けてください');
+    }
     const comments = savedCommentsOf(sceneComments, draft.sceneComments, normalized);
     const saved: TimelineDraft = {
       ...draft,
