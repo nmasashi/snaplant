@@ -1275,19 +1275,19 @@ Future<void> enterTripMemo(WidgetTester tester, String memo) async {
   await tester.enterText(inDialog(find.byType(TextField)).at(1), memo);
 }
 
-/// 旅行詳細画面のメニューから「編集」を選んで、編集ダイアログを開く
+/// 旅行詳細画面のメニューから「旅行を編集」を選んで、編集ダイアログを開く
 Future<void> openEditDialog(WidgetTester tester) async {
   await tester.tap(find.byIcon(Icons.more_vert));
   await letFramesRun(tester);
-  await tester.tap(find.text('編集'));
+  await tester.tap(find.text('旅行を編集'));
   await letFramesRun(tester);
 }
 
-/// 旅行詳細画面のメニューから「削除」を選んで、削除の確認ダイアログを開く
+/// 旅行詳細画面のメニューから「旅行を削除」を選んで、削除の確認ダイアログを開く
 Future<void> openDeleteDialog(WidgetTester tester) async {
   await tester.tap(find.byIcon(Icons.more_vert));
   await letFramesRun(tester);
-  await tester.tap(find.text('削除'));
+  await tester.tap(find.text('旅行を削除'));
   await letFramesRun(tester);
 }
 

@@ -15,6 +15,23 @@ import 'timeline_edit_sheet.dart';
 import 'timeline_notices.dart';
 import 'timeline_confirm_dialog.dart';
 
+/// 旅行詳細の上のバーのメニューに足すタイムラインの項目（§8.1・§8.3）。押せないものは null
+class TimelineMenu {
+  const TimelineMenu(
+      {required this.onEdit,
+      required this.onRebuild,
+      required this.pendingPhotoCount});
+
+  /// 「タイムラインを編集」
+  final VoidCallback? onEdit;
+
+  /// 「タイムラインを作り直す」（解析中の写真がある間は押せない）
+  final VoidCallback? onRebuild;
+
+  /// 解析が済んでいない写真の枚数（0 でなければ「作り直す」の下に添える）
+  final int pendingPhotoCount;
+}
+
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
 ///
 /// 切り替えで「タイムライン」を選ぶたびに作り直され、そのたびに読み直す
@@ -24,7 +41,8 @@ class TripTimelineView extends StatefulWidget {
       required this.apiService,
       required this.uploadQueue,
       required this.tripId,
-      required this.onTripNotFound});
+      required this.onTripNotFound,
+      required this.onMenuChanged});
 
   final ApiService apiService;
 
@@ -34,6 +52,10 @@ class TripTimelineView extends StatefulWidget {
 
   /// 旅行が既に無いと分かった（旅行詳細が「この旅行は削除されています」にする。写真の一覧と同じ）
   final VoidCallback onTripNotFound;
+
+  /// 旅行詳細のメニューに出すタイムラインの項目を渡す（描くたび）。完成版を出していて下書きが無いときだけで、それ以外は null。
+  /// 旅行詳細はメニューを開くときに最後に受け取ったものを読むだけで、受け取っても描き直さない（描いている間に呼んでよい）
+  final ValueChanged<TimelineMenu?> onMenuChanged;
 
   @override
   State<TripTimelineView> createState() => _TripTimelineViewState();
@@ -174,11 +196,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         _show(_overview!.withDraft(draft));
       });
 
-  /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
+  /// 確かめてからタイムラインの編集（区切りの直し）をやめ、タイムラインを読み直す（§8.3）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context,
-            hasCurrent: _overview?.timeline?.current != null) ||
-        !mounted) {
+    if (!await confirmDiscardEdit(context) || !mounted) {
       return;
     }
     await _send(() async {
@@ -192,10 +212,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Future<void> _recut() => _send(() async {
         await widget.apiService.recutTimeline(widget.tripId);
         if (!mounted) return;
-        await _review();
+        await _review(editing: true);
       });
 
-  /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
+  /// 確かめてから作り直す（§8.6）。受け付けたら作っている間の表示にする（§8.2）
   Future<void> _rebuild() async {
     if (!await confirmRebuildTimeline(context) || !mounted) {
       return;
@@ -298,9 +318,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       isScrollControlled: true,
       // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
       enableDrag: false,
-      builder: (context) =>
-          TimelineEditSheet(
-              title: title, fields: fields, hint: hint, onSave: save),
+      builder: (context) => TimelineEditSheet(
+          title: title, fields: fields, hint: hint, onSave: save),
     );
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
@@ -318,13 +337,15 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     await _load(showLoading: false);
   }
 
-  /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
-  Future<void> _review() async {
+  /// 案の確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）。[editing] ならタイムラインの編集（区切りの直し）
+  Future<void> _review({required bool editing}) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => TimelineReviewScreen(
-            apiService: widget.apiService, tripId: widget.tripId),
+            apiService: widget.apiService,
+            tripId: widget.tripId,
+            editing: editing),
       ),
     );
     if (!mounted) return;
@@ -369,6 +390,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   @override
   Widget build(BuildContext context) {
+    widget.onMenuChanged(_menu());
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return MessageView(
@@ -404,16 +426,16 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
     final current = timeline.current;
-    if (current == null) return _buildDraft(draft!);
+    // 完成版の上に出すのはタイムラインの編集（recut）の下書きだけ。作る下書き（5-6 より前に始めた作り直しも）は作っている間の表示（§8.2）
+    if (current == null || (draft != null && draft.reason != 'recut')) {
+      return _buildDraft(draft!);
+    }
     return TimelineCurrentView(
       current: current,
-      pendingPhotoCount: overview.pendingPhotoCount,
-      onRecut: _sending ? null : _recut,
-      onRebuild: _sending ? null : _rebuild,
       onOpenPhoto: _sending ? null : _openPhoto,
       onEditDay: _sending ? null : _editDay,
       onEditScene: _sending ? null : _editScene,
-      banner: draft == null ? null : _buildRebuildBanner(draft),
+      banner: draft == null ? null : _buildEditBanner(draft),
       notices: [
         if (draft == null &&
             !_changesNoticeHidden &&
@@ -426,6 +448,23 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           ),
       ],
     );
+  }
+
+  /// 旅行詳細のメニューのタイムラインの項目（§8.3）。出すのは完成版を出していて下書きが無いときだけ
+  TimelineMenu? _menu() {
+    final overview = _overview;
+    final timeline = overview?.timeline;
+    return overview != null &&
+            _errorMessage == null &&
+            timeline?.current != null &&
+            timeline?.draft == null
+        ? TimelineMenu(
+            onEdit: _sending ? null : _recut,
+            onRebuild:
+                _sending || overview.pendingPhotoCount > 0 ? null : _rebuild,
+            pendingPhotoCount: overview.pendingPhotoCount,
+          )
+        : null;
   }
 
   /// 完成版も下書きも無い（§8.2 の1・2行目）
@@ -444,42 +483,34 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     );
   }
 
-  /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
-  Widget _buildRebuildBanner(TimelineDraftStatus draft) {
+  /// 完成版の上の、タイムラインを編集している（区切りの直し。recut）下書きの案内（§8.3）
+  Widget _buildEditBanner(TimelineDraftStatus draft) {
     final discard = OutlinedButton(
         onPressed: _sending ? null : _discard, child: const Text('やめる'));
     Widget review(String label) => OutlinedButton(
-        onPressed: _sending ? null : _review, child: Text(label));
+        onPressed: _sending ? null : () => _review(editing: true),
+        child: Text(label));
     Widget retry(Future<void> Function() send) => ElevatedButton(
         onPressed: _sending ? null : send, child: const Text('もう一度'));
     final (String title, List<Widget> actions) = switch (draft.phase) {
       'writing' when draft.isFailed => (
           '見出しと一言を書き直せませんでした',
-          [retry(_write), review('区切りを確認する'), discard]
+          [retry(_write), review('案を確認する'), discard]
         ),
+      // 5-5a より前に文を書く待ちに積んだ区切りの直し（ワーカーが AI を使わずに当てる）
       'writing' => ('見出しと一言を書き直しています', const <Widget>[]),
-      'reviewing' when draft.reason == 'recut' => (
-          '区切りを直している途中です',
-          [review('続ける'), discard]
-        ),
-      'reviewing' => ('作り直しの区切りの案ができました', [review('区切りを確認する'), discard]),
-      _ when draft.isFailed => (
-          '作り直しの区切りの案を作れませんでした',
-          [retry(_create), discard]
-        ),
-      _ => ('作り直しの区切りの案を作っています', [discard]),
+      _ => ('タイムラインを編集している途中です', [review('続ける'), discard]),
     };
     return TimelineNoticeCard(text: title, actions: actions);
   }
 
-  /// 下書きの状態（§8.2 の3行目から）
+  /// 下書きの状態（§8.2 の3行目から）。作り始めたら最後まで進むので「やめる」は出さない
   Widget _buildDraft(TimelineDraftStatus draft) {
-    final discard = OutlinedButton(
-        onPressed: _sending ? null : _discard, child: const Text('やめる'));
-    // 区切りの確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
+    // 案の確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
     Widget review({required bool primary}) {
-      final onPressed = _sending ? null : _review;
-      const label = Text('区切りを確認する');
+      final onPressed =
+          _sending ? null : () => _review(editing: draft.reason == 'recut');
+      const label = Text('案を確認する');
       return primary
           ? ElevatedButton(onPressed: onPressed, child: label)
           : OutlinedButton(onPressed: onPressed, child: label);
@@ -493,30 +524,29 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         return _StatusView(title: '見出しと一言を書けませんでした', actions: [
           retry(_write),
           review(primary: false),
-          discard,
         ]);
       }
       return const _StatusView(
         title: '見出しと一言を書いています',
-        message: 'この画面を閉じても続きます。',
+        message: 'ふつうは1分ほどで終わります。この画面を閉じても続きます。',
         actions: [_WritingSteps()],
       );
     }
     if (draft.phase == 'reviewing') {
       return _StatusView(
-          title: '区切りの案ができました', actions: [review(primary: true), discard]);
+          title: 'タイムラインの案ができました',
+          message: '場面の分け方を確かめてから、AI が見出しと一言を書きます。',
+          actions: [review(primary: true)]);
     }
     if (draft.isFailed) {
-      return _StatusView(title: '区切りの案を作れませんでした', actions: [
-        retry(_create),
-        discard,
-      ]);
+      return _StatusView(title: 'タイムラインの案を作れませんでした', actions: [retry(_create)]);
     }
-    return _StatusView(
-      title: '区切りの案を作っています',
-      message: 'この画面を閉じても続きます。',
+    // AI がすぐ終わると思わせない（実行環境の入れ替えで止まると、再投入のタイマーが拾うまで 10 分ほどかかる。§8.2）
+    return const _StatusView(
+      title: 'タイムラインの案を作っています',
+      message: 'ふつうは1分ほどで終わります。混んでいると10分ほどかかることがあります。この画面を閉じても続きます。',
       showsProgress: true,
-      actions: [discard],
+      actions: [],
     );
   }
 }
@@ -603,8 +633,8 @@ class _WritingSteps extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        step(done, '区切りの案'),
-        step(done, '区切りの確認'),
+        step(done, 'タイムラインの案'),
+        step(done, '案の確認'),
         step(
             const SizedBox(
                 width: 16,

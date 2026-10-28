@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../services/upload_queue.dart';
+import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/photo_category.dart';
 import '../utils/trip_period.dart';
@@ -53,6 +54,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   String? _category;
   // 「タイムライン」を出しているか（切り替え。§8.1）。画面を開き直すと「写真」に戻る
   bool _showsTimeline = false;
+  // 「タイムライン」が上のバーのメニューに足す項目（§8.3）。タイムラインの表示が描くたびに入れ、メニューを開くときに読む
+  TimelineMenu? _timelineMenu;
   StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
@@ -216,14 +219,46 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           PopupMenuButton<void>(
             icon: const Icon(Icons.more_vert),
             itemBuilder: (context) => [
+              // 「タイムライン」を開いていて完成版があるときだけ、タイムラインの項目を上に足す（§8.1・§8.3）
+              ..._timelineMenuItems(),
               PopupMenuItem(
-                  onTap: () => _editTrip(trip), child: const Text('編集')),
+                  onTap: () => _editTrip(trip), child: const Text('旅行を編集')),
               PopupMenuItem(
-                  onTap: () => _deleteTrip(trip), child: const Text('削除')),
+                  onTap: () => _deleteTrip(trip), child: const Text('旅行を削除')),
             ],
           ),
       ],
     );
+  }
+
+  /// 上のバーのメニューのタイムラインの項目（「タイムラインを編集」「タイムラインを作り直す」と区切り線）。出さないときは空
+  List<PopupMenuEntry<void>> _timelineMenuItems() {
+    final menu = _showsTimeline ? _timelineMenu : null;
+    if (menu == null) return const [];
+    final pending = menu.pendingPhotoCount;
+    return [
+      PopupMenuItem(
+          enabled: menu.onEdit != null,
+          onTap: menu.onEdit,
+          child: const Text('タイムラインを編集')),
+      PopupMenuItem(
+        enabled: menu.onRebuild != null,
+        onTap: menu.onRebuild,
+        child: pending > 0
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('タイムラインを作り直す'),
+                  Text('解析中の写真があと $pending 枚',
+                      style: AppTextStyles.caption
+                          .copyWith(color: AppColors.textSecondary)),
+                ],
+              )
+            : const Text('タイムラインを作り直す'),
+      ),
+      const PopupMenuDivider(),
+    ];
   }
 
   /// この旅行宛ての写真だけを数える送信の進み具合バナー
@@ -247,8 +282,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             ],
             selected: {_showsTimeline},
             showSelectedIcon: false,
-            onSelectionChanged: (selected) =>
-                setState(() => _showsTimeline = selected.single),
+            onSelectionChanged: (selected) => setState(() {
+              _showsTimeline = selected.single;
+              // 前に開いていたタイムラインの項目を残さない（開き直したタイムラインが読めたら入れ直す）
+              _timelineMenu = null;
+            }),
           ),
         );
       },
@@ -336,6 +374,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               uploadQueue: widget.uploadQueue,
               tripId: trip.id,
               onTripNotFound: _markTripDeleted,
+              onMenuChanged: (menu) => _timelineMenu = menu,
             ),
           ),
         if (!_showsTimeline) _buildCategoryChips(),

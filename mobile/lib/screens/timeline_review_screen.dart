@@ -8,15 +8,21 @@ import '../widgets/message_view.dart';
 import '../widgets/timeline_confirm_dialog.dart';
 import '../widgets/timeline_thumbnail.dart';
 
-/// 区切りの確認画面（docs/03_screen_design.md §8.4）
+/// 案の確認画面（docs/03_screen_design.md §8.4）
 ///
-/// 下書きの区切りを確かめて直す。閉じると旅行詳細がタイムラインを読み直す（どう閉じても）
+/// 下書きの区切りを確かめて直す。作る・作り直すときの「タイムラインの案」と、完成版の「タイムラインを編集」（区切りの直し。recut）で同じ画面を使う。閉じると旅行詳細がタイムラインを読み直す（どう閉じても）
 class TimelineReviewScreen extends StatefulWidget {
   const TimelineReviewScreen(
-      {super.key, required this.apiService, required this.tripId});
+      {super.key,
+      required this.apiService,
+      required this.tripId,
+      required this.editing});
 
   final ApiService apiService;
   final String tripId;
+
+  /// タイムラインの編集（区切りの直し）として開いたか。見出しを読み込む前から出すため、開く側が渡す
+  final bool editing;
 
   @override
   State<TimelineReviewScreen> createState() => _TimelineReviewScreenState();
@@ -60,8 +66,8 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         Navigator.pop(context);
         return;
       }
-      setState(() => _errorMessage =
-          e is ApiException ? e.userMessage : '区切りの読み込みに失敗しました');
+      setState(() =>
+          _errorMessage = e is ApiException ? e.userMessage : '読み込みに失敗しました');
     }
   }
 
@@ -104,7 +110,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     } catch (e) {
       debugPrint('TimelineReviewScreen: 区切りの保存のエラー: $e');
       if (!mounted) return;
-      _handleOperationError(e, '区切りの保存に失敗しました');
+      _handleOperationError(e, '保存に失敗しました');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -114,15 +120,10 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   Future<void> _write() =>
       _sendAndClose(() async => widget.apiService.writeTimeline(widget.tripId));
 
-  /// 確かめてから区切り案を出し直し、旅行詳細に戻る
+  /// 確かめてから AI に案を出し直してもらい、旅行詳細に戻る（作る・作り直すときだけ。§8.4）
   Future<void> _repropose() async {
-    // 完成版がある下書き（作り直し・区切りの直し）なら、区切り案を出し直すことは最初から作り直すこと（手で直した文と区切りも消える。§8.4）
-    final rebuilds = (_draft?.reason ?? 'create') != 'create';
-    final confirmed = await (rebuilds
-        ? confirmRebuildTimeline(context)
-        : confirmTimelineAction(context,
-            message: 'AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。',
-            confirmLabel: '出し直す'));
+    final confirmed = await confirmTimelineAction(context,
+        message: 'AI がもう一度案を出します。この画面で直した場面の分け方は消えます。', confirmLabel: '出し直す');
     if (!confirmed || !mounted) {
       return;
     }
@@ -130,12 +131,9 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         () async => widget.apiService.createTimeline(widget.tripId));
   }
 
-  /// 確かめてから下書きをやめ、旅行詳細に戻る（§8.2 と同じダイアログ）
+  /// 確かめてから編集をやめ、旅行詳細に戻る（タイムラインを編集するときだけ。§8.3 と同じダイアログ）
   Future<void> _discard() async {
-    // この画面は完成版を読まない。作り直し・区切りの直しの下書きなら完成版がある（作る受付が完成版の有無で create / rebuild を決める）
-    if (!await confirmDiscardTimeline(context,
-            hasCurrent: (_draft?.reason ?? 'create') != 'create') ||
-        !mounted) {
+    if (!await confirmDiscardEdit(context) || !mounted) {
       return;
     }
     await _sendAndClose(
@@ -191,6 +189,8 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   @override
   Widget build(BuildContext context) {
     final draft = _draft;
+    // 読み込むまでは開く側が渡した値、読めたら下書きの理由（見出し・メニュー・下のボタンを同じ値で決める）
+    final editing = draft == null ? widget.editing : draft.reason == 'recut';
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -198,17 +198,21 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           tooltip: '閉じる',
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('区切りを確認', style: AppTextStyles.appBarTitle),
+        title: Text(editing ? 'タイムラインを編集' : 'タイムラインの案',
+            style: AppTextStyles.appBarTitle),
         actions: [
           if (draft != null)
             PopupMenuButton<Future<void> Function()>(
               icon: const Icon(Icons.more_vert),
               enabled: !_sending,
               onSelected: (action) => action(),
+              // 作る・作り直すときは出し直すだけ（作り始めたら最後まで進む）。編集するときはやめるだけ（作り直しは旅行詳細のメニューから）
               itemBuilder: (context) => [
-                PopupMenuItem(
-                    value: _repropose, child: const Text('区切り案を出し直す')),
-                PopupMenuItem(value: _discard, child: const Text('やめる')),
+                if (editing)
+                  PopupMenuItem(value: _discard, child: const Text('やめる'))
+                else
+                  PopupMenuItem(
+                      value: _repropose, child: const Text('AI に案を出し直してもらう')),
               ],
             ),
         ],
@@ -241,7 +245,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
                 valueColor: AlwaysStoppedAnimation(AppColors.primary)),
             const SizedBox(height: 16),
             Text(
-              '区切りを読み込み中...',
+              '読み込み中...',
               style:
                   AppTextStyles.body1.copyWith(color: AppColors.textSecondary),
             ),
@@ -341,7 +345,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     );
   }
 
-  /// 下の「この区切りで見出しを付ける」（区切りの直しは「この区切りで保存」。AI を使わずその場で保存する）と、日数・場面数
+  /// 下の「この案で見出しを付ける」（タイムラインを編集するときは「保存」。AI を使わずその場で保存する）と、日数・場面数
   Widget _buildWriteBar(TimelineDraftStatus draft) {
     final recut = draft.reason == 'recut';
     final days = draft.days!;
@@ -356,7 +360,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           children: [
             ElevatedButton(
               onPressed: _sending ? null : _write,
-              child: Text(recut ? 'この区切りで保存' : 'この区切りで見出しを付ける'),
+              child: Text(recut ? '保存' : 'この案で見出しを付ける'),
             ),
             const SizedBox(height: 4),
             Text(
