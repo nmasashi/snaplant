@@ -158,21 +158,35 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             if (scene.comment != null) scene.startPhotoId: scene.comment!,
       };
 
-  /// 場面のコメントを書くシートを開き、「保存」なら区切りと一緒に送る（空なら消す。§8.7）
+  /// 場面のコメントを書くシートを開く。「保存」でシートの中から区切りと一緒に送り（空なら消す。§8.7）、保存できたら応答で描き直す。
+  /// 下書きが変わった・旅行が無いなら、シートが閉じた後に §8.4 のとおりに扱う
   Future<void> _editComment(TimelineScene scene) async {
-    final text = await showModalBottomSheet<String>(
+    final result = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _SceneCommentSheet(initial: scene.comment),
+      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（編集シートと同じ。§8.5）
+      enableDrag: false,
+      builder: (context) => _SceneCommentSheet(
+        initial: scene.comment,
+        onSave: (text) {
+          final comments = _comments();
+          if (text.trim().isEmpty) {
+            comments.remove(scene.startPhotoId);
+          } else {
+            comments[scene.startPhotoId] = text;
+          }
+          return widget.apiService.saveTimelineScenes(
+              widget.tripId, _sceneStarts(),
+              sceneComments: comments);
+        },
+      ),
     );
-    if (text == null || !mounted) return;
-    final comments = _comments();
-    if (text.trim().isEmpty) {
-      comments.remove(scene.startPhotoId);
-    } else {
-      comments[scene.startPhotoId] = text;
+    if (!mounted || result == null) return;
+    if (result is TimelineDraftStatus) {
+      setState(() => _draft = result);
+      return;
     }
-    await _save(_sceneStarts(), comments: comments);
+    _handleOperationError(result, '保存に失敗しました');
   }
 
   /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）。[comments] を渡せば場面のコメントも送る
@@ -490,12 +504,18 @@ String _sceneLabel(TimelineScene scene) {
   ].join(' · ');
 }
 
-/// 場面のコメントを書く、下から出るシート（§8.7）。「保存」なら書いた文（空もある）、「キャンセル」なら null で閉じる
+/// 場面のコメントを書く、下から出るシート（§8.7）
+///
+/// 「保存」でシートの中から送る（失敗してもシートと書いた文を残す）。閉じるときの結果: 保存できたら応答の下書き、
+/// 下書きが変わった・旅行が無いなら [ApiException]（呼ぶ側が知らせる）、キャンセル・何も変えずに保存したら null
 class _SceneCommentSheet extends StatefulWidget {
-  const _SceneCommentSheet({required this.initial});
+  const _SceneCommentSheet({required this.initial, required this.onSave});
 
   /// 今のコメント（無ければ null）
   final String? initial;
+
+  /// 書いた文（空もある）を送る
+  final Future<TimelineDraftStatus> Function(String text) onSave;
 
   @override
   State<_SceneCommentSheet> createState() => _SceneCommentSheetState();
@@ -504,6 +524,10 @@ class _SceneCommentSheet extends StatefulWidget {
 class _SceneCommentSheetState extends State<_SceneCommentSheet> {
   late final TextEditingController _controller =
       TextEditingController(text: widget.initial ?? '');
+  // 保存している間は閉じられず、ボタンも押せない（編集シートと同じ）
+  bool _saving = false;
+  // 保存に失敗したときの文言（シートの中に出す）
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -511,42 +535,82 @@ class _SceneCommentSheetState extends State<_SceneCommentSheet> {
     super.dispose();
   }
 
+  Future<void> _save() async {
+    // 押せなくする描き直しが届く前に続けて押されても、送るのは1回
+    if (_saving) return;
+    final text = _controller.text;
+    if (text.trim() == (widget.initial ?? '').trim()) {
+      Navigator.pop(context);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _errorMessage = null;
+    });
+    try {
+      final draft = await widget.onSave(text);
+      if (!mounted) return;
+      Navigator.pop(context, draft);
+    } catch (e) {
+      debugPrint('_SceneCommentSheet: 保存のエラー: $e');
+      if (!mounted) return;
+      if (e is ApiException && (e.isTimelineChanged || e.isTripNotFound)) {
+        // 呼ぶ側が知らせて閉じる
+        Navigator.pop(context, e);
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _errorMessage = e is ApiException ? e.userMessage : '保存に失敗しました';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      // キーボードの分だけ上げる
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('場面のコメント', style: AppTextStyles.headline3),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _controller,
-              autofocus: true,
-              maxLength: 100,
-              maxLines: null,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('キャンセル'),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context, _controller.text),
-                  child: const Text('保存'),
-                ),
+    final errorMessage = _errorMessage;
+    return PopScope(
+      canPop: !_saving,
+      child: Padding(
+        // キーボードの分だけ上げる
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('場面のコメント', style: AppTextStyles.headline3),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                enabled: !_saving,
+                maxLength: 100,
+                maxLines: null,
+              ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMessage, style: AppTextStyles.error),
               ],
-            ),
-          ],
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _saving ? null : () => Navigator.pop(context),
+                    child: const Text('キャンセル'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    child: const Text('保存'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
