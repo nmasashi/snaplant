@@ -747,6 +747,17 @@ describe('タイムラインのワーカー', () => {
       }
     });
 
+    it('利用者が書いた場面のコメントを、書いてほしい場面の範囲に添えて渡す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ draft: writingDraft({ sceneComments: { [photoId('c')]: '大通公園の近くの店' } }) }));
+
+      await runWorker();
+
+      // コメントは、その場面の範囲（c の場面は 2番〜3番）のすぐ後ろ（間にほかの番号を挟まない）にある。写真の行には出さない
+      const linesWithComment = sentPrompt().split('\n').filter((line) => line.includes('大通公園の近くの店'));
+      expect(linesWithComment.length).toBeGreaterThanOrEqual(1);
+      expect(linesWithComment.every((line) => /(?<![0-9])2番〜3番[^番\n]*大通公園の近くの店/.test(line) && !PHOTO_LINE.test(line.trimStart()))).toBe(true);
+    });
+
     it('AI には画像を渡さず、写真の行と日の区切りに加えて、書いてほしい日を渡す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
 
