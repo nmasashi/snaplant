@@ -213,14 +213,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!normalized) {
       return createValidationError('区切りが無効です');
     }
+    const comments = savedCommentsOf(sceneComments, draft.sceneComments, normalized);
     const saved: TimelineDraft = {
       ...draft,
       sceneStarts: normalized,
-      ...(sceneComments !== undefined
-        ? { sceneComments: commentsOf(sceneComments) }
-        : draft.sceneComments
-          ? { sceneComments: Object.fromEntries(Object.entries(draft.sceneComments).filter(([photoId]) => normalized.includes(photoId))) }
-          : {}),
+      ...(comments ? { sceneComments: comments } : {}),
       ...(writeFailed ? { phase: 'reviewing', job: null } : {})
     };
     // 保存先の設定が足りなければ、区切りを書き換える前に失敗させる（書き換えた後だと、保存したのに失敗と返す）
@@ -236,13 +233,30 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
   }
 }
 
-/** 場面のコメントを前後の空白を除いて持ち、空になったものは持たない */
-function commentsOf(comments: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(comments)
-      .map(([photoId, comment]) => [photoId, comment.trim()])
-      .filter(([, comment]) => comment !== '')
-  );
+/**
+ * 保存する場面のコメント（05 §5.15）
+ *
+ * 送られたら、前後の空白を除いて空でないものに置き換える（どちらのコメントを残すかは画面が決めて送る）。
+ * 送られなければ、今のコメントのうち保存する区切りにあるものを残す（区切りだけを送るアプリでも、場面ごと消えたコメントだけが消える）。
+ * どちらも無ければ undefined（欄を書かない）
+ */
+function savedCommentsOf(
+  sent: Record<string, string> | undefined,
+  previous: Record<string, string> | undefined,
+  sceneStarts: string[]
+): Record<string, string> | undefined {
+  if (sent !== undefined) {
+    return Object.fromEntries(
+      Object.entries(sent)
+        .map(([photoId, comment]) => [photoId, comment.trim()])
+        .filter(([, comment]) => comment !== '')
+    );
+  }
+  if (previous === undefined) {
+    return undefined;
+  }
+  const starts = new Set(sceneStarts);
+  return Object.fromEntries(Object.entries(previous).filter(([photoId]) => starts.has(photoId)));
 }
 
 /**
