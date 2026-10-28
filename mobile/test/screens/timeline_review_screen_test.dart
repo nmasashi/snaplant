@@ -471,6 +471,22 @@ void main() {
       expect(savedComments(backend), isEmpty);
       expect(find.textContaining('コメント: '), findsNothing);
     });
+
+    testWidgets('『ここで区切る』で場面を分けると、前の場面がコメントを持ったままで、新しい場面は空', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester,
+          draft: _reviewingDraft(comments: {1: '空港で朝ごはん'}));
+      await _openReview(tester);
+
+      await tester.longPress(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      await tester.tap(find.text('この写真から新しい場面'));
+      await letFramesRun(tester);
+
+      expect(savedComments(backend), {1: '空港で朝ごはん'});
+      expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
   });
 
   group('見出しを付ける・出し直す・やめる', () {
