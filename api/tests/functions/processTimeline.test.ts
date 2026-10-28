@@ -1066,7 +1066,7 @@ describe('タイムラインのワーカー', () => {
         });
       });
 
-      it('文を書いている間に利用者が前の完成版の文を直しても、読み直した文書に新しい完成版を当てる（直した文は残らない）', async () => {
+      it('文を書いている間に利用者が前の完成版の文を直しても、AI が書いた新しい完成版に入れ替える（直した文は残らない）', async () => {
         cosmosBackend.documents.set(TIMELINE_ID, rebuilding());
         othersWriteBeforeReplace((doc) => {
           const edited = { ...doc.current!.sceneTexts[photoId('e')], label: '小樽で散歩', labelSource: 'user' as const };
