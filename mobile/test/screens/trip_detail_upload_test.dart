@@ -1285,7 +1285,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('削除'));
+    await tester.tap(find.text('旅行を削除'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(inDialog(find.text('削除')));
@@ -1369,7 +1369,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('削除'));
+    await tester.tap(find.text('旅行を削除'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(inDialog(find.text('削除')));

@@ -129,7 +129,26 @@ ButtonStyleButton _button(WidgetTester tester, String label) =>
     tester.widget<ButtonStyleButton>(find.ancestor(
         of: find.text(label), matching: find.bySubtype<ButtonStyleButton>()));
 
-/// 写真が変わった案内の枠の中の [text]（上の「作り直す」と見分ける）
+/// 旅行詳細の上のバーのメニューを開く
+Future<void> _openMenu(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.more_vert));
+  await letFramesRun(tester);
+}
+
+/// 旅行詳細の上のバーのメニューから [label] を選ぶ
+Future<void> _chooseFromMenu(WidgetTester tester, String label) async {
+  await _openMenu(tester);
+  await tester.tap(find.text(label));
+  await letFramesRun(tester);
+}
+
+/// メニューの項目 [label]（押せるかを見る）
+PopupMenuItem<Object?> _menuItem(WidgetTester tester, String label) =>
+    tester.widget<PopupMenuItem<Object?>>(find.ancestor(
+        of: find.text(label),
+        matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem)));
+
+/// 写真が変わった案内の枠の中の [text]
 Finder _inChangesNotice(String text) => find.descendant(
     of: find.ancestor(
         of: find.textContaining('作った後に写真が'), matching: find.byType(Card)),
@@ -145,7 +164,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 void main() {
   group('完成したタイムラインの表示', () {
     testWidgets(
-        '作成日時と「区切りを直す」「作り直す」を上に出し、日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、最後に日時なしを出す',
+        '日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、日時なしの後の一番下に作成日時を出す（操作のボタンは出さない）',
         (tester) async {
       // 作成日時は端末の時刻で出す。日本時間でないと期待値が合わない（CI は TZ=Asia/Tokyo）
       expect(DateTime(2026, 10, 25).timeZoneOffset, const Duration(hours: 9));
@@ -153,9 +172,8 @@ void main() {
       await _openTimeline(tester);
 
       expect(find.text('タイムラインができました'), findsNothing);
-      expect(find.text('10月25日 18:10 に作成'), findsOneWidget);
-      expect(find.text('区切りを直す'), findsOneWidget);
-      expect(find.text('作り直す'), findsOneWidget);
+      expect(find.text('区切りを直す'), findsNothing);
+      expect(find.text('作り直す'), findsNothing);
 
       expect(find.text('1日目'), findsOneWidget);
       expect(find.text('10月5日（月）'), findsOneWidget);
@@ -185,15 +203,65 @@ void main() {
 
       await _scrollTo(tester, find.text('日時なし'));
       expect(photoThumbnail('撮影日時なし'), findsOneWidget);
+      await _scrollTo(tester, find.text('10月25日 18:10 に作成'));
+      expect(tester.getTopLeft(find.text('10月25日 18:10 に作成')).dy,
+          greaterThan(tester.getTopLeft(photoThumbnail('撮影日時なし')).dy));
       semantics.dispose();
     });
+  });
 
-    testWidgets('解析中の写真がある間は「作り直す」を押せず、残りの枚数を添える', (tester) async {
+  group('旅行詳細のメニュー', () {
+    testWidgets(
+        'タイムラインを開いていると、「タイムラインを編集」「タイムラインを作り直す」「旅行を編集」「旅行を削除」の順に並べる',
+        (tester) async {
+      await _openTimeline(tester);
+
+      await _openMenu(tester);
+      final labels = ['タイムラインを編集', 'タイムラインを作り直す', '旅行を編集', '旅行を削除'];
+      final tops = [
+        for (final label in labels) tester.getTopLeft(find.text(label)).dy
+      ];
+      expect(tops, orderedEquals([...tops]..sort()));
+      for (final label in labels.take(2)) {
+        expect(_menuItem(tester, label).enabled, isTrue, reason: label);
+      }
+    });
+
+    testWidgets('「写真」を開いているときは、タイムラインの項目を出さない', (tester) async {
+      await _openTimeline(tester);
+      await tester.tap(find.text('写真'));
+      await letFramesRun(tester);
+
+      await _openMenu(tester);
+      expect(find.text('旅行を編集'), findsOneWidget);
+      expect(find.text('旅行を削除'), findsOneWidget);
+      expect(find.text('タイムラインを編集'), findsNothing);
+      expect(find.text('タイムラインを作り直す'), findsNothing);
+    });
+
+    testWidgets('解析中の写真がある間は「タイムラインを作り直す」を押せず、残りの枚数を添える（「タイムラインを編集」は押せる）',
+        (tester) async {
       await _openTimeline(tester, pendingPhotoCount: 2);
 
-      expect(_button(tester, '作り直す').onPressed, isNull);
-      expect(find.text('解析中の写真があと 2 枚あります'), findsOneWidget);
-      expect(_button(tester, '区切りを直す').onPressed, isNotNull);
+      await _openMenu(tester);
+      expect(_menuItem(tester, 'タイムラインを作り直す').enabled, isFalse);
+      expect(find.text('解析中の写真があと 2 枚'), findsOneWidget);
+      expect(_menuItem(tester, 'タイムラインを編集').enabled, isTrue);
+    });
+
+    testWidgets('タイムラインを編集している途中は、タイムラインの項目を出さない', (tester) async {
+      await _openTimeline(tester, draft: {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'recut',
+        'phase': 'reviewing',
+        'job': null,
+        'startedAt': '2026-10-26T09:00:00.000Z',
+      });
+
+      await _openMenu(tester);
+      expect(find.text('旅行を編集'), findsOneWidget);
+      expect(find.text('タイムラインを編集'), findsNothing);
+      expect(find.text('タイムラインを作り直す'), findsNothing);
     });
   });
 
@@ -215,7 +283,7 @@ void main() {
           'startedAt': '2026-10-26T09:00:00.000Z',
         };
 
-    testWidgets('下書きの理由・段階ごとに、完成版を出したまま上に案内を出し、「区切りを直す」「作り直す」を出さない',
+    testWidgets('区切りの直しの下書きの段階ごとに、完成版を出したまま上に案内を出す',
         (tester) async {
       // 1つのテストで下書きを取り替えながらアプリを開き直す（開き直すたびに木は作り直される）
       for (final (label, draft, texts) in [
@@ -236,8 +304,6 @@ void main() {
           expect(find.text(text), findsOneWidget, reason: label);
         }
         expect(find.text('朝ごはん'), findsOneWidget, reason: label);
-        expect(find.text('区切りを直す'), findsNothing, reason: label);
-        expect(find.text('作り直す'), findsNothing, reason: label);
       }
     });
 
@@ -266,7 +332,7 @@ void main() {
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
       expect(find.text('小樽運河さんぽ'), findsNothing);
       expect(find.text('見出しと一言を書き直せませんでした'), findsNothing);
-      expect(find.text('区切りを直す'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsOneWidget);
       expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
     });
 
@@ -282,7 +348,7 @@ void main() {
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
       expect(find.text('区切りを直している途中です'), findsNothing);
-      expect(find.text('区切りを直す'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsOneWidget);
     });
 
     testWidgets('「続ける」で区切りの直しの確認画面を開く', (tester) async {
@@ -302,8 +368,7 @@ void main() {
     testWidgets('「区切りを直す」を押すと、完成版の区切りを写した下書きを作り、区切りの確認画面を開く', (tester) async {
       final backend = await _openTimeline(tester);
 
-      await tester.tap(find.text('区切りを直す'));
-      await letFramesRun(tester);
+      await _chooseFromMenu(tester, 'タイムラインを編集');
       expect(
           (backend.timelinesByTripId[hokkaidoTripId]!['draft']
               as Map)['reason'],
@@ -321,8 +386,7 @@ void main() {
 
     testWidgets('区切りを直して確認画面の下のボタンを押すと、AI を待たずにその場で保存して旅行詳細に戻り、直している途中の案内を出さずに完成版を出す', (tester) async {
       final backend = await _openTimeline(tester);
-      await tester.tap(find.text('区切りを直す'));
-      await letFramesRun(tester);
+      await _chooseFromMenu(tester, 'タイムラインを編集');
 
       await tester.tap(find.text('この区切りで保存'));
       await letFramesRun(tester);
@@ -346,8 +410,7 @@ void main() {
         'startedAt': '2026-10-26T09:00:00.000Z',
       });
 
-      await tester.tap(find.text('区切りを直す'));
-      await letFramesRun(tester);
+      await _chooseFromMenu(tester, 'タイムラインを編集');
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
       expect(find.text('区切りを確認'), findsNothing);
       expect(find.text('タイムラインの案を作っています'), findsOneWidget);
@@ -357,8 +420,7 @@ void main() {
         (tester) async {
       final backend = await _openTimeline(tester);
 
-      await tester.tap(find.text('作り直す'));
-      await letFramesRun(tester);
+      await _chooseFromMenu(tester, 'タイムラインを作り直す');
       expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
       expect(
           inDialog(find.text(
@@ -371,15 +433,16 @@ void main() {
       expect(find.text('朝ごはん'), findsNothing);
     });
 
-    testWidgets('「区切りを直す」を送っている間は、「区切りを直す」「作り直す」を押せない', (tester) async {
+    testWidgets('「タイムラインを編集」を送っている間は、メニューの「タイムラインを編集」「タイムラインを作り直す」を押せない',
+        (tester) async {
       // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
-      await tester.tap(find.text('区切りを直す'));
-      await tester.pump();
-      expect(_button(tester, '区切りを直す').onPressed, isNull);
-      expect(_button(tester, '作り直す').onPressed, isNull);
+      await _chooseFromMenu(tester, 'タイムラインを編集');
+      await _openMenu(tester);
+      expect(_menuItem(tester, 'タイムラインを編集').enabled, isFalse);
+      expect(_menuItem(tester, 'タイムラインを作り直す').enabled, isFalse);
 
       reply.complete();
       await letFramesRun(tester);
@@ -388,12 +451,11 @@ void main() {
     testWidgets('「作り直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {
       final backend = await _openTimeline(tester);
 
-      await tester.tap(find.text('作り直す'));
-      await letFramesRun(tester);
+      await _chooseFromMenu(tester, 'タイムラインを作り直す');
       await tapInDialog(tester, 'キャンセル');
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
-      expect(find.text('作り直す'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsOneWidget);
     });
   });
 
@@ -795,7 +857,7 @@ void main() {
   });
 
   group('作った後に写真が変わった案内', () {
-    testWidgets('作った後に写真が増えた・消えた枚数の案内を作成日時の上に「あとで」「作り直す」と出し、「作り直す」は作り直しの確認を出し、「あとで」で隠した案内は読み直すとまた出す',
+    testWidgets('作った後に写真が増えた・消えた枚数の案内を一番上に「あとで」「作り直す」と出し、「作り直す」は作り直しの確認を出し、「あとで」で隠した案内は読み直すとまた出す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       for (final (label, added, removed, text) in [
@@ -808,11 +870,10 @@ void main() {
 
         expect(find.text(text), findsOneWidget, reason: label);
         expect(find.text('あとで'), findsOneWidget, reason: label);
-        // 上の「作り直す」と、案内の「作り直す」
-        expect(find.text('作り直す'), findsNWidgets(2), reason: label);
+        expect(_inChangesNotice('作り直す'), findsOneWidget, reason: label);
       }
       expect(tester.getTopLeft(find.textContaining('作った後に写真が')).dy,
-          lessThan(tester.getTopLeft(find.textContaining('に作成')).dy));
+          lessThan(tester.getTopLeft(find.text('1日目')).dy));
 
       await tester.tap(_inChangesNotice('作り直す'));
       await letFramesRun(tester);
@@ -822,7 +883,7 @@ void main() {
       await tester.tap(find.text('あとで'));
       await letFramesRun(tester);
       expect(find.textContaining('作った後に写真が'), findsNothing);
-      expect(find.text('作り直す'), findsOneWidget);
+      expect(find.text('作り直す'), findsNothing);
 
       // 写真ビューアを開いて閉じると、同じ表示のままタイムラインを読み直す（§8.3）
       await tester.tap(photoThumbnail('2026年10月5日 07:58'));
@@ -868,8 +929,7 @@ void main() {
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
-      await tester.tap(find.text('区切りを直す'));
-      await tester.pump();
+      await _chooseFromMenu(tester, 'タイムラインを編集');
       for (final label in ['この日を編集', 'この場面を編集']) {
         expect(
             tester
