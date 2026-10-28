@@ -550,6 +550,20 @@ class FakeTripBackend {
         }
         final days = _recutDays(draft, starts.cast<String>());
         if (days == null) return _error(400, 'INVALID_REQUEST', '区切りが無効です');
+        // 場面のコメントは本物と同じく、送られたら前後の空白を除いて置き換え（空は持たない）、送られなければ残る場面の分を残す。
+        // 形・上限・鍵の検証は見ない（画面が欄で止め、場面の最初の写真にだけ付ける）
+        final sent = (jsonDecode(request.body) as Map<String, Object?>)['sceneComments'] as Map<String, Object?>?;
+        final comments = sent == null
+            ? _sceneCommentsOf(draft)
+            : {
+                for (final MapEntry(:key, :value) in sent.entries)
+                  if ((value as String).trim().isNotEmpty) key: value.trim(),
+              };
+        for (final day in days) {
+          for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>()) {
+            scene['comment'] = comments[scene['startPhotoId']];
+          }
+        }
         final saved = {...draft, 'phase': 'reviewing', 'job': null, 'days': days};
         timelinesByTripId[tripId] = {...timeline, 'draft': saved};
         return _ok(200, {'draft': saved, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
@@ -626,6 +640,13 @@ class FakeTripBackend {
   /// 区切りを入れた主は本物と違い、日の最初は `day`、前の下書きでも区切りだった写真はその主を引き継ぎ、新しい区切りは `user` にする
   /// （本物は AI の案にあれば `ai`。クライアントはまだ読まないので、読むようになったら本物に合わせる）。消えた写真（控えにだけある写真）は表さない
   /// （そのため、日の最初の場面の写真が全部消えたとき、本物は次の場面を `day` にしないが、偽物は見えている最初の場面を `day` にする）
+  /// 下書きの場面のコメント（場面の最初の写真の id → コメント。無い場面は入れない）
+  Map<String, String> _sceneCommentsOf(Map<String, Object?> draft) => {
+        for (final day in (draft['days'] as List).cast<Map<String, Object?>>())
+          for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
+            if (scene['comment'] != null) scene['startPhotoId'] as String: scene['comment'] as String,
+      };
+
   List<Map<String, Object?>>? _recutDays(Map<String, Object?> draft, List<String> starts) {
     final previous = <String, Object?>{};
     final days = (draft['days'] as List).cast<Map<String, Object?>>();
@@ -1213,8 +1234,8 @@ Map<String, Object?> timelinePhotoJson(int number, String? takenAt,
   };
 }
 
-/// 場面（05 §5.15 の確かめ中の `scenes` の1つ）。印・時刻・地名・名前は [photos] から本物と同じ決まりで組む
-Map<String, Object?> timelineSceneJson(List<Map<String, Object?>> photos, {String startedBy = 'ai'}) {
+/// 場面（05 §5.15 の確かめ中の `scenes` の1つ）。印・時刻・地名・名前は [photos] から本物と同じ決まりで組む。[comment] は場面のコメント
+Map<String, Object?> timelineSceneJson(List<Map<String, Object?>> photos, {String startedBy = 'ai', String? comment}) {
   List<String> distinct(String key) => [
         for (final value in {for (final photo in photos) photo[key]})
           if (value != null) value as String,
@@ -1227,6 +1248,7 @@ Map<String, Object?> timelineSceneJson(List<Map<String, Object?>> photos, {Strin
     'lastTakenAt': photos.last['takenAt'],
     'placeNames': distinct('placeName'),
     'names': distinct('name'),
+    'comment': comment,
     'photos': photos,
   };
 }

@@ -398,6 +398,43 @@ void main() {
     });
   });
 
+  group('場面のコメント', () {
+    /// 偽のサーバの下書きの場面のコメント（場面の最初の写真の番号 → コメント。無い場面は入れない）
+    Map<int, String> savedComments(FakeTripBackend backend) {
+      final draft = backend.timelinesByTripId[hokkaidoTripId]!['draft']
+          as Map<String, Object?>;
+      final numberOf = {
+        for (final MapEntry(:key, :value) in _photos.entries) value['id']: key
+      };
+      return {
+        for (final day in draft['days'] as List)
+          for (final scene in (day as Map)['scenes'] as List)
+            if ((scene as Map)['comment'] != null)
+              numberOf[scene['startPhotoId']]!: scene['comment'] as String,
+      };
+    }
+
+    testWidgets(
+        '作るときは場面のカードに「コメントを書く」を出し、押すと「場面のコメント」のシート（100 文字まで）を出し、「保存」で区切りと一緒に送って、カードに「コメント: {コメント}」を出す',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      expect(find.text('コメントを書く'), findsWidgets);
+
+      await tester.tap(find.text('コメントを書く').first);
+      await letFramesRun(tester);
+      expect(find.text('場面のコメント'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).maxLength, 100);
+      await tester.enterText(find.byType(TextField), '空港で朝ごはん');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+
+      expect(savedComments(backend), {1: '空港で朝ごはん'});
+      expect(find.text('場面のコメント'), findsNothing);
+      expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
+    });
+  });
+
   group('見出しを付ける・出し直す・やめる', () {
     testWidgets('見出しを付けるのに失敗したら、エラーの文言を出し、案の確認画面のまま', (tester) async {
       final backend = await _openTimeline(tester);
