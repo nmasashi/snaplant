@@ -15,6 +15,7 @@ import {
   isValidUUID
 } from '../utils/response';
 import { ErrorCode, HttpStatusCode } from '../types/api';
+import { TIMELINE_VALIDATION } from '../constants/validation';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
 
 /**
@@ -187,9 +188,16 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (!isEditableDraft(draft)) {
       return createTimelineStateConflict();
     }
-    const { sceneStarts, sceneComments } = read.body as { sceneStarts?: unknown; sceneComments?: Record<string, string> };
+    const { sceneStarts, sceneComments } = read.body as { sceneStarts?: unknown; sceneComments?: unknown };
     if (!Array.isArray(sceneStarts) || !sceneStarts.every((id) => typeof id === 'string')) {
       return createValidationError('区切りは写真IDの配列で指定してください');
+    }
+    if (sceneComments !== undefined && !isStringRecord(sceneComments)) {
+      return createValidationError('場面のコメントは写真IDと文字列の組で指定してください');
+    }
+    const maxLength = TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT;
+    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => comment.trim().length > maxLength)) {
+      return createValidationError(`場面のコメントは${maxLength}文字以内で指定してください`);
     }
     let photos: TimelinePhotoSnapshot[];
     let existing: Set<string>;
@@ -231,6 +239,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
   }
+}
+
+/** 写真の id と文字列の組か（配列・null は違う） */
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((item) => typeof item === 'string');
 }
 
 /**

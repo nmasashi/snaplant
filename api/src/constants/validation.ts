@@ -183,7 +183,9 @@ export const TIMELINE_VALIDATION = {
     TITLE: positiveIntFromEnv(process.env.TIMELINE_TITLE_MAX_LENGTH, 40),
     SUMMARY: positiveIntFromEnv(process.env.TIMELINE_SUMMARY_MAX_LENGTH, 400),
     LABEL: positiveIntFromEnv(process.env.TIMELINE_LABEL_MAX_LENGTH, 30),
-    NOTE: positiveIntFromEnv(process.env.TIMELINE_NOTE_MAX_LENGTH, 200)
+    NOTE: positiveIntFromEnv(process.env.TIMELINE_NOTE_MAX_LENGTH, 200),
+    // 利用者が書く場面のコメント（区切りの保存の sceneComments。5-7）。超えると 400
+    SCENE_COMMENT: positiveIntFromEnv(process.env.TIMELINE_SCENE_COMMENT_MAX_LENGTH, 100)
   },
   // 日の文を直す API の日付（YYYY-MM-DD。加えて実在する日付であること。05 §4）
   DATE_REGEX: /^\d{4}-\d{2}-\d{2}$/
