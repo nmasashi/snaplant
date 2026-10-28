@@ -127,7 +127,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから編集をやめ、旅行詳細に戻る（タイムラインを編集するときだけ。§8.3 と同じダイアログ）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context, hasCurrent: true) || !mounted) {
+    if (!await confirmDiscardEdit(context) || !mounted) {
       return;
     }
     await _sendAndClose(

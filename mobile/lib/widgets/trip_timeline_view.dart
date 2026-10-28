@@ -206,11 +206,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         _show(_overview!.withDraft(draft));
       });
 
-  /// 確かめてから下書きをやめ、タイムラインを読み直す（§8.2）
+  /// 確かめてからタイムラインの編集（区切りの直し）をやめ、タイムラインを読み直す（§8.3）
   Future<void> _discard() async {
-    if (!await confirmDiscardTimeline(context,
-            hasCurrent: _overview?.timeline?.current != null) ||
-        !mounted) {
+    if (!await confirmDiscardEdit(context) || !mounted) {
       return;
     }
     await _send(() async {
