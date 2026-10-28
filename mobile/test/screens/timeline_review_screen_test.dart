@@ -22,9 +22,10 @@ final _photos = {
   7: timelinePhotoJson(7, '2026-10-06T12:00:00'),
 };
 
-/// 区切りを確かめられる下書き（既定は確かめ待ち）。[scenes] は日ごとの場面の写真の番号
+/// 区切りを確かめられる下書き（既定は確かめ待ち）。[scenes] は日ごとの場面の写真の番号、[comments] は場面の最初の写真の番号ごとの場面のコメント
 Map<String, Object?> _reviewingDraft({
   String reason = 'create',
+  Map<int, String> comments = const {},
   String phase = 'reviewing',
   Map<String, Object?>? job,
   List<List<List<int>>> scenes = const [
@@ -51,7 +52,8 @@ Map<String, Object?> _reviewingDraft({
             'scenes': [
               for (final (sceneIndex, numbers) in day.indexed)
                 timelineSceneJson([for (final n in numbers) _photos[n]!],
-                    startedBy: sceneIndex == 0 ? 'day' : 'ai'),
+                    startedBy: sceneIndex == 0 ? 'day' : 'ai',
+                    comment: comments[numbers.first]),
             ],
           },
       ],
@@ -432,6 +434,42 @@ void main() {
       expect(savedComments(backend), {1: '空港で朝ごはん'});
       expect(find.text('場面のコメント'), findsNothing);
       expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
+    });
+
+    testWidgets(
+        '書いたコメントはタップで直せ（今のコメントを入れて開く）、「キャンセル」なら送らず、空にして「保存」すると消えて「コメントを書く」に戻る',
+        (tester) async {
+      final backend = await _openTimeline(tester,
+          draft: _reviewingDraft(comments: {1: '空港で朝ごはん'}));
+      await _openReview(tester);
+
+      Future<void> editTo(String text, String button) async {
+        await tester.tap(find.textContaining('コメント: '));
+        await letFramesRun(tester);
+        await tester.enterText(find.byType(TextField), text);
+        await tester.tap(find.text(button));
+        await letFramesRun(tester);
+      }
+
+      await tester.tap(find.text('コメント: 空港で朝ごはん'));
+      await letFramesRun(tester);
+      expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          '空港で朝ごはん');
+      await tester.tap(find.text('キャンセル'));
+      await letFramesRun(tester);
+
+      await editTo('市場で海鮮丼', 'キャンセル');
+      expect(savedComments(backend), {1: '空港で朝ごはん'});
+      expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
+
+      await editTo('市場で海鮮丼', '保存');
+      expect(savedComments(backend), {1: '市場で海鮮丼'});
+      expect(find.text('コメント: 市場で海鮮丼'), findsOneWidget);
+
+      await editTo('  ', '保存');
+      expect(savedComments(backend), isEmpty);
+      expect(find.textContaining('コメント: '), findsNothing);
     });
   });
 
