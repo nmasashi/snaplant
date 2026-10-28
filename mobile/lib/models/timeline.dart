@@ -217,6 +217,9 @@ class TimelineScene {
   final String? label;
   final String? note;
 
+  /// 利用者が書いた場面のコメント（確かめ中の下書きだけ。無ければ null。§8.7）
+  final String? comment;
+
   const TimelineScene(
       {required this.startPhotoId,
       required this.photos,
@@ -224,7 +227,8 @@ class TimelineScene {
       required this.names,
       required this.hasFood,
       this.label,
-      this.note});
+      this.note,
+      this.comment});
 
   factory TimelineScene.fromJson(Map<String, dynamic> json) => TimelineScene(
         startPhotoId: json['startPhotoId'] as String,
@@ -236,6 +240,7 @@ class TimelineScene {
         hasFood: json['hasFood'] as bool,
         label: json['label'] as String?,
         note: json['note'] as String?,
+        comment: json['comment'] as String?,
       );
 }
 

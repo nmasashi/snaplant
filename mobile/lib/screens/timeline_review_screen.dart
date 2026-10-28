@@ -99,12 +99,38 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           if (start != scene.startPhotoId) start
       ]);
 
-  /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）
-  Future<void> _save(List<String> sceneStarts) async {
+  /// 今の場面のコメント（場面の最初の写真の id → コメント）
+  Map<String, String> _comments() => {
+        for (final day in _draft!.days!)
+          for (final scene in day.scenes)
+            if (scene.comment != null) scene.startPhotoId: scene.comment!,
+      };
+
+  /// 場面のコメントを書くシートを開き、「保存」なら区切りと一緒に送る（空なら消す。§8.7）
+  Future<void> _editComment(TimelineScene scene) async {
+    final text = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _SceneCommentSheet(initial: scene.comment),
+    );
+    if (text == null || !mounted) return;
+    final comments = _comments();
+    if (text.trim().isEmpty) {
+      comments.remove(scene.startPhotoId);
+    } else {
+      comments[scene.startPhotoId] = text;
+    }
+    await _save(_sceneStarts(), comments: comments);
+  }
+
+  /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）。[comments] を渡せば場面のコメントも送る
+  Future<void> _save(List<String> sceneStarts,
+      {Map<String, String>? comments}) async {
     setState(() => _sending = true);
     try {
-      final draft = await widget.apiService
-          .saveTimelineScenes(widget.tripId, sceneStarts);
+      final draft = await widget.apiService.saveTimelineScenes(
+          widget.tripId, sceneStarts,
+          sceneComments: comments);
       if (!mounted) return;
       setState(() => _draft = draft);
     } catch (e) {
@@ -308,6 +334,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   }
 
   Widget _buildScene(TimelineScene scene) {
+    final comment = scene.comment;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -318,6 +345,25 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
             _buildPhotos(scene.photos, scene: scene),
+            const SizedBox(height: 4),
+            // AI が見出しと一言を書くときの材料（§8.7）
+            if (comment == null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _sending ? null : () => _editComment(scene),
+                  icon: const Icon(Icons.add),
+                  label: const Text('コメントを書く'),
+                ),
+              )
+            else
+              InkWell(
+                onTap: _sending ? null : () => _editComment(scene),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text('コメント: $comment', style: AppTextStyles.body2),
+                ),
+              ),
           ],
         ),
       ),
@@ -383,4 +429,67 @@ String _sceneLabel(TimelineScene scene) {
     if (scene.placeNames.isNotEmpty) scene.placeNames.join('、'),
     '${scene.photos.length}枚',
   ].join(' · ');
+}
+
+/// 場面のコメントを書く、下から出るシート（§8.7）。「保存」なら書いた文（空もある）、「キャンセル」なら null で閉じる
+class _SceneCommentSheet extends StatefulWidget {
+  const _SceneCommentSheet({required this.initial});
+
+  /// 今のコメント（無ければ null）
+  final String? initial;
+
+  @override
+  State<_SceneCommentSheet> createState() => _SceneCommentSheetState();
+}
+
+class _SceneCommentSheetState extends State<_SceneCommentSheet> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial ?? '');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      // キーボードの分だけ上げる
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('場面のコメント', style: AppTextStyles.headline3),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              maxLength: 100,
+              maxLines: null,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('キャンセル'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, _controller.text),
+                  child: const Text('保存'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

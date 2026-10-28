@@ -377,13 +377,19 @@ class ApiService {
       _postForRequiredDraft('/api/trips/$tripId/timeline/recut');
 
   /// 下書きの区切りを保存する（場面の最初の写真の id を撮影の順に）。保存した後の下書き（日と場面つき）を返す
+  /// [sceneComments] は場面のコメント（場面の最初の写真の id → コメント）。渡さなければ送らず、サーバは残る場面のコメントを残す
   /// PUT /api/trips/{tripId}/timeline/draft/scenes
   Future<TimelineDraftStatus> saveTimelineScenes(
-      String tripId, List<String> sceneStarts) async {
+      String tripId, List<String> sceneStarts,
+      {Map<String, String>? sceneComments}) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/draft/scenes');
       final response = await _client.put(Uri.parse(url),
-          headers: _headers, body: jsonEncode({'sceneStarts': sceneStarts}));
+          headers: _headers,
+          body: jsonEncode({
+            'sceneStarts': sceneStarts,
+            if (sceneComments != null) 'sceneComments': sceneComments,
+          }));
       return _parseResponse(response, (json) => _draftOf(json)!);
     } catch (error) {
       throw _handleError(error);
