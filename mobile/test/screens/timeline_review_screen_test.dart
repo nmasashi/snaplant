@@ -171,6 +171,19 @@ void main() {
       expect(find.text('12:00 · 1枚'), findsOneWidget);
     });
 
+    testWidgets('作り直しの下書き（rebuild）は作るときと同じく、見出し「タイムラインの案」・メニューは出し直すだけ・下のボタン「この案で見出しを付ける」',
+        (tester) async {
+      await _openTimeline(tester, draft: _reviewingDraft(reason: 'rebuild'));
+      await _openReview(tester);
+
+      expect(_title('タイムラインの案'), findsOneWidget);
+      expect(find.text('この案で見出しを付ける'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      expect(_menuItems, findsOneWidget);
+      expect(find.text('AI に案を出し直してもらう'), findsOneWidget);
+    });
+
     testWidgets('読み込んでいる間は「読み込み中...」を出す', (tester) async {
       final backend = await _openTimeline(tester);
       final hold = backend.holdNextReply(TripRoute.timelineDraft);
