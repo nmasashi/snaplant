@@ -340,7 +340,7 @@ void main() {
       expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
     });
 
-    testWidgets('編集している途中の「やめる」は確認のダイアログを出し、「やめる」で下書きを消して完成版だけに戻る',
+    testWidgets('編集している途中の「やめる」は確認のダイアログを出し、「キャンセル」なら何もせず、「やめる」で下書きを消して完成版だけに戻る',
         (tester) async {
       final backend =
           await _openTimeline(tester, draft: draftOf('recut', 'reviewing'));
@@ -348,6 +348,12 @@ void main() {
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
       expect(inDialog(find.text('編集をやめて、今のタイムラインのままにしますか？')), findsOneWidget);
+      await tapInDialog(tester, 'キャンセル');
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNotNull);
+      expect(find.text('タイムラインを編集している途中です'), findsOneWidget);
+
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
       await tapInDialog(tester, 'やめる');
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);

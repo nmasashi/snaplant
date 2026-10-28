@@ -429,7 +429,7 @@ void main() {
       await letFramesRun(tester);
     });
 
-    testWidgets('タイムラインを編集するときのメニューは「やめる」だけで、「やめる」は編集をやめるか確かめ、「やめる」で下書きを消して旅行詳細に戻る',
+    testWidgets('タイムラインを編集するときのメニューは「やめる」だけで、「やめる」は編集をやめるか確かめ、「キャンセル」なら何もせず、「やめる」で下書きを消して旅行詳細に戻る',
         (tester) async {
       final backend =
           await _openTimeline(tester, draft: _reviewingDraft(reason: 'recut'));
@@ -441,6 +441,14 @@ void main() {
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
       expect(inDialog(find.text('編集をやめて、今のタイムラインのままにしますか？')), findsOneWidget);
+      await tapInDialog(tester, 'キャンセル');
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNotNull);
+      expect(_title('タイムラインを編集'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await letFramesRun(tester);
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
       await tapInDialog(tester, 'やめる');
 
       expect(backend.timelinesByTripId[hokkaidoTripId]?['draft'], isNull);

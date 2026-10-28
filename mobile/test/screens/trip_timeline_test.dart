@@ -384,24 +384,23 @@ void main() {
           {'step': 'write', 'state': 'pending', 'lastError': null});
       expect(find.text('見出しと一言を書いています'), findsOneWidget);
     });
-  });
 
-  testWidgets('完成版があっても、5-6 より前に始めた作り直しの下書き（rebuild）があれば、作っている間の表示にする',
-      (tester) async {
-    await _openTripDetail(tester,
-        timeline: _timeline(
-            current: _current,
-            draft: {
-              ..._draft('proposing', step: 'propose'),
-              'reason': 'rebuild'
-            }));
-    await _showTimeline(tester);
-    expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-    expect(find.textContaining('に作成'), findsNothing);
+    testWidgets('作り直しの下書き（rebuild。完成版が残っている）があれば、完成版があっても作っている間の表示にする',
+        (tester) async {
+      await _openTripDetail(tester,
+          timeline: _timeline(
+              current: _current,
+              draft: {
+                ..._draft('proposing', step: 'propose'),
+                'reason': 'rebuild'
+              }));
+      await _showTimeline(tester);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      expect(find.textContaining('に作成'), findsNothing);
+    });
   });
 
   group('タイムラインの操作', () {
-
     testWidgets(
         '読んだ後に別の端末が作り始めていたら（409 TIMELINE_STATE_CONFLICT）、「タイムラインが変わりました。読み直しました」を出して読み直す',
         (tester) async {
@@ -495,7 +494,7 @@ void main() {
               draft: _draft('writing',
                   step: 'write', state: 'failed', lastError: 'ai')));
       await _showTimeline(tester);
-      final fail = backend.holdNextReply(TripRoute.timelineWrite);
+      final hold = backend.holdNextReply(TripRoute.timelineWrite);
       backend.failNext(TripRoute.timelineWrite);
 
       await tester.tap(find.text('もう一度'));
@@ -504,7 +503,7 @@ void main() {
       expect(_button(tester, '案を確認する').onPressed, isNull);
 
       // 失敗したら表示はそのまま、また押せる
-      fail.complete();
+      hold.complete();
       await letFramesRun(tester);
       expect(_button(tester, 'もう一度').onPressed, isNotNull);
       expect(_button(tester, '案を確認する').onPressed, isNotNull);
