@@ -31,7 +31,7 @@ Future<bool> confirmDiscardTimeline(BuildContext context,
         {required bool hasCurrent}) =>
     hasCurrent
         ? confirmTimelineAction(context,
-            message: '作り直しをやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる')
+            message: '編集をやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる')
         : confirmTimelineAction(context,
             message: '作りかけのタイムラインを捨てますか？', confirmLabel: '捨てる');
 
@@ -40,6 +40,5 @@ Future<bool> confirmDiscardTimeline(BuildContext context,
 Future<bool> confirmRebuildTimeline(BuildContext context) =>
     confirmTimelineAction(context,
         title: 'タイムラインを作り直しますか？',
-        message:
-            '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。',
+        message: '今のタイムラインを消して、今の写真で AI が最初から作り直します。手で直した文と場面の分け方も消え、元には戻せません。',
         confirmLabel: '作り直す');

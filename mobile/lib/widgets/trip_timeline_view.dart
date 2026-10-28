@@ -512,7 +512,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       // 5-5a より前に文を書く待ちに積んだ区切りの直し（ワーカーが AI を使わずに当てる）
       'writing' => ('見出しと一言を書き直しています', const <Widget>[]),
-      _ => ('区切りを直している途中です', [review('続ける'), discard]),
+      _ => ('タイムラインを編集している途中です', [review('続ける'), discard]),
     };
     return TimelineNoticeCard(text: title, actions: actions);
   }
