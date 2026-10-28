@@ -419,7 +419,7 @@ describe('タイムラインを作るAPI', () => {
     it.each<[string, string[], TimelineDraft | null]>([
       ['下書きなし', [CURRENT_SNAPSHOT_ID], null],
       [
-        '5-6 より前に始めた作り直しの確かめ中の下書きも置き換え、その控えも消す',
+        '5-6b より前に始めた作り直しの確かめ中の下書きも置き換え、その控えも消す',
         [CURRENT_SNAPSHOT_ID, OLD_DRAFT_SNAPSHOT_ID],
         reviewingDraft({ reason: 'rebuild' })
       ],

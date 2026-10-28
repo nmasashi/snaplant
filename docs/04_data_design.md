@@ -226,7 +226,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 | 項目 | 型 | 説明 |
 |---|---|---|
-| `current` | 完成版 \| null | 見せているタイムライン。文を書き終えた下書きがここに入れ替わる。まだ一度も完成していなければ `null`。作り直しを始めたら `null` にする（5-6b から。それまでは作り直しの下書きが書き終えるまで残る） |
+| `current` | 完成版 \| null | 見せているタイムライン。文を書き終えた下書きがここに入れ替わる。まだ一度も完成していなければ `null`。作り直しを始めたら `null` にする（5-6b で実装済み。それまでは作り直しの下書きが書き終えるまで残る） |
 | `current.snapshotId` | string | この完成版の写真の控え（`timelinePhotos` の id） |
 | `current.dayStartHour` | number（0〜23） | 日付の切り替えの時刻。控えを取ったときの `TIMELINE_DAY_START_HOUR`。後で設定を変えても、作り直すまでこの値で日を分ける |
 | `current.proposedStarts` | string[] | AI が出した区切り（場面の最初の写真の id）。利用者が直す前の案 |
@@ -625,7 +625,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
 | ワーカーの結果・失敗の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。`processingCondition()`。3-3b）で、412・404 なら書かずに終える。`_etag` の条件は付けない（§7.4）。コメント（識別だけ）は `comment`・`commentSource` の `set` に、同じ担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ**条件付き patch**（`patchIfStillClaimed()` に条件を足す形）で、412（利用者のコメントがある、またはやり直しの受付が入った）・404 なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `AlbumService.detachPhotoFromMissingTrip()`。`tripId` を `null`・`updatedAt` を今に、`FROM c WHERE c.tripId = "<読んだ旅行 ID>"` の条件付き patch（読んだ後に利用者が別の旅行へ移していたら 412 で戻さない）。404 は飛ばす |
-| タイムラインを作る・作り直す（段階5。5-1a で実装済み） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: { type: 'IfMatch', condition: <読んだ _etag> } })`、無ければ `items.create(timeline)` → 置き換えた下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）→ キューへ `{ tripId, draftId }`。replace の 412（読んでから書くまでに他が書いた）・404（読んだ後に消えた）と create の 409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`。置き換える文書には読んだ Cosmos のシステム項目（`_etag` など）を書き戻さない。5-6b からは、置き換えで完成版も消し（`current: null`）、消した完成版の控えと置き換えた下書きの控えを `delete()` する（未実装。§1.6） |
+| タイムラインを作る・作り直す（段階5。5-1a で実装済み） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: { type: 'IfMatch', condition: <読んだ _etag> } })`、無ければ `items.create(timeline)` → 消した完成版の控えと置き換えた下書きの控え（同じ控えなら1回）を `delete()`（404 は無視、失敗はログだけ）→ キューへ `{ tripId, draftId }`。replace の 412（読んでから書くまでに他が書いた）・404（読んだ後に消えた）と create の 409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`（完成版と前の下書きの控えは消さない）。置き換える文書には読んだ Cosmos のシステム項目（`_etag` など）を書き戻さない。置き換えでは完成版も消す（`current: null`。5-6b で実装済み。§1.6。それまでは完成版を残し、置き換えた下書きの控えを完成版から指されていなければ消していた） |
 | 下書きをやめる（段階5。5-1a で実装済み） | 完成版があれば `item(id, id).replace({ ...読んだ文書, draft: null, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`、無ければ `item(id, id).delete({ accessCondition: IfMatch <読んだ _etag> })` → 下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（控えも消さない） |
 | 区切りの保存（段階5。5-1c で実装済み。`TimelineService.replaceTimeline()`） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 控えを `item(id, id).read()` と旅行の写真（5.13）を並べて読む → `item(id, id).replace({ ...読んだ文書, draft: { ...読んだ下書き, sceneStarts（文を書くのに失敗した下書きなら phase・job も） }, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう）。読んだシステム項目は書き戻さない |
 | 文を書く受付（段階5。5-2a で実装済み。`POST …/draft/write`。`TimelineService.replaceTimeline()`） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ `item(id, id).replace({ ...読んだ文書, draft: { ...読んだ下書き, phase: "writing", job: { step: "write", state: "pending", attempts: 0, lastError: null, updatedAt } }, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })` → キューへ `{ tripId, draftId }`。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（キューに積まない）。読んだシステム項目は書き戻さない |
@@ -704,7 +704,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 読んだ後・消す前に、同じ写真の別の削除が文書を消した | 何も変わらない（画像は先に消した側が消す） | 404 `PHOTO_NOT_FOUND` | 不要（アプリは成功扱い） |
 | Blob の削除 | 孤児 Blob（文書は消えている。原寸の削除に失敗してもサムネイルは消しにいく） | 無し（200） | 掃除 |
 
-**タイムラインを作る・作り直す**（段階5。`POST /api/trips/{tripId}/timeline`。順: 旅行を読む → タイムラインを読む → 写真の射影を読む → 控えを作る → タイムラインに下書きを書く → 置き換えた下書きの控えを消す → キューへ投入）。
+**タイムラインを作る・作り直す**（段階5。`POST /api/trips/{tripId}/timeline`。順: 旅行を読む → タイムラインを読む → 写真の射影を読む → 控えを作る → タイムラインに下書きを書く（完成版があれば消す。5-6b）→ 消した完成版の控えと置き換えた下書きの控えを消す → キューへ投入）。
 **実装済み**（5-1a。最後の行（旅行の削除と重なったときの後始末）を直すワーカーは 5-1b）。
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
