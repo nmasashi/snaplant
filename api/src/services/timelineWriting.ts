@@ -49,6 +49,12 @@ export async function writeDraftTexts(
       photos: ordered,
       sceneStarts,
       scenesToWrite: sceneStarts,
+      sceneComments: new Map(
+        scenes.flatMap((scene, index) => {
+          const comment = draft.sceneComments?.[scene.start];
+          return comment === undefined ? [] : [[sceneStarts[index], comment] as const];
+        })
+      ),
       daysToWrite: call.filter((piece) => piece.writesDay).map(({ date, dayNumber }) => ({ date, dayNumber })),
     });
     written.scenes.forEach((text, index) => texts.scenes.set(ordered[index].photo.id, text));
