@@ -459,11 +459,12 @@ describe('タイムラインを作るAPI', () => {
       expect(storedTimeline().draft).toMatchObject({ phase: 'proposing', job: { step: 'propose', state: 'pending', attempts: 0 } });
     }));
 
-    it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない（前の下書きの控えは残す）', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
-      // 他が書いた文書は前の下書きの控えを指したままなので、消してはいけない
+    it('読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない（完成版と前の下書きの控えは残す）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ current: currentVersion, draft: reviewingDraft() }));
+      // 他が書いた文書は完成版と前の下書きの控えを指したままなので、消してはいけない
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID));
       cosmosBackend.documents.set(OLD_DRAFT_SNAPSHOT_ID, snapshotDocument(OLD_DRAFT_SNAPSHOT_ID));
-      const written = existingTimeline({ draft: reviewingDraft({ sceneStarts: [] }), updatedAt: '2026-10-25T08:59:59.000Z' });
+      const written = existingTimeline({ current: currentVersion, draft: reviewingDraft({ sceneStarts: [] }), updatedAt: '2026-10-25T08:59:59.000Z' });
       cosmosBackend.beforeReplace = (id) => {
         if (id === TIMELINE_ID) cosmosBackend.documents.set(TIMELINE_ID, { ...written });
       };
@@ -473,7 +474,7 @@ describe('タイムラインを作るAPI', () => {
       expect(response.status).toBe(409);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
       expect(storedTimeline()).toEqual(written);
-      expect(storedSnapshots().map((doc) => doc.id)).toEqual([OLD_DRAFT_SNAPSHOT_ID]);
+      expect(storedSnapshots().map((doc) => doc.id).sort()).toEqual([CURRENT_SNAPSHOT_ID, OLD_DRAFT_SNAPSHOT_ID].sort());
       expect(queuedMessages()).toEqual([]);
     });
 
