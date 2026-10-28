@@ -65,10 +65,9 @@ const currentVersion = timelineCurrent(CURRENT_SNAPSHOT_ID, { proposedStarts: [p
 const reviewingDraft = (overrides: Partial<TimelineDraft> = {}) =>
   timelineDraft(OLD_DRAFT_ID, OLD_DRAFT_SNAPSHOT_ID, { proposedStarts: [photoId('a')], sceneStarts: [photoId('a')], ...overrides });
 
-/** 既にあるタイムラインの文書。置き換えても残すものを確かめるため、残せなかった文を持たせ、更新日時を今と変えておく */
+/** 既にあるタイムラインの文書。置き換えたら更新日時が今になり、作った日時は残ることを見分けるため、更新日時を今と変えておく */
 const existingTimeline = (overrides: Partial<TimelineDocument> = {}) =>
   timelineDocument(TRIP_ID, {
-    droppedEdits: [{ kind: 'scene', key: photoId('a'), field: 'label', text: '小樽運河さんぽ' }],
     updatedAt: '2026-10-08T12:14:00.000Z',
     ...overrides
   });
@@ -388,7 +387,7 @@ describe('タイムラインを作るAPI', () => {
       cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
     });
 
-    it('確かめ中の下書き（完成版なし）があれば、新しい下書きに置き換え、前の下書きの控えを消す。残せなかった文と作った日時は残す', async () => {
+    it('確かめ中の下書き（完成版なし）があれば、新しい下書きに置き換え、前の下書きの控えを消す。作った日時は残す', async () => {
       cosmosBackend.documents.set(OLD_DRAFT_SNAPSHOT_ID, snapshotDocument(OLD_DRAFT_SNAPSHOT_ID));
       cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
 
@@ -639,7 +638,8 @@ describe('タイムラインを読むAPI（GET）', () => {
 
   it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、日時の無い写真は別にまとめる（5-5d より前に書いた残せなかった文が文書に残っていても返さない）', async () => {
     placeCurrentSnapshot();
-    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED }));
+    // 5-5d より前に書いた文書（今の型には無い欄）
+    cosmosBackend.documents.set(TIMELINE_ID, { ...timelineDocument(TRIP_ID, { current }), droppedEdits: DROPPED });
 
     expect(await read()).toEqual({
       timeline: {

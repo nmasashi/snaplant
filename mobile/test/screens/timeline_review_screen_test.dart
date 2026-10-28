@@ -68,7 +68,6 @@ Map<String, Object?> _timelineOf(Map<String, Object?>? draft) => {
       'current': null,
       'draft': draft,
       'changes': null,
-      'droppedEdits': <Object?>[],
     };
 
 /// 旅行詳細の「タイムライン」を開く

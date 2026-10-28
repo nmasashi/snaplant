@@ -480,7 +480,6 @@ class FakeTripBackend {
           'current': timeline?['current'],
           'draft': created,
           'changes': timeline?['changes'],
-          'droppedEdits': timeline?['droppedEdits'] ?? <Object?>[],
         };
         return _ok(202, {'draft': created, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraft:

@@ -104,9 +104,6 @@ const patchRequest = (path: string, params: Record<string, string>, body: unknow
     json: async () => (text !== undefined ? JSON.parse(text) : body)
   }) as any as HttpRequest;
 
-/** 残せなかった利用者の文 */
-const DROPPED = [{ kind: 'scene' as const, key: photoId('z'), field: 'label' as const, text: '小樽運河さんぽ' }];
-
 describe('タイムラインの完成版の操作API', () => {
   let mockContext: InvocationContext;
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
@@ -167,8 +164,8 @@ describe('タイムラインの完成版の操作API', () => {
         ([label, error, status, code, message]): [string, string, Send, Error, number, string, string] => [name, label, send, error, status, code, message]
       )
     );
-    // 完成版と残せなかった文があり、下書きは無い（どのエンドポイントも書き込みまで進む）
-    const timeline = () => timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED, updatedAt: '2026-10-08T12:14:00.000Z' });
+    // 完成版があり、下書きは無い（どのエンドポイントも書き込みまで進む）
+    const timeline = () => timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' });
 
     beforeEach(() => {
       cosmosBackend.documents.set(TIMELINE_ID, timeline());
@@ -194,7 +191,6 @@ describe('タイムラインの完成版の操作API', () => {
     it('区切りの直し・日の文の更新のどちらも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       const written = timelineDocument(TRIP_ID, {
         current,
-        droppedEdits: [...DROPPED, ...DROPPED.map((edit) => ({ ...edit, field: 'note' as const }))],
         updatedAt: '2026-10-25T08:59:59.000Z'
       });
       cosmosBackend.beforeReplace = (id) => {

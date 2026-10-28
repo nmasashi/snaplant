@@ -397,28 +397,39 @@ describe('タイムラインのワーカー', () => {
   });
 
   describe('結果の書き込みが他の操作と重なったとき', () => {
-    const DROPPED = { kind: 'scene' as const, key: photoId('a'), field: 'label' as const, text: '小樽運河さんぽ' };
     const proposedDraft = () =>
-      proposingDraft({ phase: 'reviewing', job: null, proposedStarts: [photoId('a'), photoId('e')], sceneStarts: [photoId('a'), photoId('e')] });
+      proposingDraft({ reason: 'rebuild', phase: 'reviewing', job: null, proposedStarts: [photoId('a'), photoId('e')], sceneStarts: [photoId('a'), photoId('e')] });
+    // 作り直しの区切り案の間に、利用者が完成版の場面の見出しを直す（書くたびに他の操作がまた書く）
+    const CURRENT_SNAPSHOT_ID = `timeline-photos-${TRIP_ID}-55555555-5555-4555-8555-555555555555`;
+    const sceneLabeled = (label: string, labelSource: 'ai' | 'user') =>
+      timelineCurrent(CURRENT_SNAPSHOT_ID, {
+        sceneStarts: [photoId('a')],
+        sceneTexts: { [photoId('a')]: { label, labelSource, aiLabel: '運河', note: null, noteSource: null, aiNote: null } }
+      });
+    const rebuildProposing = (overrides: Partial<TimelineDocument> = {}) =>
+      proposingTimeline({ current: sceneLabeled('運河', 'ai'), draft: proposingDraft({ reason: 'rebuild' }), ...overrides });
+    const edited = sceneLabeled('小樽運河さんぽ', 'user');
 
     it('下書きがまだ自分のもので処理も担当したときのままなら、3回まで重なっても、読み直した文書に同じ結果を当て直す（他の操作が書いたものは残す）', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
-      // 区切り案の間に、利用者が残せなかった文の知らせを閉じた（書くたびに他の操作がまた書く）
-      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [], updatedAt: '2026-10-25T08:59:30.000Z' }), 3);
+      cosmosBackend.documents.set(TIMELINE_ID, rebuildProposing());
+      othersWriteBeforeReplace((doc) => ({ ...doc, current: edited, updatedAt: '2026-10-25T08:59:30.000Z' }), 3);
 
       await runWorker();
 
-      expect(storedTimeline()).toEqual(proposingTimeline({ draft: proposedDraft(), droppedEdits: [], updatedAt: NOW }));
+      expect(storedTimeline()).toEqual(rebuildProposing({ current: edited, draft: proposedDraft(), updatedAt: NOW }));
     });
 
     it('当て直しても4回続けて重なったら、内部の失敗として待ちに戻して例外を投げる', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, proposingTimeline({ droppedEdits: [DROPPED] }));
-      othersWriteBeforeReplace((doc) => ({ ...doc, droppedEdits: [] }), 4);
+      cosmosBackend.documents.set(TIMELINE_ID, rebuildProposing());
+      othersWriteBeforeReplace((doc) => ({ ...doc, current: edited }), 4);
 
       await expect(runWorker()).rejects.toThrow();
 
       expect(storedTimeline()).toEqual(
-        proposingTimeline({ draft: proposingDraft({ job: pendingJob({ attempts: 1, lastError: 'internal', updatedAt: NOW }) }), droppedEdits: [] })
+        rebuildProposing({
+          current: edited,
+          draft: proposingDraft({ reason: 'rebuild', job: pendingJob({ attempts: 1, lastError: 'internal', updatedAt: NOW }) })
+        })
       );
     });
 
@@ -717,7 +728,6 @@ describe('タイムラインのワーカー', () => {
             writtenAt: NOW
           },
           draft: null,
-          droppedEdits: [],
           updatedAt: NOW
         })
       );
@@ -1056,27 +1066,16 @@ describe('タイムラインのワーカー', () => {
         });
       });
 
-      it('前の完成版で利用者が書いた文は、残せなかった文の知らせにも足さない（今ある知らせはそのまま）', async () => {
-        const earlier = { kind: 'day' as const, key: '2026-10-04', field: 'summary' as const, text: '前日の移動' };
-        cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilding(), droppedEdits: [earlier] } as any);
-
-        await runWorker();
-
-        expect(storedTimeline()!.droppedEdits).toEqual([earlier]);
-      });
-
-      it('文を書いている間に利用者が前の完成版の文を直したり知らせを閉じたりしても、読み直した文書に新しい完成版を当てる（直した文は残らず、閉じた知らせは閉じたまま）', async () => {
-        const earlier = { kind: 'day' as const, key: '2026-10-04', field: 'summary' as const, text: '前日の移動' };
-        cosmosBackend.documents.set(TIMELINE_ID, { ...rebuilding(), droppedEdits: [earlier] } as any);
+      it('文を書いている間に利用者が前の完成版の文を直しても、読み直した文書に新しい完成版を当てる（直した文は残らない）', async () => {
+        cosmosBackend.documents.set(TIMELINE_ID, rebuilding());
         othersWriteBeforeReplace((doc) => {
           const edited = { ...doc.current!.sceneTexts[photoId('e')], label: '小樽で散歩', labelSource: 'user' as const };
-          return { ...doc, current: { ...doc.current!, sceneTexts: { ...doc.current!.sceneTexts, [photoId('e')]: edited } }, droppedEdits: [] };
+          return { ...doc, current: { ...doc.current!, sceneTexts: { ...doc.current!.sceneTexts, [photoId('e')]: edited } } };
         });
 
         await runWorker();
 
         expect(storedTimeline()!.current!.sceneTexts[photoId('e')]).toEqual(aiScene('運河', '小樽運河'));
-        expect(storedTimeline()!.droppedEdits).toEqual([]);
         expect(storedTimeline()!.draft).toBeNull();
       });
 

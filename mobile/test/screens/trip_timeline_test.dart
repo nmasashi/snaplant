@@ -65,7 +65,6 @@ Map<String, Object?> _timeline(
       'current': current,
       'draft': draft,
       'changes': current == null ? null : {'added': 0, 'removed': 0},
-      'droppedEdits': <Object?>[],
     };
 
 /// 偽のサーバの下書き
