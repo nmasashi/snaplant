@@ -222,7 +222,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Future<void> _recut() => _send(() async {
         await widget.apiService.recutTimeline(widget.tripId);
         if (!mounted) return;
-        await _review();
+        await _review(editing: true);
       });
 
   /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
@@ -347,13 +347,15 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     await _load(showLoading: false);
   }
 
-  /// 区切りの確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）
-  Future<void> _review() async {
+  /// 案の確認画面を開き、閉じたら（どう閉じても）タイムラインを読み直す（§8.4）。[editing] ならタイムラインの編集（区切りの直し）
+  Future<void> _review({required bool editing}) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => TimelineReviewScreen(
-            apiService: widget.apiService, tripId: widget.tripId),
+            apiService: widget.apiService,
+            tripId: widget.tripId,
+            editing: editing),
       ),
     );
     if (!mounted) return;
@@ -500,7 +502,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     final discard = OutlinedButton(
         onPressed: _sending ? null : _discard, child: const Text('やめる'));
     Widget review(String label) => OutlinedButton(
-        onPressed: _sending ? null : _review, child: Text(label));
+        onPressed: _sending ? null : () => _review(editing: true),
+        child: Text(label));
     Widget retry(Future<void> Function() send) => ElevatedButton(
         onPressed: _sending ? null : send, child: const Text('もう一度'));
     final (String title, List<Widget> actions) = switch (draft.phase) {
@@ -519,7 +522,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Widget _buildDraft(TimelineDraftStatus draft) {
     // 案の確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
     Widget review({required bool primary}) {
-      final onPressed = _sending ? null : _review;
+      final onPressed =
+          _sending ? null : () => _review(editing: draft.reason == 'recut');
       const label = Text('案を確認する');
       return primary
           ? ElevatedButton(onPressed: onPressed, child: label)

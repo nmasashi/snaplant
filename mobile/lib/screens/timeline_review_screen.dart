@@ -13,10 +13,16 @@ import '../widgets/timeline_thumbnail.dart';
 /// 下書きの区切りを確かめて直す。作る・作り直すときの「タイムラインの案」と、完成版の「タイムラインを編集」（区切りの直し。recut）で同じ画面を使う。閉じると旅行詳細がタイムラインを読み直す（どう閉じても）
 class TimelineReviewScreen extends StatefulWidget {
   const TimelineReviewScreen(
-      {super.key, required this.apiService, required this.tripId});
+      {super.key,
+      required this.apiService,
+      required this.tripId,
+      required this.editing});
 
   final ApiService apiService;
   final String tripId;
+
+  /// タイムラインの編集（区切りの直し）として開いたか。見出しを読み込む前から出すため、開く側が渡す
+  final bool editing;
 
   @override
   State<TimelineReviewScreen> createState() => _TimelineReviewScreenState();
@@ -191,13 +197,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           tooltip: '閉じる',
           onPressed: () => Navigator.pop(context),
         ),
-        // 読み込むまではどちらか分からないので出さない
-        title: Text(
-            draft == null
-                ? ''
-                : editing
-                    ? 'タイムラインを編集'
-                    : 'タイムラインの案',
+        title: Text(widget.editing ? 'タイムラインを編集' : 'タイムラインの案',
             style: AppTextStyles.appBarTitle),
         actions: [
           if (draft != null)
