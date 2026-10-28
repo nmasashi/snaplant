@@ -94,10 +94,36 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       ]);
 
   /// [scene] を前の場面とつなげる（[scene] の区切りを外す）
-  Future<void> _merge(TimelineScene scene) => _save([
-        for (final start in _sceneStarts())
-          if (start != scene.startPhotoId) start
-      ]);
+  ///
+  /// 場面のコメントは前の場面のものを残し、前に無ければ後ろのものを引き継ぐ。両方にあるときだけ、後ろのコメントが消えることを確かめる（§8.7）
+  Future<void> _merge(TimelineScene scene) async {
+    final previous = _previousScene(scene);
+    final kept = previous.comment;
+    final dropped = scene.comment;
+    if (kept != null && dropped != null) {
+      final confirmed = await confirmMergeScenes(context,
+          message: '前の場面のコメントを残します。後ろの場面のコメントは消えます。',
+          lost: ['消えるコメント: $dropped']);
+      if (!confirmed || !mounted) return;
+    }
+    final comments = _comments()..remove(scene.startPhotoId);
+    if (kept == null && dropped != null) {
+      comments[previous.startPhotoId] = dropped;
+    }
+    await _save([
+      for (final start in _sceneStarts())
+        if (start != scene.startPhotoId) start
+    ], comments: comments);
+  }
+
+  /// 同じ日の、[scene] の1つ前の場面（「つなげる」は日の2つ目からの場面にだけ出す）
+  TimelineScene _previousScene(TimelineScene scene) {
+    for (final day in _draft!.days!) {
+      final index = day.scenes.indexOf(scene);
+      if (index > 0) return day.scenes[index - 1];
+    }
+    throw StateError('前の場面がありません: ${scene.startPhotoId}');
+  }
 
   /// 今の場面のコメント（場面の最初の写真の id → コメント）
   Map<String, String> _comments() => {
