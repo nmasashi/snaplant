@@ -360,7 +360,6 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   }
 
   Widget _buildScene(TimelineScene scene) {
-    final comment = scene.comment;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -371,27 +370,35 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
             _buildPhotos(scene.photos, scene: scene),
-            const SizedBox(height: 4),
-            // AI が見出しと一言を書くときの材料（§8.7）
-            if (comment == null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: _sending ? null : () => _editComment(scene),
-                  icon: const Icon(Icons.add),
-                  label: const Text('コメントを書く'),
-                ),
-              )
-            else
-              InkWell(
-                onTap: _sending ? null : () => _editComment(scene),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text('コメント: $comment', style: AppTextStyles.body2),
-                ),
-              ),
+            // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
+            if (_draft!.reason != 'recut') ...[
+              const SizedBox(height: 4),
+              _buildComment(scene),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// 場面のコメント。無ければ「＋ コメントを書く」、あれば「コメント: {コメント}」（タップで直す）
+  Widget _buildComment(TimelineScene scene) {
+    final comment = scene.comment;
+    if (comment == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: _sending ? null : () => _editComment(scene),
+          icon: const Icon(Icons.add),
+          label: const Text('コメントを書く'),
+        ),
+      );
+    }
+    return InkWell(
+      onTap: _sending ? null : () => _editComment(scene),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text('コメント: $comment', style: AppTextStyles.body2),
       ),
     );
   }
