@@ -189,7 +189,8 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   @override
   Widget build(BuildContext context) {
     final draft = _draft;
-    final editing = draft?.reason == 'recut';
+    // 読み込むまでは開く側が渡した値、読めたら下書きの理由（見出し・メニュー・下のボタンを同じ値で決める）
+    final editing = draft == null ? widget.editing : draft.reason == 'recut';
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -197,7 +198,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           tooltip: '閉じる',
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(widget.editing ? 'タイムラインを編集' : 'タイムラインの案',
+        title: Text(editing ? 'タイムラインを編集' : 'タイムラインの案',
             style: AppTextStyles.appBarTitle),
         actions: [
           if (draft != null)
