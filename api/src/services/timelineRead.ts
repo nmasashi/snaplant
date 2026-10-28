@@ -41,7 +41,7 @@ async function readTimelineBodyOnce(tripId: string) {
     };
   }
   return {
-    timeline: { current, draft: doc.draft ? draftStatusOf(doc.draft) : null, changes, droppedEdits: doc.droppedEdits },
+    timeline: { current, draft: doc.draft ? draftStatusOf(doc.draft) : null, changes },
     pendingPhotoCount,
     urlExpiresAt: expiresOn.toISOString(),
   };
