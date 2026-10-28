@@ -488,6 +488,14 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('タイムラインを編集するとき（AI を使わない）は、コメントの欄を出さない', (tester) async {
+      await _openTimeline(tester, draft: _reviewingDraft(reason: 'recut'));
+      await _openReview(tester);
+
+      expect(_title('タイムラインを編集'), findsOneWidget);
+      expect(find.text('コメントを書く'), findsNothing);
+    });
+
     testWidgets(
         '「つなげる」で、前の場面だけにコメントがあれば残し、後ろの場面だけにあれば引き継ぐ（確認のダイアログは出さない）',
         (tester) async {
