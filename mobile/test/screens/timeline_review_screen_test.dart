@@ -192,6 +192,8 @@ void main() {
       await _openReview(tester);
       expect(find.text('エラーが発生しました'), findsOneWidget);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      // 読めなくても、どの画面かは見出しで分かる
+      expect(_title('タイムラインの案'), findsOneWidget);
 
       await tester.tap(find.text('再試行'));
       await letFramesRun(tester);
