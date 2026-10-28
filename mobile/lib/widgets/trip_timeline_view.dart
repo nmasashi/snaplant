@@ -416,7 +416,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       onOpenPhoto: _sending ? null : _openPhoto,
       onEditDay: _sending ? null : _editDay,
       onEditScene: _sending ? null : _editScene,
-      banner: draft == null ? null : _buildRebuildBanner(draft),
+      banner: draft == null ? null : _buildEditBanner(draft),
       notices: [
         if (draft == null &&
             !_changesNoticeHidden &&
@@ -447,8 +447,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     );
   }
 
-  /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
-  Widget _buildRebuildBanner(TimelineDraftStatus draft) {
+  /// 完成版の上の、タイムラインを編集している（区切りの直し。recut）下書きの案内（§8.3）
+  Widget _buildEditBanner(TimelineDraftStatus draft) {
     final discard = OutlinedButton(
         onPressed: _sending ? null : _discard, child: const Text('やめる'));
     Widget review(String label) => OutlinedButton(
@@ -460,17 +460,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           '見出しと一言を書き直せませんでした',
           [retry(_write), review('案を確認する'), discard]
         ),
+      // 5-5a より前に文を書く待ちに積んだ区切りの直し（ワーカーが AI を使わずに当てる）
       'writing' => ('見出しと一言を書き直しています', const <Widget>[]),
-      'reviewing' when draft.reason == 'recut' => (
-          '区切りを直している途中です',
-          [review('続ける'), discard]
-        ),
-      'reviewing' => ('作り直しの区切りの案ができました', [review('区切りを確認する'), discard]),
-      _ when draft.isFailed => (
-          '作り直しの区切りの案を作れませんでした',
-          [retry(_create), discard]
-        ),
-      _ => ('作り直しの区切りの案を作っています', [discard]),
+      _ => ('区切りを直している途中です', [review('続ける'), discard]),
     };
     return TimelineNoticeCard(text: title, actions: actions);
   }
