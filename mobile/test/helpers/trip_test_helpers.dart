@@ -149,9 +149,6 @@ enum TripRoute {
 
   /// PATCH /api/trips/{tripId}/timeline/scenes/{photoId}（完成版の場面の文を直す。段階5）
   timelineScenePatch,
-
-  /// DELETE /api/trips/{tripId}/timeline/dropped-edits（残せなかった文の知らせを閉じる。段階5）
-  timelineDroppedEditsDelete,
 }
 
 /// 旅行アルバムの API（`/api/trips` の5つと、図鑑の種類の一覧 `GET /api/catalog/kinds`・項目の一覧 `GET /api/catalog/entries`・項目の詳細 `GET /api/catalog/entry`、写真の一覧 `GET /api/photos`・写真の移動 `POST /api/photos/move`・写真の削除 `DELETE /api/photos/{photoId}`・写真の送信 `POST /api/photos`・解析のやり直し `POST /api/photos/{photoId}/process`）の偽のサーバ。
@@ -447,7 +444,6 @@ class FakeTripBackend {
       case TripRoute.timelineRecut:
       case TripRoute.timelineDayPatch:
       case TripRoute.timelineScenePatch:
-      case TripRoute.timelineDroppedEditsDelete:
         return _timeline(route, request);
       case TripRoute.getPhoto:
         return _getPhoto(request);
@@ -468,10 +464,6 @@ class FakeTripBackend {
       case TripRoute.timelineDayPatch:
       case TripRoute.timelineScenePatch:
         return _patchTimelineText(route, request, tripId, timeline);
-      case TripRoute.timelineDroppedEditsDelete:
-        if (timeline == null) return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインが見つかりません');
-        timelinesByTripId[tripId] = {...timeline, 'droppedEdits': <Object?>[]};
-        return _ok(200, _timelineBody(tripId));
       case TripRoute.timelineCreate:
         if (working) return _timelineConflict();
         if ((pendingPhotoCountByTripId[tripId] ?? 0) > 0) {
@@ -488,7 +480,6 @@ class FakeTripBackend {
           'current': timeline?['current'],
           'draft': created,
           'changes': timeline?['changes'],
-          'droppedEdits': timeline?['droppedEdits'] ?? <Object?>[],
         };
         return _ok(202, {'draft': created, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraft:
@@ -570,7 +561,7 @@ class FakeTripBackend {
     }
   }
 
-  /// `GET …/timeline` の応答の `data`（下書きは状態だけ）。文を直す・残せなかった文を閉じる応答も同じ形
+  /// `GET …/timeline` の応答の `data`（下書きは状態だけ）。文を直す応答も同じ形
   Map<String, Object?> _timelineBody(String tripId) {
     final timeline = timelinesByTripId[tripId];
     return {
@@ -697,7 +688,6 @@ class FakeTripBackend {
       ('draft/write', 'POST') => TripRoute.timelineWrite,
       ('draft/scenes', 'PUT') => TripRoute.timelineScenes,
       ('recut', 'POST') => TripRoute.timelineRecut,
-      ('dropped-edits', 'DELETE') => TripRoute.timelineDroppedEditsDelete,
       _ => null,
     };
   }

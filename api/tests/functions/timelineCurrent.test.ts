@@ -2,7 +2,6 @@ import { HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functio
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import {
-  deleteTimelineDroppedEditsHandler,
   patchTimelineDayHandler,
   patchTimelineSceneHandler,
   postTimelineRecutHandler
@@ -105,9 +104,6 @@ const patchRequest = (path: string, params: Record<string, string>, body: unknow
     json: async () => (text !== undefined ? JSON.parse(text) : body)
   }) as any as HttpRequest;
 
-/** 残せなかった利用者の文 */
-const DROPPED = [{ kind: 'scene' as const, key: photoId('z'), field: 'label' as const, text: '小樽運河さんぽ' }];
-
 describe('タイムラインの完成版の操作API', () => {
   let mockContext: InvocationContext;
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
@@ -161,29 +157,28 @@ describe('タイムラインの完成版の操作API', () => {
         '完成版の文を直す（PATCH …/days/{date}）',
         (tripId) => patchTimelineDayHandler(patchRequest('days/2026-10-05', { date: '2026-10-05' }, { title: 'x' }, undefined, tripId), mockContext),
         'タイムラインの更新に失敗しました'
-      ],
-      ['残せなかった文の知らせを閉じる（DELETE …/dropped-edits）', (tripId) => deleteTimelineDroppedEditsHandler(createRequest(tripId, 'dropped-edits', 'DELETE'), mockContext), 'タイムラインの更新に失敗しました']
+      ]
     ];
     const databaseFailures = endpoints.flatMap(([name, send, internalErrorMessage]) =>
       databaseFailureCases(internalErrorMessage).map(
         ([label, error, status, code, message]): [string, string, Send, Error, number, string, string] => [name, label, send, error, status, code, message]
       )
     );
-    // 完成版と残せなかった文があり、下書きは無い（どのエンドポイントも書き込みまで進む）
-    const timeline = () => timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED, updatedAt: '2026-10-08T12:14:00.000Z' });
+    // 完成版があり、下書きは無い（どのエンドポイントも書き込みまで進む）
+    const timeline = () => timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' });
 
     beforeEach(() => {
       cosmosBackend.documents.set(TIMELINE_ID, timeline());
     });
 
-    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新のどちらも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
       const response = await send('not-a-uuid');
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     }));
 
-    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新のどちらも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       cosmosBackend.documents.delete(TRIP_ID);
 
       const response = await send(TRIP_ID);
@@ -193,10 +188,9 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline());
     }));
 
-    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新のどちらも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       const written = timelineDocument(TRIP_ID, {
         current,
-        droppedEdits: [...DROPPED, ...DROPPED.map((edit) => ({ ...edit, field: 'note' as const }))],
         updatedAt: '2026-10-25T08:59:59.000Z'
       });
       cosmosBackend.beforeReplace = (id) => {
@@ -210,7 +204,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(written);
     }));
 
-    it('区切りの直し・日の文の更新・残せなかった文の知らせを閉じるのどれも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
+    it('区切りの直し・日の文の更新のどちらも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
       cosmosBackend.forcedReplaceError = error;
 
       const response = await send(TRIP_ID);
@@ -516,62 +510,5 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(404);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
     }));
-  });
-
-  describe('残せなかった文の知らせを閉じる（DELETE …/dropped-edits）', () => {
-    const close = () => deleteTimelineDroppedEditsHandler(createRequest(TRIP_ID, 'dropped-edits', 'DELETE'), mockContext);
-
-    it('残せなかった文を空にし、完成版を読んだ形で返す（完成版と下書きはそのまま）', async () => {
-      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut' });
-      const timeline = timelineDocument(TRIP_ID, { current, draft, droppedEdits: DROPPED, updatedAt: '2026-10-08T12:14:00.000Z' });
-      cosmosBackend.documents.set(TIMELINE_ID, timeline);
-
-      const response = await close();
-
-      expect(response.status).toBe(200);
-      expect(storedTimeline()).toEqual({ ...timeline, droppedEdits: [], updatedAt: NOW });
-      expect((response.jsonBody as any).data.timeline).toMatchObject({ droppedEdits: [], draft: { reason: 'recut' } });
-      expect((response.jsonBody as any).data.timeline.current.days).toHaveLength(2);
-    });
-
-    it('残せなかった文が既に無ければ、書き込まずに完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
-      const timeline = timelineDocument(TRIP_ID, { current, droppedEdits: [], updatedAt: '2026-10-08T12:14:00.000Z' });
-      cosmosBackend.documents.set(TIMELINE_ID, timeline);
-
-      const response = await close();
-
-      expect(response.status).toBe(200);
-      // 書き込めば更新日時が今になる
-      expect(storedTimeline()).toEqual(timeline);
-    });
-
-    it('書いた後に読み直したときに旅行が消えていたら、404（TRIP_NOT_FOUND）を返す', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED }));
-      cosmosBackend.beforeReplace = (id) => {
-        if (id === TIMELINE_ID) cosmosBackend.documents.delete(TRIP_ID);
-      };
-
-      const response = await close();
-
-      expect(response.status).toBe(404);
-      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
-    });
-
-    it('完成版が無く下書きだけのタイムラインでも閉じられる', async () => {
-      const timeline = timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID), droppedEdits: DROPPED });
-      cosmosBackend.documents.set(TIMELINE_ID, timeline);
-
-      const response = await close();
-
-      expect(response.status).toBe(200);
-      expect(storedTimeline()!.droppedEdits).toEqual([]);
-    });
-
-    it('タイムラインが無ければ、404（TIMELINE_NOT_FOUND）', async () => {
-      const response = await close();
-
-      expect(response.status).toBe(404);
-      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
-    });
   });
 });

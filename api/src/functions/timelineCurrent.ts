@@ -24,7 +24,7 @@ import { reviewingDraftOf } from '../services/timelineView';
  * POST /api/trips/{tripId}/timeline/recut
  *
  * 完成版の控えと区切りを写した確かめ中の下書きを作る（AI の区切り案は出さない。05 §5.15）。
- * 区切りを直して文を書かせると、変わった場面と日だけが書き直される（06 §8.3）
+ * 直した区切りは、AI を使わずに完成版に当てる（ふつうは POST …/draft/write がその場で。5-5a より前に文を書く待ちに積んだ下書きはワーカーが。06 §8.6）
  */
 export async function postTimelineRecutHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -88,41 +88,6 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
   }
 }
 
-/**
- * 残せなかった文の知らせを閉じる API
- * DELETE /api/trips/{tripId}/timeline/dropped-edits
- *
- * 文を書き直したときに残せなかった利用者の文（droppedEdits）を空にする（05 §5.15）
- */
-export async function deleteTimelineDroppedEditsHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-  const tripId = request.params.tripId;
-  context.log(`タイムラインの残せなかった文を閉じるリクエストを受信: 旅行=${tripId}`);
-  if (!isValidUUID(tripId)) {
-    return createValidationError('旅行IDの形式が無効です');
-  }
-  try {
-    if (!(await new AlbumService().tripExists(tripId))) {
-      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-    }
-    const timelines = new TimelineService();
-    const timeline = await timelines.readTimeline(tripId);
-    if (!timeline) {
-      return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
-    }
-    // 既に無ければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
-    if (
-      timeline.doc.droppedEdits.length > 0 &&
-      !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, droppedEdits: [], updatedAt: new Date().toISOString() }, timeline.etag))
-    ) {
-      return createTimelineStateConflict();
-    }
-    return createTimelineBodyResponse(await readTimelineBody(tripId));
-  } catch (error: any) {
-    context.log('タイムラインの残せなかった文を閉じるエラー:', error);
-    return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
-  }
-}
-
 /** 直せる文の欄（日はタイトル・まとめ、場面は見出し・一言。05 §5.15・§4） */
 interface TextField<K extends string> {
   key: K;
@@ -160,7 +125,8 @@ export async function patchTimelineSceneHandler(request: HttpRequest, context: I
  * 完成版の文を直す（日と場面で共有する。05 §5.15 の表の 1〜8）
  *
  * 前後の空白を除いて保存し、書いた主を user にする。空か null なら AI が書いた文に戻して ai にする（AI の文が無い欄は null にし、書いた主も null）。
- * 下書きがあっても直せる（下書きの文を書くときに、完成版から引き継ぐ。06 §8.3）
+ * 下書きがあっても直せる。区切りを直している途中なら、当てるときに残る場面の文は残る（つなげて消えた場面の文は消える。06 §8.6）。
+ * 作り直しの途中なら、書き終えたときに新しい完成版に置き換わって消える（06 §8.3）
  */
 async function editTimelineText(request: HttpRequest, context: InvocationContext, target: 'day' | 'scene'): Promise<HttpResponseInit> {
   const tripId = request.params.tripId;
@@ -207,7 +173,7 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       }
       edited = { ...current, sceneTexts: { ...current.sceneTexts, [key]: withEdits(current.sceneTexts[key], edits.values) } };
     }
-    // 文が変わらなければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。残せなかった文を閉じるのと同じ）
+    // 文が変わらなければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
     const changed = JSON.stringify(edited) !== JSON.stringify(current);
     if (changed && !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
       return createTimelineStateConflict();
@@ -294,11 +260,4 @@ app.http('patchTimelineScene', {
   authLevel: 'function',
   route: 'trips/{tripId}/timeline/scenes/{photoId}',
   handler: patchTimelineSceneHandler,
-});
-
-app.http('deleteTimelineDroppedEdits', {
-  methods: ['DELETE'],
-  authLevel: 'function',
-  route: 'trips/{tripId}/timeline/dropped-edits',
-  handler: deleteTimelineDroppedEditsHandler,
 });

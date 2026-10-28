@@ -76,7 +76,7 @@ const TIMELINE_DEFAULT_AT = '2026-10-08T12:10:00.000Z';
  * タイムラインの文書（段階5。偽物の documents に置いて「タイムラインがある」状態を作る）。id は `timeline-<旅行の id>`
  *
  * 既定は完成版も下書きも無い形で、日時は仮の値（意味を持たせない）。
- * テストの期待に関わる値（完成版・下書き・残せなかった文・日時など）は、テスト側で overrides に書く
+ * テストの期待に関わる値（完成版・下書き・日時など）は、テスト側で overrides に書く
  */
 export const timelineDocument = (tripId: string, overrides: Partial<TimelineDocument> = {}): TimelineDocument => ({
   id: `timeline-${tripId}`,
@@ -84,7 +84,6 @@ export const timelineDocument = (tripId: string, overrides: Partial<TimelineDocu
   tripId,
   current: null,
   draft: null,
-  droppedEdits: [],
   createdAt: TIMELINE_DEFAULT_AT,
   updatedAt: TIMELINE_DEFAULT_AT,
   ...overrides

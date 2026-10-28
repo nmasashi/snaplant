@@ -71,7 +71,7 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     };
     try {
       if (existing) {
-        // 前の下書き（確かめ中・失敗）は置き換える。完成版と残せなかった文はそのまま
+        // 前の下書き（確かめ中・失敗）は置き換える。完成版はそのまま
         await timelines.replaceTimeline({ ...existing.doc, draft, updatedAt: now }, existing.etag);
       } else {
         const doc: TimelineDocument = {
@@ -80,7 +80,6 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
           tripId,
           current: null,
           draft,
-          droppedEdits: [],
           createdAt: now,
           updatedAt: now,
         };

@@ -7,7 +7,7 @@ import { currentTimelineOf, draftStatusOf } from './timelineView';
 /**
  * 完成版を読んだ形（GET …/timeline の data。05 §5.15）を組む
  *
- * 完成版の表示を組むのはここだけ（GET …/timeline と、完成版の文を直す・残せなかった文を閉じる操作の応答が使う）。
+ * 完成版の表示を組むのはここだけ（GET …/timeline と、完成版の文を直す操作の応答が使う）。
  * 控えが無ければ最初から読み直す（rereadIfSnapshotMissing。他の操作と重なっただけなら今の状態になる）
  * @returns 応答の data。旅行が無ければ null
  */
@@ -41,7 +41,7 @@ async function readTimelineBodyOnce(tripId: string) {
     };
   }
   return {
-    timeline: { current, draft: doc.draft ? draftStatusOf(doc.draft) : null, changes, droppedEdits: doc.droppedEdits },
+    timeline: { current, draft: doc.draft ? draftStatusOf(doc.draft) : null, changes },
     pendingPhotoCount,
     urlExpiresAt: expiresOn.toISOString(),
   };

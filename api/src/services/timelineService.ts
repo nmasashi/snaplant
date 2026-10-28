@@ -303,12 +303,12 @@ export class TimelineService {
   /**
    * ワーカーが担当した下書きに結果を書く。読んだ文書の _etag 付きの置き換えで、他の操作と重なったら（412）読み直して当て直す（06 §8.1）
    *
-   * 当て直すのは、下書きがまだ自分のもの（同じ id）で、処理も担当したときのままのときだけ（利用者が完成版の文を直した・
-   * 残せなかった文を閉じたなどと重なっても、AI の結果を捨てない）。重なりが続けば投げる（内部の失敗として待ちに戻る）
+   * 当て直すのは、下書きがまだ自分のもの（同じ id）で、処理も担当したときのままのときだけ（利用者が完成版の文を直したなどと
+   * 重なっても、AI の結果を捨てない）。重なりが続けば投げる（内部の失敗として待ちに戻る）
    * @param tripId 旅行の ID
    * @param draftId 担当した下書きの id
    * @param claimedJob 担当したときに書いた job
-   * @param apply 読み直した文書（下書きは自分のもの）に結果を当てた文書を返す（区切り案は下書きを、文は完成版と残せなかった文も書く）
+   * @param apply 読み直した文書（下書きは自分のもの）に結果を当てた文書を返す（区切り案は下書きを、文は完成版も書く）
    * @returns 書けたら、置き換えた（結果を当てる前の）文書。下書きが自分のものでなくなっていた・タイムラインが消えていたら null
    */
   async writeDraftResult(
@@ -425,7 +425,6 @@ function toTimelineDocument(doc: TimelineDocument): TimelineDocument {
     tripId: doc.tripId,
     current: doc.current,
     draft: doc.draft,
-    droppedEdits: doc.droppedEdits,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

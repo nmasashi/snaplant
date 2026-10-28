@@ -82,8 +82,7 @@ Map<String, Object?> _current() => {
       'undatedPhotos': [_photo(10, null, category: 'other')],
     };
 
-/// タイムライン（完成版と、あれば下書き）。
-/// `droppedEdits` は入れない: 5-5c のアプリは読まず、5-5d で API から消える（05 §5.15）。入れておくと、必ず読む形に戻る退行を捕まえられない
+/// タイムライン（完成版と、あれば下書き）
 Map<String, Object?> _timelineOf({Map<String, Object?>? draft}) => {
       'current': _current(),
       'draft': draft,

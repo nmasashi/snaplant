@@ -457,7 +457,7 @@ class ApiService {
     }
   }
 
-  /// 応答の封筒からタイムライン（`data`。`GET …/timeline` の形）を読む。文を直す・残せなかった文を閉じる応答も同じ形
+  /// 応答の封筒からタイムライン（`data`。`GET …/timeline` の形）を読む。文を直す応答も同じ形
   TimelineOverview _overviewOf(Map<String, dynamic> json) =>
       TimelineOverview.fromJson(json['data'] as Map<String, dynamic>);
 
