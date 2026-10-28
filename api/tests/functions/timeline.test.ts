@@ -478,6 +478,19 @@ describe('タイムラインを作るAPI', () => {
       expect(queuedMessages()).toEqual([]);
     });
 
+    it('消した完成版の控えを消すのに失敗しても、202 で下書きを作ってキューに積む（控えは旅行の削除で消える）', async () => {
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, snapshotDocument(CURRENT_SNAPSHOT_ID));
+      cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ current: currentVersion }));
+      cosmosBackend.forcedErrorById = { [CURRENT_SNAPSHOT_ID]: Object.assign(new Error('Service unavailable'), { code: 503 }) };
+
+      const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(202);
+      const timeline = storedTimeline();
+      expect(timeline.current).toBeNull();
+      expect(queuedMessages()).toEqual([['timeline-processing', [{ tripId: TRIP_ID, draftId: timeline.draft.id }]]]);
+    });
+
     it('読んでから書くまでにタイムラインが他の操作で消えていたら（旅行の削除など）、409（TIMELINE_STATE_CONFLICT）で、作った控えを消してキューに積まない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, existingTimeline({ draft: reviewingDraft() }));
       cosmosBackend.beforeReplace = (id) => {
