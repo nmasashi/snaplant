@@ -290,7 +290,7 @@ void main() {
       (
         '区切りの直しの途中のとき',
         draftOf('recut', 'reviewing'),
-        ['区切りを直している途中です', '続ける', 'やめる']
+        ['タイムラインを編集している途中です', '続ける', 'やめる']
       ),
       (
         '文を書き直せなかったとき',
@@ -343,11 +343,11 @@ void main() {
 
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
-      expect(inDialog(find.text('作り直しをやめて、今のタイムラインのままにしますか？')), findsOneWidget);
+      expect(inDialog(find.text('編集をやめて、今のタイムラインのままにしますか？')), findsOneWidget);
       await tapInDialog(tester, 'やめる');
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
-      expect(find.text('区切りを直している途中です'), findsNothing);
+      expect(find.text('タイムラインを編集している途中です'), findsNothing);
       expect(find.text('朝ごはん'), findsOneWidget);
     });
 
@@ -364,8 +364,8 @@ void main() {
     });
   });
 
-  group('区切りを直す・作り直す', () {
-    testWidgets('「区切りを直す」を押すと、完成版の区切りを写した下書きを作り、区切りの確認画面を開く', (tester) async {
+  group('タイムラインを編集・作り直す', () {
+    testWidgets('「タイムラインを編集」を選ぶと、完成版の区切りを写した下書きを作り、案の確認画面を開く', (tester) async {
       final backend = await _openTimeline(tester);
 
       await _chooseFromMenu(tester, 'タイムラインを編集');
@@ -381,7 +381,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.close));
       await letFramesRun(tester);
-      expect(find.text('区切りを直している途中です'), findsOneWidget);
+      expect(find.text('タイムラインを編集している途中です'), findsOneWidget);
     });
 
     testWidgets('区切りを直して確認画面の下のボタンを押すと、AI を待たずにその場で保存して旅行詳細に戻り、直している途中の案内を出さずに完成版を出す', (tester) async {
@@ -393,14 +393,14 @@ void main() {
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
       expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('区切りを直している途中です'), findsNothing);
+      expect(find.text('タイムラインを編集している途中です'), findsNothing);
       expect(find.text('見出しと一言を書き直しています'), findsNothing);
       expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
       expect(find.textContaining('ネットワーク'), findsNothing);
       expect(find.text('朝ごはん'), findsOneWidget);
     });
 
-    testWidgets('「区切りを直す」のときに別の端末が作り直しを始めていたら（409）、知らせて読み直す', (tester) async {
+    testWidgets('「タイムラインを編集」のときに別の端末が作り直しを始めていたら（409）、知らせて読み直す', (tester) async {
       final backend = await _openTimeline(tester);
       backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',
@@ -424,7 +424,7 @@ void main() {
       expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget);
       expect(
           inDialog(find.text(
-              '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。')),
+              '今のタイムラインを消して、今の写真で AI が最初から作り直します。手で直した文と場面の分け方も消え、元には戻せません。')),
           findsOneWidget);
       await tapInDialog(tester, '作り直す');
 
@@ -907,7 +907,7 @@ void main() {
       });
 
       expect(find.textContaining('作った後に写真が'), findsNothing);
-      expect(find.text('区切りを直している途中です'), findsOneWidget);
+      expect(find.text('タイムラインを編集している途中です'), findsOneWidget);
     });
 
     testWidgets('解析中の写真がある間は、写真が変わった案内の「作り直す」も押せない', (tester) async {
