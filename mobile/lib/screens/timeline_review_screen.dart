@@ -16,13 +16,17 @@ class TimelineReviewScreen extends StatefulWidget {
       {super.key,
       required this.apiService,
       required this.tripId,
-      required this.editing});
+      required this.editing,
+      this.current});
 
   final ApiService apiService;
   final String tripId;
 
   /// タイムラインの編集（区切りの直し）として開いたか。見出しを読み込む前から出すため、開く側が渡す
   final bool editing;
+
+  /// 旅行詳細が読んだ完成版（タイムラインを編集するとき、つなげると消える見出しと一言を知らせる。§8.7）
+  final TimelineCurrent? current;
 
   @override
   State<TimelineReviewScreen> createState() => _TimelineReviewScreenState();
@@ -97,6 +101,14 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
   ///
   /// 場面のコメントは前の場面のものを残し、前に無ければ後ろのものを引き継ぐ。両方にあるときだけ、後ろのコメントが消えることを確かめる（§8.7）
   Future<void> _merge(TimelineScene scene) async {
+    if (_draft!.reason == 'recut') {
+      if (!await _confirmDroppingTexts(scene) || !mounted) return;
+      await _save([
+        for (final start in _sceneStarts())
+          if (start != scene.startPhotoId) start
+      ]);
+      return;
+    }
     final previous = _previousScene(scene);
     final kept = previous.comment;
     final dropped = scene.comment;
@@ -114,6 +126,21 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       for (final start in _sceneStarts())
         if (start != scene.startPhotoId) start
     ], comments: comments);
+  }
+
+  /// タイムラインを編集するとき、つなげて消える後ろの場面の見出しと一言（完成版のもの）があれば確かめる。無ければ確かめずに true
+  Future<bool> _confirmDroppingTexts(TimelineScene scene) async {
+    final texts = widget.current?.days
+        .expand((day) => day.scenes)
+        .where((current) => current.startPhotoId == scene.startPhotoId)
+        .firstOrNull;
+    final lost = [
+      if (texts?.label != null) '消える見出し: ${texts!.label}',
+      if (texts?.note != null) '消える一言: ${texts!.note}',
+    ];
+    if (lost.isEmpty) return true;
+    return confirmMergeScenes(context,
+        message: 'つなげると、後ろの場面の見出しと一言は消えます。', lost: lost);
   }
 
   /// 同じ日の、[scene] の1つ前の場面（「つなげる」は日の2つ目からの場面にだけ出す）

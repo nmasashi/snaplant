@@ -345,7 +345,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         builder: (context) => TimelineReviewScreen(
             apiService: widget.apiService,
             tripId: widget.tripId,
-            editing: editing),
+            editing: editing,
+            current: _overview?.timeline?.current),
       ),
     );
     if (!mounted) return;
