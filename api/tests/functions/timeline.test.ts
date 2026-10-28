@@ -638,7 +638,7 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(await read()).toEqual({ timeline: null, pendingPhotoCount: 3, urlExpiresAt: '2026-10-25T10:00:00.000Z' });
   });
 
-  it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、日時の無い写真は別にまとめる', async () => {
+  it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、日時の無い写真は別にまとめる（5-5d より前に書いた残せなかった文が文書に残っていても返さない）', async () => {
     placeCurrentSnapshot();
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, droppedEdits: DROPPED }));
 
@@ -695,8 +695,7 @@ describe('タイムラインを読むAPI（GET）', () => {
           undatedPhotos: [shown(U)]
         },
         draft: null,
-        changes: { added: 0, removed: 0 },
-        droppedEdits: DROPPED
+        changes: { added: 0, removed: 0 }
       },
       pendingPhotoCount: 0,
       urlExpiresAt: '2026-10-25T10:00:00.000Z'
@@ -816,8 +815,7 @@ describe('タイムラインを読むAPI（GET）', () => {
       timeline: {
         current: null,
         draft: { id: DRAFT_ID, reason: 'create', phase: 'reviewing', job: null, startedAt: '2026-10-25T08:58:00.000Z' },
-        changes: null,
-        droppedEdits: []
+        changes: null
       },
       pendingPhotoCount: 0,
       urlExpiresAt: '2026-10-25T10:00:00.000Z'
