@@ -15,6 +15,34 @@ import 'timeline_edit_sheet.dart';
 import 'timeline_notices.dart';
 import 'timeline_confirm_dialog.dart';
 
+/// 旅行詳細の上のバーのメニューに足すタイムラインの項目（§8.1・§8.3）。押せないものは null
+@immutable
+class TimelineMenu {
+  const TimelineMenu(
+      {required this.onEdit,
+      required this.onRebuild,
+      required this.pendingPhotoCount});
+
+  /// 「タイムラインを編集」
+  final VoidCallback? onEdit;
+
+  /// 「タイムラインを作り直す」（解析中の写真がある間は押せない）
+  final VoidCallback? onRebuild;
+
+  /// 解析が済んでいない写真の枚数（0 でなければ「作り直す」の下に添える）
+  final int pendingPhotoCount;
+
+  @override
+  bool operator ==(Object other) =>
+      other is TimelineMenu &&
+      other.onEdit == onEdit &&
+      other.onRebuild == onRebuild &&
+      other.pendingPhotoCount == pendingPhotoCount;
+
+  @override
+  int get hashCode => Object.hash(onEdit, onRebuild, pendingPhotoCount);
+}
+
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
 ///
 /// 切り替えで「タイムライン」を選ぶたびに作り直され、そのたびに読み直す
@@ -24,7 +52,8 @@ class TripTimelineView extends StatefulWidget {
       required this.apiService,
       required this.uploadQueue,
       required this.tripId,
-      required this.onTripNotFound});
+      required this.onTripNotFound,
+      required this.menu});
 
   final ApiService apiService;
 
@@ -34,6 +63,9 @@ class TripTimelineView extends StatefulWidget {
 
   /// 旅行が既に無いと分かった（旅行詳細が「この旅行は削除されています」にする。写真の一覧と同じ）
   final VoidCallback onTripNotFound;
+
+  /// 旅行詳細のメニューに出すタイムラインの項目。完成版を出していて下書きが無いときだけ入れ、それ以外は null
+  final ValueNotifier<TimelineMenu?> menu;
 
   @override
   State<TripTimelineView> createState() => _TripTimelineViewState();
@@ -298,9 +330,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       isScrollControlled: true,
       // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
       enableDrag: false,
-      builder: (context) =>
-          TimelineEditSheet(
-              title: title, fields: fields, hint: hint, onSave: save),
+      builder: (context) => TimelineEditSheet(
+          title: title, fields: fields, hint: hint, onSave: save),
     );
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
@@ -369,6 +400,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   @override
   Widget build(BuildContext context) {
+    _publishMenu();
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return MessageView(
@@ -410,9 +442,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     return TimelineCurrentView(
       current: current,
-      pendingPhotoCount: overview.pendingPhotoCount,
-      onRecut: _sending ? null : _recut,
-      onRebuild: _sending ? null : _rebuild,
       onOpenPhoto: _sending ? null : _openPhoto,
       onEditDay: _sending ? null : _editDay,
       onEditScene: _sending ? null : _editScene,
@@ -429,6 +458,27 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           ),
       ],
     );
+  }
+
+  /// 旅行詳細のメニューのタイムラインの項目を、今の表示に合わせる（§8.3）。
+  /// 出すのは完成版を出していて下書きが無いときだけ。build の中で通知すると旅行詳細の描き直しと重なるので、描き終えてから入れる
+  void _publishMenu() {
+    final overview = _overview;
+    final timeline = overview?.timeline;
+    final menu = overview != null &&
+            _errorMessage == null &&
+            timeline?.current != null &&
+            timeline?.draft == null
+        ? TimelineMenu(
+            onEdit: _sending ? null : _recut,
+            onRebuild:
+                _sending || overview.pendingPhotoCount > 0 ? null : _rebuild,
+            pendingPhotoCount: overview.pendingPhotoCount,
+          )
+        : null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.menu.value = menu;
+    });
   }
 
   /// 完成版も下書きも無い（§8.2 の1・2行目）
@@ -501,8 +551,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           actions: [review(primary: true)]);
     }
     if (draft.isFailed) {
-      return _StatusView(
-          title: 'タイムラインの案を作れませんでした', actions: [retry(_create)]);
+      return _StatusView(title: 'タイムラインの案を作れませんでした', actions: [retry(_create)]);
     }
     // AI がすぐ終わると思わせない（実行環境の入れ替えで止まると、再投入のタイマーが拾うまで 10 分ほどかかる。§8.2）
     return const _StatusView(

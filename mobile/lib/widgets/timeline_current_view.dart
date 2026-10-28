@@ -7,14 +7,12 @@ import 'timeline_thumbnail.dart';
 
 /// 完成したタイムライン（docs/03_screen_design.md §8.3）
 ///
-/// 上に作成日時と「区切りを直す」「作り直す」、日ごとの見出し・タイトル・まとめと場面のカード、最後に日時なし
+/// 日ごとの見出し・タイトル・まとめと場面のカード、日時なし、一番下に作成日時。
+/// タイムラインの編集・作り直しは旅行詳細の上のバーのメニューから（§8.1）
 class TimelineCurrentView extends StatelessWidget {
   const TimelineCurrentView({
     super.key,
     required this.current,
-    required this.pendingPhotoCount,
-    required this.onRecut,
-    required this.onRebuild,
     required this.onOpenPhoto,
     required this.onEditDay,
     required this.onEditScene,
@@ -24,15 +22,6 @@ class TimelineCurrentView extends StatelessWidget {
 
   final TimelineCurrent current;
 
-  /// 解析が済んでいない写真の枚数（0 でなければ「作り直す」を押せない）
-  final int pendingPhotoCount;
-
-  /// 「区切りを直す」。null なら押せない
-  final VoidCallback? onRecut;
-
-  /// 「作り直す」。null なら押せない（解析中の写真があるときは、渡されても押せない）
-  final VoidCallback? onRebuild;
-
   /// サムネイルをタップした（写真ビューアで開く。§8.3）。null ならタップを受けない（写真を読んでいる間・操作を送っている間）
   final void Function(TimelinePhoto photo)? onOpenPhoto;
 
@@ -40,7 +29,7 @@ class TimelineCurrentView extends StatelessWidget {
   final void Function(TimelineDay day)? onEditDay;
   final void Function(TimelineScene scene)? onEditScene;
 
-  /// 完成版の上に出す下書きの案内（§8.3）。あれば「区切りを直す」「作り直す」と解析中の枚数を出さない
+  /// 完成版の上に出す、タイムラインを編集している途中の案内（§8.3）
   final Widget? banner;
 
   /// 一番上に出す案内（写真が変わった案内。§8.3）
@@ -58,25 +47,6 @@ class TimelineCurrentView extends StatelessWidget {
       children: [
         for (final notice in notices) ...[notice, const SizedBox(height: 16)],
         if (banner != null) ...[banner!, const SizedBox(height: 16)],
-        Text('${_writtenAtLabel(current.writtenAt)} に作成', style: secondary),
-        if (banner == null) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              OutlinedButton(onPressed: onRecut, child: const Text('区切りを直す')),
-              OutlinedButton(
-                onPressed: pendingPhotoCount > 0 ? null : onRebuild,
-                child: const Text('作り直す'),
-              ),
-            ],
-          ),
-          if (pendingPhotoCount > 0) ...[
-            const SizedBox(height: 4),
-            Text('解析中の写真があと $pendingPhotoCount 枚あります', style: secondary),
-          ],
-        ],
         for (final day in current.days) ..._buildDay(day, secondary),
         if (current.undatedPhotos.isNotEmpty) ...[
           const SizedBox(height: 24),
@@ -94,6 +64,11 @@ class TimelineCurrentView extends StatelessWidget {
             ],
           ),
         ],
+        const SizedBox(height: 24),
+        Text('${_writtenAtLabel(current.writtenAt)} に作成',
+            style:
+                AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+            textAlign: TextAlign.center),
       ],
     );
   }
