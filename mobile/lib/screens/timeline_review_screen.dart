@@ -97,11 +97,11 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         ],
       ]);
 
-  /// [scene] を前の場面とつなげる（[scene] の区切りを外す。§8.7）
+  /// [scene] を同じ日の1つ前の場面 [previous] とつなげる（[scene] の区切りを外す。§8.7）
   ///
   /// タイムラインを編集するときは、後ろの場面の見出しと一言が消えることを確かめる（あれば）。
   /// それ以外は、場面のコメントは前の場面のものを残し、前に無ければ後ろのものを引き継ぐ。両方にあるときだけ、後ろのコメントが消えることを確かめる
-  Future<void> _merge(TimelineScene scene) async {
+  Future<void> _merge(TimelineScene previous, TimelineScene scene) async {
     final starts = [
       for (final start in _sceneStarts())
         if (start != scene.startPhotoId) start
@@ -111,7 +111,6 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       await _save(starts);
       return;
     }
-    final previous = _previousScene(scene);
     final kept = previous.comment;
     final dropped = scene.comment;
     if (kept != null && dropped != null) {
@@ -140,15 +139,6 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     if (lost.isEmpty) return true;
     return confirmMergeScenes(context,
         message: 'つなげると、後ろの場面の見出しと一言は消えます。', lost: lost);
-  }
-
-  /// 同じ日の、[scene] の1つ前の場面（「つなげる」は日の2つ目からの場面にだけ出す）
-  TimelineScene _previousScene(TimelineScene scene) {
-    for (final day in _draft!.days!) {
-      final index = day.scenes.indexOf(scene);
-      if (index > 0) return day.scenes[index - 1];
-    }
-    throw StateError('前の場面がありません: ${scene.startPhotoId}');
   }
 
   /// 今の場面のコメント（場面の最初の写真の id → コメント）
@@ -387,7 +377,8 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         if (index > 0)
           Center(
             child: TextButton.icon(
-              onPressed: _sending ? null : () => _merge(scene),
+              onPressed:
+                  _sending ? null : () => _merge(day.scenes[index - 1], scene),
               icon: const Icon(Icons.link),
               label: const Text('つなげる'),
             ),
