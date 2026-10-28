@@ -148,6 +148,10 @@ PopupMenuItem<Object?> _menuItem(WidgetTester tester, String label) =>
         of: find.text(label),
         matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem)));
 
+/// タイムラインを編集する画面の上のバーの見出し
+final _editTitle =
+    find.descendant(of: find.byType(AppBar), matching: find.text('タイムラインを編集'));
+
 /// 写真が変わった案内の枠の中の [text]
 Finder _inChangesNotice(String text) => find.descendant(
     of: find.ancestor(
@@ -351,7 +355,7 @@ void main() {
       expect(find.text('朝ごはん'), findsOneWidget);
     });
 
-    testWidgets('「続ける」で区切りの直しの確認画面を開く', (tester) async {
+    testWidgets('「続ける」でタイムラインを編集する画面を開く', (tester) async {
       await _openTimeline(tester, draft: {
         ...draftOf('recut', 'reviewing'),
         'days': <Object?>[],
@@ -360,7 +364,7 @@ void main() {
 
       await tester.tap(find.text('続ける'));
       await letFramesRun(tester);
-      expect(find.text('区切りを確認'), findsOneWidget);
+      expect(_editTitle, findsOneWidget);
     });
   });
 
@@ -373,7 +377,7 @@ void main() {
           (backend.timelinesByTripId[hokkaidoTripId]!['draft']
               as Map)['reason'],
           'recut');
-      expect(find.text('区切りを確認'), findsOneWidget);
+      expect(_editTitle, findsOneWidget);
       expect(
           find.text(
               '写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。新しくできた場面は見出しなしになります。つなげると、後ろの場面の見出しと一言は消えます。'),
@@ -388,11 +392,11 @@ void main() {
       final backend = await _openTimeline(tester);
       await _chooseFromMenu(tester, 'タイムラインを編集');
 
-      await tester.tap(find.text('この区切りで保存'));
+      await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
-      expect(find.text('区切りを確認'), findsNothing);
+      expect(_editTitle, findsNothing);
       expect(find.text('タイムラインを編集している途中です'), findsNothing);
       expect(find.text('見出しと一言を書き直しています'), findsNothing);
       expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
@@ -412,7 +416,7 @@ void main() {
 
       await _chooseFromMenu(tester, 'タイムラインを編集');
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
-      expect(find.text('区切りを確認'), findsNothing);
+      expect(_editTitle, findsNothing);
       expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
