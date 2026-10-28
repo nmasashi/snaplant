@@ -82,12 +82,12 @@ Map<String, Object?> _current() => {
       'undatedPhotos': [_photo(10, null, category: 'other')],
     };
 
-/// タイムライン（完成版と、あれば下書き）
+/// タイムライン（完成版と、あれば下書き）。
+/// `droppedEdits` は入れない: 5-5c のアプリは読まず、5-5d で API から消える（05 §5.15）。入れておくと、必ず読む形に戻る退行を捕まえられない
 Map<String, Object?> _timelineOf({Map<String, Object?>? draft}) => {
       'current': _current(),
       'draft': draft,
       'changes': {'added': 0, 'removed': 0},
-      'droppedEdits': <Object?>[],
     };
 
 /// 旅行詳細の「タイムライン」を開く
@@ -95,8 +95,7 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
     {Map<String, Object?>? draft,
     int pendingPhotoCount = 0,
     Map<String, Object?>? current,
-    Map<String, Object?>? changes,
-    List<Object?>? droppedEdits}) async {
+    Map<String, Object?>? changes}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 10)],
     functionKey: 'test-key',
@@ -114,7 +113,6 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
     ..._timelineOf(draft: draft),
     if (current != null) 'current': current,
     if (changes != null) 'changes': changes,
-    if (droppedEdits != null) 'droppedEdits': droppedEdits,
   };
   backend.pendingPhotoCountByTripId[hokkaidoTripId] = pendingPhotoCount;
   // 1つのテストの中で開き直すとき、前のアプリの木（開いている画面）を残さない
@@ -332,7 +330,9 @@ void main() {
               as Map)['reason'],
           'recut');
       expect(find.text('区切りを確認'), findsOneWidget);
-      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
+      expect(
+          find.text(
+              '写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。新しくできた場面は見出しなしになります。つなげると、後ろの場面の見出しと一言は消えます。'),
           findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.close));
@@ -345,7 +345,7 @@ void main() {
       await tester.tap(find.text('区切りを直す'));
       await letFramesRun(tester);
 
-      await tester.tap(find.text('この区切りで見出しを付ける'));
+      await tester.tap(find.text('この区切りで保存'));
       await letFramesRun(tester);
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
@@ -522,7 +522,7 @@ void main() {
     expect(find.text('区切りを直す'), findsOneWidget);
   });
 
-  testWidgets('タイトルもまとめも無い日は印を出さず、見出しも一言も無い場面はその行を出さない', (tester) async {
+  testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、一言の無い場面はその行を出さない', (tester) async {
     await _openTimeline(tester, current: {
       'writtenAt': '2026-10-25T09:10:00.000Z',
       'days': [
@@ -546,8 +546,9 @@ void main() {
     expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
     expect(find.text('AI のまとめ'), findsNothing);
     expect(find.text('編集済み'), findsNothing);
-    // 見出しの行（印と見出し）を出さない
+    // 見出しの印は出さず、見出しの所に「見出しなし」と出す（編集のボタンで書ける。§8.3）
     expect(find.byIcon(Icons.circle), findsNothing);
+    expect(find.text('見出しなし'), findsOneWidget);
     // 日時なしの写真が無ければ、見出しも出さない
     expect(find.text('日時なし'), findsNothing);
   });
@@ -596,7 +597,7 @@ void main() {
 
       await openSceneSheet(tester);
       expect(find.text('場面を編集'), findsOneWidget);
-      expect(find.text('空にすると、AI が書いた文に戻ります'), findsOneWidget);
+      expect(find.text('空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）'), findsOneWidget);
       expect(tester.widget<TextField>(field('見出し')).controller!.text, '朝ごはん');
       expect(
           tester.widget<TextField>(field('一言')).controller!.text, '港の市場で海鮮丼。');
@@ -621,6 +622,8 @@ void main() {
       await tester.tap(find.bySemanticsLabel('この日を編集').first);
       await letFramesRun(tester);
       expect(find.text('1日目を編集'), findsOneWidget);
+      // 日は区切りを直しても足されないので、いつも AI の文がある（場面の「AI が書いていない場面は…」は添えない）
+      expect(find.text('空にすると、AI が書いた文に戻ります'), findsOneWidget);
       expect(
           tester.widget<TextField>(field('タイトル')).controller!.text, '小樽の運河と寿司');
       expect(tester.widget<TextField>(field('まとめ')).controller!.text,
@@ -688,6 +691,31 @@ void main() {
 
       expect(find.text('AI の朝ごはん'), findsOneWidget);
       expect(sceneOf(backend, breakfastId)['labelSource'], 'ai');
+      semantics.dispose();
+    });
+
+    testWidgets('「見出しなし」の場面（区切りを直して足した場面）は見出しを書けて、空にすると「見出しなし」に戻る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      // 最初の場面は AI の文が無い（区切りを直して足した場面。05 §5.15）
+      final current = _current();
+      final firstScene = ((current['days'] as List).first as Map<String, Object?>)['scenes'] as List;
+      firstScene[0] = {...firstScene[0] as Map<String, Object?>, 'label': null, 'labelSource': null};
+      final backend = await _openTimeline(tester, current: current);
+      backend.timelineAiTexts['$breakfastId:label'] = null;
+      expect(find.text('見出しなし'), findsOneWidget);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '市場');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('市場'), findsOneWidget);
+      expect(find.text('見出しなし'), findsNothing);
+
+      await openSceneSheet(tester);
+      await tester.enterText(field('見出し'), '');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('見出しなし'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -815,7 +843,7 @@ void main() {
     });
   });
 
-  group('作った後に写真が変わった案内・残せなかった文', () {
+  group('作った後に写真が変わった案内', () {
     testWidgets('作った後に写真が増えた・消えた枚数の案内を作成日時の上に「あとで」「作り直す」と出し、「作り直す」は作り直しの確認を出し、「あとで」で隠した案内は読み直すとまた出す',
         (tester) async {
       final semantics = tester.ensureSemantics();
@@ -854,13 +882,11 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('下書きがある間は、写真が変わっても案内を出さず、残せなかった文は出す', (tester) async {
+    testWidgets('下書きがある間は、写真が変わっても案内を出さない', (tester) async {
       await _openTimeline(tester, changes: {
         'added': 3,
         'removed': 2
-      }, droppedEdits: [
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ], draft: {
+      }, draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',
         'reason': 'rebuild',
         'phase': 'proposing',
@@ -870,36 +896,6 @@ void main() {
 
       expect(find.textContaining('作った後に写真が'), findsNothing);
       expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
-      expect(find.text('場面や日が無くなったため、手で直した文のうち 1 件を残せませんでした'), findsOneWidget);
-    });
-
-    testWidgets('残せなかった文があれば、件数とその文・「閉じる」を出し、閉じるのに失敗したらエラーの文言を出して文はそのまま、「閉じる」で消す',
-        (tester) async {
-      final backend = await _openTimeline(tester, droppedEdits: [
-        {
-          'kind': 'scene',
-          'key': 'c4ca42',
-          'field': 'label',
-          'text': '小樽運河をのんびり'
-        },
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ]);
-
-      expect(find.text('場面や日が無くなったため、手で直した文のうち 2 件を残せませんでした'), findsOneWidget);
-      expect(find.text('小樽運河をのんびり'), findsOneWidget);
-      expect(find.text('札幌の休日'), findsOneWidget);
-
-      backend.failNext(TripRoute.timelineDroppedEditsDelete);
-      await tester.tap(find.text('閉じる'));
-      await letFramesRun(tester);
-      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
-      expect(find.text('札幌の休日'), findsOneWidget);
-
-      await tester.tap(find.text('閉じる'));
-      await letFramesRun(tester);
-      expect(
-          backend.timelinesByTripId[hokkaidoTripId]!['droppedEdits'], isEmpty);
-      expect(find.textContaining('残せませんでした'), findsNothing);
     });
 
     testWidgets('解析中の写真がある間は、写真が変わった案内の「作り直す」も押せない', (tester) async {
@@ -915,25 +911,10 @@ void main() {
           isNull);
     });
 
-    testWidgets('作り直しを受け付けた後も、残せなかった文の案内を出したまま', (tester) async {
-      await _openTimeline(tester, droppedEdits: [
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ]);
-
-      await tester.tap(find.text('作り直す'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '作り直す');
-
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
-      expect(find.text('札幌の休日'), findsOneWidget);
-    });
-
-    testWidgets('操作を送っている間は、日と場面の編集のボタンも残せなかった文の「閉じる」も押せない', (tester) async {
+    testWidgets('操作を送っている間は、日と場面の編集のボタンも押せない', (tester) async {
       // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
       final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester, droppedEdits: [
-        {'kind': 'day', 'key': '2026-10-06', 'field': 'title', 'text': '札幌の休日'},
-      ]);
+      final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
       await tester.tap(find.text('区切りを直す'));
@@ -947,7 +928,6 @@ void main() {
                 .onPressed,
             isNull);
       }
-      expect(_button(tester, '閉じる').onPressed, isNull);
 
       reply.complete();
       await letFramesRun(tester);

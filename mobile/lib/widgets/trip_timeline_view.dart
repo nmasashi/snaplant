@@ -197,12 +197,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
   Future<void> _rebuild() async {
-    if (!await confirmTimelineAction(context,
-            title: 'タイムラインを作り直しますか？',
-            message:
-                '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。',
-            confirmLabel: '作り直す') ||
-        !mounted) {
+    if (!await confirmRebuildTimeline(context) || !mounted) {
       return;
     }
     await _create();
@@ -271,6 +266,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
               maxLength: 400,
               initial: day.summary),
         ],
+        hint: '空にすると、AI が書いた文に戻ります',
         save: (changes) => widget.apiService
             .updateTimelineDay(widget.tripId, day.date, changes),
       );
@@ -284,6 +280,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           TimelineEditField(
               key: 'note', label: '一言', maxLength: 200, initial: scene.note),
         ],
+        // 区切りを直して足した場面は AI の文が無いので、空にすると空に戻る（5-5a）
+        hint: '空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）',
         save: (changes) => widget.apiService
             .updateTimelineScene(widget.tripId, scene.startPhotoId, changes),
       );
@@ -292,6 +290,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Future<void> _edit({
     required String title,
     required List<TimelineEditField> fields,
+    required String hint,
     required Future<TimelineOverview> Function(Map<String, String?>) save,
   }) async {
     final result = await showModalBottomSheet<Object>(
@@ -300,7 +299,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
       enableDrag: false,
       builder: (context) =>
-          TimelineEditSheet(title: title, fields: fields, onSave: save),
+          TimelineEditSheet(
+              title: title, fields: fields, hint: hint, onSave: save),
     );
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
@@ -415,11 +415,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildRebuildBanner(draft),
       notices: [
-        if (timeline.droppedEdits.isNotEmpty)
-          TimelineDroppedEditsNotice(
-            edits: timeline.droppedEdits,
-            onDismiss: _sending ? null : _dismissDroppedEdits,
-          ),
         if (draft == null &&
             !_changesNoticeHidden &&
             TimelineChangesNotice.shows(timeline.changes))
@@ -448,14 +443,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       note: pending > 0 ? '解析中の写真があと $pending 枚あります。終わると作れます。' : null,
     );
   }
-
-  /// 残せなかった文の知らせを閉じ、応答で描き直す（失敗は §8.1 の操作と同じ）
-  Future<void> _dismissDroppedEdits() => _send(() async {
-        final overview =
-            await widget.apiService.dismissTimelineDroppedEdits(widget.tripId);
-        if (!mounted) return;
-        _show(overview);
-      });
 
   /// 完成版の上の下書きの案内（§8.3 の表。作り直し・区切りの直し）
   Widget _buildRebuildBanner(TimelineDraftStatus draft) {

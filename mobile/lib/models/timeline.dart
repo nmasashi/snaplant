@@ -22,8 +22,7 @@ class TimelineOverview {
         timeline: TripTimeline(
             current: timeline?.current,
             draft: draft,
-            changes: timeline?.changes,
-            droppedEdits: timeline?.droppedEdits ?? const []),
+            changes: timeline?.changes),
         pendingPhotoCount: pendingPhotoCount,
       );
 }
@@ -39,26 +38,18 @@ class TripTimeline {
   /// 完成版を作った後に増えた・消えた写真の枚数（完成版が無ければ null）
   final TimelineChanges? changes;
 
-  /// 文を書き直したときに残せなかった利用者の文（無ければ空）
-  final List<TimelineDroppedEdit> droppedEdits;
-
   const TripTimeline(
-      {required this.current,
-      required this.draft,
-      this.changes,
-      this.droppedEdits = const []});
+      {required this.current, required this.draft, this.changes});
 
   factory TripTimeline.fromJson(Map<String, dynamic> json) {
     final draft = json['draft'] as Map<String, dynamic>?;
     final current = json['current'] as Map<String, dynamic>?;
     final changes = json['changes'] as Map<String, dynamic>?;
+    // 応答の droppedEdits（残せなかった文）は読まない。作り直しが前の文を使わなくなり（5-5b）、残せなかった文が無くなった
     return TripTimeline(
       current: current == null ? null : TimelineCurrent.fromJson(current),
       draft: draft == null ? null : TimelineDraftStatus.fromJson(draft),
       changes: changes == null ? null : TimelineChanges.fromJson(changes),
-      droppedEdits: (json['droppedEdits'] as List<dynamic>)
-          .map((e) => TimelineDroppedEdit.fromJson(e as Map<String, dynamic>))
-          .toList(),
     );
   }
 }
@@ -75,16 +66,6 @@ class TimelineChanges {
         added: json['added'] as int,
         removed: json['removed'] as int,
       );
-}
-
-/// 残せなかった利用者の文（`droppedEdits` の1件。画面は文だけを出す）
-class TimelineDroppedEdit {
-  final String text;
-
-  const TimelineDroppedEdit({required this.text});
-
-  factory TimelineDroppedEdit.fromJson(Map<String, dynamic> json) =>
-      TimelineDroppedEdit(text: json['text'] as String);
 }
 
 /// 完成版（`current`。docs/05_api_design.md §5.15）

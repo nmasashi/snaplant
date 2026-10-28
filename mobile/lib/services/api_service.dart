@@ -443,19 +443,6 @@ class ApiService {
       _patchTimelineText(
           '/api/trips/$tripId/timeline/scenes/$photoId', changes);
 
-  /// 残せなかった文の知らせを閉じる。閉じた後のタイムラインを返す
-  /// DELETE /api/trips/{tripId}/timeline/dropped-edits
-  Future<TimelineOverview> dismissTimelineDroppedEdits(String tripId) async {
-    try {
-      final url = _buildUrl('/api/trips/$tripId/timeline/dropped-edits');
-      final response = await _client.delete(Uri.parse(url), headers: _headers);
-      return _parseResponse(response,
-          _overviewOf);
-    } catch (error) {
-      throw _handleError(error);
-    }
-  }
-
   /// 文を直す PATCH を送り、応答（`GET …/timeline` と同じ形）を読む
   Future<TimelineOverview> _patchTimelineText(
       String path, Map<String, String?> changes) async {

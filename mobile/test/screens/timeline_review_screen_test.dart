@@ -137,7 +137,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出し、地名の無い場面はカードの上を「{時刻} · {N}枚」にする',
+    testWidgets('区切りの直しの下書きでは、説明を「写真を長押しすると…」から出して足した場面とつなげた場面の文の扱いを添え、下のボタンを「この区切りで保存」にし（AI を使わない）、地名の無い場面はカードの上を「{時刻} · {N}枚」にする',
         (tester) async {
       await _openTimeline(tester,
           draft: _reviewingDraft(reason: 'recut', scenes: const [
@@ -152,8 +152,13 @@ void main() {
           ]));
       await _openReview(tester);
 
-      expect(find.text('写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。'),
+      expect(
+          find.text(
+              '写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。新しくできた場面は見出しなしになります。つなげると、後ろの場面の見出しと一言は消えます。'),
           findsOneWidget);
+      expect(find.text('この区切りで保存'), findsOneWidget);
+      expect(find.text('2日で 4 場面 · 見出しと一言はそのまま残します'), findsOneWidget);
+      expect(find.text('この区切りで見出しを付ける'), findsNothing);
       await tester.scrollUntilVisible(find.text('12:00 · 1枚'), 200,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('12:00 · 1枚'), findsOneWidget);
@@ -413,6 +418,38 @@ void main() {
 
       hold.complete();
       await letFramesRun(tester);
+    });
+
+    testWidgets('完成版がある下書き（区切りの直し・作り直し）の「区切り案を出し直す」は、作り直しと同じダイアログで、手で直した文と区切りが消えると知らせる',
+        (tester) async {
+      for (final reason in ['recut', 'rebuild']) {
+        // 1つのテストの中で開き直すので、前の木（開いている画面）を消してから開く
+        await tester.pumpWidget(const SizedBox());
+        final backend =
+            await _openTimeline(tester, draft: _reviewingDraft(reason: reason));
+        await _openReview(tester);
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await letFramesRun(tester);
+        await tester.tap(find.text('区切り案を出し直す'));
+        await letFramesRun(tester);
+
+        // 完成版があれば、区切り案を出し直すことは最初から作り直すこと（03 §8.4・§8.6）
+        expect(inDialog(find.text('タイムラインを作り直しますか？')), findsOneWidget,
+            reason: reason);
+        expect(
+            inDialog(find.text(
+                '今の写真で、AI が区切りの案から作り直します。手で直した文と区切りは消えます。書き終えるまでは今のタイムラインのままです。')),
+            findsOneWidget,
+            reason: reason);
+        await tapInDialog(tester, '作り直す');
+        // 区切りの案から作り直す受付（POST …/timeline）を送り、旅行詳細に戻る
+        expect(
+            (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+            'proposing',
+            reason: reason);
+        expect(find.text('区切りを確認'), findsNothing, reason: reason);
+      }
     });
 
     testWidgets('メニューの「区切り案を出し直す」は確認のダイアログを出し、「キャンセル」なら何もせず、「出し直す」で区切りの案から作り直して旅行詳細に戻る',

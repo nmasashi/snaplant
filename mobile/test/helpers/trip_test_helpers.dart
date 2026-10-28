@@ -329,8 +329,9 @@ class FakeTripBackend {
   int timelineDraftReadsReceived = 0;
 
   /// 完成版の AI が書いた文（本物の `aiTitle` などの欄）。文を空にして直すと、この文に戻す。
-  /// 鍵は `<日付か場面の最初の写真の id>:<欄>`（例 `2026-10-05:title`）。無ければ文は null に戻る
-  final Map<String, String> timelineAiTexts = {};
+  /// 鍵は `<日付か場面の最初の写真の id>:<欄>`（例 `2026-10-05:title`）。区切りを直して足した場面のように AI の文が無い欄は
+  /// null を入れる（空にすると文も書いた主も null に戻る。05 §5.15）。登録の無い欄を空にすると例外にする（入れ忘れを知らせる）
+  final Map<String, String?> timelineAiTexts = {};
 
   /// 作る受付で書く下書きの開始時刻
   static const timelineStartedAt = '2026-10-25T09:00:00.000Z';
@@ -582,7 +583,7 @@ class FakeTripBackend {
   }
 
   /// 完成版の日・場面の文を直す（05 §5.15 の PATCH）。送った欄だけを前後の空白を除いて書き、書いた主を `user` にする。
-  /// 空か null なら AI が書いた文（[timelineAiTexts]）に戻し、主を `ai` にする。上限の文字数は見ない（画面が欄で止める）
+  /// 空か null なら AI が書いた文（[timelineAiTexts]）に戻し、主を `ai` にする（AI の文が無ければ文も主も null）。上限の文字数は見ない（画面が欄で止める）
   http.Response _patchTimelineText(TripRoute route, http.Request request, String tripId, Map<String, Object?>? timeline) {
     final isDay = route == TripRoute.timelineDayPatch;
     final key = request.url.pathSegments[5];
@@ -604,12 +605,12 @@ class FakeTripBackend {
     for (final field in fields.where(body.containsKey)) {
       final text = (body[field] as String?)?.trim() ?? '';
       if (text.isEmpty) {
-        // 本物の完成版はいつも AI の文を持つ（空にすると必ず AI の文に戻り、主は ai）。登録が無ければ、本物に無い「文が消える」状態を作らずに知らせる。
+        // AI の文に戻す（AI の文が無い欄は文も主も null。5-5a）。登録が無ければ、入れ忘れとして知らせる。
         // ApiService がこの例外を通信の失敗として包むので、テストでは「ネットワークに接続できません」の文言が出る（それが出たら登録を疑う）
+        if (!timelineAiTexts.containsKey('$key:$field')) throw StateError('timelineAiTexts に $key:$field を入れてください');
         final aiText = timelineAiTexts['$key:$field'];
-        if (aiText == null) throw StateError('timelineAiTexts に $key:$field を入れてください');
         target[field] = aiText;
-        target['${field}Source'] = 'ai';
+        target['${field}Source'] = aiText == null ? null : 'ai';
       } else {
         target[field] = text;
         target['${field}Source'] = 'user';

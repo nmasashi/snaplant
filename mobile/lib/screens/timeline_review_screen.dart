@@ -116,10 +116,14 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから区切り案を出し直し、旅行詳細に戻る
   Future<void> _repropose() async {
-    if (!await confirmTimelineAction(context,
+    // 完成版がある下書き（作り直し・区切りの直し）なら、区切り案を出し直すことは最初から作り直すこと（手で直した文と区切りも消える。§8.4）
+    final rebuilds = (_draft?.reason ?? 'create') != 'create';
+    final confirmed = await (rebuilds
+        ? confirmRebuildTimeline(context)
+        : confirmTimelineAction(context,
             message: 'AI がもう一度区切りの案を出します。この画面で直した区切りは消えます。',
-            confirmLabel: '出し直す') ||
-        !mounted) {
+            confirmLabel: '出し直す'));
+    if (!confirmed || !mounted) {
       return;
     }
     await _sendAndClose(
@@ -251,7 +255,10 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          draft.reason == 'recut' ? howTo : 'AI が写真を場面に区切りました。$howTo',
+          draft.reason == 'recut'
+              // 区切りの直しは AI を使わずに保存する（06 §8.6）ので、足した場面とつなげた場面の文の扱いを添える
+              ? '$howTo新しくできた場面は見出しなしになります。つなげると、後ろの場面の見出しと一言は消えます。'
+              : 'AI が写真を場面に区切りました。$howTo',
           style: AppTextStyles.body2.copyWith(color: AppColors.textSecondary),
         ),
         for (final day in draft.days!) ..._buildDay(day),
@@ -334,8 +341,9 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     );
   }
 
-  /// 下の「この区切りで見出しを付ける」と、日数・場面数
+  /// 下の「この区切りで見出しを付ける」（区切りの直しは「この区切りで保存」。AI を使わずその場で保存する）と、日数・場面数
   Widget _buildWriteBar(TimelineDraftStatus draft) {
+    final recut = draft.reason == 'recut';
     final days = draft.days!;
     final sceneCount =
         days.fold<int>(0, (count, day) => count + day.scenes.length);
@@ -348,11 +356,11 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           children: [
             ElevatedButton(
               onPressed: _sending ? null : _write,
-              child: const Text('この区切りで見出しを付ける'),
+              child: Text(recut ? 'この区切りで保存' : 'この区切りで見出しを付ける'),
             ),
             const SizedBox(height: 4),
             Text(
-              '${days.length}日で $sceneCount 場面 · 見出しと一言は AI が書きます',
+              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しと一言はそのまま残します' : '見出しと一言は AI が書きます'}',
               style: AppTextStyles.caption
                   .copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,

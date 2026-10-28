@@ -7,18 +7,10 @@ class TimelineNoticeCard extends StatelessWidget {
   const TimelineNoticeCard(
       {super.key,
       required this.text,
-      this.details = const [],
-      required this.actions,
-      this.alignActionsEnd = false});
+      required this.actions});
 
   final String text;
-
-  /// 文の下に並べるもの（残せなかった文など）
-  final List<Widget> details;
   final List<Widget> actions;
-
-  /// 操作を右に寄せるか（左から並べるなら false）
-  final bool alignActionsEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -30,12 +22,9 @@ class TimelineNoticeCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(text, style: AppTextStyles.body1),
-            if (details.isNotEmpty) ...[const SizedBox(height: 8), ...details],
             if (actions.isNotEmpty) ...[
               const SizedBox(height: 8),
               Wrap(
-                alignment:
-                    alignActionsEnd ? WrapAlignment.end : WrapAlignment.start,
                 spacing: 8,
                 runSpacing: 8,
                 children: actions,
@@ -44,35 +33,6 @@ class TimelineNoticeCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// 残せなかった文の案内（§8.3）。文は選んで写せる
-class TimelineDroppedEditsNotice extends StatelessWidget {
-  const TimelineDroppedEditsNotice(
-      {super.key, required this.edits, required this.onDismiss});
-
-  final List<TimelineDroppedEdit> edits;
-
-  /// 「閉じる」。null なら押せない（操作を送っている間）
-  final VoidCallback? onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    return TimelineNoticeCard(
-      text: '場面や日が無くなったため、手で直した文のうち ${edits.length} 件を残せませんでした',
-      details: [
-        for (final edit in edits)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: SelectableText(edit.text, style: AppTextStyles.body2),
-          ),
-      ],
-      alignActionsEnd: true,
-      actions: [
-        TextButton(onPressed: onDismiss, child: const Text('閉じる')),
-      ],
     );
   }
 }

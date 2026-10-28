@@ -30,10 +30,14 @@ class TimelineEditSheet extends StatefulWidget {
       {super.key,
       required this.title,
       required this.fields,
+      required this.hint,
       required this.onSave});
 
   final String title;
   final List<TimelineEditField> fields;
+
+  /// 欄の下の添え書き（空にしたときに戻る文。日と場面で違う。§8.5）
+  final String hint;
 
   /// 変えた欄だけ（空にした欄は null）を送る
   final Future<TimelineOverview> Function(Map<String, String?> changes) onSave;
@@ -130,7 +134,7 @@ class _TimelineEditSheetState extends State<TimelineEditSheet> {
                 ),
                 const SizedBox(height: 8),
               ],
-              Text('空にすると、AI が書いた文に戻ります',
+              Text(widget.hint,
                   style: AppTextStyles.caption
                       .copyWith(color: AppColors.textSecondary)),
               if (errorMessage != null) ...[
