@@ -88,41 +88,6 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
   }
 }
 
-/**
- * 残せなかった文の知らせを閉じる API
- * DELETE /api/trips/{tripId}/timeline/dropped-edits
- *
- * 文を書き直したときに残せなかった利用者の文（droppedEdits）を空にする（05 §5.15）
- */
-export async function deleteTimelineDroppedEditsHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-  const tripId = request.params.tripId;
-  context.log(`タイムラインの残せなかった文を閉じるリクエストを受信: 旅行=${tripId}`);
-  if (!isValidUUID(tripId)) {
-    return createValidationError('旅行IDの形式が無効です');
-  }
-  try {
-    if (!(await new AlbumService().tripExists(tripId))) {
-      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-    }
-    const timelines = new TimelineService();
-    const timeline = await timelines.readTimeline(tripId);
-    if (!timeline) {
-      return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
-    }
-    // 既に無ければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
-    if (
-      timeline.doc.droppedEdits.length > 0 &&
-      !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, droppedEdits: [], updatedAt: new Date().toISOString() }, timeline.etag))
-    ) {
-      return createTimelineStateConflict();
-    }
-    return createTimelineBodyResponse(await readTimelineBody(tripId));
-  } catch (error: any) {
-    context.log('タイムラインの残せなかった文を閉じるエラー:', error);
-    return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
-  }
-}
-
 /** 直せる文の欄（日はタイトル・まとめ、場面は見出し・一言。05 §5.15・§4） */
 interface TextField<K extends string> {
   key: K;
@@ -207,7 +172,7 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       }
       edited = { ...current, sceneTexts: { ...current.sceneTexts, [key]: withEdits(current.sceneTexts[key], edits.values) } };
     }
-    // 文が変わらなければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。残せなかった文を閉じるのと同じ）
+    // 文が変わらなければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
     const changed = JSON.stringify(edited) !== JSON.stringify(current);
     if (changed && !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
       return createTimelineStateConflict();
@@ -294,11 +259,4 @@ app.http('patchTimelineScene', {
   authLevel: 'function',
   route: 'trips/{tripId}/timeline/scenes/{photoId}',
   handler: patchTimelineSceneHandler,
-});
-
-app.http('deleteTimelineDroppedEdits', {
-  methods: ['DELETE'],
-  authLevel: 'function',
-  route: 'trips/{tripId}/timeline/dropped-edits',
-  handler: deleteTimelineDroppedEditsHandler,
 });
