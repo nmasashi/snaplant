@@ -561,7 +561,7 @@ class FakeTripBackend {
     }
   }
 
-  /// `GET …/timeline` の応答の `data`（下書きは状態だけ）。文を直す・残せなかった文を閉じる応答も同じ形
+  /// `GET …/timeline` の応答の `data`（下書きは状態だけ）。文を直す応答も同じ形
   Map<String, Object?> _timelineBody(String tripId) {
     final timeline = timelinesByTripId[tripId];
     return {
