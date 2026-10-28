@@ -471,16 +471,13 @@ class FakeTripBackend {
         }
         final created = {
           'id': '0b8e1c5a-0000-4000-8000-${(_timelineDraftCount++).toString().padLeft(12, '0')}',
-          'reason': timeline?['current'] == null ? 'create' : 'rebuild',
+          'reason': 'create',
           'phase': 'proposing',
           'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
           'startedAt': timelineStartedAt,
         };
-        timelinesByTripId[tripId] = {
-          'current': timeline?['current'],
-          'draft': created,
-          'changes': timeline?['changes'],
-        };
+        // 完成版があれば消す（作り直しは今のタイムラインを消して一から作る。05 §5.15）
+        timelinesByTripId[tripId] = {'current': null, 'draft': created, 'changes': null};
         return _ok(202, {'draft': created, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraft:
         // 日と場面を返すのは、区切りを確かめられる下書きだけ（本物と同じ）

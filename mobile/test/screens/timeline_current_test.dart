@@ -198,7 +198,7 @@ void main() {
   });
 
   group('完成版の上の下書きの案内', () {
-    /// 完成版の上の下書き（作り直し・区切りの直し）
+    /// 完成版の上の下書き（区切りの直し。作る・作り直しの下書きは作っている間の表示になる。trip_timeline_test.dart）
     Map<String, Object?> draftOf(String reason, String phase,
             {String? step, String state = 'pending'}) =>
         {
@@ -220,34 +220,14 @@ void main() {
       // 1つのテストで下書きを取り替えながらアプリを開き直す（開き直すたびに木は作り直される）
       for (final (label, draft, texts) in [
       (
-        '作り直しで区切りの案を作っているとき',
-        draftOf('rebuild', 'proposing', step: 'propose'),
-        ['作り直しの区切りの案を作っています', 'やめる']
-      ),
-      (
-        '作り直しの確かめ待ちのとき',
-        draftOf('rebuild', 'reviewing'),
-        ['作り直しの区切りの案ができました', '区切りを確認する', 'やめる']
-      ),
-      (
         '区切りの直しの途中のとき',
         draftOf('recut', 'reviewing'),
         ['区切りを直している途中です', '続ける', 'やめる']
       ),
       (
-        '文を書き直しているとき',
-        draftOf('rebuild', 'writing', step: 'write'),
-        ['見出しと一言を書き直しています']
-      ),
-      (
-        '作り直しの区切りの案を作れなかったとき',
-        draftOf('rebuild', 'proposing', step: 'propose', state: 'failed'),
-        ['作り直しの区切りの案を作れませんでした', 'もう一度', 'やめる']
-      ),
-      (
         '文を書き直せなかったとき',
         draftOf('recut', 'writing', step: 'write', state: 'failed'),
-        ['見出しと一言を書き直せませんでした', 'もう一度', '区切りを確認する', 'やめる']
+        ['見出しと一言を書き直せませんでした', 'もう一度', '案を確認する', 'やめる']
       ),
     ]) {
         await _openTimeline(tester, draft: draft);
@@ -290,10 +270,10 @@ void main() {
       expect(find.text('タイムラインの操作に失敗しました'), findsNothing);
     });
 
-    testWidgets('「やめる」は「作り直しをやめて、今のタイムラインのままにしますか？」を出し、「やめる」で下書きを消して完成版だけに戻る',
+    testWidgets('編集している途中の「やめる」は確認のダイアログを出し、「やめる」で下書きを消して完成版だけに戻る',
         (tester) async {
       final backend =
-          await _openTimeline(tester, draft: draftOf('rebuild', 'reviewing'));
+          await _openTimeline(tester, draft: draftOf('recut', 'reviewing'));
 
       await tester.tap(find.text('やめる'));
       await letFramesRun(tester);
@@ -301,7 +281,7 @@ void main() {
       await tapInDialog(tester, 'やめる');
 
       expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
-      expect(find.text('作り直しの区切りの案ができました'), findsNothing);
+      expect(find.text('区切りを直している途中です'), findsNothing);
       expect(find.text('区切りを直す'), findsOneWidget);
     });
 
@@ -370,10 +350,10 @@ void main() {
       await letFramesRun(tester);
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
       expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
-    testWidgets('「作り直す」は確認のダイアログを出し、「作り直す」で作り直しを始めて、完成版の上に案内を出す',
+    testWidgets('「作り直す」は確認のダイアログを出し、「作り直す」で今のタイムラインを消して作り始め、作っている間の表示にする',
         (tester) async {
       final backend = await _openTimeline(tester);
 
@@ -386,12 +366,9 @@ void main() {
           findsOneWidget);
       await tapInDialog(tester, '作り直す');
 
-      expect(
-          (backend.timelinesByTripId[hokkaidoTripId]!['draft']
-              as Map)['reason'],
-          'rebuild');
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
-      expect(find.text('朝ごはん'), findsOneWidget);
+      expect(backend.timelinesByTripId[hokkaidoTripId]!['current'], isNull);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      expect(find.text('朝ごはん'), findsNothing);
     });
 
     testWidgets('「区切りを直す」を送っている間は、「区切りを直す」「作り直す」を押せない', (tester) async {
@@ -440,7 +417,7 @@ void main() {
       });
       await tapBack(tester);
       await letFramesRun(tester);
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -467,7 +444,7 @@ void main() {
         (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
-      // 写真 1 は旅行に無い（作った後に消えた）。読み直したことを、作り直しの案内が出ることで確かめる
+      // 写真 1 は旅行に無い（作った後に消えた）。読み直したことを、作っている間の表示が出ることで確かめる
       backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',
         'reason': 'rebuild',
@@ -479,7 +456,7 @@ void main() {
       await tester.tap(photoThumbnail('2026年10月5日 07:50'));
       await letFramesRun(tester);
       expect(find.text('この写真は削除されています'), findsOneWidget);
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -494,31 +471,6 @@ void main() {
       expect(find.text('朝ごはん'), findsOneWidget);
       semantics.dispose();
     });
-  });
-
-  testWidgets('作り直しの区切りの確認画面の「やめる」は、作り直しをやめるダイアログを出し、完成版だけに戻る', (tester) async {
-    final backend = await _openTimeline(tester, draft: {
-      'id': '0b8e1c5a-0000-4000-8000-000000000099',
-      'reason': 'rebuild',
-      'phase': 'reviewing',
-      'job': null,
-      'startedAt': '2026-10-26T09:00:00.000Z',
-      'days': <Object?>[],
-      'undatedPhotos': <Object?>[],
-    });
-    await tester.tap(find.text('区切りを確認する'));
-    await letFramesRun(tester);
-
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await letFramesRun(tester);
-    await tester.tap(find.text('やめる'));
-    await letFramesRun(tester);
-    expect(inDialog(find.text('作り直しをやめて、今のタイムラインのままにしますか？')), findsOneWidget);
-    await tapInDialog(tester, 'やめる');
-
-    expect(backend.timelinesByTripId[hokkaidoTripId]!['draft'], isNull);
-    expect(find.text('区切りを確認'), findsNothing);
-    expect(find.text('区切りを直す'), findsOneWidget);
   });
 
   testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、一言の無い場面はその行を出さない', (tester) async {
@@ -782,7 +734,7 @@ void main() {
         final backend = await _openTimeline(tester);
         backend.failNext(TripRoute.timelineScenePatch,
             status: status, code: code, message: message);
-        // 読み直したことを、作り直しの案内が出ることで確かめる
+        // 読み直したことを、作っている間の表示が出ることで確かめる
         backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
           'id': '0b8e1c5a-0000-4000-8000-000000000099',
           'reason': 'rebuild',
@@ -799,7 +751,7 @@ void main() {
         expect(find.text('場面を編集'), findsNothing, reason: label);
         expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget,
             reason: label);
-        expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget,
+        expect(find.text('タイムラインの案を作っています'), findsOneWidget,
             reason: label);
       }
       semantics.dispose();
@@ -826,9 +778,9 @@ void main() {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester, draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'rebuild',
-        'phase': 'proposing',
-        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'reason': 'recut',
+        'phase': 'reviewing',
+        'job': null,
         'startedAt': '2026-10-26T09:00:00.000Z',
       });
 
@@ -887,14 +839,14 @@ void main() {
         'removed': 2
       }, draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'rebuild',
-        'phase': 'proposing',
-        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
+        'reason': 'recut',
+        'phase': 'reviewing',
+        'job': null,
         'startedAt': '2026-10-26T09:00:00.000Z',
       });
 
       expect(find.textContaining('作った後に写真が'), findsNothing);
-      expect(find.text('作り直しの区切りの案を作っています'), findsOneWidget);
+      expect(find.text('区切りを直している途中です'), findsOneWidget);
     });
 
     testWidgets('解析中の写真がある間は、写真が変わった案内の「作り直す」も押せない', (tester) async {

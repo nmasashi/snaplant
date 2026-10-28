@@ -193,25 +193,28 @@ void main() {
   });
 
   group('タイムラインを作っている間', () {
-    testWidgets('「タイムラインを作る」を押すと作り始め、区切りの案を作っていることと「やめる」を出す', (tester) async {
+    testWidgets('「タイムラインを作る」を押すと作り始め、タイムラインの案を作っていることと待ち時間の見込みを出し、「やめる」は出さない',
+        (tester) async {
       final backend = await _openTripDetail(tester);
       await _showTimeline(tester);
 
       await tester.tap(find.text('タイムラインを作る'));
       await letFramesRun(tester);
       expect(_draftOf(backend)?['phase'], 'proposing');
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
-      expect(find.text('この画面を閉じても続きます。'), findsOneWidget);
-      expect(find.text('やめる'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      expect(find.text('ふつうは1分ほどで終わります。混んでいると10分ほどかかることがあります。この画面を閉じても続きます。'),
+          findsOneWidget);
+      expect(find.text('やめる'), findsNothing);
       expect(find.text('タイムラインはまだありません'), findsNothing);
     });
 
-    testWidgets('作っている間は 5 秒ごとに下書きを読み直し、区切りの案ができたら「区切りの案ができました」を出す',
+    testWidgets(
+        '作っている間は 5 秒ごとに下書きを読み直し、案ができたら「タイムラインの案ができました」と「案を確認する」を出す（「やめる」は出さない）',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
       await _showTimeline(tester);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
       expect(backend.timelineDraftReadsReceived, 0);
 
       await _waitForPoll(tester);
@@ -221,24 +224,26 @@ void main() {
           draft: _draft('proposing', step: 'propose', state: 'running'));
       await _waitForPoll(tester);
       expect(backend.timelineDraftReadsReceived, 2);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
 
       backend.timelinesByTripId[hokkaidoTripId] =
           _timeline(draft: _draft('reviewing'));
       await _waitForPoll(tester);
-      expect(find.text('区切りの案ができました'), findsOneWidget);
-      expect(find.text('やめる'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsNothing);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
+      expect(find.text('場面の分け方を確かめてから、AI が見出しと一言を書きます。'), findsOneWidget);
+      expect(find.text('案を確認する'), findsOneWidget);
+      expect(find.text('やめる'), findsNothing);
+      expect(find.text('タイムラインの案を作っています'), findsNothing);
     });
 
-    testWidgets('区切りの案ができたら、下書きの読み直しをやめる', (tester) async {
+    testWidgets('案ができたら、下書きの読み直しをやめる', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
       await _showTimeline(tester);
       backend.timelinesByTripId[hokkaidoTripId] =
           _timeline(draft: _draft('reviewing'));
       await _waitForPoll(tester);
-      expect(find.text('区切りの案ができました'), findsOneWidget);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
 
       final reads = backend.timelineDraftReadsReceived;
       await _waitForPoll(tester);
@@ -266,39 +271,16 @@ void main() {
       await _waitForPoll(tester);
       // 失敗を使い切った印
       expect(backend.timelineDraftReadsReceived, 1);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
       expect(find.text('エラーが発生しました'), findsNothing);
 
       backend.timelinesByTripId[hokkaidoTripId] =
           _timeline(draft: _draft('reviewing'));
       await _waitForPoll(tester);
-      expect(find.text('区切りの案ができました'), findsOneWidget);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
     });
 
-    for (final (label, failsRead) in [('届いた', false), ('失敗して届いた', true)]) {
-      testWidgets('読み直しの応答を待つ間に「やめる」で表示が替わったら、遅れて$label応答で作っている表示に戻さない',
-          (tester) async {
-        final backend = await _openTripDetail(tester,
-            timeline: _timeline(draft: _draft('proposing', step: 'propose')));
-        await _showTimeline(tester);
-        // 応答の中身は届いた時点（まだ作っている途中）で決まる
-        if (failsRead) backend.failNext(TripRoute.timelineDraft);
-        final hold = backend.holdNextReply(TripRoute.timelineDraft);
-        await _waitForPoll(tester);
-
-        await tester.tap(find.text('やめる'));
-        await letFramesRun(tester);
-        await tapInDialog(tester, '捨てる');
-        expect(find.text('タイムラインはまだありません'), findsOneWidget);
-
-        hold.complete();
-        await letFramesRun(tester);
-        expect(find.text('タイムラインはまだありません'), findsOneWidget);
-        expect(find.text('区切りの案を作っています'), findsNothing);
-      });
-    }
-
-    testWidgets('区切りの案ができて読み直したタイムラインが読めなくても、表示は変えず、5 秒後にもう一度読む',
+    testWidgets('案ができて読み直したタイムラインが読めなくても、表示は変えず、5 秒後にもう一度読む',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
@@ -309,84 +291,10 @@ void main() {
 
       await _waitForPoll(tester);
       expect(find.text('エラーが発生しました'), findsNothing);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
 
       await _waitForPoll(tester);
-      expect(find.text('区切りの案ができました'), findsOneWidget);
-    });
-
-    testWidgets('読み直したタイムラインの応答を待つ間に「捨てる」で読み直したら、遅れて届いた先の応答で表示を戻さない',
-        (tester) async {
-      final backend = await _openTripDetail(tester,
-          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
-      await _showTimeline(tester);
-      // 区切りの案ができ、読み直しの GET …/timeline を止める（応答の中身は届いた時点の「確かめ待ち」で決まる）
-      backend.timelinesByTripId[hokkaidoTripId] =
-          _timeline(draft: _draft('reviewing'));
-      final hold = backend.holdNextReply(TripRoute.timeline);
-      await _waitForPoll(tester);
-
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '捨てる');
-      expect(find.text('タイムラインはまだありません'), findsOneWidget);
-
-      hold.complete();
-      await letFramesRun(tester);
-      expect(find.text('タイムラインはまだありません'), findsOneWidget);
-      expect(find.text('区切りの案ができました'), findsNothing);
-    });
-
-    testWidgets('読み直しの応答を待つ間に「捨てる」を押したら、遅れて届いた応答が段の変化を伝えても、捨てた下書きを出さない',
-        (tester) async {
-      final backend = await _openTripDetail(tester,
-          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
-      await _showTimeline(tester);
-      // 読み直しの応答は「確かめ待ち」で決まり、届くのを止める
-      backend.timelinesByTripId[hokkaidoTripId] =
-          _timeline(draft: _draft('reviewing'));
-      final draftHold = backend.holdNextReply(TripRoute.timelineDraft);
-      await _waitForPoll(tester);
-
-      // 「捨てる」の後の読み直し（何も無い）も、届くのを止める
-      final reloadHold = backend.holdNextReply(TripRoute.timeline);
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '捨てる');
-      // 遅れて届いた読み直しの応答を使ってしまうと、段の変化を見て続けてタイムラインを読み、その失敗で捨てた下書きを出し直す（直す前の誤り）。
-      // その読み込みを失敗させておき、退行したら「区切りの案を作っています」が出るようにする（今は読まないので、この失敗は使われない）
-      backend.failNext(TripRoute.timeline);
-      draftHold.complete();
-      await letFramesRun(tester);
-      reloadHold.complete();
-      await letFramesRun(tester);
-
-      expect(find.text('タイムラインはまだありません'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsNothing);
-    });
-
-    testWidgets('操作の後の読み直しに失敗してエラーを出したら、遅れて届いた下書きの読み直しでエラーを消さない',
-        (tester) async {
-      final backend = await _openTripDetail(tester,
-          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
-      await _showTimeline(tester);
-      final draftHold = backend.holdNextReply(TripRoute.timelineDraft);
-      await _waitForPoll(tester);
-
-      backend.failNext(TripRoute.timelineDraftDelete,
-          status: 409,
-          code: 'TIMELINE_STATE_CONFLICT',
-          message: 'タイムラインが変わったか、作っている途中です。読み直してください');
-      backend.failNext(TripRoute.timeline);
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '捨てる');
-      expect(find.text('エラーが発生しました'), findsOneWidget);
-
-      draftHold.complete();
-      await letFramesRun(tester);
-      expect(find.text('エラーが発生しました'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsNothing);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
     });
 
     testWidgets('「写真」に戻すと、下書きの読み直しを止める', (tester) async {
@@ -417,28 +325,28 @@ void main() {
       expect(backend.timelineDraftReadsReceived, 1);
     });
 
-    testWidgets('文を書いている間は、3つの段と「見出しと一言を書いています」を出し、書き終えたら読み直して完成版を出す',
+    testWidgets('文を書いている間は、3つの段と「見出しと一言を書いています」・待ち時間の見込みを出し、書き終えたら読み直して完成版を出す',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('writing', step: 'write')));
       await _showTimeline(tester);
       expect(find.text('見出しと一言を書いています'), findsOneWidget);
-      expect(find.text('この画面を閉じても続きます。'), findsOneWidget);
-      for (final step in ['区切りの案', '区切りの確認', '見出しと一言']) {
+      expect(find.text('ふつうは1分ほどで終わります。この画面を閉じても続きます。'), findsOneWidget);
+      for (final step in ['タイムラインの案', '案の確認', '見出しと一言']) {
         expect(find.text(step), findsOneWidget);
       }
-      // 済んだ2つ（区切りの案・区切りの確認）に印
+      // 済んだ2つ（タイムラインの案・案の確認）に印
       expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
 
       // 書き終えると、下書きが完成版に入れ替わる（06 §8.3）
       backend.timelinesByTripId[hokkaidoTripId] = _timeline(current: _current);
       await _waitForPoll(tester);
       expect(find.text('見出しと一言を書いています'), findsNothing);
-      expect(find.text('作り直す'), findsOneWidget);
+      expect(find.textContaining('に作成'), findsOneWidget);
     });
 
     testWidgets(
-        '区切りの案を作っている間に失敗したら、「区切りの案を作れませんでした」と「もう一度」「やめる」を出し、「もう一度」で作り直す',
+        '案を作っている間に失敗したら、「タイムラインの案を作れませんでした」と「もう一度」を出し（「やめる」は出さない）、「もう一度」で作り直す',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
@@ -448,17 +356,18 @@ void main() {
           draft: _draft('proposing',
               step: 'propose', state: 'failed', lastError: 'ai'));
       await _waitForPoll(tester);
-      expect(find.text('区切りの案を作れませんでした'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsNothing);
-      expect(find.text('やめる'), findsOneWidget);
+      expect(find.text('タイムラインの案を作れませんでした'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsNothing);
+      expect(find.text('やめる'), findsNothing);
 
       await tester.tap(find.text('もう一度'));
       await letFramesRun(tester);
       expect(_draftOf(backend)?['job'], containsPair('state', 'pending'));
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
-    testWidgets('見出しと一言を書けなかったら「見出しと一言を書けませんでした」と「もう一度」「やめる」を出し、「もう一度」で書き直す',
+    testWidgets(
+        '見出しと一言を書けなかったら「見出しと一言を書けませんでした」と「もう一度」「案を確認する」を出し（「やめる」は出さない）、「もう一度」で書き直す',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(
@@ -466,7 +375,8 @@ void main() {
                   step: 'write', state: 'failed', lastError: 'ai')));
       await _showTimeline(tester);
       expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
-      expect(find.text('やめる'), findsOneWidget);
+      expect(find.text('案を確認する'), findsOneWidget);
+      expect(find.text('やめる'), findsNothing);
 
       await tester.tap(find.text('もう一度'));
       await letFramesRun(tester);
@@ -476,27 +386,21 @@ void main() {
     });
   });
 
+  testWidgets('完成版があっても、5-6 より前に始めた作り直しの下書き（rebuild）があれば、作っている間の表示にする',
+      (tester) async {
+    await _openTripDetail(tester,
+        timeline: _timeline(
+            current: _current,
+            draft: {
+              ..._draft('proposing', step: 'propose'),
+              'reason': 'rebuild'
+            }));
+    await _showTimeline(tester);
+    expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+    expect(find.textContaining('に作成'), findsNothing);
+  });
+
   group('タイムラインの操作', () {
-    testWidgets('「やめる」は確認のダイアログを出し、「捨てる」で下書きを消して読み直し、「キャンセル」なら何もしない',
-        (tester) async {
-      final backend = await _openTripDetail(tester,
-          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
-      await _showTimeline(tester);
-
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      expect(inDialog(find.text('作りかけのタイムラインを捨てますか？')), findsOneWidget);
-      await tapInDialog(tester, 'キャンセル');
-      expect(_draftOf(backend), isNotNull);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
-
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '捨てる');
-      expect(backend.timelinesByTripId[hokkaidoTripId], isNull);
-      expect(find.text('タイムラインはまだありません'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsNothing);
-    });
 
     testWidgets(
         '読んだ後に別の端末が作り始めていたら（409 TIMELINE_STATE_CONFLICT）、「タイムラインが変わりました。読み直しました」を出して読み直す',
@@ -509,20 +413,21 @@ void main() {
       await tester.tap(find.text('タイムラインを作る'));
       await letFramesRun(tester);
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
     testWidgets(
-        '読んだ後に別の端末が下書きをやめていたら（404 TIMELINE_NOT_FOUND）、「タイムラインが変わりました。読み直しました」を出して読み直す',
+        '読んだ後に別の端末が下書きを無くしていたら（404 TIMELINE_NOT_FOUND）、「タイムラインが変わりました。読み直しました」を出して読み直す',
         (tester) async {
       final backend = await _openTripDetail(tester,
-          timeline: _timeline(draft: _draft('reviewing')));
+          timeline: _timeline(
+              draft: _draft('writing',
+                  step: 'write', state: 'failed', lastError: 'ai')));
       await _showTimeline(tester);
       backend.timelinesByTripId.remove(hokkaidoTripId);
 
-      await tester.tap(find.text('やめる'));
+      await tester.tap(find.text('もう一度'));
       await letFramesRun(tester);
-      await tapInDialog(tester, '捨てる');
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
       expect(find.text('タイムラインはまだありません'), findsOneWidget);
     });
@@ -581,26 +486,28 @@ void main() {
 
       hold.complete();
       await letFramesRun(tester);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
     testWidgets('操作を送っている間は、タイムラインの操作のボタンを押せない', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(
-              draft: _draft('proposing',
-                  step: 'propose', state: 'failed', lastError: 'ai')));
+              draft: _draft('writing',
+                  step: 'write', state: 'failed', lastError: 'ai')));
       await _showTimeline(tester);
-      final hold = backend.holdNextReply(TripRoute.timelineCreate);
+      final fail = backend.holdNextReply(TripRoute.timelineWrite);
+      backend.failNext(TripRoute.timelineWrite);
 
       await tester.tap(find.text('もう一度'));
       await letFramesRun(tester);
       expect(_button(tester, 'もう一度').onPressed, isNull);
-      expect(_button(tester, 'やめる').onPressed, isNull);
+      expect(_button(tester, '案を確認する').onPressed, isNull);
 
-      hold.complete();
+      // 失敗したら表示はそのまま、また押せる
+      fail.complete();
       await letFramesRun(tester);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
-      expect(_button(tester, 'やめる').onPressed, isNotNull);
+      expect(_button(tester, 'もう一度').onPressed, isNotNull);
+      expect(_button(tester, '案を確認する').onPressed, isNotNull);
     });
   });
 }

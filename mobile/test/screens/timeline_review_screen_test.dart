@@ -5,7 +5,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 区切りの確認画面（docs/03_screen_design.md §8.4。段階5の 5-3b）。
-// 入口は旅行詳細の「タイムライン」の「区切りを確認する」。区切りの保存は偽のサーバが本物と同じ決まりで場面を組み直す
+// 入口は旅行詳細の「タイムライン」の「案を確認する」。区切りの保存は偽のサーバが本物と同じ決まりで場面を組み直す
 
 /// 1日目（10月5日）の朝ごはん（2枚）と小樽（2枚）、2日目（10月6日）の札幌（1枚）、日時なし（1枚）
 final _photos = {
@@ -93,20 +93,20 @@ ButtonStyleButton _button(WidgetTester tester, String label) =>
     tester.widget<ButtonStyleButton>(find.ancestor(
         of: find.text(label), matching: find.bySubtype<ButtonStyleButton>()));
 
-/// 「区切りを確認する」で区切りの確認画面を開く
+/// 「案を確認する」で案の確認画面を開く
 Future<void> _openReview(WidgetTester tester) async {
-  await tester.tap(find.text('区切りを確認する'));
+  await tester.tap(find.text('案を確認する'));
   await letFramesRun(tester);
 }
 
 void main() {
   group('区切りの確認画面を開く', () {
     testWidgets(
-        '確かめ待ちの「区切りを確認する」で開き、説明・日ごとの見出し・場面のカード・同じ日の場面の間の「つなげる」（日の境目には置かない）・日時なし・見出しを付けるボタンを出す',
+        '確かめ待ちの「案を確認する」で開き、説明・日ごとの見出し・場面のカード・同じ日の場面の間の「つなげる」（日の境目には置かない）・日時なし・見出しを付けるボタンを出す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester);
-      expect(find.text('区切りの案ができました'), findsOneWidget);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
 
       await _openReview(tester);
       expect(find.text('区切りを確認'), findsOneWidget);
@@ -204,7 +204,7 @@ void main() {
       await _openReview(tester);
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
       expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
     testWidgets('開いたときに旅行が別の端末で消されていたら、旅行詳細に戻って「この旅行は削除されています」を出す',
@@ -342,7 +342,7 @@ void main() {
       await letFramesRun(tester);
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
       expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
     testWidgets('保存のときに旅行が別の端末で消されていたら、旅行詳細に戻って「この旅行は削除されています」を出す',
@@ -357,7 +357,7 @@ void main() {
       expect(find.text('この旅行は削除されています'), findsOneWidget);
     });
 
-    testWidgets('見出しと一言を書けなかった下書きでも「区切りを確認する」から区切りを直せ、戻ると旅行詳細が今の状態（確かめ待ち）を出す',
+    testWidgets('見出しと一言を書けなかった下書きでも「案を確認する」から区切りを直せ、戻ると旅行詳細が今の状態（確かめ待ち）を出す',
         (tester) async {
       await _openTimeline(tester, draft: _writeFailedDraft());
       expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
@@ -371,7 +371,7 @@ void main() {
       await letFramesRun(tester);
       await tester.tap(find.byIcon(Icons.close));
       await letFramesRun(tester);
-      expect(find.text('区切りの案ができました'), findsOneWidget);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
     });
   });
 
@@ -475,7 +475,7 @@ void main() {
       await tapInDialog(tester, '出し直す');
 
       expect(find.text('区切りを確認'), findsNothing);
-      expect(find.text('区切りの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
     });
 
     testWidgets('メニューの「やめる」は「作りかけのタイムラインを捨てますか？」を出し、「キャンセル」なら何もせず、「捨てる」で下書きを消して旅行詳細に戻る',
