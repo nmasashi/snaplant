@@ -2,7 +2,7 @@ import { TIMELINE_WRITE_MAX_TOKENS } from '../constants/album';
 import { TIMELINE_VALIDATION } from '../constants/validation';
 import { UpstreamError } from '../utils/errors';
 import { OpenAIVisionService } from './openAIVisionService';
-import { TimelinePromptPhoto, dayRangesOf, photoLineOf } from './timelinePrompt';
+import { TimelinePromptPhoto, dayRangesOf, oneLine, photoLineOf } from './timelinePrompt';
 import { GRAPHEMES } from '../utils/graphemes';
 
 /**
@@ -159,9 +159,9 @@ function sceneEndsOf(sceneStarts: number[], photoCount: number): Map<number, num
   return new Map(sceneStarts.map((start, index) => [start, (sceneStarts[index + 1] ?? photoCount) - 1]));
 }
 
-/** 書いてほしい場面の範囲に、利用者のコメントがあれば添える */
+/** 書いてほしい場面の範囲に、利用者のコメントがあれば1行にして添える（改行の後ろが写真の行や指示の行に見えないように） */
 function withComment(range: string, comment: string | undefined): string {
-  return comment === undefined ? range : `${range}（利用者のコメント「${comment}」）`;
+  return comment === undefined ? range : `${range}（利用者のコメント「${oneLine(comment)}」）`;
 }
 
 /**
