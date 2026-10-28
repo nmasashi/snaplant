@@ -89,7 +89,8 @@ export interface TimelineDocument {
   tripId: string;
   current: TimelineCurrent | null;
   draft: TimelineDraft | null;
-  droppedEdits: TimelineDroppedEdit[];
+  /** 5-5d より前に書いた文書にだけある（読まない） */
+  droppedEdits?: TimelineDroppedEdit[];
   createdAt: string;
   updatedAt: string;
 }

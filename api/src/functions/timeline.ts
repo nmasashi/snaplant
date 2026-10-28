@@ -80,7 +80,6 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
           tripId,
           current: null,
           draft,
-          droppedEdits: [],
           createdAt: now,
           updatedAt: now,
         };
