@@ -810,6 +810,32 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     }));
 
+    it('場面のコメントがオブジェクトでない・文字列でない値を含む・前後の空白を除いて100文字を超えるときは、400 で何も書かない', () => forEachCase<[string, unknown, string]>([
+      ['配列', [], '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['null', null, '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['文字列', '朝市', '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['文字列でない値を含む', { [photoId('a')]: '朝市', [photoId('c')]: 1 }, '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['101文字', { [photoId('a')]: 'あ'.repeat(101) }, '場面のコメントは100文字以内で指定してください']
+    ], async (_label, sceneComments, message) => {
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: proposed, sceneComments });
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    }));
+
+    it('場面のコメントは、前後の空白を除いて100文字までなら保存する', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: ` ${'あ'.repeat(100)} ` } });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
+    });
+
     it('区切りが控えに無い・撮影日時の無い・重なった写真を含むときは、400（区切りが無効です）', () => forEachCase<[string, string[]]>([
       ['控えに無い写真を含む', [photoId('a'), photoId('z'), photoId('d')]],
       ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
