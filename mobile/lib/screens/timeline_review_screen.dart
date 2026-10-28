@@ -97,16 +97,18 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         ],
       ]);
 
-  /// [scene] を前の場面とつなげる（[scene] の区切りを外す）
+  /// [scene] を前の場面とつなげる（[scene] の区切りを外す。§8.7）
   ///
-  /// 場面のコメントは前の場面のものを残し、前に無ければ後ろのものを引き継ぐ。両方にあるときだけ、後ろのコメントが消えることを確かめる（§8.7）
+  /// タイムラインを編集するときは、後ろの場面の見出しと一言が消えることを確かめる（あれば）。
+  /// それ以外は、場面のコメントは前の場面のものを残し、前に無ければ後ろのものを引き継ぐ。両方にあるときだけ、後ろのコメントが消えることを確かめる
   Future<void> _merge(TimelineScene scene) async {
+    final starts = [
+      for (final start in _sceneStarts())
+        if (start != scene.startPhotoId) start
+    ];
     if (_draft!.reason == 'recut') {
       if (!await _confirmDroppingTexts(scene) || !mounted) return;
-      await _save([
-        for (final start in _sceneStarts())
-          if (start != scene.startPhotoId) start
-      ]);
+      await _save(starts);
       return;
     }
     final previous = _previousScene(scene);
@@ -122,10 +124,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     if (kept == null && dropped != null) {
       comments[previous.startPhotoId] = dropped;
     }
-    await _save([
-      for (final start in _sceneStarts())
-        if (start != scene.startPhotoId) start
-    ], comments: comments);
+    await _save(starts, comments: comments);
   }
 
   /// タイムラインを編集するとき、つなげて消える後ろの場面の見出しと一言（完成版のもの）があれば確かめる。無ければ確かめずに true
