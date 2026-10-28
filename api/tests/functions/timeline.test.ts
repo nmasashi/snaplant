@@ -639,7 +639,7 @@ describe('タイムラインを読むAPI（GET）', () => {
   it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、日時の無い写真は別にまとめる（5-5d より前に書いた残せなかった文が文書に残っていても返さない）', async () => {
     placeCurrentSnapshot();
     // 5-5d より前に書いた文書（今の型には無い欄）
-    cosmosBackend.documents.set(TIMELINE_ID, { ...timelineDocument(TRIP_ID, { current }), droppedEdits: DROPPED });
+    cosmosBackend.documents.set(TIMELINE_ID, { ...timelineDocument(TRIP_ID, { current }), droppedEdits: DROPPED } as any);
 
     expect(await read()).toEqual({
       timeline: {
