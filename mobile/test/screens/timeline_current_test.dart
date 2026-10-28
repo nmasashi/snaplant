@@ -432,7 +432,9 @@ void main() {
           findsOneWidget);
       await tapInDialog(tester, '作り直す');
 
-      expect(backend.timelinesByTripId[hokkaidoTripId]!['current'], isNull);
+      expect(
+          (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
+          'proposing');
       expect(find.text('タイムラインの案を作っています'), findsOneWidget);
       expect(find.text('朝ごはん'), findsNothing);
     });
