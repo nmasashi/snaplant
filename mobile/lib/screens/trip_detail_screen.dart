@@ -54,15 +54,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   String? _category;
   // 「タイムライン」を出しているか（切り替え。§8.1）。画面を開き直すと「写真」に戻る
   bool _showsTimeline = false;
-  // 「タイムライン」が上のバーのメニューに足す項目（§8.3）。タイムラインの表示が入れる
-  final _timelineMenu = ValueNotifier<TimelineMenu?>(null);
+  // 「タイムライン」が上のバーのメニューに足す項目（§8.3）。タイムラインの表示が描くたびに入れ、メニューを開くときに読む
+  TimelineMenu? _timelineMenu;
   StreamSubscription<UploadBatchResult>? _uploadFinished;
 
   @override
   void dispose() {
     _uploadFinished?.cancel();
     _selection.dispose();
-    _timelineMenu.dispose();
     super.dispose();
   }
 
@@ -234,7 +233,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 上のバーのメニューのタイムラインの項目（「タイムラインを編集」「タイムラインを作り直す」と区切り線）。出さないときは空
   List<PopupMenuEntry<void>> _timelineMenuItems() {
-    final menu = _showsTimeline ? _timelineMenu.value : null;
+    final menu = _showsTimeline ? _timelineMenu : null;
     if (menu == null) return const [];
     final pending = menu.pendingPhotoCount;
     return [
@@ -286,7 +285,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             onSelectionChanged: (selected) => setState(() {
               _showsTimeline = selected.single;
               // 前に開いていたタイムラインの項目を残さない（開き直したタイムラインが読めたら入れ直す）
-              _timelineMenu.value = null;
+              _timelineMenu = null;
             }),
           ),
         );
@@ -375,7 +374,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               uploadQueue: widget.uploadQueue,
               tripId: trip.id,
               onTripNotFound: _markTripDeleted,
-              menu: _timelineMenu,
+              onMenuChanged: (menu) => _timelineMenu = menu,
             ),
           ),
         if (!_showsTimeline) _buildCategoryChips(),

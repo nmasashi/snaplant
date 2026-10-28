@@ -16,7 +16,6 @@ import 'timeline_notices.dart';
 import 'timeline_confirm_dialog.dart';
 
 /// 旅行詳細の上のバーのメニューに足すタイムラインの項目（§8.1・§8.3）。押せないものは null
-@immutable
 class TimelineMenu {
   const TimelineMenu(
       {required this.onEdit,
@@ -31,16 +30,6 @@ class TimelineMenu {
 
   /// 解析が済んでいない写真の枚数（0 でなければ「作り直す」の下に添える）
   final int pendingPhotoCount;
-
-  @override
-  bool operator ==(Object other) =>
-      other is TimelineMenu &&
-      other.onEdit == onEdit &&
-      other.onRebuild == onRebuild &&
-      other.pendingPhotoCount == pendingPhotoCount;
-
-  @override
-  int get hashCode => Object.hash(onEdit, onRebuild, pendingPhotoCount);
 }
 
 /// 旅行詳細の「タイムライン」（docs/03_screen_design.md §8.1・§8.2）
@@ -53,7 +42,7 @@ class TripTimelineView extends StatefulWidget {
       required this.uploadQueue,
       required this.tripId,
       required this.onTripNotFound,
-      required this.menu});
+      required this.onMenuChanged});
 
   final ApiService apiService;
 
@@ -64,8 +53,9 @@ class TripTimelineView extends StatefulWidget {
   /// 旅行が既に無いと分かった（旅行詳細が「この旅行は削除されています」にする。写真の一覧と同じ）
   final VoidCallback onTripNotFound;
 
-  /// 旅行詳細のメニューに出すタイムラインの項目。完成版を出していて下書きが無いときだけ入れ、それ以外は null
-  final ValueNotifier<TimelineMenu?> menu;
+  /// 旅行詳細のメニューに出すタイムラインの項目を渡す（描くたび）。完成版を出していて下書きが無いときだけで、それ以外は null。
+  /// 旅行詳細はメニューを開くときに最後に受け取ったものを読むだけで、受け取っても描き直さない（描いている間に呼んでよい）
+  final ValueChanged<TimelineMenu?> onMenuChanged;
 
   @override
   State<TripTimelineView> createState() => _TripTimelineViewState();
@@ -225,7 +215,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         await _review(editing: true);
       });
 
-  /// 確かめてから作り直す（§8.6）。完成版の上に作り直しの案内を出す
+  /// 確かめてから作り直す（§8.6）。受け付けたら作っている間の表示にする（§8.2）
   Future<void> _rebuild() async {
     if (!await confirmRebuildTimeline(context) || !mounted) {
       return;
@@ -400,7 +390,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
 
   @override
   Widget build(BuildContext context) {
-    _publishMenu();
+    widget.onMenuChanged(_menu());
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return MessageView(
@@ -460,12 +450,11 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     );
   }
 
-  /// 旅行詳細のメニューのタイムラインの項目を、今の表示に合わせる（§8.3）。
-  /// 出すのは完成版を出していて下書きが無いときだけ。build の中で通知すると旅行詳細の描き直しと重なるので、描き終えてから入れる
-  void _publishMenu() {
+  /// 旅行詳細のメニューのタイムラインの項目（§8.3）。出すのは完成版を出していて下書きが無いときだけ
+  TimelineMenu? _menu() {
     final overview = _overview;
     final timeline = overview?.timeline;
-    final menu = overview != null &&
+    return overview != null &&
             _errorMessage == null &&
             timeline?.current != null &&
             timeline?.draft == null
@@ -476,9 +465,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
             pendingPhotoCount: overview.pendingPhotoCount,
           )
         : null;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.menu.value = menu;
-    });
   }
 
   /// 完成版も下書きも無い（§8.2 の1・2行目）
