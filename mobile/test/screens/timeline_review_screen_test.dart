@@ -419,7 +419,9 @@ void main() {
     testWidgets(
         '作るときは場面のカードに「コメントを書く」を出し、押すと「場面のコメント」のシート（100 文字まで）を出し、「保存」で区切りと一緒に送って、カードに「コメント: {コメント}」を出す',
         (tester) async {
-      final backend = await _openTimeline(tester);
+      // ほかの場面（3 の場面）のコメントを消さないことも見る
+      final backend = await _openTimeline(tester,
+          draft: _reviewingDraft(comments: {3: '運河を散歩'}));
       await _openReview(tester);
       expect(find.text('コメントを書く'), findsWidgets);
 
@@ -431,7 +433,7 @@ void main() {
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(savedComments(backend), {1: '空港で朝ごはん'});
+      expect(savedComments(backend), {1: '空港で朝ごはん', 3: '運河を散歩'});
       expect(find.text('場面のコメント'), findsNothing);
       expect(find.text('コメント: 空港で朝ごはん'), findsOneWidget);
     });

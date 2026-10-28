@@ -551,8 +551,19 @@ class FakeTripBackend {
         final days = _recutDays(draft, starts.cast<String>());
         if (days == null) return _error(400, 'INVALID_REQUEST', '区切りが無効です');
         // 場面のコメントは本物と同じく、送られたら前後の空白を除いて置き換え（空は持たない）、送られなければ残る場面の分を残す。
-        // 形・上限・鍵の検証は見ない（画面が欄で止め、場面の最初の写真にだけ付ける）
+        // 上限（100 文字。UTF-16 で数える）と、鍵が保存する場面の最初の写真にあることは本物と同じ文言の 400（形は見ない）。
+        // 偽物は写真が全部消えた見えない場面を持たないので、その区切りに付いた鍵は、本物と違い 400 になる
         final sent = (jsonDecode(request.body) as Map<String, Object?>)['sceneComments'] as Map<String, Object?>?;
+        final savedStarts = {
+          for (final day in days)
+            for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>()) scene['startPhotoId'],
+        };
+        if (sent != null && sent.values.any((value) => (value as String).trim().length > 100)) {
+          return _error(400, 'INVALID_REQUEST', '場面のコメントは100文字以内で指定してください');
+        }
+        if (sent != null && sent.keys.any((id) => !savedStarts.contains(id))) {
+          return _error(400, 'INVALID_REQUEST', '場面のコメントは場面の最初の写真に付けてください');
+        }
         final comments = sent == null
             ? _sceneCommentsOf(draft)
             : {

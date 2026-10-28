@@ -497,25 +497,30 @@ void main() {
       expect(firstDaySceneCount(backend), 1);
     });
 
-    testWidgets('編集で「つなげる」とき、後ろの場面に一言だけがあれば消える一言だけを添え、見出しも一言も無ければ確かめずにつなげる',
+    testWidgets('編集で「つなげる」とき、後ろの場面に一言だけがあれば、消える一言だけを添えて確かめる',
         (tester) async {
       final backend = await _openTimeline(tester,
           current: currentWithSecondScene(label: null, note: '運河沿いを歩いた。'));
       await _chooseFromMenu(tester, 'タイムラインを編集');
+
       await tester.tap(find.text('つなげる'));
       await letFramesRun(tester);
       expect(inDialog(find.text('消える一言: 運河沿いを歩いた。')), findsOneWidget);
       expect(inDialog(find.textContaining('消える見出し')), findsNothing);
       await tapInDialog(tester, 'キャンセル');
+      expect(firstDaySceneCount(backend), 2);
+    });
 
-      final emptyBackend = await _openTimeline(tester,
+    testWidgets('編集で「つなげる」とき、後ろの場面に見出しも一言も無ければ、確かめずにつなげる',
+        (tester) async {
+      final backend = await _openTimeline(tester,
           current: currentWithSecondScene(label: null, note: null));
       await _chooseFromMenu(tester, 'タイムラインを編集');
+
       await tester.tap(find.text('つなげる'));
       await letFramesRun(tester);
       expect(inDialog(find.text('場面をつなげますか？')), findsNothing);
-      expect(firstDaySceneCount(emptyBackend), 1);
-      expect(firstDaySceneCount(backend), 2);
+      expect(firstDaySceneCount(backend), 1);
     });
 
     testWidgets('「作り直す」のダイアログで「キャンセル」を押すと、何もしない', (tester) async {

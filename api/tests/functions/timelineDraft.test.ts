@@ -264,7 +264,7 @@ describe('タイムラインの下書きAPI', () => {
             proposedStarts: [photoId('a')],
             sceneStarts: [photoId('a'), photoId('c')],
             sceneComments: { [photoId('c')]: '運河沿いを散歩した' }
-          } as Partial<TimelineDraft>)
+          })
         )
       );
 
