@@ -404,7 +404,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
     final current = timeline.current;
-    if (current == null) return _buildDraft(draft!);
+    // 完成版の上に出すのはタイムラインの編集（recut）の下書きだけ。作る下書き（5-6 より前に始めた作り直しも）は作っている間の表示（§8.2）
+    if (current == null || (draft != null && draft.reason != 'recut')) {
+      return _buildDraft(draft!);
+    }
     return TimelineCurrentView(
       current: current,
       pendingPhotoCount: overview.pendingPhotoCount,
@@ -455,7 +458,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     final (String title, List<Widget> actions) = switch (draft.phase) {
       'writing' when draft.isFailed => (
           '見出しと一言を書き直せませんでした',
-          [retry(_write), review('区切りを確認する'), discard]
+          [retry(_write), review('案を確認する'), discard]
         ),
       'writing' => ('見出しと一言を書き直しています', const <Widget>[]),
       'reviewing' when draft.reason == 'recut' => (
@@ -472,14 +475,12 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     return TimelineNoticeCard(text: title, actions: actions);
   }
 
-  /// 下書きの状態（§8.2 の3行目から）
+  /// 下書きの状態（§8.2 の3行目から）。作り始めたら最後まで進むので「やめる」は出さない
   Widget _buildDraft(TimelineDraftStatus draft) {
-    final discard = OutlinedButton(
-        onPressed: _sending ? null : _discard, child: const Text('やめる'));
-    // 区切りの確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
+    // 案の確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
     Widget review({required bool primary}) {
       final onPressed = _sending ? null : _review;
-      const label = Text('区切りを確認する');
+      const label = Text('案を確認する');
       return primary
           ? ElevatedButton(onPressed: onPressed, child: label)
           : OutlinedButton(onPressed: onPressed, child: label);
@@ -493,30 +494,30 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         return _StatusView(title: '見出しと一言を書けませんでした', actions: [
           retry(_write),
           review(primary: false),
-          discard,
         ]);
       }
       return const _StatusView(
         title: '見出しと一言を書いています',
-        message: 'この画面を閉じても続きます。',
+        message: 'ふつうは1分ほどで終わります。この画面を閉じても続きます。',
         actions: [_WritingSteps()],
       );
     }
     if (draft.phase == 'reviewing') {
       return _StatusView(
-          title: '区切りの案ができました', actions: [review(primary: true), discard]);
+          title: 'タイムラインの案ができました',
+          message: '場面の分け方を確かめてから、AI が見出しと一言を書きます。',
+          actions: [review(primary: true)]);
     }
     if (draft.isFailed) {
-      return _StatusView(title: '区切りの案を作れませんでした', actions: [
-        retry(_create),
-        discard,
-      ]);
+      return _StatusView(
+          title: 'タイムラインの案を作れませんでした', actions: [retry(_create)]);
     }
-    return _StatusView(
-      title: '区切りの案を作っています',
-      message: 'この画面を閉じても続きます。',
+    // AI がすぐ終わると思わせない（実行環境の入れ替えで止まると、再投入のタイマーが拾うまで 10 分ほどかかる。§8.2）
+    return const _StatusView(
+      title: 'タイムラインの案を作っています',
+      message: 'ふつうは1分ほどで終わります。混んでいると10分ほどかかることがあります。この画面を閉じても続きます。',
       showsProgress: true,
-      actions: [discard],
+      actions: [],
     );
   }
 }
@@ -603,8 +604,8 @@ class _WritingSteps extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        step(done, '区切りの案'),
-        step(done, '区切りの確認'),
+        step(done, 'タイムラインの案'),
+        step(done, '案の確認'),
         step(
             const SizedBox(
                 width: 16,
