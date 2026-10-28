@@ -215,7 +215,6 @@ describe('タイムラインを作るAPI', () => {
         sceneStarts: [],
         startedAt: NOW
       },
-      droppedEdits: [],
       createdAt: NOW,
       updatedAt: NOW
     });
