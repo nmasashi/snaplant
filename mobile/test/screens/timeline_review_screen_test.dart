@@ -472,6 +472,66 @@ void main() {
       expect(find.textContaining('コメント: '), findsNothing);
     });
 
+    testWidgets('コメントの保存に失敗したら、シートを閉じずに文言を出し、書いた文を残す（もう一度「保存」できる）',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      await tester.tap(find.text('コメントを書く').first);
+      await letFramesRun(tester);
+      await tester.enterText(find.byType(TextField), '空港で朝ごはん');
+      backend.failNext(TripRoute.timelineScenes);
+
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('場面のコメント'), findsOneWidget);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'),
+          findsOneWidget);
+      expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          '空港で朝ごはん');
+
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('場面のコメント'), findsNothing);
+      expect(savedComments(backend), {1: '空港で朝ごはん'});
+    });
+
+    testWidgets('コメントを変えずに「保存」すると、送らずに閉じる', (tester) async {
+      final backend = await _openTimeline(tester,
+          draft: _reviewingDraft(comments: {1: '空港で朝ごはん'}));
+      await _openReview(tester);
+      // 送れば失敗して文言が出る
+      backend.failNext(TripRoute.timelineScenes);
+
+      await tester.tap(find.text('コメント: 空港で朝ごはん'));
+      await letFramesRun(tester);
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+
+      expect(find.text('場面のコメント'), findsNothing);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'),
+          findsNothing);
+    });
+
+    testWidgets('コメントの保存のときに下書きが別の端末で変わっていたら（409）、シートと案の確認画面を閉じて知らせる',
+        (tester) async {
+      final backend = await _openTimeline(tester);
+      await _openReview(tester);
+      await tester.tap(find.text('コメントを書く').first);
+      await letFramesRun(tester);
+      await tester.enterText(find.byType(TextField), '空港で朝ごはん');
+      backend.failNext(TripRoute.timelineScenes,
+          status: 409,
+          code: 'TIMELINE_STATE_CONFLICT',
+          message: 'タイムラインが変わったか、作っている途中です。読み直してください');
+
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+      expect(find.text('場面のコメント'), findsNothing);
+      expect(_title('タイムラインの案'), findsNothing);
+      expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
+    });
+
     testWidgets('『ここで区切る』で場面を分けると、前の場面がコメントを持ったままで、新しい場面は空', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester,
