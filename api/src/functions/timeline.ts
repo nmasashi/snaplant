@@ -94,9 +94,11 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     }
     // 消した完成版の控えと、置き換えた下書きの控えは使われなくなる（区切りの直しの下書きは完成版と同じ控えを指す）
     const unusedSnapshotIds = new Set([existing?.doc.current?.snapshotId, existing?.doc.draft?.snapshotId]);
-    for (const unusedSnapshotId of unusedSnapshotIds) {
-      if (unusedSnapshotId) await timelines.deleteUnusedSnapshot(unusedSnapshotId, (...args) => context.log(...args));
-    }
+    await Promise.all(
+      [...unusedSnapshotIds]
+        .filter((id): id is string => id !== undefined)
+        .map((id) => timelines.deleteUnusedSnapshot(id, (...args) => context.log(...args)))
+    );
   } catch (error: any) {
     context.log('タイムラインの作成の受付エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');
