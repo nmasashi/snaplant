@@ -4,6 +4,7 @@ import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing 
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
+import { trimUserText } from '../utils/userText';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { withRecutStarts } from '../services/timelineWriting';
 import {
@@ -196,7 +197,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return createValidationError('場面のコメントは写真IDと文字列の組で指定してください');
     }
     const maxLength = TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT;
-    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => trimComment(comment).length > maxLength)) {
+    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => trimUserText(comment).length > maxLength)) {
       return createValidationError(`場面のコメントは${maxLength}文字以内で指定してください`);
     }
     let photos: TimelinePhotoSnapshot[];
@@ -245,19 +246,6 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
   }
 }
 
-/**
- * 場面のコメントの前後の空白を除く。String.trim は U+0085（次の行）を除かないが、アプリ（Dart の trim）は除くので、
- * それだけのコメントをアプリは空として扱う。そろえないと、空に見えるコメントが残って AI に渡る。
- * 正規表現（/[\s\u0085]+$/ など）で末尾を探すと、途中の長い空白の並びで2乗の時間がかかるので、両端から1文字ずつ見る
- */
-function trimComment(comment: string): string {
-  const isSpace = (char: string) => char === '\u0085' || char.trim() === '';
-  let start = 0;
-  let end = comment.length;
-  while (start < end && isSpace(comment[start])) start++;
-  while (end > start && isSpace(comment[end - 1])) end--;
-  return comment.slice(start, end);
-}
 
 /** 写真の id と文字列の組か（配列・null は違う） */
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -279,7 +267,7 @@ function savedCommentsOf(
   if (sent !== undefined) {
     return Object.fromEntries(
       Object.entries(sent)
-        .map(([photoId, comment]) => [photoId, trimComment(comment)])
+        .map(([photoId, comment]) => [photoId, trimUserText(comment)])
         .filter(([, comment]) => comment !== '')
     );
   }
