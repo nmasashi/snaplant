@@ -1791,6 +1791,23 @@ void main() {
       expect(find.text('2日目'), findsOneWidget);
     });
 
+    testWidgets('下に引っ張ったときに旅行を取り直せなくても、一覧にそれより前の日の写真があれば0日目にせず、その日を1日目として数える', (tester) async {
+      // 旅行（1日目の基準）は前の値のまま残り、写真の一覧だけが読み直される（§4.4）。送信の一区切りなど、旅行と一覧を同時に読む経路でも同じ食い違いが起きうる
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+      ]);
+      backend.photosByTripId[hokkaidoTripId]!.insert(0, photoAt(2, '2026-10-04T12:00:00'));
+      backend.failNext(TripRoute.detail);
+
+      await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
+      await letFramesRun(tester);
+
+      expect(find.text('0日目'), findsNothing);
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月4日（日）'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+    });
+
     testWidgets('別の端末で一番早い日の写真が消された後に下に引っ張ると、旅行の枚数・期間も取り直し、残った最初の日を1日目として数える', (tester) async {
       final backend = await openWith(tester, [
         photoAt(1, '2026-10-05T10:00:00'),
