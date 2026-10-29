@@ -122,6 +122,10 @@ class _PhotoGridState extends State<PhotoGrid> {
   int _generation = 0;
   // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
   int _consecutiveEmptyPages = 0;
+  // [_dayStartsFor] が前に数えた日の変わり目と、そのときの写真の一覧・1日目の基準
+  List<Photo>? _dayStartsPhotos;
+  String? _dayStartsDayOne;
+  List<_DayStart> _dayStarts = const [];
 
   /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
   List<UploadItem> get _pendingItems {
@@ -290,40 +294,17 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadMore();
   }
 
-  /// 並べるマス（サーバの写真 [photos] の後ろに端末の画像。全部で [itemCount] 個）を、日の見出しで区切る。
-  /// [PhotoGrid.dayOneTakenAt] が無ければ見出しの無い1つの塊にする。
-  /// 撮影日時の無い写真と端末の画像は見出しを作らず、前のマスと同じ塊に入る（§4.4）
-  List<_Section> _sectionsOf(List<Photo> photos, int itemCount) {
+  /// 一覧の日の変わり目。写真の一覧と1日目の基準が変わらない間は、前に数えたものを使う
+  /// （送信の列が変わるたびに組み立て直すので、そのたびに全部の写真の撮影日時を読み直さない）
+  List<_DayStart> _dayStartsFor(List<Photo> photos) {
     final dayOneTakenAt = widget.dayOneTakenAt;
-    final sections = <_Section>[_Section(header: null, start: 0)];
-    if (dayOneTakenAt != null) {
-      // 画面の持つ最初の撮影日時は、一覧だけを読み直すと古いまま残る（それより前の日の写真が後から足されうる）。
-      // 一覧の撮影日時のある最初の写真（撮影の順に並ぶので一番早い）の日の方が早ければ、そちらを1日目にして0日目を出さない
-      var dayOne = _dayOf(dayOneTakenAt);
-      final firstTakenAt =
-          photos.map((p) => p.takenAt).whereType<String>().firstOrNull;
-      if (firstTakenAt != null && _dayOf(firstTakenAt).isBefore(dayOne)) {
-        dayOne = _dayOf(firstTakenAt);
-      }
-      DateTime? current;
-      for (final (index, photo) in photos.indexed) {
-        final takenAt = photo.takenAt;
-        if (takenAt == null) continue;
-        final day = _dayOf(takenAt);
-        if (day == current) continue;
-        current = day;
-        final header =
-            _DayHeader(dayNumber: day.difference(dayOne).inDays + 1, day: day);
-        // 先頭の塊が空なら、見出しの無い塊を残さずに置き換える
-        if (sections.last.start == index) sections.removeLast();
-        sections.add(_Section(header: header, start: index));
-      }
+    if (!identical(photos, _dayStartsPhotos) ||
+        dayOneTakenAt != _dayStartsDayOne) {
+      _dayStartsPhotos = photos;
+      _dayStartsDayOne = dayOneTakenAt;
+      _dayStarts = _dayStartsOf(photos, dayOneTakenAt);
     }
-    for (var i = 0; i < sections.length; i++) {
-      sections[i].end =
-          i + 1 < sections.length ? sections[i + 1].start : itemCount;
-    }
-    return sections;
+    return _dayStarts;
   }
 
   /// 一覧と末尾の表示の下に空ける高さ（「写真を追加」が浮かぶ画面だけボタンの分を空ける）
@@ -478,7 +459,7 @@ class _PhotoGridState extends State<PhotoGrid> {
           onOpen: () => _openViewer(index));
     }
 
-    final sections = _sectionsOf(photos, itemCount);
+    final sections = _sectionsOf(_dayStartsFor(photos), itemCount);
     return Column(
       children: [
         Expanded(
@@ -490,12 +471,17 @@ class _PhotoGridState extends State<PhotoGrid> {
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 for (final (i, section) in sections.indexed) ...[
-                  if (section.header != null)
-                    SliverToBoxAdapter(child: section.header),
+                  if (section.day case final day?)
+                    SliverToBoxAdapter(
+                        key: ValueKey(('header', day.day)),
+                        child:
+                            _DayHeader(dayNumber: day.dayNumber, day: day.day)),
+                  // 日の塊が増減しても、後ろの日のマスを作り直さないよう、日で見分ける
                   SliverPadding(
+                    key: ValueKey(('grid', section.day?.day)),
                     padding: EdgeInsets.fromLTRB(
                         2,
-                        i == 0 && section.header == null ? 2 : 0,
+                        i == 0 && section.day == null ? 2 : 0,
                         2,
                         i < sections.length - 1
                             ? 2
@@ -510,8 +496,8 @@ class _PhotoGridState extends State<PhotoGrid> {
                         crossAxisSpacing: 2,
                       ),
                       delegate: SliverChildBuilderDelegate(
-                        (context, index) => tileAt(section.start + index),
-                        childCount: section.end - section.start,
+                        (context, index) => tileAt(section.from + index),
+                        childCount: section.to - section.from,
                       ),
                     ),
                   ),
@@ -576,15 +562,44 @@ DateTime _dayOf(String takenAt) {
   return DateTime.utc(shifted.year, shifted.month, shifted.day);
 }
 
-/// 一覧の塊（見出しと、その下に並べるマスの範囲 [start]〜[end] の手前まで）
-class _Section {
-  _Section({required this.header, required this.start});
+/// 日の変わり目（その日の最初のマスの位置・日（UTC の 0 時）・何日目か）
+typedef _DayStart = ({int index, DateTime day, int dayNumber});
 
-  /// 見出し。一覧の先頭の撮影日時の無い写真と、見出しを出さない一覧では null
-  final Widget? header;
-  final int start;
-  int end = 0;
+/// [photos]（撮影の順）の日の変わり目。[dayOneTakenAt] が無ければ見出しを出さないので無い。
+/// 撮影日時の無い写真は変わり目にならない（前の写真と同じ日の下に並ぶ。§4.4）
+List<_DayStart> _dayStartsOf(List<Photo> photos, String? dayOneTakenAt) {
+  if (dayOneTakenAt == null) return const [];
+  // 画面の持つ最初の撮影日時は、一覧だけを読み直すと古いまま残る（それより前の日の写真が後から足されうる）。
+  // 一覧の撮影日時のある最初の写真（撮影の順に並ぶので一番早い）の日の方が早ければ、そちらを1日目にして0日目を出さない
+  var dayOne = _dayOf(dayOneTakenAt);
+  final starts = <_DayStart>[];
+  for (final (index, photo) in photos.indexed) {
+    final takenAt = photo.takenAt;
+    if (takenAt == null) continue;
+    final day = _dayOf(takenAt);
+    if (starts.isEmpty && day.isBefore(dayOne)) dayOne = day;
+    if (starts.isNotEmpty && day == starts.last.day) continue;
+    starts.add(
+        (index: index, day: day, dayNumber: day.difference(dayOne).inDays + 1));
+  }
+  return starts;
 }
+
+/// 一覧の塊（日の変わり目 [day] と、その下に並べるマスの範囲 [from]〜[to] の手前まで）。
+/// [day] が null の塊は、最初の見出しより前のマス（一覧の先頭の撮影日時の無い写真。見出しを出さない一覧なら全部）
+typedef _Section = ({_DayStart? day, int from, int to});
+
+/// 全部で [itemCount] 個のマスを、日の変わり目 [days] で塊に分ける。撮影日時の無い写真と端末の画像は前の塊に入る
+List<_Section> _sectionsOf(List<_DayStart> days, int itemCount) => [
+      if (days.isEmpty || days.first.index > 0)
+        (day: null, from: 0, to: days.isEmpty ? itemCount : days.first.index),
+      for (final (i, day) in days.indexed)
+        (
+          day: day,
+          from: day.index,
+          to: i + 1 < days.length ? days[i + 1].index : itemCount
+        ),
+    ];
 
 /// 日の見出し「2日目　10月6日（火）」
 class _DayHeader extends StatelessWidget {
@@ -597,9 +612,6 @@ class _DayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final date = '${day.year.toString().padLeft(4, '0')}-'
-        '${day.month.toString().padLeft(2, '0')}-'
-        '${day.day.toString().padLeft(2, '0')}';
     return Semantics(
       header: true,
       child: Padding(
@@ -611,7 +623,7 @@ class _DayHeader extends StatelessWidget {
             Text('$dayNumber日目', style: AppTextStyles.headline3),
             const SizedBox(width: 8),
             Flexible(
-              child: Text(timelineDateLabel(date),
+              child: Text(dateLabelOf(day),
                   style: AppTextStyles.body2
                       .copyWith(color: AppColors.textSecondary),
                   overflow: TextOverflow.ellipsis),
