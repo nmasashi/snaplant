@@ -865,6 +865,15 @@ describe('タイムラインの下書きAPI', () => {
       expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
     });
 
+    it('場面のコメントの100文字は、前後の U+0085 も除いて数える（保存するものと同じ数え方）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: `\u0085${'あ'.repeat(100)}\u0085` } });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
+    });
+
     it('区切りが控えに無い・撮影日時の無い・重なった写真を含むときは、400（区切りが無効です）', () => forEachCase<[string, string[]]>([
       ['控えに無い写真を含む', [photoId('a'), photoId('z'), photoId('d')]],
       ['撮影日時の無い写真を含む', [photoId('a'), photoId('d'), photoId('u')]],
