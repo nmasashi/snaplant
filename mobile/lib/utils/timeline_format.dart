@@ -8,8 +8,9 @@ String timelineDateLabel(String date) => dateLabelOf(DateTime.utc(
     int.parse(date.substring(5, 7)),
     int.parse(date.substring(8, 10))));
 
-/// 日付の表記「10月5日（月）」。[day] の年月日だけを使う（写真一覧の日の見出しと共通。§4.4）
+/// 日付の表記「10月5日（月）」。[day] は暦の日を UTC で表したもの（端末のタイムゾーンの日時を渡すと日付がずれうる）。写真一覧の日の見出しと共通（§4.4）
 String dateLabelOf(DateTime day) {
+  assert(day.isUtc, '暦の日は UTC の DateTime で渡す');
   const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
   return '${day.month}月${day.day}日（${weekdays[day.weekday - 1]}）';
 }

@@ -127,10 +127,6 @@ class _PhotoGridState extends State<PhotoGrid> {
   int _generation = 0;
   // 続けて返った空のページの数。[_maxConsecutiveEmptyPages] に達したら自動で読むのをやめる
   int _consecutiveEmptyPages = 0;
-  // [_dayStartsFor] が前に数えた日の変わり目と、そのときの写真の一覧・1日目の基準
-  List<Photo>? _dayStartsPhotos;
-  String? _dayStartsDayOne;
-  List<_DayStart> _dayStarts = const [];
 
   /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
   List<UploadItem> get _pendingItems {
@@ -301,19 +297,6 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadMore();
   }
 
-  /// 一覧の日の変わり目。写真の一覧と1日目の基準が変わらない間は、前に数えたものを使う
-  /// （送信の列が変わるたびに組み立て直すので、そのたびに全部の写真の撮影日時を読み直さない）
-  List<_DayStart> _dayStartsFor(List<Photo> photos) {
-    final dayOneTakenAt = widget.dayOneTakenAt;
-    if (!identical(photos, _dayStartsPhotos) ||
-        dayOneTakenAt != _dayStartsDayOne) {
-      _dayStartsPhotos = photos;
-      _dayStartsDayOne = dayOneTakenAt;
-      _dayStarts = _dayStartsOf(photos, dayOneTakenAt);
-    }
-    return _dayStarts;
-  }
-
   /// 一覧と末尾の表示の下に空ける高さ（「写真を追加」が浮かぶ画面だけボタンの分を空ける）
   double get _bottomClearance =>
       widget.hasFloatingButton ? _floatingButtonClearance : 2;
@@ -466,7 +449,8 @@ class _PhotoGridState extends State<PhotoGrid> {
           onOpen: () => _openViewer(index));
     }
 
-    final sections = _sectionsOf(_dayStartsFor(photos), itemCount);
+    final sections =
+        _sectionsOf(_dayStartsOf(photos, widget.dayOneTakenAt), itemCount);
     return Column(
       children: [
         Expanded(
@@ -480,12 +464,9 @@ class _PhotoGridState extends State<PhotoGrid> {
                 for (final (i, section) in sections.indexed) ...[
                   if (section.day case final day?)
                     SliverToBoxAdapter(
-                        key: ValueKey(('header', day.day)),
                         child:
                             _DayHeader(dayNumber: day.dayNumber, day: day.day)),
-                  // 日の塊が増減しても、後ろの日のマスを作り直さないよう、日で見分ける
                   SliverPadding(
-                    key: ValueKey(('grid', section.day?.day)),
                     padding: EdgeInsets.fromLTRB(
                         2,
                         i == 0 && section.day == null ? 2 : 0,
@@ -576,15 +557,12 @@ typedef _DayStart = ({int index, DateTime day, int dayNumber});
 /// 撮影日時の無い写真は変わり目にならない（前の写真と同じ日の下に並ぶ。§4.4）
 List<_DayStart> _dayStartsOf(List<Photo> photos, String? dayOneTakenAt) {
   if (dayOneTakenAt == null) return const [];
-  // 画面の持つ最初の撮影日時は、一覧だけを読み直すと古いまま残る（それより前の日の写真が後から足されうる）。
-  // 一覧の撮影日時のある最初の写真（撮影の順に並ぶので一番早い）の日の方が早ければ、そちらを1日目にして0日目を出さない
-  var dayOne = _dayOf(dayOneTakenAt);
+  final dayOne = _dayOf(dayOneTakenAt);
   final starts = <_DayStart>[];
   for (final (index, photo) in photos.indexed) {
     final takenAt = photo.takenAt;
     if (takenAt == null) continue;
     final day = _dayOf(takenAt);
-    if (starts.isEmpty && day.isBefore(dayOne)) dayOne = day;
     if (starts.isNotEmpty && day == starts.last.day) continue;
     starts.add(
         (index: index, day: day, dayNumber: day.difference(dayOne).inDays + 1));
