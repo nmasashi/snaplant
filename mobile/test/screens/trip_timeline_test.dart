@@ -200,6 +200,31 @@ void main() {
       expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
     });
 
+    testWidgets('解析中の写真が無くなったら、タイムラインの読み直しを止める', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+      await _waitForPoll(tester);
+      expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
+
+      final reads = backend.timelineReadsReceived;
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineReadsReceived, reads);
+    });
+
+    testWidgets('解析中の写真がある間に「写真」に戻すと、タイムラインの読み直しを止める', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+
+      await tester.tap(find.text('写真'));
+      await letFramesRun(tester);
+      final reads = backend.timelineReadsReceived;
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineReadsReceived, reads);
+    });
+
     testWidgets('解析中の写真がある間の読み直しに失敗しても表示は変えず、5 秒後にもう一度読む', (tester) async {
       final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
       await _showTimeline(tester);
