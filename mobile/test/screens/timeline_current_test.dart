@@ -981,6 +981,17 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('「あとで」で隠した案内は、下に引っ張って読み直すとまた出す', (tester) async {
+      await _openTimeline(tester, changes: {'added': 3, 'removed': 0});
+      await tester.tap(find.text('あとで'));
+      await letFramesRun(tester);
+      expect(find.textContaining('作った後に写真が'), findsNothing);
+
+      await tester.drag(find.text('1日目'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('作った後に写真が 3 枚増えました。今のタイムラインには入っていません。'), findsOneWidget);
+    });
+
     testWidgets('下書きがある間は、写真が変わっても案内を出さない', (tester) async {
       await _openTimeline(tester, changes: {
         'added': 3,

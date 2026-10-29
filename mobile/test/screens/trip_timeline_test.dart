@@ -207,6 +207,32 @@ void main() {
       expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
     });
 
+    testWidgets('下に引っ張って読み直している間は、読み込み中にせず今の表示のままにする', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+      final hold = backend.holdNextReply(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('タイムラインを読み込み中...'), findsNothing);
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+    });
+
+    testWidgets('下に引っ張った読み直しで旅行が消えていたと分かったら、「この旅行は削除されています」を出す', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.trips.clear();
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('この旅行は削除されています'), findsOneWidget);
+    });
+
     testWidgets('解析中の写真が無ければ、「タイムラインを作る」を押せ、残りの枚数を出さない', (tester) async {
       await _openTripDetail(tester);
 
