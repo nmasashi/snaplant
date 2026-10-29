@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -221,6 +223,26 @@ void main() {
       hold.complete();
       await letFramesRun(tester);
       expect(find.textContaining('解析中の写真があと'), findsNothing);
+    });
+
+    testWidgets('操作を送っている間に下に引っ張っても、操作の前の古い応答で表示を戻さない', (tester) async {
+      // 「タイムラインを作る」を送っている間に引っ張り、作る前の状態で決まった読み直しの応答が、作る受付の応答より後に届く
+      final backend = await _openTripDetail(tester);
+      await _showTimeline(tester);
+      final createHold = Completer<void>();
+      backend.holds[TripRoute.timelineCreate] = createHold.future;
+      await tester.tap(find.text('タイムラインを作る'));
+      await letFramesRun(tester);
+      final readHold = backend.holdNextReply(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      createHold.complete();
+      await letFramesRun(tester);
+      readHold.complete();
+      await letFramesRun(tester);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインはまだありません'), findsNothing);
     });
 
     testWidgets('下に引っ張った読み直しで旅行が消えていたと分かったら、「この旅行は削除されています」を出す', (tester) async {
