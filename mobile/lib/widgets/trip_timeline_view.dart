@@ -61,6 +61,18 @@ class TripTimelineView extends StatefulWidget {
   State<TripTimelineView> createState() => _TripTimelineViewState();
 }
 
+/// タイムラインの読み込みに失敗したときの扱い（§8.1）
+enum _LoadFailure {
+  /// 「エラーが発生しました」を出す（開いたとき・「再試行」・操作の後の読み直し）
+  showError,
+
+  /// 出している表示を変えず、次の読み直しを予約する（下書きの読み直しから続けて読むとき）
+  keepSilently,
+
+  /// 出している表示を変えず、エラーの文言をスナックバーに出して読み直しの予約を戻す（下に引っ張ったとき）
+  keepWithSnackBar,
+}
+
 class _TripTimelineViewState extends State<TripTimelineView> {
   /// 下書きを作っている間に、下書きを読み直す間隔（§8.1）
   static const _pollInterval = Duration(seconds: 5);
@@ -71,7 +83,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
   // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
-  // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
+  // 操作のボタンとサムネイルのタップと、下に引っ張る読み直しを受け付けない（二重に送らない・画面を重ねて開かない・
+  // 読み直しの応答が操作の後や開いた画面の上に届いて、古い状態を当てたりエラーを出したりしない。§8.1・§8.3）
   bool _sending = false;
   // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）
   bool _changesNoticeHidden = false;
@@ -92,9 +105,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
-  /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）
+  /// 失敗したときの扱いは [onFailure]（表示を出していないときは、どれでも「エラーが発生しました」）
   Future<void> _load(
-      {bool showLoading = true, bool keepOnFailure = false}) async {
+      {bool showLoading = true,
+      _LoadFailure onFailure = _LoadFailure.showError}) async {
     final generation = ++_generation;
     _pollTimer?.cancel();
     if (showLoading) {
@@ -117,13 +131,23 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         return;
       }
       if (generation != _generation) return;
-      if (keepOnFailure && _overview != null) {
+      final message = e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました';
+      if (onFailure != _LoadFailure.showError && _overview != null) {
+        if (onFailure == _LoadFailure.keepWithSnackBar) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(message)));
+        }
         _schedulePoll();
         return;
       }
-      setState(() => _errorMessage =
-          e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました');
+      setState(() => _errorMessage = message);
     }
+  }
+
+  /// 下に引っ張ったときの読み直し。読み終えるまで今の表示のままにし、失敗したら表示はそのままでエラーの文言をスナックバーに出す
+  /// （写真の一覧と同じ。§8.1）
+  Future<void> _refresh() async {
+    await _load(showLoading: false, onFailure: _LoadFailure.keepWithSnackBar);
   }
 
   /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
@@ -170,7 +194,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     // 待っている間に読み込みや操作を始めていたら、古い表示を元にした読み直しの結果は使わない
     if (!mounted || generation != _generation) return;
     if (draft == null || draft.phase != shownDraft.phase || !draft.isWorking) {
-      await _load(showLoading: false, keepOnFailure: true);
+      await _load(showLoading: false, onFailure: _LoadFailure.keepSilently);
       return;
     }
     _show(shown.withDraft(draft));
@@ -423,6 +447,18 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       );
     }
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      // 操作を送っている間は引っ張れない（[_sending]）
+      notificationPredicate: (notification) =>
+          !_sending && defaultScrollNotificationPredicate(notification),
+      color: AppColors.primary,
+      child: _buildLoaded(overview),
+    );
+  }
+
+  /// 読み込めたタイムラインの表示（下に引っ張ると読み直す。§8.1）
+  Widget _buildLoaded(TimelineOverview overview) {
     final timeline = overview.timeline;
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
@@ -577,35 +613,46 @@ class _StatusView extends StatelessWidget {
     final note = this.note;
     final secondary =
         AppTextStyles.body2.copyWith(color: AppColors.textSecondary);
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (showsProgress) ...[
-              const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation(AppColors.primary)),
-              const SizedBox(height: 16),
-            ],
-            Text(title,
-                style: AppTextStyles.headline3, textAlign: TextAlign.center),
-            if (message != null) ...[
-              const SizedBox(height: 8),
-              Text(message, style: secondary, textAlign: TextAlign.center),
-            ],
-            const SizedBox(height: 24),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 12,
-              runSpacing: 12,
-              children: actions,
+    // 中身が画面より短くても下に引っ張れるよう、高さいっぱいの領域の中央に置く（写真の一覧の案内と同じ）
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showsProgress) ...[
+                    const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation(AppColors.primary)),
+                    const SizedBox(height: 16),
+                  ],
+                  Text(title,
+                      style: AppTextStyles.headline3,
+                      textAlign: TextAlign.center),
+                  if (message != null) ...[
+                    const SizedBox(height: 8),
+                    Text(message,
+                        style: secondary, textAlign: TextAlign.center),
+                  ],
+                  const SizedBox(height: 24),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: actions,
+                  ),
+                  if (note != null) ...[
+                    const SizedBox(height: 12),
+                    Text(note, style: secondary, textAlign: TextAlign.center),
+                  ],
+                ],
+              ),
             ),
-            if (note != null) ...[
-              const SizedBox(height: 12),
-              Text(note, style: secondary, textAlign: TextAlign.center),
-            ],
-          ],
+          ),
         ),
       ),
     );

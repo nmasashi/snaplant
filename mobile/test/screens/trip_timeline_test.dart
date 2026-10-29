@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -181,6 +183,110 @@ void main() {
       expect(find.text('写真を送り終えたら、日ごと・食事ごとにまとめたタイムラインを作れます。'), findsOneWidget);
       expect(_button(tester, 'タイムラインを作る').onPressed, isNull);
       expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+    });
+
+    testWidgets('下に引っ張ると読み直し、解析が終わっていれば「タイムラインを作る」を押せるようにし、残りの枚数を消す',
+        (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+      expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
+    });
+
+    testWidgets('下に引っ張った読み直しに失敗したら、表示はそのままで、エラーの文言をスナックバーに出す', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.failNext(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('エラーが発生しました'), findsNothing);
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+    });
+
+    testWidgets('下に引っ張って読み直している間は、読み込み中にせず今の表示のままにする', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+      final hold = backend.holdNextReply(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('タイムラインを読み込み中...'), findsNothing);
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+    });
+
+    testWidgets('作っている間に下に引っ張った読み直しに失敗しても、5 秒ごとの下書きの読み直しは続ける', (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      backend.failNext(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインの案を作っています'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+
+      // ワーカーが区切りの案を出した
+      backend.timelinesByTripId[hokkaidoTripId] =
+          _timeline(draft: _draft('reviewing'));
+      await _waitForPoll(tester);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
+    });
+
+    testWidgets('操作を送っている間は、下に引っ張っても読み直さない', (tester) async {
+      final backend = await _openTripDetail(tester);
+      await _showTimeline(tester);
+      final createHold = Completer<void>();
+      backend.holds[TripRoute.timelineCreate] = createHold.future;
+      await tester.tap(find.text('タイムラインを作る'));
+      await letFramesRun(tester);
+      final reads = backend.timelineReadsReceived;
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(backend.timelineReadsReceived, reads);
+      createHold.complete();
+      await letFramesRun(tester);
+
+      // 送り終えたら引っ張れる（上の引っ張りが空振りでなかった印）
+      await tester.drag(find.text('タイムラインの案を作っています'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(backend.timelineReadsReceived, reads + 1);
+    });
+
+    testWidgets('下に引っ張った読み直しの応答が「タイムラインを作る」の後に届いても、作っている間の表示を戻さない', (tester) async {
+      final backend = await _openTripDetail(tester);
+      await _showTimeline(tester);
+      final hold = backend.holdNextReply(TripRoute.timeline);
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      await tester.tap(find.text('タイムラインを作る'));
+      await letFramesRun(tester);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインはまだありません'), findsNothing);
+    });
+
+    testWidgets('下に引っ張った読み直しで旅行が消えていたと分かったら、「この旅行は削除されています」を出す', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.trips.clear();
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('この旅行は削除されています'), findsOneWidget);
     });
 
     testWidgets('解析中の写真が無ければ、「タイムラインを作る」を押せ、残りの枚数を出さない', (tester) async {
