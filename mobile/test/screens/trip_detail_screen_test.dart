@@ -106,7 +106,8 @@ Future<(Completer<void>, Completer<void>)> startOverlappingTripRefetches(WidgetT
 void main() {
   testWidgets('旅行詳細を開くと、写真の一覧の1ページ目の読み込み中は「写真を読み込み中...」を出し、読み込めたらサーバが返す順にサムネイルを並べる', (tester) async {
     // サムネイルの画像は、テスト環境の HTTP が返さないので見えない。並びは、各サムネイルの読み上げ用ラベル（撮影日時）の位置で見る。
-    // 並びがサーバの返す順そのものであることを見るため、撮影日時の順ではない並びで渡す（クライアントは並べ替えない）
+    // 並びがサーバの返す順そのものであることを見るため、撮影日時の順ではない並びで渡す（クライアントは並べ替えない）。
+    // 同じ日の写真にして、日の見出しを挟まずに1行に並ぶようにする
     final semantics = tester.ensureSemantics();
     final release = Completer<void>();
     final backend = FakeTripBackend(
@@ -114,9 +115,9 @@ void main() {
       functionKey: _apiKey,
       photosByTripId: {
         hokkaidoTripId: [
-          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00'),
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T15:15:00'),
           photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15'),
-          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-07T18:45:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T18:45:00'),
         ],
       },
     );
@@ -124,15 +125,15 @@ void main() {
     await openDetailFromHome(tester, backend);
     // 写真の応答を待っている間
     expect(find.text('写真を読み込み中...'), findsOneWidget);
-    expect(photoThumbnail('2026年10月6日 10:15'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 15:15'), findsNothing);
 
     release.complete();
     await letFramesRun(tester);
 
     expect(find.text('写真を読み込み中...'), findsNothing);
-    final first = tester.getTopLeft(photoThumbnail('2026年10月6日 10:15'));
+    final first = tester.getTopLeft(photoThumbnail('2026年10月5日 15:15'));
     final second = tester.getTopLeft(photoThumbnail('2026年10月5日 12:30'));
-    final third = tester.getTopLeft(photoThumbnail('2026年10月7日 18:45'));
+    final third = tester.getTopLeft(photoThumbnail('2026年10月5日 18:45'));
     // 3列のグリッドの1行目に、返された順に左から並ぶ
     expect(second.dy, first.dy);
     expect(third.dy, first.dy);
