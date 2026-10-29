@@ -3,9 +3,13 @@ import '../models/timeline.dart';
 /// タイムラインの日の日付の表記「10月5日（月）」（docs/03_screen_design.md §8.3・§8.4）
 ///
 /// 日付は文字列の暦の日（`YYYY-MM-DD`）。端末のタイムゾーンに直さない
-String timelineDateLabel(String date) {
-  final day = DateTime.utc(int.parse(date.substring(0, 4)),
-      int.parse(date.substring(5, 7)), int.parse(date.substring(8, 10)));
+String timelineDateLabel(String date) => dateLabelOf(DateTime.utc(
+    int.parse(date.substring(0, 4)),
+    int.parse(date.substring(5, 7)),
+    int.parse(date.substring(8, 10))));
+
+/// 日付の表記「10月5日（月）」。[day] の年・月・日・曜日をそのまま使う（タイムゾーンを変換しない）。写真一覧の日の見出しと共通（§4.4）
+String dateLabelOf(DateTime day) {
   const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
   return '${day.month}月${day.day}日（${weekdays[day.weekday - 1]}）';
 }

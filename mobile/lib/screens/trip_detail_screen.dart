@@ -386,6 +386,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               uploadQueue: widget.uploadQueue,
               tripId: trip.id,
               category: _category,
+              dayOneTakenAt: trip.firstTakenAt,
+              // 見出しを取り直せなくても前の値のまま、写真の一覧は読み直す
+              onRefresh: () => _loadTrip(keepOnFailure: true),
               selection: _selection,
               emptyTitle: _category == null
                   ? 'まだ写真がありません'

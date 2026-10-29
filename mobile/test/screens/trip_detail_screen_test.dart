@@ -38,7 +38,7 @@ FakeTripBackend _backendWith33Photos() {
 
 /// 写真のグリッドを下端まで送り、画面を進める
 Future<void> _scrollToEnd(WidgetTester tester) async {
-  await tester.drag(find.byType(GridView), const Offset(0, -5000));
+  await tester.drag(photoGridScroll(), const Offset(0, -5000));
   await letFramesRun(tester);
 }
 
@@ -106,7 +106,8 @@ Future<(Completer<void>, Completer<void>)> startOverlappingTripRefetches(WidgetT
 void main() {
   testWidgets('旅行詳細を開くと、写真の一覧の1ページ目の読み込み中は「写真を読み込み中...」を出し、読み込めたらサーバが返す順にサムネイルを並べる', (tester) async {
     // サムネイルの画像は、テスト環境の HTTP が返さないので見えない。並びは、各サムネイルの読み上げ用ラベル（撮影日時）の位置で見る。
-    // 並びがサーバの返す順そのものであることを見るため、撮影日時の順ではない並びで渡す（クライアントは並べ替えない）
+    // 並びがサーバの返す順そのものであることを見るため、撮影日時の順ではない並びで渡す（クライアントは並べ替えない）。
+    // 同じ日の写真にして、日の見出しを挟まずに1行に並ぶようにする
     final semantics = tester.ensureSemantics();
     final release = Completer<void>();
     final backend = FakeTripBackend(
@@ -114,9 +115,9 @@ void main() {
       functionKey: _apiKey,
       photosByTripId: {
         hokkaidoTripId: [
-          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00'),
+          photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T15:15:00'),
           photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T12:30:15'),
-          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-07T18:45:00'),
+          photoJson(number: 3, tripId: hokkaidoTripId, takenAt: '2026-10-05T18:45:00'),
         ],
       },
     );
@@ -124,15 +125,15 @@ void main() {
     await openDetailFromHome(tester, backend);
     // 写真の応答を待っている間
     expect(find.text('写真を読み込み中...'), findsOneWidget);
-    expect(photoThumbnail('2026年10月6日 10:15'), findsNothing);
+    expect(photoThumbnail('2026年10月5日 15:15'), findsNothing);
 
     release.complete();
     await letFramesRun(tester);
 
     expect(find.text('写真を読み込み中...'), findsNothing);
-    final first = tester.getTopLeft(photoThumbnail('2026年10月6日 10:15'));
+    final first = tester.getTopLeft(photoThumbnail('2026年10月5日 15:15'));
     final second = tester.getTopLeft(photoThumbnail('2026年10月5日 12:30'));
-    final third = tester.getTopLeft(photoThumbnail('2026年10月7日 18:45'));
+    final third = tester.getTopLeft(photoThumbnail('2026年10月5日 18:45'));
     // 3列のグリッドの1行目に、返された順に左から並ぶ
     expect(second.dy, first.dy);
     expect(third.dy, first.dy);
@@ -324,7 +325,7 @@ void main() {
     backend.photosByTripId[hokkaidoTripId]!
         .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
@@ -347,9 +348,9 @@ void main() {
     backend.photosByTripId[hokkaidoTripId]!
         .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
     // 先頭まで戻ってから、下に引っ張る（引っ張って読み直せるのは先頭にいるときだけ）
-    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await tester.drag(photoGridScroll(), const Offset(0, 5000));
     await letFramesRun(tester);
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
     expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
     expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
@@ -379,9 +380,9 @@ void main() {
     expect(find.text('読み込み中...'), findsOneWidget);
     backend.photosByTripId[hokkaidoTripId]!
         .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
-    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await tester.drag(photoGridScroll(), const Offset(0, 5000));
     await letFramesRun(tester);
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
     expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
 
@@ -524,7 +525,7 @@ void main() {
     // 1回目（開いたとき）は成功済み。読み直しの要求だけを 503 で失敗させる
     backend.failNext(TripRoute.photos);
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
@@ -552,7 +553,7 @@ void main() {
     // 別の端末で旅行が消された（偽のサーバは、無い旅行の写真の一覧を 404 TRIP_NOT_FOUND で返す）
     backend.trips.clear();
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(find.text('この旅行は削除されています'), findsOneWidget);
@@ -579,7 +580,7 @@ void main() {
     // 別の端末で旅行が消された
     backend.trips.clear();
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(find.text('この旅行は削除されています'), findsOneWidget);
@@ -612,7 +613,7 @@ void main() {
     );
     await openDetailFromHome(tester, backend);
 
-    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
     await letFramesRun(tester);
 
     expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
@@ -1653,5 +1654,194 @@ void main() {
     final selectAll = tester.renderObject<RenderParagraph>(find.descendant(of: appBar, matching: find.text('表示中をすべて選択')));
     expect(title.didExceedMaxLines, isFalse);
     expect(selectAll.didExceedMaxLines, isFalse);
+  });
+
+  group('写真の一覧の「N日目」の見出し', () {
+    // 旅行（hokkaidoTrip）の最初の撮影日時は 2026-10-05 09:00 なので、10月5日が1日目。
+    // 2026-10-05 は月曜日。並びはサーバの返す順のまま（ここでは撮影の順に渡す）
+
+    /// 旅行詳細を開き、[photos] をこの順で返す
+    Future<FakeTripBackend> openWith(WidgetTester tester, List<Map<String, Object?>> photos, {int pageSize = 50}) async {
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: photos.length)],
+        functionKey: _apiKey,
+        pageSize: pageSize,
+        photosByTripId: {hokkaidoTripId: photos},
+      );
+      await openDetailFromHome(tester, backend);
+      return backend;
+    }
+
+    Map<String, Object?> photoAt(int number, String? takenAt) => photoJson(number: number, tripId: hokkaidoTripId, takenAt: takenAt);
+
+    testWidgets('撮影の日が変わるところに「N日目」と日付の見出しを出し、その日の写真を見出しの下の新しい行から並べる', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, '2026-10-05T11:00:00'),
+        photoAt(3, '2026-10-06T09:00:00'),
+      ]);
+
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月5日（月）'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+      expect(find.text('10月6日（火）'), findsOneWidget);
+      final day1 = tester.getRect(find.text('1日目'));
+      final day2 = tester.getRect(find.text('2日目'));
+      final first = tester.getRect(photoThumbnail('2026年10月5日 10:00'));
+      final second = tester.getRect(photoThumbnail('2026年10月5日 11:00'));
+      final third = tester.getRect(photoThumbnail('2026年10月6日 09:00'));
+      expect(day1.bottom, lessThanOrEqualTo(first.top));
+      expect(second.top, first.top);
+      expect(second.bottom, lessThanOrEqualTo(day2.top));
+      expect(day2.bottom, lessThanOrEqualTo(third.top));
+      // 2日目の最初の写真は、1日目の行の続き（3列目）ではなく新しい行の左端に置く
+      expect(third.left, first.left);
+      semantics.dispose();
+    });
+
+    testWidgets('朝4時より前に撮った写真は前の日に数える（3:59 は前の日、4:00 から次の日）', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, '2026-10-06T03:59:00'),
+        photoAt(3, '2026-10-06T04:00:00'),
+      ]);
+
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+      expect(find.text('10月6日（火）'), findsOneWidget);
+      expect(find.text('3日目'), findsNothing);
+      final day2 = tester.getRect(find.text('2日目'));
+      // 3:59 の写真は1日目の行に並び、4:00 の写真が2日目の見出しの下に来る
+      expect(tester.getRect(photoThumbnail('2026年10月6日 03:59')).top, tester.getRect(photoThumbnail('2026年10月5日 10:00')).top);
+      expect(tester.getRect(photoThumbnail('2026年10月6日 03:59')).bottom, lessThanOrEqualTo(day2.top));
+      expect(day2.bottom, lessThanOrEqualTo(tester.getRect(photoThumbnail('2026年10月6日 04:00')).top));
+      semantics.dispose();
+    });
+
+    testWidgets('写真の無い日を挟むと、日の番号は暦の日付の差で数える（1日目の次が3日目になる）', (tester) async {
+      await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, '2026-10-07T10:00:00'),
+      ]);
+
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('2日目'), findsNothing);
+      expect(find.text('3日目'), findsOneWidget);
+      expect(find.text('10月7日（水）'), findsOneWidget);
+    });
+
+    testWidgets('撮影日時の無い写真は見出しを作らず、サーバの返す位置のまま、前の写真と同じ見出しの下に並べる', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, null),
+        photoAt(3, '2026-10-06T09:00:00'),
+      ]);
+
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+      final undated = tester.getRect(photoThumbnail('撮影日時なし'));
+      expect(undated.top, tester.getRect(photoThumbnail('2026年10月5日 10:00')).top);
+      expect(undated.bottom, lessThanOrEqualTo(tester.getRect(find.text('2日目')).top));
+      semantics.dispose();
+    });
+
+    testWidgets('一覧の先頭の撮影日時の無い写真は、最初の見出しより前に見出し無しで並べる', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openWith(tester, [
+        photoAt(1, null),
+        photoAt(2, '2026-10-05T10:00:00'),
+      ]);
+
+      final day1 = tester.getRect(find.text('1日目'));
+      expect(tester.getRect(photoThumbnail('撮影日時なし')).bottom, lessThanOrEqualTo(day1.top));
+      expect(day1.bottom, lessThanOrEqualTo(tester.getRect(photoThumbnail('2026年10月5日 10:00')).top));
+      semantics.dispose();
+    });
+
+    testWidgets('カテゴリで絞っても、日の番号は旅行の最初の日を1日目として数える', (tester) async {
+      await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00')..['category'] = 'landscape',
+        photoAt(2, '2026-10-06T12:00:00')..['category'] = 'food',
+      ]);
+
+      await tester.tap(find.text('食べ物'));
+      await letFramesRun(tester);
+
+      expect(find.text('1日目'), findsNothing);
+      expect(find.text('2日目'), findsOneWidget);
+    });
+
+    testWidgets('別の端末でそれより前の日の写真が足された後に下に引っ張ると、0日目にせずその日を1日目として数える', (tester) async {
+      // 1日目の基準は旅行の見出し（GET /api/trips/{id} の firstTakenAt）。別の端末で 10月4日 の写真が足されると、サーバの旅行の最初の撮影日時も 10月4日 になる
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+      ]);
+      backend.photosByTripId[hokkaidoTripId]!.insert(0, photoAt(2, '2026-10-04T12:00:00'));
+      backend.trips[0] = tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 2, firstTakenAt: '2026-10-04T12:00:00', lastTakenAt: '2026-10-05T10:00:00');
+
+      await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
+      await letFramesRun(tester);
+
+      expect(find.text('0日目'), findsNothing);
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月4日（日）'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+    });
+
+    testWidgets('下に引っ張ったときに旅行を取り直せなくても、一覧にそれより前の日の写真があれば0日目にせず、その日を1日目として数える', (tester) async {
+      // 旅行（1日目の基準）は前の値のまま残り、写真の一覧だけが読み直される（§4.4）。送信の一区切りなど、旅行と一覧を同時に読む経路でも同じ食い違いが起きうる
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+      ]);
+      backend.photosByTripId[hokkaidoTripId]!.insert(0, photoAt(2, '2026-10-04T12:00:00'));
+      backend.failNext(TripRoute.detail);
+
+      await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
+      await letFramesRun(tester);
+
+      expect(find.text('0日目'), findsNothing);
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月4日（日）'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+    });
+
+    testWidgets('別の端末で一番早い日の写真が消された後に下に引っ張ると、旅行の枚数・期間も取り直し、残った最初の日を1日目として数える', (tester) async {
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, '2026-10-06T10:00:00'),
+      ]);
+      backend.photosByTripId[hokkaidoTripId]!.removeAt(0);
+      backend.trips[0] = tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 1, firstTakenAt: '2026-10-06T10:00:00', lastTakenAt: '2026-10-06T10:00:00');
+
+      await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
+      await letFramesRun(tester);
+
+      expect(find.text('1枚 · 2026/10/06'), findsOneWidget);
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月6日（火）'), findsOneWidget);
+      expect(find.text('2日目'), findsNothing);
+    });
+
+    testWidgets('続きのページで同じ日の写真が続いても見出しを重ねず同じ日の並びに足し、続きのページで日が変われば見出しを出す', (tester) async {
+      final semantics = tester.ensureSemantics();
+      // 1ページ2枚。3枚目（1日目の続き）と4枚目（2日目）は続きのページで届く
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, '2026-10-05T11:00:00'),
+        photoAt(3, '2026-10-05T12:00:00'),
+        photoAt(4, '2026-10-06T09:00:00'),
+      ], pageSize: 2);
+
+      // 前提の確認（検証ではない）。3枚目以降が続きのページで届いたこと（1ページで全部届くと、このテストは何も守らない）
+      expect(backend.photoPagesReceived, greaterThanOrEqualTo(2));
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+      expect(tester.getRect(find.text('2日目')).bottom, lessThanOrEqualTo(tester.getRect(photoThumbnail('2026年10月6日 09:00')).top));
+      expect(tester.getRect(photoThumbnail('2026年10月5日 12:00')).top, tester.getRect(photoThumbnail('2026年10月5日 10:00')).top);
+      semantics.dispose();
+    });
   });
 }

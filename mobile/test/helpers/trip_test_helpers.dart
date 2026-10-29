@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:snaplant_mobile/main.dart';
+import 'package:snaplant_mobile/widgets/photo_grid.dart';
 
 import 'app_test_helpers.dart';
 
@@ -1329,6 +1330,10 @@ Future<void> openDeleteDialog(WidgetTester tester) async {
 /// 画像そのものはテスト環境で読み込めないので、どの写真かはこのラベルで見分ける（`tester.ensureSemantics()` が要る）。
 /// ラベルに他の文言（画像の読み込み失敗の表示など）が続いていても一致するよう、部分一致で探す
 Finder photoThumbnail(String label) => find.bySemanticsLabel(RegExp(RegExp.escape(label)));
+
+/// 写真のグリッド（`PhotoGrid`）のスクロールする領域。送ったり、その中のマスを探したりするのに使う。
+/// 日の見出しを挟むとグリッドは `GridView` ではなくなるので、型ではなく `PhotoGrid` の中のスクロールで探す
+Finder photoGridScroll() => find.descendant(of: find.byType(PhotoGrid), matching: find.byType(Scrollable)).first;
 
 /// 進み具合バナーの「写真を準備中... k/[total]」（k は準備が済んだ枚数）。k は準備の進み具合で変わるので、分母と形式で探す。
 /// 準備が終わるとバナーは消えるので、これが見えている間は準備が続いている

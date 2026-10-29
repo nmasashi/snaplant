@@ -197,7 +197,7 @@ void main() {
     await letFramesRun(tester);
     final release = Completer<void>();
     backend.holds[TripRoute.photos] = release.future;
-    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
     await letFramesRun(tester);
     await tester.tap(photoThumbnail('2026年10月5日 10:30'));
     await letFramesRun(tester);
@@ -312,7 +312,7 @@ void main() {
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
     final release = backend.holdNextReply(TripRoute.photos);
-    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
     await letFramesRun(tester);
     await tester.tap(photoThumbnail('2026年10月5日 10:30'));
     await letFramesRun(tester);

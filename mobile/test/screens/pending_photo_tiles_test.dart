@@ -24,7 +24,7 @@ const _apiKey = 'test-key';
 /// グリッドの中の端末の画像のマス（FileImage か MemoryImage の画像）。サーバの写真は CachedNetworkImage で、どちらでもない。
 /// 画像の読み込みの最適化で FileImage が ResizeImage（cacheWidth を指定したとき）に包まれても、見た目は変わらないので、包まれていてもいなくても数える
 final deviceImageTiles = find.descendant(
-    of: find.byType(GridView),
+    of: photoGridScroll(),
     matching: find.byWidgetPredicate((widget) {
       if (widget is! Image) return false;
       // 端末の画像は、ファイルから読むか、準備で作ったサムネイルのバイト列から出す（縮小の包みの有無は問わない）
@@ -36,8 +36,7 @@ final deviceImageTiles = find.descendant(
 /// グリッドの中の回転する印（CircularProgressIndicator）。送信中の端末の画像のマスに付く
 /// （サーバの写真のマスの待ち表示は印ではなく色の面で、進み具合のバナーの印はグリッドの外）
 final spinnerInGrid = find.descendant(
-    of: find.byType(GridView),
-    matching: find.byType(CircularProgressIndicator));
+    of: photoGridScroll(), matching: find.byType(CircularProgressIndicator));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -133,7 +132,7 @@ void main() {
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
     final markInGrid =
-        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+        find.descendant(of: photoGridScroll(), matching: find.text('!'));
 
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
@@ -183,7 +182,7 @@ void main() {
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
     final markInGrid =
-        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+        find.descendant(of: photoGridScroll(), matching: find.text('!'));
     final sentPhotoTiles = find.bySemanticsLabel(RegExp('^撮影日時なし'));
 
     await tester.tap(find.text('写真を追加'));
@@ -241,7 +240,7 @@ void main() {
     await letFramesRun(tester);
     expect(deviceImageTiles, findsNWidgets(2));
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(sentPhotoTiles, findsOneWidget);
@@ -284,7 +283,7 @@ void main() {
     backend.holds[TripRoute.upload] = release.future;
     await waitUntilUploadsReceived(tester, backend, 2);
     await letFramesRun(tester);
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
     expect(sentPhotoTiles, findsOneWidget);
     expect(deviceImageTiles, findsOneWidget);
@@ -489,7 +488,7 @@ void main() {
     await waitUntilUploadsReceived(tester, backend, 1);
     await letFramesRun(tester);
 
-    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
     await letFramesRun(tester);
 
     // 2ページ目はまだ届いていない: 下端まで送っても端末の画像のマスは出ない
@@ -498,7 +497,7 @@ void main() {
 
     releasePage.complete();
     await letFramesRun(tester);
-    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
     await letFramesRun(tester);
 
     // 最後のページまで読んだ後: 端末の画像のマスが1つ、最後のサーバの写真（10:33）の後ろ（次の行）に並ぶ
@@ -538,7 +537,7 @@ void main() {
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
     final markInGrid =
-        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+        find.descendant(of: photoGridScroll(), matching: find.text('!'));
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
@@ -590,7 +589,7 @@ void main() {
     await tester.tap(find.text('旅行に属さない写真'));
     await letFramesRun(tester);
     final markInGrid =
-        find.descendant(of: find.byType(GridView), matching: find.text('!'));
+        find.descendant(of: photoGridScroll(), matching: find.text('!'));
     await tester.tap(find.text('写真を追加'));
     await waitUntilUploadsReceived(tester, backend, 1);
     await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));

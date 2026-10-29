@@ -116,13 +116,13 @@ void main() {
       await tester.tap(_chip('食べ物'));
       await letFramesRun(tester);
 
-      await tester.drag(find.byType(GridView), const Offset(0, -5000));
+      await tester.drag(photoGridScroll(), const Offset(0, -5000));
       await letFramesRun(tester);
       expect(_shown(['10:31', '09:00', '11:00']), [true, false, false]);
 
-      await tester.drag(find.byType(GridView), const Offset(0, 5000));
+      await tester.drag(photoGridScroll(), const Offset(0, 5000));
       await letFramesRun(tester);
-      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await tester.drag(photoGridScroll(), const Offset(0, 300));
       await letFramesRun(tester);
       expect(_shown(['10:01', '09:00']), [true, false]);
       semantics.dispose();

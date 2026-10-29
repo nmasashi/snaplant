@@ -11,6 +11,7 @@ import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
+import '../utils/timeline_format.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
 
@@ -33,7 +34,9 @@ class PhotoGrid extends StatefulWidget {
       this.loadPage,
       this.loadingMessage = '写真を読み込み中...',
       this.errorFallbackMessage = '写真の読み込みに失敗しました',
-      this.onFirstPageApplied})
+      this.onFirstPageApplied,
+      this.dayOneTakenAt,
+      this.onRefresh})
       // 旅行もカテゴリも無い一覧はサーバが 400 で断る。カテゴリは旅行の中の絞り込みにだけ使う（旅行をまたぐ一覧は図鑑。03 §5.2）。
       // 置く画面の誤りなので、組み立てたところで止める
       : assert(
@@ -80,6 +83,14 @@ class PhotoGrid extends StatefulWidget {
   /// 先頭のページで一覧を置き換えたときに、そのページを渡して呼ぶ（[loadPage] が返したものを、写し直さずにそのまま渡す）。
   /// 読み込みが重なったときにグリッドが採ったページだけで呼ぶので、同じ応答の他の部分（図鑑の項目の見出し）を写真とそろえて出せる
   final void Function(PhotoPage page)? onFirstPageApplied;
+
+  /// 1日目の基準にする撮影日時（旅行の最初の撮影日時）。渡すと、撮影の日が変わるところに「N日目」と日付の見出しを挟む（§4.4）。
+  /// 絞り込んだ一覧でも旅行全体の数え方にするため、一覧の写真からではなく画面から受け取る
+  final String? dayOneTakenAt;
+
+  /// 下に引っ張ったとき、写真の一覧の読み直しと同時に呼び、両方が済んでから一覧を置き換える（旅行詳細が見出しの枚数・期間を取り直す。
+  /// 1日目の基準 [dayOneTakenAt] を読み直した一覧とそろえるため）。失敗を自分で扱い、投げないこと
+  final Future<void> Function()? onRefresh;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -229,7 +240,15 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
-      final page = await _readPage(null);
+      // 旅行の取り直し（画面の見出し）と一覧の読み直しは同時に出し、2往復を待たせない。
+      // 一覧が失敗しても取り直しは待つ（旅行が無いと分かって画面がグリッドを外したなら、下の mounted で一覧の失敗を出さない）
+      final refreshing = widget.onRefresh?.call();
+      final PhotoPage page;
+      try {
+        page = await _readPage(null);
+      } finally {
+        await refreshing;
+      }
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
@@ -414,43 +433,70 @@ class _PhotoGridState extends State<PhotoGrid> {
       );
     }
     final hasFooter = _loadMoreFailed || _isLoadingMore;
+    final itemCount = photos.length + pending.length;
+    Widget tileAt(int index) {
+      if (index >= photos.length) {
+        final item = pending[index - photos.length];
+        return _PendingTile(
+            item: item, state: widget.uploadQueue.stateOf(item));
+      }
+      // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
+      if (index >= photos.length - _loadMoreThreshold &&
+          _continuationToken != null &&
+          !_isLoadingMore &&
+          !_loadMoreFailed) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadMore();
+        });
+      }
+      return _PhotoTile(
+          photo: photos[index],
+          selection: widget.selection,
+          onOpen: () => _openViewer(index));
+    }
+
+    final sections =
+        _sectionsOf(_dayStartsOf(photos, widget.dayOneTakenAt), itemCount);
     return Column(
       children: [
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refresh,
             color: AppColors.primary,
-            child: GridView.builder(
+            child: CustomScrollView(
               // 写真が少なく画面に収まっていても、下に引っ張って読み直せるように
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                  2, 2, 2, hasFooter ? 2 : _bottomClearance),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 2,
-                crossAxisSpacing: 2,
-              ),
-              itemCount: photos.length + pending.length,
-              itemBuilder: (context, index) {
-                if (index >= photos.length) {
-                  final item = pending[index - photos.length];
-                  return _PendingTile(
-                      item: item, state: widget.uploadQueue.stateOf(item));
-                }
-                // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
-                if (index >= photos.length - _loadMoreThreshold &&
-                    _continuationToken != null &&
-                    !_isLoadingMore &&
-                    !_loadMoreFailed) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _loadMore();
-                  });
-                }
-                return _PhotoTile(
-                    photo: photos[index],
-                    selection: widget.selection,
-                    onOpen: () => _openViewer(index));
-              },
+              slivers: [
+                for (final (i, section) in sections.indexed) ...[
+                  if (section.day case final day?)
+                    SliverToBoxAdapter(
+                        child:
+                            _DayHeader(dayNumber: day.dayNumber, day: day.day)),
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                        2,
+                        i == 0 && section.day == null ? 2 : 0,
+                        2,
+                        i < sections.length - 1
+                            ? 2
+                            : hasFooter
+                                ? 2
+                                : _bottomClearance),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 2,
+                        crossAxisSpacing: 2,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => tileAt(section.from + index),
+                        childCount: section.to - section.from,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -491,6 +537,102 @@ class _PhotoGridState extends State<PhotoGrid> {
           ),
         if (hasFooter) SizedBox(height: _bottomClearance),
       ],
+    );
+  }
+}
+
+/// 日の切り替えの時刻。タイムラインの既定（サーバの `TIMELINE_DAY_START_HOUR`）と同じにする（docs/04_data_design.md §1.6）
+const _dayStartHour = 4;
+
+/// 撮影日時（タイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`）の日。[_dayStartHour] 時より前は前の日にする。
+/// 端末のタイムゾーンに直さないよう、文字列の数字を UTC の日時として読む（夏時間で日の差がずれないように）
+DateTime _dayOf(String takenAt) {
+  final shifted = DateTime.utc(
+    int.parse(takenAt.substring(0, 4)),
+    int.parse(takenAt.substring(5, 7)),
+    int.parse(takenAt.substring(8, 10)),
+    int.parse(takenAt.substring(11, 13)),
+  ).subtract(const Duration(hours: _dayStartHour));
+  return DateTime.utc(shifted.year, shifted.month, shifted.day);
+}
+
+/// 日の変わり目（その日の最初のマスの位置・日（UTC の 0 時）・何日目か）
+typedef _DayStart = ({int index, DateTime day, int dayNumber});
+
+/// [photos]（撮影の順）の日の変わり目。[dayOneTakenAt] が無ければ見出しを出さないので無い。
+/// 撮影日時の無い写真は変わり目にならない（前の写真と同じ日の下に並ぶ。§4.4）
+List<_DayStart> _dayStartsOf(List<Photo> photos, String? dayOneTakenAt) {
+  if (dayOneTakenAt == null) return const [];
+  final starts = <({int index, DateTime day})>[];
+  for (final (index, photo) in photos.indexed) {
+    final takenAt = photo.takenAt;
+    if (takenAt == null) continue;
+    final day = _dayOf(takenAt);
+    if (starts.isNotEmpty && day == starts.last.day) continue;
+    starts.add((index: index, day: day));
+  }
+  // 旅行の最初の撮影日時は、一覧と同時に・別に読むので、一覧より古いことがある（別の端末で前の日の写真が足された直後、
+  // 旅行の取得の失敗・遅れ）。一覧にそれより前の日の写真があれば、その日を1日目にして0日目を出さない
+  var dayOne = _dayOf(dayOneTakenAt);
+  for (final start in starts) {
+    if (start.day.isBefore(dayOne)) dayOne = start.day;
+  }
+  return [
+    for (final start in starts)
+      (
+        index: start.index,
+        day: start.day,
+        dayNumber: start.day.difference(dayOne).inDays + 1
+      ),
+  ];
+}
+
+/// 一覧の塊（日の変わり目 [day] と、その下に並べるマスの範囲 [from]〜[to] の手前まで）。
+/// [day] が null の塊は、最初の見出しより前のマス（一覧の先頭の撮影日時の無い写真。見出しを出さない一覧なら全部）
+typedef _Section = ({_DayStart? day, int from, int to});
+
+/// 全部で [itemCount] 個のマスを、日の変わり目 [days] で塊に分ける。撮影日時の無い写真と端末の画像は前の塊に入る
+List<_Section> _sectionsOf(List<_DayStart> days, int itemCount) => [
+      if (days.isEmpty || days.first.index > 0)
+        (day: null, from: 0, to: days.isEmpty ? itemCount : days.first.index),
+      for (final (i, day) in days.indexed)
+        (
+          day: day,
+          from: day.index,
+          to: i + 1 < days.length ? days[i + 1].index : itemCount
+        ),
+    ];
+
+/// 日の見出し「2日目　10月6日（火）」
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({required this.dayNumber, required this.day});
+
+  final int dayNumber;
+
+  /// その日（UTC の 0 時）
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text('$dayNumber日目', style: AppTextStyles.headline3),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(dateLabelOf(day),
+                  style: AppTextStyles.body2
+                      .copyWith(color: AppColors.textSecondary),
+                  overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
