@@ -198,6 +198,22 @@ describe('旅行API', () => {
         '説明がちょうど1000文字',
         { name: '北海道', description: 'あ'.repeat(1000) },
         { name: '北海道', description: 'あ'.repeat(1000) }
+      ],
+      // 文字数は見た目の1文字（書記素）で数える（アプリの入力欄と同じ）。家族の絵文字は UTF-16 では8単位
+      [
+        '旅行名が絵文字でちょうど100文字',
+        { name: '👨‍👩‍👧'.repeat(100), description: null },
+        { name: '👨‍👩‍👧'.repeat(100), description: null }
+      ],
+      [
+        '説明が絵文字でちょうど1000文字',
+        { name: '北海道', description: '👨‍👩‍👧'.repeat(1000) },
+        { name: '北海道', description: '👨‍👩‍👧'.repeat(1000) }
+      ],
+      [
+        '旅行名の前後の U+0085（次の行）も空白として除く（アプリの trim と同じ）',
+        { name: '\u0085北海道\u0085', description: null },
+        { name: '北海道', description: null }
       ]
     ], async (_case, body, expected) => {
       const request = requestWith(jest.fn().mockResolvedValue(body));

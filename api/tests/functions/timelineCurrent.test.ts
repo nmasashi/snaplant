@@ -482,6 +482,24 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('題'.repeat(40));
     });
 
+    it('上限は見た目の1文字で数える（絵文字でちょうど 40 文字のタイトル・30 文字の見出しを保存できる。家族の絵文字は UTF-16 では8単位）', async () => {
+      const day = await patchDay('2026-10-05', { title: '👨‍👩‍👧'.repeat(40) });
+      const scene = await patchScene(photoId('a'), { label: '👨‍👩‍👧'.repeat(30) });
+
+      expect([day.status, scene.status]).toEqual([200, 200]);
+      expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('👨‍👩‍👧'.repeat(40));
+      expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe('👨‍👩‍👧'.repeat(30));
+    });
+
+    it('前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけなら AI の文に戻す）', async () => {
+      const response = await patchDay('2026-10-05', { title: '\u0085小樽\u0085', summary: '\u0085' });
+
+      expect(response.status).toBe(200);
+      const texts = storedTimeline()!.current!.dayTexts['2026-10-05'];
+      expect(texts.title).toBe('小樽');
+      expect(texts.summarySource).toBe('ai');
+    });
+
     it('その日や場面が完成版に無いときは、404（TIMELINE_NOT_FOUND）で何も変えない', () => forEachCase<[string, () => Promise<any>, string]>([
       ['その日が完成版に無い', () => patchDay('2026-10-07', { title: 'x' }), 'その日はタイムラインにありません'],
       ['日付の形が違う', () => patchDay('2026-10-5', { title: 'x' }), 'その日はタイムラインにありません'],

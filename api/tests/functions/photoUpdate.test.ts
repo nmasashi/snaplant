@@ -352,6 +352,29 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual([tag]);
   });
 
+  it('コメントとタグの文字数は見た目の1文字で数え、絵文字でちょうど上限なら保存できる（家族の絵文字は UTF-16 では8単位）', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const comment = '👨‍👩‍👧'.repeat(500);
+    const tag = '👨‍👩‍👧'.repeat(30);
+
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment, tags: [tag] }), mockContext);
+
+    expect(response.status).toBe(200);
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ comment, tags: [tag] });
+  });
+
+  it('タグの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。除くと同じになるタグは1つにまとめる）', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['温泉', '\u0085温泉\u0085'] });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉']);
+  });
+
   it('前後の空白を除くと同じになるタグは、1つにまとめる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());

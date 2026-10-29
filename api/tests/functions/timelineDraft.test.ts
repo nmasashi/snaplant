@@ -865,6 +865,15 @@ describe('タイムラインの下書きAPI', () => {
       expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
     });
 
+    it('場面のコメントの100文字は見た目の1文字で数え、絵文字でちょうど100文字なら保存する（家族の絵文字は UTF-16 では8単位）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: '👨‍👩‍👧'.repeat(100) } });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: '👨‍👩‍👧'.repeat(100) });
+    });
+
     it('場面のコメントの途中に長い空白の並びがあっても、すぐに 400（100文字以内）を返す（前後の空白を除くのに時間がかからない）', async () => {
       // 前後の空白を後ろから正規表現で探すと、空白の並びの長さの2乗の時間がかかり、1回の要求で関数が止まる
       // かかった時間を測るので、このテストだけ本物の時計にする（ほかのテストは Date を NOW に止めている）

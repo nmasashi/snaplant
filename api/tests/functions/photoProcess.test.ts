@@ -225,6 +225,30 @@ describe('写真の解析のやり直しAPI', () => {
     expect(storedPhoto().hint).toBe('あ'.repeat(500));
   });
 
+  it('手がかりの文字数は見た目の1文字で数え、絵文字で500文字までなら受け付ける（家族の絵文字は UTF-16 では8単位）', async () => {
+    cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+
+    const response = await processPhotoRequestHandler(
+      createRequest(PHOTO_ID, { step: 'classify', hint: '👨‍👩‍👧'.repeat(500) }),
+      mockContext
+    );
+
+    expect(response.status).toBe(202);
+    expect(storedPhoto().hint).toBe('👨‍👩‍👧'.repeat(500));
+  });
+
+  it('手がかりの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけなら手がかりなし）', () => forEachCase<[string, string, string | null]>([
+    ['前後にある', '\u0085赤い花\u0085', '赤い花'],
+    ['それだけ', '\u0085', null]
+  ], async (_label, hint, saved) => {
+    cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
+
+    const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', hint }), mockContext);
+
+    expect(response.status).toBe(202);
+    expect(storedPhoto().hint).toBe(saved);
+  }));
+
   it('手がかりの上限の設定（CONTEXT_INFO_MAX_LENGTH）が数値として読めない値でも、上限は既定の500文字のまま', async () => {
     // parseInt('invalid') の NaN をそのまま上限に使うと `501 > NaN` が false になり、上限が静かに消える（05 §4）。
     // 上限はモジュールを読み込んだ時点で決まるので、環境変数を変えてから読み込み直す。
