@@ -557,17 +557,28 @@ typedef _DayStart = ({int index, DateTime day, int dayNumber});
 /// 撮影日時の無い写真は変わり目にならない（前の写真と同じ日の下に並ぶ。§4.4）
 List<_DayStart> _dayStartsOf(List<Photo> photos, String? dayOneTakenAt) {
   if (dayOneTakenAt == null) return const [];
-  final dayOne = _dayOf(dayOneTakenAt);
-  final starts = <_DayStart>[];
+  final starts = <({int index, DateTime day})>[];
   for (final (index, photo) in photos.indexed) {
     final takenAt = photo.takenAt;
     if (takenAt == null) continue;
     final day = _dayOf(takenAt);
     if (starts.isNotEmpty && day == starts.last.day) continue;
-    starts.add(
-        (index: index, day: day, dayNumber: day.difference(dayOne).inDays + 1));
+    starts.add((index: index, day: day));
   }
-  return starts;
+  // 旅行の最初の撮影日時は、一覧と同時に・別に読むので、一覧より古いことがある（別の端末で前の日の写真が足された直後、
+  // 旅行の取得の失敗・遅れ）。一覧にそれより前の日の写真があれば、その日を1日目にして0日目を出さない
+  var dayOne = _dayOf(dayOneTakenAt);
+  for (final start in starts) {
+    if (start.day.isBefore(dayOne)) dayOne = start.day;
+  }
+  return [
+    for (final start in starts)
+      (
+        index: start.index,
+        day: start.day,
+        dayNumber: start.day.difference(dayOne).inDays + 1
+      ),
+  ];
 }
 
 /// 一覧の塊（日の変わり目 [day] と、その下に並べるマスの範囲 [from]〜[to] の手前まで）。
