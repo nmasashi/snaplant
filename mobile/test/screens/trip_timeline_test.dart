@@ -263,6 +263,22 @@ void main() {
       expect(find.text('タイムラインの案ができました'), findsOneWidget);
     });
 
+    testWidgets('操作を送っている間は、下に引っ張っても読み直さない', (tester) async {
+      final backend = await _openTripDetail(tester);
+      await _showTimeline(tester);
+      final createHold = Completer<void>();
+      backend.holds[TripRoute.timelineCreate] = createHold.future;
+      await tester.tap(find.text('タイムラインを作る'));
+      await letFramesRun(tester);
+      final reads = backend.timelineReadsReceived;
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(backend.timelineReadsReceived, reads);
+      createHold.complete();
+      await letFramesRun(tester);
+    });
+
     testWidgets('下に引っ張った読み直しの応答が「タイムラインを作る」の後に届いても、作っている間の表示を戻さない', (tester) async {
       final backend = await _openTripDetail(tester);
       await _showTimeline(tester);
