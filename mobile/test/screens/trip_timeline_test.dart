@@ -245,6 +245,39 @@ void main() {
       expect(find.text('タイムラインはまだありません'), findsNothing);
     });
 
+    testWidgets('作っている間に下に引っ張った読み直しに失敗しても、5 秒ごとの下書きの読み直しは続ける', (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      backend.failNext(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインの案を作っています'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+
+      // ワーカーが区切りの案を出した
+      backend.timelinesByTripId[hokkaidoTripId] =
+          _timeline(draft: _draft('reviewing'));
+      await _waitForPoll(tester);
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
+    });
+
+    testWidgets('下に引っ張った読み直しの応答が「タイムラインを作る」の後に届いても、作っている間の表示を戻さない', (tester) async {
+      final backend = await _openTripDetail(tester);
+      await _showTimeline(tester);
+      final hold = backend.holdNextReply(TripRoute.timeline);
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      await tester.tap(find.text('タイムラインを作る'));
+      await letFramesRun(tester);
+
+      hold.complete();
+      await letFramesRun(tester);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      expect(find.text('タイムラインはまだありません'), findsNothing);
+    });
+
     testWidgets('下に引っ張った読み直しで旅行が消えていたと分かったら、「この旅行は削除されています」を出す', (tester) async {
       final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
       await _showTimeline(tester);
