@@ -72,7 +72,7 @@ Map<String, Object?>? _draftOf(FakeTripBackend backend) =>
     backend.timelinesByTripId[hokkaidoTripId]?['draft']
         as Map<String, Object?>?;
 
-/// 下書きを読み直す間隔（5 秒）だけ時間を進め、届いた応答を画面に出す
+/// 読み直しの間隔（5 秒。下書きの読み直しと、解析中の写真がある間のタイムラインの読み直し）だけ時間を進め、届いた応答を画面に出す
 Future<void> _waitForPoll(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 5));
   await letFramesRun(tester);
@@ -188,9 +188,11 @@ void main() {
         (tester) async {
       final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
       await _showTimeline(tester);
+      expect(backend.timelineReadsReceived, 1);
 
       backend.pendingPhotoCountByTripId[hokkaidoTripId] = 1;
       await _waitForPoll(tester);
+      expect(backend.timelineReadsReceived, 2);
       expect(find.text('解析中の写真があと 1 枚あります。終わると作れます。'), findsOneWidget);
       expect(_button(tester, 'タイムラインを作る').onPressed, isNull);
 
@@ -216,10 +218,23 @@ void main() {
     testWidgets('解析中の写真がある間に「写真」に戻すと、タイムラインの読み直しを止める', (tester) async {
       final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
       await _showTimeline(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineReadsReceived, 2);
 
       await tester.tap(find.text('写真'));
       await letFramesRun(tester);
       final reads = backend.timelineReadsReceived;
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineReadsReceived, reads);
+    });
+
+    testWidgets('下書きがある間は、解析中の写真があってもタイムラインを読み直さない', (tester) async {
+      final backend = await _openTripDetail(tester,
+          pendingPhotoCount: 3, timeline: _timeline(draft: _draft('reviewing')));
+      await _showTimeline(tester);
+      final reads = backend.timelineReadsReceived;
+
       await _waitForPoll(tester);
       await _waitForPoll(tester);
       expect(backend.timelineReadsReceived, reads);
