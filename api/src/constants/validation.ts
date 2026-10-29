@@ -93,6 +93,12 @@ export const GENERAL_VALIDATION = {
   // UUID正規表現
   UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 } as const;
+// 利用者が書く文の文字数の数え方（05 §9.6。数えるのは utils/userText.ts の exceedsLength）
+export const USER_TEXT_VALIDATION = {
+  // 見た目の1文字が UTF-16 で取りうる長さの目安の上限。文の UTF-16 の長さの上限は、上限の文字数 × これ。
+  // 1文字が長い絵文字（肌の色を付けた家族の絵文字で 19 単位）を上限の文字数まで並べても届かないよう、余裕を取っている
+  MAX_UNITS_PER_CHARACTER: 32
+} as const;
 // 旅行アルバムの旅行の文字数制限
 export const TRIP_VALIDATION = {
   MAX_LENGTH: {

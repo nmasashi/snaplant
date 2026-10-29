@@ -482,6 +482,32 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('題'.repeat(40));
     });
 
+    // 家族の絵文字は見た目は1文字、UTF-16 では8単位
+    it('上限は見た目の1文字で数え、絵文字でちょうど上限なら保存できる', () => forEachCase<[string, () => Promise<any>, () => string | null, string]>([
+      ['タイトルが絵文字で40文字', () => patchDay('2026-10-05', { title: '👨‍👩‍👧'.repeat(40) }), () => storedTimeline()!.current!.dayTexts['2026-10-05'].title, '👨‍👩‍👧'.repeat(40)],
+      ['見出しが絵文字で30文字', () => patchScene(photoId('a'), { label: '👨‍👩‍👧'.repeat(30) }), () => storedTimeline()!.current!.sceneTexts[photoId('a')].label, '👨‍👩‍👧'.repeat(30)]
+    ], async (_label, send, saved, expected) => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' }));
+
+      const response = await send();
+
+      expect(response.status).toBe(200);
+      expect(saved()).toBe(expected);
+    }));
+
+    it('前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけなら AI の文に戻す）', async () => {
+      const edited = { ...current, dayTexts: { ...current.dayTexts, '2026-10-05': { ...current.dayTexts['2026-10-05'], summary: '自分のまとめ', summarySource: 'user' as const } } };
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited, updatedAt: '2026-10-08T12:14:00.000Z' }));
+
+      const response = await patchDay('2026-10-05', { title: '\u0085小樽\u0085', summary: '\u0085' });
+
+      expect(response.status).toBe(200);
+      const texts = storedTimeline()!.current!.dayTexts['2026-10-05'];
+      expect(texts.title).toBe('小樽');
+      expect(texts.summary).toBe(current.dayTexts['2026-10-05'].aiSummary);
+      expect(texts.summarySource).toBe('ai');
+    });
+
     it('その日や場面が完成版に無いときは、404（TIMELINE_NOT_FOUND）で何も変えない', () => forEachCase<[string, () => Promise<any>, string]>([
       ['その日が完成版に無い', () => patchDay('2026-10-07', { title: 'x' }), 'その日はタイムラインにありません'],
       ['日付の形が違う', () => patchDay('2026-10-5', { title: 'x' }), 'その日はタイムラインにありません'],

@@ -206,7 +206,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
 | `TIMELINE_VALIDATION.MAX_LENGTH.TITLE` / `SUMMARY` / `LABEL` / `NOTE` | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | 40 / 400 / 30 / 200 | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（段階5）。AI が書いた文は上限で切り詰める（[06 §8](./06_processing_design.md#8-タイムライン段階5)） |
-| `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT` | `TIMELINE_SCENE_COMMENT_MAX_LENGTH` | 100 | `PUT /api/trips/{tripId}/timeline/draft/scenes` の `sceneComments`（場面のコメント。前後の空白を除いて数える。5-7 で実装済み） |
+| `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT` | `TIMELINE_SCENE_COMMENT_MAX_LENGTH` | 100 | `PUT /api/trips/{tripId}/timeline/draft/scenes` の `sceneComments`（場面のコメント。前後の空白を除いて数える（§9.6）。5-7 で実装済み） |
 | `TIMELINE_VALIDATION.DATE_REGEX` | — | `/^\d{4}-\d{2}-\d{2}$/`（加えて実在する日付であること） | 同上の `date` |
 
 実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`MAX_LENGTH.COMMENT`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`MOVE_VALIDATION.MAX_IDS`、`TAG_VALIDATION.MAX_LENGTH`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4b 時点）。
@@ -217,7 +217,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 `limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。
 `TIMELINE_VALIDATION.MAX_LENGTH` は 5-2a で足した（実装済み。タイムラインのワーカーが AI の文を上限で切り詰める。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。5-2b からは `PATCH` の2つも同じ値を 400 の上限に使う（実装済み。`message` に上限値を埋め込む。§5.15）。`TIMELINE_VALIDATION.DATE_REGEX` は `PATCH …/days/{date}` と一緒に 5-2b で足した（実装済み。形に加えて、暦にある日付かも見る）。`constants/validation.ts` には、入力検証ではないが時刻（0〜23）の環境変数を読む `hourFromEnv()` も置いた（5-1a。実装済み。`TIMELINE_DAY_START_HOUR` を読む。読み方は [07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
 
-文字数は既存と同じく `String.length`（UTF-16 コードユニット）で数える（`docs/09_backlog.md`「contextInfo の文字数の数え方」と同じ扱い）。
+利用者が書く文（旅行名・説明・写真のコメント・タグ・手がかり・タイムラインの完成版の文・場面のコメント）の文字数は、見た目の1文字（書記素）を1と数える（§9.6。#128 で実装済み）。
+それ以外（写真の地名 `placeName`、図鑑の項目の名前 `name`、AI が返す識別の名前の検証とタイムラインの文の切り詰め）は `String.length`（UTF-16 のコード単位）で数える（§9.6 の「対象にしないもの」）。
 
 ## 5. API 詳細仕様
 
@@ -291,7 +292,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 `tripId`・`takenAt` がファイルで送られたときも 12・13 になる。
 18 はバイト列を読む必要があるので最後。1.5 は植物図鑑の `upload` と同じ `message` だが、エラーの文字列では判定せず `formData()` の失敗をそのまま 400 にする。
 緯度・経度は10進（`-?数字(.数字)?`。`PHOTO_VALIDATION.COORDINATE_REGEX`）で範囲内のものだけを受け入れる（16進・2進・8進・指数表記・前後の空白・先頭の `+`・`Infinity`・`NaN`・空文字は 15。`Number()` に任せるとこれらが数値として通るため）。
-`placeName` は送られたまま保存する（前後の空白も除かずに数える）。サムネイルは JPEG を想定するが、対応形式なら受け付け、Blob 名は `.thumb.jpg`、Content-Type は送られたものにする。空白だけの `placeName` は「指定なし」ではなく 400 にする（地名が無ければクライアントはパートを省く。multipart に null は無く、文字列 `null` を送るとその文字列が地名として保存される）。
+`placeName` は送られたまま保存する（前後の空白も除かずに数える。端末が住所から作る値で利用者が書く文ではないので、UTF-16 のコード単位で数える。§9.6 の対象外）。サムネイルは JPEG を想定するが、対応形式なら受け付け、Blob 名は `.thumb.jpg`、Content-Type は送られたものにする。空白だけの `placeName` は「指定なし」ではなく 400 にする（地名が無ければクライアントはパートを省く。multipart に null は無く、文字列 `null` を送るとその文字列が地名として保存される）。
 
 #### 検証の後
 
@@ -423,7 +424,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 ### 5.6 `PATCH /api/photos/{photoId}`
 
-**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。コメントの前後の空白は U+0085（次の行）も含む（アプリの `trim()`（Dart）と同じ。#127 で実装済み。`utils/userText.ts` の `trimUserText()`）。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
+**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。文字数の数え方（見た目の1文字）と前後の空白（U+0085 を含む）は §9.6（コメントの U+0085 は #127、タグの U+0085 と数え方は #128 で実装済み）。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
 
 利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・未定（タグ）。
 
@@ -436,10 +437,10 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
 | 4 | `comment` も `tags` も無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
-| 6 | `comment` が前後の空白を除いて 500 文字を超える | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
+| 6 | `comment` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
 | 8 | `tags` の要素に文字列でないものがある | 400 `INVALID_REQUEST` | `タグは文字列で指定してください` |
-| 9 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるものがある | 400 `INVALID_REQUEST` | `タグは1〜30文字で指定してください` |
+| 9 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるものがある（数え方は §9.6。U+0085 だけのタグも空） | 400 `INVALID_REQUEST` | `タグは1〜30文字で指定してください` |
 | 9.5 | `tags` が重複を除いて 20 個を超える（`TAG_MAX_COUNT`） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
@@ -458,6 +459,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 ### 5.7 `POST /api/photos/{photoId}/process`（段階3）
 
 **実装済み**（3-3b で `step: "classify"`、4-1b で `step: "identify"` と 8。`photoProcess.ts`、検証は `utils/photoInput.ts` の `readProcessRequestInput`）。
+**実装済み**（#128）: `hint` の文字数を見た目の1文字で数えることと、前後の空白に U+0085 を含めること（表の 6 と、処理の順の 1 の `hint`。§9.6）。
 
 AI の解析をやり直す（要件 5.5.1）。
 
@@ -470,7 +472,7 @@ AI の解析をやり直す（要件 5.5.1）。
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
 | 4 | `step` が `classify` / `identify` でない | 400 `INVALID_REQUEST` | `やり直す処理の種類が無効です` |
 | 5 | `hint` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `補足情報は文字列で指定してください`（既存） |
-| 6 | `hint` が前後の空白を除いて 500 文字を超える | 400 `INVALID_REQUEST` | `補足情報は500文字以内で指定してください`（既存） |
+| 6 | `hint` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `補足情報は500文字以内で指定してください`（既存） |
 | 7 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 | 8 | `step: "identify"` だが写真のカテゴリが識別対象でない（`category` が `CATALOG_KINDS` のどれでもない。`other` か `null`） | 400 `INVALID_REQUEST` | `この写真は識別の対象ではありません` |
 
@@ -484,7 +486,7 @@ AI の解析をやり直す（要件 5.5.1）。
 処理の順:
 
 1. 写真に patch: `processing = { state: "pending", step, attempts: 0, lastError: null, updatedAt: now }`（**`attempts` を 0 に戻す。** `failed` の写真をもう一度試せるのはこの操作だけ。[06 §1.3](./06_processing_design.md#13-状態と失敗)）、
-   `hint`（前後の空白を除いたもの。送らない・`null`・除いて空なら `null` で、前回の `hint` は消える）、
+   `hint`（前後の空白（§9.6。U+0085 を含む）を除いたもの。送らない・`null`・除いて空なら `null` で、前回の `hint` は消える）、
    **`comment: null`・`commentSource: null`**（やり直しの結果で置き換えるため、受付の時点で消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9。
    利用者が書いたコメントは、アプリが `hint` に事前入力してから頼む設計なので失われない）、`updatedAt: now`。
    それ以外の項目（`category`・`classification`・`identification`・`tags`・`tripId`）は変えない（前回の結果はやり直しの結果が出るまで残る）。
@@ -501,6 +503,7 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 ### 5.8 `POST /api/trips`
 
 **実装済み**（PR 3。`trips.ts`、検証は `utils/tripInput.ts`）。
+**実装済み**（#128）: `name`・`description` の文字数を見た目の1文字で数えることと、`name` の前後の空白に U+0085 を含めること（表の 5〜7。§9.6）。
 
 **リクエスト:** `{ "name": string, "description"?: string | null }`
 
@@ -510,9 +513,9 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 | 2 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
 | 3 | `name` が文字列でない | 400 `INVALID_REQUEST` | `旅行名は文字列で指定してください` |
 | 4 | `description` が文字列でない（`null`・未指定は可） | 400 `INVALID_REQUEST` | `説明は文字列で指定してください` |
-| 5 | `name` が未指定・`null`・空・空白のみ | 400 `INVALID_REQUEST` | `旅行名が指定されていません` |
-| 6 | `name` が前後の空白を除いて 100 文字を超える | 400 `INVALID_REQUEST` | `旅行名は100文字以内で指定してください` |
-| 7 | `description` が 1000 文字を超える | 400 `INVALID_REQUEST` | `説明は1000文字以内で指定してください` |
+| 5 | `name` が未指定・`null`・空・空白のみ（U+0085 だけも。§9.6） | 400 `INVALID_REQUEST` | `旅行名が指定されていません` |
+| 6 | `name` が前後の空白を除いて 100 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `旅行名は100文字以内で指定してください` |
+| 7 | `description` が 1000 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `説明は1000文字以内で指定してください` |
 
 ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `name` が無いものとして扱い、5 になる。`name`・`description` 以外のキー（`tags` など）は無視する。
 `description` の文字数は前後の空白を除かずに数える。
@@ -546,6 +549,7 @@ Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに
 ### 5.11 `PUT /api/trips/{tripId}`
 
 **実装済み**（PR 3。`tripDetail.ts`、検証は 5.8 と同じ `utils/tripInput.ts`）。
+**実装済み**（#128）: 文字数の数え方と前後の空白（§9.6）も 5.8 と同じ（同じ検証を通る）。
 
 `name`（必須）と `description`（任意）の全体置き換え。検証は `tripId` の形式（5.10 の 1）→ 5.8 の 1〜7 の順。無ければ 404 `TRIP_NOT_FOUND`（読んだ後・置き換える前に旅行が消された場合も 404）
 （旅行があるかはボディの検証の後に見るので、無い旅行に不正なボディを送ると 400）。
@@ -641,7 +645,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 |----|------|-------------------|-----------|
 | 1 | `kind` が無い、または定義表に無い（`other` や、`constructor` などの継承したキーも。項目一覧と同じ） | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
 | 2 | `name` が無い、または前後の空白を除いて空 | 400 `INVALID_REQUEST` | `図鑑の項目の名前が指定されていません` |
-| 3 | `name` が前後の空白を除いて 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超える | 400 `INVALID_REQUEST` | `図鑑の項目の名前は100文字以内で指定してください` |
+| 3 | `name` が前後の空白を除いて 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超える（利用者が書く文ではないので UTF-16 のコード単位で数える。§9.6 の対象外） | 400 `INVALID_REQUEST` | `図鑑の項目の名前は100文字以内で指定してください` |
 | 4 | `limit` があり、1〜200 の整数でない（§5.2 の 4 と同じ規則と文言） | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |
 | 5 | `continuationToken` があり、空か JSON として読めない（§5.2 の 5 と同じ） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 | 6 | `continuationToken` が JSON だが Cosmos が受け付けない（別の項目のトークンなど。サーバが 400 で拒む。推測） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
@@ -780,6 +784,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **実装済み**（5-1c。`timelineDraft.ts` の `putTimelineDraftScenes`）: `sceneComments` の行（表の 4・5・7）を除く全部。
 **実装済み**（5-7。`timelineDraft.ts` の `putTimelineDraftScenes`・`savedCommentsOf()`）: `sceneComments`（場面のコメント。[03 §8.7](./03_screen_design.md#87-場面のコメント)）の行（表の 4・5・7、8 の `sceneComments`、下の `sceneComments` と `recut` の行）。
 **実装済み**（#127。`utils/userText.ts` の `trimUserText()`）: 場面のコメントの前後の空白に U+0085 を含めること（表の 5 と、下の `sceneComments` の行）。
+**実装済み**（#128。`utils/userText.ts` の `exceedsLength()`）: 場面のコメントの文字数を見た目の1文字で数えること（表の 5。§9.6）。
 
 判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 下の表の 1〜7。表の 3〜7 はタイムラインを読んだ後に見る（6・7 は控えが要る。§1 の「Cosmos DB に触る前に全部弾く」の例外）。
 
@@ -789,14 +794,14 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 2 | `phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）のでもない（区切り案を作っている・区切り案に失敗した・文を書いている） | 409 `TIMELINE_STATE_CONFLICT` |
 | 3 | `sceneStarts` が無いか、文字列の配列でない | 400 `INVALID_REQUEST` `区切りは写真IDの配列で指定してください` |
 | 4 | `sceneComments` があり、オブジェクトでない（配列・`null` も）か、値に文字列でないものがある | 400 `INVALID_REQUEST` `場面のコメントは写真IDと文字列の組で指定してください` |
-| 5 | `sceneComments` の値が、前後の空白（U+0085 を含む。下の `sceneComments` の行）を除いて `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT`（100）文字を超える | 400 `INVALID_REQUEST` `場面のコメントは100文字以内で指定してください`（上限値を埋め込む） |
+| 5 | `sceneComments` の値が、前後の空白を除いて `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT`（100）文字を超える（数え方と前後の空白は §9.6） | 400 `INVALID_REQUEST` `場面のコメントは100文字以内で指定してください`（上限値を埋め込む） |
 | 6 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない | 400 `INVALID_REQUEST` `区切りが無効です` |
 | 7 | `sceneComments` の鍵が、保存する区切り（下の補ったものを含む）に無い | 400 `INVALID_REQUEST` `場面のコメントは場面の最初の写真に付けてください` |
 | 8 | それ以外 | 200。下書きの `sceneStarts` と `sceneComments` を置き換え、`updatedAt` を今にする（下書きのほかの欄・完成版は変えない）。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
 
 - 1〜7 のどれかで返すときは何も書かない
 - `sceneComments` の値は前後の空白を除いて保存し、空になったもの（空・空白だけ）は持たない（その場面のコメントを消す）。
-  前後の空白は、JavaScript の `trim()` が除くものに U+0085（次の行）を足したもの（アプリの `trim()`（Dart）と同じ。U+0085 だけのコメントもアプリと同じく空として持たない。#127）。100 文字の検証（表の 5）も同じ除き方で数える。
+  前後の空白は §9.6 のもの（U+0085 を含む。U+0085 だけのコメントもアプリと同じく空として持たない。#127）。100 文字の検証（表の 5）も同じ除き方で除いた後に数える。
   `sceneComments` を送らなければ、今のコメントのうち保存する区切りに鍵があるものを残す（区切りだけを送る 5-6 までのアプリでも、場面ごと消えたコメントだけが消える）。
   場面をつなげたときにどちらのコメントを残すかは、画面が決めて送る（[03 §8.7](./03_screen_design.md#87-場面のコメント)）
 - 区切りを直している下書き（`recut`）でも保存するが、使わない（文を書く AI を呼ばないため。画面はコメントの欄を出さない）
@@ -834,6 +839,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **`PATCH /api/trips/{tripId}/timeline/days/{date}`** `{ title?, summary? }`・**`PATCH /api/trips/{tripId}/timeline/scenes/{photoId}`** `{ label?, note? }`（完成版の文を直す）→ 200 `{ timeline, pendingPhotoCount, urlExpiresAt }`
 
 **実装済み**（5-2b。`timelineCurrent.ts` の `patchTimelineDay`・`patchTimelineScene`）。
+**実装済み**（#128）: 文字数を見た目の1文字で数えることと、前後の空白に U+0085 を含めること（表の 5・8。§9.6）。
 
 判定の順は、`tripId` の形 → 下の表の 1〜5 → 旅行が無い（404 `TRIP_NOT_FOUND`）→ 表の 6・7。1〜5 は Cosmos DB に触る前に見る。
 
@@ -843,10 +849,10 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 2 | ボディ（共通の行） | 400 |
 | 3 | どちらの項目も無い（日は `title`・`summary`、場面は `label`・`note` だけを見る。ほかのキーは無視するので、場面に `title` だけを送ってもこの行） | 400 `INVALID_REQUEST` `更新する項目が指定されていません` |
 | 4 | 項目が文字列でも `null` でもない | 400 `INVALID_REQUEST` `タイトルは文字列で指定してください`（`まとめ`・`見出し`・`一言` も同じ形） |
-| 5 | 前後の空白を除いて上限を超える（§4） | 400 `INVALID_REQUEST` `タイトルは40文字以内で指定してください`（上限値を埋め込む。`まとめ` 400・`見出し` 30・`一言` 200） |
+| 5 | 前後の空白を除いて上限を超える（上限は §4、数え方と前後の空白は §9.6） | 400 `INVALID_REQUEST` `タイトルは40文字以内で指定してください`（上限値を埋め込む。`まとめ` 400・`見出し` 30・`一言` 200） |
 | 6 | 完成版が無い（タイムラインが無いときも、下書きだけのときも） | 404 `TIMELINE_NOT_FOUND` `タイムラインが見つかりません` |
 | 7 | その日・その場面が完成版に無い（日は完成版の `dayTexts` の日付、場面は `sceneTexts` の鍵、つまり場面の最初の写真の id で引く。場面の途中の写真の id はこの行） | 404 `TIMELINE_NOT_FOUND` `その日はタイムラインにありません` ／ `その場面はタイムラインにありません`（`date` が `YYYY-MM-DD` の形でないとき（`TIMELINE_VALIDATION.DATE_REGEX`）と、暦に無い日付（`2026-02-30` など）も `その日はタイムラインにありません`） |
-| 8 | それ以外 | 200。前後の空白を除いて保存し、書いた主を `user` にする。**空か `null` なら AI が書いた文（`aiTitle` などの欄）に戻し、書いた主を `ai` にする**（区切りを直して新しくできた場面は AI の文が無いので、空（`null`）に戻り、書いた主も `null` になる。5-5a で実装済み）。送らなかった欄はそのまま。タイムラインの `updatedAt` を今にする |
+| 8 | それ以外 | 200。前後の空白を除いて保存し、書いた主を `user` にする。**空（除いて空。U+0085 だけも）か `null` なら AI が書いた文（`aiTitle` などの欄）に戻し、書いた主を `ai` にする**（区切りを直して新しくできた場面は AI の文が無いので、空（`null`）に戻り、書いた主も `null` になる。5-5a で実装済み）。送らなかった欄はそのまま。タイムラインの `updatedAt` を今にする |
 
 - 4・5 は欄ごとに見る（日は `title` → `summary`、場面は `label` → `note` の順に、その欄の 4 → 5）。最初に当たった1件を返す
 - 1〜7 のどれかで返すときは何も書かない
@@ -974,7 +980,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 ## 9. 共通の決まり
 
-API 全体に共通する、認証・応答の封筒・エラー・AI 識別サービスへの接続の決まり（以前の `docs/06_api_design.md` と `docs/05_technology_selection.md` §3.5 から移した。2026-10-25）。
+API 全体に共通する、認証・応答の封筒・エラー・AI 識別サービスへの接続・利用者が書く文の数え方の決まり（以前の `docs/06_api_design.md` と `docs/05_technology_selection.md` §3.5 から移した。2026-10-25）。
 **実装済み**。
 
 ### 9.1 認証と宛先
@@ -1084,3 +1090,39 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT
 - **トークン節約**: 画像は `detail: "low"` で渡す
 - モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment.gpt6_luna`（`gpt-6-luna` / GlobalStandard SKU。2026-10-17 に `gpt-5.6-luna` から切り替え）と一致させる。
   `AZURE_OPENAI_ENDPOINT` も `AZURE_OPENAI_DEPLOYMENT_NAME` も無いときの既定値（OpenAI 公式 API へのフォールバック）は、コードの中で `gpt-5.6-luna` のまま
+
+### 9.6 利用者が書く文の文字数と前後の空白
+
+**実装済み**（#128。`api/src/utils/userText.ts` の `exceedsLength()`・`trimUserText()`。写真のコメントと場面のコメントの前後の U+0085 は #127）。
+
+利用者がアプリで書く文の欄は、上限の文字数の数え方と、前後の空白の除き方を同じ規則で扱う。
+各エンドポイントの検証の表にある「N 文字を超える」「前後の空白を除いて」は、この節の数え方と除き方を指す。
+
+| 欄 | エンドポイント | 上限（既定。§4） | 前後の空白 |
+|---|---|---|---|
+| 旅行名 `name` | `POST /api/trips`・`PUT /api/trips/{tripId}`（§5.8・§5.11） | 100 | 除いて数え、除いて保存する |
+| 説明 `description` | 同上 | 1000 | 除かない（そのまま数え、そのまま保存する） |
+| 写真のコメント `comment` | `PATCH /api/photos/{photoId}`（§5.6） | 500 | 除く |
+| タグ `tags` の各要素 | 同上 | 30 | 除く |
+| 手がかり `hint` | `POST /api/photos/{photoId}/process`（§5.7） | 500 | 除く |
+| 完成版の文 `title`・`summary`・`label`・`note` | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（§5.15） | 40・400・30・200 | 除く |
+| 場面のコメント `sceneComments` の値 | `PUT /api/trips/{tripId}/timeline/draft/scenes`（§5.15） | 100 | 除く |
+
+- **文字数は見た目の1文字（書記素。`Intl.Segmenter` の `grapheme`）を1と数える。** つないだ絵文字（👨‍👩‍👧 は UTF-16 で8単位）・国旗・サロゲートペアの文字も1文字。
+  アプリの入力欄（Flutter の `maxLength`）と同じ数え方なので、入力欄が上限で止めた文はサーバでも上限を超えない（上限の値が同じとき。
+  サーバの上限を環境変数で変えたときの差は `docs/09_backlog.md`「アプリの入力欄の上限の文字数が、サーバの環境変数と連動しない（Dart）」）。
+  #128 より前は UTF-16 のコード単位（`String.length`）で数えていて、絵文字を含む文が入力欄では収まってもサーバで 400 になった
+- **UTF-16 の長さにも上限がある。** 上限の文字数 × 32（UTF-16 のコード単位。`USER_TEXT_VALIDATION.MAX_UNITS_PER_CHARACTER`）を超える文は、見た目の文字数が上限以内でも、文字数の上限を超えたときと同じ 400 と `message` にする
+  （例: 写真のコメントは 16,000 単位まで。超えると `コメントは500文字以内で指定してください`）。見た目の1文字には結合文字をいくらでも重ねられ、見た目の文字数だけでは文の大きさに上限が無くなるため
+  （文書の大きさの上限や AI に渡す文の大きさ）。1文字が長い絵文字（肌の色を付けた家族の絵文字で 19 単位）を上限の文字数まで並べても、この上限には当たらない
+- **前後の空白**は、JavaScript の `trim()` が除くもの（空白・タブ・改行・全角空白など）に U+0085（次の行）を足したもの。アプリの `trim()`（Dart）と同じ。
+  前後の空白を除く欄は、除いた後の文で数え、除いた後の文を保存する
+- 除いて空になった文（空白だけ・U+0085 だけ）の扱いは欄ごとに違い、各節に書いてある。旅行名は 400 `旅行名が指定されていません`、タグは 400 `タグは1〜30文字で指定してください`、
+  写真のコメントと手がかりは `null`、完成版の文は AI が書いた文に戻す、場面のコメントは持たない
+- 上限を超えたときの 400 の `message` は欄ごとに固定で、上限の値を埋め込む（各節）
+
+**対象にしないもの**（利用者が書く文ではない）。文字数は UTF-16 のコード単位（`String.length`）で数え、空白の判定に U+0085 を含めない。
+
+- 写真の地名 `placeName`（`POST /api/photos`。端末が住所から作る。§5.1）
+- 図鑑の項目の名前 `name`（`GET /api/catalog/entry` の引数。AI が付けた名前で引く。§5.14）
+- AI が返す文: 識別の名前の検証（[06 §3.1](./06_processing_design.md#31-契約)）と、タイムラインの文の上限での切り詰め（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)。見た目の1文字の途中では切らない）

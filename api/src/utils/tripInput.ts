@@ -2,6 +2,7 @@ import { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { createValidationError, isPresentNonString } from './response';
 import { TripInput } from '../types/album';
 import { TRIP_VALIDATION } from '../constants/validation';
+import { exceedsLength, trimUserText } from './userText';
 
 /**
  * JSON のボディを読む。JSON として読めなければ 400
@@ -53,14 +54,14 @@ export function validateTripInput(body: unknown): { input: TripInput } | { error
   if (isPresentNonString(description)) {
     return { error: createValidationError(messages.DESCRIPTION_NOT_A_STRING) };
   }
-  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  const trimmedName = typeof name === 'string' ? trimUserText(name) : '';
   if (trimmedName === '') {
     return { error: createValidationError(messages.NAME_REQUIRED) };
   }
-  if (trimmedName.length > TRIP_VALIDATION.MAX_LENGTH.NAME) {
+  if (exceedsLength(trimmedName, TRIP_VALIDATION.MAX_LENGTH.NAME)) {
     return { error: createValidationError(messages.NAME_TOO_LONG) };
   }
-  if (typeof description === 'string' && description.length > TRIP_VALIDATION.MAX_LENGTH.DESCRIPTION) {
+  if (typeof description === 'string' && exceedsLength(description, TRIP_VALIDATION.MAX_LENGTH.DESCRIPTION)) {
     return { error: createValidationError(messages.DESCRIPTION_TOO_LONG) };
   }
   return { input: { name: trimmedName, description: typeof description === 'string' && description !== '' ? description : null } };

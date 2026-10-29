@@ -352,6 +352,55 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual([tag]);
   });
 
+  // 家族の絵文字は見た目は1文字、UTF-16 では8単位
+  it('コメントとタグの文字数は見た目の1文字で数え、絵文字でちょうど上限なら保存できる', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const comment = '👨‍👩‍👧'.repeat(500);
+    const tag = '👨‍👩‍👧'.repeat(30);
+
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment, tags: [tag] }), mockContext);
+
+    expect(response.status).toBe(200);
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ comment, tags: [tag] });
+  });
+
+  it('結合文字を重ねて見た目は1文字でも、とても長い文は上限を超えたとして 400 で何も変えない（文字数の規則はほかの欄と同じ関数）', async () => {
+    // 見た目の1文字だけで数えると、1文字に結合文字をいくらでも重ねられ、文の大きさの上限が無くなる
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const before = cosmosBackend.documents.get(PHOTO_ID);
+
+    // UTF-16 の長さの上限は文字数 × 32（500 文字なら 16,000 単位）。a と結合文字で 16,001 単位
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment: `a${'\u0301'.repeat(16_000)}` }), mockContext);
+
+    expect(response.status).toBe(400);
+    expect((response.jsonBody as any).error.message).toBe('コメントは500文字以内で指定してください');
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual(before);
+  });
+
+  it('UTF-16 の長さがちょうど上限（文字数 × 32）なら保存できる', async () => {
+    // 1文字が長い絵文字（肌の色を付けた家族の絵文字は見た目は1文字、UTF-16 では19単位）も、上限の文字数まで並べられるように余裕を取っている
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const comment = `a${'\u0301'.repeat(15_999)}`;
+
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment }), mockContext);
+
+    expect(response.status).toBe(200);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).comment).toBe(comment);
+  });
+
+  it('タグの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。除くと同じになるタグは1つにまとめる）', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['温泉', '\u0085温泉\u0085'] });
+
+    const response = await updatePhotoHandler(request, mockContext);
+
+    expect(response.status).toBe(200);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉']);
+  });
+
   it('前後の空白を除くと同じになるタグは、1つにまとめる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());

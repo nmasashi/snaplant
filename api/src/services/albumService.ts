@@ -36,7 +36,7 @@ export class AlbumService {
 
   /**
    * 旅行を作る
-   * @param input 旅行名と説明
+   * @param input 検証済みの旅行名と説明（旅行名は validateTripInput が前後の空白を除いたもの。ここでは除き直さない）
    * @returns 保存した旅行
    */
   async createTrip(input: TripInput): Promise<Trip> {
@@ -44,7 +44,7 @@ export class AlbumService {
     const doc: TripDocument = {
       id: uuidv4(),
       type: 'trip',
-      name: input.name.trim(),
+      name: input.name,
       description: input.description,
       tags: [],
       createdAt: now,
@@ -177,7 +177,7 @@ export class AlbumService {
     }
     const updated: TripDocument = {
       ...current,
-      name: input.name.trim(),
+      name: input.name,
       description: input.description,
       updatedAt: new Date().toISOString(),
     };

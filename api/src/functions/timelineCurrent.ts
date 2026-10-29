@@ -7,6 +7,7 @@ import { ErrorCode } from '../types/api';
 import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
+import { exceedsLength, trimUserText } from '../utils/userText';
 import { readTimelineBody } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
@@ -206,8 +207,8 @@ function readTextEdits<K extends string>(
     if (value !== null && typeof value !== 'string') {
       return { error: createValidationError(`${field.name}は文字列で指定してください`) };
     }
-    const text = value === null ? '' : value.trim();
-    if (text.length > field.maxLength) {
+    const text = value === null ? '' : trimUserText(value);
+    if (exceedsLength(text, field.maxLength)) {
       return { error: createValidationError(`${field.name}は${field.maxLength}文字以内で指定してください`) };
     }
     values[field.key] = text === '' ? null : text;
