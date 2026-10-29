@@ -253,6 +253,18 @@ void main() {
       expect(_menuItem(tester, 'タイムラインを編集').enabled, isTrue);
     });
 
+    testWidgets('タイムラインを下に引っ張ると読み直し、解析が終わっていれば「タイムラインを作り直す」を押せる',
+        (tester) async {
+      final backend = await _openTimeline(tester, pendingPhotoCount: 2);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+
+      await tester.drag(find.text('1日目'), const Offset(0, 600));
+      await letFramesRun(tester);
+      await _openMenu(tester);
+      expect(_menuItem(tester, 'タイムラインを作り直す').enabled, isTrue);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+    });
+
     testWidgets('タイムラインを編集している途中は、タイムラインの項目を出さない', (tester) async {
       await _openTimeline(tester, draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',

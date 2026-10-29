@@ -183,6 +183,30 @@ void main() {
       expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
     });
 
+    testWidgets('下に引っ張ると読み直し、解析が終わっていれば「タイムラインを作る」を押せるようにし、残りの枚数を消す',
+        (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+      expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
+    });
+
+    testWidgets('下に引っ張った読み直しに失敗したら、表示はそのままで、エラーの文言をスナックバーに出す', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.failNext(TripRoute.timeline);
+
+      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
+      expect(find.text('エラーが発生しました'), findsNothing);
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+    });
+
     testWidgets('解析中の写真が無ければ、「タイムラインを作る」を押せ、残りの枚数を出さない', (tester) async {
       await _openTripDetail(tester);
 
