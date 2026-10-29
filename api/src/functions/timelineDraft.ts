@@ -4,7 +4,7 @@ import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing 
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
-import { trimUserText } from '../utils/userText';
+import { exceedsLength, trimUserText } from '../utils/userText';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { withRecutStarts } from '../services/timelineWriting';
 import {
@@ -197,7 +197,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return createValidationError('場面のコメントは写真IDと文字列の組で指定してください');
     }
     const maxLength = TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT;
-    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => trimUserText(comment).length > maxLength)) {
+    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => exceedsLength(trimUserText(comment), maxLength))) {
       return createValidationError(`場面のコメントは${maxLength}文字以内で指定してください`);
     }
     let photos: TimelinePhotoSnapshot[];

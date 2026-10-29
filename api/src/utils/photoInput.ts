@@ -6,7 +6,7 @@ import { ErrorCode, HttpStatusCode } from '../types/api';
 import { CONTEXT_INFO_VALIDATION, FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
 import { PHOTO_KINDS } from '../catalog/kinds';
 import { readPageLimit } from './pageLimit';
-import { trimUserText } from './userText';
+import { exceedsLength, trimUserText } from './userText';
 
 /** 検証を通った写真の保存の入力 */
 export interface PhotoInput {
@@ -380,7 +380,7 @@ export async function readPhotoUpdateInput(
       return { error: createValidationError('コメントは文字列で指定してください') };
     }
     const trimmed = comment === null ? null : trimUserText(comment);
-    if (trimmed !== null && trimmed.length > PHOTO_VALIDATION.MAX_LENGTH.COMMENT) {
+    if (trimmed !== null && exceedsLength(trimmed, PHOTO_VALIDATION.MAX_LENGTH.COMMENT)) {
       return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.COMMENT_TOO_LONG) };
     }
     input.comment = trimmed === '' ? null : trimmed;
@@ -392,8 +392,8 @@ export async function readPhotoUpdateInput(
     if (!tags.every((tag) => typeof tag === 'string')) {
       return { error: createValidationError('タグは文字列で指定してください') };
     }
-    const trimmed = (tags as string[]).map((tag) => tag.trim());
-    if (trimmed.some((tag) => tag === '' || tag.length > TAG_VALIDATION.MAX_LENGTH)) {
+    const trimmed = (tags as string[]).map((tag) => trimUserText(tag));
+    if (trimmed.some((tag) => tag === '' || exceedsLength(tag, TAG_VALIDATION.MAX_LENGTH))) {
       return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH) };
     }
     const unique = [...new Set(trimmed)];
@@ -436,8 +436,8 @@ export async function readProcessRequestInput(
   if (hint !== undefined && hint !== null && typeof hint !== 'string') {
     return { error: createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.NOT_A_STRING) };
   }
-  const trimmed = typeof hint === 'string' ? hint.trim() : '';
-  if (trimmed.length > CONTEXT_INFO_VALIDATION.MAX_LENGTH) {
+  const trimmed = typeof hint === 'string' ? trimUserText(hint) : '';
+  if (exceedsLength(trimmed, CONTEXT_INFO_VALIDATION.MAX_LENGTH)) {
     return { error: createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG) };
   }
   return { input: { step, hint: trimmed === '' ? null : trimmed } };
