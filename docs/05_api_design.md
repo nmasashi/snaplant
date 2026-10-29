@@ -423,7 +423,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 ### 5.6 `PATCH /api/photos/{photoId}`
 
-**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
+**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。コメントの前後の空白は U+0085（次の行）も含む（アプリの `trim()`（Dart）と同じ。#127 で実装済み。`utils/userText.ts` の `trimUserText()`）。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
 
 利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・未定（タグ）。
 
@@ -779,7 +779,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1c。`timelineDraft.ts` の `putTimelineDraftScenes`）: `sceneComments` の行（表の 4・5・7）を除く全部。
 **実装済み**（5-7。`timelineDraft.ts` の `putTimelineDraftScenes`・`savedCommentsOf()`）: `sceneComments`（場面のコメント。[03 §8.7](./03_screen_design.md#87-場面のコメント)）の行（表の 4・5・7、8 の `sceneComments`、下の `sceneComments` と `recut` の行）。
-**実装済み**（#127。`timelineDraft.ts` の `trimComment()`）: 場面のコメントの前後の空白に U+0085 を含めること（表の 5 と、下の `sceneComments` の行）。
+**実装済み**（#127。`utils/userText.ts` の `trimUserText()`）: 場面のコメントの前後の空白に U+0085 を含めること（表の 5 と、下の `sceneComments` の行）。
 
 判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 下の表の 1〜7。表の 3〜7 はタイムラインを読んだ後に見る（6・7 は控えが要る。§1 の「Cosmos DB に触る前に全部弾く」の例外）。
 

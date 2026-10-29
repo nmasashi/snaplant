@@ -246,7 +246,6 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
   }
 }
 
-
 /** 写真の id と文字列の組か（配列・null は違う） */
 function isStringRecord(value: unknown): value is Record<string, string> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((item) => typeof item === 'string');
