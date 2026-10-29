@@ -406,7 +406,7 @@ void main() {
       final backend = backendWithRow(listRow());
       await _openEntry(tester, backend);
       backend.failNext(TripRoute.catalogEntry);
-      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await tester.drag(photoGridScroll(), const Offset(0, 300));
       await letFramesRun(tester);
       // 引っ張った読み直しが失敗した（見出しとグリッドは出したまま、エラーをスナックバーに出す）
       expect(find.byType(SnackBar), findsOneWidget);
@@ -491,9 +491,9 @@ void main() {
     await letFramesRun(tester);
 
     // 写真の1行（3列のマス）が収まる高さがある
-    expect(tester.getSize(find.byType(GridView)).height, greaterThan(360 / 3));
+    expect(tester.getSize(photoGridScroll()).height, greaterThan(360 / 3));
     // 写真のマスがグリッドの見える範囲に収まり、グリッドは画面（高さ 640）の中にある
-    final grid = tester.getRect(find.byType(GridView));
+    final grid = tester.getRect(photoGridScroll());
     expect(tester.getRect(photoThumbnail(_label('10:00'))).bottom,
         lessThanOrEqualTo(grid.bottom));
     expect(grid.bottom, lessThanOrEqualTo(640));
@@ -507,7 +507,7 @@ void main() {
     await _openEntry(tester, backend);
     final staleReply = backend.holdNextReply(TripRoute.catalogEntry);
     final before = backend.catalogEntryQueriesReceived.length;
-    await tester.drag(find.byType(GridView), const Offset(0, 300));
+    await tester.drag(photoGridScroll(), const Offset(0, 300));
     await letFramesRun(tester);
     expect(backend.catalogEntryQueriesReceived, hasLength(before + 1));
     // 古い読み直しの要求が届いた後に、信頼度のより高い写真が増えた
@@ -559,7 +559,7 @@ void main() {
       backend.photosByTripId[kyotoTripId]!.add(_sakura(9, '13:00',
           tripId: kyotoTripId, confidence: 99, description: '読み直した説明'));
 
-      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await tester.drag(photoGridScroll(), const Offset(0, 300));
       await letFramesRun(tester);
 
       expect(find.text('読み直した説明'), findsOneWidget);
@@ -576,7 +576,7 @@ void main() {
       backend.photosByTripId[hokkaidoTripId]!.clear();
       backend.photosByTripId[kyotoTripId]!.clear();
 
-      await tester.drag(find.byType(GridView), const Offset(0, 300));
+      await tester.drag(photoGridScroll(), const Offset(0, 300));
       await letFramesRun(tester);
 
       expect(find.text('この項目には写真がありません'), findsOneWidget);

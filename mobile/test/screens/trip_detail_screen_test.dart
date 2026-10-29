@@ -38,7 +38,7 @@ FakeTripBackend _backendWith33Photos() {
 
 /// 写真のグリッドを下端まで送り、画面を進める
 Future<void> _scrollToEnd(WidgetTester tester) async {
-  await tester.drag(find.byType(GridView), const Offset(0, -5000));
+  await tester.drag(photoGridScroll(), const Offset(0, -5000));
   await letFramesRun(tester);
 }
 
@@ -324,7 +324,7 @@ void main() {
     backend.photosByTripId[hokkaidoTripId]!
         .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
@@ -347,9 +347,9 @@ void main() {
     backend.photosByTripId[hokkaidoTripId]!
         .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
     // 先頭まで戻ってから、下に引っ張る（引っ張って読み直せるのは先頭にいるときだけ）
-    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await tester.drag(photoGridScroll(), const Offset(0, 5000));
     await letFramesRun(tester);
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
     expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
     expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
@@ -379,9 +379,9 @@ void main() {
     expect(find.text('読み込み中...'), findsOneWidget);
     backend.photosByTripId[hokkaidoTripId]!
         .insert(0, photoJson(number: 100, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:00:00'));
-    await tester.drag(find.byType(GridView), const Offset(0, 5000));
+    await tester.drag(photoGridScroll(), const Offset(0, 5000));
     await letFramesRun(tester);
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
     expect(photoThumbnail('2026年10月5日 10:00'), findsOneWidget);
 
@@ -524,7 +524,7 @@ void main() {
     // 1回目（開いたとき）は成功済み。読み直しの要求だけを 503 で失敗させる
     backend.failNext(TripRoute.photos);
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
@@ -552,7 +552,7 @@ void main() {
     // 別の端末で旅行が消された（偽のサーバは、無い旅行の写真の一覧を 404 TRIP_NOT_FOUND で返す）
     backend.trips.clear();
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(find.text('この旅行は削除されています'), findsOneWidget);
@@ -579,7 +579,7 @@ void main() {
     // 別の端末で旅行が消された
     backend.trips.clear();
 
-    await tester.drag(find.byType(GridView), const Offset(0, 600));
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(find.text('この旅行は削除されています'), findsOneWidget);
@@ -612,7 +612,7 @@ void main() {
     );
     await openDetailFromHome(tester, backend);
 
-    await tester.drag(find.byType(GridView), const Offset(0, -5000));
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
     await letFramesRun(tester);
 
     expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
