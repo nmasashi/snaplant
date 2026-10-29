@@ -15,22 +15,23 @@ export interface TimelinePromptPhoto {
 }
 
 /**
- * 写真1枚を1行にする（例: `[12] 1日目 10/05 14:25 食べ物 たい焼き 小樽市「店の前で」`）
+ * 写真1枚を1行にする（例: `[12] 1日目 10/05 14:25 食べ物 たい焼き 小樽市 "店の前で"`）
  *
  * 無い要素は書かない。撮影日時は現地の時刻のまま（タイムゾーンを変換しない）。
- * 名前・地名・コメントの改行は空白にする（利用者が書いたコメントの改行の後ろが、別の写真の行に見えないように）
+ * 名前・地名・コメントの改行は空白にする（利用者が書いたコメントの改行の後ろが、別の写真の行に見えないように）。
+ * コメントは JSON の文字列で囲む（中の " はエスケープされるので、」） などを含んでも囲みの外に出ない）
  */
 export function photoLineOf(photo: TimelinePhotoSnapshot, dayNumber: number, index: number): string {
   const takenAt = photo.takenAt!;
   const time = `${takenAt.slice(5, 7)}/${takenAt.slice(8, 10)} ${takenAt.slice(11, 16)}`;
   const parts = [`[${index}]`, `${dayNumber}日目`, time, categoryLabelOf(photo.category), oneLine(photo.name), oneLine(photo.placeName)];
   const comment = oneLine(photo.comment);
-  return parts.filter((part): part is string => !!part).join(' ') + (comment ? `「${comment}」` : '');
+  return parts.filter((part): part is string => !!part).join(' ') + (comment ? ` ${JSON.stringify(comment)}` : '');
 }
 
 /** 改行（続く改行は1つ）を空白にして1行にする。全角の空白など、改行でない空白は利用者が書いたまま残す */
 export function oneLine(text: string | null): string | null {
-  return text === null ? null : text.replace(/[\r\n\u0085\u2028\u2029]+/g, ' ').trim();
+  return text === null ? null : text.replace(/[\r\n\u000b\u000c\u0085\u2028\u2029]+/g, ' ').trim();
 }
 
 /** カテゴリの表示名（図鑑の種類は定義表の名前、それ以外は「その他」、分類していなければ書かない） */

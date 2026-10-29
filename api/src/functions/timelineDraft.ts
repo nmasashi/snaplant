@@ -196,7 +196,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return createValidationError('場面のコメントは写真IDと文字列の組で指定してください');
     }
     const maxLength = TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT;
-    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => comment.trim().length > maxLength)) {
+    if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => trimComment(comment).length > maxLength)) {
       return createValidationError(`場面のコメントは${maxLength}文字以内で指定してください`);
     }
     let photos: TimelinePhotoSnapshot[];
@@ -245,6 +245,14 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
   }
 }
 
+/**
+ * 場面のコメントの前後の空白を除く。String.trim は U+0085（次の行）を除かないが、アプリ（Dart の trim）は除くので、
+ * それだけのコメントをアプリは空として扱う。そろえないと、空に見えるコメントが残って AI に渡る
+ */
+function trimComment(comment: string): string {
+  return comment.replace(/^[\s\u0085]+|[\s\u0085]+$/g, '');
+}
+
 /** 写真の id と文字列の組か（配列・null は違う） */
 function isStringRecord(value: unknown): value is Record<string, string> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((item) => typeof item === 'string');
@@ -265,7 +273,7 @@ function savedCommentsOf(
   if (sent !== undefined) {
     return Object.fromEntries(
       Object.entries(sent)
-        .map(([photoId, comment]) => [photoId, comment.trim()])
+        .map(([photoId, comment]) => [photoId, trimComment(comment)])
         .filter(([, comment]) => comment !== '')
     );
   }
