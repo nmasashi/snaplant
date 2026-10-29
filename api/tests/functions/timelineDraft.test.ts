@@ -639,6 +639,18 @@ describe('タイムラインの下書きAPI', () => {
       ]);
     });
 
+    it('場面のコメントの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけのものは持たない）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({
+        sceneStarts: proposed,
+        sceneComments: { [photoId('a')]: '\u0085朝市で海鮮丼\u0085', [photoId('d')]: '\u0085' }
+      });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: '朝市で海鮮丼' });
+    });
+
     it('場面のコメントを送らなければ、残る区切りのコメントは残し、無くなった区切りのコメントは消す（区切りだけを送る 5-6 までのアプリ）', async () => {
       cosmosBackend.documents.set(
         TIMELINE_ID,
@@ -848,6 +860,29 @@ describe('タイムラインの下書きAPI', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
 
       const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: ` ${'あ'.repeat(100)} ` } });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
+    });
+
+    it('場面のコメントの途中に長い空白の並びがあっても、すぐに 400（100文字以内）を返す（前後の空白を除くのに時間がかからない）', async () => {
+      // 前後の空白を後ろから正規表現で探すと、空白の並びの長さの2乗の時間がかかり、1回の要求で関数が止まる
+      // かかった時間を測るので、このテストだけ本物の時計にする（ほかのテストは Date を NOW に止めている）
+      jest.useRealTimers();
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      const started = Date.now();
+
+      // 2乗の時間なら 20万字で 30 秒を超え、1文字ずつなら一瞬で終わる。負荷で落ちないよう、上限は大きく取る
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: `あ${' '.repeat(200_000)}あ` } });
+
+      expect(response.status).toBe(400);
+      expect(Date.now() - started).toBeLessThan(5000);
+    });
+
+    it('場面のコメントの100文字は、前後の U+0085 も除いて数える（保存するものと同じ数え方）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: `\u0085${'あ'.repeat(100)}\u0085` } });
 
       expect(response.status).toBe(200);
       expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
