@@ -35,7 +35,8 @@ class PhotoGrid extends StatefulWidget {
       this.loadingMessage = '写真を読み込み中...',
       this.errorFallbackMessage = '写真の読み込みに失敗しました',
       this.onFirstPageApplied,
-      this.dayOneTakenAt})
+      this.dayOneTakenAt,
+      this.onRefresh})
       // 旅行もカテゴリも無い一覧はサーバが 400 で断る。カテゴリは旅行の中の絞り込みにだけ使う（旅行をまたぐ一覧は図鑑。03 §5.2）。
       // 置く画面の誤りなので、組み立てたところで止める
       : assert(
@@ -86,6 +87,10 @@ class PhotoGrid extends StatefulWidget {
   /// 1日目の基準にする撮影日時（旅行の最初の撮影日時）。渡すと、撮影の日が変わるところに「N日目」と日付の見出しを挟む（§4.4）。
   /// 絞り込んだ一覧でも旅行全体の数え方にするため、一覧の写真からではなく画面から受け取る
   final String? dayOneTakenAt;
+
+  /// 下に引っ張ったとき、写真の一覧を読む前に呼んで待つ（旅行詳細が見出しの枚数・期間を取り直す。
+  /// 1日目の基準 [dayOneTakenAt] を読み直した一覧とそろえるため、先に済ませる）
+  final Future<void> Function()? onRefresh;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -239,6 +244,8 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
+      await widget.onRefresh?.call();
+      if (!mounted || generation != _generation) return;
       final page = await _readPage(null);
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
