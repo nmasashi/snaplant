@@ -83,13 +83,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
   // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
-  // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
+  // 操作のボタンとサムネイルのタップと、下に引っ張る読み直しを受け付けない（二重に送らない・画面を重ねて開かない・
+  // 読み直しの応答が操作の後や開いた画面の上に届いて、古い状態を当てたりエラーを出したりしない。§8.1・§8.3）
   bool _sending = false;
   // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）
   bool _changesNoticeHidden = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
-  // 操作の応答を出すとき（作る・もう一度の応答、区切りの編集シートの応答）も進め、それより前に始めた読み直しの応答を使わない
   int _generation = 0;
 
   @override
@@ -147,9 +147,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 下に引っ張ったときの読み直し。読み終えるまで今の表示のままにし、失敗したら表示はそのままでエラーの文言をスナックバーに出す
   /// （写真の一覧と同じ。§8.1）
   Future<void> _refresh() async {
-    // 操作を送っている間（写真ビューアで開く写真を読んでいる間も）は読み直さない。読み直しの応答が、開いた画面の上や操作の後に届いて、
-    // 古い状態を当てたりエラーを出したりしないように
-    if (_sending) return;
     await _load(showLoading: false, onFailure: _LoadFailure.keepWithSnackBar);
   }
 
@@ -220,9 +217,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           await _load(showLoading: false);
           return;
         }
-        // 操作の応答を出したら世代を進める。操作を送っている間に始めた読み直し（下に引っ張ったなど）の応答は、
-        // 操作の前の状態で決まっていることがあるので、後から届いても使わない
-        ++_generation;
         _show(_overview!.withDraft(draft));
       });
 
@@ -455,6 +449,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     return RefreshIndicator(
       onRefresh: _refresh,
+      // 操作を送っている間は引っ張れない（[_sending]）
+      notificationPredicate: (notification) =>
+          !_sending && defaultScrollNotificationPredicate(notification),
       color: AppColors.primary,
       child: _buildLoaded(overview),
     );

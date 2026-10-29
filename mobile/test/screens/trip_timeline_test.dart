@@ -225,26 +225,6 @@ void main() {
       expect(find.textContaining('解析中の写真があと'), findsNothing);
     });
 
-    testWidgets('操作を送っている間に下に引っ張っても、操作の前の古い応答で表示を戻さない', (tester) async {
-      // 「タイムラインを作る」を送っている間に引っ張り、作る前の状態で決まった読み直しの応答が、作る受付の応答より後に届く
-      final backend = await _openTripDetail(tester);
-      await _showTimeline(tester);
-      final createHold = Completer<void>();
-      backend.holds[TripRoute.timelineCreate] = createHold.future;
-      await tester.tap(find.text('タイムラインを作る'));
-      await letFramesRun(tester);
-      final readHold = backend.holdNextReply(TripRoute.timeline);
-
-      await tester.drag(find.text('タイムラインはまだありません'), const Offset(0, 600));
-      await letFramesRun(tester);
-      createHold.complete();
-      await letFramesRun(tester);
-      readHold.complete();
-      await letFramesRun(tester);
-      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-      expect(find.text('タイムラインはまだありません'), findsNothing);
-    });
-
     testWidgets('作っている間に下に引っ張った読み直しに失敗しても、5 秒ごとの下書きの読み直しは続ける', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
@@ -277,6 +257,11 @@ void main() {
       expect(backend.timelineReadsReceived, reads);
       createHold.complete();
       await letFramesRun(tester);
+
+      // 送り終えたら引っ張れる（上の引っ張りが空振りでなかった印）
+      await tester.drag(find.text('タイムラインの案を作っています'), const Offset(0, 600));
+      await letFramesRun(tester);
+      expect(backend.timelineReadsReceived, reads + 1);
     });
 
     testWidgets('下に引っ張った読み直しの応答が「タイムラインを作る」の後に届いても、作っている間の表示を戻さない', (tester) async {
