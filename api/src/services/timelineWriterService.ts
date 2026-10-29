@@ -2,7 +2,7 @@ import { TIMELINE_WRITE_MAX_TOKENS } from '../constants/album';
 import { TIMELINE_VALIDATION } from '../constants/validation';
 import { UpstreamError } from '../utils/errors';
 import { OpenAIVisionService } from './openAIVisionService';
-import { TimelinePromptPhoto, dayRangesOf, photoLineOf } from './timelinePrompt';
+import { TimelinePromptPhoto, dayRangesOf, oneLine, photoLineOf } from './timelinePrompt';
 import { GRAPHEMES } from '../utils/graphemes';
 
 /**
@@ -55,6 +55,8 @@ export interface TimelineWriteRequest {
   sceneStarts: number[];
   /** 文を書いてほしい場面（最初の写真の番号） */
   scenesToWrite: number[];
+  /** 利用者が書いた場面のコメント（場面の最初の写真の番号 → コメント）。見出しと一言の材料にする（06 §8.4） */
+  sceneComments?: Map<number, string>;
   /** 文を書いてほしい日 */
   daysToWrite: { date: string; dayNumber: number }[];
 }
@@ -96,13 +98,14 @@ export class TimelineWriterService {
 - 場面の一言は、写っているものについて書いてください（手がかりや判断の過程には触れない）
 - 日のタイトルはその日を表す短い言葉、まとめは2〜3文
 - 渡していないことを作らないでください
+- 場面に「利用者のコメント」があれば、その場面で何をしていたかの手がかりとして見出しと一言の材料にしてください（そのまま写さない）
 
 日の区切り:
 ${dayRangesOf(request.photos)}
 
 場面の区切り（場面の最初と最後の写真の番号）: ${request.sceneStarts.map(rangeOf).join('、')}
 
-書いてほしい場面（最初と最後の写真の番号）: ${listOrNone(request.scenesToWrite.map(rangeOf), 'scenes')}
+書いてほしい場面（最初と最後の写真の番号）: ${listOrNone(request.scenesToWrite.map((start) => withComment(rangeOf(start), request.sceneComments?.get(start))), 'scenes')}
 書いてほしい日: ${listOrNone(request.daysToWrite.map(({ date, dayNumber }) => `${date}（${dayNumber}日目）`), 'days')}
 写真（[番号] 何日目 撮影時刻 カテゴリ 名前 地名「コメント」）:
 ${lines.join('\n')}
@@ -154,6 +157,11 @@ ${lines.join('\n')}
  */
 function sceneEndsOf(sceneStarts: number[], photoCount: number): Map<number, number> {
   return new Map(sceneStarts.map((start, index) => [start, (sceneStarts[index + 1] ?? photoCount) - 1]));
+}
+
+/** 書いてほしい場面の範囲に、利用者のコメントがあれば1行にして添える（改行の後ろが写真の行や指示の行に見えないように） */
+function withComment(range: string, comment: string | undefined): string {
+  return comment === undefined ? range : `${range}（利用者のコメント「${oneLine(comment)}」）`;
 }
 
 /**

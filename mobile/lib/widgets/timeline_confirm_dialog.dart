@@ -38,3 +38,34 @@ Future<bool> confirmRebuildTimeline(BuildContext context) =>
         title: 'タイムラインを作り直しますか？',
         message: '今のタイムラインを消して、今の写真で AI が最初から作り直します。手で直した文と場面の分け方も消え、元には戻せません。',
         confirmLabel: '作り直す');
+
+/// 「つなげる」の確認（§8.7）。つなげると消える文（[lost]。「消えるコメント: …」など）を添える
+Future<bool> confirmMergeScenes(BuildContext context,
+    {required String message, required List<String> lost}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('場面をつなげますか？'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(message),
+          for (final text in lost) ...[
+            const SizedBox(height: 8),
+            Text(text),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル')),
+        ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('つなげる')),
+      ],
+    ),
+  );
+  return confirmed == true;
+}

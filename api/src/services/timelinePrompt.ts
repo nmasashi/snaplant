@@ -29,7 +29,7 @@ export function photoLineOf(photo: TimelinePhotoSnapshot, dayNumber: number, ind
 }
 
 /** 改行（続く改行は1つ）を空白にして1行にする。全角の空白など、改行でない空白は利用者が書いたまま残す */
-function oneLine(text: string | null): string | null {
+export function oneLine(text: string | null): string | null {
   return text === null ? null : text.replace(/[\r\n\u0085\u2028\u2029]+/g, ' ').trim();
 }
 

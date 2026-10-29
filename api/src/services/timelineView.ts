@@ -216,7 +216,12 @@ export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnap
     exists: (photoId) => existing.has(photoId),
     urlOf,
   });
-  return { ...draftStatusOf(draft), ...layout };
+  const comments = draft.sceneComments ?? {};
+  const days = layout.days.map((day) => ({
+    ...day,
+    scenes: day.scenes.map((scene) => ({ ...scene, comment: comments[scene.startPhotoId] ?? null })),
+  }));
+  return { ...draftStatusOf(draft), ...layout, days };
 }
 
 /** 下書きの状態（応答の形。05 §5.15） */

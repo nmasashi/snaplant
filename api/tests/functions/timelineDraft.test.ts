@@ -236,6 +236,7 @@ describe('タイムラインの下書きAPI', () => {
                 lastTakenAt: '2026-10-05T07:50:00',
                 placeNames: [],
                 names: [],
+                comment: null,
                 photos: [shown('a', '2026-10-05T07:50:00')]
               }
             ]
@@ -245,7 +246,7 @@ describe('タイムラインの下書きAPI', () => {
       });
     });
 
-    it('確かめ中の下書きは、日ごと・場面ごとに写真を並べて返す（日付の切り替えは朝4時、日時なしは最後）', async () => {
+    it('確かめ中の下書きは、日ごと・場面ごとに写真と場面のコメント（無ければ null）を並べて返す（日付の切り替えは朝4時、日時なしは最後）', async () => {
       placeSnapshot([
         // 1日目: 朝ごはん（AI の区切り）と午前（利用者が足した区切り）。深夜 2:30 の写真は前の日（1日目）に入る
         snap('a', '2026-10-05T07:50:00', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市' }),
@@ -258,7 +259,13 @@ describe('タイムラインの下書きAPI', () => {
       ]);
       cosmosBackend.documents.set(
         TIMELINE_ID,
-        timelineWith(draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a'), photoId('c')] }))
+        timelineWith(
+          draftOf({
+            proposedStarts: [photoId('a')],
+            sceneStarts: [photoId('a'), photoId('c')],
+            sceneComments: { [photoId('c')]: '運河沿いを散歩した' }
+          })
+        )
       );
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
@@ -283,6 +290,7 @@ describe('タイムラインの下書きAPI', () => {
                 lastTakenAt: '2026-10-05T07:58:00',
                 placeNames: ['北海道千歳市'],
                 names: ['海鮮丼'],
+                comment: null,
                 photos: [
                   shown('a', '2026-10-05T07:50:00', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市' }),
                   shown('b', '2026-10-05T07:58:00', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市', thumbnailBlobName: null })
@@ -296,6 +304,7 @@ describe('タイムラインの下書きAPI', () => {
                 lastTakenAt: '2026-10-06T02:30:00',
                 placeNames: ['北海道小樽市', '北海道札幌市'],
                 names: ['小樽運河', 'すすきの'],
+                comment: '運河沿いを散歩した',
                 photos: [
                   shown('c', '2026-10-05T10:10:00', { name: '小樽運河', placeName: '北海道小樽市' }),
                   shown('d', '2026-10-06T02:30:00', { name: 'すすきの', placeName: '北海道札幌市' })
@@ -315,6 +324,7 @@ describe('タイムラインの下書きAPI', () => {
                 lastTakenAt: '2026-10-07T09:10:00',
                 placeNames: ['北海道旭川市'],
                 names: ['醤油ラーメン'],
+                comment: null,
                 photos: [shown('e', '2026-10-07T09:10:00', { category: 'food', name: '醤油ラーメン', placeName: '北海道旭川市' })]
               }
             ]
@@ -611,6 +621,37 @@ describe('タイムラインの下書きAPI', () => {
       expect(data.draft.undatedPhotos).toEqual([shown('u', null)]);
     });
 
+    it('場面のコメントを送ると、前後の空白を除いて区切りと一緒に保存し、応答の場面に返す（空白だけのものは持たず、無い場面は null）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({
+        sceneStarts: proposed,
+        sceneComments: { [photoId('a')]: '  朝市で海鮮丼 ', [photoId('d')]: ' \n ' }
+      });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: '朝市で海鮮丼' });
+      const scenes = (response.jsonBody as any).data.draft.days.flatMap((day: any) => day.scenes);
+      expect(scenes.map((scene: any) => [scene.startPhotoId, scene.comment])).toEqual([
+        [photoId('a'), '朝市で海鮮丼'],
+        [photoId('c'), null],
+        [photoId('d'), null]
+      ]);
+    });
+
+    it('場面のコメントを送らなければ、残る区切りのコメントは残し、無くなった区切りのコメントは消す（区切りだけを送る 5-6 までのアプリ）', async () => {
+      cosmosBackend.documents.set(
+        TIMELINE_ID,
+        timelineWith(reviewing({ sceneComments: { [photoId('a')]: '朝市で海鮮丼', [photoId('c')]: '小樽でお寿司' } }))
+      );
+
+      // c の場面を a の場面とつなげた
+      const response = await put({ sceneStarts: [photoId('a'), photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: '朝市で海鮮丼' });
+    });
+
     it('各日の最初の写真は、下書きの日付の切り替えの時刻で決める（5時なら翌日の 4:30 は前の日の途中）', async () => {
       // k は 10/06 4:30。下書きの切り替えが5時なので 10/05 に入り、2日目の最初は d のまま。
       // 既定（4時）と違う値にして、今の設定ではなく下書きに書いた値で分けることを見る
@@ -768,6 +809,49 @@ describe('タイムラインの下書きAPI', () => {
       });
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     }));
+
+    it('場面のコメントがオブジェクトでない・文字列でない値を含む・前後の空白を除いて100文字を超えるときは、400 で何も書かない', () => forEachCase<[string, unknown, string]>([
+      ['配列', [], '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['null', null, '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['文字列', '朝市', '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['文字列でない値を含む', { [photoId('a')]: '朝市', [photoId('c')]: 1 }, '場面のコメントは写真IDと文字列の組で指定してください'],
+      ['101文字', { [photoId('a')]: 'あ'.repeat(101) }, '場面のコメントは100文字以内で指定してください']
+    ], async (_label, sceneComments, message) => {
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: proposed, sceneComments });
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    }));
+
+    it('場面のコメントが、保存する区切りに無い写真に付いているときは、400（場面のコメントは場面の最初の写真に付けてください）で何も書かない', () => forEachCase<[string, string]>([
+      ['場面の途中の写真', photoId('b')],
+      ['控えに無い写真', photoId('z')]
+    ], async (_label, photo) => {
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: '朝市で海鮮丼', [photo]: '散歩' } });
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: '場面のコメントは場面の最初の写真に付けてください' }
+      });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    }));
+
+    it('場面のコメントは、前後の空白を除いて100文字までなら保存する', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: ` ${'あ'.repeat(100)} ` } });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
+    });
 
     it('区切りが控えに無い・撮影日時の無い・重なった写真を含むときは、400（区切りが無効です）', () => forEachCase<[string, string[]]>([
       ['控えに無い写真を含む', [photoId('a'), photoId('z'), photoId('d')]],

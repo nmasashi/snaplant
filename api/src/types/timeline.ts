@@ -33,6 +33,8 @@ export interface TimelineDraft {
   proposedStarts: string[];
   /** 今の区切り（場面の最初の写真の id。撮影の順） */
   sceneStarts: string[];
+  /** 利用者が書いた場面のコメント（場面の最初の写真の id → 前後の空白を除いた空でない文）。文を書く AI に材料として渡す。無ければ空とみなす */
+  sceneComments?: Record<string, string>;
   startedAt: string;
 }
 

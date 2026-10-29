@@ -571,6 +571,8 @@ URL を受け取って検証する API も無い。ただし Azurite で動く�
 解析のやり直しダイアログ（`mobile/lib/widgets/retry_processing_dialog.dart` の手がかり 500。サーバは `CONTEXT_INFO_MAX_LENGTH`）も同じ差があり、同じ判断で許容する（2026-10-18 の `/code-review` で指摘）。
 タイムラインの編集シート（5-4b。`mobile/lib/widgets/timeline_edit_sheet.dart`、上限は `trip_timeline_view.dart` の見出し 30・一言 200・タイトル 40・まとめ 400。サーバは `TIMELINE_*_MAX_LENGTH`）も同じ差がある（2026-10-26 の `contract-auditor` で確認）。
 越えた場合はサーバの 400 の文言（`見出しは30文字以内で指定してください` など）がシートに出て、シートと入力は残る。旅行のダイアログと同じ扱いなので、同じ判断で許容してよいかを人間が確かめる。
+案の確認画面の場面のコメント（5-7。`mobile/lib/screens/timeline_review_screen.dart` の `_SceneCommentSheet` の 100。サーバは `TIMELINE_SCENE_COMMENT_MAX_LENGTH`）も同じ差がある（2026-10-29 の `contract-auditor` で確認）。
+越えた場合はサーバの 400 の文言（`場面のコメントは100文字以内で指定してください`）がシートに出て、シートと入力は残る（2026-10-29 の `/code-review` の指摘で、閉じてから送るのをやめた）。同じ判断で許容してよいかを人間が確かめる。
 
 ---
 

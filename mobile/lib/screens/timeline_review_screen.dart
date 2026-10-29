@@ -16,13 +16,17 @@ class TimelineReviewScreen extends StatefulWidget {
       {super.key,
       required this.apiService,
       required this.tripId,
-      required this.editing});
+      required this.editing,
+      this.current});
 
   final ApiService apiService;
   final String tripId;
 
   /// タイムラインの編集（区切りの直し）として開いたか。見出しを読み込む前から出すため、開く側が渡す
   final bool editing;
+
+  /// 旅行詳細が読んだ完成版（タイムラインを編集するとき、つなげると消える見出しと一言を知らせる。§8.7）
+  final TimelineCurrent? current;
 
   @override
   State<TimelineReviewScreen> createState() => _TimelineReviewScreenState();
@@ -93,18 +97,96 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         ],
       ]);
 
-  /// [scene] を前の場面とつなげる（[scene] の区切りを外す）
-  Future<void> _merge(TimelineScene scene) => _save([
-        for (final start in _sceneStarts())
-          if (start != scene.startPhotoId) start
-      ]);
+  /// [scene] を同じ日の1つ前の場面 [previous] とつなげる（[scene] の区切りを外す。§8.7）
+  ///
+  /// タイムラインを編集するときは、後ろの場面の見出しと一言が消えることを確かめる（あれば）。
+  /// それ以外は、場面のコメントは前の場面のものを残し、前に無ければ後ろのものを引き継ぐ。両方にあるときだけ、後ろのコメントが消えることを確かめる
+  Future<void> _merge(TimelineScene previous, TimelineScene scene) async {
+    final starts = [
+      for (final start in _sceneStarts())
+        if (start != scene.startPhotoId) start
+    ];
+    if (_draft!.reason == 'recut') {
+      if (!await _confirmDroppingTexts(scene) || !mounted) return;
+      await _save(starts);
+      return;
+    }
+    final kept = previous.comment;
+    final dropped = scene.comment;
+    if (kept != null && dropped != null) {
+      final confirmed = await confirmMergeScenes(context,
+          message: '前の場面のコメントを残します。後ろの場面のコメントは消えます。',
+          lost: ['消えるコメント: $dropped']);
+      if (!confirmed || !mounted) return;
+    }
+    final comments = _comments()..remove(scene.startPhotoId);
+    if (kept == null && dropped != null) {
+      comments[previous.startPhotoId] = dropped;
+    }
+    await _save(starts, comments: comments);
+  }
 
-  /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）
-  Future<void> _save(List<String> sceneStarts) async {
+  /// タイムラインを編集するとき、つなげて消える後ろの場面の見出しと一言（完成版のもの）があれば確かめる。無ければ確かめずに true
+  Future<bool> _confirmDroppingTexts(TimelineScene scene) async {
+    final texts = widget.current?.days
+        .expand((day) => day.scenes)
+        .where((current) => current.startPhotoId == scene.startPhotoId)
+        .firstOrNull;
+    final lost = [
+      if (texts?.label != null) '消える見出し: ${texts!.label}',
+      if (texts?.note != null) '消える一言: ${texts!.note}',
+    ];
+    if (lost.isEmpty) return true;
+    return confirmMergeScenes(context,
+        message: 'つなげると、後ろの場面の見出しと一言は消えます。', lost: lost);
+  }
+
+  /// 今の場面のコメント（場面の最初の写真の id → コメント）
+  Map<String, String> _comments() => {
+        for (final day in _draft!.days!)
+          for (final scene in day.scenes)
+            if (scene.comment != null) scene.startPhotoId: scene.comment!,
+      };
+
+  /// 場面のコメントを書くシートを開く。「保存」でシートの中から区切りと一緒に送り（空なら消す。§8.7）、保存できたら応答で描き直す。
+  /// 下書きが変わった・旅行が無いなら、シートが閉じた後に §8.4 のとおりに扱う
+  Future<void> _editComment(TimelineScene scene) async {
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（編集シートと同じ。§8.5）
+      enableDrag: false,
+      builder: (context) => _SceneCommentSheet(
+        initial: scene.comment,
+        onSave: (text) {
+          final comments = _comments();
+          if (text.trim().isEmpty) {
+            comments.remove(scene.startPhotoId);
+          } else {
+            comments[scene.startPhotoId] = text;
+          }
+          return widget.apiService.saveTimelineScenes(
+              widget.tripId, _sceneStarts(),
+              sceneComments: comments);
+        },
+      ),
+    );
+    if (!mounted || result == null) return;
+    if (result is TimelineDraftStatus) {
+      setState(() => _draft = result);
+      return;
+    }
+    _handleOperationError(result, '保存に失敗しました');
+  }
+
+  /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）。[comments] を渡せば場面のコメントも送る
+  Future<void> _save(List<String> sceneStarts,
+      {Map<String, String>? comments}) async {
     setState(() => _sending = true);
     try {
-      final draft = await widget.apiService
-          .saveTimelineScenes(widget.tripId, sceneStarts);
+      final draft = await widget.apiService.saveTimelineScenes(
+          widget.tripId, sceneStarts,
+          sceneComments: comments);
       if (!mounted) return;
       setState(() => _draft = draft);
     } catch (e) {
@@ -295,7 +377,8 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         if (index > 0)
           Center(
             child: TextButton.icon(
-              onPressed: _sending ? null : () => _merge(scene),
+              onPressed:
+                  _sending ? null : () => _merge(day.scenes[index - 1], scene),
               icon: const Icon(Icons.link),
               label: const Text('つなげる'),
             ),
@@ -318,8 +401,35 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
             _buildPhotos(scene.photos, scene: scene),
+            // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
+            if (_draft!.reason != 'recut') ...[
+              const SizedBox(height: 4),
+              _buildComment(scene),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// 場面のコメント。無ければ「＋ コメントを書く」、あれば「コメント: {コメント}」（タップで直す）
+  Widget _buildComment(TimelineScene scene) {
+    final comment = scene.comment;
+    if (comment == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: _sending ? null : () => _editComment(scene),
+          icon: const Icon(Icons.add),
+          label: const Text('コメントを書く'),
+        ),
+      );
+    }
+    return InkWell(
+      onTap: _sending ? null : () => _editComment(scene),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text('コメント: $comment', style: AppTextStyles.body2),
       ),
     );
   }
@@ -383,4 +493,117 @@ String _sceneLabel(TimelineScene scene) {
     if (scene.placeNames.isNotEmpty) scene.placeNames.join('、'),
     '${scene.photos.length}枚',
   ].join(' · ');
+}
+
+/// 場面のコメントを書く、下から出るシート（§8.7）
+///
+/// 「保存」でシートの中から送る（失敗してもシートと書いた文を残す）。閉じるときの結果: 保存できたら応答の下書き、
+/// 下書きが変わった・旅行が無いなら [ApiException]（呼ぶ側が知らせる）、キャンセル・何も変えずに保存したら null
+class _SceneCommentSheet extends StatefulWidget {
+  const _SceneCommentSheet({required this.initial, required this.onSave});
+
+  /// 今のコメント（無ければ null）
+  final String? initial;
+
+  /// 書いた文（空もある）を送る
+  final Future<TimelineDraftStatus> Function(String text) onSave;
+
+  @override
+  State<_SceneCommentSheet> createState() => _SceneCommentSheetState();
+}
+
+class _SceneCommentSheetState extends State<_SceneCommentSheet> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial ?? '');
+  // 保存している間は閉じられず、ボタンも押せない（編集シートと同じ）
+  bool _saving = false;
+  // 保存に失敗したときの文言（シートの中に出す）
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    // 押せなくする描き直しが届く前に続けて押されても、送るのは1回
+    if (_saving) return;
+    final text = _controller.text;
+    if (text.trim() == (widget.initial ?? '').trim()) {
+      Navigator.pop(context);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _errorMessage = null;
+    });
+    try {
+      final draft = await widget.onSave(text);
+      if (!mounted) return;
+      Navigator.pop(context, draft);
+    } catch (e) {
+      debugPrint('_SceneCommentSheet: 保存のエラー: $e');
+      if (!mounted) return;
+      if (e is ApiException && (e.isTimelineChanged || e.isTripNotFound)) {
+        // 呼ぶ側が知らせて閉じる
+        Navigator.pop(context, e);
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _errorMessage = e is ApiException ? e.userMessage : '保存に失敗しました';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final errorMessage = _errorMessage;
+    return PopScope(
+      canPop: !_saving,
+      child: Padding(
+        // キーボードの分だけ上げる
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('場面のコメント', style: AppTextStyles.headline3),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                enabled: !_saving,
+                maxLength: 100,
+                maxLines: null,
+              ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMessage, style: AppTextStyles.error),
+              ],
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _saving ? null : () => Navigator.pop(context),
+                    child: const Text('キャンセル'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    child: const Text('保存'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -72,7 +72,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/trips/{tripId}/timeline` | POST | タイムラインを作る・作り直す（区切り案の下書きを作ってキューに積む。202。作り直しは今の完成版を消す） |
 | `/api/trips/{tripId}/timeline/draft` | GET | タイムラインの下書きの状態（確かめ中か、文を書くのに失敗した下書きなら日と場面も） |
 | `/api/trips/{tripId}/timeline/draft` | DELETE | タイムラインの下書きをやめる |
-| `/api/trips/{tripId}/timeline/draft/scenes` | PUT | タイムラインの下書きの区切りを保存する（確かめ中の日と場面を返す） |
+| `/api/trips/{tripId}/timeline/draft/scenes` | PUT | タイムラインの下書きの区切りと場面のコメントを保存する（確かめ中の日と場面を返す） |
 | `/api/trips/{tripId}/timeline/draft/write` | POST | タイムラインの下書きの区切りで文を書く（文を書く待ちにしてキューに積む。202。書き終えると下書きが完成版に入れ替わる）。区切りを直している下書きは、AI を使わずその場で完成版に当てて下書きを消す（200。`draft: null`） |
 | `/api/trips/{tripId}/timeline/recut` | POST | タイムラインの完成版の区切りを直し始める（完成版の区切りを写した確かめ中の下書きを作り、その日と場面を返す） |
 | `/api/trips/{tripId}/timeline/days/{date}` | PATCH | タイムラインの完成版の日のタイトル・まとめを直す（空か `null` なら AI の文に戻す） |
