@@ -297,7 +297,14 @@ class _PhotoGridState extends State<PhotoGrid> {
     final dayOneTakenAt = widget.dayOneTakenAt;
     final sections = <_Section>[_Section(header: null, start: 0)];
     if (dayOneTakenAt != null) {
-      final dayOne = _dayOf(dayOneTakenAt);
+      // 画面の持つ最初の撮影日時は、一覧だけを読み直すと古いまま残る（それより前の日の写真が後から足されうる）。
+      // 一覧の撮影日時のある最初の写真（撮影の順に並ぶので一番早い）の日の方が早ければ、そちらを1日目にして0日目を出さない
+      var dayOne = _dayOf(dayOneTakenAt);
+      final firstTakenAt =
+          photos.map((p) => p.takenAt).whereType<String>().firstOrNull;
+      if (firstTakenAt != null && _dayOf(firstTakenAt).isBefore(dayOne)) {
+        dayOne = _dayOf(firstTakenAt);
+      }
       DateTime? current;
       for (final (index, photo) in photos.indexed) {
         final takenAt = photo.takenAt;
