@@ -981,6 +981,20 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('「あとで」で隠した案内は、解析中の写真がある間の 5 秒ごとの読み直しでは出し直さない', (tester) async {
+      final backend = await _openTimeline(tester,
+          changes: {'added': 2, 'removed': 0}, pendingPhotoCount: 2);
+      await tester.tap(find.text('あとで'));
+      await letFramesRun(tester);
+      final reads = backend.timelineReadsReceived;
+
+      await tester.pump(const Duration(seconds: 5));
+      await letFramesRun(tester);
+      // 読み直したことの印
+      expect(backend.timelineReadsReceived, reads + 1);
+      expect(find.textContaining('作った後に写真が'), findsNothing);
+    });
+
     testWidgets('下書きがある間は、写真が変わっても案内を出さない', (tester) async {
       await _openTimeline(tester, changes: {
         'added': 3,
