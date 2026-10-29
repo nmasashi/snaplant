@@ -35,16 +35,17 @@ Map<String, Object?> _photo(
 
 const _takenAt = '2026年10月6日 10:15';
 
-/// 撮影日時が 2026年10月[day]日 10:15 の写真（複数の写真を並べるときに、撮影日時で見分ける）
-Map<String, Object?> _photoAt(int day, {String? category, String state = 'done', String? step = 'classify'}) =>
-    photoJson(number: day, tripId: hokkaidoTripId, takenAt: '2026-10-${day.toString().padLeft(2, '0')}T10:15:00')
+/// [number] 枚目の写真。撮影日時は旅行の最初の日（2026年10月5日）の {9 + number}:15（複数の写真を並べるときに、撮影日時で見分ける。
+/// 同じ日にして、日の見出しで行が分かれないようにする）
+Map<String, Object?> _photoAt(int number, {String? category, String state = 'done', String? step = 'classify'}) =>
+    photoJson(number: number, tripId: hokkaidoTripId, takenAt: '2026-10-05T${9 + number}:15:00')
       ..['category'] = category
       ..['processing'] = _processing(state, step: step);
 
 /// [_photoAt] の写真の、サムネイルの読み上げ用ラベル
-String _takenAtOf(int day) => '2026年10月$day日 10:15';
+String _takenAtOf(int number) => '2026年10月5日 ${9 + number}:15';
 
-/// 旅行詳細を開き、[photos]（撮影日時は 2026年10月1日から順）の1枚目をタップしてビューアを開く
+/// 旅行詳細を開き、[photos]（撮影日時は 2026年10月5日 10:15 から1時間ずつ）の1枚目をタップしてビューアを開く
 Future<FakeTripBackend> _openViewerOf(WidgetTester tester, List<({String? category, String state, String? step})> photos) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: photos.length)],
