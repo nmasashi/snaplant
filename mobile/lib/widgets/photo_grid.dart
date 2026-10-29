@@ -88,8 +88,8 @@ class PhotoGrid extends StatefulWidget {
   /// 絞り込んだ一覧でも旅行全体の数え方にするため、一覧の写真からではなく画面から受け取る
   final String? dayOneTakenAt;
 
-  /// 下に引っ張ったとき、写真の一覧を読む前に呼んで待つ（旅行詳細が見出しの枚数・期間を取り直す。
-  /// 1日目の基準 [dayOneTakenAt] を読み直した一覧とそろえるため、先に済ませる）
+  /// 下に引っ張ったとき、写真の一覧の読み直しと同時に呼び、両方が済んでから一覧を置き換える（旅行詳細が見出しの枚数・期間を取り直す。
+  /// 1日目の基準 [dayOneTakenAt] を読み直した一覧とそろえるため）。失敗を自分で扱い、投げないこと
   final Future<void> Function()? onRefresh;
 
   @override
@@ -240,9 +240,10 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
-      await widget.onRefresh?.call();
-      if (!mounted || generation != _generation) return;
+      // 旅行の取り直し（画面の見出し）と一覧の読み直しは同時に出し、2往復を待たせない（取り直しは失敗を自分で扱い、投げない）
+      final refreshing = widget.onRefresh?.call();
       final page = await _readPage(null);
+      await refreshing;
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
