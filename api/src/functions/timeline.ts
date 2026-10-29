@@ -59,8 +59,7 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     await timelines.createSnapshot({ id: snapshotId, type: 'timelinePhotos', tripId, photos: snapshotPhotosOf(rows), createdAt: now });
     draft = {
       id: uuidv4(),
-      // 完成版があれば作り直し（完成版は文を書き終えるまで変えない。02 §5 #48）
-      reason: existing?.doc.current ? 'rebuild' : 'create',
+      reason: 'create',
       phase: 'proposing',
       job: { step: 'propose', state: 'pending', attempts: 0, lastError: null, updatedAt: now },
       snapshotId,
@@ -71,8 +70,8 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
     };
     try {
       if (existing) {
-        // 前の下書き（確かめ中・失敗）は置き換える。完成版はそのまま
-        await timelines.replaceTimeline({ ...existing.doc, draft, updatedAt: now }, existing.etag);
+        // 前の下書き（確かめ中・失敗）は置き換える。完成版は消す（作り直しは今のタイムラインを消して一から作る。05 §5.15）
+        await timelines.replaceTimeline({ ...existing.doc, current: null, draft, updatedAt: now }, existing.etag);
       } else {
         const doc: TimelineDocument = {
           id: timelineIdOf(tripId),
@@ -93,11 +92,13 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
       }
       throw error;
     }
-    // 置き換えた下書きの控えは、完成版から指されていなければ使われなくなる
-    const replacedSnapshotId = existing?.doc.draft?.snapshotId;
-    if (replacedSnapshotId && replacedSnapshotId !== existing.doc.current?.snapshotId) {
-      await timelines.deleteUnusedSnapshot(replacedSnapshotId, (...args) => context.log(...args));
-    }
+    // 消した完成版の控えと、置き換えた下書きの控えは使われなくなる（区切りの直しの下書きは完成版と同じ控えを指す）
+    const unusedSnapshotIds = new Set([existing?.doc.current?.snapshotId, existing?.doc.draft?.snapshotId]);
+    await Promise.all(
+      [...unusedSnapshotIds]
+        .filter((id): id is string => id !== undefined)
+        .map((id) => timelines.deleteUnusedSnapshot(id, (...args) => context.log(...args)))
+    );
   } catch (error: any) {
     context.log('タイムラインの作成の受付エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');

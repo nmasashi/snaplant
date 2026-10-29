@@ -176,8 +176,8 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 **5-5 で変えるもの（2026-10-27 に人間が決定）**: 作り直し（`rebuild`）は前の完成版の文と区切りを使わず（5-5b で実装済み）、区切りの直し（`recut`）は AI を使わずに完成版に当てる（5-5a で実装済み）（[06 §8](./06_processing_design.md#8-タイムライン段階5)）。そのため、引き継ぐかを決めるための `sceneTexts` の `photoIds`・`dayTexts` の `sceneStarts` は要らなくなり、書かない（前に書いた文書に残っていても読まない。5-5b で実装済み）。残せなかった文の `droppedEdits` も要らなくなったので、欄と、応答の `droppedEdits`・閉じる操作を 5-5d で消した（5-5c でアプリが読まなくなった後に消した）。区切りを直して新しくできた場面の文は、見出し・一言・書いた主・AI の文がすべて `null`（5-5a で実装済み）。
 
-**5-6b で変えるもの（2026-10-28 に人間が決定。5-6 のアプリを入れた後。未実装）**: 作り直すとき（完成版があるときの `POST …/timeline`）は、始めたときに完成版を消し（`current: null`）、`reason: "create"` の下書きを作る（`rebuild` の下書きは作らない）。消した完成版の控えも消す（[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
-5-6b より前に作った `rebuild` の下書きは、書き終えたときに今までどおり完成版を置き換える。5-6b までは、完成版を残したまま `rebuild` の下書きを作る（5-1a〜5-5b のまま）。
+**実装済み**（5-6b。`functions/timeline.ts` の `createTimeline`。2026-10-28 に人間が決定）: 作り直すとき（完成版があるときの `POST …/timeline`）は、始めたときに完成版を消し（`current: null`）、`reason: "create"` の下書きを作る（`rebuild` の下書きは作らない）。消した完成版の控えも消す（[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
+5-6b より前に作った `rebuild` の下書きは、書き終えたときに今までどおり完成版を置き換える（5-6b までは、完成版を残したまま `rebuild` の下書きを作っていた）。
 
 | `type` | id | 中身 | 書く時 |
 |---|---|---|---|
@@ -226,7 +226,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 | 項目 | 型 | 説明 |
 |---|---|---|
-| `current` | 完成版 \| null | 見せているタイムライン。文を書き終えた下書きがここに入れ替わる。まだ一度も完成していなければ `null`。作り直しを始めたら `null` にする（5-6b から。それまでは作り直しの下書きが書き終えるまで残る） |
+| `current` | 完成版 \| null | 見せているタイムライン。文を書き終えた下書きがここに入れ替わる。まだ一度も完成していなければ `null`。作り直しを始めたら `null` にする（5-6b で実装済み。それまでは作り直しの下書きが書き終えるまで残る） |
 | `current.snapshotId` | string | この完成版の写真の控え（`timelinePhotos` の id） |
 | `current.dayStartHour` | number（0〜23） | 日付の切り替えの時刻。控えを取ったときの `TIMELINE_DAY_START_HOUR`。後で設定を変えても、作り直すまでこの値で日を分ける |
 | `current.proposedStarts` | string[] | AI が出した区切り（場面の最初の写真の id）。利用者が直す前の案 |
@@ -234,9 +234,9 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | `current.sceneTexts` | 場面の最初の写真の id → 文 | 見出し・一言、書いた主（`ai` / `user`）、AI が書いた文（`aiLabel`・`aiNote`。利用者が空にしたら戻す先）。区切りを直して新しくできた場面は全部 `null`（5-5a で実装済み）。以前は書いたときの場面の写真（`photoIds`）も持っていた（作り直しで引き継ぐかを決めるため。5-5b で、AI が書く文には持たせなくなった。前に書いた文書の文を区切りの直し・文の編集でそのまま書き戻すときは残るが、読まない） |
 | `current.dayTexts` | 日付（`YYYY-MM-DD`）→ 文 | タイトル・まとめ、書いた主、AI が書いた文。以前は書いたときのその日の区切り（`sceneStarts`）も持っていた（5-5b で、AI が書く文には持たせなくなった。前に書いた文書の文を区切りの直し・文の編集でそのまま書き戻すときは残るが、読まない） |
 | `current.writtenAt` | string | 文を書き終えた時刻（画面の「…に作成」）。区切りを直して当てても変えない（5-5a で実装済み） |
-| `draft` | 下書き \| null | 作っている途中のもの。完成版とは別に持ち、区切りを直している（`recut`）間は、当てるまで完成版を変えない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。作り直しは始めたときに完成版を消す（2026-10-28 に人間が決定。#48 の「作り直しの間も完成版を見せ続ける」を改めた。5-6b から。それまでは作り直しの下書きも、文を書き終えるまで完成版を変えない） |
+| `draft` | 下書き \| null | 作っている途中のもの。完成版とは別に持ち、区切りを直している（`recut`）間は、当てるまで完成版を変えない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。作り直しは始めたときに完成版を消す（2026-10-28 に人間が決定。#48 の「作り直しの間も完成版を見せ続ける」を改めた。5-6b で実装済み。それより前に作った作り直しの下書きは、文を書き終えるまで完成版を変えない） |
 | `draft.id` | string（UUID） | 下書きごとに振る。キューのメッセージにも入れ、ワーカーは自分の下書きかを確かめる（やめた・出し直した下書きの古いメッセージで書かない） |
-| `draft.reason` | `"create"` \| `"rebuild"` \| `"recut"` | 初めて作る・最初から作り直す（区切り案から。前の完成版の文と区切りは使わない）・完成版の区切りを直す（AI を使わない。完成版の区切りから始め、直した区切りをそのまま完成版に当てる。5-5a で実装済み）。5-6b からは作り直しも完成版を消して `create` にし、`rebuild` は作らない（それより前に作った `rebuild` の下書きは読む） |
+| `draft.reason` | `"create"` \| `"rebuild"` \| `"recut"` | 初めて作る・最初から作り直す（区切り案から。前の完成版の文と区切りは使わない）・完成版の区切りを直す（AI を使わない。完成版の区切りから始め、直した区切りをそのまま完成版に当てる。5-5a で実装済み）。5-6b からは作り直しも完成版を消して `create` にし、`rebuild` は作らない（それより前に作った `rebuild` の下書きは読む。5-6b で実装済み） |
 | `draft.phase` | `"proposing"` \| `"reviewing"` \| `"writing"` | AI が区切り案を出している・利用者が区切りを確かめている・AI が文を書いている |
 | `draft.job` | `{ step: "propose" \| "write", state: "pending" \| "running" \| "failed", attempts, lastError, updatedAt }` \| null | 裏の処理（[06 §8](./06_processing_design.md#8-タイムライン段階5)）。`reviewing` では `null`。`lastError` は写真と同じく `"ai"` / `"internal"` だけ（例外の文言は入れない） |
 | `draft.snapshotId`・`dayStartHour`・`proposedStarts`・`sceneStarts` | | 完成版と同じ意味。`recut` は完成版の控えをそのまま指す |
@@ -625,7 +625,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
 | ワーカーの結果・失敗の書き込み（段階3・4） | AI の担当の欄（`category`・`classification`・`identification`・`processing`）だけを `set` する patch。条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。`processingCondition()`。3-3b）で、412・404 なら書かずに終える。`_etag` の条件は付けない（§7.4）。コメント（識別だけ）は `comment`・`commentSource` の `set` に、同じ担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ**条件付き patch**（`patchIfStillClaimed()` に条件を足す形）で、412（利用者のコメントがある、またはやり直しの受付が入った）・404 なら書かずに進む |
 | 消えた旅行を指す写真を未所属へ戻す（掃除のタイマー。段階3。§7.2） | `AlbumService.detachPhotoFromMissingTrip()`。`tripId` を `null`・`updatedAt` を今に、`FROM c WHERE c.tripId = "<読んだ旅行 ID>"` の条件付き patch（読んだ後に利用者が別の旅行へ移していたら 412 で戻さない）。404 は飛ばす |
-| タイムラインを作る・作り直す（段階5。5-1a で実装済み） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: { type: 'IfMatch', condition: <読んだ _etag> } })`、無ければ `items.create(timeline)` → 置き換えた下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）→ キューへ `{ tripId, draftId }`。replace の 412（読んでから書くまでに他が書いた）・404（読んだ後に消えた）と create の 409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`。置き換える文書には読んだ Cosmos のシステム項目（`_etag` など）を書き戻さない。5-6b からは、置き換えで完成版も消し（`current: null`）、消した完成版の控えと置き換えた下書きの控えを `delete()` する（未実装。§1.6） |
+| タイムラインを作る・作り直す（段階5。5-1a で実装済み） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 写真の控え（5.12）を `items.create(timelinePhotos)` → タイムラインがあれば下書きを置き換えて `item(id, id).replace(..., { accessCondition: { type: 'IfMatch', condition: <読んだ _etag> } })`、無ければ `items.create(timeline)` → 消した完成版の控えと置き換えた下書きの控え（同じ控えなら1回）を `delete()`（404 は無視、失敗はログだけ）→ キューへ `{ tripId, draftId }`。replace の 412（読んでから書くまでに他が書いた）・404（読んだ後に消えた）と create の 409（同時に作られた）なら、作った控えを消して 409 `TIMELINE_STATE_CONFLICT`（完成版と前の下書きの控えは消さない）。置き換える文書には読んだ Cosmos のシステム項目（`_etag` など）を書き戻さない。置き換えでは完成版も消す（`current: null`。5-6b で実装済み。§1.6。それまでは完成版を残し、置き換えた下書きの控えを完成版から指されていなければ消していた） |
 | 下書きをやめる（段階5。5-1a で実装済み） | 完成版があれば `item(id, id).replace({ ...読んだ文書, draft: null, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`、無ければ `item(id, id).delete({ accessCondition: IfMatch <読んだ _etag> })` → 下書きの控え（完成版から指されていなければ）を `delete()`（404 は無視、失敗はログだけ）。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（控えも消さない） |
 | 区切りの保存（段階5。5-1c で実装済み。`TimelineService.replaceTimeline()`） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ 控えを `item(id, id).read()` と旅行の写真（5.13）を並べて読む → `item(id, id).replace({ ...読んだ文書, draft: { ...読んだ下書き, sceneStarts（文を書くのに失敗した下書きなら phase・job も） }, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })`。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（ワーカーか他の操作と重なった。読み直してもらう）。読んだシステム項目は書き戻さない |
 | 文を書く受付（段階5。5-2a で実装済み。`POST …/draft/write`。`TimelineService.replaceTimeline()`） | タイムラインを `item(id, id).read()`（`_etag` も取る）→ `item(id, id).replace({ ...読んだ文書, draft: { ...読んだ下書き, phase: "writing", job: { step: "write", state: "pending", attempts: 0, lastError: null, updatedAt } }, updatedAt }, { accessCondition: IfMatch <読んだ _etag> })` → キューへ `{ tripId, draftId }`。412・404 なら 409 `TIMELINE_STATE_CONFLICT`（キューに積まない）。読んだシステム項目は書き戻さない |
@@ -704,7 +704,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 読んだ後・消す前に、同じ写真の別の削除が文書を消した | 何も変わらない（画像は先に消した側が消す） | 404 `PHOTO_NOT_FOUND` | 不要（アプリは成功扱い） |
 | Blob の削除 | 孤児 Blob（文書は消えている。原寸の削除に失敗してもサムネイルは消しにいく） | 無し（200） | 掃除 |
 
-**タイムラインを作る・作り直す**（段階5。`POST /api/trips/{tripId}/timeline`。順: 旅行を読む → タイムラインを読む → 写真の射影を読む → 控えを作る → タイムラインに下書きを書く → 置き換えた下書きの控えを消す → キューへ投入）。
+**タイムラインを作る・作り直す**（段階5。`POST /api/trips/{tripId}/timeline`。順: 旅行を読む → タイムラインを読む → 写真の射影を読む → 控えを作る → タイムラインに下書きを書く（完成版があれば消す。5-6b）→ 消した完成版の控えと置き換えた下書きの控えを消す → キューへ投入）。
 **実装済み**（5-1a。最後の行（旅行の削除と重なったときの後始末）を直すワーカーは 5-1b）。
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
@@ -712,7 +712,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 旅行・タイムライン・射影の読み取り、控えの作成 | 何も残らないか、どこからも指されない控え | 失敗（503 / 500） | 押し直す。指されない控えは害が無く、旅行の削除で消える |
 | タイムラインの書き込みが 412・404・409（他の操作と重なった） | 何も変わらない（作った控えは消す。消すのに失敗したときだけ、どこからも指されない控え） | 409 `TIMELINE_STATE_CONFLICT` | 読み直して押し直す |
 | タイムラインの書き込みがそれ以外で失敗 | どこからも指されない控え（消さない） | 503 / 500 | 押し直す。指されない控えは害が無く、旅行の削除で消える |
-| 置き換えた下書きの控えの削除（5-6b からは、消した完成版の控えの削除も） | どこからも指されない控え | 無し（202。失敗はログだけ） | 旅行の削除で消える |
+| 置き換えた下書きの控えと、消した完成版の控えの削除（完成版の控えは 5-6b から） | どこからも指されない控え | 無し（202。失敗はログだけ） | 旅行の削除で消える |
 | キューへの投入 | `draft.job` が `pending` のまま | 「作っています」のまま | 再投入のタイマー（10 分ごと）が積む |
 | ワーカーの途中で落ちる | `draft.job` が `running` のまま | 「作っています」のまま | 再投入のタイマーが `pending` に戻して積む（上限なら `failed`） |
 | 旅行の削除と重なる（削除がタイムラインを消した後に、このタイムラインが書かれた） | 旅行の無いタイムライン | 見えない（旅行が無い） | ワーカーが旅行の無いタイムラインと控えを消す（[06 §8.1](./06_processing_design.md#81-構成)）。投入にも失敗していれば再投入のタイマーが積み、同じく消える |
@@ -763,7 +763,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
 | 控えの読み取り・AI・応答の検証・結果の書き込み（重なりが4回続いたときを含む） | `draft.job` が `pending`（上限なら `failed`）、`lastError` が `"ai"` / `"internal"`。完成版は前のまま（分けて呼んだ途中までの文も書かない） | 「見出しと一言を書いています」のまま（上限なら「見出しと一言を書けませんでした」） | 自動（キューの再試行）。上限なら利用者が押し直す（区切りを直してからでもよい） |
-| 文を書いている間に、利用者が前の完成版の文を直した（結果の置き換えが 412。作り直しの下書き（`rebuild`）のとき。5-6 のアプリは作り直しの間に完成版を出さないのでアプリからは起きにくく、5-6b からは作り直しで完成版を消すので起きない） | AI の文の新しい完成版（直した文は残らない。作り直しは前の完成版の文を使わない。5-5b で実装済み） | 新しい完成版 | 読み直した文書に同じ AI の文を当て直す（3回まで） |
+| 文を書いている間に、利用者が前の完成版の文を直した（結果の置き換えが 412。作り直しの下書き（`rebuild`）のとき。5-6b からは作り直しで完成版を消すので、5-6b より前に作った `rebuild` の下書きのときだけ） | AI の文の新しい完成版（直した文は残らない。作り直しは前の完成版の文を使わない。5-5b で実装済み） | 新しい完成版 | 読み直した文書に同じ AI の文を当て直す（3回まで） |
 | 前の完成版の控えの削除 | どこからも指されない控え | 無し（完成版は入れ替わっている。失敗はログだけ） | 旅行の削除で消える |
 
 **タイムラインの区切りを直し始める受付・文の編集**（段階5。`POST …/recut`・`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`。[05 §5.15](./05_api_design.md#515-タイムライン段階5)。
