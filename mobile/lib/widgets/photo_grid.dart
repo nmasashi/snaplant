@@ -240,10 +240,15 @@ class _PhotoGridState extends State<PhotoGrid> {
   Future<void> _refresh() async {
     final generation = _generation;
     try {
-      // 旅行の取り直し（画面の見出し）と一覧の読み直しは同時に出し、2往復を待たせない（取り直しは失敗を自分で扱い、投げない）
+      // 旅行の取り直し（画面の見出し）と一覧の読み直しは同時に出し、2往復を待たせない。
+      // 一覧が失敗しても取り直しは待つ（旅行が無いと分かって画面がグリッドを外したなら、下の mounted で一覧の失敗を出さない）
       final refreshing = widget.onRefresh?.call();
-      final page = await _readPage(null);
-      await refreshing;
+      final PhotoPage page;
+      try {
+        page = await _readPage(null);
+      } finally {
+        await refreshing;
+      }
       if (!mounted || generation != _generation) return;
       _applyFirstPage(page);
     } catch (e) {
