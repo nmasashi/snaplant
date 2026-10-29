@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
@@ -93,9 +92,12 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
-  /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）
+  /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）。
+  /// [snackBarOnFailure] なら、失敗しても表示を変えずにエラーの文言をスナックバーに出し、読み直しの予約を戻す（下に引っ張ったとき）
   Future<void> _load(
-      {bool showLoading = true, bool keepOnFailure = false}) async {
+      {bool showLoading = true,
+      bool keepOnFailure = false,
+      bool snackBarOnFailure = false}) async {
     final generation = ++_generation;
     _pollTimer?.cancel();
     if (showLoading) {
@@ -118,12 +120,16 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         return;
       }
       if (generation != _generation) return;
-      if (keepOnFailure && _overview != null) {
+      final message = e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました';
+      if (snackBarOnFailure) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+      if ((keepOnFailure || snackBarOnFailure) && _overview != null) {
         _schedulePoll();
         return;
       }
-      setState(() => _errorMessage =
-          e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました');
+      setState(() => _errorMessage = message);
     }
   }
 
@@ -132,26 +138,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   Future<void> _refresh() async {
     // 操作を送っている間は読み直さない（操作の前の状態で決まった応答が、操作の応答より後に届いて表示を戻すことがある）
     if (_sending) return;
-    final generation = ++_generation;
-    _pollTimer?.cancel();
-    try {
-      final overview = await widget.apiService.getTimeline(widget.tripId);
-      if (!mounted || generation != _generation) return;
-      _changesNoticeHidden = false;
-      _show(overview);
-    } catch (e) {
-      debugPrint('TripTimelineView: タイムラインの読み直しエラー: $e');
-      if (!mounted) return;
-      if (e is ApiException && e.isTripNotFound) {
-        widget.onTripNotFound();
-        return;
-      }
-      if (generation != _generation) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content:
-              Text(e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました')));
-      _schedulePoll();
-    }
+    await _load(showLoading: false, snackBarOnFailure: true);
   }
 
   /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
@@ -618,38 +605,40 @@ class _StatusView extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-              minHeight: math.max(0, constraints.maxHeight - 48)),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (showsProgress) ...[
-                  const CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation(AppColors.primary)),
-                  const SizedBox(height: 16),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showsProgress) ...[
+                    const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation(AppColors.primary)),
+                    const SizedBox(height: 16),
+                  ],
+                  Text(title,
+                      style: AppTextStyles.headline3,
+                      textAlign: TextAlign.center),
+                  if (message != null) ...[
+                    const SizedBox(height: 8),
+                    Text(message,
+                        style: secondary, textAlign: TextAlign.center),
+                  ],
+                  const SizedBox(height: 24),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: actions,
+                  ),
+                  if (note != null) ...[
+                    const SizedBox(height: 12),
+                    Text(note, style: secondary, textAlign: TextAlign.center),
+                  ],
                 ],
-                Text(title,
-                    style: AppTextStyles.headline3,
-                    textAlign: TextAlign.center),
-                if (message != null) ...[
-                  const SizedBox(height: 8),
-                  Text(message, style: secondary, textAlign: TextAlign.center),
-                ],
-                const SizedBox(height: 24),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: actions,
-                ),
-                if (note != null) ...[
-                  const SizedBox(height: 12),
-                  Text(note, style: secondary, textAlign: TextAlign.center),
-                ],
-              ],
+              ),
             ),
           ),
         ),
