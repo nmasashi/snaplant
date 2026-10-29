@@ -11,6 +11,7 @@ import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
+import '../utils/timeline_format.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
 
@@ -33,7 +34,8 @@ class PhotoGrid extends StatefulWidget {
       this.loadPage,
       this.loadingMessage = '写真を読み込み中...',
       this.errorFallbackMessage = '写真の読み込みに失敗しました',
-      this.onFirstPageApplied})
+      this.onFirstPageApplied,
+      this.dayOneTakenAt})
       // 旅行もカテゴリも無い一覧はサーバが 400 で断る。カテゴリは旅行の中の絞り込みにだけ使う（旅行をまたぐ一覧は図鑑。03 §5.2）。
       // 置く画面の誤りなので、組み立てたところで止める
       : assert(
@@ -80,6 +82,10 @@ class PhotoGrid extends StatefulWidget {
   /// 先頭のページで一覧を置き換えたときに、そのページを渡して呼ぶ（[loadPage] が返したものを、写し直さずにそのまま渡す）。
   /// 読み込みが重なったときにグリッドが採ったページだけで呼ぶので、同じ応答の他の部分（図鑑の項目の見出し）を写真とそろえて出せる
   final void Function(PhotoPage page)? onFirstPageApplied;
+
+  /// 1日目の基準にする撮影日時（旅行の最初の撮影日時）。渡すと、撮影の日が変わるところに「N日目」と日付の見出しを挟む（§4.4）。
+  /// 絞り込んだ一覧でも旅行全体の数え方にするため、一覧の写真からではなく画面から受け取る
+  final String? dayOneTakenAt;
 
   @override
   State<PhotoGrid> createState() => _PhotoGridState();
@@ -284,6 +290,35 @@ class _PhotoGridState extends State<PhotoGrid> {
     _loadMore();
   }
 
+  /// 並べるマス（サーバの写真 [photos] の後ろに端末の画像。全部で [itemCount] 個）を、日の見出しで区切る。
+  /// [PhotoGrid.dayOneTakenAt] が無ければ見出しの無い1つの塊にする。
+  /// 撮影日時の無い写真と端末の画像は見出しを作らず、前のマスと同じ塊に入る（§4.4）
+  List<_Section> _sectionsOf(List<Photo> photos, int itemCount) {
+    final dayOneTakenAt = widget.dayOneTakenAt;
+    final sections = <_Section>[_Section(header: null, start: 0)];
+    if (dayOneTakenAt != null) {
+      final dayOne = _dayOf(dayOneTakenAt);
+      DateTime? current;
+      for (final (index, photo) in photos.indexed) {
+        final takenAt = photo.takenAt;
+        if (takenAt == null) continue;
+        final day = _dayOf(takenAt);
+        if (day == current) continue;
+        current = day;
+        final header =
+            _DayHeader(dayNumber: day.difference(dayOne).inDays + 1, day: day);
+        // 先頭の塊が空なら、見出しの無い塊を残さずに置き換える
+        if (sections.last.start == index) sections.removeLast();
+        sections.add(_Section(header: header, start: index));
+      }
+    }
+    for (var i = 0; i < sections.length; i++) {
+      sections[i].end =
+          i + 1 < sections.length ? sections[i + 1].start : itemCount;
+    }
+    return sections;
+  }
+
   /// 一覧と末尾の表示の下に空ける高さ（「写真を追加」が浮かぶ画面だけボタンの分を空ける）
   double get _bottomClearance =>
       widget.hasFloatingButton ? _floatingButtonClearance : 2;
@@ -414,43 +449,67 @@ class _PhotoGridState extends State<PhotoGrid> {
       );
     }
     final hasFooter = _loadMoreFailed || _isLoadingMore;
+    final itemCount = photos.length + pending.length;
+    Widget tileAt(int index) {
+      if (index >= photos.length) {
+        final item = pending[index - photos.length];
+        return _PendingTile(
+            item: item, state: widget.uploadQueue.stateOf(item));
+      }
+      // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
+      if (index >= photos.length - _loadMoreThreshold &&
+          _continuationToken != null &&
+          !_isLoadingMore &&
+          !_loadMoreFailed) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadMore();
+        });
+      }
+      return _PhotoTile(
+          photo: photos[index],
+          selection: widget.selection,
+          onOpen: () => _openViewer(index));
+    }
+
+    final sections = _sectionsOf(photos, itemCount);
     return Column(
       children: [
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refresh,
             color: AppColors.primary,
-            child: GridView.builder(
+            child: CustomScrollView(
               // 写真が少なく画面に収まっていても、下に引っ張って読み直せるように
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                  2, 2, 2, hasFooter ? 2 : _bottomClearance),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 2,
-                crossAxisSpacing: 2,
-              ),
-              itemCount: photos.length + pending.length,
-              itemBuilder: (context, index) {
-                if (index >= photos.length) {
-                  final item = pending[index - photos.length];
-                  return _PendingTile(
-                      item: item, state: widget.uploadQueue.stateOf(item));
-                }
-                // 末尾の近くを組み立てる（下端に近づいた）ときに続きを読む。1ページ目が画面に収まる場合も、最初から下端にいるので読む
-                if (index >= photos.length - _loadMoreThreshold &&
-                    _continuationToken != null &&
-                    !_isLoadingMore &&
-                    !_loadMoreFailed) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _loadMore();
-                  });
-                }
-                return _PhotoTile(
-                    photo: photos[index],
-                    selection: widget.selection,
-                    onOpen: () => _openViewer(index));
-              },
+              slivers: [
+                for (final (i, section) in sections.indexed) ...[
+                  if (section.header != null)
+                    SliverToBoxAdapter(child: section.header),
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                        2,
+                        i == 0 && section.header == null ? 2 : 0,
+                        2,
+                        i < sections.length - 1
+                            ? 2
+                            : hasFooter
+                                ? 2
+                                : _bottomClearance),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 2,
+                        crossAxisSpacing: 2,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => tileAt(section.start + index),
+                        childCount: section.end - section.start,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -491,6 +550,68 @@ class _PhotoGridState extends State<PhotoGrid> {
           ),
         if (hasFooter) SizedBox(height: _bottomClearance),
       ],
+    );
+  }
+}
+
+/// 日の切り替えの時刻。タイムラインの既定（サーバの `TIMELINE_DAY_START_HOUR`）と同じにする（docs/04_data_design.md §1.6）
+const _dayStartHour = 4;
+
+/// 撮影日時（タイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`）の日。[_dayStartHour] 時より前は前の日にする。
+/// 端末のタイムゾーンに直さないよう、文字列の数字を UTC の日時として読む（夏時間で日の差がずれないように）
+DateTime _dayOf(String takenAt) {
+  final shifted = DateTime.utc(
+    int.parse(takenAt.substring(0, 4)),
+    int.parse(takenAt.substring(5, 7)),
+    int.parse(takenAt.substring(8, 10)),
+    int.parse(takenAt.substring(11, 13)),
+  ).subtract(const Duration(hours: _dayStartHour));
+  return DateTime.utc(shifted.year, shifted.month, shifted.day);
+}
+
+/// 一覧の塊（見出しと、その下に並べるマスの範囲 [start]〜[end] の手前まで）
+class _Section {
+  _Section({required this.header, required this.start});
+
+  /// 見出し。一覧の先頭の撮影日時の無い写真と、見出しを出さない一覧では null
+  final Widget? header;
+  final int start;
+  int end = 0;
+}
+
+/// 日の見出し「2日目　10月6日（火）」
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({required this.dayNumber, required this.day});
+
+  final int dayNumber;
+
+  /// その日（UTC の 0 時）
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final date = '${day.year.toString().padLeft(4, '0')}-'
+        '${day.month.toString().padLeft(2, '0')}-'
+        '${day.day.toString().padLeft(2, '0')}';
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text('$dayNumber日目', style: AppTextStyles.headline3),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(timelineDateLabel(date),
+                  style: AppTextStyles.body2
+                      .copyWith(color: AppColors.textSecondary),
+                  overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

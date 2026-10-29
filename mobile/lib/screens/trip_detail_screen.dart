@@ -386,6 +386,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               uploadQueue: widget.uploadQueue,
               tripId: trip.id,
               category: _category,
+              dayOneTakenAt: trip.firstTakenAt,
               selection: _selection,
               emptyTitle: _category == null
                   ? 'まだ写真がありません'
