@@ -1774,13 +1774,13 @@ void main() {
       expect(find.text('2日目'), findsOneWidget);
     });
 
-    testWidgets('旅行の見出しを読んだ後に、それより前の日の写真が一覧に現れても、0日目にせずその日を1日目として数える', (tester) async {
-      // 旅行の最初の撮影日時は見出し（GET /api/trips/{id}）で読み、写真の一覧は下に引っ張ると一覧だけを読み直す。
-      // 別の端末で 10月4日 の写真が足されると、一覧には現れるが、見出しの最初の撮影日時は 10月5日 のまま
+    testWidgets('別の端末でそれより前の日の写真が足された後に下に引っ張ると、0日目にせずその日を1日目として数える', (tester) async {
+      // 1日目の基準は旅行の見出し（GET /api/trips/{id} の firstTakenAt）。別の端末で 10月4日 の写真が足されると、サーバの旅行の最初の撮影日時も 10月4日 になる
       final backend = await openWith(tester, [
         photoAt(1, '2026-10-05T10:00:00'),
       ]);
       backend.photosByTripId[hokkaidoTripId]!.insert(0, photoAt(2, '2026-10-04T12:00:00'));
+      backend.trips[0] = tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 2, firstTakenAt: '2026-10-04T12:00:00', lastTakenAt: '2026-10-05T10:00:00');
 
       await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
       await letFramesRun(tester);
@@ -1789,6 +1789,23 @@ void main() {
       expect(find.text('1日目'), findsOneWidget);
       expect(find.text('10月4日（日）'), findsOneWidget);
       expect(find.text('2日目'), findsOneWidget);
+    });
+
+    testWidgets('別の端末で一番早い日の写真が消された後に下に引っ張ると、旅行の枚数・期間も取り直し、残った最初の日を1日目として数える', (tester) async {
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+        photoAt(2, '2026-10-06T10:00:00'),
+      ]);
+      backend.photosByTripId[hokkaidoTripId]!.removeAt(0);
+      backend.trips[0] = tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 1, firstTakenAt: '2026-10-06T10:00:00', lastTakenAt: '2026-10-06T10:00:00');
+
+      await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
+      await letFramesRun(tester);
+
+      expect(find.text('1枚 · 2026/10/06'), findsOneWidget);
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月6日（火）'), findsOneWidget);
+      expect(find.text('2日目'), findsNothing);
     });
 
     testWidgets('続きのページで同じ日の写真が続いても、見出しを重ねず同じ日の並びに足す', (tester) async {
