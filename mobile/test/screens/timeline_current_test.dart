@@ -253,6 +253,18 @@ void main() {
       expect(_menuItem(tester, 'タイムラインを編集').enabled, isTrue);
     });
 
+    testWidgets('解析中の写真がある間は 5 秒ごとに読み直し、終わったら「タイムラインを作り直す」を押せるようにする',
+        (tester) async {
+      final backend = await _openTimeline(tester, pendingPhotoCount: 2);
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+
+      await tester.pump(const Duration(seconds: 5));
+      await letFramesRun(tester);
+      await _openMenu(tester);
+      expect(_menuItem(tester, 'タイムラインを作り直す').enabled, isTrue);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+    });
+
     testWidgets('タイムラインを編集している途中は、タイムラインの項目を出さない', (tester) async {
       await _openTimeline(tester, draft: {
         'id': '0b8e1c5a-0000-4000-8000-000000000099',

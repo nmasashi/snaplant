@@ -194,7 +194,7 @@ enum TripRoute {
 ///   `sortAt` の昇順に `limit`（無ければ [pageSize]）枚ずつ返す。`entry` は信頼度が最も高い写真（同じなら識別の新しい写真）の識別から作り、`photoCount` は合う写真の枚数（本物と同じ。05 §5.14）。
 ///   合う写真が無ければ `entry: null`・`photos: []`・`continuationToken: null`。続きのトークンは次の位置（`entry:<位置>`）。
 ///   種類が無効・名前が無い（空白だけ）・トークンの形が違うときは 400（文言は本物と同じ）。受け取った名前とトークンは [catalogEntryQueriesReceived] に残す
-/// - タイムライン（05 §5.15。段階5）: `GET …/timeline` は [timelinesByTripId] と [pendingPhotoCountByTripId] を返す。
+/// - タイムライン（05 §5.15。段階5）: `GET …/timeline` は [timelinesByTripId] と [pendingPhotoCountByTripId] を返し、届いた回数を [timelineReadsReceived] に数える。
 ///   `POST …/timeline` は、作っている途中なら 409 `TIMELINE_STATE_CONFLICT`、解析中の写真があれば 409 `TIMELINE_PHOTOS_PROCESSING`、それ以外は区切りの案の待ちの下書きを書いて 202。
 ///   `GET …/timeline/draft` は下書きの状態を返し、届いた回数を [timelineDraftReadsReceived] に数える。`DELETE …/timeline/draft` は下書きを消し（完成版も無ければタイムラインごと）、
 ///   `POST …/draft/write` は確かめ待ち・文の失敗の下書きを文の待ちにする（どちらも下書きが無ければ 404 `TIMELINE_NOT_FOUND`、状態が合わなければ 409）。
@@ -325,6 +325,9 @@ class FakeTripBackend {
   /// （5 秒ごとに読み直すこと・閉じたら止めることは 03 §8.1 の振る舞い）
   int timelineDraftReadsReceived = 0;
 
+  /// タイムラインの読み取り（`GET …/timeline`）の要求が届いた回数。解析中の写真がある間の読み直しを止めたかを確かめる印として使う（03 §8.1）
+  int timelineReadsReceived = 0;
+
   /// 完成版の AI が書いた文（本物の `aiTitle` などの欄）。文を空にして直すと、この文に戻す。
   /// 鍵は `<日付か場面の最初の写真の id>:<欄>`（例 `2026-10-05:title`）。区切りを直して足した場面のように AI の文が無い欄は
   /// null を入れる（空にすると文も書いた主も null に戻る。05 §5.15）。登録の無い欄を空にすると例外にする（入れ忘れを知らせる）
@@ -388,6 +391,7 @@ class FakeTripBackend {
     if (route == TripRoute.detail) tripFetchesReceived++;
     if (route == TripRoute.photos) photoPagesReceived++;
     if (route == TripRoute.timelineDraft) timelineDraftReadsReceived++;
+    if (route == TripRoute.timeline) timelineReadsReceived++;
     final hold = holds[route];
     if (hold != null) await hold;
     // 応答の中身（失敗を含む）は届いた時点で決め、返すのを止める指定があれば、そのあとで返す

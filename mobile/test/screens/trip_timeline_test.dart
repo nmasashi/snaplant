@@ -183,6 +183,37 @@ void main() {
       expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
     });
 
+    testWidgets(
+        '解析中の写真がある間は 5 秒ごとに読み直して残りの枚数を出し直し、終わったら「タイムラインを作る」を押せるようにする',
+        (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 1;
+      await _waitForPoll(tester);
+      expect(find.text('解析中の写真があと 1 枚あります。終わると作れます。'), findsOneWidget);
+      expect(_button(tester, 'タイムラインを作る').onPressed, isNull);
+
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+      await _waitForPoll(tester);
+      expect(find.textContaining('解析中の写真があと'), findsNothing);
+      expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
+    });
+
+    testWidgets('解析中の写真がある間の読み直しに失敗しても表示は変えず、5 秒後にもう一度読む', (tester) async {
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      backend.failNext(TripRoute.timeline);
+
+      await _waitForPoll(tester);
+      expect(find.text('エラーが発生しました'), findsNothing);
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+      await _waitForPoll(tester);
+      expect(_button(tester, 'タイムラインを作る').onPressed, isNotNull);
+    });
+
     testWidgets('解析中の写真が無ければ、「タイムラインを作る」を押せ、残りの枚数を出さない', (tester) async {
       await _openTripDetail(tester);
 
