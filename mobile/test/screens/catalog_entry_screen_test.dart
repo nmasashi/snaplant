@@ -68,6 +68,25 @@ Future<void> _openEntry(WidgetTester tester, FakeTripBackend backend,
 }
 
 void main() {
+  testWidgets('項目の写真の一覧には、旅行の「N日目」の見出しを出さない', (tester) async {
+    // 写真は旅行をまたぐので、旅行の日で区切らない（03 §4.4・§6.2）。旅行詳細なら見出しが出る、日をまたぐ写真で確かめる
+    final semantics = tester.ensureSemantics();
+    final backend = _backend(hokkaidoPhotos: [
+      _sakura(1, '10:00'),
+      identifiedPhotoJson(
+          number: 2,
+          kind: 'plant',
+          name: 'ソメイヨシノ',
+          tripId: hokkaidoTripId,
+          takenAt: '2026-10-07T10:00:00'),
+    ]);
+    await _openEntry(tester, backend);
+
+    expect(photoThumbnail('2026年10月7日 10:00'), findsOneWidget);
+    expect(find.byWidgetPredicate((widget) => widget is Text && (widget.data ?? '').endsWith('日目')), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('図鑑の一覧の項目をタップすると項目詳細を開き、名前・信頼度・枚数・説明・特徴・種類の欄を出す', (tester) async {
     await _openEntry(tester, _backend());
 
