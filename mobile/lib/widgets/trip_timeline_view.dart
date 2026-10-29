@@ -89,6 +89,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   bool _changesNoticeHidden = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
+  // 操作の応答を出すとき（作る・もう一度の応答、区切りの編集シートの応答）も進め、それより前に始めた読み直しの応答を使わない
   int _generation = 0;
 
   @override
@@ -146,6 +147,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 下に引っ張ったときの読み直し。読み終えるまで今の表示のままにし、失敗したら表示はそのままでエラーの文言をスナックバーに出す
   /// （写真の一覧と同じ。§8.1）
   Future<void> _refresh() async {
+    // 操作を送っている間（写真ビューアで開く写真を読んでいる間も）は読み直さない。読み直しの応答が、開いた画面の上や操作の後に届いて、
+    // 古い状態を当てたりエラーを出したりしないように
+    if (_sending) return;
     await _load(showLoading: false, onFailure: _LoadFailure.keepWithSnackBar);
   }
 
