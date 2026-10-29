@@ -233,6 +233,18 @@ describe('写真更新API', () => {
     });
   });
 
+  it('コメントの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけならコメントを消す）', () => forEachCase<[string, string, string | null]>([
+    ['前後にある', '\u0085夕食の懐石\u0085', '夕食の懐石'],
+    ['それだけ', '\u0085', null]
+  ], async (_label, comment, saved) => {
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ comment: '朝ごはん', commentSource: 'user' }));
+
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment }), mockContext);
+
+    expect(response.status).toBe(200);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as any).comment).toBe(saved);
+  }));
+
   it('タグを送ると、元のタグは消えて送ったタグに置き換わり、カテゴリは変わらない', async () => {
     freezeNow();
     const photo = storedPhoto({ tags: ['朝食', '旅館'], category: 'food' });
