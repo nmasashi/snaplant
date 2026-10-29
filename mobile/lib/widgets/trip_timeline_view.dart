@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
@@ -123,6 +124,31 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       }
       setState(() => _errorMessage =
           e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました');
+    }
+  }
+
+  /// 下に引っ張ったときの読み直し。読み終えるまで今の表示のままにし、失敗したら表示はそのままでエラーの文言をスナックバーに出す
+  /// （写真の一覧と同じ。§8.1）
+  Future<void> _refresh() async {
+    final generation = ++_generation;
+    _pollTimer?.cancel();
+    try {
+      final overview = await widget.apiService.getTimeline(widget.tripId);
+      if (!mounted || generation != _generation) return;
+      _changesNoticeHidden = false;
+      _show(overview);
+    } catch (e) {
+      debugPrint('TripTimelineView: タイムラインの読み直しエラー: $e');
+      if (!mounted) return;
+      if (e is ApiException && e.isTripNotFound) {
+        widget.onTripNotFound();
+        return;
+      }
+      if (generation != _generation) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました')));
+      _schedulePoll();
     }
   }
 
@@ -423,6 +449,15 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         ),
       );
     }
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.primary,
+      child: _buildLoaded(overview),
+    );
+  }
+
+  /// 読み込めたタイムラインの表示（下に引っ張ると読み直す。§8.1）
+  Widget _buildLoaded(TimelineOverview overview) {
     final timeline = overview.timeline;
     if (timeline == null) return _buildEmpty(overview);
     final draft = timeline.draft;
@@ -577,35 +612,44 @@ class _StatusView extends StatelessWidget {
     final note = this.note;
     final secondary =
         AppTextStyles.body2.copyWith(color: AppColors.textSecondary);
-    return Center(
-      child: SingleChildScrollView(
+    // 中身が画面より短くても下に引っ張れるよう、高さいっぱいの領域の中央に置く（写真の一覧の案内と同じ）
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (showsProgress) ...[
-              const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation(AppColors.primary)),
-              const SizedBox(height: 16),
-            ],
-            Text(title,
-                style: AppTextStyles.headline3, textAlign: TextAlign.center),
-            if (message != null) ...[
-              const SizedBox(height: 8),
-              Text(message, style: secondary, textAlign: TextAlign.center),
-            ],
-            const SizedBox(height: 24),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 12,
-              runSpacing: 12,
-              children: actions,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              minHeight: math.max(0, constraints.maxHeight - 48)),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showsProgress) ...[
+                  const CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation(AppColors.primary)),
+                  const SizedBox(height: 16),
+                ],
+                Text(title,
+                    style: AppTextStyles.headline3,
+                    textAlign: TextAlign.center),
+                if (message != null) ...[
+                  const SizedBox(height: 8),
+                  Text(message, style: secondary, textAlign: TextAlign.center),
+                ],
+                const SizedBox(height: 24),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: actions,
+                ),
+                if (note != null) ...[
+                  const SizedBox(height: 12),
+                  Text(note, style: secondary, textAlign: TextAlign.center),
+                ],
+              ],
             ),
-            if (note != null) ...[
-              const SizedBox(height: 12),
-              Text(note, style: secondary, textAlign: TextAlign.center),
-            ],
-          ],
+          ),
         ),
       ),
     );
