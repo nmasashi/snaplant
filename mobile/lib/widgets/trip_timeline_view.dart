@@ -92,9 +92,12 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
-  /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）
+  /// [keepOnFailure] なら、失敗しても表示を変えずに次の読み直しを予約する（読み直しから続けて読むとき。§8.1）。
+  /// [keepNoticeHidden] なら、「あとで」で隠した写真が変わった案内を隠したままにする（利用者が始めていない、解析中の写真がある間の読み直し）
   Future<void> _load(
-      {bool showLoading = true, bool keepOnFailure = false}) async {
+      {bool showLoading = true,
+      bool keepOnFailure = false,
+      bool keepNoticeHidden = false}) async {
     final generation = ++_generation;
     _pollTimer?.cancel();
     if (showLoading) {
@@ -107,7 +110,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       final overview = await widget.apiService.getTimeline(widget.tripId);
       // 後から始めた読み込み・操作がある。先に始めたこの読み込みの結果（古い状態）では上書きしない
       if (!mounted || generation != _generation) return;
-      _changesNoticeHidden = false;
+      if (!keepNoticeHidden) _changesNoticeHidden = false;
       _show(overview);
     } catch (e) {
       debugPrint('TripTimelineView: タイムラインの読み込みエラー: $e');
@@ -148,7 +151,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       _pollTimer = Timer(_pollInterval, _poll);
     } else if (draft == null && overview.pendingPhotoCount > 0) {
       _pollTimer = Timer(_pollInterval,
-          () => _load(showLoading: false, keepOnFailure: true));
+          () => _load(
+          showLoading: false, keepOnFailure: true, keepNoticeHidden: true));
     }
   }
 
