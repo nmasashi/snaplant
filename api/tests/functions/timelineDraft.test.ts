@@ -872,10 +872,11 @@ describe('タイムラインの下書きAPI', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       const started = Date.now();
 
-      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: `あ${' '.repeat(50_000)}あ` } });
+      // 2乗の時間なら 20万字で 30 秒を超え、1文字ずつなら一瞬で終わる。負荷で落ちないよう、上限は大きく取る
+      const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: `あ${' '.repeat(200_000)}あ` } });
 
       expect(response.status).toBe(400);
-      expect(Date.now() - started).toBeLessThan(1000);
+      expect(Date.now() - started).toBeLessThan(5000);
     });
 
     it('場面のコメントの100文字は、前後の U+0085 も除いて数える（保存するものと同じ数え方）', async () => {
