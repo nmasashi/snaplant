@@ -136,13 +136,19 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     _schedulePoll();
   }
 
-  /// 出している下書きが作っている途中なら、次の読み直しを予約する。
+  /// 出している下書きが作っている途中なら、次の下書きの読み直しを予約する。
+  /// 下書きが無く解析中の写真があるなら、次のタイムラインの読み直しを予約する（解析が終わったら作る・作り直すを押せるように。§8.1）。
   /// エラーを出している間は予約しない（読み直しの結果でエラーの表示が黙って消えないように。「再試行」で読み直す）
   void _schedulePoll() {
     _pollTimer?.cancel();
-    if (_errorMessage == null &&
-        (_overview?.timeline?.draft?.isWorking ?? false)) {
+    final overview = _overview;
+    if (_errorMessage != null || overview == null) return;
+    final draft = overview.timeline?.draft;
+    if (draft?.isWorking ?? false) {
       _pollTimer = Timer(_pollInterval, _poll);
+    } else if (draft == null && overview.pendingPhotoCount > 0) {
+      _pollTimer = Timer(_pollInterval,
+          () => _load(showLoading: false, keepOnFailure: true));
     }
   }
 
