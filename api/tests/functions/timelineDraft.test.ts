@@ -639,6 +639,18 @@ describe('タイムラインの下書きAPI', () => {
       ]);
     });
 
+    it('場面のコメントの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけのものは持たない）', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+
+      const response = await put({
+        sceneStarts: proposed,
+        sceneComments: { [photoId('a')]: '\u0085朝市で海鮮丼\u0085', [photoId('d')]: '\u0085' }
+      });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: '朝市で海鮮丼' });
+    });
+
     it('場面のコメントを送らなければ、残る区切りのコメントは残し、無くなった区切りのコメントは消す（区切りだけを送る 5-6 までのアプリ）', async () => {
       cosmosBackend.documents.set(
         TIMELINE_ID,
