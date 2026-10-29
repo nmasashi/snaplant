@@ -62,13 +62,14 @@ class TripTimelineView extends StatefulWidget {
 }
 
 class _TripTimelineViewState extends State<TripTimelineView> {
-  /// 下書きを作っている間に、下書きを読み直す間隔（§8.1）
+  /// 下書きを作っている間の下書きの読み直しと、下書きが無く解析中の写真がある間のタイムラインの読み直しの間隔（§8.1）
   static const _pollInterval = Duration(seconds: 5);
 
   TimelineOverview? _overview;
   // 読み込みに失敗したときの文言。null なら失敗していない
   String? _errorMessage;
-  // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
+  // 次の読み直し。作っている途中の下書きを出している間（下書きを読む）と、下書きが無く解析中の写真がある間（タイムラインを読む）だけ動かす
+  // （「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
   // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
   // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
@@ -76,7 +77,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）
   bool _changesNoticeHidden = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
-  // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
+  // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）。
+  // 解析中の写真がある間の読み直しは _load なので進める（操作を始めるときはタイマーを止めるので、操作の応答を捨てることは無い）
   int _generation = 0;
 
   @override
@@ -129,7 +131,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
   }
 
-  /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
+  /// [overview] を出し、作っている途中の下書きか、下書きが無く解析中の写真があるなら読み直しを予約する
   void _show(TimelineOverview overview) {
     // 出すものがあればエラーの表示は外す（build はエラーを先に見るので、残すと出したものが隠れる）
     setState(() {
