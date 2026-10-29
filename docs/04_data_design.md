@@ -18,7 +18,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | 項目 | 値 | 根拠 |
 |---|---|---|
 | データベース | `snaplant-db`（既存） | `infrastructure/main.tf` の `azurerm_cosmosdb_sql_database.main` |
-| コンテナ | **`album`**（新設）。植物図鑑の `plants` は段階4まで並存させ、4-7 で Terraform の定義から消した（4-7 の apply までは Azure 上に残る。[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | 要件 5.8 |
+| コンテナ | **`album`**（新設）。植物図鑑の `plants` は段階4まで並存させ、4-7 で Terraform の定義から消した（4-7 の apply までは Azure 上に残る。[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | 要件 5.6 |
 | パーティションキー | `/id` | 写真が旅行をまたいで移動するため（[02 §4.1](./02_design_overview.md#41-album-を1コンテナ追加しpk-は-id写真の-id-は中身の-sha-256要件-51152)） |
 | スループット | `var.cosmos_db_throughput`（400 RU/s）。専用 | `plants` と同じ形。無料枠は §6 |
 | 一意キー | 無し | PK `/id` では意味が無い。id を決定的に作って `create` の 409 で代替する |
@@ -112,7 +112,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `contentType` | string | ○ | 2 | 原寸の Content-Type（`FILE_UPLOAD.SUPPORTED_IMAGE_TYPES` のいずれか） |
 | `fileSize` | number | ○ | 2 | 原寸のバイト数 |
 | `takenAt` | string \| null | ○（null 可） | 2 | 撮影日時。**タイムゾーン無し**の `YYYY-MM-DDTHH:mm:ss`。EXIF に無ければ `null`。`Z` を付けない（付けると Flutter の `toLocal()` で9時間ずれる。#23 と同型） |
-| `takenAtSource` | `"exif"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。段階7で出どころが増えたら値を足す |
+| `takenAtSource` | `"exif"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。出どころが増えたら値を足す |
 | `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
 | `location` | object \| null | ○（null 可） | 2 | 位置情報。無ければ `null`（要件 5.2「位置情報は必須にしない」） |
 | `location.latitude` / `longitude` | number | ○ | 2 | 緯度（-90〜90）・経度（-180〜180） |
@@ -148,7 +148,7 @@ Blob 名に旅行の id を含めない。旅行への出し入れで Blob を�
 - `sortAt` は文字列として比べる（`YYYY-MM-DDTHH:mm:ss` は辞書順が時刻順と一致する）。同値の並びは Cosmos に任せる（固定したければ複合インデックス（`sortAt`, `id`）を足す。段階2では入れない）
 - **`null` の扱いの問題が無くなる。** Cosmos の `ORDER BY` が null を先頭に置くか、項目が無いドキュメントを結果から外すか（推測）を気にせずに済む。`sortAt` は常に文字列で、欠けることが無い
 - `takenAt` は `POST /api/photos` の後に変わらない（段階2〜4に `takenAt` を直す API は無い）ので、`sortAt` を作成時に1回決めれば食い違わない。
-  段階7で出どころが増えて `takenAt` を後から直す API を足すなら、同じ patch で `sortAt` も書き直す
+  出どころが増えて `takenAt` を後から直す API を足すなら、同じ patch で `sortAt` も書き直す
 - 要件 5.2「撮影日時順に並べるときは末尾に置くなど」は、「撮影日時の無い写真はアップロード日時の位置に置く」で満たす。
   ふつうは旅行中の撮影日時よりアップロードが後なので、結果として末尾付近に並ぶ
 
