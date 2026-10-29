@@ -61,6 +61,18 @@ class TripTimelineView extends StatefulWidget {
   State<TripTimelineView> createState() => _TripTimelineViewState();
 }
 
+/// タイムラインの読み込みに失敗したときの扱い（§8.1）
+enum _LoadFailure {
+  /// 「エラーが発生しました」を出す（開いたとき・「再試行」・操作の後の読み直し）
+  showError,
+
+  /// 出している表示を変えず、次の読み直しを予約する（下書きの読み直しから続けて読むとき）
+  keepSilently,
+
+  /// 出している表示を変えず、エラーの文言をスナックバーに出して読み直しの予約を戻す（下に引っ張ったとき）
+  keepWithSnackBar,
+}
+
 class _TripTimelineViewState extends State<TripTimelineView> {
   /// 下書きを作っている間に、下書きを読み直す間隔（§8.1）
   static const _pollInterval = Duration(seconds: 5);
@@ -92,12 +104,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   }
 
   /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
-  /// [keepOnFailure] なら、失敗しても表示を変えずに次の下書きの読み直しを予約する（下書きの読み直しから続けて読むとき。§8.1）。
-  /// [snackBarOnFailure] なら、失敗しても表示を変えずにエラーの文言をスナックバーに出し、読み直しの予約を戻す（下に引っ張ったとき）
+  /// 失敗したときの扱いは [onFailure]（表示を出していないときは、どれでも「エラーが発生しました」）
   Future<void> _load(
       {bool showLoading = true,
-      bool keepOnFailure = false,
-      bool snackBarOnFailure = false}) async {
+      _LoadFailure onFailure = _LoadFailure.showError}) async {
     final generation = ++_generation;
     _pollTimer?.cancel();
     if (showLoading) {
@@ -121,11 +131,11 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       }
       if (generation != _generation) return;
       final message = e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました';
-      if (snackBarOnFailure) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
-      }
-      if ((keepOnFailure || snackBarOnFailure) && _overview != null) {
+      if (onFailure != _LoadFailure.showError && _overview != null) {
+        if (onFailure == _LoadFailure.keepWithSnackBar) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(message)));
+        }
         _schedulePoll();
         return;
       }
@@ -136,9 +146,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 下に引っ張ったときの読み直し。読み終えるまで今の表示のままにし、失敗したら表示はそのままでエラーの文言をスナックバーに出す
   /// （写真の一覧と同じ。§8.1）
   Future<void> _refresh() async {
-    // 操作を送っている間は読み直さない（操作の前の状態で決まった応答が、操作の応答より後に届いて表示を戻すことがある）
-    if (_sending) return;
-    await _load(showLoading: false, snackBarOnFailure: true);
+    await _load(showLoading: false, onFailure: _LoadFailure.keepWithSnackBar);
   }
 
   /// [overview] を出し、作っている途中の下書きなら読み直しを予約する
@@ -185,7 +193,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     // 待っている間に読み込みや操作を始めていたら、古い表示を元にした読み直しの結果は使わない
     if (!mounted || generation != _generation) return;
     if (draft == null || draft.phase != shownDraft.phase || !draft.isWorking) {
-      await _load(showLoading: false, keepOnFailure: true);
+      await _load(showLoading: false, onFailure: _LoadFailure.keepSilently);
       return;
     }
     _show(shown.withDraft(draft));
@@ -208,6 +216,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           await _load(showLoading: false);
           return;
         }
+        // 操作の応答を出したら世代を進める。操作を送っている間に始めた読み直し（下に引っ張ったなど）の応答は、
+        // 操作の前の状態で決まっていることがあるので、後から届いても使わない
+        ++_generation;
         _show(_overview!.withDraft(draft));
       });
 
