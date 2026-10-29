@@ -1808,17 +1808,21 @@ void main() {
       expect(find.text('2日目'), findsNothing);
     });
 
-    testWidgets('続きのページで同じ日の写真が続いても、見出しを重ねず同じ日の並びに足す', (tester) async {
+    testWidgets('続きのページで同じ日の写真が続いても見出しを重ねず同じ日の並びに足し、続きのページで日が変われば見出しを出す', (tester) async {
       final semantics = tester.ensureSemantics();
-      // 1ページ2枚。3枚目は続きのページで届く
+      // 1ページ2枚。3枚目（1日目の続き）と4枚目（2日目）は続きのページで届く
       final backend = await openWith(tester, [
         photoAt(1, '2026-10-05T10:00:00'),
         photoAt(2, '2026-10-05T11:00:00'),
         photoAt(3, '2026-10-05T12:00:00'),
+        photoAt(4, '2026-10-06T09:00:00'),
       ], pageSize: 2);
 
-      expect(backend.photoPagesReceived, 2);
+      // 前提の確認（検証ではない）。3枚目以降が続きのページで届いたこと（1ページで全部届くと、このテストは何も守らない）
+      expect(backend.photoPagesReceived, greaterThanOrEqualTo(2));
       expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+      expect(tester.getRect(find.text('2日目')).bottom, lessThanOrEqualTo(tester.getRect(photoThumbnail('2026年10月6日 09:00')).top));
       expect(tester.getRect(photoThumbnail('2026年10月5日 12:00')).top, tester.getRect(photoThumbnail('2026年10月5日 10:00')).top);
       semantics.dispose();
     });
