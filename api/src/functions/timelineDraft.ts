@@ -247,10 +247,16 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
 
 /**
  * 場面のコメントの前後の空白を除く。String.trim は U+0085（次の行）を除かないが、アプリ（Dart の trim）は除くので、
- * それだけのコメントをアプリは空として扱う。そろえないと、空に見えるコメントが残って AI に渡る
+ * それだけのコメントをアプリは空として扱う。そろえないと、空に見えるコメントが残って AI に渡る。
+ * 正規表現（/[\s\u0085]+$/ など）で末尾を探すと、途中の長い空白の並びで2乗の時間がかかるので、両端から1文字ずつ見る
  */
 function trimComment(comment: string): string {
-  return comment.replace(/^[\s\u0085]+|[\s\u0085]+$/g, '');
+  const isSpace = (char: string) => char === '\u0085' || char.trim() === '';
+  let start = 0;
+  let end = comment.length;
+  while (start < end && isSpace(comment[start])) start++;
+  while (end > start && isSpace(comment[end - 1])) end--;
+  return comment.slice(start, end);
 }
 
 /** 写真の id と文字列の組か（配列・null は違う） */
