@@ -352,7 +352,8 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual([tag]);
   });
 
-  it('コメントとタグの文字数は見た目の1文字で数え、絵文字でちょうど上限なら保存できる（家族の絵文字は UTF-16 では8単位）', async () => {
+  // 家族の絵文字は見た目は1文字、UTF-16 では8単位
+  it('コメントとタグの文字数は見た目の1文字で数え、絵文字でちょうど上限なら保存できる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
     const comment = '👨‍👩‍👧'.repeat(500);

@@ -225,7 +225,8 @@ describe('写真の解析のやり直しAPI', () => {
     expect(storedPhoto().hint).toBe('あ'.repeat(500));
   });
 
-  it('手がかりの文字数は見た目の1文字で数え、絵文字で500文字までなら受け付ける（家族の絵文字は UTF-16 では8単位）', async () => {
+  // 家族の絵文字は見た目は1文字、UTF-16 では8単位
+  it('手がかりの文字数は見た目の1文字で数え、絵文字で500文字までなら受け付ける', async () => {
     cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
 
     const response = await processPhotoRequestHandler(

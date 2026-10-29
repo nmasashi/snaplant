@@ -865,7 +865,8 @@ describe('タイムラインの下書きAPI', () => {
       expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneComments).toEqual({ [photoId('a')]: 'あ'.repeat(100) });
     });
 
-    it('場面のコメントの100文字は見た目の1文字で数え、絵文字でちょうど100文字なら保存する（家族の絵文字は UTF-16 では8単位）', async () => {
+    // 家族の絵文字は見た目は1文字、UTF-16 では8単位
+    it('場面のコメントの100文字は見た目の1文字で数え、絵文字でちょうど100文字なら保存する', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
 
       const response = await put({ sceneStarts: proposed, sceneComments: { [photoId('a')]: '👨‍👩‍👧'.repeat(100) } });

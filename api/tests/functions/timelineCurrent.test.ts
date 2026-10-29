@@ -482,21 +482,29 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('題'.repeat(40));
     });
 
-    it('上限は見た目の1文字で数える（絵文字でちょうど 40 文字のタイトル・30 文字の見出しを保存できる。家族の絵文字は UTF-16 では8単位）', async () => {
-      const day = await patchDay('2026-10-05', { title: '👨‍👩‍👧'.repeat(40) });
-      const scene = await patchScene(photoId('a'), { label: '👨‍👩‍👧'.repeat(30) });
+    // 家族の絵文字は見た目は1文字、UTF-16 では8単位
+    it('上限は見た目の1文字で数え、絵文字でちょうど上限なら保存できる', () => forEachCase<[string, () => Promise<any>, () => string | null, string]>([
+      ['タイトルが絵文字で40文字', () => patchDay('2026-10-05', { title: '👨‍👩‍👧'.repeat(40) }), () => storedTimeline()!.current!.dayTexts['2026-10-05'].title, '👨‍👩‍👧'.repeat(40)],
+      ['見出しが絵文字で30文字', () => patchScene(photoId('a'), { label: '👨‍👩‍👧'.repeat(30) }), () => storedTimeline()!.current!.sceneTexts[photoId('a')].label, '👨‍👩‍👧'.repeat(30)]
+    ], async (_label, send, saved, expected) => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' }));
 
-      expect([day.status, scene.status]).toEqual([200, 200]);
-      expect(storedTimeline()!.current!.dayTexts['2026-10-05'].title).toBe('👨‍👩‍👧'.repeat(40));
-      expect(storedTimeline()!.current!.sceneTexts[photoId('a')].label).toBe('👨‍👩‍👧'.repeat(30));
-    });
+      const response = await send();
+
+      expect(response.status).toBe(200);
+      expect(saved()).toBe(expected);
+    }));
 
     it('前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。それだけなら AI の文に戻す）', async () => {
+      const edited = { ...current, dayTexts: { ...current.dayTexts, '2026-10-05': { ...current.dayTexts['2026-10-05'], summary: '自分のまとめ', summarySource: 'user' as const } } };
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited, updatedAt: '2026-10-08T12:14:00.000Z' }));
+
       const response = await patchDay('2026-10-05', { title: '\u0085小樽\u0085', summary: '\u0085' });
 
       expect(response.status).toBe(200);
       const texts = storedTimeline()!.current!.dayTexts['2026-10-05'];
       expect(texts.title).toBe('小樽');
+      expect(texts.summary).toBe(current.dayTexts['2026-10-05'].aiSummary);
       expect(texts.summarySource).toBe('ai');
     });
 
