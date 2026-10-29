@@ -1774,6 +1774,23 @@ void main() {
       expect(find.text('2日目'), findsOneWidget);
     });
 
+    testWidgets('旅行の見出しを読んだ後に、それより前の日の写真が一覧に現れても、0日目にせずその日を1日目として数える', (tester) async {
+      // 旅行の最初の撮影日時は見出し（GET /api/trips/{id}）で読み、写真の一覧は下に引っ張ると一覧だけを読み直す。
+      // 別の端末で 10月4日 の写真が足されると、一覧には現れるが、見出しの最初の撮影日時は 10月5日 のまま
+      final backend = await openWith(tester, [
+        photoAt(1, '2026-10-05T10:00:00'),
+      ]);
+      backend.photosByTripId[hokkaidoTripId]!.insert(0, photoAt(2, '2026-10-04T12:00:00'));
+
+      await tester.fling(photoGridScroll(), const Offset(0, 400), 1000);
+      await letFramesRun(tester);
+
+      expect(find.text('0日目'), findsNothing);
+      expect(find.text('1日目'), findsOneWidget);
+      expect(find.text('10月4日（日）'), findsOneWidget);
+      expect(find.text('2日目'), findsOneWidget);
+    });
+
     testWidgets('続きのページで同じ日の写真が続いても、見出しを重ねず同じ日の並びに足す', (tester) async {
       final semantics = tester.ensureSemantics();
       // 1ページ2枚。3枚目は続きのページで届く
