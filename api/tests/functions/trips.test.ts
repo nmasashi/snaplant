@@ -188,7 +188,7 @@ describe('旅行API', () => {
       expect(cosmosBackend.documents.size).toBe(0);
     }));
 
-    it('旅行名と説明が上限ちょうどのときは、受け入れて保存する', () => forEachCase([
+    it('旅行名と説明が上限ちょうどのときは、受け入れて保存する', () => forEachCase<[string, { name: string; description: string | null }, { name: string; description: string | null }]>([
       [
         '旅行名が前後の空白を除いてちょうど100文字',
         { name: ` ${'あ'.repeat(100)} `, description: null },
