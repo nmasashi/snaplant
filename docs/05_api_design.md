@@ -779,6 +779,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1c。`timelineDraft.ts` の `putTimelineDraftScenes`）: `sceneComments` の行（表の 4・5・7）を除く全部。
 **実装済み**（5-7。`timelineDraft.ts` の `putTimelineDraftScenes`・`savedCommentsOf()`）: `sceneComments`（場面のコメント。[03 §8.7](./03_screen_design.md#87-場面のコメント)）の行（表の 4・5・7、8 の `sceneComments`、下の `sceneComments` と `recut` の行）。
+**実装済み**（#127。`timelineDraft.ts` の `trimComment()`）: 場面のコメントの前後の空白に U+0085 を含めること（表の 5 と、下の `sceneComments` の行）。
 
 判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 下の表の 1〜7。表の 3〜7 はタイムラインを読んだ後に見る（6・7 は控えが要る。§1 の「Cosmos DB に触る前に全部弾く」の例外）。
 
@@ -788,13 +789,14 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 2 | `phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）のでもない（区切り案を作っている・区切り案に失敗した・文を書いている） | 409 `TIMELINE_STATE_CONFLICT` |
 | 3 | `sceneStarts` が無いか、文字列の配列でない | 400 `INVALID_REQUEST` `区切りは写真IDの配列で指定してください` |
 | 4 | `sceneComments` があり、オブジェクトでない（配列・`null` も）か、値に文字列でないものがある | 400 `INVALID_REQUEST` `場面のコメントは写真IDと文字列の組で指定してください` |
-| 5 | `sceneComments` の値が、前後の空白を除いて `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT`（100）文字を超える | 400 `INVALID_REQUEST` `場面のコメントは100文字以内で指定してください`（上限値を埋め込む） |
+| 5 | `sceneComments` の値が、前後の空白（U+0085 を含む。下の `sceneComments` の行）を除いて `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT`（100）文字を超える | 400 `INVALID_REQUEST` `場面のコメントは100文字以内で指定してください`（上限値を埋め込む） |
 | 6 | 控えに無い・日時の無い写真の id を含む、重なる、撮影の順でない | 400 `INVALID_REQUEST` `区切りが無効です` |
 | 7 | `sceneComments` の鍵が、保存する区切り（下の補ったものを含む）に無い | 400 `INVALID_REQUEST` `場面のコメントは場面の最初の写真に付けてください` |
 | 8 | それ以外 | 200。下書きの `sceneStarts` と `sceneComments` を置き換え、`updatedAt` を今にする（下書きのほかの欄・完成版は変えない）。文を書くのに失敗した下書きなら `phase: "reviewing"`・`job: null` に戻す |
 
 - 1〜7 のどれかで返すときは何も書かない
 - `sceneComments` の値は前後の空白を除いて保存し、空になったもの（空・空白だけ）は持たない（その場面のコメントを消す）。
+  前後の空白は、JavaScript の `trim()` が除くものに U+0085（次の行）を足したもの（アプリの `trim()`（Dart）と同じ。U+0085 だけのコメントもアプリと同じく空として持たない。#127）。100 文字の検証（表の 5）も同じ除き方で数える。
   `sceneComments` を送らなければ、今のコメントのうち保存する区切りに鍵があるものを残す（区切りだけを送る 5-6 までのアプリでも、場面ごと消えたコメントだけが消える）。
   場面をつなげたときにどちらのコメントを残すかは、画面が決めて送る（[03 §8.7](./03_screen_design.md#87-場面のコメント)）
 - 区切りを直している下書き（`recut`）でも保存するが、使わない（文を書く AI を呼ばないため。画面はコメントの欄を出さない）
