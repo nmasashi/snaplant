@@ -74,7 +74,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
   // 操作のボタンとサムネイルのタップを受け付けない（二重に送らない・画面を重ねて開かない。§8.1・§8.3）
   bool _sending = false;
-  // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）
+  // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。ただし解析中の写真がある間の 5 秒ごとの読み直しでは戻さない。§8.3）
   bool _changesNoticeHidden = false;
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）。
@@ -152,9 +152,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (draft?.isWorking ?? false) {
       _pollTimer = Timer(_pollInterval, _poll);
     } else if (draft == null && overview.pendingPhotoCount > 0) {
-      _pollTimer = Timer(_pollInterval,
+      _pollTimer = Timer(
+          _pollInterval,
           () => _load(
-          showLoading: false, keepOnFailure: true, keepNoticeHidden: true));
+              showLoading: false, keepOnFailure: true, keepNoticeHidden: true));
     }
   }
 
