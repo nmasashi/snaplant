@@ -130,6 +130,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 下に引っ張ったときの読み直し。読み終えるまで今の表示のままにし、失敗したら表示はそのままでエラーの文言をスナックバーに出す
   /// （写真の一覧と同じ。§8.1）
   Future<void> _refresh() async {
+    // 操作を送っている間は読み直さない（操作の前の状態で決まった応答が、操作の応答より後に届いて表示を戻すことがある）
+    if (_sending) return;
     final generation = ++_generation;
     _pollTimer?.cancel();
     try {
