@@ -364,6 +364,18 @@ describe('写真更新API', () => {
     expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ comment, tags: [tag] });
   });
 
+  it('結合文字を重ねて見た目は1文字でも、とても長い文は上限を超えたとして 400 で何も変えない（文字数の規則はほかの欄と同じ関数）', async () => {
+    // 見た目の1文字だけで数えると、1文字に結合文字をいくらでも重ねられ、文の大きさの上限が無くなる
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
+    const before = cosmosBackend.documents.get(PHOTO_ID);
+
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment: `a${'\u0301'.repeat(10_000)}` }), mockContext);
+
+    expect(response.status).toBe(400);
+    expect((response.jsonBody as any).error.message).toBe('コメントは500文字以内で指定してください');
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual(before);
+  });
+
   it('タグの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。除くと同じになるタグは1つにまとめる）', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
