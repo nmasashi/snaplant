@@ -462,7 +462,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
   - 今のカテゴリと違うか、写真の分類が済んでいない（`processing.step` が `classify` で `state` が `pending`・`classifying`・`failed`）ときは、さらに `category`（送った値）・`identification: null`（前の識別を消す。植物から変えれば図鑑から外れる）・`processing` を書く。
     `processing` は、送ったカテゴリが自動で識別する種類（定義表の `autoIdentify`。植物だけ）なら `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }`（品種を調べる待ち）、それ以外（食べ物・風景・`other`）なら `{ state: "done", step: "classify", attempts: 0, lastError: null, updatedAt: <今> }`。
     分類を待っている・している写真を同じカテゴリでも書き換えるのは、分類を止めないと後で AI の分類がカテゴリを書き換え、手で決めたカテゴリが消えるため。`failed` の写真もこれで `done`（植物なら識別の待ち）になる
-  - 今と同じカテゴリで、分類を待っても・してもいなければ、`categorySource` だけを書く（`identification`・`processing` は残る。識別を待っている・している植物の写真なら、識別はそのまま続く）
+  - 今と同じカテゴリで、分類が済んでいれば（待っても・しても・失敗してもいなければ）、`categorySource` だけを書く（`identification`・`processing` は残る。識別を待っている・している植物の写真なら、識別はそのまま続く）
   - 書いた後の写真が識別の待ち（`processing` が `pending`・`step: "identify"`）なら、キューに `{ photoId }` を投入する（植物に変えたとき。今と同じカテゴリで既に識別を待っていた写真にも積み直すが、重複したメッセージは担当の条件で何もせずに終わる。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
     **投入に失敗してもログだけ出して 200 を返す**（`PHOTO_QUEUE_NAME` が無いときも同じ。写真は識別の待ちのまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）
   - `classification`（AI の分類の根拠）は書き換えない（手で直した後は `category` と食い違いうる）
