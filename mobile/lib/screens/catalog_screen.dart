@@ -86,7 +86,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
       );
     }
     // 種類が1つ（植物だけ。02 §5 #51）なら、タブが1つだけの帯は出さずに、その種類の項目を並べる（03 §6.1）
-    final tabbed = kinds.length > 1;
+    // 0件のときはタブの側に流す（kinds.single が投げないように。空の TabBarView になる）
+    final tabbed = kinds.length != 1;
     return DefaultTabController(
       length: kinds.length,
       child: Scaffold(
