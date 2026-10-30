@@ -201,7 +201,7 @@ describe('写真の解析のワーカー', () => {
           processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
         })
       );
-      aiReturns({ kind, confidence: 70, reason: 'テスト' });
+      aiReturns({ kind, confidence: 70, reason: 'テスト', comment: '満開のサクラ' });
 
       await runWorker();
 
