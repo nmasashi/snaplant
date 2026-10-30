@@ -8,6 +8,7 @@
 export const CATALOG_KINDS = {
   plant: {
     label: '植物',
+    inCatalog: true,
     autoIdentify: true,
     namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
     fields: [
@@ -17,6 +18,7 @@ export const CATALOG_KINDS = {
   },
   food: {
     label: '食べ物',
+    inCatalog: false,
     autoIdentify: false,
     namingRule: '固有の料理名（名物名・店の看板料理）→ 一般的な料理名 → 料理の種類の順に、分かる最も細かい粒度（例: 札幌味噌ラーメン → 味噌ラーメン → ラーメン）',
     fields: [
@@ -26,6 +28,7 @@ export const CATALOG_KINDS = {
   },
   landscape: {
     label: '風景',
+    inCatalog: false,
     autoIdentify: false,
     namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
     fields: [
@@ -53,6 +56,13 @@ export const PHOTO_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OT
  */
 export function identifiesAutomatically(kind: unknown): boolean {
   return isCatalogKind(kind) && CATALOG_KINDS[kind].autoIdentify;
+}
+
+/**
+ * 図鑑に載せる種類か（02 §5 #51。植物だけ。食べ物・風景は識別はできるが図鑑には載せない）
+ */
+export function isListedInCatalog(kind: unknown): kind is CatalogKind {
+  return isCatalogKind(kind) && CATALOG_KINDS[kind].inCatalog;
 }
 
 /**

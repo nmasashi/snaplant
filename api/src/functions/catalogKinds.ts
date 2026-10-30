@@ -14,7 +14,7 @@ export async function listCatalogKindsHandler(
   context: InvocationContext
 ): Promise<HttpResponseInit> {
   context.log('図鑑の種類の一覧リクエストを受信');
-  const kinds = Object.entries(CATALOG_KINDS).map(([kind, { label, fields }]) => ({
+  const kinds = Object.entries(CATALOG_KINDS).filter(([, { inCatalog }]) => inCatalog).map(([kind, { label, fields }]) => ({
     kind,
     label,
     fields: fields.map(({ key, label: fieldLabel, type }) => ({ key, label: fieldLabel, type })),
