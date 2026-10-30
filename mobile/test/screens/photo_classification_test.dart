@@ -363,8 +363,8 @@ void main() {
       expect(find.text('分類中...'), findsOneWidget);
     });
 
-    testWidgets('最後の写真を消して続きのページを待っている間に「やり直す」を押しても、何も起きない', (tester) async {
-      // 読み込み済みの写真が無い間は、やり直す写真が無い（1ページ目が1枚、続きがある旅行）
+    testWidgets('最後の写真を消して続きのページを待っている間は、上のバーの解析を頼むボタンを出さず、次の写真が届いたら出す', (tester) async {
+      // 読み込み済みの写真が無い間は、頼む写真が無い（1ページ目が1枚、続きがある旅行）。押しても何も起きないボタンは出さない
       final backend = FakeTripBackend(
         trips: [hokkaidoTrip(photoCount: 2)],
         functionKey: 'test-key',
@@ -403,20 +403,12 @@ void main() {
           of: find.byType(AlertDialog), matching: find.text('削除')));
       await letFramesRun(tester);
 
-      await tester.tap(_barRetry);
-      await letFramesRun(tester);
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(AlertDialog), findsNothing);
-      // どの写真のやり直しも頼んでいない
-      expect(
-          backend.photosByTripId[hokkaidoTripId]!
-              .map((photo) => (photo['processing'] as Map)['state']),
-          isNot(contains('pending')));
-      // 続きのページが届いたら、次の写真が出る
+      expect(_barRetry, findsNothing);
+      // 続きのページが届いたら、次の写真とボタンが出る
       release.complete();
       await letFramesRun(tester);
       expect(_isOnScreen(tester, '2026年10月7日 10:15'), isTrue);
+      expect(_barRetry, findsOneWidget);
     });
 
     testWidgets('受け付けられなかったら、ダイアログに留まって理由を出し、そのままもう一度頼める', (tester) async {
