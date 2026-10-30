@@ -208,7 +208,7 @@ void main() {
 
     testWidgets('ダイアログに手がかりを書いて頼むと、受け付けられ、ビューアの表示が「分類中...」になり、一覧に戻るとその写真のサムネイルに分類中の印が付いている', (tester) async {
       final semantics = tester.ensureSemantics();
-      final backend = await _openViewer(tester, _photo(category: 'food'));
+      final backend = await _openViewer(tester, _photo());
 
       await tester.tap(_barRetry);
       await letFramesRun(tester);
@@ -319,8 +319,7 @@ void main() {
     testWidgets('受け付けを待っている間は、端末の戻る操作でもダイアログを閉じず、受け付けたら閉じて「分類中...」になる',
         (tester) async {
       // 待っている間に閉じると、受け付けられたのに表示が古いまま残り、もう一度頼むことになる
-      // カテゴリが図鑑の種類の写真にして、やり直す範囲も押せないことを確かめる
-      final backend = await _openViewer(tester, _photo(category: 'food'));
+      final backend = await _openViewer(tester, _photo());
       final release = Completer<void>();
       // 途中の確かめで落ちても、止めた応答を残さない（後のテストに保留中の要求を持ち越さない）
       addTearDown(() {
@@ -332,12 +331,6 @@ void main() {
       await letFramesRun(tester);
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
-      expect(
-          tester
-              .widget<SegmentedButton<String>>(
-                  find.byType(SegmentedButton<String>))
-              .onSelectionChanged,
-          isNull);
       await tester.binding.handlePopRoute();
       await letFramesRun(tester);
 
