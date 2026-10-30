@@ -46,7 +46,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/photos/{photoId}` | GET | `{ photo, urlExpiresAt }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み） | 2 | `photoDetail.ts` |
-| `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint? }`。写真に `step`・`hint` を書いてキューに投入 | 3（`identify` は4） | `photoProcess.ts` |
+| `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint?, placeName? }`。写真に `step`・`hint` を書いてキューに投入。`placeName`（撮影地の地名を直す）は C-2（実装済み） | 3（`identify` は4） | `photoProcess.ts` |
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの `DISTINCT` | 未定（タグを付ける画面と一緒） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
 | `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須（図鑑に載せる種類だけ。食べ物・風景は 400）。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。`offset` / `limit` でページ。各項目に `photoCount`・`coverThumbnailUrl`（`urlExpiresAt` は付けない） | 4（4-2a。食べ物・風景を断るのは B-2。実装済み） | `catalogEntries.ts` |
@@ -136,8 +136,11 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 ```
 
 ドキュメントとの違い: `blobName` / `thumbnailBlobName` の代わりに `imageUrl` / `thumbnailUrl`（SAS 付き。§6）。`thumbnailUrl` はサムネイルが無ければ `null`。
-`location` は位置情報が無ければ `null`。あれば `latitude`・`longitude` は必ず数値で、`placeName`・`placeSource` は `null` になりうる（緯度・経度だけを送ったとき。§5.1）。
-クライアントは `latitude`・`longitude`・`placeName` を読み、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
+`location` は位置情報が無ければ `null`。写真の送信（§5.1）で作った `location` は `latitude`・`longitude` が必ず数値で、`placeName`・`placeSource` は `null` になりうる（緯度・経度だけを送ったとき）。
+**実装済み**（C-2）: 利用者が解析を頼むときに場所（撮影地の地名）を直す（§5.7）と、`placeSource` が `"user"` になる。位置情報の無い写真に地名を書いたときは `latitude`・`longitude` が `null` の `location`（地名だけの撮影地。`{ "latitude": null, "longitude": null, "placeName": "函館朝市", "placeSource": "user" }`）になる。
+`placeSource` は `"device"`（送信のときに端末が引いた地名）・`"user"`（利用者が直した地名と、利用者が地名を消した緯度・経度だけの撮影地（`placeName: null`）。C-2）・`null`（送信のときに地名が無かった）のどれか（`"server"` は Azure Maps で埋める設計の値で、まだ書く処理が無い。[04 §1.3](./04_data_design.md#13-写真type-photo)）。
+クライアントは `latitude`・`longitude`・`placeName` を読み（`latitude`・`longitude` は `null` 可として読む。`location` が `null` のときと地名だけの撮影地のとき）、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
+C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの「場所」の欄の事前入力と、欄の下の案内の出し分けにも使う（[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)）。
 段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。段階4（4-3c）からは `processing.step`（無ければ `null`。状態の表示を「分類中...」「識別中...」に分ける）と `identification` の `kind`・`matchesKind`・`name`（図鑑の項目へのリンクと、分類と合わない写真の案内。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）も読む。`processing` のほかの項目、`classification`、`identification` のほかの項目は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
 `category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
@@ -199,7 +202,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 | `PHOTO_VALIDATION.ID_REGEX` | — | `/^[0-9a-f]{64}$/`（小文字のみ） | 写真 id を受けるすべて |
 | `PHOTO_VALIDATION.TAKEN_AT_REGEX` | — | `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/`（加えて実在する日時であること） | `POST /api/photos` |
 | `PHOTO_VALIDATION.COORDINATE_REGEX` | — | `/^-?[0-9]+(\.[0-9]+)?$/`（加えて緯度 ±90・経度 ±180 の範囲内） | `POST /api/photos` |
-| `PHOTO_VALIDATION.MAX_LENGTH.PLACE_NAME` | `PHOTO_PLACE_NAME_MAX_LENGTH` | 100 | `POST /api/photos` |
+| `PHOTO_VALIDATION.MAX_LENGTH.PLACE_NAME` | `PHOTO_PLACE_NAME_MAX_LENGTH` | 100 | `POST /api/photos`・`process` の `placeName`（C-2。実装済み） |
 | `PHOTO_VALIDATION.MAX_LENGTH.COMMENT` | `PHOTO_COMMENT_MAX_LENGTH` | 500 | `PATCH /api/photos/{photoId}` |
 | `PHOTO_VALIDATION.THUMBNAIL_MAX_SIZE` | `THUMBNAIL_MAX_SIZE` | 1048576（1MB） | `POST /api/photos` |
 | `MOVE_VALIDATION.MAX_IDS` | `MOVE_MAX_IDS` | 200 | `POST /api/photos/move` |
@@ -220,8 +223,8 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 `limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。
 `TIMELINE_VALIDATION.MAX_LENGTH` は 5-2a で足した（実装済み。タイムラインのワーカーが AI の文を上限で切り詰める。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。5-2b からは `PATCH` の2つも同じ値を 400 の上限に使う（実装済み。`message` に上限値を埋め込む。§5.15）。`TIMELINE_VALIDATION.DATE_REGEX` は `PATCH …/days/{date}` と一緒に 5-2b で足した（実装済み。形に加えて、暦にある日付かも見る）。`constants/validation.ts` には、入力検証ではないが時刻（0〜23）の環境変数を読む `hourFromEnv()` も置いた（5-1a。実装済み。`TIMELINE_DAY_START_HOUR` を読む。読み方は [07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
 
-利用者が書く文（旅行名・説明・写真のコメント・タグ・手がかり・タイムラインの完成版の文・場面のコメント）の文字数は、見た目の1文字（書記素）を1と数える（§9.6。#128 で実装済み）。
-それ以外（写真の地名 `placeName`、図鑑の項目の名前 `name`、AI が返す識別の名前の検証とタイムラインの文の切り詰め）は `String.length`（UTF-16 のコード単位）で数える（§9.6 の「対象にしないもの」）。
+利用者が書く文（旅行名・説明・写真のコメント・タグ・手がかり・タイムラインの完成版の文・場面のコメント、C-2 からは解析を頼むときの場所 `placeName`）の文字数は、見た目の1文字（書記素）を1と数える（§9.6。#128 で実装済み。場所は C-2 で実装済み）。
+それ以外（写真の送信の地名 `placeName`、図鑑の項目の名前 `name`、AI が返す識別の名前の検証とタイムラインの文の切り詰め）は `String.length`（UTF-16 のコード単位）で数える（§9.6 の「対象にしないもの」）。
 
 ## 5. API 詳細仕様
 
@@ -478,10 +481,12 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 **実装済み**（3-3b で `step: "classify"`、4-1b で `step: "identify"` と 8。`photoProcess.ts`、検証は `utils/photoInput.ts` の `readProcessRequestInput`）。
 **実装済み**（#128）: `hint` の文字数を見た目の1文字で数えることと、前後の空白に U+0085 を含めること（表の 6 と、処理の順の 1 の `hint`。§9.6）。
 **実装済み**（C-1）: `step: "classify"` の受付で `categorySource` を `null` にすること（処理の順の 1）。
+**実装済み**（C-2。`photoProcess.ts` の `relocated()`、検証は `readProcessRequestInput`）: 場所（撮影地の地名）を受け取って写真の撮影地を直すこと（`placeName`。表の 6.1・6.2、写真を読む条件、処理の順の 1 の `location`。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）。
 
 AI の解析をやり直す（要件 5.5.1）。アプリは C-1 から、カテゴリが識別の対象（植物・食べ物・風景）の写真には `identify` を、それ以外（分類の前）の写真には `classify` を頼む（カテゴリは手で直す。[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)）。API はどちらも今までどおり受け付ける。
+C-2 からアプリは、ダイアログの「場所」の欄の値をいつも `placeName` として送る（変えていなければ今の地名と同じなので、サーバは撮影地を変えない）。
 
-**リクエスト:** `{ "step": "classify" | "identify", "hint"?: string | null }`
+**リクエスト:** `{ "step": "classify" | "identify", "hint"?: string | null, "placeName"?: string | null }`
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
@@ -491,14 +496,19 @@ AI の解析をやり直す（要件 5.5.1）。アプリは C-1 から、カテ
 | 4 | `step` が `classify` / `identify` でない | 400 `INVALID_REQUEST` | `やり直す処理の種類が無効です` |
 | 5 | `hint` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `補足情報は文字列で指定してください`（既存） |
 | 6 | `hint` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `補足情報は500文字以内で指定してください`（既存） |
+| 6.1 | `placeName` があり、文字列でも `null` でもない（C-2） | 400 `INVALID_REQUEST` | `地名は文字列で指定してください` |
+| 6.2 | `placeName` が前後の空白を除いて 100 文字を超える（数え方は §9.6。C-2） | 400 `INVALID_REQUEST` | `地名は100文字以内で指定してください`（`POST /api/photos` の 17 と同じ文言） |
 | 7 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 | 8 | `step: "identify"` だが写真のカテゴリが識別対象でない（`category` が `CATALOG_KINDS` のどれでもない。`other` か `null`） | 400 `INVALID_REQUEST` | `この写真は識別の対象ではありません` |
 
 4 は `step` が文字列の `"classify"` か `"identify"` のときだけ通す（未指定・ほかの文字列・文字列でないものは 4）。
-ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `step` が無いものとして扱い、4 になる。`step`・`hint` 以外のキーは無視する。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `step` が無いものとして扱い、4 になる。`step`・`hint`・`placeName` 以外のキーは無視する。
 6 の上限（`CONTEXT_INFO_MAX_LENGTH`）と 5・6 の `message` は植物図鑑の補足情報（`contextInfo`。4-6 で削除）と共用していた定数 `CONTEXT_INFO_VALIDATION` のもので、上限の値は `message` に埋め込まれる。
+6.2 の上限と `message` は写真の送信の地名と同じ `PHOTO_PLACE_NAME_MAX_LENGTH`（上限の値は `message` に埋め込まれる）。ただし数え方と空白の扱いは送信の地名と違い、利用者が書く文として前後の空白（U+0085 を含む）を除いて見た目の1文字で数え（§9.6）、
+除いて空（`""`・空白だけ）なら `null`（地名を消す）として扱う（送信の 17 のように 400 にはしない）。キーが無ければ撮影地を変えない（`null` を送ると地名を消すのと区別する）。
+検証の順は、写真 ID（1）→ ボディ（2・3）→ 処理の種類（4）→ 手がかり（5・6）→ 場所（6.1・6.2）→ 写真（7・8）。
 写真があるか（7）はボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
-`step: "identify"` のときは、書く前に写真を読んで 7 と 8 をこの順に見る（無い写真は 8 ではなく 404）。`step: "classify"` は読まずに下の patch を当て、404 なら 7。
+`step: "identify"` のときと `placeName` を送ったとき（C-2。`classify` でも）は、書く前に写真を読んで 7（`identify` なら続けて 8）をこの順に見る（無い写真は 8 ではなく 404）。`placeName` を送らない `step: "classify"` は読まずに下の patch を当て、404 なら 7。
 どちらも写真を読む・書く前に写真の保存先の設定を確かめる（下の 500）。読んでから書くまでに分類のワーカーがカテゴリを `other` に変えることはまれにありえ、そのときは受け付けた識別の待ちをワーカーが AI を呼ばずに内部の失敗として数える（[06 §3.1](./06_processing_design.md#31-契約)）。
 
 処理の順:
@@ -508,6 +518,12 @@ AI の解析をやり直す（要件 5.5.1）。アプリは C-1 から、カテ
    **`comment: null`・`commentSource: null`**（やり直しの結果で置き換えるため、受付の時点で消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9。
    利用者が書いたコメントは、アプリが `hint` に事前入力してから頼む設計なので失われない）、`updatedAt: now`。
    `step: "classify"` なら **`categorySource: null`** も書く（C-1。分類からやり直すならカテゴリは AI に任せ直す。手で決めた印を残すと、AI の決めたカテゴリが「手で決めた」と表示される）。`step: "identify"` は `categorySource` を変えない。
+   `placeName` を送ったら（C-2）、前後の空白を除いた地名（空なら `null`）を、読んだ写真の今の地名（`location.placeName`。`location` が `null` なら `null`）と比べ、違えば同じ patch で **`location`** も書く（直した地名は写真の撮影地として残る。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）:
+   - 地名がある: `{ latitude: <今の値か null>, longitude: <今の値か null>, placeName: <地名>, placeSource: "user" }`（緯度・経度は残す。位置情報の無い写真は緯度・経度の無い撮影地になる）
+   - 地名を消す（`null`・空）: 今の `location` に緯度・経度があれば `{ ...今の location, placeName: null, placeSource: "user" }`（緯度・経度と、手で消した印を残す。`null` にすると「まだ地名を引いていない」と区別できない。[04 §1.3](./04_data_design.md#13-写真type-photo)）、無ければ（`location` が `null` か、地名だけの撮影地なら）`location: null`
+   - 今と同じ地名なら書かない（端末が引いた地名（`placeSource: "device"`）を、変えていないのに手で直したものにしない）。`placeName` を送らなければ `location` に触らない
+
+   `location` の書き込みに条件は付けない（読んでから書くまでの間に `location` を書きうるのは同じ写真への別の受付だけで、後から書いた方が残る。送信は既存の写真を書き換えず、ワーカー・`PATCH`・move は `location` に触らない）。
    それ以外の項目（`category`・`classification`・`identification`・`tags`・`tripId`）は変えない（前回の結果はやり直しの結果が出るまで残る）。
    解析中（`pending` / `classifying` / `identifying`）の写真にも受け付ける（最新の依頼で上書きされる。走っている分類・識別の結果と失敗は、担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch で書かれずに捨てられる。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
    やり直しの回数に上限は置かない（費用は AI のデプロイの容量で抑える。[06 §6](./06_processing_design.md#6-費用の抑え方)）
@@ -516,7 +532,7 @@ AI の解析をやり直す（要件 5.5.1）。アプリは C-1 から、カテ
 
 投入に失敗してもログだけ出して 202 を返す（写真は `pending` のまま残り、タイマーが 10 分以上たってから `processing.step` を見て再投入する。
 失敗を返すと「失敗したのに後で勝手に走る」ことになる。[04 §7.1](./04_data_design.md#71-操作ごとの表)）。
-Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `解析のやり直しの受付に失敗しました`。どちらも写真は変わらず、キューにも積まない。
+Cosmos へ接続できなければ（写真の読み取り・patch のどちらでも）503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `解析のやり直しの受付に失敗しました`。どちらも写真は変わらず、キューにも積まない。
 写真の保存先の設定（`STORAGE_CONNECTION_STRING` のアカウント名・鍵、`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ、写真を書き換える前に同じ 500。詳細は [06 §1](./06_processing_design.md#1-キューとワーカー段階3)。
 
 ### 5.8 `POST /api/trips`
@@ -978,7 +994,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグを直すメソッドは、タグを付ける画面と一緒に足す |
 | `updatePhotoCategory(photoId, category)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-1）。ボディは `{ category }`（`plant` / `food` / `landscape` / `other`）だけ。植物に変えたら、応答の写真は識別の待ち（§5.6） |
-| `requestPhotoProcessing(photoId, {hint, step})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c）。ボディは `{ step, hint }` で、`step` は省くと `'classify'`（やり直しダイアログは、写真のカテゴリが識別の対象（植物・食べ物・風景）なら `'identify'`、それ以外なら `'classify'` を渡す。C-1。それまではダイアログの「名前だけ」で `'identify'`）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
+| `requestPhotoProcessing(photoId, {hint, step, placeName})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c、`placeName` は C-2）。ボディは `{ step, hint, placeName }` で、`step` は省くと `'classify'`（やり直しダイアログは、写真のカテゴリが識別の対象（植物・食べ物・風景）で分類が済んでいれば `'identify'`、それ以外なら `'classify'` を渡す。C-1。それまではダイアログの「名前だけ」で `'identify'`）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く。`placeName` は渡したとき（null でないとき）だけ、そのまま（前後の空白を除かず、空でも）送る。null なら `placeName` のキーごと省く（撮影地を変えない）。ダイアログは「場所」の欄の値をいつも渡す（C-2。[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)） |
 | `getCatalogKinds()` | `GET /api/catalog/kinds` | `data['kinds']`（各要素の `kind`・`label`・`fields`（`key`・`label`・`type`）。`models/catalog.dart` の `CatalogKind`・`CatalogField`）。**実装済み**（4-3a） |
 | `getCatalogEntries(kind, {required offset, required limit})` | `GET /api/catalog/entries?kind=&offset=&limit=` | `data['entries']`・`data['total']`（`CatalogEntryPage`。項目は `CatalogEntry`）。**実装済み**（4-3a）。`kind`・`offset`・`limit` を毎回クエリに載せる（`Uri(queryParameters:)`。図鑑の画面は `limit` に 50 を渡す）。`entries` の件数は続きがあっても `limit` より少ないことがある（§5.14）ので、次の `offset` は呼び出し側が `limit` だけ進め、`total` 以上なら読み切り（[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。`CatalogEntry` は `description`・`characteristics` を null 可、`attributes` が無ければ空、それ以外の欄は必須として読む |
 | `getCatalogEntry(kind, name, {continuationToken})` | `GET /api/catalog/entry?kind=&name=&continuationToken=` | `data['entry']`（null 可。`CatalogEntry`）・`data['photos']`・`data['continuationToken']`（null 可）（`models/catalog.dart` の `CatalogEntryDetail`。写真は `PhotoPage`）。**実装済み**（4-3b）。`kind`・`name` を毎回、`continuationToken` は渡したときだけクエリに載せる（`Uri(queryParameters:)` で組み立てるので、記号や空白を含む名前も URL エンコードされる）。`limit` は送らない（サーバの既定 100）。`urlExpiresAt` は読まない（`getPhotos` と同じ）。`photos` は `entry` が null でも必須として読む（サーバは `[]` を返す）。`CatalogEntry` の読み方は `getCatalogEntries` と同じ |
@@ -1126,6 +1142,7 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT
 | 写真のコメント `comment` | `PATCH /api/photos/{photoId}`（§5.6） | 500 | 除く |
 | タグ `tags` の各要素 | 同上 | 30 | 除く |
 | 手がかり `hint` | `POST /api/photos/{photoId}/process`（§5.7） | 500 | 除く |
+| 場所 `placeName`（C-2。実装済み） | 同上 | 100 | 除く |
 | 完成版の文 `title`・`summary`・`label`・`note` | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（§5.15） | 40・400・30・200 | 除く |
 | 場面のコメント `sceneComments` の値 | `PUT /api/trips/{tripId}/timeline/draft/scenes`（§5.15） | 100 | 除く |
 
@@ -1139,11 +1156,11 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT
 - **前後の空白**は、JavaScript の `trim()` が除くもの（空白・タブ・改行・全角空白など）に U+0085（次の行）を足したもの。アプリの `trim()`（Dart）と同じ。
   前後の空白を除く欄は、除いた後の文で数え、除いた後の文を保存する
 - 除いて空になった文（空白だけ・U+0085 だけ）の扱いは欄ごとに違い、各節に書いてある。旅行名は 400 `旅行名が指定されていません`、タグは 400 `タグは1〜30文字で指定してください`、
-  写真のコメントと手がかりは `null`、完成版の文は AI が書いた文に戻す、場面のコメントは持たない
+  写真のコメントと手がかりは `null`、場所は `null`（撮影地の地名を消す。§5.7）、完成版の文は AI が書いた文に戻す、場面のコメントは持たない
 - 上限を超えたときの 400 の `message` は欄ごとに固定で、上限の値を埋め込む（各節）
 
 **対象にしないもの**（利用者が書く文ではない）。文字数は UTF-16 のコード単位（`String.length`）で数え、空白の判定に U+0085 を含めない。
 
-- 写真の地名 `placeName`（`POST /api/photos`。端末が住所から作る。§5.1）
+- 写真の送信の地名 `placeName`（`POST /api/photos`。端末が住所から作る。§5.1）。利用者が解析を頼むときに直す `placeName`（`process`。§5.7）は上の表のとおり対象にする
 - 図鑑の項目の名前 `name`（`GET /api/catalog/entry` の引数。AI が付けた名前で引く。§5.14）
 - AI が返す文: 識別の名前の検証（[06 §3.1](./06_processing_design.md#31-契約)）と、タイムラインの文の上限での切り詰め（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)。見た目の1文字の途中では切らない）

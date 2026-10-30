@@ -177,7 +177,8 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 - `enum` は `Object.keys(CATALOG_KINDS)` + `'other'`（`catalog/kinds.ts` の `PHOTO_KINDS`。`GET /api/photos` の `category` の検証と同じ一覧）から組み立てる（定義表に種類を足すと追従する）。`description` の種類の一覧も、定義表のキーと `label` から組み立てる
 - `description` の文言はプロンプトと同じく契約外（契約は項目・型・選択肢・`required`・`additionalProperties` まで）
 - strict モードの制約（`openAIVisionService.ts` 5〜14行）はそのまま: `minimum` / `maximum` が使えないので 0〜100 はコードで検証する
-- プロンプトは「主題を、選択肢（定義表のキーと `label`。例 `plant（植物）`）から1つ選ぶ。人や動物、建物の内装など当てはまらないものは other」。手がかりとして、やり直しで利用者が書いた `hint`（写真に保存したもの。メッセージには載せない）と撮影地（`placeName`）を、あるものだけテキストに含める
+- プロンプトは「主題を、選択肢（定義表のキーと `label`。例 `plant（植物）`）から1つ選ぶ。人や動物、建物の内装など当てはまらないものは other」。手がかりとして、やり直しで利用者が書いた `hint`（写真に保存したもの。メッセージには載せない）と撮影地（`placeName`）を、あるものだけテキストに含める。
+  撮影地は写真の `location.placeName` で、送信のときに端末が引いた地名か、利用者が解析を頼むときに直した地名（`placeSource: "user"`。緯度・経度の無い撮影地も。C-2 で実装済み。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）。どちらも同じ欄から同じ形で渡し、出どころでは分けない
 - `reason` は受け取るが保存しない（§2.3）。AI に判断を言葉にさせるために残している
 - `comment`（**実装済み**（B-1））は写真のコメントにする（§2.3）。プロンプトで「後で写真を見返す人に向けた、写っているものについての一言にし、手がかり・撮影地・判断の過程には触れない」と指示する（識別の `comment` と同じ考え方。§3.1）。指示の文言は契約外
 
@@ -233,7 +234,8 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
   この情報を参考にして、識別の精度を向上させてください。
   ```
 
-  `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない。撮影日時は写真の `takenAt`（TZ 無し）を `YYYY-MM-DD HH:mm` で出す
+  `hint` は `POST /api/photos/{photoId}/process` が保存したもの。無い行は出さない。撮影日時は写真の `takenAt`（TZ 無し）を `YYYY-MM-DD HH:mm` で出す。
+  撮影地は写真の `location.placeName`（分類と同じ。利用者が解析を頼むときに直した地名も、C-2 から同じ欄に入って渡る。§2.2）
 
 | 項目 | 内容 |
 |---|---|
