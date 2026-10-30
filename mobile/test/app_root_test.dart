@@ -133,7 +133,7 @@ void main() {
     await saveTestEndpoint(tester);
     final server = catalogServer({(host: testApiHost, code: 'old-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
-    expect(find.text('桜'), findsOneWidget);
+    expect(find.text('桜の項目はまだありません'), findsOneWidget);
 
     await resetSettingsAndGoBack(tester);
 
@@ -149,7 +149,7 @@ void main() {
     final server = catalogServer({(host: testApiHost, code: 'old-key'): '桜'});
     await openApp(tester, app: SnapPlantApp(httpClient: server));
     // キーが保存済みなので設定画面には移らず、図鑑を読み込んでいる
-    expect(find.text('桜'), findsOneWidget);
+    expect(find.text('桜の項目はまだありません'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.settings));
     await letFramesRun(tester);
     expect(find.text('設定'), findsOneWidget);
@@ -200,7 +200,7 @@ void main() {
 
     expect(find.text('API設定が完了していません'), findsNothing);
     // キーが入ったので図鑑を読み込む
-    expect(find.text('桜'), findsOneWidget);
+    expect(find.text('桜の項目はまだありません'), findsOneWidget);
   });
 
   testWidgets('APIキーは変えずにエンドポイントだけ変えて設定を保存して戻ると、以後は新しいエンドポイントの図鑑を表示する', (tester) async {
@@ -213,7 +213,7 @@ void main() {
       (host: 'new-server.example.test', code: 'saved-function-key'): '新サーバの梅',
     });
     await openApp(tester, app: SnapPlantApp(httpClient: server));
-    expect(find.text('旧サーバの桜'), findsOneWidget);
+    expect(find.text('旧サーバの桜の項目はまだありません'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.settings));
     await letFramesRun(tester);
     await tester.enterText(
@@ -224,8 +224,8 @@ void main() {
     await tester.tap(find.text('保存'));
     await letFramesRun(tester);
 
-    expect(find.text('新サーバの梅'), findsOneWidget);
-    expect(find.text('旧サーバの桜'), findsNothing);
+    expect(find.text('新サーバの梅の項目はまだありません'), findsOneWidget);
+    expect(find.text('旧サーバの桜の項目はまだありません'), findsNothing);
   });
 
   testWidgets('エンドポイントは変えずにAPIキーだけ変えて設定を保存して戻ると、以後は新しいキーの図鑑を表示する', (tester) async {
@@ -237,7 +237,7 @@ void main() {
       (host: testApiHost, code: 'new-function-key'): '新キーの梅',
     });
     await openApp(tester, app: SnapPlantApp(httpClient: server));
-    expect(find.text('旧キーの桜'), findsOneWidget);
+    expect(find.text('旧キーの桜の項目はまだありません'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.settings));
     await letFramesRun(tester);
     await tester.enterText(find.widgetWithText(TextFormField, 'APIキー'), 'new-function-key');
@@ -247,8 +247,8 @@ void main() {
     await tester.tap(find.text('保存'));
     await letFramesRun(tester);
 
-    expect(find.text('新キーの梅'), findsOneWidget);
-    expect(find.text('旧キーの桜'), findsNothing);
+    expect(find.text('新キーの梅の項目はまだありません'), findsOneWidget);
+    expect(find.text('旧キーの桜の項目はまだありません'), findsNothing);
   });
 
   testWidgets('設定画面の「接続テスト」は、保存済みの値ではなく入れたエンドポイントとキーで確かめ、サーバとデータベースに届けば「接続に成功しました」、届かないキーなら「接続に失敗しました」と出す', (tester) async {

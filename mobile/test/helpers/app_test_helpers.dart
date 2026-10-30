@@ -61,7 +61,7 @@ const testApiEndpoint = 'https://func-test.example.net';
 const testApiHost = 'func-test.example.net';
 
 /// 図鑑の API（GET /api/catalog/kinds・GET /api/catalog/entries）に、宛先のホストと API キー（ヘッダ `x-functions-key`）の組ごとに決めた
-/// 表示名の種類1つ（植物）を返す偽のサーバ。項目は返さない（空の一覧）。旅行の一覧（GET /api/trips）は空で返す（[databaseDown] なら写真の一覧と一緒に 503）。図鑑のタブに出る種類のタブの名前で、どの設定で通信したかを見分ける。
+/// 表示名の種類1つ（植物）を返す偽のサーバ。項目は返さない（空の一覧）。旅行の一覧（GET /api/trips）は空で返す（[databaseDown] なら写真の一覧と一緒に 503）。図鑑のタブに出る「{表示名}の項目はまだありません」の表示名で、どの設定で通信したかを見分ける（種類が1つなので種類のタブは出ない）。
 /// [kindLabels] に無い組は、宛先が合っていてキーだけが違えば 401、宛先が違えば 404。それ以外のメソッドやパスは 404 にする。写真の一覧（GET /api/photos）は空のページ。
 /// [succeedFirst] を渡すと、種類の一覧の取得はその回数目までだけ成功し、以降は 500 を返す
 /// （読み直したかどうかを、読み直したときの失敗で見分けるため）
