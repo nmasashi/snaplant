@@ -190,6 +190,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   Future<void> _editCategory(Photo photo) async {
     final updated = await showModalBottomSheet<Photo>(
       context: context,
+      // 下へ払って閉じる操作は PopScope を通らず、保存を待っている間でも閉じてしまう（閉じると表示が古いまま残る）。
+      // 閉じるのは「キャンセル」・端末の戻る操作・シートの外のタップ（どれも PopScope を通る）
+      enableDrag: false,
       builder: (context) =>
           CategoryEditSheet(apiService: widget.apiService, photo: photo),
     );
