@@ -129,6 +129,8 @@ describe('写真の解析のやり直しAPI', () => {
       hint: '屋台のラーメン',
       comment: null,
       commentSource: null,
+      // 分類からやり直すので、カテゴリは AI に任せ直す（手で決めた印を null で書く）
+      categorySource: null,
       processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: NOW },
       updatedAt: NOW
     });
