@@ -91,12 +91,15 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       _error = null;
     });
     try {
-      final photo =
-          await widget.apiService.requestPhotoProcessing(widget.photo.id,
-              hint: _hint.text,
-              step: _request.step,
-              // 欄の値をいつも送る。今と同じ地名ならサーバが撮影地を変えない（端末が引いた地名のまま。05 §5.7）
-              placeName: _place.text);
+      final photo = await widget.apiService.requestPhotoProcessing(
+          widget.photo.id,
+          hint: _hint.text,
+          step: _request.step,
+          // 利用者が欄を直したときだけ送る（手元の写真は開いたときのもので古いことがあり、触らずに送ると
+          // 別の端末で直された撮影地を戻してしまう。送らなければ写真を読まずに済む。05 §5.7）
+          placeName: _place.text == (widget.photo.placeName ?? '')
+              ? null
+              : _place.text);
       if (mounted) Navigator.pop(context, photo);
     } catch (e) {
       // ApiException 以外でも留まって押し直せるようにする（受け止めないと、押せないまま閉じられなくなる。
