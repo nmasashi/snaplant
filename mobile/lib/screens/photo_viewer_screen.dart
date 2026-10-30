@@ -510,9 +510,13 @@ class _PhotoPageState extends State<_PhotoPage> {
                                   style: AppTextStyles.body1.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w500)),
+                          // カテゴリは上のボタンで手で直すので、案内の横に「やり直す」は置かない（03 §5.6）
                           if (identification != null &&
                               !identification.matchesKind)
-                            _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
+                            Text(
+                                '${categoryLabel(identification.kind)}が写っていないようです。カテゴリを確かめてください',
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white70)),
                           if (comment != null)
                             Text(
                                 photo.commentSource == 'user'
