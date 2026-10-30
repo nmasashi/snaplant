@@ -258,21 +258,17 @@ void main() {
       expect((_stored(backend)['processing'] as Map)['step'], 'classify');
     });
 
-    testWidgets('カテゴリが図鑑の種類でない写真（分類の前・どれにも当てはまらない）では、やり直す範囲を選ばせない', (tester) async {
-      // 識別の対象でない写真の「名前だけ」はサーバが断る（05 §5.7 の 8）。2枚をビューアで順に見る
-      await _openViewerOf(tester, [(category: null, state: 'done', step: 'classify'), (category: 'other', state: 'done', step: 'classify')]);
+    testWidgets('カテゴリが図鑑の種類でない写真（分類の前）では、やり直す範囲を選ばせない', (tester) async {
+      // 識別の対象でない写真の「名前だけ」はサーバが断る（05 §5.7 の 8）。
+      // どれにも当てはまらない（other）写真は上のバーに「やり直す」を出さない（photo_viewer_category_test.dart。03 §5.6）
+      await _openViewer(tester, _photo(category: null));
 
-      for (final label in ['分類の前', 'どれにも当てはまらない']) {
-        await tester.tap(_barRetry);
-        await letFramesRun(tester);
+      await tester.tap(_barRetry);
+      await letFramesRun(tester);
 
-        expect(find.text('解析をやり直す'), findsOneWidget, reason: label);
-        expect(find.text('カテゴリから'), findsNothing, reason: label);
-        expect(find.text('名前だけ'), findsNothing, reason: label);
-        await tester.tap(find.text('キャンセル'));
-        await letFramesRun(tester);
-        await _flingToNext(tester);
-      }
+      expect(find.text('解析をやり直す'), findsOneWidget);
+      expect(find.text('カテゴリから'), findsNothing);
+      expect(find.text('名前だけ'), findsNothing);
     });
 
     testWidgets('失敗した写真の下の「やり直す」からも頼める', (tester) async {
