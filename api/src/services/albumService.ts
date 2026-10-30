@@ -344,6 +344,7 @@ export class AlbumService {
     changes: { comment?: string | null; tags?: string[]; category?: string }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
+    let clearsAiComment = false;
     if (changes.category !== undefined) {
       const current = await this.getPhoto(id);
       if (!current) {
@@ -358,11 +359,7 @@ export class AlbumService {
         const now = new Date().toISOString();
         operations.push({ op: 'set', path: '/category', value: changes.category });
         operations.push({ op: 'set', path: '/identification', value: null });
-        // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない。利用者のコメントは残す
-        if (current.commentSource === 'ai') {
-          operations.push({ op: 'set', path: '/comment', value: null });
-          operations.push({ op: 'set', path: '/commentSource', value: null });
-        }
+        clearsAiComment = true;
         operations.push({
           op: 'set',
           path: '/processing',
@@ -382,7 +379,27 @@ export class AlbumService {
     operations.push({ op: 'set', path: '/updatedAt', value: new Date().toISOString() });
     try {
       const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
-      return resource ?? null;
+      if (!clearsAiComment) {
+        return resource ?? null;
+      }
+      // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない。利用者のコメントは残す。
+      // 読んだときのコメントでは決めず、書くときに AI のものなら消す（読んだ後に利用者が書いたものを消さず、AI が書いたものを残さない。
+      // 上の patch で processing を書き換えたので、この後に担当がコメントを書くことはない）
+      try {
+        const cleared = await this.container.item(id, id).patch<PhotoDocument>({
+          condition: 'FROM c WHERE c.commentSource = "ai"',
+          operations: [
+            { op: 'set', path: '/comment', value: null },
+            { op: 'set', path: '/commentSource', value: null },
+          ],
+        });
+        return cleared.resource ?? null;
+      } catch (error: any) {
+        if (error.code === 412) {
+          return resource ?? null;
+        }
+        throw error;
+      }
     } catch (error: any) {
       if (error.code === 404) {
         return null;
