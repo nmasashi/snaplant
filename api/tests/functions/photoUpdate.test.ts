@@ -529,7 +529,8 @@ describe('写真更新API', () => {
       at: '2026-09-21T01:06:00.000Z'
     });
 
-    it('植物に変えると、手で決めたカテゴリとして保存し、前の識別を消して、品種を調べる待ちにしてキューに積む', async () => {
+    it('植物に変えると、手で決めたカテゴリとして保存し、前の識別と AI が書いたコメントを消して、品種を調べる待ちにしてキューに積む', async () => {
+      // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない（植物なら識別が書き直す）
       freezeNow();
       const photo = storedPhoto({ category: 'food', identification: identification('food') });
       cosmosBackend.documents.set(PHOTO_ID, photo);
@@ -543,13 +544,15 @@ describe('写真更新API', () => {
         category: 'plant',
         categorySource: 'user',
         identification: null,
+        comment: null,
+        commentSource: null,
         processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT },
         updatedAt: UPDATED_AT
       });
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
     });
 
-    it('自動で調べない種類（食べ物）に変えると、前の識別を消して済みにし、キューに積まない', async () => {
+    it('自動で調べない種類（食べ物）に変えると、前の識別と AI が書いたコメントを消して済みにし、キューに積まない', async () => {
       // 植物から変えると、調べた品種は消え、図鑑から外れる
       freezeNow();
       const photo = storedPhoto({ category: 'plant', identification: identification('plant') });
@@ -563,6 +566,8 @@ describe('写真更新API', () => {
         category: 'food',
         categorySource: 'user',
         identification: null,
+        comment: null,
+        commentSource: null,
         processing: { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: UPDATED_AT },
         updatedAt: UPDATED_AT
       });
