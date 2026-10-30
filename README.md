@@ -62,7 +62,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/photos` | GET | 写真一覧（旅行・未所属・カテゴリで絞り、ページで返す） |
 | `/api/photos/move` | POST | 写真を旅行へ移す・旅行から外す |
 | `/api/photos/{photoId}` | GET | 写真の詳細 |
-| `/api/photos/{photoId}` | PATCH | 写真のコメント・タグ・カテゴリの更新（カテゴリは手で決めたものとして印を付け、植物に変えると品種の識別を始める） |
+| `/api/photos/{photoId}` | PATCH | 写真のコメント・タグ・カテゴリの更新（カテゴリは手で決めたものとして印を付け、変えると AI が書いたコメントを消し、植物に変えると品種の識別を始める） |
 | `/api/photos/{photoId}` | DELETE | 写真の削除 |
 | `/api/photos/{photoId}/process` | POST | 写真の解析（分類・識別）のやり直しの受付（`placeName` を送ると、撮影地の地名を利用者が直したものとして書く） |
 | `/api/catalog/kinds` | GET | 図鑑の種類の一覧（図鑑に載せる種類だけ。今は植物） |

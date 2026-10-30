@@ -267,9 +267,12 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 
 - `comment`・`commentSource: "ai"` の patch に、担当したときのままの条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件を付ける。412（利用者がその間にコメントを書いた、またはやり直しの受付が入った）なら書かずに結果の patch へ進む（やり直しなら結果の patch も 412 で書かれない）
   （送信直後の自動の解析が、利用者がその間に書いたコメントを消さないように）。Cosmos が条件を原子的に評価するので、読んでから書くまでの間を気にしなくてよい
-- やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる（`matchesKind: false` と上限までの失敗ではコメントを書かないので、コメントの無い写真になる。[09](./09_backlog.md) で判断待ち）
+- やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる（`matchesKind: false` と上限までの失敗ではコメントを書かないので、コメントの無い写真になる。今のままにすると [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53 で決めた）
   （[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9「やり直しは利用者のコメントを上書きする」）。
   利用者の文を失わないよう、アプリのやり直し画面は `commentSource == "user"` なら現在のコメントを、無ければ前回の `hint` を、手がかりに事前入力する
+- カテゴリを手で変えたとき（`PATCH` の `category`。カテゴリが変わるか分類が済んでいない写真）は、AI のコメント（`commentSource: "ai"`）を `null` にする（[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)。前のカテゴリで書いたもの。利用者のコメントは残す）。
+  `processing` を書き換える同じ patch で消し、その patch は読んだときのコメントの出どころを条件にする（合わなければ読み直す）ので、走っていた担当が先にコメントを書いていても消え、走っていた担当がその後にコメントを書くことも無い（担当の条件に合わない）。
+  植物に変えれば識別の待ちになり、識別が新しいコメントを書く。植物以外に変えれば AI は書き直さない（**実装済み**（カテゴリの変更で AI のコメントを消す。`AlbumService.updatePhoto()`））
 
 ### 3.3 植物図鑑の `identifyPlant()` との関係
 

@@ -176,11 +176,11 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - `PATCH`（`photoUpdate.test.ts`）: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証（順序の例を含む）。`comment` だけ・`tags` だけ（両方を送る正常系のテストは無い）。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`。
   コメント 500 文字・タグ 30 文字は前後の空白を除いて数える（ちょうどなら通る）。文字数は見た目の1文字で数える（つないだ絵文字でちょうど上限なら通る。#128）。結合文字を重ねて見た目は1文字でも、UTF-16 で上限 × 32 を超える文は文字数の上限と同じ 400（`コメントは500文字以内で指定してください`）で何も変えず、ちょうど上限なら通る（#128。規則は全欄共通の関数で、テストはコメントの境目の2本だけ）。前後の空白を除くと同じになるタグは1つにまとめる（前後の U+0085 も除いてから。#128）。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
 - `PATCH` のカテゴリ（C-1。`photoUpdate.test.ts`。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）: `category` が分類の種類に無い（`animal`）・大文字小文字が違う（`Plant`）・`null`・数値で 400 `カテゴリが無効です`。
-  植物に変えると 200 で、応答と文書が `category: "plant"`・`categorySource: "user"`・`identification: null`・`processing` が `{ pending, identify, 0, null, 今 }` になり（ほかの欄は変わらない）、キューに `{ photoId }` が1つ積まれる。
-  自動で調べない種類（植物から食べ物）に変えると `identification: null`・`processing` が `{ done, classify, 0, null, 今 }` で、積まない。分類に失敗した（`failed`・カテゴリ無し）写真を `other` にすると `done`・`attempts: 0` で、積まない。
-  今と同じカテゴリ（識別済みの植物に `plant`）なら `categorySource: "user"`・`updatedAt` だけが変わり、識別と `processing` は残り、積まない。
-  分類のやり直しを待っている（`pending`・`classify`）写真に今と同じカテゴリを送ると、識別を消して植物なら識別の待ちにし、積む（分類を止める）。
-  （C-1 の時点でテストが無いもの: 投入の失敗でも 200 のまま、`classifying` の写真、分類・識別の間に重なったときに結果が捨てられること（ワーカーの担当の条件による。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)））
+  植物に変えると 200 で、応答と文書が `category: "plant"`・`categorySource: "user"`・`identification: null`・`processing` が `{ pending, identify, 0, null, 今 }` になり、AI が書いたコメントが `comment: null`・`commentSource: null` になり（ほかの欄は変わらない）、キューに `{ photoId }` が1つ積まれる。
+  自動で調べない種類（植物から食べ物）に変えると `identification: null`・AI が書いたコメントが `null`・`processing` が `{ done, classify, 0, null, 今 }` で、積まない。利用者が書いたコメント（`commentSource: "user"`）はカテゴリを変えても残る。写真を読んだ後・書く前に（`beforePatch`）利用者がコメントを書いていたら残り、AI がコメントを書いていたら消え、どちらも 200 で応答の写真も同じ（書き込みの条件に合わず読み直す）。分類に失敗した（`failed`・カテゴリ無し）写真を `other` にすると `done`・`attempts: 0` で、積まない。
+  今と同じカテゴリ（識別済みの植物に `plant`）なら `categorySource: "user"`・`updatedAt` だけが変わり、識別と `processing`・AI が書いたコメントは残り、積まない。
+  分類を待っている・している・失敗した（`pending` / `classifying` / `failed`・`classify`）写真に今と同じカテゴリを送ると、識別と AI が書いたコメントを消して植物なら識別の待ちにし、積む（分類を止める）。
+  （テストが無いもの: 投入の失敗でも 200 のまま、分類・識別の間に重なったときに結果が捨てられること（ワーカーの担当の条件による。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)））
 - 写真の応答の `categorySource`（C-1）: 取得・一覧・保存（新規と既存）・更新・やり直しの応答の写真に、項目の無い文書でも `categorySource: null` が付く（応答を完全一致で見ているテストに足した）
 
 ### 3.7 `functions/photoMove.ts`
@@ -406,6 +406,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   - 名前の URL エンコード: `/`・`?`・`#`・`&`・`+`・空白を含む名前（例「サーモン/イクラ丼」。そうした名前の写真が無ければ、データエクスプローラーで写真の `identification.name` を一時的に書き換えて作り、終わったら戻す）を、アプリと同じく `Uri.encodeQueryComponent()`（`curl` なら `--data-urlencode name=… -G`）で載せて開き、その項目が返る（`entry.name` が書き換えた名前と一致する）
   - 表紙と写真の URL: `entry.coverThumbnailUrl` と `photos` の `imageUrl` / `thumbnailUrl` をブラウザで開いて画像が出る
 - Patch の `condition`（コメントは担当の条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` の `AND`。4-1a。偽物は条件を自前で評価している）: 写真にコメントを書いてからやり直しを頼み、結果でコメントが置き換わる（受付で消しているため）。写真を送った直後（自動の解析中）にコメントを書き、解析が終わっても利用者のコメントが残る。解析中にタグ・旅行を変えても結果と両方残る
+- カテゴリの PATCH のコメントの出どころの条件（`FROM c WHERE c.commentSource = "ai"` と `FROM c WHERE (IS_NULL(c.commentSource) OR c.commentSource = "user")`。カテゴリの変更で AI のコメントを消す。偽物は条件を自前で評価している）: AI のコメントのある写真・利用者のコメントの写真・コメントの無い写真（`commentSource` が `null`）のそれぞれでカテゴリを変えると 200 が返り、AI のコメントだけが消える（条件が実環境で真になり、412 の読み直しに入らないこと）
 - 永遠に回り続けないこと: AI が必ず失敗する入力（例: 分類のスキーマ検証に通らない応答を返すモック、または壊れた画像）で 3 回失敗した写真が `failed` になり、タイマーが 10 分×数回走っても再投入されない。「やり直す」でもう一度 3 回だけ試す
 - キューの直列化（`batchSize: 1`）と poison の挙動（AI が 3 回失敗した写真は、3 回目でワーカーが `failed` にして例外を投げないので poison には落ちず、アプリに「やり直す」が出る。担当の前に 3 回失敗したメッセージ（写真の読み取りの失敗など）だけが `photo-processing-poison` に落ちる。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
 - 関数の登録とキューのつながり（3-3a）: ポータルの「関数」に `processPhoto`（`app.storageQueue` の第1引数）がある。写真を1枚送り、`GET /api/photos/{photoId}` の `processing.state` が `done`・`category` が入る（投入の本文の base64・キューの名前・接続（`AzureWebJobsStorage`）は偽物では確かめられない。本文が読めなければ `photo-processing-poison` に落ち、写真は `pending` のまま）
