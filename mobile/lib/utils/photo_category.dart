@@ -20,6 +20,12 @@ String categoryLabel(String category) => _categoryLabels[category] ?? category;
 /// カテゴリが図鑑の種類（識別の対象）か。分類の前（null）と [otherCategory] は違う
 bool isCatalogCategory(String? category) => photoCategories.contains(category);
 
+/// 図鑑に載せる種類（02 §5 #51。植物だけ。食べ物・風景は識別できても図鑑には載せない）
+const _listedInCatalog = {'plant'};
+
+/// 識別の種類 [kind] が図鑑に載るか（写真ビューアで名前を図鑑へのリンクにするか。03 §6.3）
+bool isListedInCatalog(String kind) => _listedInCatalog.contains(kind);
+
 /// 分類を待っている・している（`pending` / `classifying` / `identifying`）か
 bool isProcessingInProgress(String state) =>
     state == 'pending' || state == 'classifying' || state == 'identifying';

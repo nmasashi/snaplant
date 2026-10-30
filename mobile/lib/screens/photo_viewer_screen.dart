@@ -437,13 +437,19 @@ class _PhotoPageState extends State<_PhotoPage> {
                                     .copyWith(color: Colors.white70)),
                           if (isProcessingFailed(photo.processingState))
                             _withRetry(identifying ? '識別に失敗しました' : '分類に失敗しました'),
-                          if (entry != null)
+                          if (entry != null && isListedInCatalog(entry.kind))
                             TextButton(
                               onPressed: () =>
                                   widget.onOpenEntry(entry.kind, entry.name),
                               style: _infoLinkStyle,
                               child: Text('${entry.name} >'),
                             ),
+                          // 図鑑に載せない種類（食べ物・風景）の名前は、リンクにせず文字で出す
+                          if (entry != null && !isListedInCatalog(entry.kind))
+                            Text(entry.name,
+                                style: AppTextStyles.body1.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500)),
                           if (identification != null &&
                               !identification.matchesKind)
                             _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
