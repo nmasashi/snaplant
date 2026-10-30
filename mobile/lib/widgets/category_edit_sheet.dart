@@ -93,7 +93,7 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
                   (_selected != widget.photo.category || _unsettled))
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text('カテゴリを変えると、AI が書いたコメントは消えます。'),
+                  child: Text('保存すると、AI が書いたコメントは消えます。'),
                 ),
               if (_error != null)
                 Padding(
