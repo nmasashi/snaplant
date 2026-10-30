@@ -168,6 +168,7 @@ describe('写真詳細API', () => {
         data: {
           photo: {
             ...photoFields,
+            categorySource: null,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
           },

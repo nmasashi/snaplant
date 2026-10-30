@@ -140,6 +140,7 @@ describe('写真の解析のやり直しAPI', () => {
       data: {
         photo: {
           ...fields,
+          categorySource: null,
           imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
           thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
         },
