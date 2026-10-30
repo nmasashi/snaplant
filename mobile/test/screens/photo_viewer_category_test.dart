@@ -121,23 +121,26 @@ void main() {
     expect(_stored(backend)['categorySource'], isNull);
   });
 
-  testWidgets('分類を待っているカテゴリのある写真では、今のカテゴリのまま保存しても送り、手で決めたカテゴリにする',
-      (tester) async {
-    // 送らないと、後で AI の分類がカテゴリを書き換える（サーバは、分類中なら同じカテゴリでも分類を止める。05 §5.6）
-    final backend =
-        await _openViewer(tester, _photo(category: 'plant', state: 'pending'));
+  for (final state in ['pending', 'classifying']) {
+    testWidgets(
+        '分類を待っている・している（$state）カテゴリのある写真では、今のカテゴリのまま保存しても送り、手で決めたカテゴリにする',
+        (tester) async {
+      // 送らないと、後で AI の分類がカテゴリを書き換える（サーバは、分類中なら同じカテゴリでも分類を止める。05 §5.6）
+      final backend =
+          await _openViewer(tester, _photo(category: 'plant', state: state));
 
-    await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
-    await letFramesRun(tester);
-    // 植物のまま保存しても品種を調べ始めるので、その旨を出す
-    expect(find.text('植物に変えると、品種を調べます。'), findsOneWidget);
-    await tester.tap(_save);
-    await letFramesRun(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
+      await letFramesRun(tester);
+      // 植物のまま保存しても品種を調べ始めるので、その旨を出す
+      expect(find.text('植物に変えると、品種を調べます。'), findsOneWidget);
+      await tester.tap(_save);
+      await letFramesRun(tester);
 
-    expect(find.widgetWithText(OutlinedButton, '植物（変更済み）'), findsOneWidget);
-    expect(_stored(backend)['categorySource'], 'user');
-    expect((_stored(backend)['processing'] as Map)['step'], 'identify');
-  });
+      expect(find.widgetWithText(OutlinedButton, '植物（変更済み）'), findsOneWidget);
+      expect(_stored(backend)['categorySource'], 'user');
+      expect((_stored(backend)['processing'] as Map)['step'], 'identify');
+    });
+  }
 
   testWidgets('分類に失敗したカテゴリのある写真では、今のカテゴリのまま保存しても送り、失敗から出す', (tester) async {
     // 分類に失敗しても前のカテゴリが残っていることがある。手で決めれば、分類をやり直さずに済む（05 §5.6）

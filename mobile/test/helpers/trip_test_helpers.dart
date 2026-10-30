@@ -1173,7 +1173,7 @@ class FakeTripBackend {
       photo['commentSource'] = trimmed.isEmpty ? null : 'user';
     }
     if (body.containsKey('category')) {
-      // 実際のサーバと同じ（05 §5.6。02 §5 #53）: 手で決めた印を付け、変わった（か分類を待っている・している）ときだけ、
+      // 実際のサーバと同じ（05 §5.6。02 §5 #53）: 手で決めた印を付け、変わった（か分類が済んでいない）ときだけ、
       // 識別を消して、植物なら品種を調べる待ち、ほかは済みにする（失敗した写真も同じ）
       final category = body['category'];
       if (!const {'plant', 'food', 'landscape', 'other'}.contains(category)) {
@@ -1182,10 +1182,10 @@ class FakeTripBackend {
       if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
       final processing = photo['processing'] as Map<String, Object?>?;
       // 分類が済んでいない（待っている・している・失敗した）写真は、同じカテゴリでも書き換える（本物と同じ）
-      final classifying = processing?['step'] == 'classify' &&
+      final unsettled = processing?['step'] == 'classify' &&
           const {'pending', 'classifying', 'failed'}.contains(processing?['state']);
       photo['categorySource'] = 'user';
-      if (photo['category'] != category || classifying) {
+      if (photo['category'] != category || unsettled) {
         photo['category'] = category;
         photo['identification'] = null;
         photo['processing'] = {
