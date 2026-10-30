@@ -92,8 +92,8 @@ void main() {
     expect(_outsideDialog('函館朝市'), findsOneWidget);
   });
 
-  testWidgets('場所を変えずに頼むと、場所を送らず、撮影地は端末が引いた地名のまま', (tester) async {
-    // 送ると、端末が引いた地名が手で直したもの（placeSource: user）になる
+  testWidgets('場所を変えずに頼むと、撮影地は端末が引いた地名のまま（手で直したものにしない）', (tester) async {
+    // 手で直したもの（placeSource: user）になると、端末の地名か利用者の地名かが分からなくなる
     final backend = await _openDialog(tester, _photo(_hakodate));
 
     await tester.tap(_submit);
