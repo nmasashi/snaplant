@@ -121,9 +121,11 @@ void main() {
     expect(_stored(backend)['categorySource'], isNull);
   });
 
-  for (final state in ['pending', 'classifying']) {
-    testWidgets(
-        '分類を待っている・している（$state）カテゴリのある写真では、今のカテゴリのまま保存しても送り、手で決めたカテゴリにする',
+  for (final (state, label) in [
+    ('pending', '待っている'),
+    ('classifying', 'している')
+  ]) {
+    testWidgets('分類を$labelカテゴリのある写真では、今のカテゴリのまま保存しても送り、手で決めたカテゴリにする',
         (tester) async {
       // 送らないと、後で AI の分類がカテゴリを書き換える（サーバは、分類中なら同じカテゴリでも分類を止める。05 §5.6）
       final backend =
@@ -233,9 +235,11 @@ void main() {
     expect(find.widgetWithText(OutlinedButton, '風景（変更済み）'), findsOneWidget);
   });
 
-  for (final state in ['pending', 'classifying']) {
-    testWidgets('分類を待っている・している（$state）カテゴリの無い写真には、カテゴリのボタンを出さない',
-        (tester) async {
+  for (final (state, label) in [
+    ('pending', '待っている'),
+    ('classifying', 'している')
+  ]) {
+    testWidgets('分類を$labelカテゴリの無い写真には、カテゴリのボタンを出さない', (tester) async {
       await _openViewer(tester, _photo(category: null, state: state));
 
       expect(find.text('分類中...'), findsOneWidget);

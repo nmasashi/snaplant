@@ -248,8 +248,8 @@ void main() {
     });
 
     // 分類が済んでいない写真は、前のカテゴリが残っていても分類からやり直す（名前をやり直すと、頼んだ分類が捨てられる・失敗した分類が直らない）
-    for (final state in ['failed', 'pending']) {
-      testWidgets('分類が済んでいない（$state）写真は、前のカテゴリが残っていても分類からやり直す', (tester) async {
+    for (final (state, label) in [('failed', '分類に失敗した'), ('pending', '分類を待っている')]) {
+      testWidgets('$label写真は、前のカテゴリが残っていても分類からやり直す', (tester) async {
         final backend =
             await _openViewer(tester, _photo(category: 'food', state: state));
 
