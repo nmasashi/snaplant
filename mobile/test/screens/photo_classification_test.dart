@@ -238,25 +238,13 @@ void main() {
       await letFramesRun(tester);
       expect(find.text('やり直す範囲'), findsNothing);
       expect(find.text('カテゴリから'), findsNothing);
+      expect(find.text('名前だけ'), findsNothing);
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
 
       expect(find.text('識別中...'), findsOneWidget);
       expect((_stored(backend)['processing'] as Map)['step'], 'identify');
       expect(find.widgetWithText(OutlinedButton, '食べ物'), findsOneWidget);
-    });
-
-    testWidgets('カテゴリが図鑑の種類でない写真（分類の前）では、やり直す範囲を選ばせない', (tester) async {
-      // 識別の対象でない写真の「名前だけ」はサーバが断る（05 §5.7 の 8）。
-      // どれにも当てはまらない（other）写真は上のバーに「やり直す」を出さない（photo_viewer_category_test.dart。03 §5.6）
-      await _openViewer(tester, _photo(category: null));
-
-      await tester.tap(_barRetry);
-      await letFramesRun(tester);
-
-      expect(find.text('解析をやり直す'), findsOneWidget);
-      expect(find.text('カテゴリから'), findsNothing);
-      expect(find.text('名前だけ'), findsNothing);
     });
 
     testWidgets('失敗した写真の下の「やり直す」からも頼める', (tester) async {
