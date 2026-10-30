@@ -350,9 +350,11 @@ export class AlbumService {
         return null;
       }
       operations.push({ op: 'set', path: '/categorySource', value: 'user' });
-      // 分類を待っている・している写真は、同じカテゴリでも分類を止める（止めないと AI がカテゴリを書き換える）
-      const classifying = current.processing.step === 'classify' && ['pending', 'classifying'].includes(current.processing.state);
-      if (current.category !== changes.category || classifying) {
+      // 分類が済んでいない（待っている・している・失敗した）写真は、同じカテゴリでも解析の状態を書き換える
+      // （分類を止めないと AI がカテゴリを書き換える。失敗した写真は、手で決めたら失敗から出す）
+      const unsettled =
+        current.processing.step === 'classify' && ['pending', 'classifying', 'failed'].includes(current.processing.state);
+      if (current.category !== changes.category || unsettled) {
         const now = new Date().toISOString();
         operations.push({ op: 'set', path: '/category', value: changes.category });
         operations.push({ op: 'set', path: '/identification', value: null });
