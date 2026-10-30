@@ -46,12 +46,14 @@ export interface TripInput {
 
 /** 写真の位置情報 */
 export interface PhotoLocation {
-  latitude: number;
-  longitude: number;
+  /** 緯度。利用者が地名だけを書いた写真（位置情報の無い写真。C-2）は null */
+  latitude: number | null;
+  /** 経度。緯度と同じく null のことがある */
+  longitude: number | null;
   /** 地名（市区町村など）。無ければ null */
   placeName: string | null;
-  /** 地名の出どころ。段階2は端末の Geocoder（device）か null */
-  placeSource: 'device' | 'server' | null;
+  /** 地名の出どころ。段階2は端末の Geocoder（device）か null。利用者が解析を頼むときに直したら user（C-2） */
+  placeSource: 'device' | 'server' | 'user' | null;
 }
 
 /** 写真の解析（分類・識別）の進み具合。段階2の写真は state: none、段階3から送った写真は pending から始まる */

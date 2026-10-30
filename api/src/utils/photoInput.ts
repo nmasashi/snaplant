@@ -419,6 +419,8 @@ export interface ProcessRequestInput {
   step: 'classify' | 'identify';
   /** 利用者からの手がかり（前後の空白を除いたもの）。無ければ null */
   hint: string | null;
+  /** 撮影地の地名（前後の空白を除いたもの。空なら null で消す）。送られなければ undefined（撮影地を変えない） */
+  placeName?: string | null;
 }
 
 /**
@@ -437,7 +439,7 @@ export async function readProcessRequestInput(
   if (body === null || body === undefined) {
     return { error: createValidationError('リクエストボディが指定されていません') };
   }
-  const { step, hint } = body as { step?: unknown; hint?: unknown };
+  const { step, hint, placeName } = body as { step?: unknown; hint?: unknown; placeName?: unknown };
   if (step !== 'classify' && step !== 'identify') {
     return { error: createValidationError('やり直す処理の種類が無効です') };
   }
@@ -448,5 +450,16 @@ export async function readProcessRequestInput(
   if (exceedsLength(trimmed, CONTEXT_INFO_VALIDATION.MAX_LENGTH)) {
     return { error: createValidationError(CONTEXT_INFO_VALIDATION.ERROR_MESSAGES.TOO_LONG) };
   }
-  return { input: { step, hint: trimmed === '' ? null : trimmed } };
+  const input: ProcessRequestInput = { step, hint: trimmed === '' ? null : trimmed };
+  if (placeName !== undefined) {
+    if (placeName !== null && typeof placeName !== 'string') {
+      return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.PLACE_NAME_NOT_A_STRING) };
+    }
+    const trimmedPlace = placeName === null ? '' : trimUserText(placeName);
+    if (exceedsLength(trimmedPlace, PHOTO_VALIDATION.MAX_LENGTH.PLACE_NAME)) {
+      return { error: createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.PLACE_NAME_INVALID) };
+    }
+    input.placeName = trimmedPlace === '' ? null : trimmedPlace;
+  }
+  return { input };
 }

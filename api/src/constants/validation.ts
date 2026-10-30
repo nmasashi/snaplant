@@ -133,6 +133,7 @@ export const PHOTO_VALIDATION = {
   MAX_PAGE_SIZE: positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200),
 
   ERROR_MESSAGES: {
+    PLACE_NAME_NOT_A_STRING: '地名は文字列で指定してください',
     PLACE_NAME_INVALID: `地名は${positiveIntFromEnv(process.env.PHOTO_PLACE_NAME_MAX_LENGTH, 100)}文字以内で指定してください`,
     COMMENT_TOO_LONG: `コメントは${positiveIntFromEnv(process.env.PHOTO_COMMENT_MAX_LENGTH, 500)}文字以内で指定してください`,
     LIMIT_INVALID: `1ページの枚数は1〜${positiveIntFromEnv(process.env.PHOTO_MAX_PAGE_SIZE, 200)}で指定してください`,

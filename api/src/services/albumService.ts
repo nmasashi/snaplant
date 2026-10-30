@@ -4,7 +4,7 @@ import { sqlString } from '../utils/sqlString';
 import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS, identifiesAutomatically } from '../catalog/kinds';
-import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoLocation, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
 import { catalogEntryOf, catalogPageOf } from './catalogEntries';
@@ -498,7 +498,8 @@ export class AlbumService {
     id: string,
     step: 'classify' | 'identify',
     hint: string | null,
-    now: string
+    now: string,
+    location?: PhotoLocation | null
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [
       { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
@@ -510,6 +511,9 @@ export class AlbumService {
     if (step === 'classify') {
       // 分類からやり直すなら、カテゴリは AI に任せ直す（手で決めた印を残すと、AI のカテゴリが手で決めたものに見える。02 §5 #53）
       operations.push({ op: 'set', path: '/categorySource', value: null });
+    }
+    if (location !== undefined) {
+      operations.push({ op: 'set', path: '/location', value: location });
     }
     try {
       const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
