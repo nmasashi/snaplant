@@ -630,6 +630,9 @@ describe('写真更新API', () => {
         category: 'plant',
         categorySource: 'user',
         identification: null,
+        // storedPhoto のコメントは AI が書いたもの。分類を止めるときも、カテゴリを変えたときと同じく消す
+        comment: null,
+        commentSource: null,
         processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT }
       });
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
