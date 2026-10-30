@@ -293,8 +293,9 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 ## 3. 図鑑の項目と定義表（段階4）
 
-図鑑の項目は「種類（`kind`）ごとに、名前1つにつき1件」。`kind` は図鑑の種類で、今は `plant`（植物）・`food`（食べ物）・`landscape`（風景）の3つ。
+図鑑の項目は「種類（`kind`）ごとに、名前1つにつき1件」。`kind` は識別の種類で、定義表には `plant`（植物）・`food`（食べ物）・`landscape`（風景）の3つがある。
 種類の一覧は §3.2 の定義表 `CATALOG_KINDS` が持ち、表の1行が1種類になる。
+**図鑑に載せるのは、定義表の `inCatalog` が true の種類（今は植物だけ）。** 食べ物・風景は識別の結果を写真に残すが、図鑑には載せない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #51。B-2 で実装済み。図鑑の API は 400 で断る。[05 §5.14](./05_api_design.md#514-図鑑段階4)）。
 
 **項目を文書としては持たない**（2026-10-12 に人間が決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #18 の案 B。
 持つ案との比較はそこに記録として残してある）。識別の結果は写真の `identification` の中にだけ置き、
@@ -344,7 +345,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 - やり直しで種類や名前が変わっても、写真の `identification` を書き換えるだけ（§3.3）。項目の作成・併合・付け替え・0枚になった項目の削除は無い
 - 写真を消せば図鑑からも消える。0枚の項目は存在しえない
-- まとめる鍵に種類を含めるのは、同じ名前が別の種類で現れうるため（畑のメロンは植物、皿のメロンは食べ物）。名前だけでまとめると別の種類の写真が1件に混ざる
+- まとめる鍵に種類を含めるのは、同じ名前が別の種類で現れうるため（畑のメロンは植物、皿のメロンは食べ物）。名前だけでまとめると別の種類の写真が1件に混ざる（図鑑に載せるのが植物だけの今も、植物の項目に食べ物の写真が混ざらないのはこの鍵による）
 - 項目そのものにコメントやお気に入りを付けたくなったら、そのときに項目の文書を足す。写真の側は変えなくてよい
 
 #### 規模の注意（図鑑は写真を全部読まずにまとめる）
@@ -370,7 +371,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 代償は、1ページを開くのに `limit` + 2 本のクエリを投げること。写真を全部読む形（1種類 2,000 枚で 1〜2 MB・100〜200 RU、1 万枚で 10 MB・1,000 RU）と比べ、
 小さな規模では RU がやや多く、大きな規模では桁で少ない。個人の規模でも 400 RU/s の枠に収まるので、最初からこの形にする。
 
-- 読むのは開いた種類のタブの分だけ（3種類をまとめて読まない）。旅行の画面は図鑑の読み取りをしない
+- 読むのは開いた種類の分だけ（種類をまとめて読まない。図鑑に載せる種類が1つなら、その種類だけ）。旅行の画面は図鑑の読み取りをしない
 - 段 1 の `GROUP BY` は Cosmos SQL の集計で、null の鍵や `ORDER BY` との併用の制約がある（推測）。段階4の最初に手で確かめる（[08 §5.3](./08_test_plan.md#53-段階34で足すもの)）
 - 段 3 の2項目の `ORDER BY` には複合インデックス（`/identification/confidence` 降順, `/identification/at` 降順）が要る（[07 §3](./07_infrastructure_design.md#3-段階4)）。
   無いと 400 になる（推測）ので、インフラの PR を API より先に apply する
@@ -384,10 +385,13 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 ### 3.2 定義表 `CATALOG_KINDS`（`api/src/catalog/kinds.ts`）
 
+**実装済み**（B-2。`catalog/kinds.ts` の `inCatalog`・`isListedInCatalog()`、使うのは `functions/catalogKinds.ts` と `utils/catalogInput.ts`）: 図鑑に載せる種類の印 `inCatalog`（植物だけ true）と、下の表の `GET /api/catalog/kinds`・図鑑の API の行。
+
 ```ts
 export const CATALOG_KINDS = {
   plant: {
     label: '植物',
+    inCatalog: true,      // 図鑑に載せる（02 #51。植物だけ）
     autoIdentify: true,   // 分類の後に自動で詳しく識別する（02 #51。植物だけ）
     namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
     // openAIVisionService.ts の plantIdentificationPrompt() の命名規則の文言を移す
@@ -398,6 +402,7 @@ export const CATALOG_KINDS = {
   },
   food: {
     label: '食べ物',
+    inCatalog: false,     // 識別はできるが図鑑には載せない
     autoIdentify: false,  // 利用者がやり直しで頼んだときだけ識別する
     namingRule: '固有の料理名（名物名・店の看板料理）→ 一般的な料理名 → 料理の種類の順に、分かる最も細かい粒度（例: 札幌味噌ラーメン → 味噌ラーメン → ラーメン）',
     fields: [
@@ -407,6 +412,7 @@ export const CATALOG_KINDS = {
   },
   landscape: {
     label: '風景',
+    inCatalog: false,
     autoIdentify: false,
     namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
     fields: [
@@ -428,12 +434,13 @@ export const CATALOG_KINDS = {
 | 分類の後の自動の識別 | `autoIdentify` が true の種類（`identifiesAutomatically()`）だけ、分類の後に識別の待ちにする（[06 §2.3](./06_processing_design.md#23-書き込み)。B-1 で実装済み） | 分析の見直し |
 | 識別 AI のスキーマ | 共通項目（`matchesKind`・`name`・`description`・`characteristics`・`comment`・`confidence`）+ `attributes` を `fields` から組み立てる。strict の制約により全部 `required`、任意は `["string","null"]`（`string[]` は `["array","null"]`）。`prompt` は `description` に、`namingRule` はプロンプト本文に | 4 |
 | 識別結果の検証 | `confidence` の 0〜100、`attributes` の値が `fields` の `type` に合うか（合わなければ AI の失敗）。`fields` に無いキーは捨てる（[06 §3.1](./06_processing_design.md#31-契約)。4-1a で実装済み） | 4 |
-| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`prompt`・`namingRule` は返さない | 4 |
-| 図鑑の API | `kind` が表に無ければ 400。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4) | 4 |
-| Flutter | 図鑑の画面が取得して保持する。図鑑は起動時のタブなので、アプリの起動時に取得する（4-5 から。それまでは3つ目のタブ「図鑑（新）」を初めて開いたときに取得していた。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)。4-3a で実装済み）。種類タブは `kinds` から作る（4-3a で実装済み）。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」。4-3b）。写真のカテゴリの表示名（写真ビューア・旅行詳細のチップ）はアプリの表で、この表には追従しない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #33） | 4 |
+| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`inCatalog` が true の種類だけを返す（B-2 で実装済み）。`prompt`・`namingRule`・`inCatalog`・`autoIdentify` は返さない | 4・分析の見直し |
+| 図鑑の API | `kind` が表に無いか、`inCatalog` が false（`isListedInCatalog()` が false）なら 400（図鑑に載せない種類を断るのは B-2 で実装済み）。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4) | 4・分析の見直し |
+| Flutter | 図鑑の画面が取得して保持する。図鑑は起動時のタブなので、アプリの起動時に取得する（4-5 から。それまでは3つ目のタブ「図鑑（新）」を初めて開いたときに取得していた。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)。4-3a で実装済み）。種類タブは `kinds` から作る（4-3a で実装済み。種類が1つならタブを出さずにその種類の項目を並べる。B-2 で実装済み）。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」。4-3b）。写真のカテゴリの表示名（写真ビューア・旅行詳細のチップ）はアプリの表で、この表には追従しない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #33） | 4 |
 | `PATCH` の検証 | 段階4では `attributes` を利用者が直す機能は入れない。入れるときは `fields` の `type` で検証 | — |
 
-種類を足す手順: 表に1行足す → 分類の選択肢・識別のスキーマ・`GET /api/catalog/kinds` が追従 → 図鑑の画面は再ビルド不要（タブと項目はサーバから）。
+種類を足す手順: 表に1行足す → 分類の選択肢・識別のスキーマ・`GET /api/catalog/kinds`（`inCatalog` が true なら）が追従 → 図鑑の画面は再ビルド不要（タブと項目はサーバから）。
+写真ビューアで識別の名前を図鑑へのリンクにするかは、アプリの表（`mobile/lib/utils/photo_category.dart` の `isListedInCatalog`。今は植物だけ）で決める（[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)。B-2）。この表は定義表の `inCatalog` に追従しないので、図鑑に載せる種類を変えるときはアプリも更新する（更新するまで、新しく載せた種類の名前はリンクにならず文字で出る）。
 写真のカテゴリの表示名はアプリの表（`mobile/lib/utils/photo_category.dart`）なので、アプリを更新するまで、新しい種類は旅行詳細のチップに並ばず、写真ビューアにはキーのまま出る（[03 §5.1・§5.3](./03_screen_design.md#5-段階3の画面骨格)。種類を足すときに見直す。02 §5 #33）。
 種類ごとのアイコンや色など見た目を足すならアプリの更新が要る。
 

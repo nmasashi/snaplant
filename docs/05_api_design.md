@@ -48,9 +48,9 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags? }`。構造は2、画面は4 | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint? }`。写真に `step`・`hint` を書いてキューに投入 | 3（`identify` は4） | `photoProcess.ts` |
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの `DISTINCT` | 未定（タグを付ける画面と一緒） | `tags.ts` |
-| `/api/catalog/kinds` | GET | `{ kinds }` | 定義表から（表の順） | 4（4-2a。実装済み） | `catalogKinds.ts` |
-| `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。`offset` / `limit` でページ。各項目に `photoCount`・`coverThumbnailUrl`（`urlExpiresAt` は付けない） | 4（4-2a。実装済み） | `catalogEntries.ts` |
-| `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング（ページごとに `entry` も読み直す） | 4（4-2b。実装済み） | `catalogEntry.ts` |
+| `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
+| `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須（図鑑に載せる種類だけ。食べ物・風景は 400）。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。`offset` / `limit` でページ。各項目に `photoCount`・`coverThumbnailUrl`（`urlExpiresAt` は付けない） | 4（4-2a。食べ物・風景を断るのは B-2。実装済み） | `catalogEntries.ts` |
+| `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定（`kind` は図鑑に載せる種類だけ。食べ物・風景は 400）。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング（ページごとに `entry` も読み直す） | 4（4-2b。食べ物・風景を断るのは B-2。実装済み） | `catalogEntry.ts` |
 | `/api/trips/{tripId}/timeline` | GET | `{ timeline, pendingPhotoCount, urlExpiresAt }` | 完成版と下書きの状態。無ければ `timeline: null`。§5.15 | 5（5-1c。実装済み） | `timeline.ts` |
 | `/api/trips/{tripId}/timeline` | POST | `{ draft, urlExpiresAt }` 202 | 作る・作り直す（区切り案の下書きから）。解析中の写真があれば 409 | 5（5-1a。実装済み） | `timeline.ts` |
 | `/api/trips/{tripId}/timeline/recut` | POST | `{ draft, urlExpiresAt }` | 完成版の区切りを直し始める（下書きを作る）。`draft` は `GET …/draft` の確かめ中と同じ形 | 5（5-2b。実装済み） | `timelineCurrent.ts` |
@@ -617,9 +617,9 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 | エンドポイント | 内容 | エラー |
 |---|---|---|
-| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。定義表（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）の種類と項目を表の順に返す。AI に渡す指示（`prompt`・`namingRule`）は返さない。DB にも Blob にも触らない。**実装済み（4-2a）** | なし（定義表を返すだけで、失敗する経路が無い。例外を捕まえて封筒の 500 にする処理も置いていない） |
-| `GET /api/catalog/entries?kind=&offset=&limit=` | `{ entries: CatalogEntry[], total }`（§3.3.1）。`kind` 必須、定義表に無ければ 400 `図鑑の種類が無効です`。`name` の文字列順に並べ、`offset`（既定 0）から `limit`（既定 50、上限 100。`CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE`）件。`total` は項目の総数（ページに依らない）。0 件なら `[]`・`0`。`offset` が項目の数以上なら `[]` で `total` はそのまま。検証は下の表。**実装済み（4-2a）** | 503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の一覧の取得に失敗しました`（それ以外。表紙の URL を作れない（写真の保存先の設定が足りない）ときも） |
-| `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null`。検証は下の表。**実装済み（4-2b）** | 400（下の表）、503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の項目の取得に失敗しました`（それ以外。写真の保存先の設定が足りないときも） |
+| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。定義表（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）のうち図鑑に載せる種類（`inCatalog` が true。今は植物だけ）と項目を表の順に返す。識別はできても図鑑に載せない種類（食べ物・風景。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #51）は返さない。AI に渡す指示（`prompt`・`namingRule`）と `inCatalog`・`autoIdentify` は返さない。DB にも Blob にも触らない。**実装済み（4-2a。図鑑に載せる種類だけにしたのは B-2）** | なし（定義表を返すだけで、失敗する経路が無い。例外を捕まえて封筒の 500 にする処理も置いていない） |
+| `GET /api/catalog/entries?kind=&offset=&limit=` | `{ entries: CatalogEntry[], total }`（§3.3.1）。`kind` 必須、図鑑に載せる種類でなければ（定義表に無い、または食べ物・風景）400 `図鑑の種類が無効です`。`name` の文字列順に並べ、`offset`（既定 0）から `limit`（既定 50、上限 100。`CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE`）件。`total` は項目の総数（ページに依らない）。0 件なら `[]`・`0`。`offset` が項目の数以上なら `[]` で `total` はそのまま。検証は下の表。**実装済み（4-2a。食べ物・風景を断るのは B-2）** | 503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の一覧の取得に失敗しました`（それ以外。表紙の URL を作れない（写真の保存先の設定が足りない）ときも） |
+| `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null`。検証は下の表。**実装済み（4-2b。食べ物・風景を断るのは B-2）** | 400（下の表）、503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の項目の取得に失敗しました`（それ以外。写真の保存先の設定が足りないときも） |
 
 項目一覧のページを `offset` / `limit` にするのは、`GROUP BY` の結果（項目の行）をサーバで名前順に並べてから切るためで、Cosmos の継続トークンが使えない。
 名前順は文字列の符号単位の順（JavaScript の `<` の比べ方。ロケールに依らず、どの環境でも同じ並びになる）。
@@ -631,19 +631,20 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
-| 1 | `kind` が無い、または定義表に無い（`other` や、`constructor` などの継承したキーも） | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
+| 1 | `kind` が無い、定義表に無い（`other` や、`constructor` などの継承したキーも）、または定義表にあっても図鑑に載せない種類（`food`・`landscape`。`inCatalog` が false。B-2） | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
 | 2 | `offset` が 0 以上の整数の10進表記（`0` か、先頭が `0` でない数字の並び）でない（空・負・小数・数字以外を含む）、または安全な整数（2^53 − 1）を超える | 400 `INVALID_REQUEST` | `ページの指定が無効です` |
 | 2 | `limit` が 1 以上の整数の10進表記（先頭が `0` でない数字の並び）でない（空・`0`・小数・数字以外を含む）、または上限（`CATALOG_MAX_PAGE_SIZE`。既定 100）を超える | 400 `INVALID_REQUEST` | `ページの指定が無効です` |
 
 - 「無い」と「空」を分ける。`offset` が無ければ 0、`limit` が無ければ既定（`CATALOG_PAGE_SIZE`。既定 50。上限より大きく設定されていても上限で止める）。空の文字列は 400（写真の一覧の `limit` と同じ）
 - `offset` と `limit` は同じ `message` で、どちらが悪いかは言わない。`kind` もページも不正なら `kind` の指摘を返す
 - `kind` は前後の空白を除かずに定義表のキーと比べる（大文字小文字も区別する）
+- 食べ物・風景の写真も識別の結果（`identification`）を持ちうる（やり直しの `step: "identify"`。§5.7）が、図鑑には載せないので一覧も項目も 400 で断る（B-2。項目の詳細も同じ）。定義表に無い種類と同じ `message` で、どちらかは言わない
 
 `GET /api/catalog/entry` の検証（順に。最初に失敗した1件だけ返す。1〜5 は Cosmos に触る前に弾く。`utils/catalogInput.ts` の `readCatalogEntryQuery`）:
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
-| 1 | `kind` が無い、または定義表に無い（`other` や、`constructor` などの継承したキーも。項目一覧と同じ） | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
+| 1 | `kind` が無い、定義表に無い（`other` や、`constructor` などの継承したキーも）、または図鑑に載せない種類（`food`・`landscape`。B-2）。項目一覧と同じ | 400 `INVALID_REQUEST` | `図鑑の種類が無効です` |
 | 2 | `name` が無い、または前後の空白を除いて空 | 400 `INVALID_REQUEST` | `図鑑の項目の名前が指定されていません` |
 | 3 | `name` が前後の空白を除いて 100 文字（`CATALOG_VALIDATION.NAME_MAX_LENGTH`）を超える（利用者が書く文ではないので UTF-16 のコード単位で数える。§9.6 の対象外） | 400 `INVALID_REQUEST` | `図鑑の項目の名前は100文字以内で指定してください` |
 | 4 | `limit` があり、1〜200 の整数でない（§5.2 の 4 と同じ規則と文言） | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |

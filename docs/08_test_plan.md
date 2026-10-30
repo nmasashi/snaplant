@@ -235,14 +235,14 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 図鑑の API の置き場（4-2a で決めた）: 偽物は `GROUP BY` も `ORDER BY` も解釈しないので、名前ごとの枚数の行と見出しの写真（信頼度の高い1枚）を入口から作れない。
   旅行一覧と同じく、行と見出しの写真から項目のページを組み立てる所を純粋な関数（`catalogEntries.ts`）に分けて `tests/services/catalogEntries.test.ts` で確かめ（CLAUDE.md の名簿）、
   入口のテストは検証・0件・データベースの障害を見る。SQL の絞り込み・並び・集計は §5.3 で手で確かめる
-- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表の種類が表の順に、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。`prompt`・`namingRule` は返さない
+- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。`prompt`・`namingRule` は返さない
 - 図鑑の項目一覧（4-2a で実装済み。`catalogEntries.test.ts`。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: 識別された写真が無ければ 200 で `{ entries: [], total: 0 }`。
-  `offset=0`・`limit=100`（上限）・`limit=1` は受け付ける。`kind` が無い・`other`・`constructor` で 400 `図鑑の種類が無効です`、`offset` が負・小数・空、`limit` が `0`・`101`・数でない・小数・空で 400 `ページの指定が無効です`。
+  `offset=0`・`limit=100`（上限）・`limit=1` は受け付ける。`kind` が無い・`other`・`constructor`・大文字小文字が違う（`Plant`）・図鑑に載せない `food`・`landscape`（B-2）で 400 `図鑑の種類が無効です`、`offset` が負・小数・空、`limit` が `0`・`101`・数でない・小数・空で 400 `ページの指定が無効です`。
   `kind` もページも不正なら `kind` の指摘。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の一覧の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の表）
 - 図鑑の項目の詳細（4-2b で実装済み。`catalogEntry.test.ts`。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: 種類と名前で開くと 200 で、見出しの写真の識別からの `entry`（`kind`・`name`・`confidence`・`description`・`characteristics`・`attributes`・表紙はサムネイルの URL）と、その種類・その名前の写真の1ページ（サムネイルの無い写真は `thumbnailUrl: null`）・`continuationToken: null`・`urlExpiresAt`（今から 60 分）。
-  同じ名前でも別の種類の写真と、写っていない（名前が `null`）写真は含めず、種類を替えればその種類の項目と写真になる。名前は前後の空白を除いて比べる。100 文字ちょうどは受け付ける。
+  同じ名前でも別の種類の写真と、写っていない（名前が `null`）写真は含めない（「種類を替えればその種類の項目と写真になる」行は、図鑑に載せる種類が植物だけになったので B-2 で消した）。名前は前後の空白を除いて比べる。100 文字ちょうどは受け付ける。
   その種類と名前の写真が無ければ 200 で `entry: null`・`photos: []`・`continuationToken: null`。`limit=1` で継続トークンを渡して2ページ目を読み、2枚が重複・欠落なく出て最後のトークンが `null`。
-  `kind` が無い・`other` で 400 `図鑑の種類が無効です`、`name` が無い・空白だけで 400 `図鑑の項目の名前が指定されていません`、前後の空白を除いて 101 文字で 400 `図鑑の項目の名前は100文字以内で指定してください`、`limit=201` で 400 `1ページの枚数は1〜200で指定してください`、継続トークンが JSON でない・Cosmos が受け付けない JSON（偽物は自分が作った形でないトークンに `code` 400 を投げる）で 400 `継続トークンの形式が無効です`。
+  `kind` が無い・`other`・前後に空白がある・図鑑に載せない `food`・`landscape`（B-2）で 400 `図鑑の種類が無効です`、`name` が無い・空白だけで 400 `図鑑の項目の名前が指定されていません`、前後の空白を除いて 101 文字で 400 `図鑑の項目の名前は100文字以内で指定してください`、`limit=201` で 400 `1ページの枚数は1〜200で指定してください`、継続トークンが JSON でない・Cosmos が受け付けない JSON（偽物は自分が作った形でないトークンに `code` 400 を投げる）で 400 `継続トークンの形式が無効です`。
   順の例: 種類も名前も不正なら種類、名前もページも不正なら名前。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の項目の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の2行）。
   偽物は `ORDER BY`・`COUNT`・`matchesKind` を解釈しないので、見出しの選び方・写真の並び・`photoCount`・`matchesKind: false` で名前の残った写真の除外は入口では見ない（§5.3 で手で確かめる）
 - Cosmos の設定の不足（4-2a で実装済み。`tests/scripts/enqueueUnidentified.test.ts`）: `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_ALBUM_CONTAINER` のどれかが無い・空白だけなら、識別に回すスクリプトはその設定の名前を含む例外で止まる（`AlbumService` を作るときに確かめる）
@@ -377,8 +377,8 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - やり直しの受付のルート（3-3b）: ポータルの「関数」に `requestPhotoProcessing` があり、`POST /api/photos/{photoId}/process` が 202 を返し、写真の `processing.state` が `pending` → `done` に進む
 - 識別に回すスクリプトのクエリ（4-1b。[04 §5](./04_data_design.md#5-クエリ) の 5.11）: デプロイ後、`--apply` を付けずに回し（`api/README.md`「手で回すスクリプト」）、出た対象の枚数が、ポータルのデータエクスプローラーで数えた「`done`・`category` が `plant`・`identification` が `null`」の写真の枚数と合う（クエリは `IS_NULL(c.identification)` と `ARRAY_CONTAINS(@kinds, c.category)` で3種類を読み、出す枚数はコードで植物に絞った後のもの。B-1。コードでも同じ条件を見直すので、SQL が崩れても書き換える写真は変わらないが、多く拾えば読む RU が、少なく拾えば識別の漏れが出る）。`--apply` の後 10〜20 分で、待ちにした写真が `identifying` → `done`（`step: "identify"`）に進む
 - 図鑑の項目一覧のつなぎ目（4-2a。[04 §5](./04_data_design.md#5-クエリ) の 5.6・[05 §5.14](./05_api_design.md#514-図鑑段階4)）。偽物は SQL の絞り込み・集計・並びを解釈せず、純粋な関数のテストには行を直接渡しているので、次はデプロイ後にしか確かめられない
-  - 関数の登録: ポータルの「関数」に `listCatalogKinds`・`listCatalogEntries`（`app.http` の第1引数）があり、`GET /api/catalog/kinds` が定義表の3種類を返す
-  - 種類での絞り込み（`c.identification.kind = @kind`・`matchesKind = true`）: `GET /api/catalog/entries?kind=plant` に食べ物・風景の写真の名前が混ざらない。`kind=food`・`kind=landscape` も同じ。
+  - 関数の登録: ポータルの「関数」に `listCatalogKinds`・`listCatalogEntries`（`app.http` の第1引数）があり、`GET /api/catalog/kinds` が図鑑に載せる種類（B-2 から植物だけ。それまでは定義表の3種類）を返す
+  - 種類での絞り込み（`c.identification.kind = @kind`・`matchesKind = true`）: `GET /api/catalog/entries?kind=plant` に食べ物・風景の写真の名前が混ざらない（B-2 から `kind=food`・`kind=landscape` は Cosmos に触る前に 400 になるので、確かめるのは `plant` だけ）。
     同じ名前が別の種類にもあれば、それぞれの種類で別の項目になり枚数も分かれる。識別で「分類と合わない」（`matchesKind: false`）になった写真は、どの項目にも数えられない
   - 枚数の集計（`GROUP BY c.identification.name`・`COUNT(1)`）: 各項目の `photoCount` が、ポータルのデータエクスプローラーで数えたその種類・その名前の写真の枚数と合い、`total` が名前の数と合う。`null` の鍵の行が項目に出ない
   - 名前順とページの切り方: `limit` を省くと `min(50, total)` 件（既定 50 件）。項目が少ないうちは `limit=2` で `offset` を 0・2・4…とめくり、名前の符号単位の順で重複・欠落が無く、最後のページの先は `[]` で `total` が変わらない
