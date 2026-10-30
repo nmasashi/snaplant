@@ -496,14 +496,19 @@ export class AlbumService {
     hint: string | null,
     now: string
   ): Promise<PhotoDocument | null> {
+    const operations: { op: 'set'; path: string; value: unknown }[] = [
+      { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
+      { op: 'set', path: '/hint', value: hint },
+      { op: 'set', path: '/comment', value: null },
+      { op: 'set', path: '/commentSource', value: null },
+      { op: 'set', path: '/updatedAt', value: now },
+    ];
+    if (step === 'classify') {
+      // 分類からやり直すなら、カテゴリは AI に任せ直す（手で決めた印を残すと、AI のカテゴリが手で決めたものに見える。02 §5 #53）
+      operations.push({ op: 'set', path: '/categorySource', value: null });
+    }
     try {
-      const { resource } = await this.container.item(id, id).patch<PhotoDocument>([
-        { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
-        { op: 'set', path: '/hint', value: hint },
-        { op: 'set', path: '/comment', value: null },
-        { op: 'set', path: '/commentSource', value: null },
-        { op: 'set', path: '/updatedAt', value: now },
-      ]);
+      const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
       return resource ?? null;
     } catch (error: any) {
       if (error.code === 404) {
