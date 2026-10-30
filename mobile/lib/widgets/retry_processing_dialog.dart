@@ -73,12 +73,15 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
           : widget.photo.hint);
   // 頼む処理と言い方（開いたときの写真で決める）
   late final _request = analysisRequestOf(widget.photo);
+  // 場所には写真の撮影地を入れておく。直すと写真の撮影地も変わる（02 §5 #53）
+  late final _place = TextEditingController(text: widget.photo.placeName);
   bool _busy = false;
   String? _error;
 
   @override
   void dispose() {
     _hint.dispose();
+    _place.dispose();
     super.dispose();
   }
 
@@ -91,7 +94,11 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       final photo = await widget.apiService.requestPhotoProcessing(
           widget.photo.id,
           hint: _hint.text,
-          step: _request.step);
+          step: _request.step,
+          // 変えていなければ送らない（送ると、端末が引いた地名が手で直したものになる）。サーバと同じく前後の空白を除いて比べる
+          placeName: _place.text.trim() == (widget.photo.placeName ?? '')
+              ? null
+              : _place.text.trim());
       if (mounted) Navigator.pop(context, photo);
     } catch (e) {
       // ApiException 以外でも留まって押し直せるようにする（受け止めないと、押せないまま閉じられなくなる。
@@ -115,6 +122,14 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
     );
   }
 
+  /// 場所の欄の下の案内（撮影地があれば直すと変わること、無ければ書くと残ること）
+  String _placeNote() {
+    final photo = widget.photo;
+    if (photo.placeName != null) return '写真の撮影地を入れています。直すと撮影地も変わります';
+    if (photo.latitude == null) return 'この写真には位置情報がありません。書くと撮影地として残ります';
+    return '書くと撮影地の地名として残ります';
+  }
+
   Widget _buildDialog() {
     return AlertDialog(
       title: Text(_request.title),
@@ -124,6 +139,13 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          TextField(
+            controller: _place,
+            enabled: !_busy,
+            maxLength: 100,
+            decoration: const InputDecoration(labelText: '場所'),
+          ),
+          Text(_placeNote()),
           TextField(
             controller: _hint,
             enabled: !_busy,
