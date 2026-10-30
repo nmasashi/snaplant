@@ -53,9 +53,12 @@ Future<FakeTripBackend> _openViewer(
 Map<String, Object?> _stored(FakeTripBackend backend) =>
     backend.photosByTripId[hokkaidoTripId]!.first;
 
-/// 上のバーの「やり直す」
-Finder get _barRetry =>
-    find.descendant(of: find.byType(AppBar), matching: find.text('やり直す'));
+/// 上のバーの解析を頼むボタン（カテゴリで印と説明が変わる。植物「植物を調べる」、食べ物・風景「コメントを書いてもらう」、カテゴリの無い写真「分類し直す」。03 §5.4）
+Finder get _barRetry => find.descendant(
+    of: find.byType(AppBar),
+    matching: find.byWidgetPredicate((widget) =>
+        widget is IconButton &&
+        const {'植物を調べる', 'コメントを書いてもらう', '分類し直す'}.contains(widget.tooltip)));
 
 /// カテゴリを選ぶシートの選択肢 [label]
 Finder _option(String label) =>

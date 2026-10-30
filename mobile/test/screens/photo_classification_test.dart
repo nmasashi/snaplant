@@ -95,9 +95,12 @@ Future<FakeTripBackend> _openViewer(
   return backend;
 }
 
-/// 上のバーの「やり直す」（失敗したときは下の情報にも同じ文言のボタンが出るので、バーの中に絞る）
-Finder get _barRetry =>
-    find.descendant(of: find.byType(AppBar), matching: find.text('やり直す'));
+/// 上のバーの解析を頼むボタン（カテゴリで印と説明が変わる。植物「植物を調べる」、食べ物・風景「コメントを書いてもらう」、カテゴリの無い写真「分類し直す」。03 §5.4）
+Finder get _barRetry => find.descendant(
+    of: find.byType(AppBar),
+    matching: find.byWidgetPredicate((widget) =>
+        widget is IconButton &&
+        const {'植物を調べる', 'コメントを書いてもらう', '分類し直す'}.contains(widget.tooltip)));
 
 /// 下の情報の「やり直す」（分類に失敗したときに出る。上のバーのものを除く）
 Finder get _infoRetry => find.byElementPredicate((element) =>
@@ -124,9 +127,9 @@ int _countOnScreen(WidgetTester tester, String text) {
   }).length;
 }
 
-/// やり直しダイアログの「やり直す」
+/// やり直しダイアログの頼むボタン（「調べる」「書いてもらう」「分類し直す」。右端のボタン）
 Finder get _dialogRetry =>
-    find.descendant(of: find.byType(AlertDialog), matching: find.text('やり直す'));
+    find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextButton)).last;
 
 /// 偽のサーバにある写真（やり直しで書き換わる）
 Map<String, Object?> _stored(FakeTripBackend backend) =>
@@ -162,17 +165,17 @@ void main() {
 
   testWidgets('写真ビューアは、分類を待っている・している写真（pending・classifying。step が無い段階2・3の写真も）に「分類中...」、識別を待っている・している写真（step が identify の pending・identifying）に「識別中...」を出し、上限まで失敗した写真には「分類に失敗しました」「識別に失敗しました」と下の情報の「やり直す」を出し、済んだ写真と解析の対象でない写真には何も出さない', (tester) async {
     // 9枚を1つの旅行に置き、ビューアで順に送って見る。分類の後の識別の待ちは、step が identify の pending（03 §5.1）。
-    // 済んだ写真はカテゴリを持ち、解析の対象でない写真（段階2）は持たない。「やり直す」は上のバーにも出るので、失敗した写真では画面の中に2つある
+    // 済んだ写真はカテゴリを持ち、解析の対象でない写真（段階2）は持たない。上のバーのボタンは印だけなので、「やり直す」の文字は下の情報のものだけを数える
     final cases = [
-      (category: null, state: 'pending', step: 'classify', shown: ['分類中...'], retries: 1),
-      (category: null, state: 'classifying', step: 'classify', shown: ['分類中...'], retries: 1),
-      (category: null, state: 'pending', step: null, shown: ['分類中...'], retries: 1),
-      (category: null, state: 'failed', step: 'classify', shown: ['分類に失敗しました'], retries: 2),
-      (category: 'plant', state: 'pending', step: 'identify', shown: ['識別中...'], retries: 1),
-      (category: 'plant', state: 'identifying', step: 'identify', shown: ['識別中...'], retries: 1),
-      (category: 'plant', state: 'failed', step: 'identify', shown: ['識別に失敗しました'], retries: 2),
-      (category: 'food', state: 'done', step: 'classify', shown: <String>[], retries: 1),
-      (category: null, state: 'none', step: 'classify', shown: <String>[], retries: 1),
+      (category: null, state: 'pending', step: 'classify', shown: ['分類中...'], retries: 0),
+      (category: null, state: 'classifying', step: 'classify', shown: ['分類中...'], retries: 0),
+      (category: null, state: 'pending', step: null, shown: ['分類中...'], retries: 0),
+      (category: null, state: 'failed', step: 'classify', shown: ['分類に失敗しました'], retries: 1),
+      (category: 'plant', state: 'pending', step: 'identify', shown: ['識別中...'], retries: 0),
+      (category: 'plant', state: 'identifying', step: 'identify', shown: ['識別中...'], retries: 0),
+      (category: 'plant', state: 'failed', step: 'identify', shown: ['識別に失敗しました'], retries: 1),
+      (category: 'food', state: 'done', step: 'classify', shown: <String>[], retries: 0),
+      (category: null, state: 'none', step: 'classify', shown: <String>[], retries: 0),
     ];
     const statuses = ['分類中...', '識別中...', '分類に失敗しました', '識別に失敗しました'];
     await _openViewerOf(tester, [for (final c in cases) (category: c.category, state: c.state, step: c.step)]);
@@ -188,14 +191,33 @@ void main() {
   });
 
   group('解析のやり直し', () {
-    testWidgets('上のバーの「やり直す」で、手がかりの欄とコメントが置き換わる旨を出すダイアログを開き、キャンセルすると何も頼まない', (tester) async {
+    // 上のバーのボタンとダイアログの言い方はカテゴリで決まる（03 §5.4。02 §5 #53）。
+    // 植物は品種などを調べ、食べ物・風景は利用者のメモから AI がコメントを書く、カテゴリの無い写真は分類し直す
+    for (final (category, title, field, submit) in [
+      ('plant', '植物を調べる', '手がかり（任意）', '調べる'),
+      ('landscape', 'コメントを書いてもらう', 'メモ（任意）', '書いてもらう'),
+      (null, '分類し直す', '手がかり（任意）', '分類し直す'),
+    ]) {
+      testWidgets('上のバーのボタン（$title）は、題が「$title」、欄が「$field」、頼むボタンが「$submit」のダイアログを開く', (tester) async {
+        await _openViewer(tester, _photo(category: category));
+
+        await tester.tap(find.byTooltip(title));
+        await letFramesRun(tester);
+
+        expect(find.descendant(of: find.byType(AlertDialog), matching: find.text(title)), findsOneWidget);
+        expect(find.text(field), findsOneWidget);
+        expect(find.widgetWithText(TextButton, submit), findsOneWidget);
+      });
+    }
+
+    testWidgets('上のバーのボタンで、メモの欄とコメントが置き換わる旨を出すダイアログを開き、キャンセルすると何も頼まない', (tester) async {
       final backend = await _openViewer(tester, _photo(category: 'food'));
 
       await tester.tap(_barRetry);
       await letFramesRun(tester);
 
-      expect(find.text('解析をやり直す'), findsOneWidget);
-      expect(find.text('手がかり（任意）'), findsOneWidget);
+      expect(find.text('コメントを書いてもらう'), findsWidgets);
+      expect(find.text('メモ（任意）'), findsOneWidget);
       expect(find.text('今のコメントは AI の結果で置き換わります'), findsOneWidget);
       expect(find.text('0/500'), findsOneWidget);
 
