@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:snaplant_mobile/screens/catalog_screen.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
@@ -93,7 +94,11 @@ void main() {
       ];
     await openCatalogTab(tester, backend);
 
-    expect(_kindTab('植物'), findsNothing);
+    // 帯ごと無いことを見る（表示名の無いタブの帯でも落ちるように）。下のタブの旅行の画面は見ない
+    expect(
+        find.descendant(
+            of: find.byType(CatalogScreen), matching: find.byType(TabBar)),
+        findsNothing);
     expect(find.text('ソメイヨシノ'), findsOneWidget);
     expect(find.text('ハナトリカブト'), findsOneWidget);
   });
