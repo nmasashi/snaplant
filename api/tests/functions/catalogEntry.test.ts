@@ -140,14 +140,6 @@ describe('図鑑の項目の詳細API', () => {
     expect(data.urlExpiresAt).toBe('2026-10-18T13:00:00.000Z');
   });
 
-  it('同じ名前でも種類を替えれば、その種類の項目と写真になる', async () => {
-    // 畑のメロンは植物、皿のメロンは食べ物（04 §3.1。まとめる鍵に種類を含める理由）
-    const response = await getCatalogEntryHandler(createRequest({ kind: 'food', name: 'メロン' }), mockContext);
-
-    expect((response.jsonBody as any).data.entry).toMatchObject({ kind: 'food', name: 'メロン', confidence: 95 });
-    expect(photoIdsOf(response)).toEqual(['c'.repeat(64)]);
-  });
-
   it('名前は前後の空白を除いてから比べる', async () => {
     const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: '  メロン ' }), mockContext);
 
@@ -202,6 +194,9 @@ describe('図鑑の項目の詳細API', () => {
     it('種類・名前・枚数・継続トークンの指定が正しくなければ、400で理由を返す', () => forEachCase([
       ['種類が無い', { name: 'メロン' }, '図鑑の種類が無効です'],
       ['種類が定義表に無い（other）', { kind: 'other', name: 'メロン' }, '図鑑の種類が無効です'],
+      // 食べ物・風景は図鑑に載せない（02 §5 #51）
+      ['種類が図鑑に載せない食べ物', { kind: 'food', name: 'メロン' }, '図鑑の種類が無効です'],
+      ['種類が図鑑に載せない風景', { kind: 'landscape', name: '函館山' }, '図鑑の種類が無効です'],
       // 種類は空白を除かずに比べる（項目の一覧と同じ）
       ['種類の前後に空白がある', { kind: ' plant', name: 'メロン' }, '図鑑の種類が無効です'],
       ['名前が無い', { kind: 'plant' }, '図鑑の項目の名前が指定されていません'],
