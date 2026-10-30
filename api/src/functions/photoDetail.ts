@@ -63,8 +63,10 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
 }
 
 /**
- * 写真更新 API（利用者のコメントとタグを直す）
+ * 写真更新 API（利用者のコメント・タグ・カテゴリを直す）
  * PATCH /api/photos/{photoId}
+ *
+ * カテゴリを変えると識別を消して解析の状態を書き換え、植物なら品種を調べる待ちにしてキューに積む（02 §5 #53）
  */
 export async function updatePhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const photoId = request.params.photoId;
