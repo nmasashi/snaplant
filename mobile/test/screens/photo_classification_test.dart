@@ -235,7 +235,7 @@ void main() {
 
       await tester.tap(_barRetry);
       await letFramesRun(tester);
-      await tester.enterText(find.byType(TextField), 'これはサクラではなくウメ');
+      await tester.enterText(find.widgetWithText(TextField, '手がかり（任意）'), 'これはサクラではなくウメ');
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
 
@@ -323,7 +323,7 @@ void main() {
 
       await tester.tap(_barRetry);
       await letFramesRun(tester);
-      await tester.enterText(find.byType(TextField), '   ');
+      await tester.enterText(find.widgetWithText(TextField, '手がかり（任意）'), '   ');
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
 
