@@ -12,12 +12,14 @@ const _takenAt = '2026年10月6日 10:15';
 /// 撮影日時が 2026年10月6日 10:15 の写真。[category] と [state] で分類の結果と進み具合を決める
 Map<String, Object?> _photo(
         {String? category,
-        String? categorySource,
         String state = 'done',
-        String step = 'classify'}) =>
-    photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00')
+        String step = 'classify',
+        int number = 1}) =>
+    photoJson(
+        number: number,
+        tripId: hokkaidoTripId,
+        takenAt: '2026-10-0${5 + number}T10:15:00')
       ..['category'] = category
-      ..['categorySource'] = categorySource
       ..['processing'] = {
         'state': state,
         'step': step,
@@ -26,14 +28,15 @@ Map<String, Object?> _photo(
         'updatedAt': '2026-10-18T03:00:00.000Z'
       };
 
-/// 旅行詳細を開き、写真をタップしてビューアを開く
+/// 旅行詳細を開き、1枚目の写真をタップしてビューアを開く（[more] の写真は後ろに並べる）
 Future<FakeTripBackend> _openViewer(
-    WidgetTester tester, Map<String, Object?> photo) async {
+    WidgetTester tester, Map<String, Object?> photo,
+    {List<Map<String, Object?>> more = const []}) async {
   final backend = FakeTripBackend(
-    trips: [hokkaidoTrip(photoCount: 1)],
+    trips: [hokkaidoTrip(photoCount: 1 + more.length)],
     functionKey: 'test-key',
     photosByTripId: {
-      hokkaidoTripId: [photo]
+      hokkaidoTripId: [photo, ...more]
     },
   );
   await openTripsTab(tester, backend);
@@ -44,9 +47,13 @@ Future<FakeTripBackend> _openViewer(
   return backend;
 }
 
-/// 偽のサーバにある写真（カテゴリの保存で書き換わる）
+/// 偽のサーバにある1枚目の写真（カテゴリの保存で書き換わる）
 Map<String, Object?> _stored(FakeTripBackend backend) =>
-    backend.photosByTripId[hokkaidoTripId]!.single;
+    backend.photosByTripId[hokkaidoTripId]!.first;
+
+/// 上のバーの「やり直す」
+Finder get _barRetry =>
+    find.descendant(of: find.byType(AppBar), matching: find.text('やり直す'));
 
 /// カテゴリを選ぶシートの選択肢 [label]
 Finder _option(String label) =>
@@ -69,11 +76,11 @@ void main() {
       expect(_option(label), findsOneWidget, reason: label);
     }
     expect(
-        tester
-            .widget<RadioListTile<String>>(
-                find.widgetWithText(RadioListTile<String>, '食べ物'))
-            .checked,
-        isTrue);
+        tester.getSemantics(find.widgetWithText(RadioListTile<String>, '食べ物')),
+        containsSemantics(isChecked: true));
+    expect(
+        tester.getSemantics(find.widgetWithText(RadioListTile<String>, '植物')),
+        containsSemantics(isChecked: false));
   });
 
   testWidgets(
@@ -108,6 +115,7 @@ void main() {
 
     expect(find.byType(BottomSheet), findsNothing);
     expect(find.text('カテゴリを変えました'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, '食べ物'), findsOneWidget);
     expect(_stored(backend)['categorySource'], isNull);
   });
 
@@ -158,10 +166,40 @@ void main() {
     expect(_stored(backend)['category'], 'food');
   });
 
-  testWidgets('分類を待っている・しているカテゴリの無い写真には、カテゴリのボタンを出さない', (tester) async {
-    await _openViewer(tester, _photo(category: null, state: 'pending'));
+  for (final state in ['pending', 'classifying']) {
+    testWidgets('分類を待っている・している（$state）カテゴリの無い写真には、カテゴリのボタンを出さない',
+        (tester) async {
+      await _openViewer(tester, _photo(category: null, state: state));
 
-    expect(find.text('分類中...'), findsOneWidget);
-    expect(find.byType(OutlinedButton), findsNothing);
+      expect(find.text('分類中...'), findsOneWidget);
+      expect(find.text('カテゴリを選ぶ'), findsNothing);
+    });
+  }
+
+  testWidgets('シートで「その他」に変えると、上のバーの「やり直す」が消える', (tester) async {
+    // 残ると、押したときに分類からやり直しになり、手で決めたカテゴリを AI に任せ直してしまう
+    await _openViewer(tester, _photo(category: 'food'));
+    expect(_barRetry, findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '食べ物'));
+    await letFramesRun(tester);
+    await tester.tap(_option('その他'));
+    await tester.pump();
+    await tester.tap(_save);
+    await letFramesRun(tester);
+
+    expect(find.widgetWithText(OutlinedButton, 'その他（変更済み）'), findsOneWidget);
+    expect(_barRetry, findsNothing);
+  });
+
+  testWidgets('その他の写真から次の写真（植物）へ送ると、上のバーに「やり直す」が出る', (tester) async {
+    await _openViewer(tester, _photo(category: 'other'),
+        more: [_photo(category: 'plant', number: 2)]);
+    expect(_barRetry, findsNothing);
+
+    await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
+    await letFramesRun(tester);
+
+    expect(_barRetry, findsOneWidget);
   });
 }

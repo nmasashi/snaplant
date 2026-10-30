@@ -133,7 +133,7 @@ Map<String, Object?> _stored(FakeTripBackend backend) =>
     backend.photosByTripId[hokkaidoTripId]!.single;
 
 void main() {
-  testWidgets('写真ビューアは、分類の結果が plant・food・landscape の写真にカテゴリを「植物」「食べ物」「風景」と出し、知らないキー（insect）はキーのまま出し、どれにも当てはまらない（other）写真は「その他」と出し、分類の前の写真には出さず、やり直しで分類を待っている間も前回のカテゴリを出し続ける', (tester) async {
+  testWidgets('写真ビューアは、分類の結果が plant・food・landscape の写真にカテゴリを「植物」「食べ物」「風景」と出し、知らないキー（insect）はキーのまま出し、どれにも当てはまらない（other）写真は「その他」と出し、分類の前の写真にはカテゴリ名を出さず、やり直しで分類を待っている間も前回のカテゴリを出し続ける', (tester) async {
     // 7枚を1つの旅行に置き、ビューアで順に送って見る。PageView は隣のページも組み立てておくので、画面の中にあるものだけを数える。
     // 知らないキー（後の段階で足された種類など）はキーのまま出す。other は手で直せるように「その他」と出す（03 §5.6。02 §5 #53）。
     // 前回の結果は、やり直しの結果が出るまで残る（05 §5.7）

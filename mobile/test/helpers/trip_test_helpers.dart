@@ -181,9 +181,11 @@ enum TripRoute {
 ///   実際のサーバと同じく、multipart でない・`photoId` の形式・画像の Content-Type（415）・画像が空・`tripId` の形式・`takenAt` の形式（実在する日時）・緯度と経度の片方だけ・位置情報の形式は 400/415（空文字のパートも「指定あり」として検証する）
 /// - `POST /api/photos/{photoId}/process` は、写真を分類の待ち（`pending`・`classify`・回数 0・時刻は [processAcceptedAt]）にし、
 ///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/05_api_design.md §5.7）。
-///   `step` は `processing.step` に書く。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
-/// - `PATCH /api/photos/{photoId}` はコメントだけを書き換える（前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`）。
-///   200 で `{ photo, urlExpiresAt }`。`comment` のキーが無い・文字列でも null でもない・500 文字を超えるなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）
+///   `step` は `processing.step` に書く（`classify` なら `categorySource` を null にする）。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
+/// - `PATCH /api/photos/{photoId}` はコメントとカテゴリを書き換える。コメントは前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`。
+///   カテゴリは本物と同じ決まり（手で決めた印を付け、変わったか分類中なら識別を消し、植物なら識別の待ち、ほかは済み。05 §5.6）。
+///   200 で `{ photo, urlExpiresAt }`。`comment`・`category` のキーがどちらも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
+///   本物は全部の検証の後に 404 を返すが、偽物はコメントの検証の直後に返す（アプリはコメントとカテゴリを一緒に送らない）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は名前順）に
@@ -1132,6 +1134,8 @@ class FakeTripBackend {
     photo['hint'] = trimmed.isEmpty ? null : trimmed;
     photo['comment'] = null;
     photo['commentSource'] = null;
+    // 分類からやり直すなら、カテゴリは AI に任せ直す（本物と同じく手で決めた印を消す。05 §5.7）
+    if (step == 'classify') photo['categorySource'] = null;
     photo['updatedAt'] = processAcceptedAt;
     return _ok(202, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
   }
