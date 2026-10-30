@@ -150,8 +150,9 @@ describe('写真の解析のワーカー', () => {
   });
 
   describe('分類', () => {
-    it('分類の待ちの写真を分類すると、種類と分類の結果が書かれて済みになり、利用者の書いた欄は変わらない', async () => {
+    it('分類の待ちの写真を分類すると、種類と分類の結果が書かれて済みになり、利用者の書いた欄（コメントを含む）は変わらない', async () => {
       // 図鑑の種類でない（other）ので、分類で済みになる（図鑑の種類なら識別の待ちになる。下のテスト）。
+      // AI が一言を返しても、利用者が書いたコメントは上書きしない（06 §2.3）。
       // 前に1回失敗している（attempts 1・lastError あり）。成功で lastError が消え、attempts は数え続ける。
       // 前回の解析の識別が残っている（やり直し）。分類で種類が変わりうるので、識別は消す（06 §2.3）
       cosmosBackend.documents.set(
@@ -161,7 +162,7 @@ describe('写真の解析のワーカー', () => {
           processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
         })
       );
-      aiReturns({ kind: 'other', confidence: 82.5, reason: '人が写っている' });
+      aiReturns({ kind: 'other', confidence: 82.5, reason: '人が写っている', comment: '笑顔の二人' });
 
       await runWorker();
 
@@ -236,6 +237,17 @@ describe('写真の解析のワーカー', () => {
 
       expect(storedPhoto().comment).toBe('湯気の立つ味噌ラーメン。');
       expect(storedPhoto().commentSource).toBe('ai');
+    });
+
+    it('分類のAIの一言が空白だけなら、コメントを書かない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ comment: null, commentSource: null }));
+      aiReturns({ kind: 'other', confidence: 82.5, reason: 'テスト', comment: '  ' });
+
+      await runWorker();
+
+      expect(storedPhoto().comment).toBeNull();
+      expect(storedPhoto().commentSource).toBeNull();
+      expect(storedPhoto().processing.state).toBe('done');
     });
 
     it('識別の待ちを積むのに失敗しても、分類の結果と識別の待ちは書いたまま、例外を投げない（タイマーが積み直す）', async () => {
@@ -1121,12 +1133,13 @@ describe('写真の解析のワーカー', () => {
         processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-18T03:00:00.000Z' }
       });
 
-    it('分類の間にやり直しの受付が入ったら、古い分類の結果を書かず、やり直しを残す', async () => {
-      // 古い処理の結果でやり直しを上書きすると、やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える
+    it('分類の間にやり直しの受付が入ったら、古い分類の結果もAIの一言も書かず、やり直しを残す', async () => {
+      // 古い処理の結果でやり直しを上書きすると、やり直しで積んだメッセージは担当できずに捨てられ、やり直しが黙って消える。
+      // やり直しの受付はコメントを消す（05 §5.7）ので、捨てる結果の一言も残さない
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
       reply = async () => {
         cosmosBackend.documents.set(PHOTO_ID, redoRequested());
-        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト', comment: '古い一言' }) } }] };
       };
 
       await expect(runWorker()).resolves.toBeUndefined();
