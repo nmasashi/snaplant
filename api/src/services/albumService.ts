@@ -358,6 +358,11 @@ export class AlbumService {
         const now = new Date().toISOString();
         operations.push({ op: 'set', path: '/category', value: changes.category });
         operations.push({ op: 'set', path: '/identification', value: null });
+        // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない。利用者のコメントは残す
+        if (current.commentSource === 'ai') {
+          operations.push({ op: 'set', path: '/comment', value: null });
+          operations.push({ op: 'set', path: '/commentSource', value: null });
+        }
         operations.push({
           op: 'set',
           path: '/processing',

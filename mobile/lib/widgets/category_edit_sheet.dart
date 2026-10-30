@@ -87,6 +87,14 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
                   padding: EdgeInsets.only(top: 8),
                   child: Text('植物にすると、品種を調べます。'),
                 ),
+              // 保存するとサーバが AI のコメントを消す（前のカテゴリで書いたもの。05 §5.6）ときは、そのことを知らせる
+              if (widget.photo.commentSource == 'ai' &&
+                  _selected != null &&
+                  (_selected != widget.photo.category || _unsettled))
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('カテゴリを変えると、AI が書いたコメントは消えます。'),
+                ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
