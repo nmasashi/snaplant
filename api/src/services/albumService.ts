@@ -330,11 +330,13 @@ export class AlbumService {
   }
 
   /**
-   * 写真の利用者のコメントとタグを直す
+   * 写真の利用者のコメント・タグ・カテゴリを直す
    *
-   * 書くのは comment・commentSource・tags・updatedAt だけ（AI が書く欄には触らない）。解析中でも受け付ける
+   * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
+   * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別を消して解析の状態を書き換える（02 §5 #53）。
+   * 解析の状態を書き換えるので、走っている分類・識別の結果は担当の条件（processingCondition）で捨てられ、手で決めたカテゴリを上書きしない
    * @param id 写真 ID
-   * @param changes 直す項目（comment は null で消す。tags は置き換え）
+   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
   async updatePhoto(
