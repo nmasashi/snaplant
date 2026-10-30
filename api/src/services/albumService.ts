@@ -333,8 +333,10 @@ export class AlbumService {
    * 写真の利用者のコメント・タグ・カテゴリを直す
    *
    * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
-   * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別を消して解析の状態を書き換える（02 §5 #53）。
-   * 解析の状態を書き換えるので、走っている分類・識別の結果は担当の条件（processingCondition）で捨てられ、手で決めたカテゴリを上書きしない
+   * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別と AI が書いたコメントを消して解析の状態を書き換える（02 §5 #53）。
+   * 解析の状態を書き換えるので、走っている分類・識別の結果は担当の条件（processingCondition）で捨てられ、手で決めたカテゴリを上書きしない。
+   * カテゴリを書き換える patch は、読んだときのコメントの出どころを条件にする。読んだ後に他がコメントを書いていたら（412）読み直して書き直す
+   * （読んだ後に利用者が書いたコメントを消さず、AI が書いたコメントを残さない。1回の patch なので、途中まで書いた状態も残らない）
    * @param id 写真 ID
    * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか）
    * @returns 更新後の写真のドキュメント。無ければ null
@@ -343,8 +345,30 @@ export class AlbumService {
     id: string,
     changes: { comment?: string | null; tags?: string[]; category?: string }
   ): Promise<PhotoDocument | null> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.patchPhotoChanges(id, changes);
+      } catch (error: any) {
+        if (error.code === 412 && attempt < PHOTO_UPDATE_ATTEMPTS) {
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * updatePhoto の1回分。写真を読んで（カテゴリを送ったときだけ）、直す項目を1回の patch で書く
+   * @param id 写真 ID
+   * @param changes 直す項目
+   * @returns 更新後の写真のドキュメント。無ければ null。読んだ後にコメントが書かれていたら 412 を投げる
+   */
+  private async patchPhotoChanges(
+    id: string,
+    changes: { comment?: string | null; tags?: string[]; category?: string }
+  ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
-    let clearsAiComment = false;
+    let condition: string | undefined;
     if (changes.category !== undefined) {
       const current = await this.getPhoto(id);
       if (!current) {
@@ -359,7 +383,6 @@ export class AlbumService {
         const now = new Date().toISOString();
         operations.push({ op: 'set', path: '/category', value: changes.category });
         operations.push({ op: 'set', path: '/identification', value: null });
-        clearsAiComment = true;
         operations.push({
           op: 'set',
           path: '/processing',
@@ -367,6 +390,18 @@ export class AlbumService {
             ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
             : { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: now },
         });
+        // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない。利用者のコメントは残す。
+        // 同じリクエストでコメントも送られたら、そちらを書く（アプリは一緒に送らない）
+        if (changes.comment === undefined) {
+          if (current.commentSource === 'ai') {
+            operations.push({ op: 'set', path: '/comment', value: null });
+            operations.push({ op: 'set', path: '/commentSource', value: null });
+            condition = 'FROM c WHERE c.commentSource = "ai"';
+          } else {
+            // null は != で比べられない（null != "ai" は未定義になる）ので、IS_NULL と = でつなぐ
+            condition = 'FROM c WHERE (IS_NULL(c.commentSource) OR c.commentSource = "user")';
+          }
+        }
       }
     }
     if (changes.comment !== undefined) {
@@ -378,28 +413,10 @@ export class AlbumService {
     }
     operations.push({ op: 'set', path: '/updatedAt', value: new Date().toISOString() });
     try {
-      const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
-      if (!clearsAiComment) {
-        return resource ?? null;
-      }
-      // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない。利用者のコメントは残す。
-      // 読んだときのコメントでは決めず、書くときに AI のものなら消す（読んだ後に利用者が書いたものを消さず、AI が書いたものを残さない。
-      // 上の patch で processing を書き換えたので、この後に担当がコメントを書くことはない）
-      try {
-        const cleared = await this.container.item(id, id).patch<PhotoDocument>({
-          condition: 'FROM c WHERE c.commentSource = "ai"',
-          operations: [
-            { op: 'set', path: '/comment', value: null },
-            { op: 'set', path: '/commentSource', value: null },
-          ],
-        });
-        return cleared.resource ?? null;
-      } catch (error: any) {
-        if (error.code === 412) {
-          return resource ?? null;
-        }
-        throw error;
-      }
+      const { resource } = await this.container
+        .item(id, id)
+        .patch<PhotoDocument>(condition === undefined ? operations : { condition, operations });
+      return resource ?? null;
     } catch (error: any) {
       if (error.code === 404) {
         return null;
@@ -818,6 +835,12 @@ function tripsWithPhotos(tripIds: string[], counts: PhotoCountRow[]): string[] {
   const withPhotos = new Set(counts.map((row) => row.tripId));
   return tripIds.filter((id) => withPhotos.has(id));
 }
+
+/**
+ * 写真の更新で、読んだ後に他がコメントを書いていた（412）ときに読み直して書く回数（最初の1回を含む）。
+ * 重なるのは利用者の操作と1枚の写真の担当くらいなので、3回で足りる。足りなければ 412 のまま失敗にする
+ */
+const PHOTO_UPDATE_ATTEMPTS = 3;
 
 /**
  * 写真の processing が、読んだ（または書いた）ときのままのときだけ書く patch の条件
