@@ -331,7 +331,7 @@ class _PhotoPage extends StatefulWidget {
   /// 下の情報を出すか
   final bool showInfo;
 
-  /// 下の情報の「やり直す」（解析に失敗したとき・分類と合わない写真に出す）
+  /// 下の情報の「やり直す」（解析に失敗したときに出す）
   final VoidCallback onRetry;
 
   /// 「コメントを編集」
@@ -368,7 +368,7 @@ class _PhotoPageState extends State<_PhotoPage> {
     super.dispose();
   }
 
-  /// 下の情報の、文言と「やり直す」の行（解析に失敗した・分類と合わない写真）。文言が長ければ折り返す
+  /// 下の情報の、文言と「やり直す」の行（解析に失敗した写真）。文言が長ければ折り返す
   Widget _withRetry(String message) {
     return Row(children: [
       Expanded(
