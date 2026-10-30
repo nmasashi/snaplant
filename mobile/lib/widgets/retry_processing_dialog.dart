@@ -97,7 +97,8 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
           step: _request.step,
           // 利用者が欄を直したときだけ送る（手元の写真は開いたときのもので古いことがあり、触らずに送ると
           // 別の端末で直された撮影地を戻してしまう。送らなければ写真を読まずに済む。05 §5.7）
-          placeName: _place.text == (widget.photo.placeName ?? '')
+          // サーバと同じく前後の空白を除いて比べる（空白を足しただけでは直したことにしない）
+          placeName: _place.text.trim() == (widget.photo.placeName ?? '')
               ? null
               : _place.text);
       if (mounted) Navigator.pop(context, photo);
