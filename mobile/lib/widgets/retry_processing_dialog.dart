@@ -4,7 +4,53 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/photo_category.dart';
 
-/// 解析のやり直しダイアログ（docs/03_screen_design.md §5.4）
+/// 写真の解析を頼むときの処理（`step`）と言い方（docs/03_screen_design.md §5.4。02 §5 #53）
+///
+/// カテゴリは手で直す（§5.6）ので、カテゴリが識別の対象なら名前などを識別し、それ以外（分類の前）は分類し直す
+/// （識別の対象でない写真の identify はサーバが断る。05 §5.7 の 8）。分類が済んでいない写真は、前のカテゴリが残っていても分類し直す
+/// （名前をやり直すと、頼んだ分類が捨てられる・失敗した分類が直らない）。
+/// 植物は品種などを調べ、食べ物・風景は利用者のメモから AI がコメントを書く。言い方はこの表だけが持つ
+({
+  String step,
+  String title,
+  String field,
+  String example,
+  String submit,
+  IconData icon
+}) analysisRequestOf(Photo photo) {
+  final identifies = isCatalogCategory(photo.category) &&
+      !isClassificationUnsettled(photo.processingStep, photo.processingState);
+  if (!identifies) {
+    return (
+      step: 'classify',
+      title: '分類し直す',
+      field: '手がかり（任意）',
+      example: '例：これは食べ物',
+      submit: '分類し直す',
+      icon: Icons.refresh,
+    );
+  }
+  if (photo.category == 'plant') {
+    return (
+      step: 'identify',
+      title: '植物を調べる',
+      field: '手がかり（任意）',
+      example: '例：これはサクラではなくウメ',
+      submit: '調べる',
+      icon: Icons.search,
+    );
+  }
+  return (
+    step: 'identify',
+    title: 'コメントを書いてもらう',
+    field: 'メモ（任意）',
+    example: '例：朝市で食べた。うにといくらの丼',
+    submit: '書いてもらう',
+    icon: Icons.edit_note,
+  );
+}
+
+/// 解析を頼むダイアログ（docs/03_screen_design.md §5.4）
 ///
 /// 手がかりを書いて頼む。受け付けられたら、受け付けた写真を返して閉じる。受け付けられなければ留まって理由を出す
 class RetryProcessingDialog extends StatefulWidget {
@@ -25,20 +71,17 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       text: widget.photo.commentSource == 'user'
           ? widget.photo.comment
           : widget.photo.hint);
-  // やり直す範囲。カテゴリは手で直す（03 §5.6。02 §5 #53）ので選ばせず、カテゴリが識別の対象なら名前（識別）だけ、
-  // それ以外（分類の前）は分類からやり直す（識別の対象でない写真の identify はサーバが断る。05 §5.7 の 8）。
-  // 分類が済んでいない写真は、前のカテゴリが残っていても分類からやり直す（名前をやり直すと、頼んだ分類が捨てられる・失敗した分類が直らない）
-  late final String _step = isCatalogCategory(widget.photo.category) &&
-          !isClassificationUnsettled(
-              widget.photo.processingStep, widget.photo.processingState)
-      ? 'identify'
-      : 'classify';
+  // 頼む処理と言い方（開いたときの写真で決める）
+  late final _request = analysisRequestOf(widget.photo);
+  // 場所には写真の撮影地を入れておく。直すと写真の撮影地も変わる（02 §5 #53）
+  late final _place = TextEditingController(text: widget.photo.placeName);
   bool _busy = false;
   String? _error;
 
   @override
   void dispose() {
     _hint.dispose();
+    _place.dispose();
     super.dispose();
   }
 
@@ -51,7 +94,13 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       final photo = await widget.apiService.requestPhotoProcessing(
           widget.photo.id,
           hint: _hint.text,
-          step: _step);
+          step: _request.step,
+          // 利用者が欄を直したときだけ送る（手元の写真は開いたときのもので古いことがあり、触らずに送ると
+          // 別の端末で直された撮影地を戻してしまう。送らなければ写真を読まずに済む。05 §5.7）
+          // サーバと同じく前後の空白を除いて比べる（空白を足しただけでは直したことにしない）
+          placeName: _place.text.trim() == (widget.photo.placeName ?? '')
+              ? null
+              : _place.text);
       if (mounted) Navigator.pop(context, photo);
     } catch (e) {
       // ApiException 以外でも留まって押し直せるようにする（受け止めないと、押せないまま閉じられなくなる。
@@ -75,9 +124,17 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
     );
   }
 
+  /// 場所の欄の下の案内（撮影地があれば直すと変わること、無ければ書くと残ること）
+  String _placeNote() {
+    final photo = widget.photo;
+    if (photo.placeName != null) return '写真の撮影地を入れています。直すと撮影地も変わります';
+    if (photo.latitude == null) return 'この写真には位置情報がありません。書くと撮影地として残ります';
+    return '書くと撮影地の地名として残ります';
+  }
+
   Widget _buildDialog() {
     return AlertDialog(
-      title: const Text('解析をやり直す'),
+      title: Text(_request.title),
       // キーボードが出て高さが足りなくなっても、はみ出さずにスクロールする（旅行の編集ダイアログと同じ）
       content: SingleChildScrollView(
           child: Column(
@@ -85,13 +142,20 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
+            controller: _place,
+            enabled: !_busy,
+            maxLength: 100,
+            decoration: const InputDecoration(labelText: '場所'),
+          ),
+          Text(_placeNote()),
+          TextField(
             controller: _hint,
             enabled: !_busy,
             maxLines: 3,
             maxLength: 500,
-            decoration: const InputDecoration(
-              labelText: '手がかり（任意）',
-              hintText: '例：これはサクラではなくウメ',
+            decoration: InputDecoration(
+              labelText: _request.field,
+              hintText: _request.example,
             ),
           ),
           const Text('今のコメントは AI の結果で置き換わります'),
@@ -110,7 +174,7 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
         ),
         TextButton(
           onPressed: _busy ? null : _submit,
-          child: const Text('やり直す'),
+          child: Text(_request.submit),
         ),
       ],
     );

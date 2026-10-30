@@ -146,12 +146,6 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     Navigator.pop(context);
   }
 
-  /// 今出している写真の解析のやり直しを頼む
-  Future<void> _retryCurrent() async {
-    final current = _current();
-    if (current != null) await _retry(current.$2);
-  }
-
   /// 今出している写真の位置と写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
   /// （そのときの位置は読み込み済みの写真の外にある）。位置と写真を一度に読み、両者がずれないようにする
   (int, Photo)? _current() {
@@ -169,7 +163,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     );
     if (accepted == null || !mounted) return;
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('やり直しを受け付けました')));
+        .showSnackBar(const SnackBar(content: Text('受け付けました')));
     widget.onUpdated(accepted);
   }
 
@@ -237,10 +231,22 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 name: name)));
   }
 
-  /// 今出している写真が、どれにも当てはまらない分類（その他）か
-  bool get _currentIsOther {
+  /// 上のバーの、[photo] の解析を頼むボタン。印と説明は写真のカテゴリで決まる（植物を調べる・コメントを書いてもらう・分類し直す。03 §5.4）
+  Widget _analysisButton(Photo photo) {
+    final request = analysisRequestOf(photo);
+    return IconButton(
+      // 印と説明を決めた写真に頼む（ページの位置から引き直すと、送っている途中で別の写真になりうる）
+      onPressed: () => _retry(photo),
+      color: Colors.white,
+      tooltip: request.title,
+      icon: Icon(request.icon),
+    );
+  }
+
+  /// 今出している写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
+  Photo? get _shownPhoto {
     final photos = widget.photos.value;
-    return _index < photos.length && photos[_index].category == otherCategory;
+    return _index < photos.length ? photos[_index] : null;
   }
 
   @override
@@ -252,13 +258,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               backgroundColor: Colors.black54,
               foregroundColor: Colors.white,
               actions: [
-                // その他の写真は調べるものが無いので、やり直させない（カテゴリはボタンで直す。03 §5.6）
-                if (!_currentIsOther)
-                  TextButton(
-                    onPressed: _retryCurrent,
-                    style: TextButton.styleFrom(foregroundColor: Colors.white),
-                    child: const Text('やり直す'),
-                  ),
+                // 頼む写真が無い間（続きを待っている）と、その他の写真（調べるものが無い。03 §5.6）には出さない
+                if (_shownPhoto case final photo?
+                    when photo.category != otherCategory)
+                  _analysisButton(photo),
                 TextButton(
                   onPressed: _deleteCurrent,
                   style: TextButton.styleFrom(foregroundColor: Colors.white),

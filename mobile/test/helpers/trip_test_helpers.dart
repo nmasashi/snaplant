@@ -1119,10 +1119,28 @@ class FakeTripBackend {
     if (hint != null && hint is! String) return _error(400, 'INVALID_REQUEST', '補足情報は文字列で指定してください');
     final trimmed = (hint as String?)?.trim() ?? '';
     if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', '補足情報は500文字以内で指定してください');
+    // 場所（撮影地の地名。C-2）。キーが無ければ撮影地を変えない（本物と同じ。05 §5.7）
+    final hasPlace = body.containsKey('placeName');
+    final place = body['placeName'];
+    if (hasPlace && place != null && place is! String) return _error(400, 'INVALID_REQUEST', '地名は文字列で指定してください');
+    final trimmedPlace = (place as String?)?.trim() ?? '';
+    if (trimmedPlace.length > 100) return _error(400, 'INVALID_REQUEST', '地名は100文字以内で指定してください');
     if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
-    // 識別のやり直しは、カテゴリが識別の対象の種類の写真だけ（本物の 8。isCatalogKind。図鑑に載るかとは別なので catalogKinds では見ない。02 §5 #51）
+    // 識別のやり直しは、カテゴリが識別の対象の種類の写真だけ（本物の 8。isCatalogKind。図鑑に載るかとは別なので catalogKinds では見ない。02 §5 #51）。
+    // 本物と同じく、断るときは撮影地も書かない
     if (step == 'identify' && !const {'plant', 'food', 'landscape'}.contains(photo['category'])) {
       return _error(400, 'INVALID_REQUEST', 'この写真は識別の対象ではありません');
+    }
+    if (hasPlace) {
+      // 本物と同じ: 今と同じ地名なら変えない。空なら地名を消す（緯度・経度と手で消した印 user を残し、緯度・経度も無ければ撮影地ごと無くす）。
+      // それ以外は手で直した地名にし、緯度・経度は残す（無ければ null）。上限は UTF-16 で数える（本物は見た目の1文字。偽物では区別しない）
+      final name = trimmedPlace.isEmpty ? null : trimmedPlace;
+      final current = photo['location'] as Map<String, Object?>?;
+      if (current?['placeName'] != name) {
+        photo['location'] = name == null
+            ? (current == null || current['latitude'] == null ? null : {...current, 'placeName': null, 'placeSource': 'user'})
+            : {'latitude': current?['latitude'], 'longitude': current?['longitude'], 'placeName': name, 'placeSource': 'user'};
+      }
     }
     photo['processing'] = {
       'state': 'pending',

@@ -239,7 +239,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `PHOTO_SAS_EXPIRY_MINUTES` | `60` | 写真の表示用 SAS の有効期限（分）。定数にせず、応答を作るたびに `positiveIntFromEnv()` で読む（読めない値・0・負なら 60）。旅行の表紙の URL も同じ期限 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
 | `TRIP_NAME_MAX_LENGTH` | `100` | 旅行名の上限（文字） | `POST` / `PUT /api/trips` | 2 |
 | `TRIP_DESCRIPTION_MAX_LENGTH` | `1000` | 旅行のメモの上限 | 同上 | 2 |
-| `PHOTO_PLACE_NAME_MAX_LENGTH` | `100` | 地名の上限 | `POST /api/photos` | 2 |
+| `PHOTO_PLACE_NAME_MAX_LENGTH` | `100` | 地名の上限 | `POST /api/photos`・`POST /api/photos/{photoId}/process` の `placeName`（C-2。実装済み） | 2 |
 | `PHOTO_COMMENT_MAX_LENGTH` | `500` | 写真のコメントの上限 | `PATCH /api/photos/{photoId}` | 2 |
 | `THUMBNAIL_MAX_SIZE` | `1048576`（1MB） | サムネイルのバイト数の上限 | `POST /api/photos` | 2 |
 | `MAX_FILE_SIZE`（既存） | `10485760`（10MB） | 原寸のバイト数の上限 | `POST /api/photos`（植物図鑑の `upload` と共用していた。4-6 で削除） | 2 |

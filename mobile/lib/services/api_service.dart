@@ -567,8 +567,10 @@ class ApiService {
   ///
   /// [step] は `classify`（分類から）か `identify`（カテゴリはそのままで名前などだけ。識別の対象の種類の写真だけ）。
   /// やり直しダイアログが写真のカテゴリと解析の状態で決める（03 §5.4）。
-  /// [hint] は利用者からの手がかり。空白だけなら送らない。受け付けた写真（解析の待ち）を返す
-  Future<Photo> requestPhotoProcessing(String photoId, {String? hint, String step = 'classify'}) async {
+  /// [hint] は利用者からの手がかり。空白だけなら送らない。[placeName] は直した撮影地の地名（直さないなら null で送らない。05 §5.7）。
+  /// 受け付けた写真（解析の待ち）を返す
+  Future<Photo> requestPhotoProcessing(String photoId,
+      {String? hint, String step = 'classify', String? placeName}) async {
     try {
       final url = _buildUrl('/api/photos/$photoId/process');
       final trimmed = hint?.trim() ?? '';
@@ -578,6 +580,8 @@ class ApiService {
         body: json.encode({
           'step': step,
           if (trimmed.isNotEmpty) 'hint': trimmed,
+          // 撮影地の地名（C-2）。null なら送らない（撮影地を変えない）。空なら地名を消す
+          if (placeName != null) 'placeName': placeName,
         }),
       );
       return _parseResponse(response, (json) {

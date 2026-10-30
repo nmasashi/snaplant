@@ -207,6 +207,10 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   前回の `category`・`classification`・`tags`・`tripId` は変わらない。`hint` は前後の空白を除いて書き、送らない・空白だけ・`null` なら前回の `hint` が消えて `null`。前後の U+0085 も除き、U+0085 だけなら `null`。`hint` の 500 文字は見た目の1文字で数える（つないだ絵文字で 500 文字なら通る）（どちらも #128）。**投入に失敗しても 202** で写真は `pending` のまま。
   `step: "identify"`（4-1b）でも同じく 202 で、写真が `pending`・`step: "identify"` になり、前回の `identification` は残る。
   手で決めたカテゴリ（`categorySource: "user"`）の写真は、`classify` の受付で `categorySource: null` になり、`identify` の受付では `"user"` のまま（C-1）。
+  場所（`placeName`。C-2 で実装済み）: 送ると、前後の空白を除いた地名で撮影地を `placeSource: "user"` にし、緯度・経度は残す（文書と応答の `photo.location` の両方）。位置情報の無い写真なら `{ latitude: null, longitude: null, placeName, placeSource: "user" }`。
+  空白だけを送ると地名を消し、緯度・経度のある写真は緯度・経度と手で消した印を残し（`placeName: null`・`placeSource: "user"`）、緯度・経度の無い撮影地と位置情報の無い写真は `location: null`。今と同じ地名なら撮影地を変えない（`placeSource: "device"` のまま）。
+  `placeName` が文字列でない（数値）で 400 `地名は文字列で指定してください`、前後の空白を除いて 101 文字で 400 `地名は100文字以内で指定してください`。
+  （C-2 の時点でテストが無いもの: `null` を送ると消すこと、`classify` でも場所を送れば読み取りで 404 になること、手がかりと場所の検証の順、撮影地のある写真でキーを送らないと撮影地を変えないこと（既存の受付のテストは文書全体を比べるが、写真の撮影地が `null`））
   [05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3) の 1〜8 の各検証（4 は `classify` / `identify` 以外の文字列も。順序の例: 写真 ID も処理の種類も不正なら写真 ID、処理の種類も手がかりも不正なら処理の種類。`identify` で写真が無ければ 8 ではなく 404。8 は `category` が `other` と `null`）で、写真も変えずキューにも積まない。書き込みの失敗で 503 / 500 で、写真もキューも変わらない
 - 識別に回すスクリプト（4-1b。`tests/scripts/enqueueUnidentified.test.ts`）: `--apply` 相当（`apply: true`）なら、`done`・`category` が自動で識別する種類（植物。B-1 までは図鑑の3種類）・`identification: null` の写真が `pending`・`step: "identify"`・`attempts: 0`・`lastError: null`・`updatedAt` が今になり、ほかの欄は変わらない。キューには積まない。
   食べ物・風景（B-1）・`other`・識別済み・分類の待ち・識別中・`failed`・`none` の写真は変えず、`found` にも数えない（クエリの絞り込みを偽物が解釈しないので、コードの見直しで確かめる）。`apply: false` なら枚数を数えるだけで何も変えない。

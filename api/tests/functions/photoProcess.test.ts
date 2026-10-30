@@ -308,6 +308,74 @@ describe('写真の解析のやり直しAPI', () => {
     expect(storedPhoto().hint).toBe('屋台のラーメン');
   });
 
+  describe('場所（撮影地の地名）を直して頼む（C-2。02 §5 #53）', () => {
+    it('場所を送ると、撮影地の地名を手で直したものとして書く（緯度・経度は残す）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location: { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' } }));
+
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'identify', placeName: ' 函館朝市 ' }), mockContext);
+
+      expect(response.status).toBe(202);
+      expect(storedPhoto().location).toEqual({ latitude: 41.77, longitude: 140.73, placeName: '函館朝市', placeSource: 'user' });
+      expect((response.jsonBody as any).data.photo.location).toEqual({ latitude: 41.77, longitude: 140.73, placeName: '函館朝市', placeSource: 'user' });
+    });
+
+    it('位置情報の無い写真に場所を送ると、緯度・経度の無い撮影地として書く', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location: null }));
+
+      await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: '函館朝市' }), mockContext);
+
+      expect(storedPhoto().location).toEqual({ latitude: null, longitude: null, placeName: '函館朝市', placeSource: 'user' });
+    });
+
+    // 地名を消しても出どころは user にする（null だと「まだ地名を引いていない」と区別できず、後で地名を引き直すと消した地名が戻る。04 §1.3）
+    it('場所を空にして送ると地名を消す（緯度・経度と、手で消した印を残し、位置情報の無い写真は無いまま）', () => forEachCase([
+      ['緯度・経度のある写真', { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' as const }, { latitude: 41.77, longitude: 140.73, placeName: null, placeSource: 'user' }],
+      ['緯度・経度の無い写真', { latitude: null, longitude: null, placeName: '函館朝市', placeSource: 'user' as const }, null],
+      ['位置情報の無い写真', null, null]
+    ], async (_case, location, expected) => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location }));
+
+      await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: '   ' }), mockContext);
+
+      expect(storedPhoto().location).toEqual(expected);
+    }));
+
+    it('場所を null で送っても、空と同じく地名を消す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location: { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' } }));
+
+      await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: null }), mockContext);
+
+      expect(storedPhoto().location).toEqual({ latitude: 41.77, longitude: 140.73, placeName: null, placeSource: 'user' });
+    });
+
+    it('場所は前後の空白を除いて100文字ちょうどなら受け付ける', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location: null }));
+
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: ` ${'あ'.repeat(100)} ` }), mockContext);
+
+      expect(response.status).toBe(202);
+      expect(storedPhoto().location).toMatchObject({ placeName: 'あ'.repeat(100) });
+    });
+
+    it('場所を送ったとき、写真が無ければ（分類のやり直しでも）404で理由を返す', async () => {
+      // 場所を送ると、分類のやり直しでも今の撮影地を見るために先に写真を読む
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: '函館朝市' }), mockContext);
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'PHOTO_NOT_FOUND', message: '指定された写真が見つかりません' } });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('今と同じ地名を送っても、撮影地は変えない（端末が引いた地名のまま）', async () => {
+      const location = { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' as const };
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location }));
+
+      await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: '函館市' }), mockContext);
+
+      expect(storedPhoto().location).toEqual(location);
+    });
+  });
+
   it('キューへの投入に失敗しても、202で受け付け、写真は分類の待ちのまま残る', async () => {
     // 写真は再投入のタイマーが拾う。失敗を返すと「失敗したのに後で勝手に走る」ことになる（05 §5.7）
     cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto());
@@ -333,6 +401,9 @@ describe('写真の解析のやり直しAPI', () => {
       ['やり直す処理が文字列でない', PHOTO_ID, { step: 1 }, 'やり直す処理の種類が無効です'],
       ['手がかりが文字列でない', PHOTO_ID, { step: 'classify', hint: 123 }, '補足情報は文字列で指定してください'],
       ['手がかりが500文字を超える', PHOTO_ID, { step: 'classify', hint: 'あ'.repeat(501) }, '補足情報は500文字以内で指定してください'],
+      // 場所（撮影地の地名。C-2）
+      ['場所が文字列でない', PHOTO_ID, { step: 'classify', placeName: 123 }, '地名は文字列で指定してください'],
+      ['場所が前後の空白を除いて100文字を超える', PHOTO_ID, { step: 'classify', placeName: ` ${'あ'.repeat(101)} ` }, '地名は100文字以内で指定してください'],
       // 検証の順序: 写真ID → ボディ → 処理の種類 → 手がかり
       ['写真IDも処理の種類も不正（写真IDの指摘が先）', 'bad', { step: 'name' }, '写真IDの形式が無効です'],
       ['処理の種類も手がかりも不正（処理の種類の指摘が先）', PHOTO_ID, { step: 'name', hint: 123 }, 'やり直す処理の種類が無効です']

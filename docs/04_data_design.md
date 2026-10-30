@@ -72,6 +72,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 ### 1.3 写真（`type: "photo"`）
 
 **実装済み**（C-1。`types/album.ts` の `PhotoDocument`）: 下の表の `categorySource` の行と、`category` を利用者も書くこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）。
+**実装済み**（C-2。`types/album.ts` の `PhotoLocation`）: 下の表の `location` の3行のうち、利用者が解析を頼むときに直した撮影地（`latitude`・`longitude` が `null` の地名だけの撮影地と、`placeSource: "user"`。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）。
 
 ```json
 {
@@ -117,9 +118,9 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `takenAtSource` | `"exif"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。出どころが増えたら値を足す |
 | `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
 | `location` | object \| null | ○（null 可） | 2 | 位置情報。無ければ `null`（要件 5.2「位置情報は必須にしない」） |
-| `location.latitude` / `longitude` | number | ○ | 2 | 緯度（-90〜90）・経度（-180〜180） |
-| `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`）で、空白だけは不可。送られたまま保存する（前後の空白を除かない） |
-| `location.placeSource` | `"device"` \| `"server"` \| null | ○（null 可） | 2 | 地名の出どころ。段階2は、`placeName` を送られたら `"device"`（端末の Geocoder）、無ければ `null`。段階3で Azure Maps が埋めたら `"server"` |
+| `location.latitude` / `longitude` | number \| null | ○（null 可。C-2） | 2 | 緯度（-90〜90）・経度（-180〜180）。送信（`POST /api/photos`）で作った `location` では必ず数値。利用者が位置情報の無い写真に地名を書いたとき（C-2）だけ両方 `null`（地名だけの撮影地。このとき `placeName` は必ずある。地名を消すと `location` ごと `null` に戻る） |
+| `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。送信では 1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`）で、空白だけは不可。送られたまま保存する（前後の空白を除かない）。C-2 からは解析を頼むとき（`process` の `placeName`）に利用者が直せ、そのときは前後の空白を除いた値を保存する（100 文字は見た目の1文字で数える。[05 §9.6](./05_api_design.md#96-利用者が書く文の文字数と前後の空白)） |
+| `location.placeSource` | `"device"` \| `"server"` \| `"user"` \| null | ○（null 可） | 2（`"user"` は C-2） | 地名の出どころ。段階2は、`placeName` を送られたら `"device"`（端末の Geocoder）、無ければ `null`。段階3で Azure Maps が埋めたら `"server"`。利用者が解析を頼むときに地名を直したら `"user"`。緯度・経度のある写真で地名を消したときも `"user"`（`placeName: null`・`placeSource: "user"` は「利用者が地名を消した」印。`null` にすると「まだ地名を引いていない」と区別できず、後で地名を引き直すと消した地名が戻るため）。今と同じ地名なら変えない（C-2） |
 | `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーと、利用者のカテゴリの更新（`PATCH /api/photos/{photoId}` の `category`。C-1。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）が書く。横断は `c.category = @category`（§5 の 5.4） |
 | `categorySource` | `"user"` \| null | ×（無いのは `null` と同じ） | C-1 | カテゴリの出どころ。利用者がカテゴリを手で決めたら `"user"`（`PATCH` の `category`。今と同じカテゴリを送っても付く）。分類からのやり直しの受付（`process` の `step: "classify"`）が `null` に戻す。**写真の作成（`POST /api/photos`）では書かない**ので、C-1 より前の写真と、どちらの操作も受けていない写真には項目が無い（クエリで使わないので、無いのと `null` の2通りを扱う所は無い。API の応答では `null` で返す。[05 §3.3](./05_api_design.md#33-photo)）。ワーカーは読まない（手で決めたカテゴリを AI が上書きしないのは、`PATCH` が `processing` を書き換えるから。§7.4） |
 | `tags` | string[] | ○ | 2 | 利用者が付けるタグだけ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる（段階2はタグを付ける画面が無い）。AI は書かない |
@@ -639,7 +640,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | 旅行の削除（写真は残す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, { op: 'set', path: '/updatedAt', value: now }])`（move の「外す」と同じ）→ `item(tripId, tripId).delete()` |
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
 | コメント・タグ・カテゴリの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])`。カテゴリ（C-1。実装済み）を送ったときは先に `item(id, id).read()` で今のカテゴリと `processing` を読み、`categorySource`（と、変わる・分類を止めるときは `category`・`identification`・`processing`）の `set` を同じ patch に入れる。条件は付けない。読んだときに無ければ（と patch の 404）写真が無い。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) |
-| やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`（`step: "classify"` なら `categorySource: null` の set も。C-1 で実装済み）。条件は付けない（解析中でも最新の依頼で上書きする）。404 なら写真が無い |
+| やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`（`step: "classify"` なら `categorySource: null` の set も。C-1 で実装済み）。`step: "identify"` か場所（`placeName`）を送ったときは先に `item(id, id).read()` で読み、場所の地名が今と違えば `location` の set も同じ patch に入れる（C-2 で実装済み。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）。条件は付けない（解析中でも最新の依頼で上書きする）。読んだときに無ければ（と patch の 404）写真が無い |
 | 再投入のタイマーが止まった写真を戻す（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`（`AlbumService.writeProcessing()`）。412・404 なら触らずに次へ |
 | 分類まで済んだ写真を識別の待ちにする（段階4。手で回すスクリプト。[06 §1.2](./06_processing_design.md#12-流れ)） | 上と同じ `writeProcessing()`（読んだときの `processing` の条件付き patch）で `processing` を `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` に。412・404 なら飛ばして次へ。キューには積まない（再投入のタイマーが積む） |
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
@@ -843,11 +844,12 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | ワーカーの書き込みと重なる（コメント・タグ） | patch は項目単位で、利用者が書く欄（`comment`・`tags`・`tripId`）と AI が書く欄（`category`・`classification`・`identification`・`processing`）が分かれているので、互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch で書き、412 なら書かない（§7.4）。「解析中」で利用者の更新を止めるロックは置かない | — | 自動 |
 | 分類・識別の間にカテゴリを手で決めた（カテゴリが変わったか、分類が済んでいない（待っている・している・失敗した）写真） | 手で決めたカテゴリと、`PATCH` が書いた `processing`（済み、または植物なら識別の待ち） | 手で決めたカテゴリ | 走っていた分類・識別の結果・失敗・コメントは、担当したときの `processing` の条件に合わず 412 で書かれない（§7.4）。植物なら `PATCH` が積んだメッセージが識別を担当する |
 
-**やり直しの受付**（`POST /api/photos/{photoId}/process`。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。順: patch → キューに投入）
+**やり直しの受付**（`POST /api/photos/{photoId}/process`。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。順: （`step: "identify"` か、場所 `placeName` を送ったとき）写真を読む → patch → キューに投入。場所を直すときは撮影地（`location`）も同じ patch で書く。場所を送ったときの読み取りと `location` の書き込みは C-2 で実装済み）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| patch | 何も変わらない | 失敗 | 再送 |
+| 写真の読み取り | 何も変わらない | 失敗（503 / 500） | 再送 |
+| patch | 何も変わらない（直した撮影地も書かれない。撮影地と `processing` は1回の patch） | 失敗 | 再送 |
 | キューへの投入 | `pending`・`step` の付いた写真。メッセージは無い | 「分類中...」（段階4の `identify` は「識別中...」）のまま 10〜20 分（受付から 10 分たった後の、最初のタイマーの回まで） | 自動（タイマーが `processing.step` を見て再投入）。応答は 202（投入の失敗で失敗を返さない。返すと「失敗したのに後で勝手に走る」ことになる） |
 
 投入を先にしない理由: 投入の後に patch で失敗すると、ワーカーが古い `step`・`hint` で走る。
@@ -934,6 +936,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `categorySource` | 利用者のカテゴリの更新（`"user"`）と、分類からのやり直しの受付（`null`）。C-1。ワーカーは書かない・読まない |
 | `comment`・`commentSource` | **両方**（利用者の `PATCH` と AI）。衝突はここだけ |
 | `tags`・`tripId`・`updatedAt` | 利用者（`PATCH`・move・旅行の削除）。`updatedAt` はワーカーも書く |
+| `location` | 写真の作成（`POST /api/photos`）と、場所を直したやり直しの受付（`process` の `placeName`。C-2 で実装済み。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）。ワーカーは読む（AI に撮影地として渡す）だけで書かない |
 
 - メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。ワーカーは `step` が `classify` なら分類、`identify` なら識別（4-1a で実装済み）を担当し、それ以外（`null`）なら何もしない
 - 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
