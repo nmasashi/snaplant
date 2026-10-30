@@ -350,7 +350,9 @@ export class AlbumService {
         return null;
       }
       operations.push({ op: 'set', path: '/categorySource', value: 'user' });
-      if (current.category !== changes.category) {
+      // 分類を待っている・している写真は、同じカテゴリでも分類を止める（止めないと AI がカテゴリを書き換える）
+      const classifying = current.processing.step === 'classify' && ['pending', 'classifying'].includes(current.processing.state);
+      if (current.category !== changes.category || classifying) {
         const now = new Date().toISOString();
         operations.push({ op: 'set', path: '/category', value: changes.category });
         operations.push({ op: 'set', path: '/identification', value: null });
