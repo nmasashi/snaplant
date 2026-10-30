@@ -191,26 +191,24 @@ describe('写真の解析のワーカー', () => {
       expect(duringAi).toEqual({ state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
-    it.each(['plant'])(
-      '種類が自動で詳しく識別する種類（%s）なら、識別の待ち（回数は0から）にして、その写真を解析のキューに積む',
-      async (kind) => {
-        // 識別は別の回のワーカーが担当する（06 §2.3）。分類の失敗の回数は識別に持ち越さない。自動で識別するのは植物だけ（02 #51）
-        cosmosBackend.documents.set(
-          PHOTO_ID,
-          pendingPhoto({
-            processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
-          })
-        );
-        aiReturns({ kind, confidence: 70, reason: 'テスト' });
+    it('種類が自動で詳しく識別する種類（植物）なら、識別の待ち（回数は0から）にして、その写真を解析のキューに積む', async () => {
+      const kind = 'plant';
+      // 識別は別の回のワーカーが担当する（06 §2.3）。分類の失敗の回数は識別に持ち越さない。自動で識別するのは植物だけ（02 #51）
+      cosmosBackend.documents.set(
+        PHOTO_ID,
+        pendingPhoto({
+          processing: { state: 'pending', step: 'classify', attempts: 1, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' }
+        })
+      );
+      aiReturns({ kind, confidence: 70, reason: 'テスト' });
 
-        await runWorker();
+      await runWorker();
 
-        expect(storedPhoto().category).toBe(kind);
-        expect(storedPhoto().classification).toEqual({ kind, confidence: 70, model: 'main-deployment', at: NOW });
-        expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
-        expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
-      }
-    );
+      expect(storedPhoto().category).toBe(kind);
+      expect(storedPhoto().classification).toEqual({ kind, confidence: 70, model: 'main-deployment', at: NOW });
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
 
     it.each(['food', 'landscape'])(
       '種類が図鑑の種類でも自動で識別しない種類（%s）なら、分類で済みにし、キューに積まない',
