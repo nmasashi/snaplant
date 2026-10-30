@@ -26,8 +26,12 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
 
   Future<void> _submit() async {
     final selected = _selected;
-    // 変えていなければ何も送らずに閉じる（送ると AI のカテゴリが手で決めたものになり、「（変更済み）」が付く。コメントの編集と同じ）
-    if (selected == null || selected == widget.photo.category) {
+    // 変えていなければ何も送らずに閉じる（送ると AI のカテゴリが手で決めたものになり、「（変更済み）」が付く。コメントの編集と同じ）。
+    // ただし分類を待っている・している写真は送る（サーバが分類を止める。送らないと後で AI がカテゴリを書き換える。05 §5.6）
+    final classifying = widget.photo.processingStep == 'classify' &&
+        isProcessingInProgress(widget.photo.processingState);
+    if (selected == null ||
+        (selected == widget.photo.category && !classifying)) {
       Navigator.pop(context);
       return;
     }
