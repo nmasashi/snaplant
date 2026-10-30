@@ -180,7 +180,7 @@ Blob Storage のコンテナはファイル（画像）の入れ物。段階2で
 
 ### 4.5 コメントの修正と AI のやり直しは `PATCH` と `process`（要件 5.5.1）
 
-`PATCH /api/photos/{photoId}` でコメントとタグを直し、`POST /api/photos/{photoId}/process { step, hint }` でやり直す。
+`PATCH /api/photos/{photoId}` でコメント・タグ・カテゴリ（C-1）を直し、`POST /api/photos/{photoId}/process { step, hint }` でやり直す。
 `hint` は `contextInfo` の検証と埋め込みをそのまま流用する。やり直しはコメントを上書きする（利用者が明示的に頼んだ操作で、
 手がかりは `hint` として残るから）。上書きは受付の時点で行い（コメントを消す）、結果で置き換える。
 送信直後の自動の解析は、利用者がその間に書いたコメントを消さない（ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch でコメントを書く。§4.10）。
