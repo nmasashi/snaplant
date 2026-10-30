@@ -236,7 +236,8 @@ class FakeTripBackend {
   /// トークンを渡して読み進めると、この数だけ空のページを返したあと、写真の先頭から返す
   final int leadingEmptyPages;
 
-  /// 図鑑の種類（`GET /api/catalog/kinds` の `kinds`。既定は本物の定義表と同じ3つ）
+  /// 図鑑の種類（`GET /api/catalog/kinds` の `kinds`）。本物は図鑑に載せる種類（植物）だけを返す（02 §5 #51）。
+  /// 既定は、種類が複数あるときの画面（種類のタブ。03 §6.1）を確かめるために3つにしている
   List<Map<String, Object?>> catalogKinds = [
     {
       'kind': 'plant',
@@ -1117,8 +1118,8 @@ class FakeTripBackend {
     final trimmed = (hint as String?)?.trim() ?? '';
     if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', '補足情報は500文字以内で指定してください');
     if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
-    // 識別のやり直しは、カテゴリが図鑑の種類の写真だけ（本物の 8）
-    if (step == 'identify' && !catalogKinds.any((k) => k['kind'] == photo['category'])) {
+    // 識別のやり直しは、カテゴリが識別の対象の種類の写真だけ（本物の 8。isCatalogKind。図鑑に載るかとは別なので catalogKinds では見ない。02 §5 #51）
+    if (step == 'identify' && !const {'plant', 'food', 'landscape'}.contains(photo['category'])) {
       return _error(400, 'INVALID_REQUEST', 'この写真は識別の対象ではありません');
     }
     photo['processing'] = {

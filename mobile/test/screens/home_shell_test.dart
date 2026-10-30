@@ -67,14 +67,14 @@ void main() {
     await saveTestEndpoint(tester);
     final server = catalogServer({(host: testApiHost, code: 'saved-key'): '桜'}, succeedFirst: 1);
     await openApp(tester, app: SnapPlantApp(httpClient: server));
-    expect(find.text('桜'), findsOneWidget);
+    expect(find.text('桜の項目はまだありません'), findsOneWidget);
     await tester.tap(find.text('旅行'));
     await letFramesRun(tester);
 
     await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('図鑑')));
     await letFramesRun(tester);
 
-    expect(find.text('桜'), findsOneWidget);
+    expect(find.text('桜の項目はまだありません'), findsOneWidget);
     expect(find.text('エラーが発生しました'), findsNothing);
   });
 }

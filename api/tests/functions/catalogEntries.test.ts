@@ -64,7 +64,7 @@ describe('図鑑の項目の一覧API', () => {
     ['limit が上限の 100', { limit: '100' }],
     ['limit が 1', { limit: '1' }]
   ], async (_label, page) => {
-    const response = await listCatalogEntriesHandler(createRequest({ kind: 'food', ...page }), mockContext);
+    const response = await listCatalogEntriesHandler(createRequest({ kind: 'plant', ...page }), mockContext);
 
     expect(response.status).toBe(200);
   }));
@@ -73,6 +73,9 @@ describe('図鑑の項目の一覧API', () => {
     it('種類やページ（offset・limit）の指定が正しくなければ、400で理由を返す', () => forEachCase([
       ['種類が無い', {}, '図鑑の種類が無効です'],
       ['種類が定義表に無い（other）', { kind: 'other' }, '図鑑の種類が無効です'],
+      // 食べ物・風景は図鑑に載せない（02 §5 #51）
+      ['種類が図鑑に載せない食べ物', { kind: 'food' }, '図鑑の種類が無効です'],
+      ['種類が図鑑に載せない風景', { kind: 'landscape' }, '図鑑の種類が無効です'],
       ['種類が継承したキー（constructor）', { kind: 'constructor' }, '図鑑の種類が無効です'],
       // 種類は空白を除かず、大文字小文字も区別して比べる（05 §5.14 の検証の表）
       ['種類の大文字小文字が違う（Plant）', { kind: 'Plant' }, '図鑑の種類が無効です'],

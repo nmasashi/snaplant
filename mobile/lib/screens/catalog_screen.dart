@@ -85,6 +85,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
             : const _Loading(),
       );
     }
+    // 種類が1つ（植物だけ。02 §5 #51）なら、タブが1つだけの帯は出さずに、その種類の項目を並べる（03 §6.1）
+    // 0件のときはタブの側に流す（kinds.single が投げないように。空の TabBarView になる）
+    final tabbed = kinds.length != 1;
     return DefaultTabController(
       length: kinds.length,
       child: Scaffold(
@@ -93,25 +96,27 @@ class _CatalogScreenState extends State<CatalogScreen> {
           actions: appBarActions,
           // 見出しの緑の上に出すので、文字を白にする（既定では選んでいるタブの文字が見出しと同じ緑になって見えない。03 §6.1）。
           // 下線の色は仕様に無い見た目の判断で、文字に合わせて白にしている
-          bottom: TabBar(
-              labelColor: AppColors.textOnPrimary,
-              unselectedLabelColor: Colors.white70,
-              indicatorColor: AppColors.textOnPrimary,
-              tabs: [for (final kind in kinds) Tab(text: kind.label)]),
+          bottom: tabbed
+              ? TabBar(
+                  labelColor: AppColors.textOnPrimary,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: AppColors.textOnPrimary,
+                  tabs: [for (final kind in kinds) Tab(text: kind.label)])
+              : null,
         ),
         // タブを切り替えると、離れたタブの一覧は破棄され、戻ると先頭から読み直す（03 §6.1）
-        body: TabBarView(
-          children: [
-            for (final kind in kinds)
-              _CatalogEntryList(
-                  apiService: widget.apiService,
-                  uploadQueue: widget.uploadQueue,
-                  kind: kind),
-          ],
-        ),
+        body: tabbed
+            ? TabBarView(children: [for (final kind in kinds) _entryList(kind)])
+            : _entryList(kinds.single),
       ),
     );
   }
+
+  /// 種類 [kind] の項目の一覧
+  Widget _entryList(CatalogKind kind) => _CatalogEntryList(
+      apiService: widget.apiService,
+      uploadQueue: widget.uploadQueue,
+      kind: kind);
 }
 
 /// 図鑑の読み込みの失敗の文言（`ApiException` ならその言い換え。03 §6.1）

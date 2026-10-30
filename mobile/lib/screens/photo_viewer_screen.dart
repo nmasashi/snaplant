@@ -357,7 +357,8 @@ class _PhotoPageState extends State<_PhotoPage> {
     // 識別の段（step が identify）なら、状態を「識別中...」「識別に失敗しました」と出す（03 §5.1）
     final identifying = photo.processingStep == 'identify';
     final identification = photo.identification;
-    // 項目へのリンクの種類と名前（分類と合わない写真は名前が null なので、リンクを出さない）
+    // 識別の種類と名前（図鑑に載る種類なら項目へのリンク、載らない種類なら文字で出す。
+    // 分類と合わない写真は名前が null なので、どちらも出さない）
     final entry = switch (identification) {
       PhotoIdentification(
         matchesKind: true,
@@ -437,13 +438,20 @@ class _PhotoPageState extends State<_PhotoPage> {
                                     .copyWith(color: Colors.white70)),
                           if (isProcessingFailed(photo.processingState))
                             _withRetry(identifying ? '識別に失敗しました' : '分類に失敗しました'),
+                          // 図鑑に載る種類は項目へのリンク、載せない種類（食べ物・風景）は文字で出す
                           if (entry != null)
-                            TextButton(
-                              onPressed: () =>
-                                  widget.onOpenEntry(entry.kind, entry.name),
-                              style: _infoLinkStyle,
-                              child: Text('${entry.name} >'),
-                            ),
+                            if (isListedInCatalog(entry.kind))
+                              TextButton(
+                                onPressed: () =>
+                                    widget.onOpenEntry(entry.kind, entry.name),
+                                style: _infoLinkStyle,
+                                child: Text('${entry.name} >'),
+                              )
+                            else
+                              Text(entry.name,
+                                  style: AppTextStyles.body1.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500)),
                           if (identification != null &&
                               !identification.matchesKind)
                             _withRetry('分類と合わない写真です。やり直しで手がかりを付けてください'),
