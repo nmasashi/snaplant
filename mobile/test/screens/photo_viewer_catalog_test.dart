@@ -149,6 +149,29 @@ void main() {
           findsOneWidget);
     });
 
+    // 食べ物・風景は識別できるが図鑑には載せない（02 §5 #51）ので、名前は図鑑へのリンクにしない（03 §6.3）
+    for (final (kind, name) in [('food', '味噌ラーメン'), ('landscape', '函館山')]) {
+      testWidgets('図鑑に載せない種類（$kind）の写真は、識別の名前を「>」を付けない文字で出し、押しても項目の詳細を開かない',
+          (tester) async {
+        final photo = identifiedPhotoJson(
+            number: 1,
+            kind: kind,
+            name: name,
+            tripId: hokkaidoTripId,
+            takenAt: '2026-10-06T10:15:00');
+        await _openViewer(tester, photo);
+
+        expect(find.text('$name >'), findsNothing);
+        expect(find.text(name), findsOneWidget);
+
+        await tester.tap(find.text(name));
+        await letFramesRun(tester);
+
+        expect(find.byType(CatalogEntryScreen), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+      });
+    }
+
     // 前回の識別は、やり直しの結果が出るまで残る（05 §5.7）
     for (final (matchesKind, label, text) in [
       (true, '項目へのリンク', 'ソメイヨシノ >'),
