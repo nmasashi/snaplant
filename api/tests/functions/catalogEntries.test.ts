@@ -64,7 +64,7 @@ describe('図鑑の項目の一覧API', () => {
     ['limit が上限の 100', { limit: '100' }],
     ['limit が 1', { limit: '1' }]
   ], async (_label, page) => {
-    const response = await listCatalogEntriesHandler(createRequest({ kind: 'food', ...page }), mockContext);
+    const response = await listCatalogEntriesHandler(createRequest({ kind: 'plant', ...page }), mockContext);
 
     expect(response.status).toBe(200);
   }));

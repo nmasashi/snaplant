@@ -157,7 +157,7 @@ describe('図鑑の項目の詳細API', () => {
 
   it('その種類と名前の写真が無ければ、200で entry: null・空のページを返す', async () => {
     // 項目は文書ではなく「該当する写真が0枚」に過ぎないので 404 にしない（05 §5.14）。やり直しで名前が変わった直後に起きる
-    const response = await getCatalogEntryHandler(createRequest({ kind: 'food', name: 'スイカ' }), mockContext);
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'ブドウ' }), mockContext);
 
     expect(response.status).toBe(200);
     expect((response.jsonBody as any).data).toMatchObject({ entry: null, photos: [], continuationToken: null });
@@ -166,7 +166,7 @@ describe('図鑑の項目の詳細API', () => {
   it('続きを読む間に項目の写真が無くなったら、古い継続トークンでも 200 で entry: null を返す（読み終える）', async () => {
     // 03 §6.2。見出しが無ければ写真のページを読まないので、トークンを Cosmos に渡さない
     const response = await getCatalogEntryHandler(
-      createRequest({ kind: 'food', name: 'スイカ', continuationToken: '{}' }),
+      createRequest({ kind: 'plant', name: 'ブドウ', continuationToken: '{}' }),
       mockContext
     );
 
