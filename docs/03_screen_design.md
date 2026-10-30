@@ -816,7 +816,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
   `commentSource: "user"` のときは「（編集済み）」と出す
 - 図鑑の項目へのリンク（`identification.matchesKind` が true なら `identification.name` →「サクラ >」。タップで項目詳細（§6.2）を `identification.kind`・`name` で開く）
 - `identification.matchesKind: false` のときは「分類と合わない写真です。やり直しで手がかりを付けてください」と「やり直す」
-- 解析中（`processing.state` が `pending` / `classifying` / `identifying`）でもコメントは編集できる。自動の解析は利用者のコメントを消さない（[06 §3.2](./06_processing_design.md#32-書き込み)）。
+- 解析中（`processing.state` が `pending` / `classifying` / `identifying`）でもコメントは編集できる。自動の解析は利用者のコメントを消さない（[06 §2.3](./06_processing_design.md#23-書き込み)・[§3.2](./06_processing_design.md#32-書き込み)）。
   やり直し（§5.4）だけが置き換える
 
 細部（4-3c。2026-10-19 に決めた）:

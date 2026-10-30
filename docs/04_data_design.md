@@ -444,7 +444,7 @@ export const CATALOG_KINDS = {
 
 | きっかけ | 段階 | どう起きるか |
 |---|---|---|
-| 写真の解析のやり直し（要件 5.5.1） | 4 | 分類のやり直しは、まず `identification` を `null` にしてから識別し直す（種類が変わったのに古い名前の下に残らないように。§7.4）。識別の結果で新しい種類・名前の項目に現れ、古い名前の写真が0枚になればその項目は自然に消える |
+| 写真の解析のやり直し（要件 5.5.1） | 4 | 分類のやり直しは、まず `identification` を `null` にしてから識別し直す（種類が変わったのに古い名前の下に残らないように。§7.4）。識別し直すのは自動で識別する植物だけで、食べ物・風景は分類で終わる（名前は消えたまま。名前は「名前だけ」（`step: "identify"`）のやり直しで頼む。B-1 で実装済み）。識別の結果で新しい種類・名前の項目に現れ、古い名前の写真が0枚になればその項目は自然に消える |
 | 名前の揺れをそろえる（要件 §8 の未決の論点） | 未定 | 「ソメイヨシノ」の写真の `identification.name` を「サクラ」に書き換える（写真1枚につき Patch 1回）。付け替える先を作る手順は要らない |
 
 項目の種類や名前を利用者が直接書き換える操作は、段階4では入れない（要件 5.5.1 はやり直しで直すのが基本）。入れるときも写真ごとの Patch で書ける。
@@ -505,7 +505,7 @@ export const CATALOG_KINDS = {
 | 5.8 | 再投入のタイマー（段階3。実装済み） | `SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before`（`@before` は今の 10 分前の ISO 文字列。**`failed` は含めない**。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。タイマーは同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
 | 5.9 | 掃除のタイマー（段階3。実装済み） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（`@type = 'photo'`。全写真の薄い射影）と、旅行の id の一覧 `SELECT c.id FROM c WHERE c.type = @type`（`@type = 'trip'`）。どちらも `fetchAll()` で読む | 突き合わせは○ | 射影 |
 | 5.10 | 旅行の削除（段階2） | `SELECT c.id, c.blobName, c.thumbnailBlobName FROM c WHERE c.type = @type AND c.tripId = @tripId`（ページで読み、1枚ずつ消す、または `tripId` を `null` に patch する。§5.7） | `@tripId` で絞る。消える・未所属になる結果は○ | 射影 |
-| 5.11 | 分類まで済んだ写真を識別に回すスクリプト（段階4。4-1b で実装済み。`AlbumService.listUnidentifiedPhotos()`。[06 §1.2](./06_processing_design.md#12-流れ)） | `SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)`（`@type = 'photo'`、`@kinds` は `CATALOG_KINDS` のキーの配列）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。スクリプトが同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
+| 5.11 | 分類まで済んだ写真を識別に回すスクリプト（段階4。4-1b で実装済み。`AlbumService.listUnidentifiedPhotos()`。[06 §1.2](./06_processing_design.md#12-流れ)） | `SELECT c.id, c.category, c.identification, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND IS_NULL(c.identification) AND ARRAY_CONTAINS(@kinds, c.category)`（`@type = 'photo'`、`@kinds` は `CATALOG_KINDS` のキーの配列）。`fetchAll()` で読む。スクリプトはコードで、自動で識別する種類（植物）だけに絞る（B-1。クエリは3種類を読む） | ×（偽物は `@type` でしか絞らない。スクリプトが同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
 | 5.12 | タイムラインを作る・作り直す（段階5。5-1a で実装済み。`TimelineService.readTripPhotosForSnapshot()`。写真の控えを取る。[06 §8](./06_processing_design.md#8-タイムライン段階5)） | `SELECT c.id, c.takenAt, c.sortAt, c.category, c.identification, c.location, c.comment, c.blobName, c.thumbnailBlobName, c.processing FROM c WHERE c.type = @type AND c.tripId = @tripId`（`@type = 'photo'`。旅行1つ分の写真の薄い射影を `fetchAll()`。**写真を全部読む例外**。利用者が押したときだけで、旅行1つ分に限る。並びはハンドラが `sortAt` で並べ直す）。解析が済んでいない写真があるか・撮影日時のある写真があるかも同じ結果から見る（5.14 の `COUNT` は投げない） | `@tripId` で絞る。控えの中身は○ | 射影 |
 | 5.13 | タイムラインの写真の変化・消えた写真・解析中の枚数（段階5。5-1a・5-1c で実装済み。`TimelineService.readTripPhotoStates()`。確かめ中と文を書くのに失敗した下書き（5-3b）の表示・区切りの保存（`GET`・`PUT …/timeline/draft…`）と区切りを直し始める受付（`POST …/recut`。5-2b）が消えた写真を除くのと、完成版を開く `GET …/timeline` と、その形で応答を返す文の編集（5-2b）が使う） | `SELECT c.id, { "state": c.processing.state } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId`（`@type = 'photo'`。id と解析の状態だけ（`processing` の中は `state` だけをオブジェクトの射影で読む。`processing` の無い文書は状態なしとして数えない）。控えとの差で「写真が増えた・消えた」を数え、同じ結果から解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`）の数も数える。5-1c で 5.14 の `COUNT` をやめてこちらにまとめた。旅行の写真を読むのを1回にするためと、偽物が `COUNT` を解釈しないのでテストで数を確かめられないため）。**開くたびに旅行の写真を全部読む例外**（射影は1枚あたり百バイト前後。下書きの処理中に 5 秒ごとに読み直すときは読まない。[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。タイムラインの文書と、完成版の控えは `item(id, id).read()` | `@tripId` で絞る。増えた・消えた枚数と解析中の枚数は○ | 射影 |
 | 5.14 | （使わない。5-1c で 5.13 にまとめた） | 解析が済んでいない写真の数は 5.13 の結果から数える。作る受付（`POST …/timeline`）は 5.12 の結果から見る | — | — |
@@ -843,17 +843,17 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 |---|---|---|---|
 | `state` を `classifying` / `identifying` にした後に落ちる | 処理中のまま | 「分類中...」（識別なら段階4のアプリで「識別中...」） | 自動（10 分後にタイマーが `pending` に戻してから（`step`・`attempts` はそのまま）再投入。ワーカーは `pending` しか担当しないので、戻さずに投入しても担当されない。`attempts` が上限（3 回）なら `failed`） |
 | AI の呼び出しが成功した後、結果の patch の前に落ちる | 結果が無い | 同上 | 自動（再実行。AI の費用が1回分無駄になる） |
-| 分類の後、識別の投入に失敗 | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
+| 分類の後、識別の投入に失敗（自動で識別する植物だけ。B-1） | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
 | **同じ画像で AI が毎回失敗する**（応答の検証違反・内容による拒否など、再試行しても直らない失敗） | `attempts: 3`・`failed`・`lastError` | 「分類に失敗しました」と「やり直す」 | **自動では直らず、永遠に回り続けもしない。** ワーカーは上限未満の失敗では `pending` に戻して例外を投げ（キューの再試行）、上限（3 回目）の失敗で `failed` にして例外を投げずに終える（poison には落ちない）。タイマーは `attempts` が上限なら `failed` にし、**`failed` は再投入のクエリ（§5 の 5.8）に含めない**。利用者が `process` を頼んだときだけ `attempts` を 0 に戻してもう一度試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（[06 §6](./06_processing_design.md#6-費用の抑え方)） |
 | 分類で種類が変わったのに、識別が上限まで失敗 | `identification: null`（分類が先に消す）・`failed` | 「失敗」。図鑑に出ない | 利用者がやり直す。**古い種類・名前の下に残り続けることは無い** |
 | コメントの条件付き patch が 412（AI の処理中に利用者がコメントを書いた、またはやり直しの受付が入った） | 利用者のコメント（やり直しなら受付が消した `null`）が残る。AI のコメントは書かれない | 利用者の文 | 意図どおり（§7.4）。結果の patch には進む（やり直しなら結果も 412 で書かれない） |
 | AI の処理中に利用者が `tags`・`tripId` を変えた（解析中に写真を編集した） | 利用者の変更と AI の結果の両方が残る | 両方 | 書く欄が分かれているので衝突しない。ロックも読み直しも要らない |
-| コメントの patch の後、結果の patch の前に落ちる（識別だけ） | AI のコメントだけ書かれ、`state` は処理中（`identifying`）のまま | 「分類中...」（段階4のアプリで「識別中...」） | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される）。ただし再試行の結果が `matchesKind: false` か、上限まで失敗した（`failed`）ときはコメントを書かないので、前の回の AI のコメントが残る。まれな場合なので許容する（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #25。利用者のやり直しは受付でコメントを消す） |
+| コメントの patch の後、結果の patch の前に落ちる（識別と、B-1 からは分類も） | AI のコメントだけ書かれ、`state` は処理中（`classifying` / `identifying`）のまま | 「分類中...」（識別なら段階4のアプリで「識別中...」） | 自動（タイマーが再投入。AI がもう一度走り、コメントも書き直される）。ただし再試行の結果が（識別の）`matchesKind: false` か、AI の一言が空白だけか、上限まで失敗した（`failed`）ときはコメントを書かないので、前の回の AI のコメントが残る。まれな場合なので許容する（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #25。利用者のやり直しは受付でコメントを消す） |
 | 写真の読み取り（担当の前）に失敗 | 何も変わらない（`attempts` も増えない） | 「分類中...」 | 自動（キューの再試行。3 回とも失敗すれば poison に落ち、写真は `pending` のままなのでタイマーが再投入） |
 | 写真が無い（消された後のメッセージ）・メッセージに写真 ID が無い | — | — | 何もせずに終える（例外にしない） |
 | 同じメッセージが2回届く（可視性タイムアウト後の重複配信） | — | — | 担当の patch を `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件付きにする（§7.4）。412 なら別のインスタンスが担当済みなので何もしない。読んだ `state` が `done` / `failed` / `none` でも何もしない |
 | 読んだ後・担当の前に、別のインスタンスが担当して失敗し `pending` に戻した | — | — | 担当の条件の `attempts` が合わず 412。何もしない（古い回数から数え直さない） |
-| 分類・識別の間（担当の後、結果・失敗を書く前）に、利用者がやり直しを頼んだ（受付が `pending`・`attempts: 0` を書いた） | やり直しの受付の状態（`hint` と `pending`） | 「分類中...」 | 結果・失敗の patch（識別ならコメントの patch も）を担当したときの `processing` の条件付きにする（§7.4）。412 で古い結果も失敗もコメントも書かず、例外も投げずに終える。受付で積んだメッセージが改めて担当する |
+| 分類・識別の間（担当の後、結果・失敗を書く前）に、利用者がやり直しを頼んだ（受付が `pending`・`attempts: 0` を書いた） | やり直しの受付の状態（`hint` と `pending`） | 「分類中...」 | 結果・失敗の patch とコメントの patch（分類のコメントは B-1 から）を担当したときの `processing` の条件付きにする（§7.4）。412 で古い結果も失敗もコメントも書かず、例外も投げずに終える。受付で積んだメッセージが改めて担当する |
 | 再投入のタイマーが読んだ後・戻す前に、ワーカーが担当した（またはやり直しの受付が入った） | — | — | タイマーの patch を読んだときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付きにする。412 ならその写真には触らず、積まない |
 | 地名のキャッシュ（`geocache`）の `create` が 409 | 既に同じ座標の地名がある | — | 無視する |
 
@@ -907,6 +907,8 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 ### 7.4 ワーカーの書き込みの決まり
 
+**実装済み**（B-1。`functions/processPhoto.ts` の `classifyPhoto()`）: 分類も AI の一言をコメントに書くこと（下の (1)）と、分類の後に識別を投入するのが植物だけであること（最後の行）。
+
 **AI は担当の欄だけを部分更新（Patch）し、「解析中」で利用者の更新を止めるロックは置かない**（2026-10-12 に人間が決定）。
 ロックを置くと解析の間は利用者が何も変えられず、処理が落ちると解析中のまま残る。欄を分けて Patch する方が単純で、落ちても利用者の操作は妨げない。
 
@@ -918,7 +920,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 - メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。ワーカーは `step` が `classify` なら分類、`identify` なら識別（4-1a で実装済み）を担当し、それ以外（`null`）なら何もしない
 - 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
-- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（識別だけ。分類はコメントを書かない。識別でも `matchesKind: false` のときと、AI の一言が空白だけのときは書かない）。
+- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（分類と識別。分類は B-1 から書く。どちらも AI の一言が空白だけのときは書かず、識別では `matchesKind: false` のときも書かない）。
   412 なら利用者がその間にコメントを書いたので、書かずに進む（送信直後の自動の解析が、利用者のコメントを消さないように）。
   **(2) 結果**: `category`・`classification`（分類）または `identification`（識別）と `processing`・`updatedAt` を `set`。
   条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）。失敗の書き込み（`pending` に戻す・`failed` にする）も同じ条件。
@@ -928,7 +930,8 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
   唯一の衝突である `comment` は、上の条件付き patch を Cosmos が原子的に評価するので、読み直しが要らない
 - `condition` の比較は `null` を `!=` で扱えない（`null != "user"` は未定義になる。推測）ので、`IS_NULL(...) OR ... = "ai"` の形で書く
 - やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果のコメントは必ず書かれる
-- 分類は `identification` を `null` に戻してから識別を投入する。種類が変わったのに古い識別が残り、図鑑の別の種類に出続けることを防ぐ
+- 分類は `identification` を `null` に戻してから識別を投入する。種類が変わったのに古い識別が残り、図鑑の別の種類に出続けることを防ぐ。
+  識別を投入するのは自動で識別する種類（植物）だけで、食べ物・風景・`other` は `identification` を `null` に戻して `done` にする（B-1。[06 §2.3](./06_processing_design.md#23-書き込み)）
 
 ### 7.5 残すと決めた食い違い
 
