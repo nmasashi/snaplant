@@ -459,7 +459,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
   タグの数に上限は無い。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
 - `category`（C-1）: 利用者が手で決めたカテゴリにする（AI を通さない）。写真を読んでから、次のように書く。送らなければ `category`・`categorySource`・`identification`・`processing` に触らない
   - いつも `categorySource: "user"` を書く（今と同じカテゴリでも）
-  - 今のカテゴリと違うか、写真が分類を待っている・している（`processing.step` が `classify` で `state` が `pending` か `classifying`）ときは、さらに `category`（送った値）・`identification: null`（前の識別を消す。植物から変えれば図鑑から外れる）・`processing` を書く。
+  - 今のカテゴリと違うか、写真の分類が済んでいない（`processing.step` が `classify` で `state` が `pending`・`classifying`・`failed`）ときは、さらに `category`（送った値）・`identification: null`（前の識別を消す。植物から変えれば図鑑から外れる）・`processing` を書く。
     `processing` は、送ったカテゴリが自動で識別する種類（定義表の `autoIdentify`。植物だけ）なら `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }`（品種を調べる待ち）、それ以外（食べ物・風景・`other`）なら `{ state: "done", step: "classify", attempts: 0, lastError: null, updatedAt: <今> }`。
     分類を待っている・している写真を同じカテゴリでも書き換えるのは、分類を止めないと後で AI の分類がカテゴリを書き換え、手で決めたカテゴリが消えるため。`failed` の写真もこれで `done`（植物なら識別の待ち）になる
   - 今と同じカテゴリで、分類を待っても・してもいなければ、`categorySource` だけを書く（`identification`・`processing` は残る。識別を待っている・している植物の写真なら、識別はそのまま続く）
