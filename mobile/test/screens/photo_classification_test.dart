@@ -247,7 +247,7 @@ void main() {
       await letFramesRun(tester);
 
       expect(find.byType(AlertDialog), findsNothing);
-      expect(find.text('やり直しを受け付けました'), findsOneWidget);
+      expect(find.text('受け付けました'), findsOneWidget);
       expect(find.text('分類中...'), findsOneWidget);
       expect(_stored(backend)['hint'], 'これはサクラではなくウメ');
       expect((_stored(backend)['processing'] as Map)['state'], 'pending');
@@ -429,7 +429,7 @@ void main() {
       await letFramesRun(tester);
 
       expect(find.byType(AlertDialog), findsNothing);
-      expect(find.text('やり直しを受け付けました'), findsOneWidget);
+      expect(find.text('受け付けました'), findsOneWidget);
       expect((_stored(backend)['processing'] as Map)['state'], 'pending');
     });
 
