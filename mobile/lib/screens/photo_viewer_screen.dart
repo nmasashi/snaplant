@@ -237,13 +237,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 name: name)));
   }
 
-  /// 上のバーの、解析を頼むボタン。印と説明は今の写真のカテゴリで決まる（植物を調べる・コメントを書いてもらう・分類し直す。03 §5.4）。
-  /// 削除で読み込み済みの写真を使い切り、続きを待っている間は分類し直すの印で出す（押しても何も起きない）
-  Widget _analysisButton() {
-    final photos = widget.photos.value;
-    final request = _index < photos.length
-        ? analysisRequestOf(photos[_index])
-        : analysisRequestOf(const Photo(id: '', imageUrl: ''));
+  /// 上のバーの、[photo] の解析を頼むボタン。印と説明は写真のカテゴリで決まる（植物を調べる・コメントを書いてもらう・分類し直す。03 §5.4）
+  Widget _analysisButton(Photo photo) {
+    final request = analysisRequestOf(photo);
     return IconButton(
       onPressed: _retryCurrent,
       color: Colors.white,
@@ -252,10 +248,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     );
   }
 
-  /// 今出している写真が、どれにも当てはまらない分類（その他）か
-  bool get _currentIsOther {
+  /// 今出している写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
+  Photo? get _shownPhoto {
     final photos = widget.photos.value;
-    return _index < photos.length && photos[_index].category == otherCategory;
+    return _index < photos.length ? photos[_index] : null;
   }
 
   @override
@@ -267,8 +263,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               backgroundColor: Colors.black54,
               foregroundColor: Colors.white,
               actions: [
-                // その他の写真は調べるものが無いので、やり直させない（カテゴリはボタンで直す。03 §5.6）
-                if (!_currentIsOther) _analysisButton(),
+                // 頼む写真が無い間（続きを待っている）と、その他の写真（調べるものが無い。03 §5.6）には出さない
+                if (_shownPhoto case final photo?
+                    when photo.category != otherCategory)
+                  _analysisButton(photo),
                 TextButton(
                   onPressed: _deleteCurrent,
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
