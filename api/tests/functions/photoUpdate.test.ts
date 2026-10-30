@@ -574,6 +574,15 @@ describe('写真更新API', () => {
       expect(queuedMessages()).toEqual([]);
     });
 
+    it('利用者が書いたコメントは、カテゴリを変えても残す', async () => {
+      const photo = storedPhoto({ category: 'plant', comment: '庭で見た花', commentSource: 'user' });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
+    });
+
     it('分類に失敗した写真（カテゴリ無し）にも、カテゴリを手で決められる（失敗は済みになる）', async () => {
       freezeNow();
       const photo = storedPhoto({
