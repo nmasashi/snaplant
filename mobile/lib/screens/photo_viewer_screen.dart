@@ -146,12 +146,6 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     Navigator.pop(context);
   }
 
-  /// 今出している写真の解析のやり直しを頼む
-  Future<void> _retryCurrent() async {
-    final current = _current();
-    if (current != null) await _retry(current.$2);
-  }
-
   /// 今出している写真の位置と写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
   /// （そのときの位置は読み込み済みの写真の外にある）。位置と写真を一度に読み、両者がずれないようにする
   (int, Photo)? _current() {
@@ -241,7 +235,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   Widget _analysisButton(Photo photo) {
     final request = analysisRequestOf(photo);
     return IconButton(
-      onPressed: _retryCurrent,
+      // 印と説明を決めた写真に頼む（ページの位置から引き直すと、送っている途中で別の写真になりうる）
+      onPressed: () => _retry(photo),
       color: Colors.white,
       tooltip: request.title,
       icon: Icon(request.icon),
