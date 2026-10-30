@@ -583,6 +583,36 @@ describe('写真更新API', () => {
       expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
     });
 
+    // カテゴリは写真を読んでから書くので、その間に他の操作がコメントを書くことがある。消すかどうかは書くときのコメントで決める
+    it('写真を読んだ後に利用者がコメントを書いていたら、カテゴリを変えてもそのコメントは残す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant' }));
+      let patches = 0;
+      cosmosBackend.beforePatch = () => {
+        if (patches++ === 0) {
+          Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: '庭で見た花', commentSource: 'user' });
+        }
+      };
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
+    });
+
+    it('写真を読んだ後に AI がコメントを書いていたら、カテゴリを変えるとそのコメントも消す', async () => {
+      // 識別中の写真を食べ物に変えると、識別の担当が書いた品種のコメントが食べ物の写真に残り続ける（食べ物には AI が書き直さない）
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant', comment: null, commentSource: null }));
+      let patches = 0;
+      cosmosBackend.beforePatch = () => {
+        if (patches++ === 0) {
+          Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: 'サクラの花', commentSource: 'ai' });
+        }
+      };
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: null, commentSource: null });
+    });
+
     it('分類に失敗した写真（カテゴリ無し）にも、カテゴリを手で決められる（失敗は済みになる）', async () => {
       freezeNow();
       const photo = storedPhoto({
