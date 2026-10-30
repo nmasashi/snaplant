@@ -150,6 +150,18 @@ describe('写真の解析のやり直しAPI', () => {
     expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
   });
 
+  it('分類のやり直しは、手で決めたカテゴリの印を消し、カテゴリを AI に任せ直す（識別のやり直しは印を残す）', () => forEachCase([
+    ['分類のやり直し', 'classify', null],
+    ['識別のやり直し', 'identify', 'user']
+  ] as const, async (_case, step, categorySource) => {
+    // 印が残ったまま AI の分類がカテゴリを書くと、AI の決めたカテゴリが「手で決めた」と表示される（02 §5 #53）
+    cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ categorySource: 'user' }));
+
+    await processPhotoRequestHandler(createRequest(PHOTO_ID, { step }), mockContext);
+
+    expect(storedPhoto().categorySource).toBe(categorySource);
+  }));
+
   it('識別のやり直しを頼むと、202で受け付け、写真を識別の待ちにして手がかりを書き、コメントを消してキューに積む', async () => {
     // 分類はやり直さず、今のカテゴリ（food）のまま名前だけを識別し直す（03 §5.4「名前だけ」）。前回の識別の結果は、やり直しの結果が出るまで残す
     cosmosBackend.documents.set(
