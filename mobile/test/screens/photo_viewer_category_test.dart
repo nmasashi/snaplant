@@ -94,7 +94,7 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(_option('植物'));
     await tester.pump();
-    expect(find.text('植物に変えると、品種を調べます。'), findsOneWidget);
+    expect(find.text('植物にすると、品種を調べます。'), findsOneWidget);
     await tester.tap(_save);
     await letFramesRun(tester);
 
@@ -132,7 +132,7 @@ void main() {
       await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
       await letFramesRun(tester);
       // 植物のまま保存しても品種を調べ始めるので、その旨を出す
-      expect(find.text('植物に変えると、品種を調べます。'), findsOneWidget);
+      expect(find.text('植物にすると、品種を調べます。'), findsOneWidget);
       await tester.tap(_save);
       await letFramesRun(tester);
 
