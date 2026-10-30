@@ -35,5 +35,11 @@ bool isListedInCatalog(String kind) => _listedInCatalog.contains(kind);
 bool isProcessingInProgress(String state) =>
     state == 'pending' || state == 'classifying' || state == 'identifying';
 
+/// 分類が済んでいない（分類の段で、待っている・している・失敗した）か。カテゴリがあっても、AI が書き換えうるか失敗のまま。
+/// 手でカテゴリを決めると、同じカテゴリでもサーバが分類を止める（05 §5.6）。やり直しは分類からにする（03 §5.4）
+bool isClassificationUnsettled(String? step, String state) =>
+    step == 'classify' &&
+    (state == 'pending' || state == 'classifying' || state == 'failed');
+
 /// 上限まで分類に失敗した（`failed`。自動では再試行されず、「やり直す」を待つ）か
 bool isProcessingFailed(String state) => state == 'failed';

@@ -27,10 +27,10 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
           : widget.photo.hint);
   // やり直す範囲。カテゴリは手で直す（03 §5.6。02 §5 #53）ので選ばせず、カテゴリが識別の対象なら名前（識別）だけ、
   // それ以外（分類の前）は分類からやり直す（識別の対象でない写真の identify はサーバが断る。05 §5.7 の 8）。
-  // 分類に失敗した写真は、前のカテゴリが残っていても分類からやり直す（名前をやり直しても失敗した分類は直らない）
+  // 分類が済んでいない写真は、前のカテゴリが残っていても分類からやり直す（名前をやり直すと、頼んだ分類が捨てられる・失敗した分類が直らない）
   late final String _step = isCatalogCategory(widget.photo.category) &&
-          !(widget.photo.processingStep == 'classify' &&
-              isProcessingFailed(widget.photo.processingState))
+          !isClassificationUnsettled(
+              widget.photo.processingStep, widget.photo.processingState)
       ? 'identify'
       : 'classify';
   bool _busy = false;

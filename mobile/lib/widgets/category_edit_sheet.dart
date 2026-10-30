@@ -21,17 +21,18 @@ class CategoryEditSheet extends StatefulWidget {
 
 class _CategoryEditSheetState extends State<CategoryEditSheet> {
   late String? _selected = widget.photo.category;
+  // 分類が済んでいない（同じカテゴリでも保存すれば送り、植物なら品種を調べ始める）
+  late final bool _unsettled = isClassificationUnsettled(
+      widget.photo.processingStep, widget.photo.processingState);
   bool _busy = false;
   String? _error;
 
   Future<void> _submit() async {
     final selected = _selected;
     // 変えていなければ何も送らずに閉じる（送ると AI のカテゴリが手で決めたものになり、「（変更済み）」が付く。コメントの編集と同じ）。
-    // ただし分類を待っている・している写真は送る（サーバが分類を止める。送らないと後で AI がカテゴリを書き換える。05 §5.6）
-    final classifying = widget.photo.processingStep == 'classify' &&
-        isProcessingInProgress(widget.photo.processingState);
+    // ただし分類が済んでいない写真は送る（サーバが分類を止める・失敗から出す。送らないと後で AI がカテゴリを書き換えるか、失敗のまま。05 §5.6）
     if (selected == null ||
-        (selected == widget.photo.category && !classifying)) {
+        (selected == widget.photo.category && !_unsettled)) {
       Navigator.pop(context);
       return;
     }
@@ -80,7 +81,8 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
                       : (value) => setState(() => _selected = value),
                 ),
               // 植物に変えるときは、品種を調べ始めることを知らせる
-              if (_selected == 'plant' && widget.photo.category != 'plant')
+              if (_selected == 'plant' &&
+                  (widget.photo.category != 'plant' || _unsettled))
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text('植物に変えると、品種を調べます。'),
