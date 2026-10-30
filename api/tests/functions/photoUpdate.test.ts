@@ -597,6 +597,27 @@ describe('写真更新API', () => {
       expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, categorySource: 'user', updatedAt: UPDATED_AT });
       expect(queuedMessages()).toEqual([]);
     });
+
+    it('分類のやり直しを待っている写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async () => {
+      // 分類を止めないと、後で AI の分類がカテゴリを書き換え、手で決めたものが消える（02 §5 #53）
+      freezeNow();
+      const photo = storedPhoto({
+        category: 'plant',
+        identification: identification('plant'),
+        processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-09-21T01:05:00.000Z' }
+      });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'plant' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({
+        category: 'plant',
+        categorySource: 'user',
+        identification: null,
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT }
+      });
+      expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
   });
 
   it('更新する写真が無いと、404で理由を返し、何も変えない', async () => {
