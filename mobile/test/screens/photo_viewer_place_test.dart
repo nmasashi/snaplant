@@ -84,6 +84,23 @@ void main() {
     expect((_storedLocation(backend) as Map)['placeName'], '五稜郭');
   });
 
+  testWidgets('場所の前後に空白を足しただけで頼んでも、直したことにならず、別の端末で直された撮影地を戻さない',
+      (tester) async {
+    // サーバは前後の空白を除いて比べるので、アプリも同じく除いてから比べる
+    final backend = await _openDialog(tester, _photo(_hakodate));
+    backend.photosByTripId[hokkaidoTripId]!.single['location'] = {
+      ..._hakodate,
+      'placeName': '五稜郭',
+      'placeSource': 'user'
+    };
+
+    await tester.enterText(_placeField, '函館市 ');
+    await tester.tap(_submit);
+    await letFramesRun(tester);
+
+    expect((_storedLocation(backend) as Map)['placeName'], '五稜郭');
+  });
+
   testWidgets('場所を空にして頼むと、撮影地の地名が消え、ビューアは緯度・経度を出す', (tester) async {
     final backend = await _openDialog(tester, _photo(_hakodate));
 
