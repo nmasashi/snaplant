@@ -123,7 +123,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - サムネイルが無い写真は `thumbnailUrl: null`
 - 削除（`deletePhoto`）はドキュメントだけを消し、消したドキュメントを返す（原寸・サムネイルの Blob はハンドラが消す。§3.6）。無ければ、または読んだ後・消す前に消されていたら（404）`null`
 - move: 指定した id の `tripId` が変わり `updatedAt` が更新される。`null` で外せる。無い id は `notFound` に入り残りは動く。他の項目（`comment` など）は変わらない
-- PATCH: `comment` を保存して `commentSource: "user"`、`null` で消して `commentSource: null`。`tags` は置き換わり、重複は除かれる。`category`・`identification`・`processing` は変わらない（解析中の写真でも通る）
+- PATCH: `comment` を保存して `commentSource: "user"`、`null` で消して `commentSource: null`。`tags` は置き換わり、重複は除かれる。`comment`・`tags` だけなら `category`・`identification`・`processing` は変わらない（解析中の写真でも通る）。`category`（C-1）はハンドラのテストで確かめる（§3.6）
 
 ### 3.4 `functions/trips.ts` / `tripDetail.ts`
 
@@ -175,6 +175,13 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   Blob の削除失敗でも 200 で、原寸で失敗してもサムネイルは消える。Cosmos の読み取り・削除の失敗（503 / 500）と、読んだ後・消す前に消されていた（404）ときは、ドキュメントも画像も変わらない
 - `PATCH`（`photoUpdate.test.ts`）: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証（順序の例を含む）。`comment` だけ・`tags` だけ（両方を送る正常系のテストは無い）。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`。
   コメント 500 文字・タグ 30 文字は前後の空白を除いて数える（ちょうどなら通る）。文字数は見た目の1文字で数える（つないだ絵文字でちょうど上限なら通る。#128）。結合文字を重ねて見た目は1文字でも、UTF-16 で上限 × 32 を超える文は文字数の上限と同じ 400（`コメントは500文字以内で指定してください`）で何も変えず、ちょうど上限なら通る（#128。規則は全欄共通の関数で、テストはコメントの境目の2本だけ）。前後の空白を除くと同じになるタグは1つにまとめる（前後の U+0085 も除いてから。#128）。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
+- `PATCH` のカテゴリ（C-1。`photoUpdate.test.ts`。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）: `category` が分類の種類に無い（`animal`）・大文字小文字が違う（`Plant`）・`null`・数値で 400 `カテゴリが無効です`。
+  植物に変えると 200 で、応答と文書が `category: "plant"`・`categorySource: "user"`・`identification: null`・`processing` が `{ pending, identify, 0, null, 今 }` になり（ほかの欄は変わらない）、キューに `{ photoId }` が1つ積まれる。
+  自動で調べない種類（植物から食べ物）に変えると `identification: null`・`processing` が `{ done, classify, 0, null, 今 }` で、積まない。分類に失敗した（`failed`・カテゴリ無し）写真を `other` にすると `done`・`attempts: 0` で、積まない。
+  今と同じカテゴリ（識別済みの植物に `plant`）なら `categorySource: "user"`・`updatedAt` だけが変わり、識別と `processing` は残り、積まない。
+  分類のやり直しを待っている（`pending`・`classify`）写真に今と同じカテゴリを送ると、識別を消して植物なら識別の待ちにし、積む（分類を止める）。
+  （C-1 の時点でテストが無いもの: 投入の失敗でも 200 のまま、`classifying` の写真、分類・識別の間に重なったときに結果が捨てられること（ワーカーの担当の条件による。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)））
+- 写真の応答の `categorySource`（C-1）: 取得・一覧・保存（新規と既存）・更新・やり直しの応答の写真に、項目の無い文書でも `categorySource: null` が付く（応答を完全一致で見ているテストに足した）
 
 ### 3.7 `functions/photoMove.ts`
 
@@ -199,6 +206,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - `process`（3-3b。`photoProcess.test.ts`）: 202 で `{ photo, urlExpiresAt }`。写真に `pending`・`step`・`hint`・`attempts: 0`・`updatedAt` が書かれ（`failed`・`attempts: 3` の写真でも）、`comment` / `commentSource` が `null` になり、キュー（`queues`）に `{ photoId }` が積まれる。
   前回の `category`・`classification`・`tags`・`tripId` は変わらない。`hint` は前後の空白を除いて書き、送らない・空白だけ・`null` なら前回の `hint` が消えて `null`。前後の U+0085 も除き、U+0085 だけなら `null`。`hint` の 500 文字は見た目の1文字で数える（つないだ絵文字で 500 文字なら通る）（どちらも #128）。**投入に失敗しても 202** で写真は `pending` のまま。
   `step: "identify"`（4-1b）でも同じく 202 で、写真が `pending`・`step: "identify"` になり、前回の `identification` は残る。
+  手で決めたカテゴリ（`categorySource: "user"`）の写真は、`classify` の受付で `categorySource: null` になり、`identify` の受付では `"user"` のまま（C-1）。
   [05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3) の 1〜8 の各検証（4 は `classify` / `identify` 以外の文字列も。順序の例: 写真 ID も処理の種類も不正なら写真 ID、処理の種類も手がかりも不正なら処理の種類。`identify` で写真が無ければ 8 ではなく 404。8 は `category` が `other` と `null`）で、写真も変えずキューにも積まない。書き込みの失敗で 503 / 500 で、写真もキューも変わらない
 - 識別に回すスクリプト（4-1b。`tests/scripts/enqueueUnidentified.test.ts`）: `--apply` 相当（`apply: true`）なら、`done`・`category` が自動で識別する種類（植物。B-1 までは図鑑の3種類）・`identification: null` の写真が `pending`・`step: "identify"`・`attempts: 0`・`lastError: null`・`updatedAt` が今になり、ほかの欄は変わらない。キューには積まない。
   食べ物・風景（B-1）・`other`・識別済み・分類の待ち・識別中・`failed`・`none` の写真は変えず、`found` にも数えない（クエリの絞り込みを偽物が解釈しないので、コードの見直しで確かめる）。`apply: false` なら枚数を数えるだけで何も変えない。

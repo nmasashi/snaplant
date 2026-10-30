@@ -93,7 +93,7 @@ sequenceDiagram
 - `step: "classify"` のやり直しは、結果の種類が自動で識別する種類（植物）なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。食べ物・風景の詳しい識別は `step: "identify"` のやり直しで頼む（B-1。02 #51）。
   分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
 - ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch、コメント（分類と識別）は同じ条件に `commentSource` の条件を足した patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
-  利用者は解析中でもコメント・タグ・旅行を変えられる
+  利用者は解析中でもコメント・タグ・旅行・カテゴリ（C-1）を変えられる
 
 ### 1.3 状態と失敗
 
@@ -104,10 +104,10 @@ sequenceDiagram
 | `none` | 裏の処理の対象になっていない（段階2の写真） | `null` | `process` で `pending` |
 | `pending` | キューに入っている（または入れようとした） | `classify` / `identify` | ワーカーが取ると `classifying` / `identifying` |
 | `classifying` / `identifying` | 処理中 | 同上 | 成功で `done`（分類の後に識別が続くなら `pending`・`identify`）、失敗で `pending`（再試行）か `failed` |
-| `done` | 済み | 最後にやった処理 | `process` で `pending` |
-| `failed` | 上限まで失敗した。**自動では再試行しない** | 失敗した処理 | `process` で `pending`（`attempts` を 0 に戻す）。これ以外に `failed` から出る経路は無い |
+| `done` | 済み | 最後にやった処理 | `process` で `pending`。利用者がカテゴリを植物に変えると `pending`・`identify`（C-1） |
+| `failed` | 上限まで失敗した。**自動では再試行しない** | 失敗した処理 | `process` で `pending`（`attempts` を 0 に戻す）。利用者がカテゴリを手で決めると、`done`・`classify`（植物なら `pending`・`identify`）で `attempts` は 0（C-1。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。これ以外に `failed` から出る経路は無い |
 
-- ワーカーは担当するたびに（担当の条件付き patch で）`attempts` を +1 し、`updatedAt` を更新する。成功しても `attempts` は 0 に戻さない（戻すのは `process` だけ）。失敗したら `lastError` にどこで失敗したかだけを書く（`UpstreamError` の `service`（分類・識別では `"ai"`）か、それ以外（設定の誤りを含む）なら `"internal"`）。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
+- ワーカーは担当するたびに（担当の条件付き patch で）`attempts` を +1 し、`updatedAt` を更新する。成功しても `attempts` は 0 に戻さない（戻すのは `process` と、`processing` を書き換えるカテゴリの `PATCH`（C-1）だけ）。失敗したら `lastError` にどこで失敗したかだけを書く（`UpstreamError` の `service`（分類・識別では `"ai"`）か、それ以外（設定の誤りを含む）なら `"internal"`）。例外のメッセージは入れない（SDK 由来の文言が残り続けるため）。成功したら `null` に戻す
 - 失敗したとき、`attempts >= 3`（`PHOTO_PROCESSING_MAX_ATTEMPTS`、環境変数。`constants/album.ts` の `photoProcessingMaxAttempts()` が呼ぶたびに読む。[07 §6](./07_infrastructure_design.md#6-設定値の一覧)）なら `failed` にして**例外を投げずに終える**（メッセージは消え、poison には落ちない）。それ未満は `state` を `pending` に戻して（`step` はそのまま）例外を投げ、キューの再試行（可視性タイムアウトの後）で担当し直す。結果の欄（`category`・`classification`・`identification`）には書かない
 - `PHOTO_PROCESSING_MAX_ATTEMPTS` は `host.json` の `maxDequeueCount`（3）以下にする。大きくすると、上限に達する前にメッセージが poison に落ち、残りの回は再投入のタイマー（10 分ごと）だけで進む
 - 写真の `processing.step` を見て、`classify` なら分類、`identify` なら識別を担当する（`identify` は 4-1a で実装済み）。それ以外（`step: null` の `none` の写真）なら何もしない（AI を呼ばず、写真も変えない）。
@@ -194,6 +194,11 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 - `identification = null`（やり直しで種類が変わったとき、古い識別が図鑑の別の種類に残らないように）
 - `kind` が自動で識別する種類（定義表の `autoIdentify` が true。植物だけ。段階4の 4-1a では `CATALOG_KINDS` の3種類すべてだったのを B-1 で絞った。02 #51）なら `processing = { state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもログだけ出して例外にしない（タイマーが拾う）。食べ物・風景・`other` なら `done`（`step: "classify"`）
 
+**手で決めたカテゴリ**（**実装済み**（C-1）。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）: 利用者がカテゴリを手で直す（[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）と、分類は AI を通さずに済む。
+ワーカーは変えていない（`categorySource` を読まない）。手で決めたカテゴリを分類が上書きしないのは、カテゴリの `PATCH` が `processing` を書き換える（植物なら識別の待ち、ほかは `done`。`attempts: 0`・`updatedAt` が今）ので、
+走っている分類の結果は担当の条件（§1.3）で 412 になって書かれず、待っていた分類のメッセージも担当できずに何もしないから（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
+植物に変えたときは `PATCH` がキューに投入し、識別（§3）は手で決めたカテゴリ（写真の `category`）で走る。分類からやり直す（`process` の `step: "classify"`）と、受付が `categorySource` を `null` に戻し、この節の分類がカテゴリを決め直す
+
 ## 3. 識別（段階4）
 
 ### 3.1 契約
@@ -252,7 +257,7 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 | 結果 | `identification` | `comment` / `commentSource` | `processing` |
 |---|---|---|---|
 | `matchesKind: true` | `{ kind, matchesKind: true, name: name.trim(), confidence, description, characteristics, attributes, reason: null, model, at }` | `comment`（前後の空白を除いたもの）・`"ai"`（下の決まり）。空白だけなら触らない | `{ state: "done", step: "identify", attempts: <担当した回数>, lastError: null, updatedAt: <今> }` |
-| `matchesKind: false` | `{ kind, matchesKind: false, name: null, confidence, description: null, characteristics: null, attributes: {}, reason: comment, model, at }`（応答が説明・特徴・項目を返していても持たない。`comment` が空白だけなら `reason: null`）。図鑑には出ない | 触らない | 同上。画面は「分類と合わない」と出す |
+| `matchesKind: false` | `{ kind, matchesKind: false, name: null, confidence, description: null, characteristics: null, attributes: {}, reason: comment, model, at }`（応答が説明・特徴・項目を返していても持たない。`comment` が空白だけなら `reason: null`）。図鑑には出ない | 触らない | 同上。画面は「{カテゴリ}が写っていないようです。カテゴリを確かめてください」と出す（C-1。それまでは「分類と合わない写真です」。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)） |
 
 `kind` は写真の `category`、`at` と `updatedAt` は書いた時刻。`tags`・`tripId`・`category`・`classification`・`hint` には触らない。
 
