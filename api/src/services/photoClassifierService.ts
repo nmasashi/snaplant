@@ -1,7 +1,7 @@
 import { CATALOG_KINDS, PHOTO_KINDS, PhotoKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
-import { aiCommentOf } from './aiComment';
+import { aiCommentOf } from '../utils/aiComment';
 
 /** 選択肢のキーの意味（例: `plant（植物）・food（食べ物）`）。キーだけでは AI が種類の境目を判断できないので、定義表の名前を添える */
 const KIND_LABELS = Object.entries(CATALOG_KINDS)

@@ -1,7 +1,7 @@
 import { CATALOG_KINDS, CatalogKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
-import { aiCommentOf } from './aiComment';
+import { aiCommentOf } from '../utils/aiComment';
 import { CATALOG_VALIDATION } from '../constants/validation';
 
 /**
