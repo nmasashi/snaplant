@@ -327,8 +327,9 @@ describe('写真の解析のやり直しAPI', () => {
       expect(storedPhoto().location).toEqual({ latitude: null, longitude: null, placeName: '函館朝市', placeSource: 'user' });
     });
 
-    it('場所を空にして送ると地名を消す（緯度・経度だけ残し、位置情報の無い写真は無いまま）', () => forEachCase([
-      ['緯度・経度のある写真', { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' as const }, { latitude: 41.77, longitude: 140.73, placeName: null, placeSource: null }],
+    // 地名を消しても出どころは user にする（null だと「まだ地名を引いていない」と区別できず、後で地名を引き直すと消した地名が戻る。04 §1.3）
+    it('場所を空にして送ると地名を消す（緯度・経度と、手で消した印を残し、位置情報の無い写真は無いまま）', () => forEachCase([
+      ['緯度・経度のある写真', { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' as const }, { latitude: 41.77, longitude: 140.73, placeName: null, placeSource: 'user' }],
       ['緯度・経度の無い写真', { latitude: null, longitude: null, placeName: '函館朝市', placeSource: 'user' as const }, null],
       ['位置情報の無い写真', null, null]
     ], async (_case, location, expected) => {
