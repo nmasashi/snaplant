@@ -1,4 +1,4 @@
-import { isCatalogKind } from '../catalog/kinds';
+import { identifiesAutomatically } from '../catalog/kinds';
 import { AlbumService } from '../services/albumService';
 import { endpointHost, loadLocalSettings } from './scriptSettings';
 
@@ -19,9 +19,9 @@ export async function enqueueUnidentifiedPhotos(options: {
   const now = new Date().toISOString();
   // クエリと同じ条件をコードでも見る（クエリの絞り込みはテストで確かめられない）。崩れても、識別済みや解析中の写真を書き換えない
   const targets = (await album.listUnidentifiedPhotos()).filter(
-    (photo) => photo.processing?.state === 'done' && photo.identification === null && isCatalogKind(photo.category)
+    (photo) => photo.processing?.state === 'done' && photo.identification === null && identifiesAutomatically(photo.category)
   );
-  options.log(`識別の対象（分類まで済んで識別の無い写真）: ${targets.length} 枚`);
+  options.log(`識別の対象（分類まで済んで識別の無い、自動で識別する種類（植物）の写真）: ${targets.length} 枚`);
   if (!options.apply) {
     options.log('--apply が無いので、何も書きません');
     return { found: targets.length, marked: 0 };

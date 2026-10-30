@@ -60,8 +60,8 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
     jest.clearAllMocks();
   });
 
-  it('書き込みを指定すると、分類まで済んで識別の無い図鑑の種類の写真を、識別の待ちにする', async () => {
-    // 植物・食べ物・風景のどれも対象。分類の結果・カテゴリ・利用者の欄は変えない
+  it('書き込みを指定すると、分類まで済んで識別の無い、自動で識別する種類（植物）の写真を、識別の待ちにする', async () => {
+    // 対象は植物だけ。食べ物・風景は自動では識別しない（02 #51。利用者がやり直しで頼む）ので変えない。分類の結果・カテゴリ・利用者の欄は変えない
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a'), { tags: ['公園'], tripId: null }));
     cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b'), { category: 'food' }));
     cosmosBackend.documents.set(photoId('c'), classifiedPhoto(photoId('c'), { category: 'landscape' }));
@@ -70,13 +70,13 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
 
     const result = await enqueueUnidentifiedPhotos({ apply: true, log });
 
-    expect(result).toEqual({ found: 3, marked: 3 });
+    expect(result).toEqual({ found: 1, marked: 1 });
     expect(stored(photoId('a'))).toEqual({
       ...classifiedPhoto(photoId('a'), { tags: ['公園'], tripId: null }),
       processing: waitingForIdentify
     });
-    expect(stored(photoId('b')).processing).toEqual(waitingForIdentify);
-    expect(stored(photoId('c')).processing).toEqual(waitingForIdentify);
+    expect(stored(photoId('b'))).toEqual(classifiedPhoto(photoId('b'), { category: 'food' }));
+    expect(stored(photoId('c'))).toEqual(classifiedPhoto(photoId('c'), { category: 'landscape' }));
   });
 
   it('写真が対象でない（other・識別済み・分類の待ち・解析中）なら、書き込みを指定しても変えない', () => forEachCase([
@@ -100,13 +100,13 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
   it('書き込みを指定しなければ、対象の写真を数えるだけで何も変えない', async () => {
     // 本番のデータを書くので、先に件数を見てから回す（06 §1）
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a')));
-    cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b'), { category: 'food' }));
+    cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b'), { tags: ['公園'] }));
 
     const result = await enqueueUnidentifiedPhotos({ apply: false, log });
 
     expect(result).toEqual({ found: 2, marked: 0 });
     expect(stored(photoId('a'))).toEqual(classifiedPhoto(photoId('a')));
-    expect(stored(photoId('b'))).toEqual(classifiedPhoto(photoId('b'), { category: 'food' }));
+    expect(stored(photoId('b'))).toEqual(classifiedPhoto(photoId('b'), { tags: ['公園'] }));
   });
 
   it('読んだ後に解析の進み具合が変わった写真（やり直しの受付が入った）は書かず、ほかの写真は書く', async () => {

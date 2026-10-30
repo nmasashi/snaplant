@@ -63,8 +63,9 @@ sequenceDiagram
     W->>DB: 写真を読む（step = classify）。state = classifying（state = pending の条件付き patch）
     W->>B: 原寸の読み取り SAS を発行
     W->>AI: 分類（今のデプロイ・detail low）
-    AI-->>W: { kind, confidence, reason }
-    alt kind が CATALOG_KINDS にある（段階4）
+    AI-->>W: { kind, confidence, reason, comment }
+    W->>DB: comment（commentSource が user でなければ、の条件付き patch。B-1）
+    alt kind が自動で識別する種類（植物。CATALOG_KINDS の autoIdentify）
         W->>DB: category = kind、classification、identification = null、state = pending, step = identify
         W->>Q: { photoId }
         Q->>W: メッセージ
@@ -72,8 +73,8 @@ sequenceDiagram
         W->>AI: 識別（定義表のスキーマ・手がかり付き）
         W->>DB: comment（commentSource が user でなければ、の条件付き patch）
         W->>DB: identification、state = done
-    else other
-        W->>DB: category = other、classification、identification = null、state = done
+    else 食べ物・風景・other
+        W->>DB: category = kind、classification、identification = null、state = done
     end
 ```
 
@@ -83,15 +84,15 @@ sequenceDiagram
   **スクリプトはまだ作っていない**（段階3では使わなかった）。作るなら手で回すスクリプトの置き場（`api/README.md`「手で回すスクリプト」）に合わせて `api/src/scripts/enqueueUnclassified.ts` にする
 - 段階4で、段階3で分類まで済んだ写真（`state: "done"`、種類が識別対象で `identification` が無いもの）を識別するには、`POST /api/photos/{photoId}/process` を1枚ずつ呼ぶか、
   一度だけ走らせる手動のスクリプト（`api/src/scripts/enqueueUnidentified.ts`。人間が実行する）で識別の待ち（`pending`・`step: "identify"`・回数 0）にする。対象でない写真をタイマーが自分から識別に回すことはしない（上と同じ理由。2026-10-18 に決定。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #30）
-  - 対象は「`state: "done"`・`category` が `CATALOG_KINDS` のどれか・`identification` が `null`」の写真。クエリで絞り、同じ条件をコードでも見る（クエリの絞り込みはテストで確かめられない）
+  - 対象は「`state: "done"`・`category` が自動で識別する種類（植物。B-1 で食べ物・風景を外した。02 #51）・`identification` が `null`」の写真。クエリは `CATALOG_KINDS` のどれかで絞り（[04 §5](./04_data_design.md#5-クエリ) の 5.11）、コードはクエリと同じ条件をもう一度見たうえで、自動で識別する種類に絞る（クエリの絞り込みはテストで確かめられない）。ログの対象の枚数と戻り値の `found` は、コードで絞った後の枚数
   - 書き込みは読んだときの `processing` の条件付き patch（[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり) と同じ `processingCondition()`）。読んだ後にやり直しの受付やワーカーが書き換えた写真は飛ばす
   - **キューには積まない。** 識別の待ちにした写真は、再投入のタイマーが 10〜20 分後に積む（待ちのまま 10 分たった写真を拾う。§1.1）。スクリプトを手元で回すときに、本番のキューへの接続を要らなくするため（手元の設定の `AzureWebJobsStorage` はローカルの偽物を指していることがある）
   - **既定は数えるだけで、何も書かない。** `--apply` を付けたときだけ書く（本番のデータを書くので、先に件数を見てから回す）。手順は `api/README.md`
   - 対象の枚数と、識別の待ちにした枚数をログに出す（飛ばした写真は ID も）。途中で止まっても回し直してよい（待ちにした写真は `done` でなくなるので、次の回の対象から外れる）
   - 読むクエリは `AlbumService.listUnidentifiedPhotos()`（[04 §5](./04_data_design.md#5-クエリ) の 5.11）、書くのは `writeProcessing()`
-- `step: "classify"` のやり直しは、結果の種類が識別対象なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。
+- `step: "classify"` のやり直しは、結果の種類が自動で識別する種類（植物）なら続けて `identify` も投入する（要件 5.5.1「カテゴリの分類も、図鑑の項目の識別も対象」）。食べ物・風景の詳しい識別は `step: "identify"` のやり直しで頼む（B-1。02 #51）。
   分類の結果を書くときに `identification` を `null` に戻す（識別が終わるまで図鑑からは一時的に消える。種類が変わったのに古い名前の下に残り続けるよりよい）
-- ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch、コメント（識別だけ）は同じ条件に `commentSource` の条件を足した patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
+- ワーカーの書き込みの決まり（AI の担当の欄だけを patch する、結果と失敗は担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch、コメント（分類と識別）は同じ条件に `commentSource` の条件を足した patch、ロックや `_etag` の条件は置かない）は [04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)。
   利用者は解析中でもコメント・タグ・旅行を変えられる
 
 ### 1.3 状態と失敗
@@ -146,7 +147,7 @@ sequenceDiagram
 | 画像 | 原寸（サムネイルではない）の Blob の読み取り SAS を `image_url` に、`detail: "low"`。有効期限は 15 分（`constants/album.ts` の定数 `CLASSIFY_IMAGE_SAS_MINUTES`。環境変数では変えられない。関数の実行時間の上限（`api/host.json` の `functionTimeout` = 5 分）にサーバ間の時計のずれの余裕を足した値で、植物図鑑の一時画像の SAS（4-6 で削除）と同じ理由）。写真の表示用の URL と同じ `PhotoStorageService.readUrl()` で作るので、`startsOn` は発行の 5 分前（[07 §6.2](./07_infrastructure_design.md#62-api-のコードの定数)） |
 | 要求の形 | `user` ロールのメッセージ1件に、テキスト（プロンプト）と画像の2パート。`response_format` は `json_schema`（名前 `photo_classification`、`strict: true`、スキーマは §2.2）。`max_completion_tokens: 4000`（`max_tokens` は送らない）。`temperature` は送らない |
 | サービス | `api/src/services/photoClassifierService.ts` の `classify(imageUrl, { placeName, hint })`（手がかり。どちらも無ければ `null`）。`new OpenAIVisionService(AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME)` を作り（`PhotoClassifierService` のコンストラクタ）、一般化した `analyze({ schemaName, schema, prompt, imageUrl })` を呼ぶ（`detail` は `"low"` で固定） |
-| 返すもの | `{ kind, confidence, model }`。`model` は要求を送ったデプロイ名（§2.3 の `classification.model`）。`reason` は返さない |
+| 返すもの | `{ kind, confidence, comment, model }`。`model` は要求を送ったデプロイ名（§2.3 の `classification.model`）。`comment` は前後の空白を除いたもので、空（文字列でない応答も）なら `null`。`reason` は返さない |
 | 失敗 | `UpstreamError('ai')`。AI の呼び出しの失敗（SDK のエラー応答など）、応答が空・JSON として読めない、応答の検証違反（`kind` が選択肢に無い、`confidence` が数値でないか 0〜100 の範囲外。0 と 100 は受け付ける。`reason` は検査しない）のどれも同じ（植物図鑑の `identifyPlant()`（4-6 で削除）と同じ扱いだった） |
 
 `OpenAIVisionService` の一般化（3-2 で実装）: スキーマ・プロンプトを引数で受ける `analyze()` を足し、`identifyPlant()` もこれを通した（`identifyPlant()` は 4-6 で削除）。
@@ -165,9 +166,10 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
     "kind": { "type": "string", "enum": ["plant", "food", "landscape", "other"],
               "description": "写真の主題のカテゴリ。plant（植物）・food（食べ物）・landscape（風景） のどれでもなければ other" },
     "confidence": { "type": "number", "description": "分類の信頼度（0-100）" },
-    "reason": { "type": "string", "description": "判定理由（日本語で簡潔に）" }
+    "reason": { "type": "string", "description": "判定理由（日本語で簡潔に）" },
+    "comment": { "type": "string", "description": "写っているものについての一言（日本語）" }
   },
-  "required": ["kind", "confidence", "reason"],
+  "required": ["kind", "confidence", "reason", "comment"],
   "additionalProperties": false
 }
 ```
@@ -177,15 +179,20 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 - strict モードの制約（`openAIVisionService.ts` 5〜14行）はそのまま: `minimum` / `maximum` が使えないので 0〜100 はコードで検証する
 - プロンプトは「主題を、選択肢（定義表のキーと `label`。例 `plant（植物）`）から1つ選ぶ。人や動物、建物の内装など当てはまらないものは other」。手がかりとして、やり直しで利用者が書いた `hint`（写真に保存したもの。メッセージには載せない）と撮影地（`placeName`）を、あるものだけテキストに含める
 - `reason` は受け取るが保存しない（§2.3）。AI に判断を言葉にさせるために残している
+- `comment`（**実装済み**（B-1））は写真のコメントにする（§2.3）。プロンプトで「後で写真を見返す人に向けた、写っているものについての一言にし、手がかり・撮影地・判断の過程には触れない」と指示する（識別の `comment` と同じ考え方。§3.1）。指示の文言は契約外
 
 ### 2.3 書き込み
 
-AI の担当の欄だけを1回の patch で `set` する。条件は担当したときのままか（`state = "classifying"`・`step = "classify"`・`attempts` が担当した回数・`processing.updatedAt` が担当したときの時刻。`processingCondition()`）だけで、`_etag` の条件は付けない（§1.3・[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`tags`・`comment`・`tripId` には触らない。
+**実装済み**（B-1）: コメントの書き込みと、自動で識別する種類だけを識別の待ちにすること。
+
+分類の一言（`comment` が `null` でなければ）を、識別と同じ条件付きの patch（`writeAiComment()`。担当したときのままで、`commentSource` が `null` か `"ai"`。§3.2 の `comment` の決まり）で先に書く。412（利用者のコメントがある、やり直しの受付が入った）なら書かずに結果の patch へ進む。植物は、続く識別の一言で書き直す（識別が `matchesKind: false` ならコメントを書かないので、分類の一言が残る）。
+
+結果は AI の担当の欄だけを1回の patch で `set` する。条件は担当したときのままか（`state = "classifying"`・`step = "classify"`・`attempts` が担当した回数・`processing.updatedAt` が担当したときの時刻。`processingCondition()`）だけで、`_etag` の条件は付けない（§1.3・[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`tags`・`comment`・`tripId` には触らない。
 
 - `category = kind`（`other` を含む）。専用の欄なので、利用者のタグと選り分ける処理は無い（[04 §2](./04_data_design.md#2-カテゴリとタグ)）
 - `classification = { kind, confidence, model: <デプロイ名>, at: <ISO> }`
 - `identification = null`（やり直しで種類が変わったとき、古い識別が図鑑の別の種類に残らないように）
-- `kind` が `CATALOG_KINDS` にあれば（段階4。4-1a で実装済み）`processing = { state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもログだけ出して例外にしない（タイマーが拾う）。`other` なら `done`
+- `kind` が自動で識別する種類（定義表の `autoIdentify` が true。植物だけ。段階4の 4-1a では `CATALOG_KINDS` の3種類すべてだったのを B-1 で絞った。02 #51）なら `processing = { state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` とし、patch の後に `{ photoId }` を投入する。投入に失敗してもログだけ出して例外にしない（タイマーが拾う）。食べ物・風景・`other` なら `done`（`step: "classify"`）
 
 ## 3. 識別（段階4）
 
@@ -253,7 +260,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 
 - `comment`・`commentSource: "ai"` の patch に、担当したときのままの条件と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件を付ける。412（利用者がその間にコメントを書いた、またはやり直しの受付が入った）なら書かずに結果の patch へ進む（やり直しなら結果の patch も 412 で書かれない）
   （送信直後の自動の解析が、利用者がその間に書いたコメントを消さないように）。Cosmos が条件を原子的に評価するので、読んでから書くまでの間を気にしなくてよい
-- やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる
+- やり直し（`process`）は受付の時点で `comment` を `null` にする（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果は必ず書かれる（`matchesKind: false` と上限までの失敗ではコメントを書かないので、コメントの無い写真になる。[09](./09_backlog.md) で判断待ち）
   （[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9「やり直しは利用者のコメントを上書きする」）。
   利用者の文を失わないよう、アプリのやり直し画面は `commentSource == "user"` なら現在のコメントを、無ければ前回の `hint` を、手がかりに事前入力する
 
@@ -324,7 +331,7 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 | 担当の patch が 412（`state` が `pending` でない） | ワーカー | 別のインスタンスが担当済み。何もしない |
 | 結果・失敗の patch が 412（分類・識別の間にやり直しの受付が入った） | ワーカー | 何も書かずに終える（例外を投げない）。やり直しで積んだメッセージが改めて担当する（§1.3） |
 | 再投入の patch が 412（読んだ後にワーカーが担当した・やり直しの受付が入った） | タイマー | その写真には触らず、積まない |
-| コメントの patch が 412（利用者がコメントを書いた、または識別の間にやり直しの受付が入った）・404（写真が消された） | ワーカー（識別） | コメントは書かず、結果の patch に進む（やり直し・削除なら結果の patch も 412 / 404 で書かれない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
+| コメントの patch が 412（利用者がコメントを書いた、または分類・識別の間にやり直しの受付が入った）・404（写真が消された） | ワーカー（識別と、B-1 からは分類も） | コメントは書かず、結果の patch に進む（やり直し・削除なら結果の patch も 412 / 404 で書かれない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)） |
 | 同じメッセージの重複配信 | ワーカー | 担当の条件付き patch と写真の `state` で飛ばす（§1.3） |
 | 地名変換の失敗 | ワーカー | ログだけ。分類は続ける |
 | 10 分以上 `pending` / `classifying` / `identifying` のまま | タイマー | 再投入（`attempts` が上限未満）か `failed`。`failed` は拾わない。投入の失敗はログだけで、次の回に拾う |
@@ -346,11 +353,11 @@ AI の担当の欄だけを1回の patch で `set` する。条件は担当し�
 
 - **実測を記録する。** 段階3の最初に 10 枚を分類し、応答の `usage`（プロンプト・補完のトークン数）をログに出して `docs/09_backlog.md` の「旅行アルバム（ロードマップ）」に記録する。段階4の識別も同じ。
   容量は当面今のまま（150）でよく、実測で費用が気になったときに下げる（下げても止まらず遅くなるだけ）
-- 見積もりの式: 1 枚あたりのトークン × 単価 × 1 旅行の枚数（数百）× 旅行の回数。識別は分類で絞った枚数（`other` を除く）だけ。
+- 見積もりの式: 1 枚あたりのトークン × 単価 × 1 旅行の枚数（数百）× 旅行の回数。識別は分類で絞った枚数だけ（自動で識別するのは植物だけ。B-1 で実装済み。それまでは `other` を除く3種類。食べ物・風景は利用者がやり直しで頼んだ枚数だけ）。
   安い GPT-5 系の nano / mini に変えるかは、この実測を見て決める（変えるときは Terraform でデプロイを1つ足し、`AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME` を書き換える）
 - 利用者のやり直し（`process`）にも回数の上限は置かない。1枚ずつ手で頼む操作で、容量の天井の内側に収まる
 - 地名変換（Azure Maps）を足すときも同じ考え方で、アプリに上限を置かず、サービス側の設定と予算アラートで抑える（§4.3）
-- 費用に効く設計: 分類は `detail: "low"`（モデルは当面今のデプロイ。安いものに差し替えられる形にしておく）、識別は必要な写真だけ、直列で流す（TPM の上限超えによる再試行の無駄を減らす）
+- 費用に効く設計: 分類は `detail: "low"`（モデルは当面今のデプロイ。安いものに差し替えられる形にしておく）、識別は必要な写真だけ（自動では植物だけ。B-1）、直列で流す（TPM の上限超えによる再試行の無駄を減らす）
 
 ## 7. 今の植物図鑑の統合と廃止（段階4）
 

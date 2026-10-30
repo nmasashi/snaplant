@@ -1,6 +1,7 @@
 import { CATALOG_KINDS, CatalogKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
+import { aiCommentOf } from '../utils/aiComment';
 import { CATALOG_VALIDATION } from '../constants/validation';
 
 /**
@@ -142,7 +143,6 @@ ${clueSection}`;
           return [field.key, value];
         })
       );
-      const comment = typeof result.comment === 'string' ? result.comment.trim() : '';
 
       return {
         matchesKind: result.matchesKind,
@@ -150,7 +150,7 @@ ${clueSection}`;
         confidence: result.confidence,
         description: result.description,
         characteristics: result.characteristics,
-        comment: comment || null,
+        comment: aiCommentOf(result.comment),
         attributes,
         model: this.vision.deployment,
       };
