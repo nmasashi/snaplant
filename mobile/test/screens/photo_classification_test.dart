@@ -204,7 +204,8 @@ void main() {
         await tester.tap(find.byTooltip(title));
         await letFramesRun(tester);
 
-        expect(find.descendant(of: find.byType(AlertDialog), matching: find.text(title)), findsOneWidget);
+        // カテゴリの無い写真は題と頼むボタンが同じ「分類し直す」なので、題は1つ以上で見る
+        expect(find.descendant(of: find.byType(AlertDialog), matching: find.text(title)), findsWidgets);
         expect(find.text(field), findsOneWidget);
         expect(find.widgetWithText(TextButton, submit), findsOneWidget);
       });
