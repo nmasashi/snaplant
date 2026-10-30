@@ -35,6 +35,7 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
 
   Future<void> _submit() async {
     final selected = _selected;
+    // selected の null の判定は _willSend にもあるが、下で null でない型として使うために置く
     if (selected == null || !_willSend) {
       Navigator.pop(context);
       return;
