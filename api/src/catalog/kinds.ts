@@ -61,7 +61,7 @@ export function identifiesAutomatically(kind: unknown): boolean {
 /**
  * 図鑑に載せる種類か（02 §5 #51。植物だけ。食べ物・風景は識別はできるが図鑑には載せない）
  */
-export function isListedInCatalog(kind: unknown): kind is CatalogKind {
+export function isListedInCatalog(kind: unknown): boolean {
   return isCatalogKind(kind) && CATALOG_KINDS[kind].inCatalog;
 }
 

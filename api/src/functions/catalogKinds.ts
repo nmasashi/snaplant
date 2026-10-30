@@ -1,5 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
-import { CATALOG_KINDS } from '../catalog/kinds';
+import { CATALOG_KINDS, isListedInCatalog } from '../catalog/kinds';
 import { createSuccessResponse } from '../utils/response';
 
 /**
@@ -16,7 +16,7 @@ export async function listCatalogKindsHandler(
   context.log('図鑑の種類の一覧リクエストを受信');
   // 識別できても図鑑に載せない種類（食べ物・風景）は返さない（02 §5 #51）
   const kinds = Object.entries(CATALOG_KINDS)
-    .filter(([, { inCatalog }]) => inCatalog)
+    .filter(([kind]) => isListedInCatalog(kind))
     .map(([kind, { label, fields }]) => ({
       kind,
       label,

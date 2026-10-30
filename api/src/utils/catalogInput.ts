@@ -1,7 +1,7 @@
 import { HttpResponseInit } from '@azure/functions';
 import { createValidationError } from './response';
 import { CATALOG_VALIDATION } from '../constants/validation';
-import { isListedInCatalog } from '../catalog/kinds';
+import { isCatalogKind, isListedInCatalog } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntryQuery } from '../types/album';
 import { readPhotoPage } from './photoInput';
 import { readPageLimit } from './pageLimit';
@@ -18,7 +18,7 @@ export function readCatalogEntriesQuery(
   query: URLSearchParams
 ): { query: CatalogEntriesQuery } | { error: HttpResponseInit } {
   const kind = query.get('kind');
-  if (!isListedInCatalog(kind)) {
+  if (!isCatalogKind(kind) || !isListedInCatalog(kind)) {
     return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.KIND_INVALID) };
   }
 
@@ -44,7 +44,7 @@ export function readCatalogEntryQuery(
   query: URLSearchParams
 ): { query: CatalogEntryQuery } | { error: HttpResponseInit } {
   const kind = query.get('kind');
-  if (!isListedInCatalog(kind)) {
+  if (!isCatalogKind(kind) || !isListedInCatalog(kind)) {
     return { error: createValidationError(CATALOG_VALIDATION.ERROR_MESSAGES.KIND_INVALID) };
   }
   const name = query.get('name')?.trim() ?? '';
