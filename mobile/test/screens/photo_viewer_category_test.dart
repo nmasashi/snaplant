@@ -122,10 +122,10 @@ void main() {
     await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
     await letFramesRun(tester);
     // 今のカテゴリのまま保存すると何も送らないので、コメントは消えない
-    expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsNothing);
+    expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsNothing);
     await tester.tap(_option('食べ物'));
     await tester.pump();
-    expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsOneWidget);
+    expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsOneWidget);
     await tester.tap(_save);
     await letFramesRun(tester);
 
@@ -145,7 +145,7 @@ void main() {
     await tester.tap(_option('食べ物'));
     await tester.pump();
 
-    expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsNothing);
+    expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsNothing);
   });
 
   testWidgets('今のカテゴリのまま保存すると、何も送らずに閉じる', (tester) async {
@@ -180,7 +180,7 @@ void main() {
       await letFramesRun(tester);
       // 植物のまま保存しても品種を調べ始め、AI のコメントも消えるので、その旨を出す
       expect(find.text('植物にすると、品種を調べます。'), findsOneWidget);
-      expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsOneWidget);
+      expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsOneWidget);
       await tester.tap(_save);
       await letFramesRun(tester);
 
