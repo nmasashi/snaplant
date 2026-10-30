@@ -6,7 +6,7 @@ import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../const
 import { UpstreamError } from '../utils/errors';
 import { PhotoDocument, PhotoProcessing } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
-import { isCatalogKind } from '../catalog/kinds';
+import { identifiesAutomatically, isCatalogKind } from '../catalog/kinds';
 import { PhotoIdentifierService } from '../services/photoIdentifierService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 
@@ -87,7 +87,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
 }
 
 /**
- * 担当した写真を分類し、結果を書く。種類が図鑑の種類なら識別の待ちにして積む（06 §2.3）
+ * 担当した写真を分類し、AI の一言と結果を書く。種類が自動で識別する種類（植物）なら識別の待ちにして積む（06 §2.3）
  *
  * 失敗は投げる（呼び出し側が待ちに戻すか failed にする）
  */
@@ -105,7 +105,11 @@ async function classifyPhoto(
   });
 
   const now = new Date().toISOString();
-  const identifies = isCatalogKind(result.kind);
+  if (result.comment !== null) {
+    // 利用者がコメントを書いていたら書かない（false が返る）。それでも分類の結果は書く。植物は後の識別のコメントで書き直す
+    await album.writeAiComment(photo.id, claimedProcessing, result.comment);
+  }
+  const identifies = identifiesAutomatically(result.kind);
   const written = await album.writeClassification(photo.id, claimedProcessing, {
     category: result.kind,
     classification: { kind: result.kind, confidence: result.confidence, model: result.model, at: now },

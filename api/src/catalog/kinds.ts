@@ -8,6 +8,7 @@
 export const CATALOG_KINDS = {
   plant: {
     label: '植物',
+    autoIdentify: true,
     namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
     fields: [
       { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
@@ -16,6 +17,7 @@ export const CATALOG_KINDS = {
   },
   food: {
     label: '食べ物',
+    autoIdentify: false,
     namingRule: '固有の料理名（名物名・店の看板料理）→ 一般的な料理名 → 料理の種類の順に、分かる最も細かい粒度（例: 札幌味噌ラーメン → 味噌ラーメン → ラーメン）',
     fields: [
       { key: 'genre', label: '料理のジャンル', type: 'string', prompt: '和食・中華・洋食など' },
@@ -24,6 +26,7 @@ export const CATALOG_KINDS = {
   },
   landscape: {
     label: '風景',
+    autoIdentify: false,
     namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
     fields: [
       { key: 'placeType', label: '場所の種類', type: 'string', prompt: '山・海・寺社・街並みなど' },
@@ -44,6 +47,13 @@ export type PhotoKind = CatalogKind | typeof OTHER_KIND;
 
 /** 写真の `category` に入りうる値の一覧（定義表の種類と other） */
 export const PHOTO_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OTHER_KIND];
+
+/**
+ * 分類の後に自動で詳しく識別する種類か（02 §5 #51。植物だけ。ほかの種類は利用者がやり直しで頼んだときだけ識別する）
+ */
+export function identifiesAutomatically(kind: unknown): kind is CatalogKind {
+  return isCatalogKind(kind) && CATALOG_KINDS[kind].autoIdentify;
+}
 
 /**
  * 図鑑の種類（定義表のキー）か

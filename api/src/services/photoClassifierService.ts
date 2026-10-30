@@ -24,8 +24,9 @@ const PHOTO_CLASSIFICATION_SCHEMA = {
     confidence: { type: 'number', description: '分類の信頼度（0-100）' },
     // 判定理由は保存しない（06 §2.3）。AI に理由を書かせて判断を言葉にさせるために残し、出力は数十トークンで費用は無視できる
     reason: { type: 'string', description: '判定理由（日本語で簡潔に）' },
+    comment: { type: 'string', description: '写っているものについての一言（日本語）' },
   },
-  required: ['kind', 'confidence', 'reason'],
+  required: ['kind', 'confidence', 'reason', 'comment'],
   additionalProperties: false,
 };
 
@@ -35,6 +36,8 @@ export interface PhotoClassification {
   confidence: number;
   /** 分類に使ったデプロイ名 */
   model: string;
+  /** 写っているものについての一言（前後の空白を除いたもの）。空なら null */
+  comment: string | null;
 }
 
 /**
@@ -69,6 +72,8 @@ export class PhotoClassifierService {
 この写真の主題を、${KIND_LABELS} から1つ選んでください。
 ${clueSection}
 人や動物、建物の内装など、当てはまるものが無ければ other を選んでください。
+comment は、後で写真を見返す人に向けた、写っているものについての一言にしてください。
+時間がたつと手がかりの内容は分からなくなるので、手がかりや撮影地、判断の過程には触れないでください。
 `;
 
     try {
@@ -77,7 +82,7 @@ ${clueSection}
         schema: PHOTO_CLASSIFICATION_SCHEMA,
         prompt,
         imageUrl,
-      })) as { kind: unknown; confidence: unknown };
+      })) as { kind: unknown; confidence: unknown; comment: unknown };
 
       // strict のスキーマでも、範囲は強制できず、選択肢の外の値が来ないことも検査しないと保証できない。
       // 検査を通らない応答を書き込むと、写真の category が図鑑の種類と食い違う
@@ -88,7 +93,13 @@ ${clueSection}
         throw new Error('confidenceが0-100の範囲の数値ではありません');
       }
 
-      return { kind: result.kind as PhotoKind, confidence: result.confidence, model: this.vision.deployment };
+      const comment = typeof result.comment === 'string' ? result.comment.trim() : '';
+      return {
+        kind: result.kind as PhotoKind,
+        confidence: result.confidence,
+        model: this.vision.deployment,
+        comment: comment || null,
+      };
     } catch (error: any) {
       throw new UpstreamError(`写真の分類に失敗しました: ${error.message}`, 'ai', error);
     }
