@@ -20,7 +20,7 @@ Map<String, Object?> _photo(
     photoJson(
         number: number,
         tripId: hokkaidoTripId,
-        takenAt: '2026-10-0${5 + number}T10:15:00')
+        takenAt: '2026-10-${(5 + number).toString().padLeft(2, '0')}T10:15:00')
       ..['category'] = category
       ..['processing'] = {
         'state': state,
@@ -129,12 +129,29 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
     await letFramesRun(tester);
+    // 植物のまま保存しても品種を調べ始めるので、その旨を出す
+    expect(find.text('植物に変えると、品種を調べます。'), findsOneWidget);
     await tester.tap(_save);
     await letFramesRun(tester);
 
     expect(find.widgetWithText(OutlinedButton, '植物（変更済み）'), findsOneWidget);
     expect(_stored(backend)['categorySource'], 'user');
     expect((_stored(backend)['processing'] as Map)['step'], 'identify');
+  });
+
+  testWidgets('分類に失敗したカテゴリのある写真では、今のカテゴリのまま保存しても送り、失敗から出す', (tester) async {
+    // 分類に失敗しても前のカテゴリが残っていることがある。手で決めれば、分類をやり直さずに済む（05 §5.6）
+    final backend =
+        await _openViewer(tester, _photo(category: 'food', state: 'failed'));
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '食べ物'));
+    await letFramesRun(tester);
+    await tester.tap(_save);
+    await letFramesRun(tester);
+
+    expect(find.widgetWithText(OutlinedButton, '食べ物（変更済み）'), findsOneWidget);
+    expect(find.text('分類に失敗しました'), findsNothing);
+    expect(_stored(backend)['categorySource'], 'user');
   });
 
   testWidgets('保存に失敗したら、シートに留まって理由を出す', (tester) async {
