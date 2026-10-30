@@ -80,12 +80,12 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
                       ? null
                       : (value) => setState(() => _selected = value),
                 ),
-              // 植物に変えるときは、品種を調べ始めることを知らせる
+              // 保存すると品種を調べ始める（植物に変える・分類が済んでいない）ときは、そのことを知らせる
               if (_selected == 'plant' &&
                   (widget.photo.category != 'plant' || _unsettled))
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text('植物に変えると、品種を調べます。'),
+                  child: Text('植物にすると、品種を調べます。'),
                 ),
               if (_error != null)
                 Padding(
