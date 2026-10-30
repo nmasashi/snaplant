@@ -109,7 +109,8 @@ void main() {
     expect(_stored(backend)['categorySource'], 'user');
   });
 
-  testWidgets('AI が書いたコメントのある写真で別のカテゴリを選ぶと、コメントが消えることを知らせ、保存すると下の情報からコメントが消える',
+  testWidgets(
+      'AI が書いたコメントのある写真では、今のカテゴリを選んでいる間は知らせず、別のカテゴリを選ぶとコメントが消えることを知らせ、保存すると下の情報からコメントが消える',
       (tester) async {
     // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない（05 §5.6）
     await _openViewer(
@@ -120,6 +121,8 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
     await letFramesRun(tester);
+    // 今のカテゴリのまま保存すると何も送らないので、コメントは消えない
+    expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsNothing);
     await tester.tap(_option('食べ物'));
     await tester.pump();
     expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsOneWidget);
@@ -141,21 +144,6 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(_option('食べ物'));
     await tester.pump();
-
-    expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsNothing);
-  });
-
-  testWidgets('AI が書いたコメントの写真でも、今のカテゴリを選んでいる間はコメントが消えることを知らせない',
-      (tester) async {
-    // 今のカテゴリのまま保存すると、何も送らない
-    await _openViewer(
-        tester,
-        _photo(category: 'plant')
-          ..['comment'] = 'サクラの花'
-          ..['commentSource'] = 'ai');
-
-    await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
-    await letFramesRun(tester);
 
     expect(find.text('カテゴリを変えると、AI が書いたコメントは消えます。'), findsNothing);
   });
