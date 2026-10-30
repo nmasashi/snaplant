@@ -190,10 +190,10 @@ describe('写真の解析のワーカー', () => {
       expect(duringAi).toEqual({ state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
-    it.each(['plant', 'food', 'landscape'])(
-      '種類が図鑑の種類（%s）なら、識別の待ち（回数は0から）にして、その写真を解析のキューに積む',
+    it.each(['plant'])(
+      '種類が自動で詳しく識別する種類（%s）なら、識別の待ち（回数は0から）にして、その写真を解析のキューに積む',
       async (kind) => {
-        // 識別は別の回のワーカーが担当する（06 §2.3）。分類の失敗の回数は識別に持ち越さない
+        // 識別は別の回のワーカーが担当する（06 §2.3）。分類の失敗の回数は識別に持ち越さない。自動で識別するのは植物だけ（02 #51）
         cosmosBackend.documents.set(
           PHOTO_ID,
           pendingPhoto({
@@ -210,6 +210,33 @@ describe('写真の解析のワーカー', () => {
         expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
       }
     );
+
+    it.each(['food', 'landscape'])(
+      '種類が図鑑の種類でも自動で識別しない種類（%s）なら、分類で済みにし、キューに積まない',
+      async (kind) => {
+        // 食べ物・風景の詳しい識別は、利用者がやり直しで頼んだときだけ（02 #51。05 §5.7 の step: "identify"）
+        cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
+        aiReturns({ kind, confidence: 70, reason: 'テスト', comment: 'テスト' });
+
+        await runWorker();
+
+        expect(storedPhoto().category).toBe(kind);
+        expect(storedPhoto().classification).toEqual({ kind, confidence: 70, model: 'main-deployment', at: NOW });
+        expect(storedPhoto().processing).toEqual({ state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+        expect(queuedMessages()).toEqual([]);
+      }
+    );
+
+    it('分類のAIが返した一言（前後の空白を除いたもの）を、AIのコメントとして写真に書く', async () => {
+      // 詳しい識別をしない写真にもコメントが付くように、分類が一言を書く（02 #51。植物は後の識別のコメントで書き直す）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ comment: null, commentSource: null }));
+      aiReturns({ kind: 'food', confidence: 82.5, reason: 'ラーメンが写っている', comment: ' 湯気の立つ味噌ラーメン。 ' });
+
+      await runWorker();
+
+      expect(storedPhoto().comment).toBe('湯気の立つ味噌ラーメン。');
+      expect(storedPhoto().commentSource).toBe('ai');
+    });
 
     it('識別の待ちを積むのに失敗しても、分類の結果と識別の待ちは書いたまま、例外を投げない（タイマーが積み直す）', async () => {
       // 例外にするとキューが分類をやり直すが、写真はもう分類の待ちではないので担当されず、AI の費用もかからない。
@@ -303,12 +330,13 @@ describe('写真の解析のワーカー', () => {
       expect(body.response_format.json_schema.strict).toBe(true);
       const schema = body.response_format.json_schema.schema;
       expect(schema.properties.kind.enum).toEqual(['plant', 'food', 'landscape', 'other']);
-      expect([...schema.required].sort()).toEqual(['confidence', 'kind', 'reason']);
+      expect([...schema.required].sort()).toEqual(['comment', 'confidence', 'kind', 'reason']);
       expect(Object.keys(schema.properties).sort()).toEqual([...schema.required].sort());
       expect(schema.additionalProperties).toBe(false);
       expect(schema.properties.kind.type).toBe('string');
       expect(schema.properties.confidence.type).toBe('number');
       expect(schema.properties.reason.type).toBe('string');
+      expect(schema.properties.comment.type).toBe('string');
 
       // トークン上限は max_completion_tokens（max_tokens は新しいモデルでは 400）。temperature は送らない
       expect(body.max_completion_tokens).toBe(4000);
