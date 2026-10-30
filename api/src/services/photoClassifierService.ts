@@ -1,6 +1,7 @@
 import { CATALOG_KINDS, PHOTO_KINDS, PhotoKind } from '../catalog/kinds';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
+import { aiCommentOf } from './aiComment';
 
 /** 選択肢のキーの意味（例: `plant（植物）・food（食べ物）`）。キーだけでは AI が種類の境目を判断できないので、定義表の名前を添える */
 const KIND_LABELS = Object.entries(CATALOG_KINDS)
@@ -93,12 +94,11 @@ comment は、後で写真を見返す人に向けた、写っているものに
         throw new Error('confidenceが0-100の範囲の数値ではありません');
       }
 
-      const comment = typeof result.comment === 'string' ? result.comment.trim() : '';
       return {
         kind: result.kind as PhotoKind,
         confidence: result.confidence,
         model: this.vision.deployment,
-        comment: comment || null,
+        comment: aiCommentOf(result.comment),
       };
     } catch (error: any) {
       throw new UpstreamError(`写真の分類に失敗しました: ${error.message}`, 'ai', error);

@@ -51,7 +51,7 @@ export const PHOTO_KINDS: readonly string[] = [...Object.keys(CATALOG_KINDS), OT
 /**
  * 分類の後に自動で詳しく識別する種類か（02 §5 #51。植物だけ。ほかの種類は利用者がやり直しで頼んだときだけ識別する）
  */
-export function identifiesAutomatically(kind: unknown): kind is CatalogKind {
+export function identifiesAutomatically(kind: unknown): boolean {
   return isCatalogKind(kind) && CATALOG_KINDS[kind].autoIdentify;
 }
 

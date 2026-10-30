@@ -21,7 +21,7 @@ export async function enqueueUnidentifiedPhotos(options: {
   const targets = (await album.listUnidentifiedPhotos()).filter(
     (photo) => photo.processing?.state === 'done' && photo.identification === null && identifiesAutomatically(photo.category)
   );
-  options.log(`識別の対象（分類まで済んで識別の無い写真）: ${targets.length} 枚`);
+  options.log(`識別の対象（分類まで済んで識別の無い、自動で識別する種類（植物）の写真）: ${targets.length} 枚`);
   if (!options.apply) {
     options.log('--apply が無いので、何も書きません');
     return { found: targets.length, marked: 0 };
