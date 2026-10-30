@@ -27,12 +27,15 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
   bool _busy = false;
   String? _error;
 
+  /// 保存すると送るか。変えていなければ送らない（送ると AI のカテゴリが手で決めたものになり、「（変更済み）」が付く。コメントの編集と同じ）。
+  /// ただし分類が済んでいない写真は送る（サーバが分類を止める・失敗から出す。送らないと後で AI がカテゴリを書き換えるか、失敗のまま。05 §5.6）。
+  /// 送るときだけ、サーバが品種を調べ始め、AI のコメントを消すので、知らせもこれで決める
+  bool get _willSend =>
+      _selected != null && (_selected != widget.photo.category || _unsettled);
+
   Future<void> _submit() async {
     final selected = _selected;
-    // 変えていなければ何も送らずに閉じる（送ると AI のカテゴリが手で決めたものになり、「（変更済み）」が付く。コメントの編集と同じ）。
-    // ただし分類が済んでいない写真は送る（サーバが分類を止める・失敗から出す。送らないと後で AI がカテゴリを書き換えるか、失敗のまま。05 §5.6）
-    if (selected == null ||
-        (selected == widget.photo.category && !_unsettled)) {
+    if (selected == null || !_willSend) {
       Navigator.pop(context);
       return;
     }
@@ -81,16 +84,13 @@ class _CategoryEditSheetState extends State<CategoryEditSheet> {
                       : (value) => setState(() => _selected = value),
                 ),
               // 保存すると品種を調べ始める（植物に変える・分類が済んでいない）ときは、そのことを知らせる
-              if (_selected == 'plant' &&
-                  (widget.photo.category != 'plant' || _unsettled))
+              if (_selected == 'plant' && _willSend)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text('植物にすると、品種を調べます。'),
                 ),
               // 保存するとサーバが AI のコメントを消す（前のカテゴリで書いたもの。05 §5.6）ときは、そのことを知らせる
-              if (widget.photo.commentSource == 'ai' &&
-                  _selected != null &&
-                  (_selected != widget.photo.category || _unsettled))
+              if (widget.photo.commentSource == 'ai' && _willSend)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text('保存すると、AI が書いたコメントは消えます。'),
