@@ -357,7 +357,8 @@ class _PhotoPageState extends State<_PhotoPage> {
     // 識別の段（step が identify）なら、状態を「識別中...」「識別に失敗しました」と出す（03 §5.1）
     final identifying = photo.processingStep == 'identify';
     final identification = photo.identification;
-    // 項目へのリンクの種類と名前（分類と合わない写真は名前が null なので、リンクを出さない）
+    // 識別の種類と名前（図鑑に載る種類なら項目へのリンク、載らない種類なら文字で出す。
+    // 分類と合わない写真は名前が null なので、どちらも出さない）
     final entry = switch (identification) {
       PhotoIdentification(
         matchesKind: true,
