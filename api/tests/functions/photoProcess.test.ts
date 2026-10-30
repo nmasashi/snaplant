@@ -340,6 +340,32 @@ describe('写真の解析のやり直しAPI', () => {
       expect(storedPhoto().location).toEqual(expected);
     }));
 
+    it('場所を null で送っても、空と同じく地名を消す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location: { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' } }));
+
+      await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: null }), mockContext);
+
+      expect(storedPhoto().location).toEqual({ latitude: 41.77, longitude: 140.73, placeName: null, placeSource: 'user' });
+    });
+
+    it('場所は前後の空白を除いて100文字ちょうどなら受け付ける', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location: null }));
+
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: ` ${'あ'.repeat(100)} ` }), mockContext);
+
+      expect(response.status).toBe(202);
+      expect(storedPhoto().location).toMatchObject({ placeName: 'あ'.repeat(100) });
+    });
+
+    it('場所を送ったとき、写真が無ければ（分類のやり直しでも）404で理由を返す', async () => {
+      // 場所を送ると、分類のやり直しでも今の撮影地を見るために先に写真を読む
+      const response = await processPhotoRequestHandler(createRequest(PHOTO_ID, { step: 'classify', placeName: '函館朝市' }), mockContext);
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'PHOTO_NOT_FOUND', message: '指定された写真が見つかりません' } });
+      expect(queuedMessages()).toEqual([]);
+    });
+
     it('今と同じ地名を送っても、撮影地は変えない（端末が引いた地名のまま）', async () => {
       const location = { latitude: 41.77, longitude: 140.73, placeName: '函館市', placeSource: 'device' as const };
       cosmosBackend.documents.set(PHOTO_ID, classifiedPhoto({ location }));

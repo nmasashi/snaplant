@@ -183,14 +183,12 @@ void main() {
     expect(_stored(backend)['category'], 'food');
   });
 
-  testWidgets('その他の写真は、カテゴリのボタン「その他」を出し、上のバーの「やり直す」は出さない（調べるものが無い）',
+  testWidgets('その他の写真は、カテゴリのボタン「その他」を出し、上のバーの解析を頼むボタンは出さない（調べるものが無い）',
       (tester) async {
     await _openViewer(tester, _photo(category: 'other'));
 
     expect(find.widgetWithText(OutlinedButton, 'その他'), findsOneWidget);
-    expect(
-        find.descendant(of: find.byType(AppBar), matching: find.text('やり直す')),
-        findsNothing);
+    expect(_barRetry, findsNothing);
   });
 
   testWidgets('分類に失敗してカテゴリの無い写真は「カテゴリを選ぶ」から手で決められる', (tester) async {
@@ -250,7 +248,7 @@ void main() {
     });
   }
 
-  testWidgets('シートで「その他」に変えると、上のバーの「やり直す」が消える', (tester) async {
+  testWidgets('シートで「その他」に変えると、上のバーの解析を頼むボタンが消える', (tester) async {
     // 残ると、押したときに分類からやり直しになり、手で決めたカテゴリを AI に任せ直してしまう
     await _openViewer(tester, _photo(category: 'food'));
     expect(_barRetry, findsOneWidget);
@@ -266,7 +264,7 @@ void main() {
     expect(_barRetry, findsNothing);
   });
 
-  testWidgets('その他の写真から次の写真（植物）へ送ると、上のバーに「やり直す」が出る', (tester) async {
+  testWidgets('その他の写真から次の写真（植物）へ送ると、上のバーに解析を頼むボタンが出る', (tester) async {
     await _openViewer(tester, _photo(category: 'other'),
         more: [_photo(category: 'plant', number: 2)]);
     expect(_barRetry, findsNothing);

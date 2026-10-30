@@ -127,6 +127,13 @@ int _countOnScreen(WidgetTester tester, String text) {
   }).length;
 }
 
+/// ダイアログの題 [text]（ダイアログの中で、ボタンの中に無い文字。カテゴリの無い写真は題と頼むボタンが同じ「分類し直す」なので分ける）
+Finder _dialogTitle(String text) => find.byElementPredicate((element) =>
+    element.widget is Text &&
+    (element.widget as Text).data == text &&
+    element.findAncestorWidgetOfExactType<AlertDialog>() != null &&
+    element.findAncestorWidgetOfExactType<TextButton>() == null);
+
 /// やり直しダイアログの頼むボタン（「調べる」「書いてもらう」「分類し直す」。右端のボタン）
 Finder get _dialogRetry =>
     find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextButton)).last;
@@ -193,19 +200,19 @@ void main() {
   group('解析のやり直し', () {
     // 上のバーのボタンとダイアログの言い方はカテゴリで決まる（03 §5.4。02 §5 #53）。
     // 植物は品種などを調べ、食べ物・風景は利用者のメモから AI がコメントを書く、カテゴリの無い写真は分類し直す
-    for (final (category, title, field, submit) in [
-      ('plant', '植物を調べる', '手がかり（任意）', '調べる'),
-      ('landscape', 'コメントを書いてもらう', 'メモ（任意）', '書いてもらう'),
-      (null, '分類し直す', '手がかり（任意）', '分類し直す'),
+    for (final (category, label, icon, title, field, submit) in [
+      ('plant', '植物', Icons.search, '植物を調べる', '手がかり（任意）', '調べる'),
+      ('landscape', '風景', Icons.edit_note, 'コメントを書いてもらう', 'メモ（任意）', '書いてもらう'),
+      (null, 'カテゴリの無い', Icons.refresh, '分類し直す', '手がかり（任意）', '分類し直す'),
     ]) {
-      testWidgets('上のバーのボタン（$title）は、題が「$title」、欄が「$field」、頼むボタンが「$submit」のダイアログを開く', (tester) async {
+      testWidgets('$labelの写真では、上のバーの「$title」が、題「$title」・欄「$field」・頼むボタン「$submit」のダイアログを開く', (tester) async {
         await _openViewer(tester, _photo(category: category));
+        expect(find.descendant(of: find.byType(AppBar), matching: find.byIcon(icon)), findsOneWidget);
 
         await tester.tap(find.byTooltip(title));
         await letFramesRun(tester);
 
-        // カテゴリの無い写真は題と頼むボタンが同じ「分類し直す」なので、題は1つ以上で見る
-        expect(find.descendant(of: find.byType(AlertDialog), matching: find.text(title)), findsWidgets);
+        expect(_dialogTitle(title), findsOneWidget);
         expect(find.text(field), findsOneWidget);
         expect(find.widgetWithText(TextButton, submit), findsOneWidget);
       });
@@ -217,7 +224,7 @@ void main() {
       await tester.tap(_barRetry);
       await letFramesRun(tester);
 
-      expect(find.text('コメントを書いてもらう'), findsWidgets);
+      expect(_dialogTitle('コメントを書いてもらう'), findsOneWidget);
       expect(find.text('メモ（任意）'), findsOneWidget);
       expect(find.text('今のコメントは AI の結果で置き換わります'), findsOneWidget);
       expect(find.text('0/500'), findsOneWidget);

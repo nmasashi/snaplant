@@ -76,6 +76,20 @@ void main() {
     expect(find.text('写真の撮影地を入れています。直すと撮影地も変わります'), findsOneWidget);
   });
 
+  testWidgets('緯度・経度はあるが地名の無い写真は、書くと撮影地の地名として残ることを知らせる', (tester) async {
+    // 端末が地名を引けなかった写真
+    await _openDialog(
+        tester,
+        _photo({
+          'latitude': 41.77,
+          'longitude': 140.73,
+          'placeName': null,
+          'placeSource': null
+        }));
+
+    expect(find.text('書くと撮影地の地名として残ります'), findsOneWidget);
+  });
+
   testWidgets('場所を直して頼むと、写真の撮影地が手で直した地名になり、ビューアの場所の表示も変わる', (tester) async {
     final backend = await _openDialog(tester, _photo(_hakodate));
 
