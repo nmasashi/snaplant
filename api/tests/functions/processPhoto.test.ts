@@ -247,10 +247,11 @@ describe('写真の解析のワーカー', () => {
         statusCode: 404,
         code: 'QueueNotFound'
       });
+      aiReturns({ kind: 'plant', confidence: 82.5, reason: 'サクラが写っている' });
 
       await expect(runWorker()).resolves.toBeUndefined();
 
-      expect(storedPhoto().category).toBe('food');
+      expect(storedPhoto().category).toBe('plant');
       expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: NOW });
       expect(queuedMessages()).toEqual([]);
     });

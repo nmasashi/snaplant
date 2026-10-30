@@ -100,13 +100,13 @@ describe('分類まで済んだ写真を識別に回すスクリプト', () => {
   it('書き込みを指定しなければ、対象の写真を数えるだけで何も変えない', async () => {
     // 本番のデータを書くので、先に件数を見てから回す（06 §1）
     cosmosBackend.documents.set(photoId('a'), classifiedPhoto(photoId('a')));
-    cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b'), { category: 'food' }));
+    cosmosBackend.documents.set(photoId('b'), classifiedPhoto(photoId('b'), { tags: ['公園'] }));
 
     const result = await enqueueUnidentifiedPhotos({ apply: false, log });
 
     expect(result).toEqual({ found: 2, marked: 0 });
     expect(stored(photoId('a'))).toEqual(classifiedPhoto(photoId('a')));
-    expect(stored(photoId('b'))).toEqual(classifiedPhoto(photoId('b'), { category: 'food' }));
+    expect(stored(photoId('b'))).toEqual(classifiedPhoto(photoId('b'), { tags: ['公園'] }));
   });
 
   it('読んだ後に解析の進み具合が変わった写真（やり直しの受付が入った）は書かず、ほかの写真は書く', async () => {
