@@ -30,28 +30,24 @@ export async function processPhotoRequestHandler(request: HttpRequest, context: 
     // 保存先の設定が足りなければ、写真を書き換える前に失敗させる
     storage = new PhotoStorageService();
     const album = new AlbumService();
-    const { placeName } = validated.input;
-    // 撮影地を直すなら、今の撮影地と比べるために読む（識別ならカテゴリも見る）
-    const current = validated.input.step === 'identify' || placeName !== undefined ? await album.getPhoto(photoId) : null;
-    if (validated.input.step === 'identify' || placeName !== undefined) {
+    const { step, hint, placeName } = validated.input;
+    // 識別ならカテゴリを、撮影地を直すなら今の撮影地を見るために、先に読む
+    let location: PhotoLocation | null | undefined;
+    if (step === 'identify' || placeName !== undefined) {
+      const current = await album.getPhoto(photoId);
       if (!current) {
         return createNotFoundError('指定された写真が見つかりません', ErrorCode.PHOTO_NOT_FOUND);
       }
-    }
-    if (validated.input.step === 'identify') {
       // 識別は図鑑の種類の写真だけ（05 §5.7 の 8）。写真があるか（7）を先に見る。
       // 読んでから書くまでに分類がカテゴリを other に変えることはまれで、そのときもワーカーが AI を呼ばずに内部の失敗として数える
-      if (!isCatalogKind(current!.category)) {
+      if (step === 'identify' && !isCatalogKind(current.category)) {
         return createValidationError('この写真は識別の対象ではありません');
       }
+      if (placeName !== undefined) {
+        location = relocated(current.location, placeName);
+      }
     }
-    photo = await album.requestPhotoProcessing(
-      photoId,
-      validated.input.step,
-      validated.input.hint,
-      new Date().toISOString(),
-      placeName === undefined ? undefined : relocated(current!.location, placeName)
-    );
+    photo = await album.requestPhotoProcessing(photoId, step, hint, new Date().toISOString(), location);
   } catch (error: any) {
     context.log('解析のやり直しの受付エラー:', error);
     return createDatabaseErrorResponse(error, '解析のやり直しの受付に失敗しました');
