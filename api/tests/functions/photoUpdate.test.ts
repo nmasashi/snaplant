@@ -598,13 +598,14 @@ describe('写真更新API', () => {
       expect(queuedMessages()).toEqual([]);
     });
 
-    it('分類のやり直しを待っている写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async () => {
+    // queuedMessages() は行をまたいで溜まるので、forEachCase ではなく it.each で行ごとに置き直す
+    it.each(['pending', 'classifying'] as const)('分類を待っている・している（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async (state) => {
       // 分類を止めないと、後で AI の分類がカテゴリを書き換え、手で決めたものが消える（02 §5 #53）
       freezeNow();
       const photo = storedPhoto({
         category: 'plant',
         identification: identification('plant'),
-        processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-09-21T01:05:00.000Z' }
+        processing: { state, step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-09-21T01:05:00.000Z' }
       });
       cosmosBackend.documents.set(PHOTO_ID, photo);
 
@@ -620,12 +621,16 @@ describe('写真更新API', () => {
     });
   });
 
-  it('更新する写真が無いと、404で理由を返し、何も変えない', async () => {
+  // カテゴリは書く前に今の写真を読む別の経路なので、その経路の 404 も見る
+  it.each([
+    ['コメント', { comment: '夕食の懐石' }],
+    ['カテゴリ', { category: 'plant' }]
+  ])('更新する写真が無いと、404で理由を返し、何も変えない（%sの更新）', async (_case, requestBody) => {
     // 形式は正しいが、その id の写真は無い。別の写真は保存済みで、patch が誤って作ったり書き換えたりしないことも見る
     const otherPhotoId = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
     cosmosBackend.documents.set(otherPhotoId, storedPhoto({ id: otherPhotoId }));
     const before = structuredClone(cosmosBackend.documents);
-    const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石' });
+    const request = createUpdatePhotoRequest(PHOTO_ID, requestBody);
 
     const response = await updatePhotoHandler(request, mockContext);
 
