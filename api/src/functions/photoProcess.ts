@@ -64,7 +64,8 @@ export async function processPhotoRequestHandler(request: HttpRequest, context: 
  * 利用者が直した地名 [placeName] で、写真の撮影地をどう書くかを決める（02 §5 #53。05 §5.7）
  *
  * 地名は手で直したもの（placeSource: user）にし、緯度・経度は残す。位置情報の無い写真なら緯度・経度の無い撮影地にする。
- * 地名を消すと、緯度・経度だけを残す（緯度・経度も無ければ撮影地ごと無くす）
+ * 地名を消すと、緯度・経度と手で消した印（placeSource: user。null だと「まだ地名を引いていない」と区別できない）を残す
+ * （緯度・経度も無ければ撮影地ごと無くす）
  * @param current 今の撮影地
  * @param placeName 前後の空白を除いた地名。消すなら null
  * @returns 書く撮影地。今と同じ地名なら undefined（書かない。端末が引いた地名を手で直したものにしない）
@@ -74,7 +75,7 @@ function relocated(current: PhotoLocation | null, placeName: string | null): Pho
     return undefined;
   }
   if (placeName === null) {
-    return current === null || current.latitude === null ? null : { ...current, placeName: null, placeSource: null };
+    return current === null || current.latitude === null ? null : { ...current, placeName: null, placeSource: 'user' };
   }
   return { latitude: current?.latitude ?? null, longitude: current?.longitude ?? null, placeName, placeSource: 'user' };
 }
