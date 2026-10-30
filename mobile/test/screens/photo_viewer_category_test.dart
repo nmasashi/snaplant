@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -164,6 +166,35 @@ void main() {
     expect(find.widgetWithText(OutlinedButton, '食べ物（変更済み）'), findsOneWidget);
     expect(find.text('分類に失敗しました'), findsNothing);
     expect(_stored(backend)['category'], 'food');
+  });
+
+  testWidgets('保存を待っている間は、下へ払っても端末の戻る操作でもシートを閉じず、保存できたら閉じてカテゴリを出す',
+      (tester) async {
+    // 待っている間に閉じると、保存されたのに表示が古いまま残る（03 §5.6）
+    final backend = await _openViewer(tester, _photo(category: 'food'));
+    final release = Completer<void>();
+    // 途中の確かめで落ちても、止めた応答を残さない
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    backend.holds[TripRoute.updatePhoto] = release.future;
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '食べ物'));
+    await letFramesRun(tester);
+    await tester.tap(_option('風景'));
+    await tester.pump();
+    await tester.tap(_save);
+    await letFramesRun(tester);
+    await tester.drag(find.text('カテゴリを変える'), const Offset(0, 500));
+    await letFramesRun(tester);
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+
+    expect(find.byType(BottomSheet), findsOneWidget);
+    release.complete();
+    await letFramesRun(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, '風景（変更済み）'), findsOneWidget);
   });
 
   for (final state in ['pending', 'classifying']) {
