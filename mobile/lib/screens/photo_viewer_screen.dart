@@ -169,7 +169,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     );
     if (accepted == null || !mounted) return;
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('やり直しを受け付けました')));
+        .showSnackBar(const SnackBar(content: Text('受け付けました')));
     widget.onUpdated(accepted);
   }
 
