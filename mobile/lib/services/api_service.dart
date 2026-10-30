@@ -609,6 +609,28 @@ class ApiService {
     }
   }
 
+  /// 写真のカテゴリを手で決める（02 §5 #53）
+  /// PATCH /api/photos/{photoId}
+  ///
+  /// [category] は分類の種類（`plant` / `food` / `landscape` / `other`）。直した写真を返す
+  /// （植物に変えたら品種を調べる待ちになっている）
+  Future<Photo> updatePhotoCategory(String photoId, String category) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _client.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'category': category}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// `POST /api/photos/move` の上限（サーバの `MOVE_MAX_IDS` の既定値）
   static const _maxMovePhotoIds = 200;
 

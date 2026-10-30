@@ -9,6 +9,7 @@ import '../theme/app_text_styles.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
+import '../widgets/category_edit_sheet.dart';
 import '../widgets/comment_edit_dialog.dart';
 import '../widgets/confirm_action_dialog.dart';
 import '../widgets/retry_processing_dialog.dart';
@@ -67,6 +68,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   int? _pendingIndex;
   // 項目へのリンクで種類の一覧を読んでいる。読む間の押し直しで、項目詳細を重ねて開かない
   bool _openingEntry = false;
+  // 今出している写真の位置（上のバーの「やり直す」を出すかを決める）
+  late int _index = widget.initialIndex;
 
   @override
   void initState() {
@@ -83,6 +86,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   /// 続きのページが届いて、削除の後に待っていた位置に写真が来たら、そこへ移る
   void _onPhotosChanged() {
+    // 上のバーの「やり直す」は今の写真のカテゴリで決まるので、写真が変わったら組み直す
+    if (mounted) setState(() {});
     final pending = _pendingIndex;
     if (pending == null || widget.photos.value.length <= pending) return;
     _pendingIndex = null;
@@ -181,6 +186,19 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(updated);
   }
 
+  /// [photo] のカテゴリを、シートで選び直す（03 §5.6）
+  Future<void> _editCategory(Photo photo) async {
+    final updated = await showModalBottomSheet<Photo>(
+      context: context,
+      builder: (context) =>
+          CategoryEditSheet(apiService: widget.apiService, photo: photo),
+    );
+    if (updated == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('カテゴリを変えました')));
+    widget.onUpdated(updated);
+  }
+
   /// 種類 [kindKey]・名前 [name] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
   Future<void> _openEntry(String kindKey, String name) async {
     if (_openingEntry) return;
@@ -216,6 +234,12 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 name: name)));
   }
 
+  /// 今出している写真が、どれにも当てはまらない分類（その他）か
+  bool get _currentIsOther {
+    final photos = widget.photos.value;
+    return _index < photos.length && photos[_index].category == otherCategory;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -225,11 +249,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               backgroundColor: Colors.black54,
               foregroundColor: Colors.white,
               actions: [
-                TextButton(
-                  onPressed: _retryCurrent,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  child: const Text('やり直す'),
-                ),
+                // その他の写真は調べるものが無いので、やり直させない（カテゴリはボタンで直す。03 §5.6）
+                if (!_currentIsOther)
+                  TextButton(
+                    onPressed: _retryCurrent,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    child: const Text('やり直す'),
+                  ),
                 TextButton(
                   onPressed: _deleteCurrent,
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
@@ -247,6 +273,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
             physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
             itemCount: photos.length,
             onPageChanged: (index) {
+              setState(() => _index = index);
               if (index == photos.length - 1) widget.onReachEnd();
             },
             itemBuilder: (context, index) => _PhotoPage(
@@ -256,6 +283,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 showInfo: _showChrome,
                 onRetry: () => _retry(photos[index]),
                 onEditComment: () => _editComment(photos[index]),
+                onEditCategory: () => _editCategory(photos[index]),
                 onOpenEntry: _openEntry,
                 onZoomChanged: (zoomed) {
                   if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -265,6 +293,15 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
       ),
     );
   }
+}
+
+/// カテゴリのボタンの文言。手で決めたカテゴリには「（変更済み）」を付ける（AI がもう書き換えない。03 §5.6）。
+/// カテゴリが無ければ「カテゴリを選ぶ」
+String _categoryButtonLabel(Photo photo) {
+  final category = photo.category;
+  if (category == null) return 'カテゴリを選ぶ';
+  final label = categoryLabel(category);
+  return photo.categorySource == 'user' ? '$label（変更済み）' : label;
 }
 
 /// 下の情報の場所の文言。地名が無ければ緯度・経度を小数4桁で、位置情報が無ければ「位置情報なし」
@@ -285,6 +322,7 @@ class _PhotoPage extends StatefulWidget {
       required this.showInfo,
       required this.onRetry,
       required this.onEditComment,
+      required this.onEditCategory,
       required this.onOpenEntry,
       required this.onZoomChanged});
 
@@ -298,6 +336,9 @@ class _PhotoPage extends StatefulWidget {
 
   /// 「コメントを編集」
   final VoidCallback onEditComment;
+
+  /// カテゴリのボタン（カテゴリを選ぶシートを開く）
+  final VoidCallback onEditCategory;
 
   /// 図鑑の項目へのリンク（種類と名前で開く）
   final void Function(String kind, String name) onOpenEntry;
@@ -427,11 +468,28 @@ class _PhotoPageState extends State<_PhotoPage> {
                           Text(_placeText(photo),
                               style: AppTextStyles.body1
                                   .copyWith(color: Colors.white)),
-                          if (photo.category != null &&
-                              photo.category != otherCategory)
-                            Text(categoryLabel(photo.category!),
-                                style: AppTextStyles.body1
-                                    .copyWith(color: Colors.white)),
+                          // カテゴリは押して手で直せる（03 §5.6）。分類を待っている・しているカテゴリの無い写真には出さない
+                          if (photo.category != null ||
+                              !isProcessingInProgress(photo.processingState))
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: OutlinedButton(
+                                onPressed: widget.onEditCategory,
+                                style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: const BorderSide(
+                                        color: Colors.white70)),
+                                // 文字の後ろに、選べることを示す印を置く
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(_categoryButtonLabel(photo)),
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.expand_more, size: 18),
+                                  ],
+                                ),
+                              ),
+                            ),
                           if (isProcessingInProgress(photo.processingState))
                             Text(identifying ? '識別中...' : '分類中...',
                                 style: AppTextStyles.body1

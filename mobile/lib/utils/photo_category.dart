@@ -1,21 +1,26 @@
 /// 写真のカテゴリ（AI の分類の `category`）の表示名（docs/03_screen_design.md §5.1）
 ///
 /// アプリが持つ（図鑑のタブは種類の一覧の API から作るが、カテゴリの表示名はこの表のまま。docs/02_design_overview.md §5 #33）。
-/// どれにも当てはまらない分類（[otherCategory]）は画面に出さないので、表に入れない
+/// どれにも当てはまらない分類（[otherCategory]）は旅行詳細のチップに出さないので、表に入れない（表示名は [categoryLabel] が持つ）
 const _categoryLabels = {
   'plant': '植物',
   'food': '食べ物',
   'landscape': '風景',
 };
 
-/// どれにも当てはまらない分類（図鑑に載らない写真の寄せ集め）。チップ・写真ビューアに出さない（03 §5.1・§5.3）
+/// どれにも当てはまらない分類（図鑑に載らない写真の寄せ集め）。チップには出さない（03 §5.1・§5.3）。写真ビューアでは「その他」と出し、手で直せる（03 §5.6）
 const otherCategory = 'other';
 
 /// 画面に並べるカテゴリの順（旅行詳細のチップ）。表示名の表の順で、キーを二重に持たない
 final photoCategories = List<String>.unmodifiable(_categoryLabels.keys);
 
-/// カテゴリの表示名。知らないキー（後の段階で足された種類など）はキーのまま返す
-String categoryLabel(String category) => _categoryLabels[category] ?? category;
+/// 写真ビューアで手で選べるカテゴリ（チップの順に、最後に [otherCategory]。03 §5.6）
+final editableCategories =
+    List<String>.unmodifiable([...photoCategories, otherCategory]);
+
+/// カテゴリの表示名。[otherCategory] は「その他」。知らないキー（後の段階で足された種類など）はキーのまま返す
+String categoryLabel(String category) =>
+    _categoryLabels[category] ?? (category == otherCategory ? 'その他' : category);
 
 /// カテゴリが図鑑の種類（識別の対象）か。分類の前（null）と [otherCategory] は違う
 bool isCatalogCategory(String? category) => photoCategories.contains(category);
