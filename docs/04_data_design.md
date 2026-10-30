@@ -920,7 +920,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 
 - メッセージを受けたら写真を読み直し、`processing.step` を信じる（メッセージは「この写真を見ろ」という合図に過ぎない。`hint` も写真から読む）。ワーカーは `step` が `classify` なら分類、`identify` なら識別（4-1a で実装済み）を担当し、それ以外（`null`）なら何もしない
 - 担当するときは `processing` を処理中にする patch に `FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"` の条件を付ける。412 なら別のインスタンスが担当済み（重複配信）か、読んだ後に別のインスタンスが担当して失敗し `pending` に戻した（回数が変わっている）ので、何もしない
-- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（分類と識別。分類は B-1 から書く。どちらも AI の一言が空白だけのときは書かず、識別では `matchesKind: false` のときも書かない）。
+- 結果の書き込みは2回の patch。**(1) コメント**: `comment`・`commentSource: "ai"` を、担当したときのままの条件（下の (2) と同じ）と `(IS_NULL(c.commentSource) OR c.commentSource = "ai")` を `AND` でつないだ条件付きで `set`（分類と識別。分類は B-1 から書く。どちらも AI の一言が空白だけか文字列でないときは書かず、識別では `matchesKind: false` のときも書かない）。
   412 なら利用者がその間にコメントを書いたので、書かずに進む（送信直後の自動の解析が、利用者のコメントを消さないように）。
   **(2) 結果**: `category`・`classification`（分類）または `identification`（識別）と `processing`・`updatedAt` を `set`。
   条件は `FROM c WHERE c.processing.state = "<担当したときの state（classifying / identifying）>" AND c.processing.step = "<step>" AND c.processing.attempts = <担当した回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`（担当したときのままか。3-3b）。失敗の書き込み（`pending` に戻す・`failed` にする）も同じ条件。
@@ -929,7 +929,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 - **`_etag` の条件と「412 なら読み直し」は置かない。** 結果の条件は `processing`（`state`・`step`・`attempts`・`updatedAt`）だけを見る。欄が分かれているので、読んでから書くまでに利用者が `tags`・`tripId` を変えても（解析中に写真を編集しても）、Patch は互いの欄を上書きしない。
   唯一の衝突である `comment` は、上の条件付き patch を Cosmos が原子的に評価するので、読み直しが要らない
 - `condition` の比較は `null` を `!=` で扱えない（`null != "user"` は未定義になる。推測）ので、`IS_NULL(...) OR ... = "ai"` の形で書く
-- やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果のコメントは必ず書かれる
+- やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果のコメントは必ず書かれる（ただし識別の結果が `matchesKind: false` のときと、上限まで失敗したときはコメントを書かないので、コメントの無い写真になる。[09](./09_backlog.md) の「「名前だけ」のやり直しで…コメントが空のまま残る」で判断待ち）
 - 分類は `identification` を `null` に戻してから識別を投入する。種類が変わったのに古い識別が残り、図鑑の別の種類に出続けることを防ぐ。
   識別を投入するのは自動で識別する種類（植物）だけで、食べ物・風景・`other` は `identification` を `null` に戻して `done` にする（B-1。[06 §2.3](./06_processing_design.md#23-書き込み)）
 
