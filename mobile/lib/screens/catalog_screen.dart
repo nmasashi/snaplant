@@ -85,6 +85,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
             : const _Loading(),
       );
     }
+    // 種類が1つ（植物だけ。02 §5 #51）なら、タブが1つだけの帯は出さずに、その種類の項目を並べる（03 §6.1）
+    if (kinds.length == 1) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('図鑑'), actions: appBarActions),
+        body: _CatalogEntryList(
+            apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
+            kind: kinds.single),
+      );
+    }
     return DefaultTabController(
       length: kinds.length,
       child: Scaffold(
