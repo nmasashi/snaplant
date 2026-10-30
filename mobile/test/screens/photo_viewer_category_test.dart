@@ -167,7 +167,8 @@ void main() {
     ('pending', '待っている'),
     ('classifying', 'している')
   ]) {
-    testWidgets('分類を$labelカテゴリのある写真では、今のカテゴリのまま保存しても送り、手で決めたカテゴリにする',
+    testWidgets(
+        '分類を$labelカテゴリのある写真では、今のカテゴリのまま保存しても送ることと AI のコメントが消えることを知らせ、手で決めたカテゴリにする',
         (tester) async {
       // 送らないと、後で AI の分類がカテゴリを書き換える（サーバは、分類中なら同じカテゴリでも分類を止める。05 §5.6）
       final backend = await _openViewer(

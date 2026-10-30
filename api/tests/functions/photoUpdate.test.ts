@@ -538,7 +538,13 @@ describe('写真更新API', () => {
       const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'plant' }), mockContext);
 
       expect(response.status).toBe(200);
-      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'plant', categorySource: 'user', identification: null });
+      expect((response.jsonBody as any).data.photo).toMatchObject({
+        category: 'plant',
+        categorySource: 'user',
+        identification: null,
+        comment: null,
+        commentSource: null
+      });
       expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
         ...photo,
         category: 'plant',
@@ -586,30 +592,30 @@ describe('写真更新API', () => {
     // カテゴリは写真を読んでから書くので、その間に他の操作がコメントを書くことがある。消すかどうかは書くときのコメントで決める
     it('写真を読んだ後に利用者がコメントを書いていたら、カテゴリを変えてもそのコメントは残す', async () => {
       cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant' }));
-      let patches = 0;
       cosmosBackend.beforePatch = () => {
-        if (patches++ === 0) {
-          Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: '庭で見た花', commentSource: 'user' });
-        }
+        cosmosBackend.beforePatch = undefined;
+        Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: '庭で見た花', commentSource: 'user' });
       };
 
-      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
 
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
       expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
     });
 
     it('写真を読んだ後に AI がコメントを書いていたら、カテゴリを変えるとそのコメントも消す', async () => {
       // 識別中の写真を食べ物に変えると、識別の担当が書いた品種のコメントが食べ物の写真に残り続ける（食べ物には AI が書き直さない）
       cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant', comment: null, commentSource: null }));
-      let patches = 0;
       cosmosBackend.beforePatch = () => {
-        if (patches++ === 0) {
-          Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: 'サクラの花', commentSource: 'ai' });
-        }
+        cosmosBackend.beforePatch = undefined;
+        Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: 'サクラの花', commentSource: 'ai' });
       };
 
-      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
 
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'food', comment: null, commentSource: null });
       expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: null, commentSource: null });
     });
 
@@ -644,7 +650,7 @@ describe('写真更新API', () => {
 
     // queuedMessages() は行をまたいで溜まるので、forEachCase ではなく it.each で行ごとに置き直す
     // 分類に失敗した写真も、分類が済んでいない（同じカテゴリを手で決めると失敗から出る）
-    it.each(['pending', 'classifying', 'failed'] as const)('分類を待っている・している・失敗した（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async (state) => {
+    it.each(['pending', 'classifying', 'failed'] as const)('分類を待っている・している・失敗した（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにし、AI が書いたコメントを消す', async (state) => {
       // 分類を止めないと、後で AI の分類がカテゴリを書き換え、手で決めたものが消える（02 §5 #53）
       freezeNow();
       const photo = storedPhoto({
