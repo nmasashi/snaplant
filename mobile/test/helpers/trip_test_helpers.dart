@@ -1156,17 +1156,43 @@ class FakeTripBackend {
       return _error(400, 'INVALID_REQUEST', 'リクエストボディの形式が無効です');
     }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
-    if (body is! Map<String, dynamic> || !body.containsKey('comment')) {
+    if (body is! Map<String, dynamic> || !(body.containsKey('comment') || body.containsKey('category'))) {
       return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
     }
-    final comment = body['comment'];
-    if (comment != null && comment is! String) return _error(400, 'INVALID_REQUEST', 'コメントは文字列で指定してください');
-    final trimmed = (comment as String?)?.trim() ?? '';
-    if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', 'コメントは500文字以内で指定してください');
-    if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
-    photo['comment'] = trimmed.isEmpty ? null : trimmed;
-    photo['commentSource'] = trimmed.isEmpty ? null : 'user';
-    photo['updatedAt'] = processAcceptedAt;
+    if (body.containsKey('comment')) {
+      final comment = body['comment'];
+      if (comment != null && comment is! String) return _error(400, 'INVALID_REQUEST', 'コメントは文字列で指定してください');
+      final trimmed = (comment as String?)?.trim() ?? '';
+      if (trimmed.length > 500) return _error(400, 'INVALID_REQUEST', 'コメントは500文字以内で指定してください');
+      if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+      photo['comment'] = trimmed.isEmpty ? null : trimmed;
+      photo['commentSource'] = trimmed.isEmpty ? null : 'user';
+    }
+    if (body.containsKey('category')) {
+      // 実際のサーバと同じ（05 §5.6。02 §5 #53）: 手で決めた印を付け、変わった（か分類を待っている・している）ときだけ、
+      // 識別を消して、植物なら品種を調べる待ち、ほかは済みにする
+      final category = body['category'];
+      if (!const {'plant', 'food', 'landscape', 'other'}.contains(category)) {
+        return _error(400, 'INVALID_REQUEST', 'カテゴリが無効です');
+      }
+      if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+      final processing = photo['processing'] as Map<String, Object?>?;
+      final classifying = processing?['step'] == 'classify' &&
+          const {'pending', 'classifying'}.contains(processing?['state']);
+      photo['categorySource'] = 'user';
+      if (photo['category'] != category || classifying) {
+        photo['category'] = category;
+        photo['identification'] = null;
+        photo['processing'] = {
+          'state': category == 'plant' ? 'pending' : 'done',
+          'step': category == 'plant' ? 'identify' : 'classify',
+          'attempts': 0,
+          'lastError': null,
+          'updatedAt': processAcceptedAt,
+        };
+      }
+    }
+    photo!['updatedAt'] = processAcceptedAt;
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
   }
 

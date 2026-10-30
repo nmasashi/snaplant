@@ -133,16 +133,17 @@ Map<String, Object?> _stored(FakeTripBackend backend) =>
     backend.photosByTripId[hokkaidoTripId]!.single;
 
 void main() {
-  testWidgets('写真ビューアは、分類の結果が plant・food・landscape の写真にカテゴリを「植物」「食べ物」「風景」と出し、知らないキー（insect）はキーのまま出し、どれにも当てはまらない（other）写真と分類の前の写真には出さず、やり直しで分類を待っている間も前回のカテゴリを出し続ける', (tester) async {
+  testWidgets('写真ビューアは、分類の結果が plant・food・landscape の写真にカテゴリを「植物」「食べ物」「風景」と出し、知らないキー（insect）はキーのまま出し、どれにも当てはまらない（other）写真は「その他」と出し、分類の前の写真には出さず、やり直しで分類を待っている間も前回のカテゴリを出し続ける', (tester) async {
     // 7枚を1つの旅行に置き、ビューアで順に送って見る。PageView は隣のページも組み立てておくので、画面の中にあるものだけを数える。
-    // 知らないキー（後の段階で足された種類など）はキーのまま出す。other は図鑑に載らない写真の寄せ集めで、出しても見分けの役に立たない（03 §5.1。02 §5 #33）。
+    // 知らないキー（後の段階で足された種類など）はキーのまま出す。other は手で直せるように「その他」と出す（03 §5.6。02 §5 #53）。
     // 前回の結果は、やり直しの結果が出るまで残る（05 §5.7）
     final cases = [
       (category: 'plant', state: 'done', shown: ['植物'], hidden: <String>[]),
       (category: 'food', state: 'done', shown: ['食べ物'], hidden: <String>[]),
       (category: 'landscape', state: 'done', shown: ['風景'], hidden: <String>[]),
       (category: 'insect', state: 'done', shown: ['insect'], hidden: <String>[]),
-      (category: 'other', state: 'done', shown: <String>[], hidden: ['その他', 'other']),
+      // other も手で直せるように「その他」のボタンで出す（C-1。02 §5 #53）。キーのままは出さない
+      (category: 'other', state: 'done', shown: ['その他'], hidden: ['other']),
       (category: null, state: 'none', shown: <String>[], hidden: ['植物', '食べ物', '風景', 'その他']),
       (category: 'food', state: 'pending', shown: ['食べ物', '分類中...'], hidden: <String>[]),
     ];
