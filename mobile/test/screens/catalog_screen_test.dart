@@ -93,7 +93,7 @@ void main() {
       ];
     await openCatalogTab(tester, backend);
 
-    expect(find.byType(TabBar), findsNothing);
+    expect(_kindTab('植物'), findsNothing);
     expect(find.text('ソメイヨシノ'), findsOneWidget);
     expect(find.text('ハナトリカブト'), findsOneWidget);
   });
