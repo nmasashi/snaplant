@@ -23,6 +23,7 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
     sortAt: doc.sortAt,
     location: doc.location,
     category: doc.category,
+    categorySource: doc.categorySource ?? null,
     tags: doc.tags,
     comment: doc.comment,
     commentSource: doc.commentSource,

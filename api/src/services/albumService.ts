@@ -3,7 +3,7 @@ import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
-import { CATALOG_KINDS } from '../catalog/kinds';
+import { CATALOG_KINDS, identifiesAutomatically } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
@@ -339,9 +339,28 @@ export class AlbumService {
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: string[] }
+    changes: { comment?: string | null; tags?: string[]; category?: string }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
+    if (changes.category !== undefined) {
+      const current = await this.getPhoto(id);
+      if (!current) {
+        return null;
+      }
+      operations.push({ op: 'set', path: '/categorySource', value: 'user' });
+      if (current.category !== changes.category) {
+        const now = new Date().toISOString();
+        operations.push({ op: 'set', path: '/category', value: changes.category });
+        operations.push({ op: 'set', path: '/identification', value: null });
+        operations.push({
+          op: 'set',
+          path: '/processing',
+          value: identifiesAutomatically(changes.category)
+            ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
+            : { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: now },
+        });
+      }
+    }
     if (changes.comment !== undefined) {
       operations.push({ op: 'set', path: '/comment', value: changes.comment });
       operations.push({ op: 'set', path: '/commentSource', value: changes.comment === null ? null : 'user' });

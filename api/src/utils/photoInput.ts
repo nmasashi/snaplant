@@ -349,6 +349,8 @@ export interface PhotoUpdateInput {
   comment?: string | null;
   /** 前後の空白を除き、重複を除いたタグ（置き換え） */
   tags?: string[];
+  /** 利用者が手で決めたカテゴリ（分類の種類のどれか。02 §5 #53） */
+  category?: string;
 }
 
 /**
@@ -370,8 +372,8 @@ export async function readPhotoUpdateInput(
   if (body === null || body === undefined) {
     return { error: createValidationError('リクエストボディが指定されていません') };
   }
-  const { comment, tags } = body as { comment?: unknown; tags?: unknown };
-  if (comment === undefined && tags === undefined) {
+  const { comment, tags, category } = body as { comment?: unknown; tags?: unknown; category?: unknown };
+  if (comment === undefined && tags === undefined && category === undefined) {
     return { error: createValidationError('更新する項目が指定されていません') };
   }
   const input: PhotoUpdateInput = {};
@@ -401,6 +403,12 @@ export async function readPhotoUpdateInput(
       return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
     }
     input.tags = unique;
+  }
+  if (category !== undefined) {
+    if (typeof category !== 'string' || !PHOTO_KINDS.includes(category)) {
+      return { error: createValidationError('カテゴリが無効です') };
+    }
+    input.category = category;
   }
   return { input };
 }
