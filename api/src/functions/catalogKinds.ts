@@ -14,11 +14,14 @@ export async function listCatalogKindsHandler(
   context: InvocationContext
 ): Promise<HttpResponseInit> {
   context.log('図鑑の種類の一覧リクエストを受信');
-  const kinds = Object.entries(CATALOG_KINDS).filter(([, { inCatalog }]) => inCatalog).map(([kind, { label, fields }]) => ({
-    kind,
-    label,
-    fields: fields.map(({ key, label: fieldLabel, type }) => ({ key, label: fieldLabel, type })),
-  }));
+  // 識別できても図鑑に載せない種類（食べ物・風景）は返さない（02 §5 #51）
+  const kinds = Object.entries(CATALOG_KINDS)
+    .filter(([, { inCatalog }]) => inCatalog)
+    .map(([kind, { label, fields }]) => ({
+      kind,
+      label,
+      fields: fields.map(({ key, label: fieldLabel, type }) => ({ key, label: fieldLabel, type })),
+    }));
   return createSuccessResponse({ kinds });
 }
 
