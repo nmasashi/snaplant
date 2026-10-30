@@ -85,6 +85,19 @@ void main() {
     expect(find.text('ソメイヨシノ'), findsNothing);
   });
 
+  testWidgets('種類が1つ（植物だけ）なら種類のタブを出さず、その種類の項目を並べる', (tester) async {
+    // 図鑑に載せるのは植物だけ（02 §5 #51）。タブが1つだけの帯は出さない（03 §6.1）
+    final backend = _backend()
+      ..catalogKinds = [
+        {'kind': 'plant', 'label': '植物', 'fields': <Object?>[]},
+      ];
+    await openCatalogTab(tester, backend);
+
+    expect(find.byType(TabBar), findsNothing);
+    expect(find.text('ソメイヨシノ'), findsOneWidget);
+    expect(find.text('ハナトリカブト'), findsOneWidget);
+  });
+
   testWidgets('信頼度が小数でも四捨五入して出し、説明と特徴が無い項目も並べる', (tester) async {
     // 信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）
     final backend =
