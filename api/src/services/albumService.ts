@@ -3,7 +3,7 @@ import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
-import { CATALOG_KINDS } from '../catalog/kinds';
+import { CATALOG_KINDS, identifiesAutomatically } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
@@ -330,18 +330,43 @@ export class AlbumService {
   }
 
   /**
-   * 写真の利用者のコメントとタグを直す
+   * 写真の利用者のコメント・タグ・カテゴリを直す
    *
-   * 書くのは comment・commentSource・tags・updatedAt だけ（AI が書く欄には触らない）。解析中でも受け付ける
+   * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
+   * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別を消して解析の状態を書き換える（02 §5 #53）。
+   * 解析の状態を書き換えるので、走っている分類・識別の結果は担当の条件（processingCondition）で捨てられ、手で決めたカテゴリを上書きしない
    * @param id 写真 ID
-   * @param changes 直す項目（comment は null で消す。tags は置き換え）
+   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: string[] }
+    changes: { comment?: string | null; tags?: string[]; category?: string }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
+    if (changes.category !== undefined) {
+      const current = await this.getPhoto(id);
+      if (!current) {
+        return null;
+      }
+      operations.push({ op: 'set', path: '/categorySource', value: 'user' });
+      // 分類が済んでいない（待っている・している・失敗した）写真は、同じカテゴリでも解析の状態を書き換える
+      // （分類を止めないと AI がカテゴリを書き換える。失敗した写真は、手で決めたら失敗から出す）
+      const unsettled =
+        current.processing.step === 'classify' && ['pending', 'classifying', 'failed'].includes(current.processing.state);
+      if (current.category !== changes.category || unsettled) {
+        const now = new Date().toISOString();
+        operations.push({ op: 'set', path: '/category', value: changes.category });
+        operations.push({ op: 'set', path: '/identification', value: null });
+        operations.push({
+          op: 'set',
+          path: '/processing',
+          value: identifiesAutomatically(changes.category)
+            ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
+            : { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: now },
+        });
+      }
+    }
     if (changes.comment !== undefined) {
       operations.push({ op: 'set', path: '/comment', value: changes.comment });
       operations.push({ op: 'set', path: '/commentSource', value: changes.comment === null ? null : 'user' });
@@ -475,14 +500,19 @@ export class AlbumService {
     hint: string | null,
     now: string
   ): Promise<PhotoDocument | null> {
+    const operations: { op: 'set'; path: string; value: unknown }[] = [
+      { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
+      { op: 'set', path: '/hint', value: hint },
+      { op: 'set', path: '/comment', value: null },
+      { op: 'set', path: '/commentSource', value: null },
+      { op: 'set', path: '/updatedAt', value: now },
+    ];
+    if (step === 'classify') {
+      // 分類からやり直すなら、カテゴリは AI に任せ直す（手で決めた印を残すと、AI のカテゴリが手で決めたものに見える。02 §5 #53）
+      operations.push({ op: 'set', path: '/categorySource', value: null });
+    }
     try {
-      const { resource } = await this.container.item(id, id).patch<PhotoDocument>([
-        { op: 'set', path: '/processing', value: { state: 'pending', step, attempts: 0, lastError: null, updatedAt: now } },
-        { op: 'set', path: '/hint', value: hint },
-        { op: 'set', path: '/comment', value: null },
-        { op: 'set', path: '/commentSource', value: null },
-        { op: 'set', path: '/updatedAt', value: now },
-      ]);
+      const { resource } = await this.container.item(id, id).patch<PhotoDocument>(operations);
       return resource ?? null;
     } catch (error: any) {
       if (error.code === 404) {

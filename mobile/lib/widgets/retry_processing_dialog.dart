@@ -25,9 +25,14 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
       text: widget.photo.commentSource == 'user'
           ? widget.photo.comment
           : widget.photo.hint);
-  // やり直す範囲（classify: カテゴリから、identify: 名前だけ）。名前だけを選べるのは、カテゴリが図鑑の種類の写真だけ
-  // （識別の対象でない写真の identify はサーバが断る。05 §5.7 の 8）
-  String _step = 'classify';
+  // やり直す範囲。カテゴリは手で直す（03 §5.6。02 §5 #53）ので選ばせず、カテゴリが識別の対象なら名前（識別）だけ、
+  // それ以外（分類の前）は分類からやり直す（識別の対象でない写真の identify はサーバが断る。05 §5.7 の 8）。
+  // 分類が済んでいない写真は、前のカテゴリが残っていても分類からやり直す（名前をやり直すと、頼んだ分類が捨てられる・失敗した分類が直らない）
+  late final String _step = isCatalogCategory(widget.photo.category) &&
+          !isClassificationUnsettled(
+              widget.photo.processingStep, widget.photo.processingState)
+      ? 'identify'
+      : 'classify';
   bool _busy = false;
   String? _error;
 
@@ -79,21 +84,6 @@ class _RetryProcessingDialogState extends State<RetryProcessingDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isCatalogCategory(widget.photo.category)) ...[
-            const Text('やり直す範囲'),
-            const SizedBox(height: 8),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'classify', label: Text('カテゴリから')),
-                ButtonSegment(value: 'identify', label: Text('名前だけ')),
-              ],
-              selected: {_step},
-              onSelectionChanged: _busy
-                  ? null
-                  : (selected) => setState(() => _step = selected.single),
-            ),
-            const SizedBox(height: 8),
-          ],
           TextField(
             controller: _hint,
             enabled: !_busy,

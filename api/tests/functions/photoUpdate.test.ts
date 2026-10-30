@@ -1,10 +1,12 @@
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
+import { QueueClient } from '@azure/storage-queue';
 import { updatePhotoHandler } from '../../src/functions/photoDetail';
 import { PhotoDocument } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
+import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
 import { COSMOS_SYSTEM_FIELDS, photoDocument } from '../helpers/albumDocuments';
 import { databaseFailureCases } from '../helpers/databaseFailures';
 import { forEachCase } from '../helpers/cases';
@@ -19,8 +21,11 @@ jest.mock('@azure/storage-blob', () => ({
   StorageSharedKeyCredential: jest.fn().mockImplementation(() => ({})),
   generateBlobSASQueryParameters: jest.fn()
 }));
+// カテゴリを植物に変えると、品種を調べるために解析のキューに積む
+jest.mock('@azure/storage-queue', () => ({ QueueClient: jest.fn() }));
 
 const MockedCosmosClient = CosmosClient as jest.MockedClass<typeof CosmosClient>;
+const MockedQueueClient = QueueClient as jest.MockedClass<typeof QueueClient>;
 const MockedBlobServiceClient = BlobServiceClient as jest.MockedClass<typeof BlobServiceClient>;
 const mockedGenerateSas = generateBlobSASQueryParameters as jest.MockedFunction<
   typeof generateBlobSASQueryParameters
@@ -84,6 +89,11 @@ describe('写真更新API', () => {
   let mockContext: InvocationContext;
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let blobBackend: FakeBlobBackend;
+  let queueBackend: FakeQueueBackend;
+
+  /** キューの名前ごとに、積まれたメッセージを読み戻したもの */
+  const queuedMessages = (): Array<[string, unknown[]]> =>
+    [...queueBackend.queues].map(([name, messages]) => [name, messages.map(decodeQueueMessage)]);
 
   beforeEach(() => {
     mockContext = { log: jest.fn() } as any;
@@ -105,6 +115,10 @@ describe('写真更新API', () => {
     // jest.fn() のままだと undefined を返し、.toString() で例外になって署名の経路が検証されない
     mockedGenerateSas.mockReturnValue({ toString: () => TEST_SAS_TOKEN } as any);
 
+    queueBackend = { queues: new Map(), forcedSendError: null };
+    MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
+      createFakeQueueClient(queueBackend, queueName)) as any);
+
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
     process.env.COSMOS_DB_KEY = 'test-key';
     process.env.COSMOS_DB_DATABASE = 'test-db';
@@ -114,6 +128,9 @@ describe('写真更新API', () => {
       'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
     process.env.PHOTO_STORAGE_CONTAINER_NAME = 'photos';
     process.env.PHOTO_SAS_EXPIRY_MINUTES = '60';
+    process.env.AzureWebJobsStorage =
+      'DefaultEndpointsProtocol=https;AccountName=test;AccountKey=testkey==;EndpointSuffix=core.windows.net';
+    process.env.PHOTO_QUEUE_NAME = 'photo-processing';
   });
 
   afterEach(() => {
@@ -126,6 +143,8 @@ describe('写真更新API', () => {
     delete process.env.STORAGE_CONNECTION_STRING;
     delete process.env.PHOTO_STORAGE_CONTAINER_NAME;
     delete process.env.PHOTO_SAS_EXPIRY_MINUTES;
+    delete process.env.AzureWebJobsStorage;
+    delete process.env.PHOTO_QUEUE_NAME;
   });
 
   it('写真のコメントを直すと、利用者のコメントとして保存され、表示用のURL付きの写真が返る', async () => {
@@ -173,6 +192,8 @@ describe('写真更新API', () => {
       data: {
         photo: {
           ...photoFields,
+          // カテゴリを手で決めた印。項目の無い（C-1 より前の）写真は null で返す
+          categorySource: null,
           comment: '夕食の懐石',
           commentSource: 'user',
           updatedAt: UPDATED_AT,
@@ -310,6 +331,11 @@ describe('写真更新API', () => {
     ['tagsの要素が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', ` ${'あ'.repeat(31)} `] }), 'タグは1〜30文字で指定してください'],
     // 上限は重複を除いた後の個数で数える(21個とも違う値)。9 の後の行
     ['tagsが重複を除いて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: distinctTags(21) }), 'タグは20個までです'],
+    // カテゴリは分類の種類（plant・food・landscape・other）のどれか。大文字小文字も区別する
+    ['categoryが分類の種類に無い', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'animal' }), 'カテゴリが無効です'],
+    ['categoryの大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'Plant' }), 'カテゴリが無効です'],
+    ['categoryがnull', PHOTO_ID, jest.fn().mockResolvedValue({ category: null }), 'カテゴリが無効です'],
+    ['categoryが数値', PHOTO_ID, jest.fn().mockResolvedValue({ category: 1 }), 'カテゴリが無効です'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
   ], async (_case, photoId, json, message) => {
@@ -488,12 +514,124 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(distinctTags(20));
   });
 
-  it('更新する写真が無いと、404で理由を返し、何も変えない', async () => {
+  describe('カテゴリを手で直す（02 §5 #53）', () => {
+    /** 識別の済んだ写真の識別の結果（中身は見ない。消えるか残るかだけを見る） */
+    const identification = (kind: string) => ({
+      kind,
+      matchesKind: true,
+      name: '名前',
+      confidence: 80,
+      description: null,
+      characteristics: null,
+      attributes: {},
+      reason: null,
+      model: 'gpt-6-luna',
+      at: '2026-09-21T01:06:00.000Z'
+    });
+
+    it('植物に変えると、手で決めたカテゴリとして保存し、前の識別を消して、品種を調べる待ちにしてキューに積む', async () => {
+      freezeNow();
+      const photo = storedPhoto({ category: 'food', identification: identification('food') });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'plant' }), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'plant', categorySource: 'user', identification: null });
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
+        ...photo,
+        category: 'plant',
+        categorySource: 'user',
+        identification: null,
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT },
+        updatedAt: UPDATED_AT
+      });
+      expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
+
+    it('自動で調べない種類（食べ物）に変えると、前の識別を消して済みにし、キューに積まない', async () => {
+      // 植物から変えると、調べた品種は消え、図鑑から外れる
+      freezeNow();
+      const photo = storedPhoto({ category: 'plant', identification: identification('plant') });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
+        ...photo,
+        category: 'food',
+        categorySource: 'user',
+        identification: null,
+        processing: { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: UPDATED_AT },
+        updatedAt: UPDATED_AT
+      });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('分類に失敗した写真（カテゴリ無し）にも、カテゴリを手で決められる（失敗は済みになる）', async () => {
+      freezeNow();
+      const photo = storedPhoto({
+        category: null,
+        processing: { state: 'failed', step: 'classify', attempts: 3, lastError: 'openai', updatedAt: '2026-09-21T01:05:00.000Z' }
+      });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'other' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({
+        category: 'other',
+        categorySource: 'user',
+        processing: { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: UPDATED_AT }
+      });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('今と同じカテゴリを送ると、手で決めた印だけを付け、識別と解析の状態は残し、キューに積まない', async () => {
+      freezeNow();
+      const photo = storedPhoto({ category: 'plant', identification: identification('plant') });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'plant' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, categorySource: 'user', updatedAt: UPDATED_AT });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    // queuedMessages() は行をまたいで溜まるので、forEachCase ではなく it.each で行ごとに置き直す
+    // 分類に失敗した写真も、分類が済んでいない（同じカテゴリを手で決めると失敗から出る）
+    it.each(['pending', 'classifying', 'failed'] as const)('分類を待っている・している・失敗した（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async (state) => {
+      // 分類を止めないと、後で AI の分類がカテゴリを書き換え、手で決めたものが消える（02 §5 #53）
+      freezeNow();
+      const photo = storedPhoto({
+        category: 'plant',
+        identification: identification('plant'),
+        processing: { state, step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-09-21T01:05:00.000Z' }
+      });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'plant' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({
+        category: 'plant',
+        categorySource: 'user',
+        identification: null,
+        processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT }
+      });
+      expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
+  });
+
+  // カテゴリは書く前に今の写真を読む別の経路なので、その経路の 404 も見る
+  it.each([
+    ['コメント', { comment: '夕食の懐石' }],
+    ['カテゴリ', { category: 'plant' }]
+  ])('更新する写真が無いと、404で理由を返し、何も変えない（%sの更新）', async (_case, requestBody) => {
     // 形式は正しいが、その id の写真は無い。別の写真は保存済みで、patch が誤って作ったり書き換えたりしないことも見る
     const otherPhotoId = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
     cosmosBackend.documents.set(otherPhotoId, storedPhoto({ id: otherPhotoId }));
     const before = structuredClone(cosmosBackend.documents);
-    const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石' });
+    const request = createUpdatePhotoRequest(PHOTO_ID, requestBody);
 
     const response = await updatePhotoHandler(request, mockContext);
 

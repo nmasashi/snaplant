@@ -45,7 +45,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/photos/move` | POST | `{ moved, notFound }` | `{ photoIds, tripId }`。送り方 ③ と「外す」。1回 200 件まで | 2 | `photoMove.ts` |
 | `/api/photos/{photoId}` | GET | `{ photo, urlExpiresAt }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
-| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags? }`。構造は2、画面は4 | 2 | `photoDetail.ts` |
+| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み） | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint? }`。写真に `step`・`hint` を書いてキューに投入 | 3（`identify` は4） | `photoProcess.ts` |
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの `DISTINCT` | 未定（タグを付ける画面と一緒） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
@@ -122,6 +122,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
   "sortAt": "2026-10-05T12:30:15",
   "location": { "latitude": 43.7706, "longitude": 142.365, "placeName": "北海道旭川市", "placeSource": "device" },
   "category": null,
+  "categorySource": null,
   "tags": [],
   "comment": null,
   "commentSource": null,
@@ -139,7 +140,9 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 クライアントは `latitude`・`longitude`・`placeName` を読み、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
 段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。段階4（4-3c）からは `processing.step`（無ければ `null`。状態の表示を「分類中...」「識別中...」に分ける）と `identification` の `kind`・`matchesKind`・`name`（図鑑の項目へのリンクと、分類と合わない写真の案内。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）も読む。`processing` のほかの項目、`classification`、`identification` のほかの項目は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
-`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
+`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
+`categorySource`（**実装済み**（C-1））は、利用者がカテゴリを手で決めた（§5.6）なら `"user"`、それ以外は `null`。ドキュメントに項目が無い写真（C-1 より前の写真と、手で決めたことも分類からやり直したことも無い写真。[04 §1.3](./04_data_design.md#13-写真type-photo)）も `null` で返す。写真を返すすべての応答（`POST /api/photos`・`GET /api/photos`・`GET` / `PATCH /api/photos/{photoId}`・`process`・`GET /api/catalog/entry` の `photos`）に付く。
+クライアントは C-1 から `categorySource` も読み、写真ビューアのカテゴリのボタンに「（変更済み）」を付ける（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
 `processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
@@ -426,31 +429,45 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 **実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。文字数の数え方（見た目の1文字）と前後の空白（U+0085 を含む）は §9.6（コメントの U+0085 は #127、タグの U+0085 と数え方は #128 で実装済み）。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
 
-利用者のコメントとタグを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・未定（タグ）。
+**実装済み**（C-1。`photoDetail.ts`・`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）: `category`（利用者がカテゴリを手で決める。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）。表の 4 の条件と 9.6、下の `category` の項目、書き込みとキューへの投入。
 
-**リクエスト:** `{ "comment"?: string | null, "tags"?: string[] }`
+利用者のコメント・タグ・カテゴリを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・未定（タグ）。
+
+**リクエスト:** `{ "comment"?: string | null, "tags"?: string[], "category"?: "plant" | "food" | "landscape" | "other" }`
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
 | 1 | `photoId` の形式が無効 | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 2 | ボディが JSON としてパースできない | 400 `INVALID_REQUEST` | `リクエストボディの形式が無効です` |
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
-| 4 | `comment` も `tags` も無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
+| 4 | `comment`・`tags`・`category` のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
 | 6 | `comment` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
 | 8 | `tags` の要素に文字列でないものがある | 400 `INVALID_REQUEST` | `タグは文字列で指定してください` |
 | 9 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるものがある（数え方は §9.6。U+0085 だけのタグも空） | 400 `INVALID_REQUEST` | `タグは1〜30文字で指定してください` |
 | 9.5 | `tags` が重複を除いて 20 個を超える（`TAG_MAX_COUNT`） | 400 `INVALID_REQUEST` | `タグは20個までです` |
+| 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
-検証は `photoId`（1）→ ボディ（2〜9。`comment` の 5・6 を `tags` の 7〜9 より先）→ 写真があるか（10）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
-ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment` も `tags` も無いものとして扱い、4 になる。`comment`・`tags` 以外のキー（`hint` など）は無視し、それだけなら 4。
+検証は `photoId`（1）→ ボディ（2〜9.6。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 の順）→ 写真があるか（10）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`tags`・`category` のどれも無いものとして扱い、4 になる。`comment`・`tags`・`category` 以外のキー（`hint` など）は無視し、それだけなら 4。
+`category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
 - `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は前後の空白を除いて保存し、除いた後の値で重複を除く（先に出たものを残し、並びは送った順）。
   タグの数に上限は無い。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
-- 書き込みは `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
+- `category`（C-1）: 利用者が手で決めたカテゴリにする（AI を通さない）。写真を読んでから、次のように書く。送らなければ `category`・`categorySource`・`identification`・`processing` に触らない
+  - いつも `categorySource: "user"` を書く（今と同じカテゴリでも）
+  - 今のカテゴリと違うか、写真の分類が済んでいない（`processing.step` が `classify` で `state` が `pending`・`classifying`・`failed`）ときは、さらに `category`（送った値）・`identification: null`（前の識別を消す。植物から変えれば図鑑から外れる）・`processing` を書く。
+    `processing` は、送ったカテゴリが自動で識別する種類（定義表の `autoIdentify`。植物だけ）なら `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }`（品種を調べる待ち）、それ以外（食べ物・風景・`other`）なら `{ state: "done", step: "classify", attempts: 0, lastError: null, updatedAt: <今> }`。
+    分類を待っている・している写真を同じカテゴリでも書き換えるのは、分類を止めないと後で AI の分類がカテゴリを書き換え、手で決めたカテゴリが消えるため。`failed` の写真もこれで `done`（植物なら識別の待ち）になる
+  - 今と同じカテゴリで、分類が済んでいれば（待っても・しても・失敗してもいなければ）、`categorySource` だけを書く（`identification`・`processing` は残る。識別を待っている・している植物の写真なら、識別はそのまま続く）
+  - 書いた後の写真が識別の待ち（`processing` が `pending`・`step: "identify"`）なら、キューに `{ photoId }` を投入する（植物に変えたとき。今と同じカテゴリで既に識別を待っていた写真にも積み直すが、重複したメッセージは担当の条件で何もせずに終わる。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
+    **投入に失敗してもログだけ出して 200 を返す**（`PHOTO_QUEUE_NAME` が無いときも同じ。写真は識別の待ちのまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）
+  - `classification`（AI の分類の根拠）は書き換えない（手で直した後は `category` と食い違いうる）
+  - 走っている分類・識別の結果は、`processing` を書き換えたので担当の条件（[06 §1.3](./06_processing_design.md#13-状態と失敗)）に合わず捨てられ、手で決めたカテゴリを上書きしない。ワーカーは `categorySource` を見ない
+- 書き込みは1回の patch（`category` を送ったときは、その前に写真を1回読む）。`comment`・`tags` だけなら `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
   **解析中（`processing.state` が `pending` / `classifying` / `identifying`）でも受け付ける**（ロックは無い）
 - 応答は 200 `{ photo, urlExpiresAt }`（§5.3 と同じ形。更新後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
 - Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真の更新に失敗しました`。
@@ -460,8 +477,9 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 **実装済み**（3-3b で `step: "classify"`、4-1b で `step: "identify"` と 8。`photoProcess.ts`、検証は `utils/photoInput.ts` の `readProcessRequestInput`）。
 **実装済み**（#128）: `hint` の文字数を見た目の1文字で数えることと、前後の空白に U+0085 を含めること（表の 6 と、処理の順の 1 の `hint`。§9.6）。
+**実装済み**（C-1）: `step: "classify"` の受付で `categorySource` を `null` にすること（処理の順の 1）。
 
-AI の解析をやり直す（要件 5.5.1）。
+AI の解析をやり直す（要件 5.5.1）。アプリは C-1 から、カテゴリが識別の対象（植物・食べ物・風景）の写真には `identify` を、それ以外（分類の前）の写真には `classify` を頼む（カテゴリは手で直す。[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)）。API はどちらも今までどおり受け付ける。
 
 **リクエスト:** `{ "step": "classify" | "identify", "hint"?: string | null }`
 
@@ -489,6 +507,7 @@ AI の解析をやり直す（要件 5.5.1）。
    `hint`（前後の空白（§9.6。U+0085 を含む）を除いたもの。送らない・`null`・除いて空なら `null` で、前回の `hint` は消える）、
    **`comment: null`・`commentSource: null`**（やり直しの結果で置き換えるため、受付の時点で消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #9。
    利用者が書いたコメントは、アプリが `hint` に事前入力してから頼む設計なので失われない）、`updatedAt: now`。
+   `step: "classify"` なら **`categorySource: null`** も書く（C-1。分類からやり直すならカテゴリは AI に任せ直す。手で決めた印を残すと、AI の決めたカテゴリが「手で決めた」と表示される）。`step: "identify"` は `categorySource` を変えない。
    それ以外の項目（`category`・`classification`・`identification`・`tags`・`tripId`）は変えない（前回の結果はやり直しの結果が出るまで残る）。
    解析中（`pending` / `classifying` / `identifying`）の写真にも受け付ける（最新の依頼で上書きされる。走っている分類・識別の結果と失敗は、担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch で書かれずに捨てられる。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
    やり直しの回数に上限は置かない（費用は AI のデプロイの容量で抑える。[06 §6](./06_processing_design.md#6-費用の抑え方)）
@@ -958,7 +977,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグを直すメソッドは、タグを付ける画面と一緒に足す |
-| `requestPhotoProcessing(photoId, {hint, step})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c）。ボディは `{ step, hint }` で、`step` は省くと `'classify'`（やり直しダイアログが「名前だけ」なら `'identify'` を渡す）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
+| `updatePhotoCategory(photoId, category)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-1）。ボディは `{ category }`（`plant` / `food` / `landscape` / `other`）だけ。植物に変えたら、応答の写真は識別の待ち（§5.6） |
+| `requestPhotoProcessing(photoId, {hint, step})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c）。ボディは `{ step, hint }` で、`step` は省くと `'classify'`（やり直しダイアログは、写真のカテゴリが識別の対象（植物・食べ物・風景）なら `'identify'`、それ以外なら `'classify'` を渡す。C-1。それまではダイアログの「名前だけ」で `'identify'`）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く |
 | `getCatalogKinds()` | `GET /api/catalog/kinds` | `data['kinds']`（各要素の `kind`・`label`・`fields`（`key`・`label`・`type`）。`models/catalog.dart` の `CatalogKind`・`CatalogField`）。**実装済み**（4-3a） |
 | `getCatalogEntries(kind, {required offset, required limit})` | `GET /api/catalog/entries?kind=&offset=&limit=` | `data['entries']`・`data['total']`（`CatalogEntryPage`。項目は `CatalogEntry`）。**実装済み**（4-3a）。`kind`・`offset`・`limit` を毎回クエリに載せる（`Uri(queryParameters:)`。図鑑の画面は `limit` に 50 を渡す）。`entries` の件数は続きがあっても `limit` より少ないことがある（§5.14）ので、次の `offset` は呼び出し側が `limit` だけ進め、`total` 以上なら読み切り（[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。`CatalogEntry` は `description`・`characteristics` を null 可、`attributes` が無ければ空、それ以外の欄は必須として読む |
 | `getCatalogEntry(kind, name, {continuationToken})` | `GET /api/catalog/entry?kind=&name=&continuationToken=` | `data['entry']`（null 可。`CatalogEntry`）・`data['photos']`・`data['continuationToken']`（null 可）（`models/catalog.dart` の `CatalogEntryDetail`。写真は `PhotoPage`）。**実装済み**（4-3b）。`kind`・`name` を毎回、`continuationToken` は渡したときだけクエリに載せる（`Uri(queryParameters:)` で組み立てるので、記号や空白を含む名前も URL エンコードされる）。`limit` は送らない（サーバの既定 100）。`urlExpiresAt` は読まない（`getPhotos` と同じ）。`photos` は `entry` が null でも必須として読む（サーバは `[]` を返す）。`CatalogEntry` の読み方は `getCatalogEntries` と同じ |

@@ -102,10 +102,14 @@ export interface PhotoDocument extends PhotoFields {
   blobName: string;
   /** サムネイルの Blob 名。無ければ null */
   thumbnailBlobName: string | null;
+  /** 利用者がカテゴリを手で決めたら user（02 §5 #53）。C-1 より前の写真には項目が無い（無いのは null と同じ） */
+  categorySource?: 'user' | null;
 }
 
 /** 写真（API の応答の形）。Blob 名の代わりに SAS 付きの URL を持つ */
 export interface Photo extends PhotoFields {
+  /** 利用者がカテゴリを手で決めたら user。無ければ null */
+  categorySource: 'user' | null;
   imageUrl: string;
   thumbnailUrl: string | null;
 }

@@ -23,6 +23,9 @@ class Photo {
   /// AI の分類のカテゴリ（`plant` / `food` / `landscape` / `other`）。分類の前は null
   final String? category;
 
+  /// 利用者がカテゴリを手で決めたら `user`（02 §5 #53）。AI のカテゴリ・分類の前は null
+  final String? categorySource;
+
   /// 解析の進み具合（`processing.state`。`none` / `pending` / `classifying` / `identifying` / `done` / `failed`）
   final String processingState;
 
@@ -51,6 +54,7 @@ class Photo {
     this.longitude,
     this.placeName,
     this.category,
+    this.categorySource,
     this.processingState = 'none',
     this.processingStep,
     this.identification,
@@ -73,6 +77,7 @@ class Photo {
       longitude: (location?['longitude'] as num?)?.toDouble(),
       placeName: location?['placeName'] as String?,
       category: json['category'] as String?,
+      categorySource: json['categorySource'] as String?,
       processingState: processing?['state'] as String? ?? 'none',
       processingStep: processing?['step'] as String?,
       identification: identification == null

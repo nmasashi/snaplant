@@ -1,6 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService } from '../services/photoStorageService';
+import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { photoResponseData } from '../services/photoView';
 import {
   createDatabaseErrorResponse,
@@ -62,8 +63,10 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
 }
 
 /**
- * 写真更新 API（利用者のコメントとタグを直す）
+ * 写真更新 API（利用者のコメント・タグ・カテゴリを直す）
  * PATCH /api/photos/{photoId}
+ *
+ * カテゴリを変えると識別を消して解析の状態を書き換え、植物なら品種を調べる待ちにしてキューに積む（02 §5 #53）
  */
 export async function updatePhotoHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   const photoId = request.params.photoId;
@@ -81,6 +84,10 @@ export async function updatePhotoHandler(request: HttpRequest, context: Invocati
     const photo = await new AlbumService().updatePhoto(photoId, validated.input);
     if (!photo) {
       return createNotFoundError('指定された写真が見つかりません', ErrorCode.PHOTO_NOT_FOUND);
+    }
+    // カテゴリを植物に変えたら、品種を調べる待ちになっている。積む（同じ写真が2回積まれても、担当は1回だけ。04 §7.4）
+    if (validated.input.category !== undefined && photo.processing.state === 'pending' && photo.processing.step === 'identify') {
+      await enqueuePhotoOrLog(photoId, (...args) => context.log(...args));
     }
     return createSuccessResponse(photoResponseData(photo, storage));
   } catch (error: any) {

@@ -71,6 +71,8 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 
 ### 1.3 写真（`type: "photo"`）
 
+**実装済み**（C-1。`types/album.ts` の `PhotoDocument`）: 下の表の `categorySource` の行と、`category` を利用者も書くこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）。
+
 ```json
 {
   "id": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -118,7 +120,8 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `location.latitude` / `longitude` | number | ○ | 2 | 緯度（-90〜90）・経度（-180〜180） |
 | `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`）で、空白だけは不可。送られたまま保存する（前後の空白を除かない） |
 | `location.placeSource` | `"device"` \| `"server"` \| null | ○（null 可） | 2 | 地名の出どころ。段階2は、`placeName` を送られたら `"device"`（端末の Geocoder）、無ければ `null`。段階3で Azure Maps が埋めたら `"server"` |
-| `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーだけが書く。横断は `c.category = @category`（§5 の 5.4） |
+| `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーと、利用者のカテゴリの更新（`PATCH /api/photos/{photoId}` の `category`。C-1。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）が書く。横断は `c.category = @category`（§5 の 5.4） |
+| `categorySource` | `"user"` \| null | ×（無いのは `null` と同じ） | C-1 | カテゴリの出どころ。利用者がカテゴリを手で決めたら `"user"`（`PATCH` の `category`。今と同じカテゴリを送っても付く）。分類からのやり直しの受付（`process` の `step: "classify"`）が `null` に戻す。**写真の作成（`POST /api/photos`）では書かない**ので、C-1 より前の写真と、どちらの操作も受けていない写真には項目が無い（クエリで使わないので、無いのと `null` の2通りを扱う所は無い。API の応答では `null` で返す。[05 §3.3](./05_api_design.md#33-photo)）。ワーカーは読まない（手で決めたカテゴリを AI が上書きしないのは、`PATCH` が `processing` を書き換えるから。§7.4） |
 | `tags` | string[] | ○ | 2 | 利用者が付けるタグだけ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる（段階2はタグを付ける画面が無い）。AI は書かない |
 | `comment` | string \| null | ○（null 可） | 2（値は4） | 一言コメント。前後の空白を除いて 500 文字まで（`PHOTO_COMMENT_MAX_LENGTH`）。除いた値を保存する |
 | `commentSource` | `"ai"` \| `"user"` \| null | ○（null 可） | 2（値は4） | コメントの出どころ |
@@ -130,6 +133,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 
 段階2から**全項目を書く**（段階3・4で使う項目も `null` で）。項目が無いドキュメントと `null` のドキュメントは Cosmos SQL で振る舞いが違う
 （`IS_NULL` は欠損で偽、`IS_DEFINED` は null で真）ので、後から項目を足すときに「無い」を2通り扱わずに済むようにする。
+例外は C-1 で足した `categorySource`（作成では書かず、無いのは `null` と同じに扱う。クエリの条件に使わないので2通りの扱いが要らない。使うクエリを足すときは、作成で `null` を書くか、`NOT IS_DEFINED` も条件に入れる）。
 
 Blob 名に旅行の id を含めない。旅行への出し入れで Blob を触らないため。
 
@@ -284,7 +288,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 | 欄 | 形 | 付ける主体 | 例 |
 |---|---|---|---|
-| `category`（写真だけ） | `CATALOG_KINDS` のキー（§3）または `other`（`OTHER_KIND`。`api/src/catalog/kinds.ts`）。分類前は `null` | 分類 AI（段階3）。**写真にちょうど1つ** | `"food"`、`"other"` |
+| `category`（写真だけ） | `CATALOG_KINDS` のキー（§3）または `other`（`OTHER_KIND`。`api/src/catalog/kinds.ts`）。分類前は `null` | 分類 AI（段階3）。利用者が手で直せる（`PATCH /api/photos/{photoId}`。手で決めたら `categorySource: "user"`。C-1 で実装済み）。**写真にちょうど1つ** | `"food"`、`"other"` |
 | `tags`（旅行・写真） | 1〜30 文字（`TAG_MAX_LENGTH`）の文字列の配列。前後の空白を除く。重複は保存前に除き、並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は後の段階） | `favorite`、`お気に入り` |
 
 - 分類の確信度やモデル名は `classification` に別に持つ。`category` は「横断して見るための索引」、`classification` は「根拠」
@@ -451,7 +455,8 @@ export const CATALOG_KINDS = {
 
 | きっかけ | 段階 | どう起きるか |
 |---|---|---|
-| 写真の解析のやり直し（要件 5.5.1） | 4 | 分類のやり直しは、まず `identification` を `null` にしてから識別し直す（種類が変わったのに古い名前の下に残らないように。§7.4）。識別し直すのは自動で識別する植物だけで、食べ物・風景は分類で終わる（名前は消えたまま。名前は「名前だけ」（`step: "identify"`）のやり直しで頼む。B-1 で実装済み）。識別の結果で新しい種類・名前の項目に現れ、古い名前の写真が0枚になればその項目は自然に消える |
+| 写真の解析のやり直し（要件 5.5.1） | 4 | 分類のやり直しは、まず `identification` を `null` にしてから識別し直す（種類が変わったのに古い名前の下に残らないように。§7.4）。識別し直すのは自動で識別する植物だけで、食べ物・風景は分類で終わる（名前は消えたまま。名前は `step: "identify"` のやり直しで頼む（C-1 の前のアプリの「名前だけ」。C-1 からアプリはカテゴリが識別の対象の写真のやり直しをこれで頼む）。B-1 で実装済み）。識別の結果で新しい種類・名前の項目に現れ、古い名前の写真が0枚になればその項目は自然に消える |
+| 利用者がカテゴリを手で直す（C-1。実装済み） | C-1 | カテゴリが変われば `identification` を `null` にする（植物から変えれば図鑑から外れる）。植物に変えれば識別の待ちになり、識別の結果で植物の項目に現れる（[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)） |
 | 名前の揺れをそろえる（要件 §8 の未決の論点） | 未定 | 「ソメイヨシノ」の写真の `identification.name` を「サクラ」に書き換える（写真1枚につき Patch 1回）。付け替える先を作る手順は要らない |
 
 項目の種類や名前を利用者が直接書き換える操作は、段階4では入れない（要件 5.5.1 はやり直しで直すのが基本）。入れるときも写真ごとの Patch で書ける。
@@ -633,8 +638,8 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | 旅行の削除（写真も消す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).delete()` + Blob 削除 → `item(tripId, tripId).delete()` |
 | 旅行の削除（写真は残す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, { op: 'set', path: '/updatedAt', value: now }])`（move の「外す」と同じ）→ `item(tripId, tripId).delete()` |
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
-| コメント・タグの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])` |
-| やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`。条件は付けない（解析中でも最新の依頼で上書きする）。404 なら写真が無い |
+| コメント・タグ・カテゴリの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])`。カテゴリ（C-1。実装済み）を送ったときは先に `item(id, id).read()` で今のカテゴリと `processing` を読み、`categorySource`（と、変わる・分類を止めるときは `category`・`identification`・`processing`）の `set` を同じ patch に入れる。条件は付けない。読んだときに無ければ（と patch の 404）写真が無い。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) |
+| やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`（`step: "classify"` なら `categorySource: null` の set も。C-1 で実装済み）。条件は付けない（解析中でも最新の依頼で上書きする）。404 なら写真が無い |
 | 再投入のタイマーが止まった写真を戻す（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`（`AlbumService.writeProcessing()`）。412・404 なら触らずに次へ |
 | 分類まで済んだ写真を識別の待ちにする（段階4。手で回すスクリプト。[06 §1.2](./06_processing_design.md#12-流れ)） | 上と同じ `writeProcessing()`（読んだときの `processing` の条件付き patch）で `processing` を `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` に。412・404 なら飛ばして次へ。キューには積まない（再投入のタイマーが積む） |
 | ワーカーが写真を担当する（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`。412 なら別のインスタンスが先に担当した（重複配信）ので何もしない（§7.4） |
@@ -828,12 +833,15 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 宛先の旅行が、存在の検査の後に消された | 消えた旅行を指す写真 | どの一覧にも出ない（写真は消えていない） | 掃除（段階3。§7.3） |
 | 写真が同時に消された | 404 → `notFound` | 文言に「見つかりませんでした」 | — |
 
-**PATCH**（`PATCH /api/photos/{photoId}`。文書1つ）
+**PATCH**（`PATCH /api/photos/{photoId}`。文書1つ。カテゴリを送ったときは、順: 写真を読む → patch →（識別の待ちになったら）キューに投入。カテゴリの行は C-1 で実装済み）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
+| （カテゴリ）写真の読み取り | 何も変わらない | 失敗（503 / 500） | 再送 |
 | patch | 何も変わらない | 失敗 | 再送 |
-| ワーカーの書き込みと重なる | patch は項目単位で、利用者が書く欄（`comment`・`tags`・`tripId`）と AI が書く欄（`category`・`classification`・`identification`・`processing`）が分かれているので、互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch で書き、412 なら書かない（§7.4）。「解析中」で利用者の更新を止めるロックは置かない | — | 自動 |
+| （カテゴリを植物に変えた）キューへの投入 | `pending`・`step: "identify"` の写真。メッセージは無い | 成功（200。投入の失敗で失敗を返さない）。「識別中...」のまま | 自動（再投入のタイマーが `processing.step` を見て積む） |
+| ワーカーの書き込みと重なる（コメント・タグ） | patch は項目単位で、利用者が書く欄（`comment`・`tags`・`tripId`）と AI が書く欄（`category`・`classification`・`identification`・`processing`）が分かれているので、互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch で書き、412 なら書かない（§7.4）。「解析中」で利用者の更新を止めるロックは置かない | — | 自動 |
+| 分類・識別の間にカテゴリを手で決めた（カテゴリが変わったか、分類が済んでいない（待っている・している・失敗した）写真） | 手で決めたカテゴリと、`PATCH` が書いた `processing`（済み、または植物なら識別の待ち） | 手で決めたカテゴリ | 走っていた分類・識別の結果・失敗・コメントは、担当したときの `processing` の条件に合わず 412 で書かれない（§7.4）。植物なら `PATCH` が積んだメッセージが識別を担当する |
 
 **やり直しの受付**（`POST /api/photos/{photoId}/process`。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。順: patch → キューに投入）
 
@@ -851,7 +859,7 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | `state` を `classifying` / `identifying` にした後に落ちる | 処理中のまま | 「分類中...」（識別なら段階4のアプリで「識別中...」） | 自動（10 分後にタイマーが `pending` に戻してから（`step`・`attempts` はそのまま）再投入。ワーカーは `pending` しか担当しないので、戻さずに投入しても担当されない。`attempts` が上限（3 回）なら `failed`） |
 | AI の呼び出しが成功した後、結果の patch の前に落ちる | 結果が無い | 同上 | 自動（再実行。AI の費用が1回分無駄になる） |
 | 分類の後、識別の投入に失敗（自動で識別する植物だけ。B-1） | `pending`・`step: "identify"` | 「識別中...」 | 自動（タイマー） |
-| **同じ画像で AI が毎回失敗する**（応答の検証違反・内容による拒否など、再試行しても直らない失敗） | `attempts: 3`・`failed`・`lastError` | 「分類に失敗しました」と「やり直す」 | **自動では直らず、永遠に回り続けもしない。** ワーカーは上限未満の失敗では `pending` に戻して例外を投げ（キューの再試行）、上限（3 回目）の失敗で `failed` にして例外を投げずに終える（poison には落ちない）。タイマーは `attempts` が上限なら `failed` にし、**`failed` は再投入のクエリ（§5 の 5.8）に含めない**。利用者が `process` を頼んだときだけ `attempts` を 0 に戻してもう一度試す。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（[06 §6](./06_processing_design.md#6-費用の抑え方)） |
+| **同じ画像で AI が毎回失敗する**（応答の検証違反・内容による拒否など、再試行しても直らない失敗） | `attempts: 3`・`failed`・`lastError` | 「分類に失敗しました」と「やり直す」（C-1 からはカテゴリの「カテゴリを選ぶ」も） | **自動では直らず、永遠に回り続けもしない。** ワーカーは上限未満の失敗では `pending` に戻して例外を投げ（キューの再試行）、上限（3 回目）の失敗で `failed` にして例外を投げずに終える（poison には落ちない）。タイマーは `attempts` が上限なら `failed` にし、**`failed` は再投入のクエリ（§5 の 5.8）に含めない**。利用者が `process` を頼んだときだけ `attempts` を 0 に戻してもう一度試す（C-1 からは、利用者がカテゴリを手で決めても `attempts` が 0 に戻り、分類をせずに `done`（植物なら識別の待ち）になる。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。やり直しの回数に上限は置かず、費用は AI のデプロイの容量と予算アラートで抑える（[06 §6](./06_processing_design.md#6-費用の抑え方)） |
 | 分類で種類が変わったのに、識別が上限まで失敗 | `identification: null`（分類が先に消す）・`failed` | 「失敗」。図鑑に出ない | 利用者がやり直す。**古い種類・名前の下に残り続けることは無い** |
 | コメントの条件付き patch が 412（AI の処理中に利用者がコメントを書いた、またはやり直しの受付が入った） | 利用者のコメント（やり直しなら受付が消した `null`）が残る。AI のコメントは書かれない | 利用者の文 | 意図どおり（§7.4）。結果の patch には進む（やり直しなら結果も 412 で書かれない） |
 | AI の処理中に利用者が `tags`・`tripId` を変えた（解析中に写真を編集した） | 利用者の変更と AI の結果の両方が残る | 両方 | 書く欄が分かれているので衝突しない。ロックも読み直しも要らない |
@@ -915,13 +923,15 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 ### 7.4 ワーカーの書き込みの決まり
 
 **実装済み**（B-1。`functions/processPhoto.ts` の `classifyPhoto()`）: 分類も AI の一言をコメントに書くこと（下の (1)）と、分類の後に識別を投入するのが植物だけであること（最後の行）。
+**実装済み**（C-1。`AlbumService.updatePhoto()`）: 利用者のカテゴリの更新が `category`・`identification`・`processing` を書くこと（下の表の1行目と、最後の項目）。
 
 **AI は担当の欄だけを部分更新（Patch）し、「解析中」で利用者の更新を止めるロックは置かない**（2026-10-12 に人間が決定）。
 ロックを置くと解析の間は利用者が何も変えられず、処理が落ちると解析中のまま残る。欄を分けて Patch する方が単純で、落ちても利用者の操作は妨げない。
 
 | 欄 | 書く主体 |
 |---|---|
-| `category`・`classification`・`identification`・`processing` | AI（ワーカー）と、やり直しの受付（`processing`・`hint`）と、再投入のタイマー（`processing`）と、識別に回す手で回すスクリプト（`processing`。段階4） |
+| `category`・`classification`・`identification`・`processing` | AI（ワーカー）と、やり直しの受付（`processing`・`hint`）と、再投入のタイマー（`processing`）と、識別に回す手で回すスクリプト（`processing`。段階4）と、利用者のカテゴリの更新（`PATCH` の `category`。`category`・`identification`・`processing`。`classification` は書かない。C-1） |
+| `categorySource` | 利用者のカテゴリの更新（`"user"`）と、分類からのやり直しの受付（`null`）。C-1。ワーカーは書かない・読まない |
 | `comment`・`commentSource` | **両方**（利用者の `PATCH` と AI）。衝突はここだけ |
 | `tags`・`tripId`・`updatedAt` | 利用者（`PATCH`・move・旅行の削除）。`updatedAt` はワーカーも書く |
 
@@ -939,6 +949,11 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 - やり直し（`process`）は受付の時点でコメントを消す（[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）ので、やり直しの結果のコメントは必ず書かれる（ただし識別の結果が `matchesKind: false` のときと、上限まで失敗したときはコメントを書かないので、コメントの無い写真になる。[09](./09_backlog.md) の「「名前だけ」のやり直しで…コメントが空のまま残る」で判断待ち）
 - 分類は `identification` を `null` に戻してから識別を投入する。種類が変わったのに古い識別が残り、図鑑の別の種類に出続けることを防ぐ。
   識別を投入するのは自動で識別する種類（植物）だけで、食べ物・風景・`other` は `identification` を `null` に戻して `done` にする（B-1。[06 §2.3](./06_processing_design.md#23-書き込み)）
+- **利用者が手で決めたカテゴリ（`categorySource: "user"`）を AI は上書きしない**（C-1。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）。ワーカーは `categorySource` を見ず、上の担当の条件だけで守る。
+  カテゴリの `PATCH` は、カテゴリが変わるか、分類が済んでいない（待っている・している・失敗した）写真なら `processing` を書き換える（`attempts: 0`・`updatedAt` が今）ので、走っている分類・識別の結果・失敗・コメントは 412 で捨てられ、待っていた分類のメッセージも担当の条件に合わずに何もしない。
+  カテゴリが同じで分類が済んでいれば（待っても・しても・失敗してもいなければ）`processing` を変えない（識別を待っている・している植物の識別はそのまま続き、識別はカテゴリを書かない）。
+  `PATCH` は読んでから条件を付けずに書くので、`category` と `processing` を書くときは、読んだ後・書く前にワーカーが分類の結果を書いていても、手で決めたカテゴリで上書きする。
+  利用者が分類からやり直しを頼めば（`process` の `step: "classify"`）、受付が `categorySource` を `null` に戻し、カテゴリは AI に任せ直す
 
 ### 7.5 残すと決めた食い違い
 

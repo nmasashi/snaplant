@@ -59,7 +59,8 @@ const storedPhoto = (id: string, tripId: string | null, overrides: Partial<Photo
 /** 写真のドキュメントから、応答の写真と共通の項目だけを取り出す（type と Blob 名は応答に出ない） */
 const responseFieldsOf = (doc: PhotoDocument): PhotoFields => {
   const { type: _type, blobName: _blobName, thumbnailBlobName: _thumbnailBlobName, ...fields } = doc;
-  return fields;
+  // カテゴリを手で決めた印は、項目の無い写真でも null で返る（02 §5 #53）
+  return { ...fields, categorySource: null };
 };
 
 /**

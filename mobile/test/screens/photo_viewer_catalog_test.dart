@@ -117,20 +117,20 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('分類と合わない写真は、リンクの代わりに案内と「やり直す」を出し、「やり直す」でやり直しダイアログを開く',
+    testWidgets(
+        '分類と合わない写真は、リンクの代わりに「植物が写っていないようです。カテゴリを確かめてください」を出す（案内の横に「やり直す」は出さない）',
         (tester) async {
+      // カテゴリは上のボタンで手で直す（03 §5.6。02 §5 #53）。手がかりを付けて識別し直すなら、上のバーの「やり直す」から頼める
       await _openViewer(tester, _photo(matchesKind: false));
 
       expect(find.text('ソメイヨシノ >'), findsNothing);
-      expect(find.text('分類と合わない写真です。やり直しで手がかりを付けてください'), findsOneWidget);
-
-      await tester.tap(find.byElementPredicate((element) =>
-          element.widget is Text &&
-          (element.widget as Text).data == 'やり直す' &&
-          element.findAncestorWidgetOfExactType<AppBar>() == null));
-      await letFramesRun(tester);
-
-      expect(find.text('解析をやり直す'), findsOneWidget);
+      expect(find.text('植物が写っていないようです。カテゴリを確かめてください'), findsOneWidget);
+      expect(
+          find.byElementPredicate((element) =>
+              element.widget is Text &&
+              (element.widget as Text).data == 'やり直す' &&
+              element.findAncestorWidgetOfExactType<AppBar>() == null),
+          findsNothing);
     });
 
     testWidgets('種類の一覧に無い種類の写真は、項目の詳細を開かずに「図鑑にこの種類がありません」と知らせる',
@@ -180,7 +180,7 @@ void main() {
     // 前回の識別は、やり直しの結果が出るまで残る（05 §5.7）
     for (final (matchesKind, label, text) in [
       (true, '項目へのリンク', 'ソメイヨシノ >'),
-      (false, '分類と合わない写真の案内', '分類と合わない写真です。やり直しで手がかりを付けてください')
+      (false, '分類と合わない写真の案内', '植物が写っていないようです。カテゴリを確かめてください')
     ]) {
       testWidgets('やり直しを待っている間も、前回の識別から$labelを出す', (tester) async {
         await _openViewer(

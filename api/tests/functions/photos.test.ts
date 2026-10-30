@@ -245,6 +245,7 @@ describe('写真API', () => {
         data: {
           photo: {
             ...commonFields,
+            categorySource: null,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
           },
@@ -634,6 +635,7 @@ describe('写真API', () => {
         data: {
           photo: {
             ...savedFields,
+            categorySource: null,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: null
           },
@@ -713,6 +715,7 @@ describe('写真API', () => {
         data: {
           photo: {
             ...firstFields,
+            categorySource: null,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: null
           },

@@ -565,7 +565,8 @@ class ApiService {
   /// 写真の解析のやり直しを頼む（受け付けるだけで、解析はサーバが後で行う）
   /// POST /api/photos/{photoId}/process
   ///
-  /// [step] は `classify`（カテゴリから）か `identify`（カテゴリはそのままで名前だけ。図鑑の種類の写真だけ）。
+  /// [step] は `classify`（分類から）か `identify`（カテゴリはそのままで名前などだけ。識別の対象の種類の写真だけ）。
+  /// やり直しダイアログが写真のカテゴリと解析の状態で決める（03 §5.4）。
   /// [hint] は利用者からの手がかり。空白だけなら送らない。受け付けた写真（解析の待ち）を返す
   Future<Photo> requestPhotoProcessing(String photoId, {String? hint, String step = 'classify'}) async {
     try {
@@ -599,6 +600,28 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'comment': comment}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 写真のカテゴリを手で決める（02 §5 #53）
+  /// PATCH /api/photos/{photoId}
+  ///
+  /// [category] は分類の種類（`plant` / `food` / `landscape` / `other`）。直した写真を返す
+  /// （植物に変えたら品種を調べる待ちになっている）
+  Future<Photo> updatePhotoCategory(String photoId, String category) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _client.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'category': category}),
       );
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
