@@ -247,6 +247,20 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, '食べ物'), findsOneWidget);
     });
 
+    testWidgets('分類に失敗した写真は、前のカテゴリが残っていても分類からやり直す', (tester) async {
+      // 失敗したのは分類なので、名前（識別）をやり直しても「分類に失敗しました」の写真は直らない
+      final backend =
+          await _openViewer(tester, _photo(category: 'food', state: 'failed'));
+
+      await tester.tap(_infoRetry);
+      await letFramesRun(tester);
+      await tester.tap(_dialogRetry);
+      await letFramesRun(tester);
+
+      expect((_stored(backend)['processing'] as Map)['step'], 'classify');
+      expect(find.text('分類中...'), findsOneWidget);
+    });
+
     testWidgets('失敗した写真の下の「やり直す」からも頼める', (tester) async {
       final backend = await _openViewer(tester, _photo(state: 'failed'));
 
