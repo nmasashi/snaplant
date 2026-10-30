@@ -623,7 +623,7 @@ describe('写真更新API', () => {
       // 読み直すたびに、書く直前で AI と利用者のコメントが入れ替わる
       cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant' }));
       cosmosBackend.beforePatch = () => {
-        const doc = cosmosBackend.documents.get(PHOTO_ID)!;
+        const doc = cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
         Object.assign(doc, doc.commentSource === 'ai' ? { comment: '庭で見た花', commentSource: 'user' } : { comment: 'サクラの花', commentSource: 'ai' });
       };
 
@@ -634,7 +634,7 @@ describe('写真更新API', () => {
       expect((response.jsonBody as any).error.message).toBe('写真の更新に失敗しました');
       // 手で決めた印も、解析の状態も書かれていない（コメントは書く直前の入れ替えのまま）
       expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'plant', processing: storedPhoto().processing });
-      expect(cosmosBackend.documents.get(PHOTO_ID)!.categorySource).toBeUndefined();
+      expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).categorySource).toBeUndefined();
     });
 
     it('分類に失敗した写真（カテゴリ無し）にも、カテゴリを手で決められる（失敗は済みになる）', async () => {
