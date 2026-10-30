@@ -229,33 +229,21 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('カテゴリが図鑑の種類の写真は「カテゴリから」「名前だけ」を選べ、「名前だけ」で頼むとカテゴリはそのままで識別だけをやり直す',
+    testWidgets('やり直す範囲は選ばせず、カテゴリが識別の対象（植物・食べ物・風景）の写真は、カテゴリはそのままで名前（識別）だけをやり直す',
         (tester) async {
-      final backend = await _openViewer(tester, _photo(category: 'plant'));
+      // カテゴリは手で直す（03 §5.6）ので、やり直しで AI にカテゴリを決め直させない（02 §5 #53）
+      final backend = await _openViewer(tester, _photo(category: 'food'));
 
       await tester.tap(_barRetry);
       await letFramesRun(tester);
-      expect(find.text('カテゴリから'), findsOneWidget);
-      await tester.tap(find.text('名前だけ'));
-      await tester.pump();
+      expect(find.text('やり直す範囲'), findsNothing);
+      expect(find.text('カテゴリから'), findsNothing);
       await tester.tap(_dialogRetry);
       await letFramesRun(tester);
 
       expect(find.text('識別中...'), findsOneWidget);
       expect((_stored(backend)['processing'] as Map)['step'], 'identify');
-      expect(find.text('植物'), findsOneWidget);
-    });
-
-    testWidgets('やり直す範囲を選ばずに頼むと、カテゴリから（分類から）やり直す', (tester) async {
-      final backend = await _openViewer(tester, _photo(category: 'plant'));
-
-      await tester.tap(_barRetry);
-      await letFramesRun(tester);
-      await tester.tap(_dialogRetry);
-      await letFramesRun(tester);
-
-      expect(find.text('分類中...'), findsOneWidget);
-      expect((_stored(backend)['processing'] as Map)['step'], 'classify');
+      expect(find.widgetWithText(OutlinedButton, '食べ物'), findsOneWidget);
     });
 
     testWidgets('カテゴリが図鑑の種類でない写真（分類の前）では、やり直す範囲を選ばせない', (tester) async {
