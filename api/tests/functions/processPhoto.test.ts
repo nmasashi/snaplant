@@ -117,7 +117,8 @@ describe('写真の解析のワーカー', () => {
         }
       }
     }));
-    aiReturns({ kind: 'food', confidence: 82.5, reason: 'ラーメンが写っている' });
+    // 実際の AI は strict のスキーマで comment も必ず返す（06 §2.2）
+    aiReturns({ kind: 'food', confidence: 82.5, reason: 'ラーメンが写っている', comment: '湯気の立つラーメン' });
 
     process.env.COSMOS_DB_ENDPOINT = 'https://test.documents.azure.com:443/';
     process.env.COSMOS_DB_KEY = 'test-key';
@@ -183,7 +184,7 @@ describe('写真の解析のワーカー', () => {
       let duringAi: unknown;
       reply = async () => {
         duringAi = storedPhoto().processing;
-        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト', comment: 'テスト' }) } }] };
       };
 
       await runWorker();
@@ -237,16 +238,21 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto().commentSource).toBe('ai');
     });
 
-    it('分類のAIの一言が空白だけなら、コメントを書かない', async () => {
+    it('分類のAIの一言が空白だけか文字列でなければ、コメントを書かない', () => forEachCase([
+      // 文字列でない値は strict のスキーマでは来ないが、06 §2.1 は検査すると書いている（範囲外の信頼度と同じ扱い）
+      ['空白だけ', '  '],
+      ['文字列でない（null）', null]
+    ] as const, async (_label, comment) => {
+      // 行ごとに写真を置き直す（forEachCase は行の間で beforeEach を通らない）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ comment: null, commentSource: null }));
-      aiReturns({ kind: 'other', confidence: 82.5, reason: 'テスト', comment: '  ' });
+      aiReturns({ kind: 'other', confidence: 82.5, reason: 'テスト', comment });
 
       await runWorker();
 
       expect(storedPhoto().comment).toBeNull();
       expect(storedPhoto().commentSource).toBeNull();
       expect(storedPhoto().processing.state).toBe('done');
-    });
+    }));
 
     it('識別の待ちを積むのに失敗しても、分類の結果と識別の待ちは書いたまま、例外を投げない（タイマーが積み直す）', async () => {
       // 例外にするとキューが分類をやり直すが、写真はもう分類の待ちではないので担当されず、AI の費用もかからない。
@@ -1156,7 +1162,7 @@ describe('写真の解析のワーカー', () => {
       });
       reply = async () => {
         cosmosBackend.documents.set(PHOTO_ID, reclaimed);
-        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト', comment: 'テスト' }) } }] };
       };
 
       await expect(runWorker()).resolves.toBeUndefined();
@@ -1168,7 +1174,7 @@ describe('写真の解析のワーカー', () => {
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto());
       reply = async () => {
         cosmosBackend.documents.delete(PHOTO_ID);
-        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト' }) } }] };
+        return { choices: [{ message: { content: JSON.stringify({ kind: 'food', confidence: 82.5, reason: 'テスト', comment: 'テスト' }) } }] };
       };
 
       await expect(runWorker()).resolves.toBeUndefined();
