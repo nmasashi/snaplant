@@ -599,7 +599,8 @@ describe('写真更新API', () => {
     });
 
     // queuedMessages() は行をまたいで溜まるので、forEachCase ではなく it.each で行ごとに置き直す
-    it.each(['pending', 'classifying'] as const)('分類を待っている・している（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async (state) => {
+    // 分類に失敗した写真も、分類が済んでいない（同じカテゴリを手で決めると失敗から出る）
+    it.each(['pending', 'classifying', 'failed'] as const)('分類を待っている・している・失敗した（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async (state) => {
       // 分類を止めないと、後で AI の分類がカテゴリを書き換え、手で決めたものが消える（02 §5 #53）
       freezeNow();
       const photo = storedPhoto({
