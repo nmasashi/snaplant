@@ -1093,6 +1093,7 @@ C-2 の前は、どのカテゴリでも題「解析をやり直す」・欄「�
 **実装済み**（5-5c）: 区切りの直し（`recut`）の説明の添え書き。
 **実装済み**（5-6。`screens/timeline_review_screen.dart`、ダイアログは `widgets/timeline_confirm_dialog.dart` の `confirmTimelineAction()`・`confirmDiscardEdit()`）: 見出し・メニュー・下のボタンを作る・作り直すときと編集するときで分けたこと、読み込み中と失敗の既定の文言、区切りの保存の失敗の既定の文言。
 **実装済み**（T-2。`screens/timeline_review_screen.dart` の `_showPhotoMenu()`・`_exclude()`）: 写真をタイムラインから外すこと（長押しのメニューの「タイムラインから外す」と確認のダイアログ。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52）と、撮影日時の無い写真を出さないこと（#54）。
+**実装済み**（U-2。`widgets/timeline_thumbnail.dart` の `onLongPress`）: 写真の長押しを読み上げからもできること。
 
 作る・作り直すときの「タイムラインの案」の確認と、完成版の「タイムラインを編集」（区切りの直し。`reason: "recut"`）は同じ画面で、見出し・メニュー・下のボタンだけが違う（5-6 で文言を改めた）。
 
@@ -1168,7 +1169,8 @@ AI は写真の名前と地名しか知らないので、「何をしていた�
 
 ### 8.8 場面の写真の一覧
 
-**実装済み**（U-1a。`screens/timeline_scene_screen.dart`）。2026-10-31 に人間が決定（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。写真を長押しして「タイムラインから外す」は U-2（T-3）で足す。
+**実装済み**（U-1a。`screens/timeline_scene_screen.dart`）。2026-10-31 に人間が決定（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。
+**実装済み**（U-2。`screens/timeline_scene_screen.dart` の `_showPhotoMenu()`・`_exclude()`、長押しは `widgets/timeline_thumbnail.dart`）: 写真を長押しして「タイムラインから外す」（T-3）。
 
 完成したタイムライン（§8.3）の場面をタップすると開く、その場面の写真を全部並べた画面。旅行詳細が読んだ完成版の場面をそのまま出す（開くときには読まない）。
 
