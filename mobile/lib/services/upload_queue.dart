@@ -459,7 +459,7 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/03_screen_design.md §4.4）。
+  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/03_screen_design.md §4.4.3）。
   /// 送信待ち・失敗・送れた写真は列から消し、準備中の写真は準備が済んでも入れない。
   /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
   void cancelTrip(String tripId) {
