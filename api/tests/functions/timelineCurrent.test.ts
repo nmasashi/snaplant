@@ -403,6 +403,16 @@ describe('タイムラインの完成版の操作API', () => {
       });
     });
 
+    it('完成版ではもう外してあっても、編集中の下書きに無ければ下書きに足す', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut' });
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('b')] }, draft }));
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()!.draft).toEqual({ ...draft, excludedPhotoIds: [photoId('b')] });
+    });
+
     it('編集の途中でない下書き（5-6b より前の作り直し）があっても外せ、その下書きは変えない', async () => {
       const draft = timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other', { reason: 'rebuild' });
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));

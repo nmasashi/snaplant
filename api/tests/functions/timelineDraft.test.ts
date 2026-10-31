@@ -1114,6 +1114,20 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[1].photos.map((p: any) => p.id)).toEqual([photoId('c')]);
     });
 
+    it('文を書くのに失敗した下書きは、もう外した写真を送っても確かめ中に戻す', async () => {
+      const failed = reviewing({
+        phase: 'writing',
+        job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:30:00.000Z' },
+        excludedPhotoIds: [photoId('c')]
+      });
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(failed));
+
+      const response = await exclude({ photoIds: [photoId('c')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toMatchObject({ draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
+    });
+
     it('下書きを読むときも、外した写真は出さない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ excludedPhotoIds: [photoId('b'), photoId('u')] })));
 
