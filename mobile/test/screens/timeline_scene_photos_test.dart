@@ -202,15 +202,6 @@ void main() {
       expect(find.text('10月5日（月） 18:30 · 1枚'), findsOneWidget);
     });
 
-    testWidgets('一覧から戻ると、タイムラインを読み直す', (tester) async {
-      final backend = await _openScene(tester, '朝ごはん');
-      backend.timelinesByTripId[hokkaidoTripId] = _rebuilding;
-
-      await tapBack(tester);
-      await letFramesRun(tester);
-      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-    });
-
     testWidgets('操作を送っている間は、場面をタップしても一覧を開かない', (tester) async {
       // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
       final backend = await _openTimeline(tester);
@@ -327,8 +318,10 @@ void main() {
   });
 
   group('場面の見出しを直す', () {
-    testWidgets('「見出しを編集」で今の見出しだけのシートを開き、保存すると上のバーの見出しが替わり、戻るとタイムラインにも出る',
+    testWidgets(
+        '「見出しを編集」で今の見出しだけのシートを開き、保存すると上のバーの見出しが替わり、一覧から戻るとタイムラインを読み直して直した見出しが出る',
         (tester) async {
+      // 一覧を開いて何もせずに戻っても読み直すことは、timeline_current_test.dart の「作った後に写真が変わった案内」で確かめている
       final semantics = tester.ensureSemantics();
       final backend = await _openScene(tester, '朝ごはん');
 
