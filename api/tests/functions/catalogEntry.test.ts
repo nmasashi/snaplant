@@ -163,6 +163,19 @@ describe('図鑑の項目の詳細API', () => {
     expect([entry.genus, entry.genusName]).toEqual([null, null]);
   });
 
+  it('項目の詳細の属の学名も、一覧と同じく前後の空白を除き先頭だけ大文字に揃え、日本語の属名は前後の空白を除く', async () => {
+    const photo = identifiedPhoto('f', 'plant', 'ハナトリカブト', 70);
+    cosmosBackend.documents.set(photo.id, {
+      ...photo,
+      identification: { ...(photo.identification as any), attributes: { genus: ' aconitum ', genusName: ' トリカブト属 ' } }
+    });
+
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'ハナトリカブト' }), mockContext);
+
+    const { entry } = (response.jsonBody as any).data;
+    expect([entry.genus, entry.genusName]).toEqual(['Aconitum', 'トリカブト属']);
+  });
+
   it('名前は前後の空白を除いてから比べる', async () => {
     const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: '  メロン ' }), mockContext);
 
