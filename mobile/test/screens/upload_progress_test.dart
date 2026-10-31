@@ -12,7 +12,7 @@ import '../helpers/upload_test_helpers.dart';
 // 送信の進み具合バナーと完了の知らせ（docs/03_screen_design.md §4.7.4）を、利用者から見た振る舞いで確かめる。
 // 「送信中 N/M」、失敗の行とその理由、「N枚を送信しました」、画面ごとに数える宛先、旅行が無いと分かった画面のバナー。
 // 送信の状態はアプリの根が持つので、アプリ全体を開いて旅行一覧から旅行詳細へ進む。旅行の API は偽のサーバ（helpers の FakeTripBackend）、
-// ギャラリー・Geocoder・画像の圧縮は端末の機能なので偽物に差し替える。共有の補助は helpers/upload_test_helpers.dart
+// OS のギャラリーは端末の機能なので偽物に差し替える。共有の補助は helpers/upload_test_helpers.dart
 
 void main() {
   testWidgets('2枚を送っている間は、旅行詳細の上部に「送信中 0/2」を出し、1枚の応答が返ると「送信中 1/2」に変わり、2枚目の応答が返るとバナーを消して「2枚を送信しました」と知らせる', (tester) async {

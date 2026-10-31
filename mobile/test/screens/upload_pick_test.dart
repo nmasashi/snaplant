@@ -11,7 +11,7 @@ import '../helpers/trip_test_helpers.dart';
 // 「写真を追加」で写真を選ぶ（docs/03_screen_design.md §4.7.1）を、利用者から見た振る舞いで確かめる。
 // ボタンの「写真を読み込み中...」、選ぶ画面の読み込みの失敗、一部の写真が読めなかったときの知らせ。
 // 送信の状態はアプリの根が持つので、アプリ全体を開いて旅行一覧から旅行詳細へ進む。旅行の API は偽のサーバ（helpers の FakeTripBackend）、
-// ギャラリー・Geocoder・画像の圧縮は端末の機能なので偽物に差し替える。共有の補助は helpers/upload_test_helpers.dart
+// OS のギャラリーは端末の機能なので偽物に差し替える
 
 const _apiKey = 'test-key';
 

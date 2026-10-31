@@ -10,7 +10,7 @@ import '../helpers/upload_test_helpers.dart';
 // 写真の送信（docs/03_screen_design.md §4.7.3）を、利用者から見た振る舞いで確かめる。
 // 応答ごとの扱い（201・時間切れ・503・429・通信の失敗の送り直し、404 の旅行が見つからない）と、設定を変えたときの送信。
 // 送信の状態はアプリの根が持つので、アプリ全体を開いて旅行一覧から旅行詳細へ進む。旅行の API は偽のサーバ（helpers の FakeTripBackend）、
-// ギャラリー・Geocoder・画像の圧縮は端末の機能なので偽物に差し替える。共有の補助は helpers/upload_test_helpers.dart
+// OS のギャラリーは端末の機能なので偽物に差し替える。共有の補助は helpers/upload_test_helpers.dart
 
 void main() {
   testWidgets('旅行詳細の「写真を追加」でギャラリーから1枚選ぶと、その旅行宛てに送られ（写真の id は画像のバイト列の SHA-256）、「1枚を送信しました」と知らせて、写真の一覧と見出しの枚数に出る', (tester) async {
