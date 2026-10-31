@@ -474,11 +474,12 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       physics: const NeverScrollableScrollPhysics(),
       children: [
         for (final (index, photo) in scene.photos.indexed)
-          GestureDetector(
+          // 長押しはサムネイルの読み上げのラベルの節で受ける（外で包むと、読み上げで写真を選んでも長押しできない）
+          TimelineThumbnail(
+            photo: photo,
             onLongPress: _sending
                 ? null
                 : () => _showPhotoMenu(scene, photo, canSplit: index > 0),
-            child: TimelineThumbnail(photo: photo),
           ),
       ],
     );
