@@ -450,7 +450,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('最初の写真を外した場面も、つなげて保存できる（場面の区切りは外した写真の id のまま送る）', (tester) async {
+    testWidgets('最初の写真を外した場面も、つなげて保存できる', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       await _openReview(tester);
