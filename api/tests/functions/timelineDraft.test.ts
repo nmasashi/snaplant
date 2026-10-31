@@ -1220,6 +1220,16 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(written);
     });
 
+    it('タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('タイムラインの更新に失敗しました'), async (_case, error, status, code, message) => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      cosmosBackend.forcedReplaceError = error;
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(status);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
+    }));
+
     it('旅行が無ければ 404（TRIP_NOT_FOUND）、旅行IDがUUIDの形でなければ 400 を返す', async () => {
       const invalid = await postTimelineDraftExcludedPhotosHandler(excludeRequest('not-a-uuid', { photoIds: [photoId('a')] }), mockContext);
       cosmosBackend.documents.delete(TRIP_ID);
