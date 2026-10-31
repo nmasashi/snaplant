@@ -188,6 +188,22 @@ void main() {
       expect(find.text('ながいなまえのはな'), findsOneWidget);
     });
 
+    testWidgets('属の見出しは、読み上げで見出しとして伝える', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openCatalogTab(
+          tester,
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+            'plant': [
+              catalogEntryJson('plant', 'ハナトリカブト',
+                  genus: 'Aconitum', genusName: 'トリカブト属'),
+            ],
+          }));
+
+      expect(tester.getSemantics(find.text('トリカブト属')),
+          containsSemantics(isHeader: true));
+      semantics.dispose();
+    });
+
     testWidgets('読んだ項目に属の分かるものが1つも無ければ（調べ直す前の写真だけなど）、見出しを出さない', (tester) async {
       await openCatalogTab(tester, _backend());
 
