@@ -423,7 +423,7 @@ void main() {
     }
 
     testWidgets(
-        '写真を長押しして「タイムラインから外す」を選び、確かめて「外す」を押すと、その写真を外して保存し、応答で描き直す（場面の最初の写真も外せ、場面のコメントは残る）',
+        '写真を長押しして「タイムラインから外す」を選ぶと確認のダイアログを出し、「キャンセル」なら何も送らず、「外す」でその写真を外して保存し、応答で描き直す（場面の最初の写真も外せ、場面のコメントは残る）',
         (tester) async {
       final semantics = tester.ensureSemantics();
       final backend =
@@ -434,6 +434,12 @@ void main() {
       expect(find.text('タイムラインから外しますか？'), findsOneWidget);
       expect(find.text('写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。'),
           findsOneWidget);
+      await tester.tap(find.text('キャンセル'));
+      await letFramesRun(tester);
+      expect(excludedOf(backend), isEmpty);
+      expect(photoThumbnail('2026年10月5日 07:50'), findsOneWidget);
+
+      await chooseExclude(tester, '2026年10月5日 07:50');
       await tester.tap(find.text('外す'));
       await letFramesRun(tester);
 
@@ -441,20 +447,6 @@ void main() {
       expect(photoThumbnail('2026年10月5日 07:50'), findsNothing);
       expect(find.text('7:58 · 北海道千歳市 · 1枚'), findsOneWidget);
       expect(find.text('コメント: 朝市'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('確認のダイアログで「キャンセル」を押すと、何も送らない', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      await _openReview(tester);
-
-      await chooseExclude(tester, '2026年10月5日 07:58');
-      await tester.tap(find.text('キャンセル'));
-      await letFramesRun(tester);
-
-      expect(excludedOf(backend), isEmpty);
-      expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -475,6 +467,8 @@ void main() {
       semantics.dispose();
     });
 
+    // 失敗・重なりの扱いは区切りの保存と同じ（03 §8.4）。全部の場合（送っている間・旅行が消えた、など）は「区切りを直す」で通し、
+    // ここでは外すも同じ扱いに通っていることを2行で見る
     testWidgets('外すのに失敗したら、エラーの文言を出し、表示はそのまま', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
