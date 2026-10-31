@@ -200,24 +200,11 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if (sceneComments !== undefined && Object.values(sceneComments).some((comment) => exceedsLength(trimUserText(comment), maxLength))) {
       return createValidationError(`場面のコメントは${maxLength}文字以内で指定してください`);
     }
-    let photos: TimelinePhotoSnapshot[];
-    let existing: Set<string>;
-    try {
-      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
-    } catch (error: any) {
-      // 読んだ後に他の操作が旅行を消した・下書きをやめた・作り直した（控えを消した）なら重なり。下書きが同じまま控えだけ無ければ壊れている。
-      // 最初から読み直して保存はしない（出し直した新しい下書きに、前の下書きへの直しを書いてしまう）
-      if (!(error instanceof TimelineSnapshotMissingError)) {
-        throw error;
-      }
-      if (!(await new AlbumService().tripExists(tripId))) {
-        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-      }
-      if ((await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const draftPhotos = await readDraftPhotos(timelines, tripId, draft);
+    if ('error' in draftPhotos) {
+      return draftPhotos.error;
     }
+    const { photos, existing } = draftPhotos;
     const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, existing);
     if (!normalized) {
       return createValidationError('区切りが無効です');
@@ -283,23 +270,11 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     if (!isEditableDraft(draft)) {
       return createTimelineStateConflict();
     }
-    let photos: TimelinePhotoSnapshot[];
-    let existing: Set<string>;
-    try {
-      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
-    } catch (error: any) {
-      // 区切りの保存と同じ扱い（他の操作との重なりなら 404 / 409、下書きが同じまま控えだけ無ければ壊れている）
-      if (!(error instanceof TimelineSnapshotMissingError)) {
-        throw error;
-      }
-      if (!(await new AlbumService().tripExists(tripId))) {
-        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-      }
-      if ((await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const draftPhotos = await readDraftPhotos(timelines, tripId, draft);
+    if ('error' in draftPhotos) {
+      return draftPhotos.error;
     }
+    const { photos, existing } = draftPhotos;
     const snapshotIds = new Set(photos.map((photo) => photo.id));
     if (photoIds.some((id) => !snapshotIds.has(id))) {
       return createValidationError('外す写真が無効です');
@@ -320,6 +295,34 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
   } catch (error: any) {
     context.log('タイムラインの写真を外すエラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
+  }
+}
+
+/**
+ * 下書きの控えと、旅行の今の写真の id を読む（区切りの保存と写真を外すで共有する）
+ *
+ * 読んだ後に他の操作が旅行を消した・下書きをやめた・作り直した（控えを消した）なら重なりなので、404 / 409 の応答を返す。下書きが同じまま控えだけ無ければ壊れているので投げる。
+ * 最初から読み直して保存はしない（出し直した新しい下書きに、前の下書きへの直しを書いてしまう）
+ */
+async function readDraftPhotos(
+  timelines: TimelineService,
+  tripId: string,
+  draft: TimelineDraft
+): Promise<{ photos: TimelinePhotoSnapshot[]; existing: Set<string> } | { error: HttpResponseInit }> {
+  try {
+    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
+    return { photos, existing };
+  } catch (error: any) {
+    if (!(error instanceof TimelineSnapshotMissingError)) {
+      throw error;
+    }
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return { error: createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND) };
+    }
+    if ((await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
+      return { error: createTimelineStateConflict() };
+    }
+    throw error;
   }
 }
 
