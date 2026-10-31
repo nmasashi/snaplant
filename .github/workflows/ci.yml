@@ -7,7 +7,7 @@ on:
       - 'api/**'
       - '.github/workflows/**'
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'api/**'
       - '.github/workflows/**'

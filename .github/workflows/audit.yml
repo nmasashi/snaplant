@@ -13,13 +13,13 @@ name: Dependency Audit
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'api/package.json'
       - 'api/package-lock.json'
       - '.github/workflows/audit.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'api/package.json'
       - 'api/package-lock.json'

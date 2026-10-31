@@ -8,12 +8,12 @@ name: Flutter
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'mobile/**'
       - '.github/workflows/flutter.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'mobile/**'
       - '.github/workflows/flutter.yml'
