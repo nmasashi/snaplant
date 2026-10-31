@@ -47,7 +47,7 @@ const identifiedPhoto = (
       confidence,
       description: name === null ? null : `${name}の説明`,
       characteristics: name === null ? null : `${name}の特徴`,
-      attributes: name === null ? {} : { scientificName: `${name}の学名`, familyName: 'ウリ科' },
+      attributes: name === null ? {} : { scientificName: `${name}の学名`, genusName: 'キュウリ属', genus: 'Cucumis', familyName: 'ウリ科' },
       reason: name === null ? '写っていない' : null,
       model: 'gpt-6-luna',
       at: '2026-10-18T09:40:00.000Z'
@@ -128,7 +128,10 @@ describe('図鑑の項目の詳細API', () => {
       confidence: 92,
       description: 'メロンの説明',
       characteristics: 'メロンの特徴',
-      attributes: { scientificName: 'メロンの学名', familyName: 'ウリ科' },
+      attributes: { scientificName: 'メロンの学名', genusName: 'キュウリ属', genus: 'Cucumis', familyName: 'ウリ科' },
+      // 属は見出しの写真の識別から取る（一覧と同じ欄。02 §5 #56）
+      genus: 'Cucumis',
+      genusName: 'キュウリ属',
       coverThumbnailUrl: urlOf(`${'a'.repeat(64)}.thumb.jpg`)
     });
     expect(photoIdsOf(response).sort()).toEqual(['a'.repeat(64), 'b'.repeat(64)]);
