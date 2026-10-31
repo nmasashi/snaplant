@@ -75,13 +75,13 @@ GitHub Actions は以下の条件で自動実行されます：
 
 - **CI Pipeline** (`/.github/workflows/ci.yml`):
   - `main`, `develop` ブランチへのプッシュ
-  - `main` ブランチへのプルリクエスト
+  - `main`, `develop` ブランチへのプルリクエスト
   - `api/` または `.github/workflows/` 配下のファイル変更時
   - `deploy-functions.yml` からの `workflow_call`
 
 - **Dependency Audit** (`/.github/workflows/audit.yml`):
-  - `main` ブランチへのプッシュ
-  - `main` ブランチへのプルリクエスト
+  - `main`, `develop` ブランチへのプッシュ
+  - `main`, `develop` ブランチへのプルリクエスト
   - プッシュ・プルリクエストとも、`api/package.json`・`api/package-lock.json`・
     `.github/workflows/audit.yml` の変更時のみ
   - 毎週月曜 0:00 UTC（日本時間 9:00）の定期実行（コードを触っていない間に公表された脆弱性を拾うため）
@@ -96,7 +96,7 @@ GitHub Actions は以下の条件で自動実行されます：
 
 - **Terraform 静的チェック** (`/.github/workflows/terraform.yml`):
   - `main`, `develop` ブランチへのプッシュ
-  - `main` ブランチへのプルリクエスト
+  - `main`, `develop` ブランチへのプルリクエスト
   - `infrastructure/` または `.github/workflows/terraform.yml` の変更時
   - `terraform fmt -check -recursive` と `terraform init -backend=false` → `terraform validate` のみ。
     **Azure へは通信せず、認証情報も GitHub Secrets も不要**
@@ -107,13 +107,13 @@ GitHub Actions は以下の条件で自動実行されます：
     API のデプロイを止めてしまう
 
 - **Production Deploy** (`/.github/workflows/deploy-functions.yml`):
-  - `main` ブランチへのプッシュ
+  - `main` ブランチへのプッシュ（`develop` へのマージではデプロイしない。`develop` → `main` のリリース PR のマージでデプロイする。CLAUDE.md「PR と Issue の運用」）
   - `api/` または `.github/workflows/` 配下のファイル変更時
   - 手動実行（workflow_dispatch）
 
 - **Flutter 静的解析とテスト** (`/.github/workflows/flutter.yml`):
-  - `main` ブランチへのプッシュ
-  - `main` ブランチへのプルリクエスト
+  - `main`, `develop` ブランチへのプッシュ
+  - `main`, `develop` ブランチへのプルリクエスト
   - プッシュ・プルリクエストとも、`mobile/` または `.github/workflows/flutter.yml` の変更時のみ
   - 手動実行（workflow_dispatch）
   - Flutter 3.32.8（stable）で、`mobile/` で `flutter pub get` → `flutter analyze` → `flutter test` を実行する
