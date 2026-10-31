@@ -208,12 +208,13 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
  * @param urlOf Blob 名から読み取りの SAS 付き URL
  */
 export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
+  const excluded = new Set(draft.excludedPhotoIds ?? []);
   const layout = layoutTimeline({
     photos,
     sceneStarts: draft.sceneStarts,
     proposedStarts: draft.proposedStarts,
     dayStartHour: draft.dayStartHour,
-    exists: (photoId) => existing.has(photoId),
+    exists: (photoId) => existing.has(photoId) && !excluded.has(photoId),
     urlOf,
   });
   const comments = draft.sceneComments ?? {};

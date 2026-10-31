@@ -246,6 +246,83 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
   }
 }
 
+/**
+ * タイムラインの下書きから写真を外す API（案の確認画面。02 §5 #52）
+ * POST /api/trips/{tripId}/timeline/draft/excluded-photos  { photoIds: string[] }
+ *
+ * 外した写真は下書きに足すだけで戻さない（作り直せば、新しい下書きは何も外していない）。区切りとコメントは変えない。
+ * 文を書くのに失敗した下書きなら、区切りの保存と同じく確かめ中に戻す
+ */
+export async function postTimelineDraftExcludedPhotosHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const tripId = request.params.tripId;
+  context.log(`タイムラインの写真を外すリクエストを受信: 旅行=${tripId}`);
+  if (!isValidUUID(tripId)) {
+    return createValidationError('旅行IDの形式が無効です');
+  }
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read.error;
+  }
+  if (read.body === null || read.body === undefined) {
+    return createValidationError('リクエストボディが指定されていません');
+  }
+  const { photoIds } = read.body as { photoIds?: unknown };
+  if (!Array.isArray(photoIds) || photoIds.length === 0 || !photoIds.every((id) => typeof id === 'string')) {
+    return createValidationError('外す写真は写真IDの配列で指定してください');
+  }
+  try {
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const timelines = new TimelineService();
+    const timeline = await timelines.readTimeline(tripId);
+    const draft = timeline?.doc.draft;
+    if (!timeline || !draft) {
+      return createNotFoundError('タイムラインの下書きが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
+    }
+    if (!isEditableDraft(draft)) {
+      return createTimelineStateConflict();
+    }
+    let photos: TimelinePhotoSnapshot[];
+    let existing: Set<string>;
+    try {
+      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
+    } catch (error: any) {
+      // 区切りの保存と同じ扱い（他の操作との重なりなら 404 / 409、下書きが同じまま控えだけ無ければ壊れている）
+      if (!(error instanceof TimelineSnapshotMissingError)) {
+        throw error;
+      }
+      if (!(await new AlbumService().tripExists(tripId))) {
+        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+      }
+      if ((await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
+        return createTimelineStateConflict();
+      }
+      throw error;
+    }
+    const snapshotIds = new Set(photos.map((photo) => photo.id));
+    if (photoIds.some((id) => !snapshotIds.has(id))) {
+      return createValidationError('外す写真が無効です');
+    }
+    const excluded = new Set([...(draft.excludedPhotoIds ?? []), ...photoIds]);
+    const saved: TimelineDraft = {
+      ...draft,
+      excludedPhotoIds: photos.map((photo) => photo.id).filter((id) => excluded.has(id)),
+      ...(isWriteFailed(draft) ? { phase: 'reviewing', job: null } : {})
+    };
+    // 保存先の設定が足りなければ、書き換える前に失敗させる（区切りの保存と同じ）
+    const storage = new PhotoStorageService();
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
+      return createTimelineStateConflict();
+    }
+    const expiresOn = photoUrlExpiresOn();
+    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
+  } catch (error: any) {
+    context.log('タイムラインの写真を外すエラー:', error);
+    return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
+  }
+}
+
 /** 写真の id と文字列の組か（配列・null は違う） */
 function isStringRecord(value: unknown): value is Record<string, string> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((item) => typeof item === 'string');
@@ -362,6 +439,13 @@ app.http('putTimelineDraftScenes', {
   authLevel: 'function',
   route: 'trips/{tripId}/timeline/draft/scenes',
   handler: putTimelineDraftScenesHandler,
+});
+
+app.http('postTimelineDraftExcludedPhotos', {
+  methods: ['POST'],
+  authLevel: 'function',
+  route: 'trips/{tripId}/timeline/draft/excluded-photos',
+  handler: postTimelineDraftExcludedPhotosHandler,
 });
 
 app.http('postTimelineDraftWrite', {
