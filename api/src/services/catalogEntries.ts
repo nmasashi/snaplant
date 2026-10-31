@@ -73,7 +73,7 @@ function pageOfCatalogNames(
 /**
  * 1つの項目を、名前ごとの枚数の行と見出しの写真（その名前で信頼度が最も高い1枚）から組み立てる
  * @param kind 図鑑の種類
- * @param row 名前ごとの枚数の行
+ * @param row 名前ごとの枚数の行。属（genus・genusName）を持たなければ（項目の詳細）、見出しの写真の識別から取る
  * @param head 見出しの写真。数えてから読むまでに無くなっていれば null
  * @param coverUrlOf Blob 名から表紙の URL（SAS 付き）を作る
  * @returns 項目。見出しの写真が無ければ null（そのページから外す）

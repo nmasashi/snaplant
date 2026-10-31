@@ -23,7 +23,7 @@ export interface CatalogNameCountRow {
 export type CatalogHeadPhoto = Pick<PhotoDocument, 'id' | 'identification' | 'thumbnailBlobName' | 'blobName'>;
 
 /**
- * 種類ごとに、名前ごとの写真の枚数を数える（分類どおりの種類が写っている写真だけ）
+ * 種類ごとに、名前と属（属の学名・属名）の組ごとの写真の枚数を数える（分類どおりの種類が写っている写真だけ。名前ごとに合わせるのは catalogEntries.ts）
  *
  * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けないので、名前順に並べるのは呼び出し側
  * @param container album コンテナ
