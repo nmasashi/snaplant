@@ -109,6 +109,45 @@ void main() {
     expect(_stored(backend)['categorySource'], 'user');
   });
 
+  testWidgets(
+      'AI が書いたコメントのある写真では、今のカテゴリを選んでいる間は知らせず、別のカテゴリを選ぶとコメントが消えることを知らせ、保存すると下の情報からコメントが消える',
+      (tester) async {
+    // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない（05 §5.6）
+    await _openViewer(
+        tester,
+        _photo(category: 'plant')
+          ..['comment'] = 'サクラの花'
+          ..['commentSource'] = 'ai');
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
+    await letFramesRun(tester);
+    // 今のカテゴリのまま保存すると何も送らないので、コメントは消えない
+    expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsNothing);
+    await tester.tap(_option('食べ物'));
+    await tester.pump();
+    expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsOneWidget);
+    await tester.tap(_save);
+    await letFramesRun(tester);
+
+    expect(find.text('サクラの花'), findsNothing);
+  });
+
+  testWidgets('利用者が書いたコメントの写真では、別のカテゴリを選んでもコメントが消えることを知らせない', (tester) async {
+    // 消えるのは AI が書いたコメントだけ（05 §5.6）
+    await _openViewer(
+        tester,
+        _photo(category: 'plant')
+          ..['comment'] = '庭で見た花'
+          ..['commentSource'] = 'user');
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
+    await letFramesRun(tester);
+    await tester.tap(_option('食べ物'));
+    await tester.pump();
+
+    expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsNothing);
+  });
+
   testWidgets('今のカテゴリのまま保存すると、何も送らずに閉じる', (tester) async {
     // 送ると、AI のカテゴリが「手で決めた」ものになり「（変更済み）」が付く（コメントの編集と同じ）
     final backend = await _openViewer(tester, _photo(category: 'food'));
@@ -128,16 +167,21 @@ void main() {
     ('pending', '待っている'),
     ('classifying', 'している')
   ]) {
-    testWidgets('分類を$labelカテゴリのある写真では、今のカテゴリのまま保存しても送り、手で決めたカテゴリにする',
+    testWidgets(
+        '分類を$labelカテゴリのある写真では、今のカテゴリのまま保存しても送ることと AI のコメントが消えることを知らせ、手で決めたカテゴリにする',
         (tester) async {
       // 送らないと、後で AI の分類がカテゴリを書き換える（サーバは、分類中なら同じカテゴリでも分類を止める。05 §5.6）
-      final backend =
-          await _openViewer(tester, _photo(category: 'plant', state: state));
+      final backend = await _openViewer(
+          tester,
+          _photo(category: 'plant', state: state)
+            ..['comment'] = 'サクラの花'
+            ..['commentSource'] = 'ai');
 
       await tester.tap(find.widgetWithText(OutlinedButton, '植物'));
       await letFramesRun(tester);
-      // 植物のまま保存しても品種を調べ始めるので、その旨を出す
+      // 植物のまま保存しても品種を調べ始め、AI のコメントも消えるので、その旨を出す
       expect(find.text('植物にすると、品種を調べます。'), findsOneWidget);
+      expect(find.text('保存すると、AI が書いたコメントは消えます。'), findsOneWidget);
       await tester.tap(_save);
       await letFramesRun(tester);
 

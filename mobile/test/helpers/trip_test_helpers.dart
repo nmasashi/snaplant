@@ -183,7 +183,7 @@ enum TripRoute {
 ///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/05_api_design.md §5.7）。
 ///   `step` は `processing.step` に書く（`classify` なら `categorySource` を null にする）。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
 /// - `PATCH /api/photos/{photoId}` はコメントとカテゴリを書き換える。コメントは前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`。
-///   カテゴリは本物と同じ決まり（手で決めた印を付け、変わったか分類中なら識別を消し、植物なら識別の待ち、ほかは済み。05 §5.6）。
+///   カテゴリは本物と同じ決まり（手で決めた印を付け、変わったか分類中なら識別と AI が書いたコメントを消し、植物なら識別の待ち、ほかは済み。05 §5.6）。
 ///   200 で `{ photo, urlExpiresAt }`。`comment`・`category` のキーがどちらも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
 ///   本物は全部の検証の後に 404 を返すが、偽物はコメントの検証の直後に返す（アプリはコメントとカテゴリを一緒に送らない）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
@@ -1206,6 +1206,11 @@ class FakeTripBackend {
       if (photo['category'] != category || unsettled) {
         photo['category'] = category;
         photo['identification'] = null;
+        // AI のコメントは前のカテゴリで書いたものなので消す（利用者のコメントは残す。本物と同じ）
+        if (photo['commentSource'] == 'ai') {
+          photo['comment'] = null;
+          photo['commentSource'] = null;
+        }
         photo['processing'] = {
           'state': category == 'plant' ? 'pending' : 'done',
           'step': category == 'plant' ? 'identify' : 'classify',

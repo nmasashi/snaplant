@@ -529,7 +529,8 @@ describe('写真更新API', () => {
       at: '2026-09-21T01:06:00.000Z'
     });
 
-    it('植物に変えると、手で決めたカテゴリとして保存し、前の識別を消して、品種を調べる待ちにしてキューに積む', async () => {
+    it('植物に変えると、手で決めたカテゴリとして保存し、前の識別と AI が書いたコメントを消して、品種を調べる待ちにしてキューに積む', async () => {
+      // AI のコメントは前のカテゴリで書いたもので、新しいカテゴリの写真には合わない（植物なら識別が書き直す）
       freezeNow();
       const photo = storedPhoto({ category: 'food', identification: identification('food') });
       cosmosBackend.documents.set(PHOTO_ID, photo);
@@ -537,19 +538,27 @@ describe('写真更新API', () => {
       const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'plant' }), mockContext);
 
       expect(response.status).toBe(200);
-      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'plant', categorySource: 'user', identification: null });
+      expect((response.jsonBody as any).data.photo).toMatchObject({
+        category: 'plant',
+        categorySource: 'user',
+        identification: null,
+        comment: null,
+        commentSource: null
+      });
       expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
         ...photo,
         category: 'plant',
         categorySource: 'user',
         identification: null,
+        comment: null,
+        commentSource: null,
         processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT },
         updatedAt: UPDATED_AT
       });
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
     });
 
-    it('自動で調べない種類（食べ物）に変えると、前の識別を消して済みにし、キューに積まない', async () => {
+    it('自動で調べない種類（食べ物）に変えると、前の識別と AI が書いたコメントを消して済みにし、キューに積まない', async () => {
       // 植物から変えると、調べた品種は消え、図鑑から外れる
       freezeNow();
       const photo = storedPhoto({ category: 'plant', identification: identification('plant') });
@@ -563,10 +572,69 @@ describe('写真更新API', () => {
         category: 'food',
         categorySource: 'user',
         identification: null,
+        comment: null,
+        commentSource: null,
         processing: { state: 'done', step: 'classify', attempts: 0, lastError: null, updatedAt: UPDATED_AT },
         updatedAt: UPDATED_AT
       });
       expect(queuedMessages()).toEqual([]);
+    });
+
+    it('利用者が書いたコメントは、カテゴリを変えても残す', async () => {
+      const photo = storedPhoto({ category: 'plant', comment: '庭で見た花', commentSource: 'user' });
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
+    });
+
+    // カテゴリは写真を読んでから書くので、その間に他の操作がコメントを書くことがある。消すかどうかは書くときのコメントで決める
+    it('写真を読んだ後に利用者がコメントを書いていたら、カテゴリを変えてもそのコメントは残す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant' }));
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = undefined;
+        Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: '庭で見た花', commentSource: 'user' });
+      };
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: '庭で見た花', commentSource: 'user' });
+    });
+
+    it('写真を読んだ後に AI がコメントを書いていたら、カテゴリを変えるとそのコメントも消す', async () => {
+      // 識別中の写真を食べ物に変えると、識別の担当が書いた品種のコメントが食べ物の写真に残り続ける（食べ物には AI が書き直さない）
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant', comment: null, commentSource: null }));
+      cosmosBackend.beforePatch = () => {
+        cosmosBackend.beforePatch = undefined;
+        Object.assign(cosmosBackend.documents.get(PHOTO_ID)!, { comment: 'サクラの花', commentSource: 'ai' });
+      };
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo).toMatchObject({ category: 'food', comment: null, commentSource: null });
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'food', comment: null, commentSource: null });
+    });
+
+    it('書く直前にコメントが書き換わるのが3回続いたら、写真を書き換えずに500で返る', async () => {
+      // 読み直すたびに、書く直前で AI と利用者のコメントが入れ替わる
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ category: 'plant' }));
+      cosmosBackend.beforePatch = () => {
+        const doc = cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
+        Object.assign(doc, doc.commentSource === 'ai' ? { comment: '庭で見た花', commentSource: 'user' } : { comment: 'サクラの花', commentSource: 'ai' });
+      };
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { category: 'food' }), mockContext);
+
+      expect(response.status).toBe(500);
+      expect((response.jsonBody as any).error.code).toBe('INTERNAL_ERROR');
+      expect((response.jsonBody as any).error.message).toBe('写真の更新に失敗しました');
+      // 手で決めた印も、解析の状態も書かれていない（コメントは書く直前の入れ替えのまま）
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ category: 'plant', processing: storedPhoto().processing });
+      expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).categorySource).toBeUndefined();
     });
 
     it('分類に失敗した写真（カテゴリ無し）にも、カテゴリを手で決められる（失敗は済みになる）', async () => {
@@ -600,7 +668,7 @@ describe('写真更新API', () => {
 
     // queuedMessages() は行をまたいで溜まるので、forEachCase ではなく it.each で行ごとに置き直す
     // 分類に失敗した写真も、分類が済んでいない（同じカテゴリを手で決めると失敗から出る）
-    it.each(['pending', 'classifying', 'failed'] as const)('分類を待っている・している・失敗した（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにする', async (state) => {
+    it.each(['pending', 'classifying', 'failed'] as const)('分類を待っている・している・失敗した（%s）写真に今と同じカテゴリを送っても、分類を止めて手で決めたカテゴリにし、AI が書いたコメントを消す', async (state) => {
       // 分類を止めないと、後で AI の分類がカテゴリを書き換え、手で決めたものが消える（02 §5 #53）
       freezeNow();
       const photo = storedPhoto({
@@ -616,6 +684,9 @@ describe('写真更新API', () => {
         category: 'plant',
         categorySource: 'user',
         identification: null,
+        // storedPhoto のコメントは AI が書いたもの。分類を止めるときも、カテゴリを変えたときと同じく消す
+        comment: null,
+        commentSource: null,
         processing: { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: UPDATED_AT }
       });
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
