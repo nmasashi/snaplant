@@ -164,7 +164,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 
 void main() {
   group('完成したタイムラインの表示', () {
-    testWidgets('日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、一番下に作成日時を出す（操作のボタンは出さない）',
+    testWidgets('日ごとに見出し・タイトル・まとめ・印と、場面を縦の時間の線の形（左に始まりの時刻、右に見出しと枚数・写真・終わりの時刻と地名）で並べ、一番下に作成日時を出す（一言・名前・操作のボタンは出さない）',
         (tester) async {
       // 作成日時は端末の時刻で出す。日本時間でないと期待値が合わない（CI は TZ=Asia/Tokyo）
       expect(DateTime(2026, 10, 25).timeZoneOffset, const Duration(hours: 9));
