@@ -188,11 +188,8 @@ class TimelineScene {
   /// 場面の写真のうち、今もあるもの（撮影の順）
   final List<TimelinePhoto> photos;
 
-  /// 地名（重なりを除いて撮影の順）
+  /// 地名（重なりを除いて撮影の順）。応答の写真の識別の名前（`names`）は画面に出さないので読まない（02 §5 #55）
   final List<String> placeNames;
-
-  /// 写真の識別の名前（重なりを除いて撮影の順）
-  final List<String> names;
 
   /// 食べ物の写真がある場面か（見出しの印の色）
   final bool hasFood;
@@ -208,7 +205,6 @@ class TimelineScene {
       {required this.startPhotoId,
       required this.photos,
       required this.placeNames,
-      required this.names,
       required this.hasFood,
       this.label,
       this.note,
@@ -220,7 +216,6 @@ class TimelineScene {
             .map((e) => TimelinePhoto.fromJson(e as Map<String, dynamic>))
             .toList(),
         placeNames: (json['placeNames'] as List<dynamic>).cast<String>(),
-        names: (json['names'] as List<dynamic>).cast<String>(),
         hasFood: json['hasFood'] as bool,
         label: json['label'] as String?,
         note: json['note'] as String?,

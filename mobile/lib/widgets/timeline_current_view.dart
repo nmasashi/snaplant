@@ -7,7 +7,7 @@ import 'timeline_thumbnail.dart';
 
 /// 完成したタイムライン（docs/03_screen_design.md §8.3）
 ///
-/// 日ごとの見出し・タイトル・まとめと場面のカード、一番下に作成日時（撮影日時の無い写真は出さない。02 §5 #54）。
+/// 日ごとの見出し・タイトル・まとめと、場面を時刻の順に縦の線でつないだもの、一番下に作成日時（撮影日時の無い写真は出さない。02 §5 #54）。
 /// タイムラインの編集・作り直しは旅行詳細の上のバーのメニューから（§8.1）
 class TimelineCurrentView extends StatelessWidget {
   const TimelineCurrentView({
@@ -58,7 +58,7 @@ class TimelineCurrentView extends StatelessWidget {
     );
   }
 
-  /// 日の見出し（何日目・日付・印）、タイトル、まとめ、場面のカード
+  /// 日の見出し（何日目・日付・印）、タイトル、まとめ、場面
   List<Widget> _buildDay(TimelineDay day, TextStyle secondary) {
     final mark = _dayMark(day);
     return [
