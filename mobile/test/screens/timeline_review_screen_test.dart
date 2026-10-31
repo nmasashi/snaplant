@@ -7,7 +7,7 @@ import '../helpers/trip_test_helpers.dart';
 // 案の確認画面（docs/03_screen_design.md §8.4。段階5の 5-3b）。
 // 入口は旅行詳細の「タイムライン」の「案を確認する」。区切りの保存は偽のサーバが本物と同じ決まりで場面を組み直す
 
-/// 1日目（10月5日）の朝ごはん（2枚）と小樽（2枚）、2日目（10月6日）の札幌（1枚）、日時なし（1枚）
+/// 1日目（10月5日）の朝ごはん（2枚）と小樽（2枚）、2日目（10月6日）の札幌（1枚）
 final _photos = {
   1: timelinePhotoJson(1, '2026-10-05T07:50:00',
       category: 'food', name: '海鮮丼', placeName: '北海道千歳市'),
@@ -17,7 +17,6 @@ final _photos = {
       name: '小樽運河', placeName: '北海道小樽市'),
   4: timelinePhotoJson(4, '2026-10-05T11:40:00', placeName: '北海道小樽市'),
   5: timelinePhotoJson(5, '2026-10-06T09:10:00', placeName: '北海道札幌市'),
-  6: timelinePhotoJson(6, null, category: 'other'),
   // 地名の無い写真（2日目の昼）。地名の無い場面のテストでだけ使う
   7: timelinePhotoJson(7, '2026-10-06T12:00:00'),
 };
@@ -57,7 +56,6 @@ Map<String, Object?> _reviewingDraft({
             ],
           },
       ],
-      'undatedPhotos': [_photos[6]],
     };
 
 /// 文を書くのに失敗した下書き
@@ -111,7 +109,7 @@ Future<void> _openReview(WidgetTester tester) async {
 void main() {
   group('案の確認画面を開く', () {
     testWidgets(
-        '確かめ待ちの「案を確認する」で開き、説明・日ごとの見出し・場面のカード・同じ日の場面の間の「つなげる」（日の境目には置かない）・見出しを付けるボタンを出し、撮影日時の無い写真は出さない',
+        '確かめ待ちの「案を確認する」で開き、説明・日ごとの見出し・場面のカード・同じ日の場面の間の「つなげる」（日の境目には置かない）・見出しを付けるボタンを出す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester);
@@ -137,11 +135,6 @@ void main() {
       await tester.scrollUntilVisible(find.text('9:10 · 北海道札幌市 · 1枚'), 200,
           scrollable: find.byType(Scrollable).first);
       await tester.pump();
-      // 撮影日時の無い写真は、応答にあっても出さない（タイムラインに入れない。02 §5 #54）
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
-      await tester.pump();
-      expect(find.text('日時なし'), findsNothing);
-      expect(photoThumbnail('撮影日時なし'), findsNothing);
       // 写真のある日は2日、場面は3つ
       expect(find.text('この案で見出しを付ける'), findsOneWidget);
       expect(find.text('2日で 3 場面 · 見出しと一言は AI が書きます'), findsOneWidget);

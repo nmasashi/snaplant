@@ -60,8 +60,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * - 各日の最初の写真と、区切りの写真が場面の始まり（場面は日をまたがない）
  * - 何日目かと場面の分け方は、消えた写真も含めた控えで決め、出すときに消えた写真を除く
  *   （写真を消しても日の番号や区切りが動かないように）。写真が全部消えた場面と日は出さない
+ * - 撮影日時の無い写真は並べない（タイムラインに入れない。02 §5 #54）
  */
-export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayLayout[]; undatedPhotos: TimelinePhotoView[] } {
+export function layoutTimeline(input: TimelineLayoutInput): TimelineDayLayout[] {
   const proposed = new Set(input.proposedStarts);
   const days = datedDaysOf(input.photos, input.dayStartHour).map((day) => ({ ...day, scenes: scenesOfDay(day.photos, input.sceneStarts) }));
   // 区切りを入れた主: その日の最初の写真なら day、AI の案にあれば ai、無ければ user
@@ -77,7 +78,7 @@ export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayL
     thumbnailUrl: input.urlOf(photo.thumbnailBlobName ?? photo.blobName),
   });
 
-  const laidOut = days
+  return days
     .map((day) => ({
       date: day.date,
       dayNumber: day.dayNumber,
@@ -100,9 +101,6 @@ export function layoutTimeline(input: TimelineLayoutInput): { days: TimelineDayL
         })),
     }))
     .filter((day) => day.scenes.length > 0);
-
-  const undatedPhotos = input.photos.filter((photo) => photo.takenAt === null && input.exists(photo.id)).map(view);
-  return { days: laidOut, undatedPhotos };
 }
 
 /** 完成版の応答（日と場面に文を当てた形。05 §5.15） */
@@ -112,7 +110,7 @@ export function currentTimelineOf(
   exists: (photoId: string) => boolean,
   urlOf: (blobName: string) => string
 ) {
-  const layout = layoutTimeline({
+  const days = layoutTimeline({
     photos,
     sceneStarts: current.sceneStarts,
     proposedStarts: current.proposedStarts,
@@ -122,7 +120,7 @@ export function currentTimelineOf(
   });
   return {
     writtenAt: current.writtenAt,
-    days: layout.days.map((day) => {
+    days: days.map((day) => {
       const text = current.dayTexts[day.date];
       return {
         date: day.date,
@@ -143,7 +141,6 @@ export function currentTimelineOf(
         }),
       };
     }),
-    undatedPhotos: layout.undatedPhotos,
   };
 }
 
@@ -201,7 +198,7 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
 }
 
 /**
- * 区切りを確かめられる下書き（確かめ中か、文を書くのに失敗した）の応答（状態に、日ごと・場面ごとの写真と日時なしを足す。05 §5.15）
+ * 区切りを確かめられる下書き（確かめ中か、文を書くのに失敗した）の応答（状態に、日ごと・場面ごとの写真を足す。05 §5.15）
  *
  * 下書きの読み取り・区切りの保存・区切りの直しの受付が同じ形で返す
  * @param existing 旅行の今の写真の id（控えを取った後に消えた写真は出さない）
@@ -209,20 +206,19 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
  */
 export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
   const visible = visiblePhotoIdsOf(existing, draft.excludedPhotoIds);
-  const layout = layoutTimeline({
+  const comments = draft.sceneComments ?? {};
+  const days = layoutTimeline({
     photos,
     sceneStarts: draft.sceneStarts,
     proposedStarts: draft.proposedStarts,
     dayStartHour: draft.dayStartHour,
     exists: (photoId) => visible.has(photoId),
     urlOf,
-  });
-  const comments = draft.sceneComments ?? {};
-  const days = layout.days.map((day) => ({
+  }).map((day) => ({
     ...day,
     scenes: day.scenes.map((scene) => ({ ...scene, comment: comments[scene.startPhotoId] ?? null })),
   }));
-  return { ...draftStatusOf(draft), ...layout, days };
+  return { ...draftStatusOf(draft), days };
 }
 
 /**
