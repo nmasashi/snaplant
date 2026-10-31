@@ -123,7 +123,7 @@ void main() {
 
   testWidgets('旅行が無いと分かった画面でも、この旅行宛ての送信の失敗のバナーは出したままにし、「閉じる」で消せる', (tester) async {
     // 先に送信が 404（旅行が見つかりません）で失敗し、そのあと下に引っ張った読み直しで写真の一覧も 404 になって、画面が「この旅行は削除されています」になる。
-    // 順は決まっている（送信の失敗を見届けてから読み直す）。画面設計 §4.4: 送れなかった写真を「閉じる」で片付けられるよう、バナーは出したままにする
+    // 順は決まっている（送信の失敗を見届けてから読み直す）。画面設計 §4.7.4: 送れなかった写真を「閉じる」で片付けられるよう、バナーは出したままにする
     final image = writeTestImage('hokkaido.png');
     useGalleryReturning([image]);
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);

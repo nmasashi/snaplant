@@ -11,7 +11,7 @@ import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 送信中・失敗の写真(端末の画像)を、写真のグリッドにサーバの写真と並べて出す振る舞いを確かめる
-// （docs/03_screen_design.md §4.4）。入口は旅行詳細と「旅行に属さない写真」の画面。
+// （docs/03_screen_design.md §4.4.1・§4.5）。入口は旅行詳細と「旅行に属さない写真」の画面。
 //
 // このファイルのテストは、サーバの写真のサムネイルを出したまま、実時間を進める(tester.runAsync。送信の要求が届くのを待つため)。
 // 画像のキャッシュ(flutter_cache_manager)は、そのとき端末のディレクトリを path_provider で探すので、
