@@ -426,6 +426,31 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline);
     });
 
+    it('編集の途中なら、編集中の下書きで外した写真と合わせて出す写真が無くなるときも、409（TIMELINE_NO_DATED_PHOTOS）で書かない', async () => {
+      // 編集で c・d を外した。完成版で a・b を外すと、編集中の下書きに出す写真が無くなる
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut', excludedPhotoIds: [photoId('c'), photoId('d')] });
+      const timeline = timelineDocument(TRIP_ID, { current, draft });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('a'), photoId('b')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS' } });
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
+    it('もう外してある写真だけを送り直したときは、出す写真が無くても 409 にせず、書かずに完成版を読んだ形を返す', async () => {
+      // a・b・c は外してあり、d は消えた（出す写真は無い）。c を送り直しても何も変わらない
+      cosmosBackend.documents.delete(photoId('d'));
+      const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('a'), photoId('b'), photoId('c')] } });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('c')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
     it('編集の途中でない下書き（5-6b より前の作り直し）があっても外せ、その下書きは変えない', async () => {
       const draft = timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other', { reason: 'rebuild' });
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));
