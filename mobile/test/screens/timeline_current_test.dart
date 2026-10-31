@@ -168,7 +168,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 void main() {
   group('完成したタイムラインの表示', () {
     testWidgets(
-        '日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、日時なしの後の一番下に作成日時を出す（操作のボタンは出さない）',
+        '日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、撮影日時の無い写真は出さず、一番下に作成日時を出す（操作のボタンは出さない）',
         (tester) async {
       // 作成日時は端末の時刻で出す。日本時間でないと期待値が合わない（CI は TZ=Asia/Tokyo）
       expect(DateTime(2026, 10, 25).timeZoneOffset, const Duration(hours: 9));
@@ -205,11 +205,12 @@ void main() {
       expect(find.text('AI のまとめ'), findsOneWidget);
       expect(find.text('12:00 · 醤油ラーメン'), findsOneWidget);
 
-      await _scrollTo(tester, find.text('日時なし'));
-      expect(photoThumbnail('撮影日時なし'), findsOneWidget);
       await _scrollTo(tester, find.text('10月25日 18:10 に作成'));
       expect(tester.getTopLeft(find.text('10月25日 18:10 に作成')).dy,
-          greaterThan(tester.getTopLeft(photoThumbnail('撮影日時なし')).dy));
+          greaterThan(tester.getTopLeft(find.text('12:00 · 醤油ラーメン')).dy));
+      // 撮影日時の無い写真は、応答にあっても出さない（タイムラインに入れない。02 §5 #54）
+      expect(find.text('日時なし'), findsNothing);
+      expect(photoThumbnail('撮影日時なし'), findsNothing);
       semantics.dispose();
     });
   });
@@ -649,21 +650,6 @@ void main() {
     // 見出しの印は出さず、見出しの所に「見出しなし」と出す（編集のボタンで書ける。§8.3）
     expect(find.byIcon(Icons.circle), findsNothing);
     expect(find.text('見出しなし'), findsOneWidget);
-    // 日時なしの写真が無ければ、見出しも出さない
-    expect(find.text('日時なし'), findsNothing);
-  });
-
-  testWidgets('日時なしの写真のサムネイルをタップしても、写真ビューアで開く', (tester) async {
-    final semantics = tester.ensureSemantics();
-    await _openTimeline(tester);
-
-    await _scrollTo(tester, find.text('日時なし'));
-    await tester.tap(photoThumbnail('撮影日時なし'));
-    await letFramesRun(tester);
-    // 写真ビューアは撮影日時の代わりに「撮影日時なし」を出す
-    expect(find.text('撮影日時なし').hitTestable(), findsOneWidget);
-    expect(find.text('日時なし'), findsNothing);
-    semantics.dispose();
   });
 
   group('日と場面の文を直す（編集シート）', () {
