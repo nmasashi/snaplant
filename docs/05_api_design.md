@@ -779,7 +779,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
   `names` は場面の写真の識別の名前、`placeNames` は地名（どちらも重なりを除いて撮影の順）。`photos` は控えから作り、**その後に消えた写真と、外した写真（完成版の `excludedPhotoIds`）は出さない**（写真が全部消えた・外した場面と日も出さない。上の「外した写真」）。
   `thumbnailUrl` はサムネイル（無ければ原寸）の読み取りの SAS（§6）。`undatedPhotos` は撮影日時の無い写真（同じ形）
 - `draft`（下書き）は状態だけ（`id`・`reason`・`phase`・`job`（`step`・`state`・`lastError`）・`startedAt`）。区切りの中身は `GET …/timeline/draft` で読む
-- `changes` は、完成版の控えと今の写真の差（`added` は旅行の今の写真のうち控えに無いもの（解析中の写真も数える）、`removed` は控えの写真のうち旅行に今は無いもの（消えた・別の旅行へ移した）の枚数で、外した写真は数えない（T-1）。どちらも日時の無い写真も数える）。完成版が無ければ `null`
+- `changes` は、完成版の控えと今の写真の差（`added` は旅行の今の写真のうち控えに無いもの（解析中の写真も数える）、`removed` は控えの写真のうち旅行に今は無いもの（消えた・別の旅行へ移した）の枚数で、外した写真は数えない（T-1）。どちらも撮影日時の無い写真は数えない（タイムラインに入れないので。T-2 で実装済み。02 §5 #54。それまでは数えていた））。完成版が無ければ `null`
 - `timeline` の欄は `current`・`draft`・`changes` の3つ（`droppedEdits` は 5-5d で外した。上の 5-5d の印）
 
 **`GET /api/trips/{tripId}/timeline`** → 200 `{ timeline, pendingPhotoCount, urlExpiresAt }`
@@ -893,6 +893,10 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **`POST /api/trips/{tripId}/timeline/draft/write`**（この区切りで文を書く）→ 202 `{ draft, urlExpiresAt }`（区切りを直している下書きは 200 `{ draft: null, urlExpiresAt }`。下の行）
 
 **実装済み**（5-2a。`timelineDraft.ts` の `postTimelineDraftWrite`）。ボディは読まない。
+**実装済み**（T-2。`timelineDraft.ts` の `postTimelineDraftWrite`、判定は `services/timelineView.ts` の `hasShownPhotos()`）: 下の「出す写真が1枚も無ければ」の行。
+
+- **出す写真（撮影日時があり、旅行に今もあり、外していない写真）が1枚も無ければ 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません`**（作る受付の表の 3 と同じ。何も書かず、キューにも積まない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #54）。区切りを直している下書き（`recut`）は、完成版と下書きの外した写真を合わせて見る。
+  そのために下書きの控えと旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13）を読む（控えが読めないときは区切りの保存と同じ。共通の行）。判定は下の 404・409 の後
 
 - 下書きが無ければ（タイムラインが無いときも、完成版だけのときも）404 `TIMELINE_NOT_FOUND`（上と同じ文言 `タイムラインの下書きが見つかりません`）。`phase` が `reviewing` でも、文を書くのに失敗した（`writing` で `job.state: "failed"`）下書きでもなければ（区切り案を作っている・区切り案に失敗した・文を書く順番を待っている・文を書いている）409 `TIMELINE_STATE_CONFLICT`
 - それ以外は `phase: "writing"`・`job: { step: "write", state: "pending", attempts: 0, lastError: null, updatedAt: <今> }`（文を書くのに失敗した下書きでも `attempts` は 0 から数え直す）、`updatedAt` を今にして書き、キューへ `{ tripId, draftId }` を投入して 202。区切り（`proposedStarts`・`sceneStarts`）など下書きのほかの欄・完成版は変えない。投入に失敗しても 202（下書きは待ちのまま残り、再投入のタイマーが積む。`POST …/timeline` と同じ）。書き終えると、下書きが完成版に入れ替わる（[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）
@@ -942,6 +946,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **実装済み**（T-1。`timelineCurrent.ts` の `postTimelineExcludedPhotos`）。
 
 - 判定の順は `tripId` の形 → ボディ（共通の行）→ `photoIds`（下書きの表の 1 と同じ 400）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 完成版が無い（タイムラインが無いときも、下書きだけのときも）404 `TIMELINE_NOT_FOUND` `タイムラインが見つかりません` → 完成版の控えに無い写真の id を含む 400 `外す写真が無効です`。どれも何も書かない
+- 外すと出す写真（撮影日時があり、旅行に今もあり、外していない写真）が1枚も無くなるなら 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません`（何も書かない。T-2 で実装済み。02 §5 #54）。そのために完成版の控えと一緒に旅行の写真（5.13）も読む
 - それ以外は、完成版の `excludedPhotoIds` に足して（重なりなし。並びに意味は無い）、タイムラインの `updatedAt` を今にする。区切り・文・作成日時は変えない。応答は `GET …/timeline` と同じ形（外した写真を除いた完成版）。送った写真がどれも完成版で（編集中の下書きがあればそこでも）もう外してあれば書かない（下書きの外すと同じ）
 - 下書きがあっても外せる。タイムラインを編集している途中（`recut` で、完成版と同じ控えを指す下書き）なら、下書きの `excludedPhotoIds` にも同じ写真を足す（案の確認画面にも出さない。当てるときも合わせる。`POST …/draft/write`）。それ以外の下書きは変えない。5-6b より前に作った作り直し（`rebuild`）の下書きは、書き終えたときに完成版を置き換えるので、そのとき外した写真は残らない
 - 控えが読めないとき（他の操作との重なり）は `POST …/recut` と同じ（共通の行。旅行が消えていれば 404、完成版が変わっていれば 409、同じ完成版のまま控えが無ければ 500）。完成版の控えだけを読み、旅行の写真は書く前には読まない
