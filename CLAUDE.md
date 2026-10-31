@@ -582,7 +582,7 @@ mobile は `flutter test` が Windows でしか回らず道具が無いので、
 実行時間で分けない（テストを整理して件数が減ると、分けた理由が無くなる）。遅いファイルは、節をまたいでいないかを見直すきっかけにする。
 api は今までどおり、エンドポイントを持つ関数のファイルごと（`src/functions/` をミラーする）。
 
-決まりより前からあるファイルには、複数の節を持つものがある（`trip_detail_screen_test.dart` は §4.3・§4.4.1〜§4.4.4、`pending_photo_tiles_test.dart` は §4.4.1 の一部、など）。
+決まりより前からあるファイルには、複数の節を持つものがある（`trip_detail_screen_test.dart` は §4.3・§4.4.1〜§4.4.4・§4.8、`pending_photo_tiles_test.dart` は §4.4.1 の一部、など）。
 一度に分けず、そのファイルを触る作業単位の `test-consolidator` が節ごとに分ける（§4.4.3 のテストは `trip_detail_delete_test.dart` に寄せる）。
 
 ### 偽物は `tests/fakes/` に置く
