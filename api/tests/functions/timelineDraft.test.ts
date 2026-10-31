@@ -1124,6 +1124,18 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     });
 
+    it('出す写真がもう無い下書きでも、外す写真が増えなければ 409 にせず、書かずに 200 を返す（送り直しを断らない）', async () => {
+      // この決まりより前に、写真を全部外した下書き
+      const all = ['a', 'b', 'c', 'd', 'e'].map(photoId);
+      const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: all }), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
     it('文を書くのに失敗した下書きは、もう外した写真を送っても確かめ中に戻す', async () => {
       const failed = reviewing({
         phase: 'writing',
