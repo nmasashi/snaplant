@@ -344,6 +344,7 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
         if (mounted) _loadMore();
       });
     }
+    final rows = _rowsWithGenusHeadings(entries);
     return Column(
       children: [
         Expanded(
@@ -352,9 +353,9 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
             color: AppColors.primary,
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: entries.length,
+              itemCount: rows.length,
               itemBuilder: (context, index) {
-                if (index >= entries.length - _loadMoreThreshold &&
+                if (index >= rows.length - _loadMoreThreshold &&
                     _nextOffset < _total &&
                     !_isLoadingMore &&
                     !_loadMoreFailed) {
@@ -362,7 +363,11 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
                     if (mounted) _loadMore();
                   });
                 }
-                final entry = entries[index];
+                final row = rows[index];
+                if (row is _GenusHeading) {
+                  return _GenusHeadingTile(heading: row);
+                }
+                final entry = row as CatalogEntry;
                 return _CatalogEntryTile(
                     entry: entry, onTap: () => _openEntry(entry));
               },
@@ -404,6 +409,62 @@ class _CatalogEntryListState extends State<_CatalogEntryList> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 属の見出し（その属の最初の項目の上に出す。[genus] が null なら「属が分からない」）
+class _GenusHeading {
+  const _GenusHeading({required this.genus, required this.genusName});
+
+  final String? genus;
+  final String? genusName;
+}
+
+/// 項目の並び（サーバが属の学名の順に返す。05 §5.14）に、属が変わるところで属の見出しを挟む（02 §5 #56）。
+/// 読んだ項目に属の分かるものが1つも無ければ（調べ直す前の写真だけなど）、見出しは挟まない
+List<Object> _rowsWithGenusHeadings(List<CatalogEntry> entries) {
+  if (entries.every((entry) => entry.genus == null)) {
+    return entries;
+  }
+  final rows = <Object>[];
+  for (var i = 0; i < entries.length; i++) {
+    final entry = entries[i];
+    if (i == 0 || entries[i - 1].genus != entry.genus) {
+      rows.add(_GenusHeading(genus: entry.genus, genusName: entry.genusName));
+    }
+    rows.add(entry);
+  }
+  return rows;
+}
+
+/// 属の見出しの行（日本語の属名と属の学名。日本語の属名が無ければ属の学名だけ）
+class _GenusHeadingTile extends StatelessWidget {
+  const _GenusHeadingTile({required this.heading});
+
+  final _GenusHeading heading;
+
+  @override
+  Widget build(BuildContext context) {
+    final genus = heading.genus;
+    final genusName = heading.genusName;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(genus == null ? '属が分からない' : genusName ?? genus,
+              style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.bold)),
+          if (genus != null && genusName != null) ...[
+            const SizedBox(width: 8),
+            Text(genus,
+                style: AppTextStyles.body1.copyWith(
+                    color: AppColors.textSecondary,
+                    fontStyle: FontStyle.italic)),
+          ],
+        ],
+      ),
     );
   }
 }

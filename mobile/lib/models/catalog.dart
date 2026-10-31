@@ -51,6 +51,12 @@ class CatalogEntry {
   /// 種類ごとの項目（キーは [CatalogField.key]）
   final Map<String, dynamic> attributes;
 
+  /// 属の学名（一覧はこれでまとめて並ぶ。02 §5 #56）。分からなければ null
+  final String? genus;
+
+  /// 属名（日本語。属の見出しに出す）。分からなければ null
+  final String? genusName;
+
   /// その名前の写真の枚数
   final int photoCount;
 
@@ -64,6 +70,8 @@ class CatalogEntry {
     required this.description,
     required this.characteristics,
     required this.attributes,
+    this.genus,
+    this.genusName,
     required this.photoCount,
     required this.coverThumbnailUrl,
   });
@@ -75,6 +83,8 @@ class CatalogEntry {
         description: json['description'] as String?,
         characteristics: json['characteristics'] as String?,
         attributes: (json['attributes'] as Map<String, dynamic>?) ?? const {},
+        genus: json['genus'] as String?,
+        genusName: json['genusName'] as String?,
         photoCount: json['photoCount'] as int,
         coverThumbnailUrl: json['coverThumbnailUrl'] as String,
       );
