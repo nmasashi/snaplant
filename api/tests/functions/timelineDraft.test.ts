@@ -203,6 +203,7 @@ describe('タイムラインの下書きAPI', () => {
     });
 
     it('文を書くのに失敗した下書きは、確かめ中と同じく日と場面も返す（区切りの確認の画面で直してから書き直せる）', async () => {
+      // 撮影日時の無い b は出さない（02 §5 #54）
       placeSnapshot([snap('a', '2026-10-05T07:50:00'), snap('b', null, { category: 'other' })]);
       cosmosBackend.documents.set(
         TIMELINE_ID,
@@ -594,6 +595,7 @@ describe('タイムラインの下書きAPI', () => {
     });
 
     it('確かめ中の下書きの区切りを置き換え、確かめ中の日と場面を返す（ほかの欄は変わらない）', async () => {
+      // 応答の draft の形全体（撮影日時の無い写真を出さないことも）は、下書きを読む「確かめ中の下書きは、…」で確かめる（同じ組み立て）
       const timeline = timelineDocument(TRIP_ID, { current: currentVersion, draft: reviewing(), updatedAt: '2026-10-25T08:55:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
       const starts = [photoId('a'), photoId('b'), photoId('d')];
@@ -1073,6 +1075,7 @@ describe('タイムラインの下書きAPI', () => {
     });
 
     it('外した写真を下書きに足し（控えの順・重なりなし）、応答の日と場面に出さない（場面の最初の写真を外しても場面の id とコメントは残り、写真が全部外れた日は出さない）', async () => {
+      // 応答の draft の形全体は、下書きを読む「確かめ中の下書きは、…」で確かめる（同じ組み立て）
       const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: [photoId('e')] }), updatedAt: '2026-10-25T08:55:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
