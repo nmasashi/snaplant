@@ -651,7 +651,7 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(await read()).toEqual({ timeline: null, pendingPhotoCount: 3, urlExpiresAt: '2026-10-25T10:00:00.000Z' });
   });
 
-  it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、日時の無い写真は別にまとめる（以前の版が書いた残せなかった文が文書に残っていても返さない）', async () => {
+  it('完成版は、日ごと・場面ごとに文と写真を並べ（区切りを入れた主・食べ物の印・地名と名前）、撮影日時の無い写真は出さない（以前の版が書いた残せなかった文が文書に残っていても返さない）', async () => {
     placeCurrentSnapshot();
     // 以前の版が書いた文書（今の型には無い欄）
     cosmosBackend.documents.set(TIMELINE_ID, { ...timelineDocument(TRIP_ID, { current }), droppedEdits: DROPPED } as any);
@@ -705,8 +705,7 @@ describe('タイムラインを読むAPI（GET）', () => {
                 }
               ]
             }
-          ],
-          undatedPhotos: [shown(U)]
+          ]
         },
         draft: null,
         changes: { added: 0, removed: 0 }
@@ -726,10 +725,9 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.timeline.current.days.map((day: any) => [day.date, day.scenes.map((s: any) => s.photos.map((p: any) => p.id))])).toEqual([
       ['2026-10-05', [[A.id], [C.id]]]
     ]);
-    expect(data.timeline.current.undatedPhotos).toEqual([]);
   });
 
-  it('外した写真は出さず（写真を全部外した場面と日、外した日時なしの写真も）、外した後に消えた写真は「消えた」に数えない', async () => {
+  it('外した写真は出さず（写真を全部外した場面と日も）、外した後に消えた写真は「消えた」に数えない', async () => {
     // a・d・e と日時の無い写真を外した。その後に b（外していない）と d（外した）が消えた
     placeCurrentSnapshot([B.id, D.id]);
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [A.id, D.id, E.id, U.id] } }));
@@ -739,7 +737,6 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.timeline.current.days.map((day: any) => [day.date, day.scenes.map((s: any) => [s.startPhotoId, s.photos.map((p: any) => p.id)])])).toEqual([
       ['2026-10-05', [[C.id, [C.id]]]]
     ]);
-    expect(data.timeline.current.undatedPhotos).toEqual([]);
     expect(data.timeline.changes).toEqual({ added: 0, removed: 1 });
   });
 

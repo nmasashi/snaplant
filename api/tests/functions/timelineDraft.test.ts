@@ -242,12 +242,11 @@ describe('タイムラインの下書きAPI', () => {
               }
             ]
           }
-        ],
-        undatedPhotos: [shown('b', null, { category: 'other' })]
+        ]
       });
     });
 
-    it('確かめ中の下書きは、日ごと・場面ごとに写真と場面のコメント（無ければ null）を並べて返す（日付の切り替えは朝4時、日時なしは最後）', async () => {
+    it('確かめ中の下書きは、日ごと・場面ごとに写真と場面のコメント（無ければ null）を並べて返す（日付の切り替えは朝4時、撮影日時の無い写真は出さない）', async () => {
       placeSnapshot([
         // 1日目: 朝ごはん（AI の区切り）と午前（利用者が足した区切り）。深夜 2:30 の写真は前の日（1日目）に入る
         snap('a', '2026-10-05T07:50:00', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市' }),
@@ -330,8 +329,7 @@ describe('タイムラインの下書きAPI', () => {
               }
             ]
           }
-        ],
-        undatedPhotos: [shown('f', null, { category: 'other' })]
+        ]
       });
     });
 
@@ -358,7 +356,6 @@ describe('タイムラインの下書きAPI', () => {
       expect(draft.days[0].scenes.map((scene: any) => [scene.startPhotoId, scene.startedBy, scene.photos.map((p: any) => p.id)])).toEqual([
         [photoId('b'), 'ai', [photoId('b')]]
       ]);
-      expect(draft.undatedPhotos).toEqual([]);
     });
 
     it('日付の切り替えの時刻は、下書きに書いた値を使う（0 なら日付どおり）', async () => {
@@ -619,7 +616,6 @@ describe('タイムラインの下書きAPI', () => {
         ],
         [[photoId('d'), 'day', 2]]
       ]);
-      expect(data.draft.undatedPhotos).toEqual([shown('u', null)]);
     });
 
     it('場面のコメントを送ると、前後の空白を除いて区切りと一緒に保存し、応答の場面に返す（空白だけのものは持たず、無い場面は null）', async () => {
@@ -1077,7 +1073,7 @@ describe('タイムラインの下書きAPI', () => {
       placeSnapshot(PHOTOS);
     });
 
-    it('外した写真を下書きに足し（控えの順・重なりなし）、応答の日と場面に出さない（場面の最初の写真を外しても場面の id とコメントは残り、写真が全部外れた日と日時なしの写真は出さない）', async () => {
+    it('外した写真を下書きに足し（控えの順・重なりなし）、応答の日と場面に出さない（場面の最初の写真を外しても場面の id とコメントは残り、写真が全部外れた日は出さない）', async () => {
       const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: [photoId('e')] }), updatedAt: '2026-10-25T08:55:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
 
@@ -1100,7 +1096,6 @@ describe('タイムラインの下書きAPI', () => {
           [photoId('b'), '朝市', [photoId('c')]]
         ]
       ]);
-      expect(data.draft.undatedPhotos).toEqual([]);
     });
 
     it('外した写真が変わらなければ（もう外してある）書き込まずに、確かめ中の日と場面を返す（ほかの操作を 409 にしない）', async () => {
@@ -1142,7 +1137,6 @@ describe('タイムラインの下書きAPI', () => {
         ],
         [[photoId('d'), [photoId('d'), photoId('e')]]]
       ]);
-      expect(draft.undatedPhotos).toEqual([]);
     });
 
     it('文を書くのに失敗した下書きでも外せ、確かめ中に戻る（区切りの保存と同じ）', async () => {
