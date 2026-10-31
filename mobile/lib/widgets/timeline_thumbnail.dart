@@ -15,7 +15,7 @@ class TimelineThumbnail extends StatelessWidget {
   /// タップしたとき（場面の写真の一覧の写真は写真ビューアを開く）。null ならタップを受けない
   final VoidCallback? onTap;
 
-  /// 長押ししたとき（場面の写真の一覧の写真は「タイムラインから外す」のメニュー）。null なら長押しを受けない
+  /// 長押ししたとき（写真のメニュー。案の確認画面は「この写真から新しい場面」「タイムラインから外す」、場面の写真の一覧は「タイムラインから外す」）。null なら長押しを受けない
   final VoidCallback? onLongPress;
 
   @override
