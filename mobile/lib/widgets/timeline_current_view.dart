@@ -163,7 +163,12 @@ class TimelineCurrentView extends StatelessWidget {
                       child: AspectRatio(
                         aspectRatio: 1,
                         child: i < shown.length
-                            ? TimelineThumbnail(photo: shown[i])
+                            // 写真のタップも場面を開く（読み上げで写真を選んだときも開けるように）
+                            ? TimelineThumbnail(
+                                photo: shown[i],
+                                onTap: open == null
+                                    ? null
+                                    : () => open(day, scene))
                             : i == _thumbnailCount && rest > 0
                                 ? ColoredBox(
                                     color: AppColors.surfaceVariant,

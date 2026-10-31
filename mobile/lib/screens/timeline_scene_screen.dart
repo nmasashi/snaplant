@@ -45,6 +45,10 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
   // 読み直しの応答で、後から直した表示を古い状態に戻さない。§8.8）
   bool _busy = false;
 
+  /// この画面が一番上に出ているか。戻る途中（閉じていく間）に届いた応答で、下の旅行詳細まで閉じたり、
+  /// 閉じていく画面の上に写真ビューアを開いたりしない
+  bool get _isShown => ModalRoute.of(context)?.isCurrent ?? false;
+
   /// 写真を読み、写真ビューアでその1枚を開く。閉じたら読み直す（ビューアで消した・直したことを出す。§8.8）
   Future<void> _openPhoto(TimelinePhoto photo) async {
     if (_busy) return;
@@ -66,7 +70,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-    if (!mounted || loaded == null) return;
+    if (!mounted || loaded == null || !_isShown) return;
     final photos = ValueNotifier<List<Photo>>([loaded]);
     await Navigator.push(
       context,
@@ -100,7 +104,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
       debugPrint('TimelineSceneScreen: タイムラインの読み込みエラー: $e');
       if (!mounted) return;
       if (e is ApiException && e.isTripNotFound) {
-        Navigator.pop(context);
+        if (_isShown) Navigator.pop(context);
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -140,7 +144,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
     }
-    Navigator.pop(context);
+    if (_isShown) Navigator.pop(context);
   }
 
   /// [overview] の完成版の、出している場面と最初の写真の id が同じ場面で描き直す。
@@ -158,7 +162,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
         }
       }
     }
-    Navigator.pop(context);
+    if (_isShown) Navigator.pop(context);
   }
 
   @override

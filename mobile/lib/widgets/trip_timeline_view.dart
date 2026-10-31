@@ -249,6 +249,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 場面の写真の一覧を開き、閉じたら（どう閉じても）タイムラインを読み直す（一覧で直した見出しや、写真ビューアで消した・直したことを出す。§8.3）
   Future<void> _openScene(TimelineDay day, TimelineScene scene) async {
     if (_sending) return;
+    // 開く前に始めた読み直しの応答は使わない（失敗を一覧の上に出さない。§8.1）。閉じたら読み直す
+    ++_generation;
+    _pollTimer?.cancel();
     await Navigator.push(
       context,
       MaterialPageRoute(

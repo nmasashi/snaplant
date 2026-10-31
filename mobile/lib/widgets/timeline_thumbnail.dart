@@ -16,23 +16,26 @@ class TimelineThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final image = Semantics(
+    // タップは読み上げのラベルの付いた節に載せる（外で包むと、読み上げで写真を選んでもタップできない）。
+    // タップを受けないときも GestureDetector で包む（包み方が変わると、下の画像の部品を組み立て直して読み込み直すため）
+    return Semantics(
       label: formatTakenAt(photo.takenAt),
       container: true,
-      child: CachedNetworkImage(
-        imageUrl: photo.thumbnailUrl,
-        cacheKey: thumbnailCacheKey(photo.id),
-        cacheManager: PhotoCacheManager.thumbnails,
-        // サムネイルが無い写真は原寸の URL が来るので、マスの大きさに縮めて読む
-        memCacheWidth: 200,
-        fit: BoxFit.cover,
-        placeholder: (context, url) =>
-            const ColoredBox(color: AppColors.surfaceVariant),
-        errorWidget: (context, url, error) =>
-            const ColoredBox(color: AppColors.surfaceVariant),
+      child: GestureDetector(
+        onTap: onTap,
+        child: CachedNetworkImage(
+          imageUrl: photo.thumbnailUrl,
+          cacheKey: thumbnailCacheKey(photo.id),
+          cacheManager: PhotoCacheManager.thumbnails,
+          // サムネイルが無い写真は原寸の URL が来るので、マスの大きさに縮めて読む
+          memCacheWidth: 200,
+          fit: BoxFit.cover,
+          placeholder: (context, url) =>
+              const ColoredBox(color: AppColors.surfaceVariant),
+          errorWidget: (context, url, error) =>
+              const ColoredBox(color: AppColors.surfaceVariant),
+        ),
       ),
     );
-    // タップを受けないときも GestureDetector で包む（包み方が変わると、下の画像の部品を組み立て直して読み込み直すため）
-    return GestureDetector(onTap: onTap, child: image);
   }
 }
