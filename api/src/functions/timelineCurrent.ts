@@ -115,9 +115,22 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
-    const edited: TimelineCurrent = { ...current, excludedPhotoIds };
-    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
-      return createTimelineStateConflict();
+    // 応答の写真の URL を作れないなら、書く前に失敗させる（書いた後だと、外したのに失敗と返す。区切りの直しの受付と同じ）
+    new PhotoStorageService();
+    // 外した写真が変わらなければ（もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）。足すだけなので、数が同じなら同じ
+    if (excludedPhotoIds.length !== (current.excludedPhotoIds ?? []).length) {
+      // タイムラインを編集している途中なら、編集中の下書きにも足す（案の確認画面にも出さない。当てるときも合わせる。06 §8.6）
+      const draft = timeline.doc.draft;
+      const recutting = draft?.reason === 'recut' && draft.snapshotId === current.snapshotId ? draft : null;
+      const doc = {
+        ...timeline.doc,
+        current: { ...current, excludedPhotoIds },
+        ...(recutting ? { draft: { ...recutting, excludedPhotoIds: withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value)! } } : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      if (!(await timelines.replaceTimelineIfUnchanged(doc, timeline.etag))) {
+        return createTimelineStateConflict();
+      }
     }
     // 画面は外した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
     return createTimelineBodyResponse(await readTimelineBody(tripId));

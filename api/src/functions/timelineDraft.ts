@@ -273,14 +273,14 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
-    const saved: TimelineDraft = {
-      ...draft,
-      excludedPhotoIds,
-      ...(isWriteFailed(draft) ? { phase: 'reviewing', job: null } : {})
-    };
+    // 外した写真が変わらなければ（もう外してある）書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。文の PATCH と同じ）。足すだけなので、数が同じなら同じ
+    const changed = excludedPhotoIds.length !== (draft.excludedPhotoIds ?? []).length;
+    const saved: TimelineDraft = changed
+      ? { ...draft, excludedPhotoIds, ...(isWriteFailed(draft) ? { phase: 'reviewing', job: null } : {}) }
+      : draft;
     // 保存先の設定が足りなければ、書き換える前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
-    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
+    if (changed && !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
       return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
