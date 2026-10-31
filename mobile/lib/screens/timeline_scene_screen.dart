@@ -136,7 +136,8 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
       return;
     }
     // シートが閉じて返す失敗は、タイムラインが変わった・旅行が無いときだけ（ほかはシートの中に出す）
-    _leaveBecauseChanged(result as ApiException);
+    _leaveBecauseChanged(
+        tripGone: result is ApiException && result.isTripNotFound);
   }
 
   /// 写真の長押しのメニュー（「タイムラインから外す」だけ。§8.8）
@@ -158,10 +159,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
   /// 確かめてから [photo] を完成版から外し、応答の同じ場面で描き直す（02 §5 #52。外した写真は戻せない）。
   /// タイムラインが変わった・旅行が無いなら旅行詳細に戻り、それ以外の失敗は文言を出して表示はそのまま（§8.8）
   Future<void> _exclude(TimelinePhoto photo) async {
-    final confirmed = await confirmTimelineAction(context,
-        title: 'タイムラインから外しますか？',
-        message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
-        confirmLabel: '外す');
+    final confirmed = await confirmExcludePhoto(context);
     if (!confirmed || !mounted) return;
     setState(() => _busy = true);
     try {
@@ -173,7 +171,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
       debugPrint('TimelineSceneScreen: 写真を外すエラー: $e');
       if (!mounted) return;
       if (e is ApiException && (e.isTimelineChanged || e.isTripNotFound)) {
-        _leaveBecauseChanged(e);
+        _leaveBecauseChanged(tripGone: e.isTripNotFound);
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -184,10 +182,10 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     }
   }
 
-  /// 見出しの保存・写真を外すときに、タイムラインが変わっていた（[e] の `isTimelineChanged`）・旅行が無かったので、旅行詳細に戻る
+  /// 見出しの保存・写真を外すときに、タイムラインが変わっていた・旅行が無かった（[tripGone]）ので、旅行詳細に戻る
   /// （旅行詳細が読み直して今の状態を出す。旅行が無いときは旅行詳細が「この旅行は削除されています」にするので、ここでは知らせない。§8.8）
-  void _leaveBecauseChanged(ApiException e) {
-    if (!e.isTripNotFound) {
+  void _leaveBecauseChanged({required bool tripGone}) {
+    if (!tripGone) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
     }

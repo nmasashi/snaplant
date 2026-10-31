@@ -39,6 +39,13 @@ Future<bool> confirmRebuildTimeline(BuildContext context) =>
         message: '今のタイムラインを消して、今の写真で AI が最初から作り直します。手で直した文と場面の分け方も消え、元には戻せません。',
         confirmLabel: '作り直す');
 
+/// 写真を「タイムラインから外す」の確認（§8.4・§8.8）。案の確認画面と場面の写真の一覧で同じものを出す（外した写真は戻せない。02 §5 #52）
+Future<bool> confirmExcludePhoto(BuildContext context) =>
+    confirmTimelineAction(context,
+        title: 'タイムラインから外しますか？',
+        message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
+        confirmLabel: '外す');
+
 /// 「つなげる」の確認（§8.7）。つなげると消える文（[lost]。「消えるコメント: …」など）を添える
 Future<bool> confirmMergeScenes(BuildContext context,
     {required String message, required List<String> lost}) async {

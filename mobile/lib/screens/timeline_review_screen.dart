@@ -294,10 +294,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから [photo] をタイムラインから外し、応答で描き直す（02 §5 #52。外した写真は戻せない）。失敗の扱いは区切りの保存と同じ（§8.4）
   Future<void> _exclude(TimelinePhoto photo) async {
-    final confirmed = await confirmTimelineAction(context,
-        title: 'タイムラインから外しますか？',
-        message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
-        confirmLabel: '外す');
+    final confirmed = await confirmExcludePhoto(context);
     if (!confirmed || !mounted) return;
     await _sendAndRedraw(
         () => widget.apiService.excludeTimelinePhotos(widget.tripId, [photo.id]),
