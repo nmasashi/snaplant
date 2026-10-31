@@ -1136,6 +1136,21 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     });
 
+    it('文を書くのに失敗した下書きで出す写真がもう無くても、外す写真が増えなければ 409 にせず、確かめ中に戻す', async () => {
+      const failed = reviewing({
+        phase: 'writing',
+        job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:30:00.000Z' },
+        excludedPhotoIds: ['a', 'b', 'c', 'd', 'e'].map(photoId)
+      });
+      const timeline = timelineWith(failed);
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({ ...timeline, draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
+    });
+
     it('区切りの直しの下書きは、当てるときと同じく完成版の外した写真と合わせて、出す写真が1枚も無くなるなら 409（TIMELINE_NO_DATED_PHOTOS）で書かない', async () => {
       // 下書きでは a・b を外し、完成版では c・e を外した（下書きに写っていない）。d を外すと、合わせて出す写真が無くなる
       const timeline = timelineDocument(TRIP_ID, {
