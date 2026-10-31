@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 
-/// 「写真を追加」（docs/03_screen_design.md §4.7「写真を選ぶ」）
+/// 「写真を追加」（docs/03_screen_design.md §4.7.1）
 ///
 /// ギャラリーで複数の写真を選ばせ、送信の列に入れる。旅行詳細と旅行に属さない写真の画面の右下に浮かぶ
 class AddPhotosButton extends StatelessWidget {
