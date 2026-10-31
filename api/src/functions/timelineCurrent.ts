@@ -119,10 +119,6 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
-    // 外すと出す写真が1枚も無くなるなら断る（作る受付と同じ。02 §5 #54）
-    if (!hasShownPhotos(photos, visiblePhotoIdsOf(existing, excludedPhotoIds))) {
-      return createNoDatedPhotosError();
-    }
     // 応答の写真の URL を作れないなら、書く前に失敗させる（書いた後だと、外したのに失敗と返す。区切りの直しの受付と同じ）
     const storage = new PhotoStorageService();
     // タイムラインを編集している途中（完成版と同じ控えの recut）なら、編集中の下書きにも足す（案の確認画面にも出さない。当てるときも合わせる。06 §8.6）
@@ -133,6 +129,12 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     const changesDraft = !!recutting && !!draftExcluded && addsExcludedPhotos(recutting.excludedPhotoIds, draftExcluded);
     // 外した写真が増えなければ（完成版でも編集中の下書きでも、もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）
     if (addsExcludedPhotos(current.excludedPhotoIds, excludedPhotoIds) || changesDraft) {
+      // 外すと出す写真が1枚も無くなるなら断る（作る受付と同じ。02 §5 #54）。編集の途中なら、当てるときと同じく下書きで外した写真と合わせて見る
+      // （完成版に写真が残っても、編集中の下書きが空になると、保存できず「やめる」しか無くなる）。何も変わらない送り直しは断らない
+      const afterwards = draftExcluded ? [...excludedPhotoIds, ...draftExcluded] : excludedPhotoIds;
+      if (!hasShownPhotos(photos, visiblePhotoIdsOf(existing, afterwards))) {
+        return createNoDatedPhotosError();
+      }
       const doc = {
         ...timeline.doc,
         current: { ...current, excludedPhotoIds },
