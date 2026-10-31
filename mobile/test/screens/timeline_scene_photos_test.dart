@@ -485,10 +485,10 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('外すときに別の端末がタイムラインを変えていたら（409）、知らせて旅行詳細に戻り、旅行が消されていたら旅行詳細に戻る',
+    testWidgets(
+        '外すときに別の端末がタイムラインを変えていたら（409）・完成版が無くなっていたら（404）、知らせて旅行詳細に戻り、旅行が消されていたら旅行詳細に戻る',
         (tester) async {
-      // 409・404 `TIMELINE_NOT_FOUND`・旅行が無いときの扱いは見出しの保存と同じ（03 §8.8）。全部の場合は「場面の見出しを直す」の
-      // 「保存のときに別の端末が…（409）、…（404）…」と「保存のときに旅行が…」で通し、ここでは外すも同じ扱いに通っていることを2行で見る
+      // 扱いは見出しの保存と同じ（03 §8.8）だが、どの失敗で戻るかの判定は外す側（_exclude）が別に持つので、3つとも外す側で通す
       final semantics = tester.ensureSemantics();
       for (final (label, change, notice) in [
         (
@@ -500,6 +500,12 @@ void main() {
                 message: 'タイムラインが変わったか、作っている途中です。読み直してください');
             backend.timelinesByTripId[hokkaidoTripId] = _rebuilding;
           },
+          'タイムラインが変わりました。読み直しました'
+        ),
+        (
+          '404',
+          (FakeTripBackend backend) =>
+              backend.timelinesByTripId[hokkaidoTripId] = _rebuilding,
           'タイムラインが変わりました。読み直しました'
         ),
         (
