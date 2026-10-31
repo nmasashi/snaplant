@@ -148,6 +148,36 @@ void main() {
       expect(top('チングルマ'), lessThan(top('属が分からない')));
       expect(top('属が分からない'), lessThan(top('なにかの花')));
     });
+
+    testWidgets('続きのページで同じ属が続くなら、ページの境目に見出しを繰り返さない', (tester) async {
+      final backend =
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+        'plant': [
+          for (final entry in _manyPlants(60))
+            {...entry, 'genus': 'Aconitum', 'genusName': 'トリカブト属'},
+        ],
+      });
+      await openCatalogTab(tester, backend);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await letFramesRun(tester);
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await letFramesRun(tester);
+      await tester.dragUntilVisible(
+          find.text('植物049'), find.byType(ListView), const Offset(0, 100));
+
+      expect(backend.catalogOffsetsReceived, [0, 50]);
+      // 1ページ目の最後（植物049）と2ページ目の先頭（植物050）の間に見出しが無い（最初の見出しは画面のずっと上）
+      expect(find.text('植物050'), findsOneWidget);
+      expect(find.text('トリカブト属'), findsNothing);
+    });
+
+    testWidgets('読んだ項目に属の分かるものが1つも無ければ（調べ直す前の写真だけなど）、見出しを出さない', (tester) async {
+      await openCatalogTab(tester, _backend());
+
+      expect(find.text('ソメイヨシノ'), findsOneWidget);
+      expect(find.text('属が分からない'), findsNothing);
+    });
   });
 
   testWidgets('種類のタブを切り替えると、その種類の項目を並べる', (tester) async {
