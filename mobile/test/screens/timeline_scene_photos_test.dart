@@ -233,7 +233,7 @@ void main() {
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
     });
 
-    testWidgets('場面の写真は、読み上げからもタップできる（完成版と一覧のどちらも）', (tester) async {
+    testWidgets('場面の写真は、読み上げからもタップでき（完成版と一覧のどちらも）、一覧では長押しもできる', (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester);
       expect(tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
@@ -242,8 +242,12 @@ void main() {
 
       await tester.tap(find.text('朝ごはん'));
       await letFramesRun(tester);
-      expect(tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
-          containsSemantics(label: '2026年10月5日 07:58', hasTapAction: true),
+      expect(
+          tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
+          containsSemantics(
+              label: '2026年10月5日 07:58',
+              hasTapAction: true,
+              hasLongPressAction: true),
           reason: '一覧');
       semantics.dispose();
     });
@@ -406,7 +410,8 @@ void main() {
             (photo as Map)['takenAt'],
         ];
 
-    testWidgets('写真を長押しして「タイムラインから外す」を選ぶと確かめ、「外す」でその写真を外して、同じ場面を描き直す',
+    testWidgets(
+        '写真を長押しして「タイムラインから外す」を選ぶと確認のダイアログを出し、「キャンセル」なら何も送らず写真もそのまま、「外す」でその写真を外して、同じ場面を描き直す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openScene(tester, '小樽運河さんぽ');
@@ -415,8 +420,13 @@ void main() {
       expect(find.text('タイムラインから外しますか？'), findsOneWidget);
       expect(find.text('写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。'),
           findsOneWidget);
-      await tester.tap(find.text('外す'));
+      await tester.tap(find.text('キャンセル'));
       await letFramesRun(tester);
+      expect(find.text('タイムラインから外しますか？'), findsNothing);
+      expect(takenAtsOf(backend, 3), hasLength(6));
+      expect(photoThumbnail('2026年10月5日 15:10'), findsOneWidget);
+
+      await exclude(tester, '2026年10月5日 15:10');
 
       expect(takenAtsOf(backend, 3), hasLength(5));
       expect(takenAtsOf(backend, 3), isNot(contains('2026-10-05T15:10:00')));
@@ -424,20 +434,6 @@ void main() {
       expect(photoThumbnail('2026年10月5日 15:10'), findsNothing);
       expect(find.text('10月5日（月） 10:10〜14:10 · 北海道小樽市、北海道余市町 · 5枚'),
           findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('確認のダイアログで「キャンセル」を押すと、何も送らず、写真もそのまま', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openScene(tester, '小樽運河さんぽ');
-
-      await openExcludeDialog(tester, '2026年10月5日 15:10');
-      await tester.tap(find.text('キャンセル'));
-      await letFramesRun(tester);
-
-      expect(find.text('タイムラインから外しますか？'), findsNothing);
-      expect(takenAtsOf(backend, 3), hasLength(6));
-      expect(photoThumbnail('2026年10月5日 15:10'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -489,9 +485,10 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets(
-        '外すときに別の端末がタイムラインを変えていたら（409）・完成版が無くなっていたら（404）、知らせて旅行詳細に戻り、旅行が消されていたら旅行詳細に戻る',
+    testWidgets('外すときに別の端末がタイムラインを変えていたら（409）、知らせて旅行詳細に戻り、旅行が消されていたら旅行詳細に戻る',
         (tester) async {
+      // 409・404 `TIMELINE_NOT_FOUND`・旅行が無いときの扱いは見出しの保存と同じ（03 §8.8）。全部の場合は「場面の見出しを直す」の
+      // 「保存のときに別の端末が…（409）、…（404）…」と「保存のときに旅行が…」で通し、ここでは外すも同じ扱いに通っていることを2行で見る
       final semantics = tester.ensureSemantics();
       for (final (label, change, notice) in [
         (
@@ -503,12 +500,6 @@ void main() {
                 message: 'タイムラインが変わったか、作っている途中です。読み直してください');
             backend.timelinesByTripId[hokkaidoTripId] = _rebuilding;
           },
-          'タイムラインが変わりました。読み直しました'
-        ),
-        (
-          '404',
-          (FakeTripBackend backend) =>
-              backend.timelinesByTripId[hokkaidoTripId] = _rebuilding,
           'タイムラインが変わりました。読み直しました'
         ),
         (
@@ -548,19 +539,6 @@ void main() {
       await letFramesRun(tester);
       expect(_editButton(tester).onPressed, isNotNull);
       expect(photoThumbnail('2026年10月5日 07:50'), findsNothing);
-      semantics.dispose();
-    });
-
-    testWidgets('写真の長押しは、読み上げからもできる', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await _openScene(tester, '朝ごはん');
-
-      expect(
-          tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
-          containsSemantics(
-              label: '2026年10月5日 07:58',
-              hasTapAction: true,
-              hasLongPressAction: true));
       semantics.dispose();
     });
   });
