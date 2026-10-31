@@ -205,7 +205,9 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return draftPhotos.error;
     }
     const { photos, existing } = draftPhotos;
-    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, existing);
+    const excluded = new Set(draft.excludedPhotoIds ?? []);
+    const visible = new Set([...existing].filter((id) => !excluded.has(id)));
+    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, visible);
     if (!normalized) {
       return createValidationError('区切りが無効です');
     }
