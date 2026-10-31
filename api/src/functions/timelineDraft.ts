@@ -2,7 +2,16 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { AlbumService } from '../services/albumService';
 import { TimelineService, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { addsExcludedPhotos, datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
+import {
+  addsExcludedPhotos,
+  datedDaysOf,
+  draftStatusOf,
+  hasShownPhotos,
+  reviewingDraftOf,
+  scenesOfDay,
+  visiblePhotoIdsOf,
+  withExcludedPhotos
+} from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
@@ -11,6 +20,7 @@ import { withRecutStarts } from '../services/timelineWriting';
 import { readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
+  createNoDatedPhotosError,
   createTimelineStateConflict,
   createNotFoundError,
   createSuccessResponse,
@@ -130,13 +140,23 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
     if (!isEditableDraft(read)) {
       return createTimelineStateConflict();
     }
+    // 区切りの直しは AI を使わない（06 §8.6）。当てる完成版が無ければ（重なり・壊れた文書）書かない
+    if (read.reason === 'recut' && !timeline.doc.current) {
+      return createTimelineStateConflict();
+    }
+    // 出す写真が1枚も無ければ、作る受付と同じく断る（02 §5 #54。区切りの直しは、完成版と編集で外した写真を合わせて見る）
+    const draftPhotos = await readDraftPhotos(timelines, tripId, read);
+    if ('error' in draftPhotos) {
+      return draftPhotos.error;
+    }
+    const excludedPhotoIds =
+      read.reason === 'recut' ? withRecutStarts(timeline.doc.current!, read).excludedPhotoIds : read.excludedPhotoIds;
+    if (!hasShownPhotos(draftPhotos.photos, visiblePhotoIdsOf(draftPhotos.existing, excludedPhotoIds))) {
+      return createNoDatedPhotosError();
+    }
     const now = new Date().toISOString();
     if (read.reason === 'recut') {
-      // 区切りの直しは AI を使わない（06 §8.6）。当てる完成版が無ければ（重なり・壊れた文書）書かない
-      if (!timeline.doc.current) {
-        return createTimelineStateConflict();
-      }
-      const current = withRecutStarts(timeline.doc.current, read);
+      const current = withRecutStarts(timeline.doc.current!, read);
       if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current, draft: null, updatedAt: now }, timeline.etag))) {
         return createTimelineStateConflict();
       }

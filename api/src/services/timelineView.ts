@@ -248,6 +248,16 @@ export function withExcludedPhotos(previous: string[] | undefined, added: string
   return photos.map((photo) => photo.id).filter((id) => excluded.has(id));
 }
 
+/**
+ * タイムラインに出す写真（撮影日時があり、旅行に今もあり、外していない写真）が1枚でもあるか（02 §5 #54）
+ *
+ * 無ければ、作る受付と同じく 409 TIMELINE_NO_DATED_PHOTOS で断る（見出しを付ける受付と、完成版から外す受付）
+ * @param visible 画面に出す写真の id（visiblePhotoIdsOf）
+ */
+export function hasShownPhotos(photos: TimelinePhotoSnapshot[], visible: Set<string>): boolean {
+  return photos.some((photo) => photo.takenAt !== null && visible.has(photo.id));
+}
+
 /** [next] に [previous] に無い写真があるか（外した写真が増えるか。増えなければ書かない） */
 export function addsExcludedPhotos(previous: string[] | undefined, next: string[]): boolean {
   const before = new Set(previous ?? []);

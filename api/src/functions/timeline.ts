@@ -8,6 +8,7 @@ import { draftStatusOf } from '../services/timelineView';
 import { readTimelineBody } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
+  createNoDatedPhotosError,
   createTimelineBodyResponse,
   createErrorResponse,
   createTimelineStateConflict,
@@ -51,7 +52,7 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
       );
     }
     if (!rows.some((row) => row.takenAt !== null)) {
-      return createErrorResponse(ErrorCode.TIMELINE_NO_DATED_PHOTOS, '撮影日時のある写真がありません', HttpStatusCode.CONFLICT);
+      return createNoDatedPhotosError();
     }
 
     const now = new Date().toISOString();

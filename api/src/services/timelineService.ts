@@ -131,21 +131,22 @@ export class TimelineService {
    * 旅行の今の写真の id と解析の状態を読む（04 §5 の 5.13）
    *
    * 控えを取った後に消えた写真を見分ける（下書きの表示・区切りの保存・完成版）。完成版を開くときは、控えとの差で写真の増えた・消えた枚数を、
-   * 同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）。射影は id と解析の状態だけなので軽い
+   * 同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）。射影は id と撮影日時と解析の状態だけなので軽い
+   * （撮影日時は、日時の無い写真を増えた枚数に数えないため。日時の無い写真はタイムラインに入れない。02 §5 #54）
    * （processing の中の state だけをオブジェクトの射影で読む。processing の無い文書は none（解析の対象でない）として扱う）
    * @param tripId 旅行の ID
    */
-  async readTripPhotoStates(tripId: string): Promise<{ id: string; state: PhotoProcessing['state'] }[]> {
+  async readTripPhotoStates(tripId: string): Promise<{ id: string; takenAt: string | null; state: PhotoProcessing['state'] }[]> {
     const { resources } = await this.container.items
-      .query<{ id: string; processing?: { state?: PhotoProcessing['state'] } }>({
-        query: 'SELECT c.id, { "state": c.processing.state } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
+      .query<{ id: string; takenAt?: string | null; processing?: { state?: PhotoProcessing['state'] } }>({
+        query: 'SELECT c.id, c.takenAt, { "state": c.processing.state } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@tripId', value: tripId },
         ],
       })
       .fetchAll();
-    return resources.map((row) => ({ id: row.id, state: row.processing?.state ?? 'none' }));
+    return resources.map((row) => ({ id: row.id, takenAt: row.takenAt ?? null, state: row.processing?.state ?? 'none' }));
   }
 
   /**

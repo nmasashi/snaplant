@@ -11,6 +11,7 @@ import { exceedsLength, trimUserText } from '../utils/userText';
 import { readTimelineBody, readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
+  createNoDatedPhotosError,
   createTimelineBodyResponse,
   createNotFoundError,
   createSuccessResponse,
@@ -18,7 +19,7 @@ import {
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { addsExcludedPhotos, reviewingDraftOf, withExcludedPhotos } from '../services/timelineView';
+import { addsExcludedPhotos, hasShownPhotos, reviewingDraftOf, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 
 /**
@@ -107,13 +108,20 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     if (!timeline || !current) {
       return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    const snapshot = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () => timelines.readSnapshotPhotos(current.snapshotId));
+    const snapshot = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () =>
+      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)])
+    );
     if ('error' in snapshot) {
       return snapshot.error;
     }
-    const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, snapshot.value);
+    const [photos, existing] = snapshot.value;
+    const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, photos);
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
+    }
+    // 外すと出す写真が1枚も無くなるなら断る（作る受付と同じ。02 §5 #54）
+    if (!hasShownPhotos(photos, visiblePhotoIdsOf(existing, excludedPhotoIds))) {
+      return createNoDatedPhotosError();
     }
     // 応答の写真の URL を作れないなら、書く前に失敗させる（書いた後だと、外したのに失敗と返す。区切りの直しの受付と同じ）
     const storage = new PhotoStorageService();
@@ -121,7 +129,7 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     const draft = timeline.doc.draft;
     const recutting = draft?.reason === 'recut' && draft.snapshotId === current.snapshotId ? draft : null;
     // 控えが同じなので、完成版で通った写真は下書きでも通る（null にならない）
-    const draftExcluded = recutting && withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value);
+    const draftExcluded = recutting && withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, photos);
     const changesDraft = !!recutting && !!draftExcluded && addsExcludedPhotos(recutting.excludedPhotoIds, draftExcluded);
     // 外した写真が増えなければ（完成版でも編集中の下書きでも、もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）
     if (addsExcludedPhotos(current.excludedPhotoIds, excludedPhotoIds) || changesDraft) {

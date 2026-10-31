@@ -124,6 +124,15 @@ export function createTimelineStateConflict(): HttpResponseInit {
 }
 
 /**
+ * タイムラインに出す写真（撮影日時のある写真）が無いときの 409 の応答（05 §5.15）
+ *
+ * 作る受付と、写真を外して出す写真が無くなるとき（見出しを付ける受付・完成版から外す受付。02 §5 #54）で同じ文言にする
+ */
+export function createNoDatedPhotosError(): HttpResponseInit {
+  return createErrorResponse(ErrorCode.TIMELINE_NO_DATED_PHOTOS, '撮影日時のある写真がありません', HttpStatusCode.CONFLICT);
+}
+
+/**
  * 内部サーバーエラーレスポンス
  */
 export function createInternalError(message: string = 'サーバー内部エラーが発生しました', details?: string): HttpResponseInit {

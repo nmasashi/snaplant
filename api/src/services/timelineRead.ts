@@ -71,10 +71,11 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
     const visible = visiblePhotoIdsOf(existing, doc.current.excludedPhotoIds);
     current = currentTimelineOf(doc.current, snapshot, (photoId) => visible.has(photoId), urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
-    // 日時の無い写真も数える（作り直せば控えに入る）。外した写真は画面に出していないので、その後に消えても知らせない
+    // 日時の無い写真はタイムラインに入れない（作り直しても入らない）ので数えない（02 §5 #54）。
+    // 外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
-      added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,
-      removed: snapshot.filter((photo) => !existing.has(photo.id) && !excluded.has(photo.id)).length,
+      added: photos.filter((photo) => photo.takenAt !== null && !snapshotIds.has(photo.id)).length,
+      removed: snapshot.filter((photo) => photo.takenAt !== null && !existing.has(photo.id) && !excluded.has(photo.id)).length,
     };
   }
   return {
