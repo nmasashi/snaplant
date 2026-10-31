@@ -1136,6 +1136,22 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
     });
 
+    it('区切りの直しの下書きは、当てるときと同じく完成版の外した写真と合わせて、出す写真が1枚も無くなるなら 409（TIMELINE_NO_DATED_PHOTOS）で書かない', async () => {
+      // 下書きでは a・b を外し、完成版では c・e を外した（下書きに写っていない）。d を外すと、合わせて出す写真が無くなる
+      const timeline = timelineDocument(TRIP_ID, {
+        current: { ...timelineCurrent(SNAPSHOT_ID), excludedPhotoIds: [photoId('c'), photoId('e')] },
+        draft: reviewing({ reason: 'recut', excludedPhotoIds: [photoId('a'), photoId('b')] }),
+        updatedAt: '2026-10-25T08:55:00.000Z'
+      });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('d')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS', message: '撮影日時のある写真がありません' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
     it('文を書くのに失敗した下書きは、もう外した写真を送っても確かめ中に戻す', async () => {
       const failed = reviewing({
         phase: 'writing',
