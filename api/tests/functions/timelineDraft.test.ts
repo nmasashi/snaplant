@@ -713,6 +713,22 @@ describe('タイムラインの下書きAPI', () => {
       ]);
     });
 
+    it('写真を全部外した場面の区切りも、消えた場面と同じく送られなくても残す', async () => {
+      // 1日目は a・b の場面と c の場面。c を外したので、画面には c の場面が見えず、c の区切りを送れない
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ excludedPhotoIds: [photoId('c')] })));
+
+      // 2日目の e で区切りを足した
+      const response = await put({ sceneStarts: [photoId('a'), photoId('d'), photoId('e')] });
+
+      expect(response.status).toBe(200);
+      expect((cosmosBackend.documents.get(TIMELINE_ID) as any).draft.sceneStarts).toEqual([
+        photoId('a'),
+        photoId('c'),
+        photoId('d'),
+        photoId('e')
+      ]);
+    });
+
     it('写真が全部消えた場面の次の場面を前の場面とつなげたら、消えた場面の区切りも外す（つなげた場面が見えない場面に付かないように）', async () => {
       // 1日目は a・b・c の3つの場面。控えを取った後に b を消したので、画面には a と c の場面だけが見える
       cosmosBackend.documents.delete(photoId('b'));
