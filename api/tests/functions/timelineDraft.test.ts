@@ -1370,6 +1370,19 @@ describe('タイムラインの下書きAPI', () => {
         expect(queuedMessages()).toEqual([]);
       });
 
+      it('当てると、編集で外した写真と、編集の間に完成版で外した写真を合わせて完成版に残す', async () => {
+        // 編集を始めたときに外していた a を引き継ぎ、編集で c を外した。その間に完成版で d を外した
+        const timeline = recutting({ excludedPhotoIds: [photoId('a'), photoId('c')] });
+        cosmosBackend.documents.set(TIMELINE_ID, { ...timeline, current: { ...current, excludedPhotoIds: [photoId('a'), photoId('d')] } });
+
+        const response = await postWrite();
+
+        expect(response.status).toBe(200);
+        expect(new Set((cosmosBackend.documents.get(TIMELINE_ID) as any).current.excludedPhotoIds)).toEqual(
+          new Set([photoId('a'), photoId('c'), photoId('d')])
+        );
+      });
+
       it('完成版が無いのに区切りを直している下書きは、AI に書かせず 409（TIMELINE_STATE_CONFLICT）で何も変えない', async () => {
         const broken = { ...recutting(), current: null };
         cosmosBackend.documents.set(TIMELINE_ID, broken);

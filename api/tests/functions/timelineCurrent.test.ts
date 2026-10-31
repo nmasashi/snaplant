@@ -293,6 +293,16 @@ describe('タイムラインの完成版の操作API', () => {
       expect(scenes[0].photos.map((photo: any) => photo.id)).toEqual([photoId('a')]);
     });
 
+    it('完成版で外した写真を下書きに引き継ぎ、応答の日と場面に出さない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('b')] } }));
+
+      const response = await recut();
+
+      expect(storedTimeline()!.draft!.excludedPhotoIds).toEqual([photoId('b')]);
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes[0].photos.map((photo: any) => photo.id)).toEqual([photoId('a')]);
+    });
+
     it('完成版の控えと区切りを写した確かめ中の下書き（recut。裏の処理なし）を作り、確かめ中の日と場面を返す（完成版はそのまま）', async () => {
       const timeline = timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
