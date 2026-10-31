@@ -25,7 +25,7 @@ export type CatalogHeadPhoto = Pick<PhotoDocument, 'id' | 'identification' | 'th
 /**
  * 種類ごとに、名前と属（属の学名・属名）の組ごとの写真の枚数を数える（分類どおりの種類が写っている写真だけ。名前ごとに合わせるのは catalogEntries.ts）
  *
- * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けないので、名前順に並べるのは呼び出し側
+ * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けないので、並べる（属の学名の順、同じ属は名前の順）のは呼び出し側（catalogEntries.ts）
  * @param container album コンテナ
  * @param kind 図鑑の種類
  */
