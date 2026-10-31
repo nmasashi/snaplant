@@ -105,7 +105,7 @@ Flutter SDK は `C:\Users\masas\flutter` にあり、`flutter` は PATH 上に�
   端末の時刻に直して出すテストを足すときは、冒頭で `timeZoneOffset` が9時間であることを確かめる（UTC の環境で黙って通らないように）。
   CI（`flutter.yml`）は `TZ=Asia/Tokyo` で動かしている。写真の撮影日時はタイムゾーンを変換しないので、この前提に頼らない。
   **この PC（Windows）では `TZ=Asia/Tokyo` を付けて `flutter test` を回さない。** Dart が UTC として動いてしまい、日本時間前提のテストが落ちる（端末の時刻が日本時間なので、付けなければ通る）
-- **送信まわりのテスト（`trip_detail_screen_test.dart`）は、負荷が高いと稀に落ちる**（変異で全テストを繰り返しているときなど）。
+- **送信まわりのテスト（`upload_*_test.dart`・`trip_detail_delete_test.dart`）は、負荷が高いと稀に落ちる**（変異で全テストを繰り返しているときなど）。
   落ちたら、もう一度回してから判断する
 
 ## アーキテクチャ
