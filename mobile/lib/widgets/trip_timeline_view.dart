@@ -45,7 +45,7 @@ class TripTimelineView extends StatefulWidget {
 
   final ApiService apiService;
 
-  /// 写真の送信の列（写真ビューアに渡す）
+  /// 写真の送信の列（場面の写真の一覧から開く写真ビューアに渡す）
   final UploadQueue uploadQueue;
   final String tripId;
 
@@ -81,8 +81,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   String? _errorMessage;
   // 下書きの次の読み直し。作っている途中の下書きを出している間だけ動かす（「写真」に戻す・画面を閉じると dispose で止まる）
   Timer? _pollTimer;
-  // 操作（作る・もう一度・やめる・区切りを直す）を送っている間と、写真ビューアで開く写真を読んでいる間は、
-  // 操作のボタンとサムネイルのタップと、下に引っ張る読み直しを受け付けない（二重に送らない・画面を重ねて開かない・
+  // 操作（作る・もう一度・やめる・区切りを直す）を送っている間は、
+  // 操作のボタンと場面のタップと、下に引っ張る読み直しを受け付けない（二重に送らない・画面を重ねて開かない・
   // 読み直しの応答が操作の後や開いた画面の上に届いて、古い状態を当てたりエラーを出したりしない。§8.1・§8.3）
   bool _sending = false;
   // 写真が変わった案内を「あとで」で隠したか（読み込み直すと戻す。§8.3）

@@ -5,13 +5,13 @@ import '../theme/app_colors.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/taken_at.dart';
 
-/// タイムラインの写真のサムネイル（区切りの確認画面と完成版。読み上げのラベルは撮影日時。docs/03_screen_design.md §8.3・§8.4）
+/// タイムラインの写真のサムネイル（区切りの確認画面・完成版・場面の写真の一覧。読み上げのラベルは撮影日時。docs/03_screen_design.md §8.3・§8.4・§8.8）
 class TimelineThumbnail extends StatelessWidget {
   const TimelineThumbnail({super.key, required this.photo, this.onTap});
 
   final TimelinePhoto photo;
 
-  /// タップしたとき（完成版のサムネイルは写真ビューアを開く）。null ならタップを受けない
+  /// タップしたとき（場面の写真の一覧の写真は写真ビューアを開く）。null ならタップを受けない
   final VoidCallback? onTap;
 
   @override
