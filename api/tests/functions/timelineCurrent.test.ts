@@ -363,8 +363,7 @@ describe('タイムラインの完成版の操作API', () => {
   });
 
   describe('写真を外す（POST …/excluded-photos）', () => {
-    const exclude = (body: unknown, text?: string) =>
-      postTimelineExcludedPhotosHandler(bodyRequest(TRIP_ID, 'excluded-photos', 'POST', body, text), mockContext);
+    const exclude = (body: unknown) => postTimelineExcludedPhotosHandler(bodyRequest(TRIP_ID, 'excluded-photos', 'POST', body), mockContext);
 
     it('外した写真を完成版に足し（控えの順・重なりなし）、完成版を読んだ形で返して、外した写真を出さない（写真を全部外した日も出さない）', async () => {
       const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('d')] }, updatedAt: '2026-10-08T12:14:00.000Z' });
@@ -396,14 +395,12 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toMatchObject({ current: { excludedPhotoIds: [photoId('b')] }, draft });
     });
 
-    it('外す写真が無い・空・配列でない・文字列でない値を含む・控えに無い写真を含む・ボディが読めないときは、400 で何も書かない', () => forEachCase<[string, () => Promise<HttpResponseInit>, string]>([
+    // photoIds の形の 400 は下書きの表の 1 と同じ規則（05 §5.15）。全ケースとボディの共通の行（JSON として読めない・null）は
+    // timelineDraft.test.ts の「写真を外す（POST …/draft/excluded-photos）」で通し、ここはこの受付がその判定につながっていることを1行で見る。
+    // 控えに無い写真は完成版の控えで見るので、この受付で見る
+    it('外す写真が無い・完成版の控えに無い写真を含むときは、400 で何も書かない', () => forEachCase<[string, () => Promise<HttpResponseInit>, string]>([
       ['無い', () => exclude({}), '外す写真は写真IDの配列で指定してください'],
-      ['空', () => exclude({ photoIds: [] }), '外す写真は写真IDの配列で指定してください'],
-      ['配列でない', () => exclude({ photoIds: photoId('a') }), '外す写真は写真IDの配列で指定してください'],
-      ['文字列でない値を含む', () => exclude({ photoIds: [photoId('a'), 1] }), '外す写真は写真IDの配列で指定してください'],
-      ['控えに無い写真を含む', () => exclude({ photoIds: [photoId('a'), photoId('f')] }), '外す写真が無効です'],
-      ['JSON として読めない', () => exclude(undefined, '{'), 'リクエストボディの形式が無効です'],
-      ['null の', () => exclude(null), 'リクエストボディが指定されていません']
+      ['控えに無い写真を含む', () => exclude({ photoIds: [photoId('a'), photoId('f')] }), '外す写真が無効です']
     ], async (_label, send, message) => {
       const timeline = timelineDocument(TRIP_ID, { current });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
