@@ -1373,7 +1373,7 @@ describe('タイムラインの下書きAPI', () => {
       it('当てると、編集で外した写真と、編集の間に完成版で外した写真を合わせて完成版に残す', async () => {
         // 編集を始めたときに外していた a を引き継ぎ、編集で c を外した。その間に完成版で d を外した
         const timeline = recutting({ excludedPhotoIds: [photoId('a'), photoId('c')] });
-        cosmosBackend.documents.set(TIMELINE_ID, { ...timeline, current: { ...current, excludedPhotoIds: [photoId('a'), photoId('d')] } });
+        cosmosBackend.documents.set(TIMELINE_ID, { ...timeline, current: { ...current, excludedPhotoIds: [photoId('a'), photoId('d')] } } as any);
 
         const response = await postWrite();
 
