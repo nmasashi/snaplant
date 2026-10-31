@@ -4,6 +4,7 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import {
   patchTimelineDayHandler,
   patchTimelineSceneHandler,
+  postTimelineExcludedPhotosHandler,
   postTimelineRecutHandler
 } from '../../src/functions/timelineCurrent';
 import { TimelineDocument, TimelinePhotoSnapshot } from '../../src/types/timeline';
@@ -97,12 +98,15 @@ const createRequest = (tripId: string, path: string, method = 'POST', params: Re
   }) as any as HttpRequest;
 
 /** ボディ付きの要求。text を渡すと、JSON として読めない本文にする */
-const patchRequest = (path: string, params: Record<string, string>, body: unknown, text?: string, tripId = TRIP_ID): HttpRequest =>
+const bodyRequest = (tripId: string, path: string, method: string, body: unknown, text?: string, params: Record<string, string> = {}): HttpRequest =>
   ({
-    ...createRequest(tripId, path, 'PATCH', params),
+    ...createRequest(tripId, path, method, params),
     headers: new Map([['content-type', 'application/json']]),
     json: async () => (text !== undefined ? JSON.parse(text) : body)
   }) as any as HttpRequest;
+
+const patchRequest = (path: string, params: Record<string, string>, body: unknown, text?: string, tripId = TRIP_ID): HttpRequest =>
+  bodyRequest(tripId, path, 'PATCH', body, text, params);
 
 describe('タイムラインの完成版の操作API', () => {
   let mockContext: InvocationContext;
@@ -157,6 +161,11 @@ describe('タイムラインの完成版の操作API', () => {
         '完成版の文を直す（PATCH …/days/{date}）',
         (tripId) => patchTimelineDayHandler(patchRequest('days/2026-10-05', { date: '2026-10-05' }, { title: 'x' }, undefined, tripId), mockContext),
         'タイムラインの更新に失敗しました'
+      ],
+      [
+        '写真を外す（POST …/excluded-photos）',
+        (tripId) => postTimelineExcludedPhotosHandler(bodyRequest(tripId, 'excluded-photos', 'POST', { photoIds: [photoId('b')] }), mockContext),
+        'タイムラインの更新に失敗しました'
       ]
     ];
     const databaseFailures = endpoints.flatMap(([name, send, internalErrorMessage]) =>
@@ -171,14 +180,14 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timeline());
     });
 
-    it('区切りの直し・日の文の更新のどちらも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
       const response = await send('not-a-uuid');
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     }));
 
-    it('区切りの直し・日の文の更新のどちらも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       cosmosBackend.documents.delete(TRIP_ID);
 
       const response = await send(TRIP_ID);
@@ -188,7 +197,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline());
     }));
 
-    it('区切りの直し・日の文の更新のどちらも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       const written = timelineDocument(TRIP_ID, {
         current,
         updatedAt: '2026-10-25T08:59:59.000Z'
@@ -204,7 +213,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(written);
     }));
 
-    it('区切りの直し・日の文の更新のどちらも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
       cosmosBackend.forcedReplaceError = error;
 
       const response = await send(TRIP_ID);
@@ -284,6 +293,16 @@ describe('タイムラインの完成版の操作API', () => {
       expect(scenes[0].photos.map((photo: any) => photo.id)).toEqual([photoId('a')]);
     });
 
+    it('完成版で外した写真を下書きに引き継ぎ、応答の日と場面に出さない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('b')] } }));
+
+      const response = await recut();
+
+      expect(storedTimeline()!.draft!.excludedPhotoIds).toEqual([photoId('b')]);
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes[0].photos.map((photo: any) => photo.id)).toEqual([photoId('a')]);
+    });
+
     it('完成版の控えと区切りを写した確かめ中の下書き（recut。裏の処理なし）を作り、確かめ中の日と場面を返す（完成版はそのまま）', async () => {
       const timeline = timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' });
       cosmosBackend.documents.set(TIMELINE_ID, timeline);
@@ -340,6 +359,140 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(409);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
       expect(storedTimeline()).toEqual(timeline);
+    });
+  });
+
+  describe('写真を外す（POST …/excluded-photos）', () => {
+    const exclude = (body: unknown) => postTimelineExcludedPhotosHandler(bodyRequest(TRIP_ID, 'excluded-photos', 'POST', body), mockContext);
+
+    it('外した写真を完成版に足し（控えの順・重なりなし）、完成版を読んだ形で返して、外した写真を出さない（写真を全部外した日も出さない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('d')] }, updatedAt: '2026-10-08T12:14:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b'), photoId('a'), photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()).toEqual({
+        ...timeline,
+        current: { ...current, excludedPhotoIds: [photoId('a'), photoId('b'), photoId('d')] },
+        updatedAt: NOW
+      });
+      const data = (response.jsonBody as any).data;
+      expect(data.timeline.current.days.map((day: any) => day.scenes.map((scene: any) => [scene.startPhotoId, scene.photos.map((p: any) => p.id)]))).toEqual([
+        [[photoId('c'), [photoId('c')]]]
+      ]);
+      expect(data.timeline.changes).toEqual({ added: 0, removed: 0 });
+      expect(data.pendingPhotoCount).toBe(0);
+    });
+
+    it('タイムラインを編集している途中でも外せ、編集中の下書きにも足す', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut', excludedPhotoIds: [photoId('d')] });
+      const timeline = timelineDocument(TRIP_ID, { current, draft });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      // 外した写真の並びに意味は無いので並べ替えて比べる
+      const stored = storedTimeline()!;
+      expect({ ...stored, draft: { ...stored.draft!, excludedPhotoIds: [...stored.draft!.excludedPhotoIds!].sort() } }).toEqual({
+        ...timeline,
+        current: { ...current, excludedPhotoIds: [photoId('b')] },
+        draft: { ...draft, excludedPhotoIds: [photoId('b'), photoId('d')] },
+        updatedAt: NOW
+      });
+    });
+
+    it('完成版ではもう外してあっても、編集中の下書きに無ければ下書きに足す', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut' });
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('b')] }, draft }));
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()!.draft).toEqual({ ...draft, excludedPhotoIds: [photoId('b')] });
+    });
+
+    it('編集の途中でない下書き（5-6b より前の作り直し）があっても外せ、その下書きは変えない', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other', { reason: 'rebuild' });
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()!.current!.excludedPhotoIds).toEqual([photoId('b')]);
+      expect(storedTimeline()!.draft).toEqual(draft);
+    });
+
+    it('外した写真が変わらなければ（もう外してある）書き込まずに、完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('b')] }, updatedAt: '2026-10-08T12:14:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()).toEqual(timeline);
+      expect((response.jsonBody as any).data.timeline.current.days[0].scenes[0].photos.map((p: any) => p.id)).toEqual([photoId('a')]);
+    });
+
+    it('写真の保存先の設定に鍵が無ければ、書かずに 500 を返す（外したのに失敗と返さない）', async () => {
+      process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const timeline = timelineDocument(TRIP_ID, { current });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの更新に失敗しました' } });
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
+    // photoIds の形の 400 は下書きの表の 1 と同じ規則（05 §5.15）。全ケースとボディの共通の行（JSON として読めない・null）は
+    // timelineDraft.test.ts の「写真を外す（POST …/draft/excluded-photos）」で通し、ここはこの受付がその判定につながっていることを1行で見る。
+    // 控えに無い写真は完成版の控えで見るので、この受付で見る
+    it('外す写真が無い・完成版の控えに無い写真を含むときは、400 で何も書かない', () => forEachCase<[string, () => Promise<HttpResponseInit>, string]>([
+      ['無い', () => exclude({}), '外す写真は写真IDの配列で指定してください'],
+      ['控えに無い写真を含む', () => exclude({ photoIds: [photoId('a'), photoId('f')] }), '外す写真が無効です']
+    ], async (_label, send, message) => {
+      const timeline = timelineDocument(TRIP_ID, { current });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await send();
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+      expect(storedTimeline()).toEqual(timeline);
+    }));
+
+    it('タイムラインが無い・下書きだけで完成版が無いときは、404（タイムラインが見つかりません）', () => forEachCase<[string, TimelineDocument[]]>([
+      ['タイムラインが無い', []],
+      ['下書きだけで完成版が無い', [timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID) })]]
+    ], async (_label, timelines) => {
+      cosmosBackend.documents.delete(TIMELINE_ID);
+      timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc as any));
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
+    }));
+
+    // 控えが読めないときは区切りの直しの受付と同じ（05 §5.15 の共通の行。readUnlessOverlapped）。404・500 を含む全部の場合は「区切りを直し始める」で通し、ここはつながりを1行で見る
+    it('控えを読む直前に完成版が別の控えに変わっていたら（作り直しで前の控えは消えた）、409 で書かない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+      const rebuilt = timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other') });
+      cosmosBackend.beforeRead = (id) => {
+        if (id === CURRENT_SNAPSHOT_ID) {
+          cosmosBackend.documents.set(TIMELINE_ID, rebuilt as any);
+          cosmosBackend.documents.delete(CURRENT_SNAPSHOT_ID);
+        }
+      };
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(storedTimeline()).toEqual(rebuilt);
     });
   });
 

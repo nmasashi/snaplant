@@ -2,13 +2,13 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { TimelineService, TimelineSnapshotMissingError } from '../services/timelineService';
+import { TimelineService } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
-import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineCurrent, TimelineDocument, TimelineDraft } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
-import { readTimelineBody } from '../services/timelineRead';
+import { readTimelineBody, readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
   createTimelineBodyResponse,
@@ -18,7 +18,8 @@ import {
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { reviewingDraftOf } from '../services/timelineView';
+import { addsExcludedPhotos, reviewingDraftOf, withExcludedPhotos } from '../services/timelineView';
+import { readPhotoIdsToExclude } from '../utils/timelineInput';
 
 /**
  * タイムラインの完成版の区切りを直し始める API
@@ -56,28 +57,18 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
       dayStartHour: current.dayStartHour,
       proposedStarts: current.proposedStarts,
       sceneStarts: current.sceneStarts,
+      ...(current.excludedPhotoIds ? { excludedPhotoIds: current.excludedPhotoIds } : {}),
       startedAt: now,
     };
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
-    let photos: TimelinePhotoSnapshot[];
-    let existing: Set<string>;
-    try {
-      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)]);
-    } catch (error: any) {
-      // 完成版の控えが無いのは、読んだ後に旅行の削除と重なったとき（区切りの保存と同じ扱い）。完成版が変わっていれば重なり、
-      // 同じ完成版のまま控えだけ無ければ壊れている
-      if (!(error instanceof TimelineSnapshotMissingError)) {
-        throw error;
-      }
-      if (!(await new AlbumService().tripExists(tripId))) {
-        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-      }
-      if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const read = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () =>
+      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)])
+    );
+    if ('error' in read) {
+      return read.error;
     }
+    const [photos, existing] = read.value;
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
       return createTimelineStateConflict();
     }
@@ -87,6 +78,74 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
     context.log('タイムラインの区切りの直しの受付エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');
   }
+}
+
+/**
+ * タイムラインの完成版から写真を外す API（02 §5 #52）
+ * POST /api/trips/{tripId}/timeline/excluded-photos  { photoIds: string[] }
+ *
+ * 外した写真は完成版に足すだけで戻さない。区切りと文は変えない（場面の最初の写真を外しても場面の id は控えの最初の写真のまま）。
+ * 下書きがあっても外せる（タイムラインを編集している途中なら、当てるときに下書きの外した写真と合わせる。06 §8.6）
+ */
+export async function postTimelineExcludedPhotosHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const tripId = request.params.tripId;
+  context.log(`タイムラインの完成版から写真を外すリクエストを受信: 旅行=${tripId}`);
+  if (!isValidUUID(tripId)) {
+    return createValidationError('旅行IDの形式が無効です');
+  }
+  const read = await readPhotoIdsToExclude(request);
+  if ('error' in read) {
+    return read.error;
+  }
+  try {
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const timelines = new TimelineService();
+    const timeline = await timelines.readTimeline(tripId);
+    const current = timeline?.doc.current;
+    if (!timeline || !current) {
+      return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
+    }
+    const snapshot = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () => timelines.readSnapshotPhotos(current.snapshotId));
+    if ('error' in snapshot) {
+      return snapshot.error;
+    }
+    const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, snapshot.value);
+    if (!excludedPhotoIds) {
+      return createValidationError('外す写真が無効です');
+    }
+    // 応答の写真の URL を作れないなら、書く前に失敗させる（書いた後だと、外したのに失敗と返す。区切りの直しの受付と同じ）
+    const storage = new PhotoStorageService();
+    // タイムラインを編集している途中（完成版と同じ控えの recut）なら、編集中の下書きにも足す（案の確認画面にも出さない。当てるときも合わせる。06 §8.6）
+    const draft = timeline.doc.draft;
+    const recutting = draft?.reason === 'recut' && draft.snapshotId === current.snapshotId ? draft : null;
+    // 控えが同じなので、完成版で通った写真は下書きでも通る（null にならない）
+    const draftExcluded = recutting && withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value);
+    const changesDraft = !!recutting && !!draftExcluded && addsExcludedPhotos(recutting.excludedPhotoIds, draftExcluded);
+    // 外した写真が増えなければ（完成版でも編集中の下書きでも、もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）
+    if (addsExcludedPhotos(current.excludedPhotoIds, excludedPhotoIds) || changesDraft) {
+      const doc = {
+        ...timeline.doc,
+        current: { ...current, excludedPhotoIds },
+        ...(changesDraft ? { draft: { ...recutting, excludedPhotoIds: draftExcluded } } : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      if (!(await timelines.replaceTimelineIfUnchanged(doc, timeline.etag))) {
+        return createTimelineStateConflict();
+      }
+    }
+    // 画面は外した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
+    return createTimelineBodyResponse(await readTimelineBody(tripId, storage));
+  } catch (error: any) {
+    context.log('タイムラインの完成版から写真を外すエラー:', error);
+    return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
+  }
+}
+
+/** 読み直したタイムラインが、読んだときと同じ完成版（同じ控え）を指しているか（readUnlessOverlapped に渡す） */
+function sameCurrent(current: TimelineCurrent): (doc: TimelineDocument | undefined) => boolean {
+  return (doc) => doc?.current?.snapshotId === current.snapshotId;
 }
 
 /** 直せる文の欄（日はタイトル・まとめ、場面は見出し・一言。05 §5.15・§4） */
@@ -247,6 +306,13 @@ app.http('postTimelineRecut', {
   authLevel: 'function',
   route: 'trips/{tripId}/timeline/recut',
   handler: postTimelineRecutHandler,
+});
+
+app.http('postTimelineExcludedPhotos', {
+  methods: ['POST'],
+  authLevel: 'function',
+  route: 'trips/{tripId}/timeline/excluded-photos',
+  handler: postTimelineExcludedPhotosHandler,
 });
 
 app.http('patchTimelineDay', {

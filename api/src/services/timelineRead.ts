@@ -1,21 +1,56 @@
 import { UNFINISHED_PROCESSING_STATES } from '../constants/album';
 import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
-import { TimelineService, rereadIfSnapshotMissing } from './timelineService';
-import { currentTimelineOf, draftStatusOf } from './timelineView';
+import { HttpResponseInit } from '@azure/functions';
+import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from './timelineService';
+import { currentTimelineOf, draftStatusOf, visiblePhotoIdsOf } from './timelineView';
+import { TimelineDocument } from '../types/timeline';
+import { ErrorCode } from '../types/api';
+import { createNotFoundError, createTimelineStateConflict } from '../utils/response';
 
 /**
  * 完成版を読んだ形（GET …/timeline の data。05 §5.15）を組む
  *
  * 完成版の表示を組むのはここだけ（GET …/timeline と、完成版の文を直す操作の応答が使う）。
  * 控えが無ければ最初から読み直す（rereadIfSnapshotMissing。他の操作と重なっただけなら今の状態になる）
+ * @param storage 写真の保存先（書く前に設定を確かめた呼び出し側が渡す。無ければここで作る）
  * @returns 応答の data。旅行が無ければ null
  */
-export async function readTimelineBody(tripId: string) {
-  return rereadIfSnapshotMissing(() => readTimelineBodyOnce(tripId));
+export async function readTimelineBody(tripId: string, storage?: PhotoStorageService) {
+  return rereadIfSnapshotMissing(() => readTimelineBodyOnce(tripId, storage));
 }
 
-async function readTimelineBodyOnce(tripId: string) {
+/**
+ * 控えを使う読み取りを行い、控えが無ければ他の操作との重なりかを見分ける（05 §5.15 の共通の行。区切りの保存・区切りの直しの受付・写真を外す2つで共有する）
+ *
+ * 控えを消すのはタイムラインの書き込みの後なので、読んだ後に旅行の削除・下書きをやめる・作り直すと重なると控えだけが先に無くなる。
+ * 旅行が消えていれば 404、タイムラインが読んだときと違うものを指していれば 409 の応答を返す。同じものを指したまま控えだけ無ければ壊れているので投げる（500）。
+ * 最初から読み直して書くことはしない（変わった下書き・完成版に、前のものへの操作を書いてしまう）
+ * @param stillSame 読み直したタイムラインが、読んだときと同じ下書き・完成版を指しているか
+ */
+export async function readUnlessOverlapped<T>(
+  timelines: TimelineService,
+  tripId: string,
+  stillSame: (doc: TimelineDocument | undefined) => boolean,
+  read: () => Promise<T>
+): Promise<{ value: T } | { error: HttpResponseInit }> {
+  try {
+    return { value: await read() };
+  } catch (error: any) {
+    if (!(error instanceof TimelineSnapshotMissingError)) {
+      throw error;
+    }
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return { error: createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND) };
+    }
+    if (!stillSame((await timelines.readTimeline(tripId))?.doc)) {
+      return { error: createTimelineStateConflict() };
+    }
+    throw error;
+  }
+}
+
+async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService | undefined) {
   if (!(await new AlbumService().tripExists(tripId))) {
     return null;
   }
@@ -33,11 +68,13 @@ async function readTimelineBodyOnce(tripId: string) {
     const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
     const existing = new Set(photos.map((photo) => photo.id));
     const snapshotIds = new Set(snapshot.map((photo) => photo.id));
-    current = currentTimelineOf(doc.current, snapshot, (photoId) => existing.has(photoId), urlOfPhotos(new PhotoStorageService(), expiresOn));
-    // 日時の無い写真も数える（作り直せば控えに入る）
+    const excluded = new Set(doc.current.excludedPhotoIds ?? []);
+    const visible = visiblePhotoIdsOf(existing, doc.current.excludedPhotoIds);
+    current = currentTimelineOf(doc.current, snapshot, (photoId) => visible.has(photoId), urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
+    // 日時の無い写真も数える（作り直せば控えに入る）。外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
       added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,
-      removed: snapshot.filter((photo) => !existing.has(photo.id)).length,
+      removed: snapshot.filter((photo) => !existing.has(photo.id) && !excluded.has(photo.id)).length,
     };
   }
   return {

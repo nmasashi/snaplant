@@ -54,7 +54,7 @@ export async function processTimelineHandler(message: unknown, context: Invocati
         if (!doc.current) {
           throw new Error('区切りを当てる完成版がありません');
         }
-        return { ...doc, current: withRecutStarts(doc.current, doc.draft.sceneStarts), draft: null };
+        return { ...doc, current: withRecutStarts(doc.current, doc.draft), draft: null };
       };
     } else if (job.step === 'propose') {
       const starts = await proposeScenes(photos, draft);
