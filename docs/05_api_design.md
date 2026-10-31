@@ -946,10 +946,10 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **実装済み**（T-1。`timelineCurrent.ts` の `postTimelineExcludedPhotos`）。
 
 - 判定の順は `tripId` の形 → ボディ（共通の行）→ `photoIds`（下書きの表の 1 と同じ 400）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 完成版が無い（タイムラインが無いときも、下書きだけのときも）404 `TIMELINE_NOT_FOUND` `タイムラインが見つかりません` → 完成版の控えに無い写真の id を含む 400 `外す写真が無効です`。どれも何も書かない
-- 外すと出す写真（撮影日時があり、旅行に今もあり、外していない写真）が1枚も無くなるなら 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません`（何も書かない。T-2 で実装済み。02 §5 #54）。そのために完成版の控えと一緒に旅行の写真（5.13）も読む
+- 外すと出す写真（撮影日時があり、旅行に今もあり、外していない写真）が1枚も無くなるなら 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません`（何も書かない。T-2 で実装済み。02 §5 #54）。タイムラインを編集している途中なら、編集中の下書きで外した写真と合わせて見る（完成版に写真が残っても、編集中の下書きが空になると保存できなくなるため）。外した写真が増えない送り直し（下の行）は断らない。そのために完成版の控えと一緒に旅行の写真（5.13）も読む
 - それ以外は、完成版の `excludedPhotoIds` に足して（重なりなし。並びに意味は無い）、タイムラインの `updatedAt` を今にする。区切り・文・作成日時は変えない。応答は `GET …/timeline` と同じ形（外した写真を除いた完成版）。送った写真がどれも完成版で（編集中の下書きがあればそこでも）もう外してあれば書かない（下書きの外すと同じ）
 - 下書きがあっても外せる。タイムラインを編集している途中（`recut` で、完成版と同じ控えを指す下書き）なら、下書きの `excludedPhotoIds` にも同じ写真を足す（案の確認画面にも出さない。当てるときも合わせる。`POST …/draft/write`）。それ以外の下書きは変えない。5-6b より前に作った作り直し（`rebuild`）の下書きは、書き終えたときに完成版を置き換えるので、そのとき外した写真は残らない
-- 控えが読めないとき（他の操作との重なり）は `POST …/recut` と同じ（共通の行。旅行が消えていれば 404、完成版が変わっていれば 409、同じ完成版のまま控えが無ければ 500）。完成版の控えだけを読み、旅行の写真は書く前には読まない
+- 控えが読めないとき（他の操作との重なり）は `POST …/recut` と同じ（共通の行。旅行が消えていれば 404、完成版が変わっていれば 409、同じ完成版のまま控えが無ければ 500）
 - 応答は書いた後に読み直した `GET …/timeline` と同じ形（`PATCH` の2つと同じ。読み直したときに旅行が消えていれば 404 `TRIP_NOT_FOUND`）。写真の保存先の設定は書く前にも確かめ、足りなければ書かずに 500（`POST …/draft/excluded-photos`・`POST …/recut` と同じ。書いた後だと、外したのに失敗と返す）
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの更新に失敗しました`（§7.2）
@@ -987,7 +987,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 409 | `TIMELINE_NO_DATED_PHOTOS` | 撮影日時のある写真が無い | 同上 |
 | 400 / 413 / 415 / 500 / 502 / 503 | 既存のコード | 既存と同じ意味 | |
 
-段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）と `POST …/recut`・`PATCH` の2つ（5-2b。`タイムラインが見つかりません`、`PATCH` はほかに `その日はタイムラインにありません`・`その場面はタイムラインにありません`）、`POST …/draft/excluded-photos`（T-1。`タイムラインの下書きが見つかりません`）・`POST …/excluded-photos`（T-1。`タイムラインが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`・`POST …/recut`・`PATCH` の2つ・`POST …/draft/excluded-photos`・`POST …/excluded-photos`（T-1）（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。§5.15 のタイムラインのエンドポイントは全部実装済み（5-2b。写真を外す2つは T-1）。
+段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）と `POST …/recut`・`PATCH` の2つ（5-2b。`タイムラインが見つかりません`、`PATCH` はほかに `その日はタイムラインにありません`・`その場面はタイムラインにありません`）、`POST …/draft/excluded-photos`（T-1。`タイムラインの下書きが見つかりません`）・`POST …/excluded-photos`（T-1。`タイムラインが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`・`POST …/recut`・`PATCH` の2つ・`POST …/draft/excluded-photos`・`POST …/excluded-photos`（T-1）（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING` が `POST …/timeline`、`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`・`POST …/draft/write`・`POST …/excluded-photos`（後の2つは出す写真が無くなるとき。T-2。文言は `utils/response.ts` の `createNoDatedPhotosError()` で共有）。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。§5.15 のタイムラインのエンドポイントは全部実装済み（5-2b。写真を外す2つは T-1）。
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
