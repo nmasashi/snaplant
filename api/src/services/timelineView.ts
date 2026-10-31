@@ -60,6 +60,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * - 各日の最初の写真と、区切りの写真が場面の始まり（場面は日をまたがない）
  * - 何日目かと場面の分け方は、消えた写真も含めた控えで決め、出すときに消えた写真を除く
  *   （写真を消しても日の番号や区切りが動かないように）。写真が全部消えた場面と日は出さない
+ * - 撮影日時の無い写真は並べない（タイムラインに入れない。02 §5 #54）
  */
 export function layoutTimeline(input: TimelineLayoutInput): TimelineDayLayout[] {
   const proposed = new Set(input.proposedStarts);
@@ -205,16 +206,15 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
  */
 export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
   const visible = visiblePhotoIdsOf(existing, draft.excludedPhotoIds);
-  const layout = layoutTimeline({
+  const comments = draft.sceneComments ?? {};
+  const days = layoutTimeline({
     photos,
     sceneStarts: draft.sceneStarts,
     proposedStarts: draft.proposedStarts,
     dayStartHour: draft.dayStartHour,
     exists: (photoId) => visible.has(photoId),
     urlOf,
-  });
-  const comments = draft.sceneComments ?? {};
-  const days = layout.map((day) => ({
+  }).map((day) => ({
     ...day,
     scenes: day.scenes.map((scene) => ({ ...scene, comment: comments[scene.startPhotoId] ?? null })),
   }));
