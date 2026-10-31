@@ -729,6 +729,20 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.timeline.current.undatedPhotos).toEqual([]);
   });
 
+  it('外した写真は出さず（写真を全部外した場面と日、外した日時なしの写真も）、外した後に消えた写真は「消えた」に数えない', async () => {
+    // a・d・e と日時の無い写真を外した。その後に b（外していない）と d（外した）が消えた
+    placeCurrentSnapshot([B.id, D.id]);
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [A.id, D.id, E.id, U.id] } }));
+
+    const data = await read();
+
+    expect(data.timeline.current.days.map((day: any) => [day.date, day.scenes.map((s: any) => [s.startPhotoId, s.photos.map((p: any) => p.id)])])).toEqual([
+      ['2026-10-05', [[C.id, [C.id]]]]
+    ]);
+    expect(data.timeline.current.undatedPhotos).toEqual([]);
+    expect(data.timeline.changes).toEqual({ added: 0, removed: 1 });
+  });
+
   it('完成版の控えと比べて増えた・消えた写真の枚数を返し（日時の無い写真も数える）、完成版があっても解析中の写真を数える', async () => {
     // b と日時の無い写真が消え、控えに無い写真が2枚増えた（1枚は解析中）
     placeCurrentSnapshot([B.id, U.id]);

@@ -4,6 +4,7 @@ import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storag
 import {
   patchTimelineDayHandler,
   patchTimelineSceneHandler,
+  postTimelineExcludedPhotosHandler,
   postTimelineRecutHandler
 } from '../../src/functions/timelineCurrent';
 import { TimelineDocument, TimelinePhotoSnapshot } from '../../src/types/timeline';
@@ -97,12 +98,15 @@ const createRequest = (tripId: string, path: string, method = 'POST', params: Re
   }) as any as HttpRequest;
 
 /** ボディ付きの要求。text を渡すと、JSON として読めない本文にする */
-const patchRequest = (path: string, params: Record<string, string>, body: unknown, text?: string, tripId = TRIP_ID): HttpRequest =>
+const bodyRequest = (tripId: string, path: string, method: string, body: unknown, text?: string, params: Record<string, string> = {}): HttpRequest =>
   ({
-    ...createRequest(tripId, path, 'PATCH', params),
+    ...createRequest(tripId, path, method, params),
     headers: new Map([['content-type', 'application/json']]),
     json: async () => (text !== undefined ? JSON.parse(text) : body)
   }) as any as HttpRequest;
+
+const patchRequest = (path: string, params: Record<string, string>, body: unknown, text?: string, tripId = TRIP_ID): HttpRequest =>
+  bodyRequest(tripId, path, 'PATCH', body, text, params);
 
 describe('タイムラインの完成版の操作API', () => {
   let mockContext: InvocationContext;
@@ -157,6 +161,11 @@ describe('タイムラインの完成版の操作API', () => {
         '完成版の文を直す（PATCH …/days/{date}）',
         (tripId) => patchTimelineDayHandler(patchRequest('days/2026-10-05', { date: '2026-10-05' }, { title: 'x' }, undefined, tripId), mockContext),
         'タイムラインの更新に失敗しました'
+      ],
+      [
+        '写真を外す（POST …/excluded-photos）',
+        (tripId) => postTimelineExcludedPhotosHandler(bodyRequest(tripId, 'excluded-photos', 'POST', { photoIds: [photoId('b')] }), mockContext),
+        'タイムラインの更新に失敗しました'
       ]
     ];
     const databaseFailures = endpoints.flatMap(([name, send, internalErrorMessage]) =>
@@ -171,14 +180,14 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timeline());
     });
 
-    it('区切りの直し・日の文の更新のどちらも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、旅行IDがUUIDの形でなければ、400を返す', () => forEachCase(endpoints, async (_name, send, _label) => {
       const response = await send('not-a-uuid');
 
       expect(response.status).toBe(400);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     }));
 
-    it('区切りの直し・日の文の更新のどちらも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、旅行が無ければ、404（TRIP_NOT_FOUND）でタイムラインを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       cosmosBackend.documents.delete(TRIP_ID);
 
       const response = await send(TRIP_ID);
@@ -188,7 +197,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline());
     }));
 
-    it('区切りの直し・日の文の更新のどちらも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、読んでから書くまでに他の操作がタイムラインを書いたら、409（TIMELINE_STATE_CONFLICT）で書いたものを変えない', () => forEachCase(endpoints, async (_name, send, _label) => {
       const written = timelineDocument(TRIP_ID, {
         current,
         updatedAt: '2026-10-25T08:59:59.000Z'
@@ -204,7 +213,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(written);
     }));
 
-    it('区切りの直し・日の文の更新のどちらも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
+    it('区切りの直し・日の文の更新・写真を外すのどれも、タイムラインを置き換えるときに、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailures, async (_name, _label, send, error, status, code, message) => {
       cosmosBackend.forcedReplaceError = error;
 
       const response = await send(TRIP_ID);
@@ -340,6 +349,90 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.status).toBe(409);
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
       expect(storedTimeline()).toEqual(timeline);
+    });
+  });
+
+  describe('写真を外す（POST …/excluded-photos）', () => {
+    const exclude = (body: unknown, text?: string) =>
+      postTimelineExcludedPhotosHandler(bodyRequest(TRIP_ID, 'excluded-photos', 'POST', body, text), mockContext);
+
+    it('外した写真を完成版に足し（控えの順・重なりなし）、完成版を読んだ形で返して、外した写真を出さない（写真を全部外した日も出さない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('d')] }, updatedAt: '2026-10-08T12:14:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b'), photoId('a'), photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()).toEqual({
+        ...timeline,
+        current: { ...current, excludedPhotoIds: [photoId('a'), photoId('b'), photoId('d')] },
+        updatedAt: NOW
+      });
+      const data = (response.jsonBody as any).data;
+      expect(data.timeline.current.days.map((day: any) => day.scenes.map((scene: any) => [scene.startPhotoId, scene.photos.map((p: any) => p.id)]))).toEqual([
+        [[photoId('c'), [photoId('c')]]]
+      ]);
+      expect(data.timeline.changes).toEqual({ added: 0, removed: 0 });
+      expect(data.pendingPhotoCount).toBe(0);
+    });
+
+    it('タイムラインを編集している途中（下書きがある）でも外せる（下書きはそのまま）', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut' });
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()).toMatchObject({ current: { excludedPhotoIds: [photoId('b')] }, draft });
+    });
+
+    it('外す写真が無い・空・配列でない・文字列でない値を含む・控えに無い写真を含む・ボディが読めないときは、400 で何も書かない', () => forEachCase<[string, () => Promise<HttpResponseInit>, string]>([
+      ['無い', () => exclude({}), '外す写真は写真IDの配列で指定してください'],
+      ['空', () => exclude({ photoIds: [] }), '外す写真は写真IDの配列で指定してください'],
+      ['配列でない', () => exclude({ photoIds: photoId('a') }), '外す写真は写真IDの配列で指定してください'],
+      ['文字列でない値を含む', () => exclude({ photoIds: [photoId('a'), 1] }), '外す写真は写真IDの配列で指定してください'],
+      ['控えに無い写真を含む', () => exclude({ photoIds: [photoId('a'), photoId('f')] }), '外す写真が無効です'],
+      ['JSON として読めない', () => exclude(undefined, '{'), 'リクエストボディの形式が無効です'],
+      ['null の', () => exclude(null), 'リクエストボディが指定されていません']
+    ], async (_label, send, message) => {
+      const timeline = timelineDocument(TRIP_ID, { current });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await send();
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
+      expect(storedTimeline()).toEqual(timeline);
+    }));
+
+    it('タイムラインが無い・下書きだけで完成版が無いときは、404（タイムラインが見つかりません）', () => forEachCase<[string, TimelineDocument[]]>([
+      ['タイムラインが無い', []],
+      ['下書きだけで完成版が無い', [timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID) })]]
+    ], async (_label, timelines) => {
+      cosmosBackend.documents.delete(TIMELINE_ID);
+      timelines.forEach((doc) => cosmosBackend.documents.set(doc.id, doc as any));
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
+    }));
+
+    it('控えを読む直前に完成版が別の控えに変わっていたら（作り直しで前の控えは消えた）、409 で書かない', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+      const rebuilt = timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other') });
+      cosmosBackend.beforeRead = (id) => {
+        if (id === CURRENT_SNAPSHOT_ID) {
+          cosmosBackend.documents.set(TIMELINE_ID, rebuilt as any);
+          cosmosBackend.documents.delete(CURRENT_SNAPSHOT_ID);
+        }
+      };
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_STATE_CONFLICT' } });
+      expect(storedTimeline()).toEqual(rebuilt);
     });
   });
 
