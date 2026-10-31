@@ -80,7 +80,7 @@ const _placeNameTimeout = Duration(seconds: 5);
 /// サーバが受け付ける地名の長さの上限（docs/05_api_design.md §5.1 の 17）
 const _placeNameMaxLength = 100;
 
-/// サムネイルの長辺と画質（docs/03_screen_design.md §4.7「準備」）
+/// サムネイルの長辺と画質（docs/03_screen_design.md §4.7.2）
 const _thumbnailLongSide = 320;
 const _thumbnailQuality = 70;
 
@@ -121,7 +121,7 @@ class _PreparedPhoto {
 }
 
 /// 画像のファイルを読み、SHA-256 と EXIF の撮影日時・位置を求める。
-/// 数百枚を選ぶと画面が固まるので、別の isolate（compute）で行う（docs/03_screen_design.md §4.7「準備」）
+/// 数百枚を選ぶと画面が固まるので、別の isolate（compute）で行う（docs/03_screen_design.md §4.7.2）
 Future<_PreparedPhoto> _preparePhoto(String path) async {
   final bytes = await File(path).readAsBytes();
   return _PreparedPhoto(
@@ -331,8 +331,8 @@ class UploadQueue extends ChangeNotifier {
     }
   }
 
-  /// 一時的な失敗のときに送り直すまでの間隔（docs/03_screen_design.md §4.7 の表）。回数の上限もこの長さ
-  /// 1回の送信の応答を待つ長さ。過ぎたら通信の失敗として送り直す（§4.7 の表）。
+  /// 一時的な失敗のときに送り直すまでの間隔（docs/03_screen_design.md §4.7.3 の表）。回数の上限もこの長さ
+  /// 1回の送信の応答を待つ長さ。過ぎたら通信の失敗として送り直す（§4.7.3 の表）。
   /// 時間切れが無いと、通信が固まったときに送信中のまま枠がふさがり、送り直しも区切りも来ない
   static const _requestTimeout = Duration(seconds: 60);
 
@@ -459,7 +459,7 @@ class UploadQueue extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/03_screen_design.md §4.4）。
+  /// [tripId] 宛ての送信を取り消す（旅行を削除するとき。docs/03_screen_design.md §4.4.3）。
   /// 送信待ち・失敗・送れた写真は列から消し、準備中の写真は準備が済んでも入れない。
   /// 送信中の要求は止められないので、終わったときに結果を知らせずに消す
   void cancelTrip(String tripId) {

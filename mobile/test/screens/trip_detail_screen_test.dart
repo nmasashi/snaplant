@@ -12,7 +12,7 @@ import 'package:snaplant_mobile/theme/app_theme.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/03_screen_design.md §4.3・§4.4）。
+// 旅行詳細画面を開き、利用者から見た振る舞いを確かめる（docs/03_screen_design.md §4.3・§4.4・§4.8）。
 // 旅行の API は偽のサーバ（helpers の FakeTripBackend）で差し替える。
 // 偽のサーバは API キーを照合するので、画面に渡す ApiService には同じキーを持たせる
 
