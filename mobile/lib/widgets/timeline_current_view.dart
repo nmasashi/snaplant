@@ -7,7 +7,7 @@ import 'timeline_thumbnail.dart';
 
 /// 完成したタイムライン（docs/03_screen_design.md §8.3）
 ///
-/// 日ごとの見出し・タイトル・まとめと場面のカード、日時なし、一番下に作成日時。
+/// 日ごとの見出し・タイトル・まとめと場面のカード、一番下に作成日時（撮影日時の無い写真は出さない。02 §5 #54）。
 /// タイムラインの編集・作り直しは旅行詳細の上のバーのメニューから（§8.1）
 class TimelineCurrentView extends StatelessWidget {
   const TimelineCurrentView({
@@ -48,22 +48,6 @@ class TimelineCurrentView extends StatelessWidget {
         for (final notice in notices) ...[notice, const SizedBox(height: 16)],
         if (banner != null) ...[banner!, const SizedBox(height: 16)],
         for (final day in current.days) ..._buildDay(day, secondary),
-        if (current.undatedPhotos.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          const Text('日時なし', style: AppTextStyles.headline3),
-          const SizedBox(height: 8),
-          GridView.count(
-            crossAxisCount: _thumbnailCount + 1,
-            mainAxisSpacing: 2,
-            crossAxisSpacing: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              for (final photo in current.undatedPhotos)
-                TimelineThumbnail(photo: photo, onTap: _tapOf(photo)),
-            ],
-          ),
-        ],
         const SizedBox(height: 24),
         Text('${_writtenAtLabel(current.writtenAt)} に作成',
             style:

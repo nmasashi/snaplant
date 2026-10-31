@@ -139,6 +139,9 @@ enum TripRoute {
   /// PUT /api/trips/{tripId}/timeline/draft/scenes（区切りを保存する。段階5）
   timelineScenes,
 
+  /// POST /api/trips/{tripId}/timeline/draft/excluded-photos（下書きから写真を外す。T-1）
+  timelineExcludePhotos,
+
   /// POST /api/trips/{tripId}/timeline/recut（完成版の区切りを直し始める。段階5）
   timelineRecut,
 
@@ -201,6 +204,9 @@ enum TripRoute {
 ///   `POST …/timeline` は、作っている途中なら 409 `TIMELINE_STATE_CONFLICT`、解析中の写真があれば 409 `TIMELINE_PHOTOS_PROCESSING`、それ以外は区切りの案の待ちの下書きを書いて 202。
 ///   `GET …/timeline/draft` は下書きの状態を返し、届いた回数を [timelineDraftReadsReceived] に数える。`DELETE …/timeline/draft` は下書きを消し（完成版も無ければタイムラインごと）、
 ///   `POST …/draft/write` は確かめ待ち・文の失敗の下書きを文の待ちにする（どちらも下書きが無ければ 404 `TIMELINE_NOT_FOUND`、状態が合わなければ 409）。
+///   `POST …/draft/excluded-photos` は外した写真を下書きの `excludedPhotoIds` に足し（写真は場面に持ったまま。区切りに使える）、下書きを読む・区切りの保存・外すの応答では
+///   外した写真を出さない（本物と同じ。写真が全部外れた場面と日も出さず、場面の id は元のまま。T-1）。
+///   本物の「写真が全部消えた見えない場面の区切りを補う」は表さない（外した写真だけの場面の区切りは、送らなければ消える）。
 ///   ワーカーが進んだことは、テストが [timelinesByTripId] を直接書き換えて表す。旅行が無ければどれも 404 `TRIP_NOT_FOUND`
 /// - 「別の端末で変わった」は、テストが [trips] を直接書き換えて表す（旅行を足す・消す・枚数を変える）
 /// - 宛先ごとに、応答を止める（[holds]）・次の呼び出しを失敗させる（[failNext]）ことができる
@@ -449,6 +455,7 @@ class FakeTripBackend {
       case TripRoute.timelineDraftDelete:
       case TripRoute.timelineWrite:
       case TripRoute.timelineScenes:
+      case TripRoute.timelineExcludePhotos:
       case TripRoute.timelineRecut:
       case TripRoute.timelineDayPatch:
       case TripRoute.timelineScenePatch:
@@ -489,7 +496,27 @@ class FakeTripBackend {
         return _ok(202, {'draft': created, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraft:
         // 日と場面を返すのは、区切りを確かめられる下書きだけ（本物と同じ）
-        return _ok(200, {'draft': draft != null && _isEditableDraft(draft) ? draft : _draftStatusOf(draft), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+        return _ok(200, {'draft': draft != null && _isEditableDraft(draft) ? _visibleDraft(draft) : _draftStatusOf(draft), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+      case TripRoute.timelineExcludePhotos:
+        // 本物と同じく、外した写真は下書きに持ったまま（区切りに使える）、応答では出さない。写真の id は下書きの写真（外した写真も）で見る
+        final photoIds = (jsonDecode(request.body) as Map<String, Object?>)['photoIds'];
+        if (photoIds is! List || photoIds.isEmpty || photoIds.any((id) => id is! String)) {
+          return _error(400, 'INVALID_REQUEST', '外す写真は写真IDの配列で指定してください');
+        }
+        if (timeline == null || draft == null) {
+          return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
+        }
+        if (!_isEditableDraft(draft)) return _timelineConflict();
+        final known = {
+          for (final day in (draft['days'] as List).cast<Map<String, Object?>>())
+            for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
+              for (final photo in (scene['photos'] as List).cast<Map<String, Object?>>()) photo['id'],
+        };
+        if (!photoIds.every(known.contains)) return _error(400, 'INVALID_REQUEST', '外す写真が無効です');
+        final excluded = {...?(draft['excludedPhotoIds'] as List?)?.cast<String>(), ...photoIds.cast<String>()};
+        final saved = {...draft, 'phase': 'reviewing', 'job': null, 'excludedPhotoIds': excluded.toList()};
+        timelinesByTripId[tripId] = {...timeline, 'draft': saved};
+        return _ok(200, {'draft': _visibleDraft(saved), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       case TripRoute.timelineDraftDelete:
         if (timeline == null || draft == null) {
           return _error(404, 'TIMELINE_NOT_FOUND', 'タイムラインの下書きが見つかりません');
@@ -585,7 +612,7 @@ class FakeTripBackend {
         }
         final saved = {...draft, 'phase': 'reviewing', 'job': null, 'days': days};
         timelinesByTripId[tripId] = {...timeline, 'draft': saved};
-        return _ok(200, {'draft': saved, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
+        return _ok(200, {'draft': _visibleDraft(saved), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
       default:
         throw StateError('タイムラインの宛先ではありません: $route');
     }
@@ -644,6 +671,38 @@ class FakeTripBackend {
   bool _isEditableDraft(Map<String, Object?> draft) {
     final job = draft['job'] as Map<String, Object?>?;
     return draft['phase'] == 'reviewing' || (draft['phase'] == 'writing' && job?['state'] == 'failed');
+  }
+
+  /// 応答に出す下書き（本物と同じく、外した写真を出さず、写真が全部外れた場面と日も出さない。場面の id は最初の写真を外しても元のまま。
+  /// 外した写真の一覧（偽物が下書きに持つ `excludedPhotoIds`。本物は応答に出さない）も外す）
+  Map<String, Object?> _visibleDraft(Map<String, Object?> draft) {
+    final excluded = {...?(draft['excludedPhotoIds'] as List?)?.cast<String>()};
+    if (excluded.isEmpty) return draft;
+    return {
+      ...draft,
+      'days': [
+        for (final day in (draft['days'] as List).cast<Map<String, Object?>>())
+          if ((day['scenes'] as List).cast<Map<String, Object?>>().any((scene) =>
+              (scene['photos'] as List).cast<Map<String, Object?>>().any((photo) => !excluded.contains(photo['id']))))
+            {
+              ...day,
+              'scenes': [
+                for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
+                  if ((scene['photos'] as List).cast<Map<String, Object?>>().any((photo) => !excluded.contains(photo['id'])))
+                    {
+                      ...timelineSceneJson(
+                          [
+                            for (final photo in (scene['photos'] as List).cast<Map<String, Object?>>())
+                              if (!excluded.contains(photo['id'])) photo,
+                          ],
+                          startedBy: scene['startedBy'] as String,
+                          comment: scene['comment'] as String?),
+                      'startPhotoId': scene['startPhotoId'],
+                    },
+              ],
+            },
+      ],
+    }..remove('excludedPhotoIds');
   }
 
   /// 状態だけの下書き（`days`・`undatedPhotos` を外す。GET …/timeline と受付の応答の形）
@@ -724,6 +783,7 @@ class FakeTripBackend {
       ('draft', 'DELETE') => TripRoute.timelineDraftDelete,
       ('draft/write', 'POST') => TripRoute.timelineWrite,
       ('draft/scenes', 'PUT') => TripRoute.timelineScenes,
+      ('draft/excluded-photos', 'POST') => TripRoute.timelineExcludePhotos,
       ('recut', 'POST') => TripRoute.timelineRecut,
       _ => null,
     };

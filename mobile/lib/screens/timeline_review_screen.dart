@@ -181,18 +181,25 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）。[comments] を渡せば場面のコメントも送る
   Future<void> _save(List<String> sceneStarts,
-      {Map<String, String>? comments}) async {
+          {Map<String, String>? comments}) =>
+      _sendAndRedraw(
+          () => widget.apiService.saveTimelineScenes(widget.tripId, sceneStarts,
+              sceneComments: comments),
+          '保存に失敗しました');
+
+  /// 下書きへの操作を送り、応答の下書きで描き直す（区切りの保存と写真を外す）。送っている間はほかの操作を受け付けない。
+  /// 失敗したら表示はそのまま（§8.4。[fallback] は ApiException でないときの文言）
+  Future<void> _sendAndRedraw(
+      Future<TimelineDraftStatus> Function() operation, String fallback) async {
     setState(() => _sending = true);
     try {
-      final draft = await widget.apiService.saveTimelineScenes(
-          widget.tripId, sceneStarts,
-          sceneComments: comments);
+      final draft = await operation();
       if (!mounted) return;
       setState(() => _draft = draft);
     } catch (e) {
-      debugPrint('TimelineReviewScreen: 区切りの保存のエラー: $e');
+      debugPrint('TimelineReviewScreen: 下書きの操作のエラー: $e');
       if (!mounted) return;
-      _handleOperationError(e, '保存に失敗しました');
+      _handleOperationError(e, fallback);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -252,20 +259,49 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         SnackBar(content: Text(e is ApiException ? e.userMessage : fallback)));
   }
 
-  /// 写真の長押しのメニュー（場面の最初の写真では出さない）
-  Future<void> _showPhotoMenu(TimelineScene scene, TimelinePhoto photo) async {
-    final split = await showModalBottomSheet<bool>(
+  /// 写真の長押しのメニュー（[canSplit] でなければ、場面の最初の写真なので「この写真から新しい場面」を出さない）
+  Future<void> _showPhotoMenu(TimelineScene scene, TimelinePhoto photo,
+      {required bool canSplit}) async {
+    final action = await showModalBottomSheet<_PhotoAction>(
       context: context,
       builder: (context) => SafeArea(
-        child: ListTile(
-          leading: const Icon(Icons.content_cut),
-          title: const Text('この写真から新しい場面'),
-          onTap: () => Navigator.pop(context, true),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (canSplit)
+              ListTile(
+                leading: const Icon(Icons.content_cut),
+                title: const Text('この写真から新しい場面'),
+                onTap: () => Navigator.pop(context, _PhotoAction.split),
+              ),
+            ListTile(
+              leading: const Icon(Icons.hide_image_outlined),
+              title: const Text('タイムラインから外す'),
+              onTap: () => Navigator.pop(context, _PhotoAction.exclude),
+            ),
+          ],
         ),
       ),
     );
-    if (split != true || !mounted) return;
-    await _split(scene, photo);
+    if (action == null || !mounted) return;
+    switch (action) {
+      case _PhotoAction.split:
+        await _split(scene, photo);
+      case _PhotoAction.exclude:
+        await _exclude(photo);
+    }
+  }
+
+  /// 確かめてから [photo] をタイムラインから外し、応答で描き直す（02 §5 #52。外した写真は戻せない）。失敗の扱いは区切りの保存と同じ（§8.4）
+  Future<void> _exclude(TimelinePhoto photo) async {
+    final confirmed = await confirmTimelineAction(context,
+        title: 'タイムラインから外しますか？',
+        message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
+        confirmLabel: '外す');
+    if (!confirmed || !mounted) return;
+    await _sendAndRedraw(
+        () => widget.apiService.excludeTimelinePhotos(widget.tripId, [photo.id]),
+        'タイムラインの操作に失敗しました');
   }
 
   @override
@@ -336,7 +372,6 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       );
     }
     const howTo = '写真を長押しすると『ここで区切る』、場面の境目の『つなげる』で前の場面とまとめられます。';
-    final undated = draft.undatedPhotos ?? const [];
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -348,12 +383,6 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           style: AppTextStyles.body2.copyWith(color: AppColors.textSecondary),
         ),
         for (final day in draft.days!) ..._buildDay(day),
-        if (undated.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          const Text('日時なし', style: AppTextStyles.headline3),
-          const SizedBox(height: 8),
-          _buildPhotos(undated),
-        ],
       ],
     );
   }
@@ -400,7 +429,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           children: [
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
-            _buildPhotos(scene.photos, scene: scene),
+            _buildPhotos(scene),
             // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
             if (_draft!.reason != 'recut') ...[
               const SizedBox(height: 4),
@@ -434,9 +463,9 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     );
   }
 
-  /// 写真を5列のサムネイルで全部並べる
-  /// [scene] があれば、最初の写真を除いて長押しで「この写真から新しい場面」を出す（日時なしの写真は区切らない）
-  Widget _buildPhotos(List<TimelinePhoto> photos, {TimelineScene? scene}) {
+  /// 場面の写真を5列のサムネイルで全部並べる
+  /// 長押しで写真のメニュー（「この写真から新しい場面」は場面の最初の写真では出さない。「タイムラインから外す」はどの写真にも出す）
+  Widget _buildPhotos(TimelineScene scene) {
     return GridView.count(
       crossAxisCount: _columns,
       mainAxisSpacing: 2,
@@ -444,11 +473,11 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
-        for (final (index, photo) in photos.indexed)
+        for (final (index, photo) in scene.photos.indexed)
           GestureDetector(
-            onLongPress: scene == null || index == 0 || _sending
+            onLongPress: _sending
                 ? null
-                : () => _showPhotoMenu(scene, photo),
+                : () => _showPhotoMenu(scene, photo, canSplit: index > 0),
             child: TimelineThumbnail(photo: photo),
           ),
       ],
@@ -607,3 +636,6 @@ class _SceneCommentSheetState extends State<_SceneCommentSheet> {
     );
   }
 }
+
+/// 写真の長押しのメニューで選んだ操作
+enum _PhotoAction { split, exclude }
