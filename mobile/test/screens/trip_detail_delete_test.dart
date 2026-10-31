@@ -13,6 +13,7 @@ import '../helpers/upload_test_helpers.dart';
 // §4.4.3 のほかのテスト（中の写真の扱い・削除のダイアログ）は、今は trip_detail_screen_test.dart にある（§4.4 を節ごとのファイルに分けるときにここへ寄せる）
 // 送信の状態はアプリの根が持つので、アプリ全体を開いて旅行一覧から旅行詳細へ進む。旅行の API は偽のサーバ（helpers の FakeTripBackend）、
 // ギャラリー・Geocoder は端末の機能なので偽物に差し替える。共有の補助は helpers/upload_test_helpers.dart
+// 画像の圧縮は差し替えない（テスト環境では未登録で例外になり、サムネイル無しで送る経路を通る）。サムネイルを付けて送ることは upload_prepare_test.dart が見る
 
 void main() {
   testWidgets('この旅行宛ての送信が進んでいる間に「削除」を選ぶと、旅行の削除の確認の前に「送信中の写真があります。送信を止めて削除しますか？」と確かめ、「キャンセル」なら何もせず、送信は続く', (tester) async {

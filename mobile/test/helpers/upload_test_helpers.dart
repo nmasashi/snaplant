@@ -21,7 +21,7 @@ Future<void> waitRealTime(WidgetTester tester) async {
   }
 }
 
-/// 送信の要求が [count] 回届くまで待ち、その失敗の応答を処理させる（次の送り直しの待ちは、ここから数え始まる）
+/// 送信の要求が [count] 回（そのテストで届いた回数の累計）届くまで待ち、その失敗の応答を処理させる（次の送り直しの待ちは、ここから数え始まる）
 Future<void> letUploadFail(WidgetTester tester, FakeTripBackend backend, int count) async {
   await waitUntilUploadsReceived(tester, backend, count);
   await tester.pump();

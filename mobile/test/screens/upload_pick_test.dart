@@ -43,7 +43,7 @@ void main() {
 
   testWidgets('「写真を追加」を押してから写真を受け取るまで、ボタンを「写真を読み込み中...」（回転する印つき）にして押せなくし、選ぶ画面を何も選ばずに閉じたら、ボタンを「写真を追加」に戻し、もう一度押せば選ぶ画面を開ける', (tester) async {
     // ギャラリーの返事を保留して、選ぶ画面を開いてから写真を受け取るまでの間をつくる。2回目に押しても選ぶ画面は開き直されない。
-    // 閉じるまでの間は「写真を読み込み中...」のまま。何も選ばれなかったときも、ボタンは元に戻る（受け取った後に戻ることは、100枚を選ぶテストで見る）
+    // 閉じるまでの間は「写真を読み込み中...」のまま。何も選ばれなかったときも、ボタンは元に戻る（受け取った後に戻ることは、upload_prepare_test.dart の「100枚を選ぶと…」で見る）
     final release = Completer<void>();
     final gallery = useGalleryReturning([], hold: release.future);
     final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
