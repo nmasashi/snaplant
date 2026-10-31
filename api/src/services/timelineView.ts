@@ -248,6 +248,12 @@ export function withExcludedPhotos(previous: string[] | undefined, added: string
   return photos.map((photo) => photo.id).filter((id) => excluded.has(id));
 }
 
+/** [next] に [previous] に無い写真があるか（外した写真が増えるか。増えなければ書かない） */
+export function addsExcludedPhotos(previous: string[] | undefined, next: string[]): boolean {
+  const before = new Set(previous ?? []);
+  return next.some((id) => !before.has(id));
+}
+
 /** 下書きの状態（応答の形。05 §5.15） */
 export function draftStatusOf(draft: TimelineDraft): TimelineDraftStatus {
   return {

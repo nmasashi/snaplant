@@ -13,10 +13,11 @@ import { createNotFoundError, createTimelineStateConflict } from '../utils/respo
  *
  * 完成版の表示を組むのはここだけ（GET …/timeline と、完成版の文を直す操作の応答が使う）。
  * 控えが無ければ最初から読み直す（rereadIfSnapshotMissing。他の操作と重なっただけなら今の状態になる）
+ * @param storage 写真の保存先（書く前に設定を確かめた呼び出し側が渡す。無ければここで作る）
  * @returns 応答の data。旅行が無ければ null
  */
-export async function readTimelineBody(tripId: string) {
-  return rereadIfSnapshotMissing(() => readTimelineBodyOnce(tripId));
+export async function readTimelineBody(tripId: string, storage?: PhotoStorageService) {
+  return rereadIfSnapshotMissing(() => readTimelineBodyOnce(tripId, storage));
 }
 
 /**
@@ -49,7 +50,7 @@ export async function readUnlessOverlapped<T>(
   }
 }
 
-async function readTimelineBodyOnce(tripId: string) {
+async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService | undefined) {
   if (!(await new AlbumService().tripExists(tripId))) {
     return null;
   }
@@ -69,7 +70,7 @@ async function readTimelineBodyOnce(tripId: string) {
     const snapshotIds = new Set(snapshot.map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
     const visible = visiblePhotoIdsOf(existing, doc.current.excludedPhotoIds);
-    current = currentTimelineOf(doc.current, snapshot, (photoId) => visible.has(photoId), urlOfPhotos(new PhotoStorageService(), expiresOn));
+    current = currentTimelineOf(doc.current, snapshot, (photoId) => visible.has(photoId), urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
     // 日時の無い写真も数える（作り直せば控えに入る）。外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
       added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,

@@ -2,7 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { AlbumService } from '../services/albumService';
 import { TimelineService, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
+import { addsExcludedPhotos, datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
@@ -274,8 +274,9 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
-    // 外した写真が変わらなければ（もう外してある）書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。文の PATCH と同じ）。足すだけなので、数が同じなら同じ
-    const changed = excludedPhotoIds.length !== (draft.excludedPhotoIds ?? []).length;
+    // 外した写真が増えなければ（もう外してある）書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。文の PATCH と同じ）。
+    // 文を書くのに失敗した下書きは、増えなくても確かめ中に戻す（外すを押したので、案の確認に戻ったものとして扱う）
+    const changed = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds) || isWriteFailed(draft);
     const saved: TimelineDraft = changed
       ? { ...draft, excludedPhotoIds, ...(isWriteFailed(draft) ? { phase: 'reviewing', job: null } : {}) }
       : draft;

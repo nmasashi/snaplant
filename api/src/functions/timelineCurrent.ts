@@ -18,7 +18,7 @@ import {
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { reviewingDraftOf, withExcludedPhotos } from '../services/timelineView';
+import { addsExcludedPhotos, reviewingDraftOf, withExcludedPhotos } from '../services/timelineView';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 
 /**
@@ -116,16 +116,18 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
       return createValidationError('外す写真が無効です');
     }
     // 応答の写真の URL を作れないなら、書く前に失敗させる（書いた後だと、外したのに失敗と返す。区切りの直しの受付と同じ）
-    new PhotoStorageService();
-    // 外した写真が変わらなければ（もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）。足すだけなので、数が同じなら同じ
-    if (excludedPhotoIds.length !== (current.excludedPhotoIds ?? []).length) {
-      // タイムラインを編集している途中なら、編集中の下書きにも足す（案の確認画面にも出さない。当てるときも合わせる。06 §8.6）
-      const draft = timeline.doc.draft;
-      const recutting = draft?.reason === 'recut' && draft.snapshotId === current.snapshotId ? draft : null;
+    const storage = new PhotoStorageService();
+    // タイムラインを編集している途中（完成版と同じ控えの recut）なら、編集中の下書きにも足す（案の確認画面にも出さない。当てるときも合わせる。06 §8.6）
+    const draft = timeline.doc.draft;
+    const recutting = draft?.reason === 'recut' && draft.snapshotId === current.snapshotId ? draft : null;
+    const draftExcluded = recutting ? withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value) : null;
+    const changesDraft = recutting !== null && draftExcluded !== null && addsExcludedPhotos(recutting.excludedPhotoIds, draftExcluded);
+    // 外した写真が増えなければ（完成版でも編集中の下書きでも、もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）
+    if (addsExcludedPhotos(current.excludedPhotoIds, excludedPhotoIds) || changesDraft) {
       const doc = {
         ...timeline.doc,
         current: { ...current, excludedPhotoIds },
-        ...(recutting ? { draft: { ...recutting, excludedPhotoIds: withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value)! } } : {}),
+        ...(changesDraft ? { draft: { ...recutting, excludedPhotoIds: draftExcluded } } : {}),
         updatedAt: new Date().toISOString(),
       };
       if (!(await timelines.replaceTimelineIfUnchanged(doc, timeline.etag))) {
@@ -133,7 +135,7 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
       }
     }
     // 画面は外した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
-    return createTimelineBodyResponse(await readTimelineBody(tripId));
+    return createTimelineBodyResponse(await readTimelineBody(tripId, storage));
   } catch (error: any) {
     context.log('タイムラインの完成版から写真を外すエラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
