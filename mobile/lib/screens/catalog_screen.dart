@@ -145,7 +145,7 @@ class _Loading extends StatelessWidget {
   }
 }
 
-/// 1つの種類の項目の一覧（名前順。下端に近づいたら続きを読む）
+/// 1つの種類の項目の一覧（サーバの並び。属の学名の順で、属の見出しを挟む。下端に近づいたら続きを読む）
 class _CatalogEntryList extends StatefulWidget {
   const _CatalogEntryList(
       {required this.apiService,
