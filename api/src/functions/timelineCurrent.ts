@@ -4,7 +4,7 @@ import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { TimelineService, TimelineSnapshotMissingError } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
-import { TimelineCurrent, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
@@ -61,24 +61,13 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
     };
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
-    let photos: TimelinePhotoSnapshot[];
-    let existing: Set<string>;
-    try {
-      [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)]);
-    } catch (error: any) {
-      // 完成版の控えが無いのは、読んだ後に旅行の削除と重なったとき（区切りの保存と同じ扱い）。完成版が変わっていれば重なり、
-      // 同じ完成版のまま控えだけ無ければ壊れている
-      if (!(error instanceof TimelineSnapshotMissingError)) {
-        throw error;
-      }
-      if (!(await new AlbumService().tripExists(tripId))) {
-        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-      }
-      if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const read = await readForCurrent(timelines, tripId, current, () =>
+      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)])
+    );
+    if ('error' in read) {
+      return read.error;
     }
+    const [photos, existing] = read.value;
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
       return createTimelineStateConflict();
     }
@@ -117,23 +106,11 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     if (!timeline || !current) {
       return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    let photos: TimelinePhotoSnapshot[];
-    try {
-      photos = await timelines.readSnapshotPhotos(current.snapshotId);
-    } catch (error: any) {
-      // 区切りの直しの受付と同じ扱い（旅行の削除・作り直しとの重なりなら 404 / 409、同じ完成版のまま控えだけ無ければ壊れている）
-      if (!(error instanceof TimelineSnapshotMissingError)) {
-        throw error;
-      }
-      if (!(await new AlbumService().tripExists(tripId))) {
-        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
-      }
-      if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
-        return createTimelineStateConflict();
-      }
-      throw error;
+    const snapshot = await readForCurrent(timelines, tripId, current, () => timelines.readSnapshotPhotos(current.snapshotId));
+    if ('error' in snapshot) {
+      return snapshot.error;
     }
-    const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, photos);
+    const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, snapshot.value);
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
@@ -146,6 +123,34 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
   } catch (error: any) {
     context.log('タイムラインの完成版から写真を外すエラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
+  }
+}
+
+/**
+ * 完成版の控えを使う読み取りを行う（区切りの直しの受付と写真を外すで共有する）
+ *
+ * 完成版の控えが無いのは、読んだ後に旅行の削除や作り直しと重なったとき（区切りの保存と同じ扱い）。旅行が消えていれば 404、
+ * 完成版が変わっていれば重なりの 409 の応答を返す。同じ完成版のまま控えだけ無ければ壊れているので投げる
+ */
+async function readForCurrent<T>(
+  timelines: TimelineService,
+  tripId: string,
+  current: TimelineCurrent,
+  read: () => Promise<T>
+): Promise<{ value: T } | { error: HttpResponseInit }> {
+  try {
+    return { value: await read() };
+  } catch (error: any) {
+    if (!(error instanceof TimelineSnapshotMissingError)) {
+      throw error;
+    }
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return { error: createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND) };
+    }
+    if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
+      return { error: createTimelineStateConflict() };
+    }
+    throw error;
   }
 }
 
