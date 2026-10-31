@@ -120,8 +120,9 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     // タイムラインを編集している途中（完成版と同じ控えの recut）なら、編集中の下書きにも足す（案の確認画面にも出さない。当てるときも合わせる。06 §8.6）
     const draft = timeline.doc.draft;
     const recutting = draft?.reason === 'recut' && draft.snapshotId === current.snapshotId ? draft : null;
-    const draftExcluded = recutting ? withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value) : null;
-    const changesDraft = recutting !== null && draftExcluded !== null && addsExcludedPhotos(recutting.excludedPhotoIds, draftExcluded);
+    // 控えが同じなので、完成版で通った写真は下書きでも通る（null にならない）
+    const draftExcluded = recutting && withExcludedPhotos(recutting.excludedPhotoIds, read.photoIds, snapshot.value);
+    const changesDraft = !!recutting && !!draftExcluded && addsExcludedPhotos(recutting.excludedPhotoIds, draftExcluded);
     // 外した写真が増えなければ（完成版でも編集中の下書きでも、もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）
     if (addsExcludedPhotos(current.excludedPhotoIds, excludedPhotoIds) || changesDraft) {
       const doc = {

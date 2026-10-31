@@ -276,10 +276,9 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     }
     // 外した写真が増えなければ（もう外してある）書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。文の PATCH と同じ）。
     // 文を書くのに失敗した下書きは、増えなくても確かめ中に戻す（外すを押したので、案の確認に戻ったものとして扱う）
-    const changed = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds) || isWriteFailed(draft);
-    const saved: TimelineDraft = changed
-      ? { ...draft, excludedPhotoIds, ...(isWriteFailed(draft) ? { phase: 'reviewing', job: null } : {}) }
-      : draft;
+    const writeFailed = isWriteFailed(draft);
+    const changed = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds) || writeFailed;
+    const saved: TimelineDraft = changed ? { ...draft, excludedPhotoIds, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) } : draft;
     // 保存先の設定が足りなければ、書き換える前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
     if (changed && !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft: saved, updatedAt: new Date().toISOString() }, timeline.etag))) {
