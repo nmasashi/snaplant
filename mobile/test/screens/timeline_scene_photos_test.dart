@@ -384,6 +384,187 @@ void main() {
     });
   });
 
+  group('写真をタイムラインから外す', () {
+    /// 撮影日時が [label] の写真を長押しし、メニューの「タイムラインから外す」を押して確認のダイアログを出す
+    Future<void> openExcludeDialog(WidgetTester tester, String label) async {
+      await tester.longPress(photoThumbnail(label));
+      await letFramesRun(tester);
+      await tester.tap(find.text('タイムラインから外す'));
+      await letFramesRun(tester);
+    }
+
+    /// 撮影日時が [label] の写真を外す（確認のダイアログの「外す」まで押す）
+    Future<void> exclude(WidgetTester tester, String label) async {
+      await openExcludeDialog(tester, label);
+      await tester.tap(find.text('外す'));
+      await letFramesRun(tester);
+    }
+
+    /// 偽のサーバの完成版の、写真 [startPhotoNumber] から始まる場面の写真の撮影日時
+    List<Object?> takenAtsOf(FakeTripBackend backend, int startPhotoNumber) => [
+          for (final photo in _sceneOf(backend, startPhotoNumber)['photos'] as List)
+            (photo as Map)['takenAt'],
+        ];
+
+    testWidgets('写真を長押しして「タイムラインから外す」を選ぶと確かめ、「外す」でその写真を外して、同じ場面を描き直す',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '小樽運河さんぽ');
+
+      await openExcludeDialog(tester, '2026年10月5日 15:10');
+      expect(find.text('タイムラインから外しますか？'), findsOneWidget);
+      expect(find.text('写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。'),
+          findsOneWidget);
+      await tester.tap(find.text('外す'));
+      await letFramesRun(tester);
+
+      expect(takenAtsOf(backend, 3), hasLength(5));
+      expect(takenAtsOf(backend, 3), isNot(contains('2026-10-05T15:10:00')));
+      expect(_appBarText('小樽運河さんぽ'), findsOneWidget);
+      expect(photoThumbnail('2026年10月5日 15:10'), findsNothing);
+      expect(find.text('10月5日（月） 10:10〜14:10 · 北海道小樽市、北海道余市町 · 5枚'),
+          findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('確認のダイアログで「キャンセル」を押すと、何も送らず、写真もそのまま', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '小樽運河さんぽ');
+
+      await openExcludeDialog(tester, '2026年10月5日 15:10');
+      await tester.tap(find.text('キャンセル'));
+      await letFramesRun(tester);
+
+      expect(find.text('タイムラインから外しますか？'), findsNothing);
+      expect(takenAtsOf(backend, 3), hasLength(6));
+      expect(photoThumbnail('2026年10月5日 15:10'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('場面の最初の写真を外しても、同じ場面として描き直す', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openScene(tester, '小樽運河さんぽ');
+
+      await exclude(tester, '2026年10月5日 10:10');
+
+      expect(_appBarText('小樽運河さんぽ'), findsOneWidget);
+      expect(find.text('10月5日（月） 11:10〜15:10 · 北海道小樽市、北海道余市町 · 5枚'),
+          findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('場面の写真を全部外したら、旅行詳細に戻る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openTimeline(tester);
+      await tester.scrollUntilVisible(find.text('見出しなし'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pump();
+      await tester.tap(find.text('見出しなし'));
+      await letFramesRun(tester);
+      expect(_appBarText('見出しなし'), findsOneWidget);
+
+      await exclude(tester, '2026年10月5日 18:30');
+
+      expect(_appBarText('見出しなし'), findsNothing);
+      expect(_appBarText('北海道 2026秋'), findsOneWidget);
+      // 旅行詳細はタイムラインを読み直し、外した写真だけの場面を出さない
+      expect(find.text('見出しなし'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('外すとタイムラインに出す写真が無くなるなら、「撮影日時のある写真がありません」を出し、外さずに留まる',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '夕景',
+          timeline: _timelineOf(scenes: [
+            _scene([_photo(9, '2026-10-05T18:30:00')], label: '夕景'),
+          ]));
+
+      await exclude(tester, '2026年10月5日 18:30');
+
+      expect(find.text('撮影日時のある写真がありません'), findsOneWidget);
+      expect(_appBarText('夕景'), findsOneWidget);
+      expect(photoThumbnail('2026年10月5日 18:30'), findsOneWidget);
+      expect(takenAtsOf(backend, 9), hasLength(1));
+      semantics.dispose();
+    });
+
+    testWidgets(
+        '外すときに別の端末がタイムラインを変えていたら（409）・完成版が無くなっていたら（404）、知らせて旅行詳細に戻り、旅行が消されていたら旅行詳細に戻る',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      for (final (label, change, notice) in [
+        (
+          '409',
+          (FakeTripBackend backend) {
+            backend.failNext(TripRoute.timelineCurrentExcludePhotos,
+                status: 409,
+                code: 'TIMELINE_STATE_CONFLICT',
+                message: 'タイムラインが変わったか、作っている途中です。読み直してください');
+            backend.timelinesByTripId[hokkaidoTripId] = _rebuilding;
+          },
+          'タイムラインが変わりました。読み直しました'
+        ),
+        (
+          '404',
+          (FakeTripBackend backend) =>
+              backend.timelinesByTripId[hokkaidoTripId] = _rebuilding,
+          'タイムラインが変わりました。読み直しました'
+        ),
+        (
+          '旅行が無い',
+          (FakeTripBackend backend) => backend.trips.clear(),
+          'この旅行は削除されています'
+        ),
+      ]) {
+        final backend = await _openScene(tester, '朝ごはん');
+        await openExcludeDialog(tester, '2026年10月5日 07:58');
+        change(backend);
+        await tester.tap(find.text('外す'));
+        await letFramesRun(tester);
+
+        expect(_appBarText('朝ごはん'), findsNothing, reason: label);
+        expect(find.text(notice), findsOneWidget, reason: label);
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('外している間は、写真のタップと長押しも「見出しを編集」も受け付けない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+      final reply = backend.holdNextReply(TripRoute.timelineCurrentExcludePhotos);
+
+      await exclude(tester, '2026年10月5日 07:50');
+      expect(_editButton(tester).onPressed, isNull);
+      await tester.longPress(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      expect(find.text('タイムラインから外す'), findsNothing, reason: '長押し');
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+      expect(find.text('2026年10月5日 07:58').hitTestable(), findsNothing,
+          reason: 'タップ');
+
+      reply.complete();
+      await letFramesRun(tester);
+      expect(_editButton(tester).onPressed, isNotNull);
+      expect(photoThumbnail('2026年10月5日 07:50'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('写真の長押しは、読み上げからもできる', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openScene(tester, '朝ごはん');
+
+      expect(
+          tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
+          containsSemantics(
+              label: '2026年10月5日 07:58',
+              hasTapAction: true,
+              hasLongPressAction: true));
+      semantics.dispose();
+    });
+  });
+
   group('場面の見出しを直す', () {
     testWidgets(
         '「見出しを編集」で今の見出しだけのシートを開き、保存すると上のバーの見出しが替わり、一覧から戻るとタイムラインを読み直して直した見出しが出る',
