@@ -16,10 +16,12 @@ String dateLabelOf(DateTime day) {
 
 /// 場面の時刻（1枚なら「7:50」、複数なら「10:10〜11:40」。§8.3）。撮影時刻はタイムゾーンを変換しない
 String timelineTimeRange(List<TimelinePhoto> photos) {
-  final first = _clock(photos.first.takenAt!);
-  return photos.length == 1 ? first : '$first〜${_clock(photos.last.takenAt!)}';
+  final first = timelineClock(photos.first.takenAt!);
+  return photos.length == 1
+      ? first
+      : '$first〜${timelineClock(photos.last.takenAt!)}';
 }
 
 /// 撮影時刻「7:50」（撮影日時の文字列から）
-String _clock(String takenAt) =>
+String timelineClock(String takenAt) =>
     '${int.parse(takenAt.substring(11, 13))}:${takenAt.substring(14, 16)}';
