@@ -26,13 +26,20 @@ Map<String, Object?> _scene(List<Map<String, Object?>> photos,
 
 /// 朝ごはん（写真 1・2）、小樽運河さんぽ（写真 3〜8 の6枚）、見出しの無い場面（写真 9 の1枚。地名なし）の1日
 List<Map<String, Object?>> _scenes() => [
-      _scene([
-        _photo(1, '2026-10-05T07:50:00', category: 'food'),
-        _photo(2, '2026-10-05T07:58:00', category: 'food'),
-      ], label: '朝ごはん', placeNames: ['北海道千歳市']),
-      _scene([
-        for (var n = 3; n <= 8; n++) _photo(n, '2026-10-05T1${n - 3}:10:00'),
-      ], label: '小樽運河さんぽ', placeNames: ['北海道小樽市', '北海道余市町']),
+      _scene(
+          [
+            _photo(1, '2026-10-05T07:50:00', category: 'food'),
+            _photo(2, '2026-10-05T07:58:00', category: 'food'),
+          ],
+          label: '朝ごはん',
+          placeNames: ['北海道千歳市']),
+      _scene(
+          [
+            for (var n = 3; n <= 8; n++)
+              _photo(n, '2026-10-05T1${n - 3}:10:00'),
+          ],
+          label: '小樽運河さんぽ',
+          placeNames: ['北海道小樽市', '北海道余市町']),
       _scene([_photo(9, '2026-10-05T18:30:00')], label: null),
     ];
 
@@ -74,8 +81,9 @@ final _rebuilding = {
   'changes': null,
 };
 
-/// 旅行詳細の「タイムライン」を開く
-Future<FakeTripBackend> _openTimeline(WidgetTester tester) async {
+/// 旅行詳細の「タイムライン」を開く（[timeline] を渡さなければ [_timelineOf] の完成版だけ）
+Future<FakeTripBackend> _openTimeline(WidgetTester tester,
+    {Map<String, Object?>? timeline}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: 9)],
     functionKey: 'test-key',
@@ -87,7 +95,7 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester) async {
       ],
     },
   );
-  backend.timelinesByTripId[hokkaidoTripId] = _timelineOf();
+  backend.timelinesByTripId[hokkaidoTripId] = timeline ?? _timelineOf();
   // 1つのテストの中で開き直すとき、前のアプリの木（開いている画面）を残さない
   await tester.pumpWidget(const SizedBox());
   await openTripsTab(tester, backend);
@@ -99,8 +107,9 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester) async {
 }
 
 /// タイムラインを開き、見出しが [label] の場面の写真の一覧を開く
-Future<FakeTripBackend> _openScene(WidgetTester tester, String label) async {
-  final backend = await _openTimeline(tester);
+Future<FakeTripBackend> _openScene(WidgetTester tester, String label,
+    {Map<String, Object?>? timeline}) async {
+  final backend = await _openTimeline(tester, timeline: timeline);
   await tester.tap(find.text(label));
   await letFramesRun(tester);
   return backend;
@@ -115,6 +124,42 @@ void _relabelBreakfast(FakeTripBackend backend, String label) {
   final scenes = _scenes();
   scenes[0] = {...scenes[0], 'label': label};
   backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(scenes: scenes);
+}
+
+/// 上のバーの「見出しを編集」のボタン
+IconButton _editButton(WidgetTester tester) =>
+    tester.widget<IconButton>(find.ancestor(
+        of: find.bySemanticsLabel('見出しを編集'),
+        matching: find.byType(IconButton)));
+
+/// 上のバーの「見出しを編集」を押してシートを開く
+Future<void> _openSheet(WidgetTester tester) async {
+  await tester.tap(find.bySemanticsLabel('見出しを編集'));
+  await letFramesRun(tester);
+}
+
+/// シートの「見出し」の欄
+final _labelField = find.widgetWithText(TextField, '見出し');
+
+/// 見出しの欄に [text] を書いて保存する
+Future<void> _saveLabel(WidgetTester tester, String text) async {
+  await tester.enterText(_labelField, text);
+  await tester.tap(find.text('保存'));
+  await letFramesRun(tester);
+}
+
+/// 写真 [number] から始まる場面の id
+String _sceneId(int number) => timelinePhotoJson(number, null)['id'] as String;
+
+/// 完成版の場面を偽のサーバから探す
+Map<String, Object?> _sceneOf(FakeTripBackend backend, int startPhotoNumber) {
+  final current = backend.timelinesByTripId[hokkaidoTripId]!['current']
+      as Map<String, Object?>;
+  return [
+    for (final day in current['days'] as List)
+      for (final scene in (day as Map)['scenes'] as List)
+        scene as Map<String, Object?>
+  ].firstWhere((scene) => scene['startPhotoId'] == _sceneId(startPhotoNumber));
 }
 
 void main() {
@@ -185,8 +230,7 @@ void main() {
   });
 
   group('写真ビューアを開く', () {
-    testWidgets('写真をタップすると、その写真を写真ビューアで開き、閉じたら読み直して場面を描き直す',
-        (tester) async {
+    testWidgets('写真をタップすると、その写真を写真ビューアで開き、閉じたら読み直して場面を描き直す', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openScene(tester, '朝ごはん');
 
@@ -240,14 +284,12 @@ void main() {
 
       await tester.tap(photoThumbnail('2026年10月5日 07:58'));
       await letFramesRun(tester);
-      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'),
-          findsOneWidget);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
       expect(_appBarText('朝ごはん'), findsOneWidget);
       semantics.dispose();
     });
 
-    testWidgets('閉じた後に読み直すと、完成版が無くなっていた・場面が無くなっていたら、旅行詳細に戻る',
-        (tester) async {
+    testWidgets('閉じた後に読み直すと、完成版が無くなっていた・場面が無くなっていたら、旅行詳細に戻る', (tester) async {
       final semantics = tester.ensureSemantics();
       for (final (label, timeline, shown) in [
         ('作り直しが始まった', _rebuilding, 'タイムラインの案を作っています'),
@@ -278,9 +320,158 @@ void main() {
       backend.failNext(TripRoute.timeline);
       await tapBack(tester);
       await letFramesRun(tester);
-      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'),
-          findsOneWidget);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
       expect(_appBarText('朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
+  });
+
+  group('場面の見出しを直す', () {
+    testWidgets('「見出しを編集」で今の見出しだけのシートを開き、保存すると上のバーの見出しが替わり、戻るとタイムラインにも出る',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+
+      await _openSheet(tester);
+      expect(find.text('見出しを編集'), findsOneWidget);
+      expect(find.text('空にすると、AI が書いた見出しに戻ります（AI が書いていない場面は見出しなしになります）'),
+          findsOneWidget);
+      // 欄は見出しだけ（一言は直せない。§8.5）
+      expect(find.byType(TextField), findsOneWidget);
+      expect(tester.widget<TextField>(_labelField).controller!.text, '朝ごはん');
+
+      await _saveLabel(tester, '市場の朝ごはん');
+      expect(find.text('見出しを編集'), findsNothing);
+      expect(_appBarText('市場の朝ごはん'), findsOneWidget);
+      expect(_sceneOf(backend, 1)['labelSource'], 'user');
+
+      await tapBack(tester);
+      await letFramesRun(tester);
+      expect(find.text('市場の朝ごはん'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('見出しの欄は 30 文字で止める', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openScene(tester, '朝ごはん');
+      await _openSheet(tester);
+
+      await tester.enterText(_labelField, 'あ' * 31);
+      await tester.pump();
+      expect(tester.widget<TextField>(_labelField).controller!.text.length, 30);
+      semantics.dispose();
+    });
+
+    testWidgets('見出しを空にして保存すると、AI が書いた見出しに戻り、AI が書いていない場面は「見出しなし」に戻る',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+      backend.timelineAiTexts['${_sceneId(1)}:label'] = 'AI の朝ごはん';
+      await _openSheet(tester);
+      await _saveLabel(tester, '');
+      expect(_appBarText('AI の朝ごはん'), findsOneWidget);
+      expect(_sceneOf(backend, 1)['labelSource'], 'ai');
+
+      // 見出しの無い場面（区切りを直して足した場面。AI の見出しが無い）に書いて、空に戻す
+      await tapBack(tester);
+      await letFramesRun(tester);
+      backend.timelineAiTexts['${_sceneId(9)}:label'] = null;
+      await tester.scrollUntilVisible(find.text('見出しなし'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pump();
+      await tester.tap(find.text('見出しなし'));
+      await letFramesRun(tester);
+      await _openSheet(tester);
+      await _saveLabel(tester, '夕方の散歩');
+      expect(_appBarText('夕方の散歩'), findsOneWidget);
+      await _openSheet(tester);
+      await _saveLabel(tester, '');
+      expect(_appBarText('見出しなし'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets(
+        '保存のときに別の端末がタイムラインを変えていたら（409）、その場面が無くなっていたら（404）、知らせて旅行詳細に戻り、読み直す',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      for (final (label, status, code, message) in [
+        (
+          '409',
+          409,
+          'TIMELINE_STATE_CONFLICT',
+          'タイムラインが変わったか、作っている途中です。読み直してください'
+        ),
+        ('404', 404, 'TIMELINE_NOT_FOUND', 'その場面はタイムラインにありません'),
+      ]) {
+        final backend = await _openScene(tester, '朝ごはん');
+        backend.failNext(TripRoute.timelineScenePatch,
+            status: status, code: code, message: message);
+        backend.timelinesByTripId[hokkaidoTripId] = _rebuilding;
+
+        await _openSheet(tester);
+        await _saveLabel(tester, '市場の朝ごはん');
+
+        expect(find.text('見出しを編集'), findsNothing, reason: label);
+        expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget,
+            reason: label);
+        expect(_appBarText('朝ごはん'), findsNothing, reason: label);
+        expect(find.text('タイムラインの案を作っています'), findsOneWidget, reason: label);
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('保存のときに旅行が別の端末で消されていたら、旅行詳細に戻り「この旅行は削除されています」を出す',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+      await _openSheet(tester);
+      backend.trips.clear();
+      await _saveLabel(tester, '市場の朝ごはん');
+
+      expect(find.text('見出しを編集'), findsNothing);
+      expect(_appBarText('朝ごはん'), findsNothing);
+      expect(find.text('この旅行は削除されています'), findsOneWidget);
+      expect(find.text('タイムラインが変わりました。読み直しました'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('写真を読んでいる間と、写真ビューアを閉じた後に読み直している間は、「見出しを編集」を押せない',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+      expect(_editButton(tester).onPressed, isNotNull);
+
+      final photoReply = backend.holdNextReply(TripRoute.getPhoto);
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await tester.pump();
+      expect(_editButton(tester).onPressed, isNull, reason: '写真を読んでいる間');
+      photoReply.complete();
+      await letFramesRun(tester);
+
+      final reloadReply = backend.holdNextReply(TripRoute.timeline);
+      await tapBack(tester);
+      await letFramesRun(tester);
+      expect(_editButton(tester).onPressed, isNull, reason: '読み直している間');
+      reloadReply.complete();
+      await letFramesRun(tester);
+      expect(_editButton(tester).onPressed, isNotNull);
+      semantics.dispose();
+    });
+
+    testWidgets('タイムラインを編集している途中も、場面の見出しを直せる', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openScene(tester, '朝ごはん',
+          timeline: _timelineOf(draft: {
+            'id': '0b8e1c5a-0000-4000-8000-000000000099',
+            'reason': 'recut',
+            'phase': 'reviewing',
+            'job': null,
+            'startedAt': '2026-10-26T09:00:00.000Z',
+          }));
+
+      await _openSheet(tester);
+      await _saveLabel(tester, '市場の朝ごはん');
+      expect(_appBarText('市場の朝ごはん'), findsOneWidget);
       semantics.dispose();
     });
   });

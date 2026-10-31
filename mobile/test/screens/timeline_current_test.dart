@@ -185,6 +185,8 @@ void main() {
 
       expect(find.text('朝ごはん'), findsOneWidget);
       expect(find.text('7:50〜7:58 · 北海道千歳市 · 海鮮丼'), findsOneWidget);
+      // 場面に編集のボタンは置かない（見出しは場面の写真の一覧から直す。§8.8）
+      expect(find.bySemanticsLabel('この場面を編集'), findsNothing);
       expect(find.text('港の市場で海鮮丼。'), findsOneWidget);
       expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
 
@@ -588,60 +590,15 @@ void main() {
     expect(find.text('見出しなし'), findsOneWidget);
   });
 
-  group('日と場面の文を直す（編集シート）', () {
-    /// 写真 1 から始まる場面（朝ごはん）の id
-    final breakfastId = timelinePhotoJson(1, null)['id'] as String;
-
-    /// 完成版の場面を偽のサーバから探す
-    Map<String, Object?> sceneOf(FakeTripBackend backend, String startPhotoId) {
-      final current = backend.timelinesByTripId[hokkaidoTripId]!['current']
-          as Map<String, Object?>;
-      return [
-        for (final day in current['days'] as List)
-          for (final scene in (day as Map)['scenes'] as List)
-            scene as Map<String, Object?>
-      ].firstWhere((scene) => scene['startPhotoId'] == startPhotoId);
-    }
-
+  group('日の文を直す（編集シート。場面の見出しは timeline_scene_photos_test.dart）', () {
     /// シートの [label] の欄
     Finder field(String label) => find.widgetWithText(TextField, label);
-
-    /// 最初の場面（朝ごはん）の編集シートを開く
-    Future<void> openSceneSheet(WidgetTester tester) async {
-      await tester.tap(find.bySemanticsLabel('この場面を編集').first);
-      await letFramesRun(tester);
-    }
 
     /// 1日目の編集シートを開く（日と場面のシートに共通する扱いは、日のシートで確かめる）
     Future<void> openDaySheet(WidgetTester tester) async {
       await tester.tap(find.bySemanticsLabel('この日を編集').first);
       await letFramesRun(tester);
     }
-
-    testWidgets('場面の編集のボタンで、今の見出しと一言を入れたシートを開き、見出しを直して保存すると描き直し、一言は送らず AI の文のまま残る',
-        (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-
-      await openSceneSheet(tester);
-      expect(find.text('場面を編集'), findsOneWidget);
-      expect(find.text('空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）'), findsOneWidget);
-      expect(tester.widget<TextField>(field('見出し')).controller!.text, '朝ごはん');
-      expect(
-          tester.widget<TextField>(field('一言')).controller!.text, '港の市場で海鮮丼。');
-
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-
-      expect(find.text('場面を編集'), findsNothing);
-      expect(find.text('市場の朝ごはん'), findsOneWidget);
-      expect(find.text('朝ごはん'), findsNothing);
-      // 直していない一言は送らず、AI の文のまま残る
-      expect(sceneOf(backend, breakfastId)['labelSource'], 'user');
-      expect(sceneOf(backend, breakfastId)['noteSource'], 'ai');
-      semantics.dispose();
-    });
 
     testWidgets('日の編集のボタンで「N日目を編集」を開き、まとめを直して保存すると描き直す', (tester) async {
       final semantics = tester.ensureSemantics();
@@ -684,66 +641,18 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('場面の「見出し」「一言」の欄は 30・200 文字、日の「タイトル」「まとめ」の欄は 40・400 文字で止める',
+    testWidgets('日の「タイトル」「まとめ」の欄は 40・400 文字で止める',
         (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester);
 
-      for (final (sheet, limits) in [
-        ('場面', {'見出し': 30, '一言': 200}),
-        ('日', {'タイトル': 40, 'まとめ': 400}),
-      ]) {
-        await tester.tap(find.bySemanticsLabel('この$sheetを編集').first);
-        await letFramesRun(tester);
-        for (final MapEntry(key: label, value: limit) in limits.entries) {
-          await tester.enterText(field(label), 'あ' * (limit + 1));
-          await tester.pump();
-          expect(tester.widget<TextField>(field(label)).controller!.text.length,
-              limit, reason: '$sheetの「$label」');
-        }
-        await tester.tap(find.text('キャンセル'));
-        await letFramesRun(tester);
+      await openDaySheet(tester);
+      for (final (label, limit) in [('タイトル', 40), ('まとめ', 400)]) {
+        await tester.enterText(field(label), 'あ' * (limit + 1));
+        await tester.pump();
+        expect(tester.widget<TextField>(field(label)).controller!.text.length,
+            limit, reason: label);
       }
-      semantics.dispose();
-    });
-
-    testWidgets('欄を空にして保存すると、AI が書いた文に戻る', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      backend.timelineAiTexts['$breakfastId:label'] = 'AI の朝ごはん';
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-
-      expect(find.text('AI の朝ごはん'), findsOneWidget);
-      expect(sceneOf(backend, breakfastId)['labelSource'], 'ai');
-      semantics.dispose();
-    });
-
-    testWidgets('「見出しなし」の場面（区切りを直して足した場面）は見出しを書けて、空にすると「見出しなし」に戻る', (tester) async {
-      final semantics = tester.ensureSemantics();
-      // 最初の場面は AI の文が無い（区切りを直して足した場面。05 §5.15）
-      final current = _current();
-      final firstScene = ((current['days'] as List).first as Map<String, Object?>)['scenes'] as List;
-      firstScene[0] = {...firstScene[0] as Map<String, Object?>, 'label': null, 'labelSource': null};
-      final backend = await _openTimeline(tester, current: current);
-      backend.timelineAiTexts['$breakfastId:label'] = null;
-      expect(find.text('見出しなし'), findsOneWidget);
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-      expect(find.text('市場'), findsOneWidget);
-      expect(find.text('見出しなし'), findsNothing);
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-      expect(find.text('見出しなし'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -850,25 +759,6 @@ void main() {
       expect(find.text('タイムラインが変わりました。読み直しました'), findsNothing);
       semantics.dispose();
     });
-
-    testWidgets('下書きがある間も、場面の文を直せる', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await _openTimeline(tester, draft: {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'recut',
-        'phase': 'reviewing',
-        'job': null,
-        'startedAt': '2026-10-26T09:00:00.000Z',
-      });
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-
-      expect(find.text('市場の朝ごはん'), findsOneWidget);
-      semantics.dispose();
-    });
   });
 
   group('作った後に写真が変わった案内', () {
@@ -949,14 +839,14 @@ void main() {
           isNull);
     });
 
-    testWidgets('操作を送っている間は、日と場面の編集のボタンも押せない', (tester) async {
+    testWidgets('操作を送っている間は、日の編集のボタンも押せない', (tester) async {
       // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
       await _chooseFromMenu(tester, 'タイムラインを編集');
-      for (final label in ['この日を編集', 'この場面を編集']) {
+      for (final label in ['この日を編集']) {
         expect(
             tester
                 .widget<IconButton>(find.ancestor(
