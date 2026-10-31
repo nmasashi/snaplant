@@ -560,82 +560,6 @@ void main() {
     });
   });
 
-  group('サムネイルから写真ビューアを開く', () {
-    testWidgets('場面のサムネイルをタップすると、その写真を写真ビューアで開き、閉じたらタイムラインを読み直す',
-        (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await letFramesRun(tester);
-      expect(find.text('2026年10月5日 07:58').hitTestable(), findsOneWidget);
-
-      // 開いている間に、別の端末が作り直しを始めた
-      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'rebuild',
-        'phase': 'proposing',
-        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
-        'startedAt': '2026-10-26T09:00:00.000Z',
-      });
-      await tapBack(tester);
-      await letFramesRun(tester);
-      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('写真を読んでいる間にもう一度タップしても、写真ビューアは1つだけ開く', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      final reply = backend.holdNextReply(TripRoute.getPhoto);
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await tester.pump();
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await tester.pump();
-      reply.complete();
-      await letFramesRun(tester);
-
-      await tapBack(tester);
-      await letFramesRun(tester);
-      expect(find.text('2026年10月5日 07:58'), findsNothing);
-      expect(find.text('朝ごはん'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('タップした写真が消えていたら、「この写真は削除されています」を出してタイムラインを読み直す',
-        (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      // 写真 1 は旅行に無い（作った後に消えた）。読み直したことを、作っている間の表示が出ることで確かめる
-      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'rebuild',
-        'phase': 'proposing',
-        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
-        'startedAt': '2026-10-26T09:00:00.000Z',
-      });
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:50'));
-      await letFramesRun(tester);
-      expect(find.text('この写真は削除されています'), findsOneWidget);
-      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('写真を読めなかったら、エラーの文言を出し、表示はそのまま', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      backend.failNext(TripRoute.getPhoto);
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await letFramesRun(tester);
-      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
-      expect(find.text('朝ごはん'), findsOneWidget);
-      semantics.dispose();
-    });
-  });
-
   testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、一言の無い場面はその行を出さない', (tester) async {
     await _openTimeline(tester, current: {
       'writtenAt': '2026-10-25T09:10:00.000Z',
@@ -970,8 +894,8 @@ void main() {
       expect(find.textContaining('作った後に写真が'), findsNothing);
       expect(find.text('作り直す'), findsNothing);
 
-      // 写真ビューアを開いて閉じると、同じ表示のままタイムラインを読み直す（§8.3）
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      // 場面の写真の一覧を開いて閉じると、同じ表示のままタイムラインを読み直す（§8.3）
+      await tester.tap(find.text('朝ごはん'));
       await letFramesRun(tester);
       await tapBack(tester);
       await letFramesRun(tester);
