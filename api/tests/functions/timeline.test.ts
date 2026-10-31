@@ -572,7 +572,7 @@ describe('タイムラインを読むAPI（GET）', () => {
     thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${photo.thumbnailBlobName ?? photo.blobName}?${SAS}`
   });
 
-  // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、日時なし: u
+  // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、撮影日時の無い写真: u（控えにはあるが、タイムラインには出ない）
   const A = snap('a', '2026-10-05T07:50:12', { category: 'food', name: '海鮮丼', placeName: '北海道千歳市' });
   const B = snap('b', '2026-10-05T08:10:00', { placeName: '北海道千歳市', thumbnailBlobName: null });
   const C = snap('c', '2026-10-05T12:30:00', { category: 'food', name: 'ラーメン', placeName: '札幌市' });

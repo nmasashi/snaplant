@@ -564,7 +564,7 @@ describe('タイムラインの下書きAPI', () => {
   });
 
   describe('区切りを保存する（PUT …/draft/scenes）', () => {
-    // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、日時なし: u
+    // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、撮影日時の無い写真: u（控えにはあるが、タイムラインには出ない）
     const PHOTOS = [
       snap('a', '2026-10-05T07:50:00'),
       snap('b', '2026-10-05T09:00:00'),
@@ -1042,7 +1042,7 @@ describe('タイムラインの下書きAPI', () => {
   });
 
   describe('写真を外す（POST …/draft/excluded-photos）', () => {
-    // 1日目（10/05）: a の場面と b・c の場面、2日目（10/06）: d・e、日時なし: u
+    // 1日目（10/05）: a の場面と b・c の場面、2日目（10/06）: d・e、撮影日時の無い写真: u（控えにはあるが、タイムラインには出ない）
     const PHOTOS = [
       snap('a', '2026-10-05T07:50:00'),
       snap('b', '2026-10-05T09:00:00'),
@@ -1307,7 +1307,7 @@ describe('タイムラインの下書きAPI', () => {
       draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a'), photoId('b')], ...overrides });
     const postWrite = () => postTimelineDraftWriteHandler(createRequest(TRIP_ID, 'POST'), mockContext);
 
-    // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、日時なし: u。区切りの直しの下書きは完成版の控えを指すので、同じ写真の控えを両方に置く
+    // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、撮影日時の無い写真: u（控えにはあるが、タイムラインには出ない）。区切りの直しの下書きは完成版の控えを指すので、同じ写真の控えを両方に置く
     const WRITE_PHOTOS = [
       snap('a', '2026-10-05T07:50:00'),
       snap('b', '2026-10-05T09:00:00'),
