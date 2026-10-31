@@ -79,7 +79,6 @@ Map<String, Object?> _current() => {
           ],
         },
       ],
-      'undatedPhotos': [_photo(10, null, category: 'other')],
     };
 
 /// タイムライン（完成版と、あれば下書き）
@@ -103,8 +102,6 @@ Future<FakeTripBackend> _openTimeline(WidgetTester tester,
       hokkaidoTripId: [
         photoJson(
             number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T07:58:00'),
-        // 日時なしの写真
-        photoJson(number: 10, tripId: hokkaidoTripId),
       ],
     },
   );
@@ -168,7 +165,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 void main() {
   group('完成したタイムラインの表示', () {
     testWidgets(
-        '日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、撮影日時の無い写真は出さず、一番下に作成日時を出す（操作のボタンは出さない）',
+        '日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、一番下に作成日時を出す（操作のボタンは出さない）',
         (tester) async {
       // 作成日時は端末の時刻で出す。日本時間でないと期待値が合わない（CI は TZ=Asia/Tokyo）
       expect(DateTime(2026, 10, 25).timeZoneOffset, const Duration(hours: 9));
@@ -208,9 +205,6 @@ void main() {
       await _scrollTo(tester, find.text('10月25日 18:10 に作成'));
       expect(tester.getTopLeft(find.text('10月25日 18:10 に作成')).dy,
           greaterThan(tester.getTopLeft(find.text('12:00 · 醤油ラーメン')).dy));
-      // 撮影日時の無い写真は、応答にあっても出さない（タイムラインに入れない。02 §5 #54）
-      expect(find.text('日時なし'), findsNothing);
-      expect(photoThumbnail('撮影日時なし'), findsNothing);
       semantics.dispose();
     });
   });
@@ -378,7 +372,6 @@ void main() {
       await _openTimeline(tester, draft: {
         ...draftOf('recut', 'reviewing'),
         'days': <Object?>[],
-        'undatedPhotos': <Object?>[],
       });
 
       await tester.tap(find.text('続ける'));
@@ -660,7 +653,6 @@ void main() {
           ],
         },
       ],
-      'undatedPhotos': <Object?>[],
     });
 
     expect(find.text('1日目'), findsOneWidget);

@@ -57,7 +57,6 @@ Map<String, Object?> _draft(String phase,
 const _current = {
   'writtenAt': '2026-10-25T09:10:00.000Z',
   'days': <Object?>[],
-  'undatedPhotos': <Object?>[],
 };
 
 /// タイムライン（05 §5.15 の `timeline`）

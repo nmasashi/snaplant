@@ -570,7 +570,6 @@ class FakeTripBackend {
                 ],
               },
           ],
-          'undatedPhotos': current['undatedPhotos'],
         };
         timelinesByTripId[tripId] = {...timeline, 'draft': recut};
         return _ok(200, {'draft': recut, 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
@@ -705,12 +704,10 @@ class FakeTripBackend {
     }..remove('excludedPhotoIds');
   }
 
-  /// 状態だけの下書き（`days`・`undatedPhotos` を外す。GET …/timeline と受付の応答の形）
+  /// 状態だけの下書き（`days` を外す。GET …/timeline と受付の応答の形）
   Map<String, Object?>? _draftStatusOf(Map<String, Object?>? draft) {
     if (draft == null) return null;
-    return {...draft}
-      ..remove('days')
-      ..remove('undatedPhotos');
+    return {...draft}..remove('days');
   }
 
   /// 下書きの日ごとの写真を [starts] で場面に分け直す。区切りが無効（下書きに無い写真・重なり・撮影の順でない）なら null。
