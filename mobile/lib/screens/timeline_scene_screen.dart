@@ -88,22 +88,14 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     await _reload();
   }
 
-  /// 完成版を読み直し、同じ場面で描き直す。完成版・場面が無くなった、旅行が無いなら旅行詳細に戻る
+  /// 完成版を読み直し、同じ場面で描き直す（[_showSceneOf]）。旅行が無いなら旅行詳細に戻る
   /// （旅行詳細が読み直して今の状態を出す）。それ以外の失敗は表示はそのままでエラーの文言を出す
   Future<void> _reload() async {
     setState(() => _busy = true);
     try {
       final overview = await widget.apiService.getTimeline(widget.tripId);
       if (!mounted) return;
-      final found = _findScene(overview.timeline?.current);
-      if (found == null) {
-        Navigator.pop(context);
-        return;
-      }
-      setState(() {
-        _date = found.$1;
-        _scene = found.$2;
-      });
+      _showSceneOf(overview);
     } catch (e) {
       debugPrint('TimelineSceneScreen: タイムラインの読み込みエラー: $e');
       if (!mounted) return;
@@ -141,29 +133,32 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     );
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
-      final found = _findScene(result.timeline?.current);
-      if (found != null) {
-        setState(() {
-          _date = found.$1;
-          _scene = found.$2;
-        });
-        return;
-      }
-    } else if (!(result is ApiException && result.isTripNotFound)) {
+      _showSceneOf(result);
+      return;
+    }
+    if (!(result is ApiException && result.isTripNotFound)) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
     }
     Navigator.pop(context);
   }
 
-  /// [current] の中の、出している場面と最初の写真の id が同じ場面とその日の日付。無ければ null
-  (String, TimelineScene)? _findScene(TimelineCurrent? current) {
-    for (final day in current?.days ?? const <TimelineDay>[]) {
+  /// [overview] の完成版の、出している場面と最初の写真の id が同じ場面で描き直す。
+  /// 完成版・場面が無ければ（写真を全部消した、作り直しが始まった）旅行詳細に戻る
+  void _showSceneOf(TimelineOverview overview) {
+    for (final day
+        in overview.timeline?.current?.days ?? const <TimelineDay>[]) {
       for (final scene in day.scenes) {
-        if (scene.startPhotoId == _scene.startPhotoId) return (day.date, scene);
+        if (scene.startPhotoId == _scene.startPhotoId) {
+          setState(() {
+            _date = day.date;
+            _scene = scene;
+          });
+          return;
+        }
       }
     }
-    return null;
+    Navigator.pop(context);
   }
 
   @override
