@@ -291,14 +291,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     required String hint,
     required Future<TimelineOverview> Function(Map<String, String?>) save,
   }) async {
-    final result = await showModalBottomSheet<Object>(
-      context: context,
-      isScrollControlled: true,
-      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
-      enableDrag: false,
-      builder: (context) => TimelineEditSheet(
-          title: title, fields: fields, hint: hint, onSave: save),
-    );
+    final result = await showTimelineEditSheet(context,
+        title: title, fields: fields, hint: hint, onSave: save);
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
       // 直した後の完成版で描き直す。前に始めた読み直しの応答は使わない（§8.1）

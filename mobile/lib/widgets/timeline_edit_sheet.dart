@@ -21,6 +21,25 @@ class TimelineEditField {
   final String? initial;
 }
 
+/// [TimelineEditSheet] を下から開き、閉じたときの結果（[TimelineEditSheet] の説明のとおり）を返す
+///
+/// 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
+Future<Object?> showTimelineEditSheet(
+  BuildContext context, {
+  required String title,
+  required List<TimelineEditField> fields,
+  required String hint,
+  required Future<TimelineOverview> Function(Map<String, String?> changes)
+      onSave,
+}) =>
+    showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false,
+      builder: (context) => TimelineEditSheet(
+          title: title, fields: fields, hint: hint, onSave: onSave),
+    );
+
 /// 日・場面の文を直す、下から出るシート（§8.5）
 ///
 /// 閉じるときの結果: 保存できたら応答（[TimelineOverview]）、タイムラインが変わった・旅行が無いなら [ApiException]

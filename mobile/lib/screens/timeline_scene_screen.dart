@@ -29,7 +29,7 @@ class TimelineSceneScreen extends StatefulWidget {
   final UploadQueue uploadQueue;
   final String tripId;
 
-  /// 場面の日の日付（`YYYY-MM-DD`）
+  /// 場面の日の日付（`YYYY-MM-DD`）。場面は最初の写真の id で探し直すので、日は変わらない（区切りの直しは日をまたがない）
   final String date;
   final TimelineScene scene;
 
@@ -38,7 +38,6 @@ class TimelineSceneScreen extends StatefulWidget {
 }
 
 class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
-  late String _date = widget.date;
   late TimelineScene _scene = widget.scene;
 
   // 写真を読んでいる間と読み直している間は、写真のタップを受け付けない（写真ビューアを重ねて開かない。
@@ -118,22 +117,17 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
   /// 場面の見出しを直す（§8.5）。保存できたら応答の同じ場面で描き直す。タイムラインが変わった・旅行が無いなら
   /// 旅行詳細に戻る（旅行詳細が読み直して今の状態を出す。§8.8）
   Future<void> _editLabel() async {
-    final result = await showModalBottomSheet<Object>(
-      context: context,
-      isScrollControlled: true,
-      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
-      enableDrag: false,
-      builder: (context) => TimelineEditSheet(
-        title: '見出しを編集',
-        fields: [
-          TimelineEditField(
-              key: 'label', label: '見出し', maxLength: 30, initial: _scene.label),
-        ],
-        // 区切りを直して足した場面は AI の見出しが無いので、空にすると見出しなしに戻る（5-5a）
-        hint: '空にすると、AI が書いた見出しに戻ります（AI が書いていない場面は見出しなしになります）',
-        onSave: (changes) => widget.apiService
-            .updateTimelineScene(widget.tripId, _scene.startPhotoId, changes),
-      ),
+    final result = await showTimelineEditSheet(
+      context,
+      title: '見出しを編集',
+      fields: [
+        TimelineEditField(
+            key: 'label', label: '見出し', maxLength: 30, initial: _scene.label),
+      ],
+      // 区切りを直して足した場面は AI の見出しが無いので、空にすると見出しなしに戻る（5-5a）
+      hint: '空にすると、AI が書いた見出しに戻ります（AI が書いていない場面は見出しなしになります）',
+      onSave: (changes) => widget.apiService
+          .updateTimelineScene(widget.tripId, _scene.startPhotoId, changes),
     );
     if (!mounted || result == null) return;
     if (result is TimelineOverview) {
@@ -154,10 +148,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
         in overview.timeline?.current?.days ?? const <TimelineDay>[]) {
       for (final scene in day.scenes) {
         if (scene.startPhotoId == _scene.startPhotoId) {
-          setState(() {
-            _date = day.date;
-            _scene = scene;
-          });
+          setState(() => _scene = scene);
           return;
         }
       }
@@ -189,7 +180,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             sliver: SliverToBoxAdapter(
-              child: Text('${timelineDateLabel(_date)} $details',
+              child: Text('${timelineDateLabel(widget.date)} $details',
                   style: AppTextStyles.body2
                       .copyWith(color: AppColors.textSecondary)),
             ),
