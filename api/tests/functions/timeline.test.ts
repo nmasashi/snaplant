@@ -618,11 +618,11 @@ describe('タイムラインを読むAPI（GET）', () => {
   });
   const DROPPED = [{ kind: 'scene' as const, key: photoId('z'), field: 'label' as const, text: '小樽運河さんぽ' }];
 
-  /** 旅行の写真の文書（解析の状態を指定する） */
-  const placePhoto = (id: string, state: PhotoProcessing['state'] = 'done', tripId: string = TRIP_ID) =>
+  /** 旅行の写真の文書（解析の状態と、撮影日時（既定は無し）を指定する） */
+  const placePhoto = (id: string, state: PhotoProcessing['state'] = 'done', tripId: string = TRIP_ID, takenAt: string | null = null) =>
     cosmosBackend.documents.set(
       id,
-      photoDocument(id, { tripId, processing: { state, step: 'identify', attempts: 1, lastError: null, updatedAt: '2026-10-08T00:00:00.000Z' } })
+      photoDocument(id, { tripId, takenAt, processing: { state, step: 'identify', attempts: 1, lastError: null, updatedAt: '2026-10-08T00:00:00.000Z' } })
     );
 
   /** 完成版の控えを置き、removed 以外の控えの写真を旅行の写真として置く */
@@ -743,16 +743,28 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.timeline.changes).toEqual({ added: 0, removed: 1 });
   });
 
-  it('完成版の控えと比べて増えた・消えた写真の枚数を返し（日時の無い写真も数える）、完成版があっても解析中の写真を数える', async () => {
-    // b と日時の無い写真が消え、控えに無い写真が2枚増えた（1枚は解析中）
-    placeCurrentSnapshot([B.id, U.id]);
-    placePhoto(photoId('n'));
-    placePhoto(photoId('m'), 'pending');
+  it('撮影日時の無い写真は、増えても消えても数えない（タイムラインに入れないので）', async () => {
+    // 控えの日時の無い写真 u が消え、日時の無い写真 n が増えた。日時のある写真 m も増えた
+    placeCurrentSnapshot([U.id]);
+    cosmosBackend.documents.set(photoId('n'), photoDocument(photoId('n'), { tripId: TRIP_ID, takenAt: null }));
+    cosmosBackend.documents.set(photoId('m'), photoDocument(photoId('m'), { tripId: TRIP_ID, takenAt: '2026-10-06T15:00:00' }));
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
 
     const data = await read();
 
-    expect(data.timeline.changes).toEqual({ added: 2, removed: 2 });
+    expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
+  });
+
+  it('完成版の控えと比べて増えた・消えた撮影日時のある写真の枚数を返し、完成版があっても解析中の写真を数える', async () => {
+    // b が消え、控えに無い撮影日時のある写真が2枚増えた（1枚は解析中）
+    placeCurrentSnapshot([B.id]);
+    placePhoto(photoId('n'), 'done', TRIP_ID, '2026-10-06T15:00:00');
+    placePhoto(photoId('m'), 'pending', TRIP_ID, '2026-10-06T16:00:00');
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 2, removed: 1 });
     expect(data.pendingPhotoCount).toBe(1);
   });
 

@@ -1314,12 +1314,38 @@ describe('タイムラインの下書きAPI', () => {
       draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a'), photoId('b')], ...overrides });
     const postWrite = () => postTimelineDraftWriteHandler(createRequest(TRIP_ID, 'POST'), mockContext);
 
+    // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、日時なし: u。区切りの直しの下書きは完成版の控えを指すので、同じ写真の控えを両方に置く
+    const WRITE_PHOTOS = [
+      snap('a', '2026-10-05T07:50:00'),
+      snap('b', '2026-10-05T09:00:00'),
+      snap('c', '2026-10-05T12:00:00'),
+      snap('d', '2026-10-06T09:00:00'),
+      snap('e', '2026-10-06T13:00:00'),
+      snap('u', null)
+    ];
+
     beforeEach(() => {
       queueBackend = { queues: new Map(), forcedSendError: null };
       MockedQueueClient.mockImplementation(((_connectionString: string, queueName: string) =>
         createFakeQueueClient(queueBackend, queueName)) as any);
       process.env.AzureWebJobsStorage = 'UseDevelopmentStorage=true';
       process.env.TIMELINE_QUEUE_NAME = 'timeline-processing';
+      placeSnapshot(WRITE_PHOTOS);
+      cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, WRITE_PHOTOS));
+    });
+
+    it('出す写真（撮影日時があり、消えておらず、外していない写真）が1枚も無ければ、409（TIMELINE_NO_DATED_PHOTOS）で書かずキューに積まない（日時の無い写真は数えない）', async () => {
+      // a・b を外し、c・d・e は控えを取った後に消えた。残る u は撮影日時が無い
+      ['c', 'd', 'e'].forEach((head) => cosmosBackend.documents.delete(photoId(head)));
+      const timeline = timelineWith(reviewing({ excludedPhotoIds: [photoId('a'), photoId('b')] }));
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await postWrite();
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS', message: '撮影日時のある写真がありません' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+      expect(queuedMessages()).toEqual([]);
     });
 
     afterEach(() => {
@@ -1454,6 +1480,18 @@ describe('タイムラインの下書きAPI', () => {
         expect(response.status).toBe(200);
         // 並びに意味は無いので並べ替えて比べる（重なりが無いことは見る）
         expect([...(cosmosBackend.documents.get(TIMELINE_ID) as any).current.excludedPhotoIds].sort()).toEqual([photoId('a'), photoId('c'), photoId('d')]);
+      });
+
+      it('完成版と編集で外した写真を合わせて、出す写真が1枚も無ければ、409（TIMELINE_NO_DATED_PHOTOS）で当てない', async () => {
+        const timeline = recutting({ excludedPhotoIds: [photoId('d'), photoId('e')] });
+        const doc = { ...timeline, current: { ...current, excludedPhotoIds: [photoId('a'), photoId('b'), photoId('c')] } };
+        cosmosBackend.documents.set(TIMELINE_ID, doc as any);
+
+        const response = await postWrite();
+
+        expect(response.status).toBe(409);
+        expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS', message: '撮影日時のある写真がありません' } });
+        expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(doc);
       });
 
       it('完成版が無いのに区切りを直している下書きは、AI に書かせず 409（TIMELINE_STATE_CONFLICT）で何も変えない', async () => {
