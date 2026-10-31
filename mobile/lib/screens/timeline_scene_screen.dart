@@ -135,11 +135,8 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
       _showSceneOf(result);
       return;
     }
-    if (!(result is ApiException && result.isTripNotFound)) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
-    }
-    if (_isShown) Navigator.pop(context);
+    // シートが閉じて返す失敗は、タイムラインが変わった・旅行が無いときだけ（ほかはシートの中に出す）
+    _leaveBecauseChanged(result as ApiException);
   }
 
   /// 写真の長押しのメニュー（「タイムラインから外す」だけ。§8.8）
@@ -175,21 +172,26 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     } catch (e) {
       debugPrint('TimelineSceneScreen: 写真を外すエラー: $e');
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
       if (e is ApiException && (e.isTimelineChanged || e.isTripNotFound)) {
-        if (e.isTimelineChanged) {
-          messenger.showSnackBar(
-              const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
-        }
-        if (_isShown) Navigator.pop(context);
+        _leaveBecauseChanged(e);
         return;
       }
-      messenger.showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content:
               Text(e is ApiException ? e.userMessage : 'タイムラインの操作に失敗しました')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 見出しの保存・写真を外すときに、タイムラインが変わっていた（[e] の `isTimelineChanged`）・旅行が無かったので、旅行詳細に戻る
+  /// （旅行詳細が読み直して今の状態を出す。旅行が無いときは旅行詳細が「この旅行は削除されています」にするので、ここでは知らせない。§8.8）
+  void _leaveBecauseChanged(ApiException e) {
+    if (!e.isTripNotFound) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
+    }
+    if (_isShown) Navigator.pop(context);
   }
 
   /// [overview] の完成版の、出している場面と最初の写真の id が同じ場面で描き直す。
