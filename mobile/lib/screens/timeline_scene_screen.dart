@@ -6,6 +6,7 @@ import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/timeline_format.dart';
+import '../widgets/timeline_confirm_dialog.dart';
 import '../widgets/timeline_edit_sheet.dart';
 import '../widgets/timeline_thumbnail.dart';
 import 'photo_viewer_screen.dart';
@@ -141,6 +142,56 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     if (_isShown) Navigator.pop(context);
   }
 
+  /// 写真の長押しのメニュー（「タイムラインから外す」だけ。§8.8）
+  Future<void> _showPhotoMenu(TimelinePhoto photo) async {
+    final chosen = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListTile(
+          leading: const Icon(Icons.hide_image_outlined),
+          title: const Text('タイムラインから外す'),
+          onTap: () => Navigator.pop(context, true),
+        ),
+      ),
+    );
+    if (chosen != true || !mounted) return;
+    await _exclude(photo);
+  }
+
+  /// 確かめてから [photo] を完成版から外し、応答の同じ場面で描き直す（02 §5 #52。外した写真は戻せない）。
+  /// タイムラインが変わった・旅行が無いなら旅行詳細に戻り、それ以外の失敗は文言を出して表示はそのまま（§8.8）
+  Future<void> _exclude(TimelinePhoto photo) async {
+    final confirmed = await confirmTimelineAction(context,
+        title: 'タイムラインから外しますか？',
+        message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
+        confirmLabel: '外す');
+    if (!confirmed || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final overview = await widget.apiService
+          .excludeCurrentTimelinePhotos(widget.tripId, [photo.id]);
+      if (!mounted) return;
+      _showSceneOf(overview);
+    } catch (e) {
+      debugPrint('TimelineSceneScreen: 写真を外すエラー: $e');
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      if (e is ApiException && (e.isTimelineChanged || e.isTripNotFound)) {
+        if (e.isTimelineChanged) {
+          messenger.showSnackBar(
+              const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
+        }
+        if (_isShown) Navigator.pop(context);
+        return;
+      }
+      messenger.showSnackBar(SnackBar(
+          content:
+              Text(e is ApiException ? e.userMessage : 'タイムラインの操作に失敗しました')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   /// [overview] の完成版の、出している場面と最初の写真の id が同じ場面で描き直す。
   /// 完成版・場面が無ければ（写真を全部消した、作り直しが始まった）旅行詳細に戻る
   void _showSceneOf(TimelineOverview overview) {
@@ -195,7 +246,8 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
                 for (final photo in scene.photos)
                   TimelineThumbnail(
                       photo: photo,
-                      onTap: _busy ? null : () => _openPhoto(photo)),
+                      onTap: _busy ? null : () => _openPhoto(photo),
+                      onLongPress: _busy ? null : () => _showPhotoMenu(photo)),
               ],
             ),
           ),
