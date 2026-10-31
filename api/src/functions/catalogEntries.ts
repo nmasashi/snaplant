@@ -5,7 +5,7 @@ import { createDatabaseErrorResponse, createSuccessResponse } from '../utils/res
 import { readCatalogEntriesQuery } from '../utils/catalogInput';
 
 /**
- * 図鑑の項目の一覧 API（種類ごと。名前順に offset / limit でページに切る）
+ * 図鑑の項目の一覧 API（種類ごと。属の学名の順・同じ属は名前の順に並べ、offset / limit でページに切る）
  * GET /api/catalog/entries?kind={kind}&offset={offset}&limit={limit}&code={FUNCTION_KEY}
  *
  * 項目は文書ではなく、識別済みの写真を名前でまとめたもの（docs/04_data_design.md §3.1）

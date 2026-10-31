@@ -10,9 +10,13 @@ export const CATALOG_KINDS = {
     label: '植物',
     inCatalog: true,
     autoIdentify: true,
-    namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
+    // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 §5 #56）
+    namingRule: '種の和名（例: ハナトリカブト）。種まで特定できなければ「〇〇属の一種」（例: トリカブト属の一種）とし、信頼度を低くする',
     fields: [
       { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
+      { key: 'genusName', label: '属', type: 'string', prompt: '属名（日本語。例: トリカブト属）。特定できない場合は null' },
+      // 図鑑は属でまとめる。日本語の属名は揺れやすい（「トリカブト属」「トリカブト」）ので、まとめる鍵はラテン語の1語にする
+      { key: 'genus', label: '属の学名', type: 'string', prompt: '属の学名（ラテン語の1語。例: Aconitum）。特定できない場合は null' },
       { key: 'familyName', label: '科名', type: 'string', prompt: '科名（日本語）。特定できない場合は null' },
     ],
   },

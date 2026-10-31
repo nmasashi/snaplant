@@ -382,7 +382,7 @@ describe('写真の解析のワーカー', () => {
       description: '日本で最も広く植えられているサクラの栽培品種',
       characteristics: '淡い桃色の花を葉より先に咲かせる',
       comment: ' 満開のソメイヨシノ。エドヒガンの可能性もある ',
-      attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' }
+      attributes: { scientificName: 'Prunus × yedoensis', genusName: 'サクラ属', genus: 'Prunus', familyName: 'バラ科' }
     };
 
     /** 識別の待ちの写真（分類が植物と決めた直後の形）。利用者のコメントはまだ無い */
@@ -415,7 +415,7 @@ describe('写真の解析のワーカー', () => {
           confidence: 92,
           description: '日本で最も広く植えられているサクラの栽培品種',
           characteristics: '淡い桃色の花を葉より先に咲かせる',
-          attributes: { scientificName: 'Prunus × yedoensis', familyName: 'バラ科' },
+          attributes: { scientificName: 'Prunus × yedoensis', genusName: 'サクラ属', genus: 'Prunus', familyName: 'バラ科' },
           reason: null,
           model: 'main-deployment',
           at: NOW
@@ -557,13 +557,15 @@ describe('写真の解析のワーカー', () => {
       expect(schema.properties.characteristics.type).toEqual(['string', 'null']);
       expect(schema.properties.comment.type).toBe('string');
       expect(schema.properties.confidence.type).toBe('number');
-      // 種類ごとの項目（植物は学名・科名）
+      // 種類ごとの項目（植物は学名・属・属の学名・科名。図鑑は属の学名でまとめる。02 §5 #56）
       const attributes = schema.properties.attributes;
       expect(attributes.type).toBe('object');
-      expect(Object.keys(attributes.properties).sort()).toEqual(['familyName', 'scientificName']);
-      expect([...attributes.required].sort()).toEqual(['familyName', 'scientificName']);
+      expect(Object.keys(attributes.properties).sort()).toEqual(['familyName', 'genus', 'genusName', 'scientificName']);
+      expect([...attributes.required].sort()).toEqual(['familyName', 'genus', 'genusName', 'scientificName']);
       expect(attributes.additionalProperties).toBe(false);
       expect(attributes.properties.scientificName.type).toEqual(['string', 'null']);
+      expect(attributes.properties.genusName.type).toEqual(['string', 'null']);
+      expect(attributes.properties.genus.type).toEqual(['string', 'null']);
 
       expect(body.max_completion_tokens).toBe(4000);
       expect(body).not.toHaveProperty('max_tokens');

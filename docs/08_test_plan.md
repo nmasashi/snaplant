@@ -222,7 +222,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - ワーカー（識別。4-1a）: 処理中は `identifying`（`attempts` +1）。`identification` が `{ kind, matchesKind: true, name（trim 済み）, confidence, description, characteristics, attributes, reason: null, model, at }` で書かれ、`comment` が AI の一言（trim 済み）・`commentSource: "ai"` になり、`done`・`step: "identify"`。キューには積まない。
   `matchesKind: false` なら名前が無くても受け付け、`name`・`description`・`characteristics` が `null`、`attributes` が `{}`、`reason` が AI の一言で、`comment` は変わらない。
   AI の一言が空白だけならコメントを書かずに結果は書く。前回の AI のコメント（`commentSource: "ai"`）は書き直す。`attributes` は定義表のキーだけを書く（定義に無いキーは捨てる）。信頼度 0 と 100 は受け付ける
-- 識別の AI に送るもの（[06 §3.1](./06_processing_design.md#31-契約)。モックの受けた要求で確かめる）: 画像（原寸の読み取り 15 分の SAS、`detail: "low"`）とテキストの2パート、strict な `json_schema` の共通項目（型と `required`、`additionalProperties: false`）と `attributes`（写真の種類の `fields` の全キーが `required`、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` が string）、`max_completion_tokens`（`max_tokens` と `temperature` は送らない）。
+- 識別の AI に送るもの（[06 §3.1](./06_processing_design.md#31-契約)。モックの受けた要求で確かめる）: 画像（原寸の読み取り 15 分の SAS、`detail: "low"`）とテキストの2パート、strict な `json_schema` の共通項目（型と `required`、`additionalProperties: false`）と `attributes`（写真の種類の `fields` の全キーが `required`、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` が string。植物は `scientificName`・`genusName`・`genus`・`familyName`。属の2つは P-1）、`max_completion_tokens`（`max_tokens` と `temperature` は送らない）。
   分類用のデプロイ名があっても今のデプロイ（`baseURL`・`model`・`identification.model`）。プロンプトに種類の `namingRule` と、ある手がかり（`hint`・撮影地・撮影日時 `YYYY-MM-DD HH:mm`）を含み、無い値（`null`）は含まない
 - 識別の失敗（4-1a）: 応答の検証違反（`matchesKind` が真偽値でない、信頼度が数値でないか 0〜100 の外、写っているのに名前が無い・空白だけ・100 文字超、`attributes` の値の型が合わない）と SDK のエラーは、識別の待ち（`step: "identify"`）に戻して `lastError: "ai"`・例外。上限の回は `failed`・`step: "identify"` で例外を投げない。
   `matchesKind: false` でも信頼度は検証する。写っていて名前がちょうど 100 文字、`attributes` の値が `null`（特定できない）は受け付ける。
@@ -243,11 +243,17 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 図鑑のまとめ（4-2a で実装済み。組み立ての純粋関数に行を直接渡して。`tests/services/catalogEntries.test.ts`）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられる
   （`confidence`・`description`・`characteristics`・`attributes` は見出しの写真の識別から、`photoCount` は行から、`kind` は渡した種類、表紙はサムネイルの URL で、サムネイルが無ければ原寸の URL）。
   名前の文字列順（符号単位）に並べて `offset` から `limit` 件を切り、`total` はページに依らない。`offset` が項目の数を超えれば空のページで `total` はそのまま。名前が `null` の行は項目にも `total` にも数えない。
-  見出しの写真が無くなっていた項目はページから外し、`total` はそのまま
+  見出しの写真が無くなっていた項目はページから外し、`total` はそのまま。
+  属でまとめる（P-1 で実装済み。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #56）: 行は `{ name, genus, genusName, photoCount }`（名前・属の組ごと）で、項目を属の学名の順（同じ属は名前の順、属が分からない項目は最後）に並べてから `offset` / `limit` で切り、項目に `genus`・`genusName` が付く。
+  ページは並べてから切る（届いた行の順のままでは切らない）。
+  同じ名前の行が属ごとに複数あれば1つの項目にまとめて枚数を足し、属は写真の多い属（同じ枚数なら属の学名の順で先）にする。属の分からない行の方が枚数が多くても、属の分かる行があればその属にする。
+  属の学名は前後の空白と大文字小文字を揃えて（最初の1語を先頭だけ大文字。「Aconitum chinense」「Aconitum sp.」も Aconitum）まとめ、空なら属が分からないものとし、同じ属は日本語の属名の書き方が違っても枚数を合わせて数える。
+  同じ属の項目には、その属の写真で最も多い日本語の属名（同じ枚数なら符号単位の順で先）を揃えて付け、日本語の属名が1つも無い属は `genusName` が `null`。属の行を持たない種類（食べ物）の項目は `genus`・`genusName` が `null`
+- 図鑑の項目の詳細の属（P-1 で実装済み。`catalogEntry.test.ts`）: `entry` の `genus`・`genusName` は見出しの写真の識別の `attributes.genus`・`attributes.genusName`（ほかの写真の属が違っても見出しの写真の属）。見出しの写真が属を書く前に識別したもの（`attributes` に属のキーが無い）なら、どちらも `null`
 - 図鑑の API の置き場（4-2a で決めた）: 偽物は `GROUP BY` も `ORDER BY` も解釈しないので、名前ごとの枚数の行と見出しの写真（信頼度の高い1枚）を入口から作れない。
   旅行一覧と同じく、行と見出しの写真から項目のページを組み立てる所を純粋な関数（`catalogEntries.ts`）に分けて `tests/services/catalogEntries.test.ts` で確かめ（CLAUDE.md の名簿）、
   入口のテストは検証・0件・データベースの障害を見る。SQL の絞り込み・並び・集計は §5.3 で手で確かめる
-- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。`prompt`・`namingRule` は返さない
+- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。植物の項目は学名・属・属の学名・科名の順（属の2つは P-1）。`prompt`・`namingRule` は返さない
 - 図鑑の項目一覧（4-2a で実装済み。`catalogEntries.test.ts`。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: 識別された写真が無ければ 200 で `{ entries: [], total: 0 }`。
   `offset=0`・`limit=100`（上限）・`limit=1` は受け付ける。`kind` が無い・`other`・`constructor`・大文字小文字が違う（`Plant`）・図鑑に載せない `food`・`landscape`（B-2）で 400 `図鑑の種類が無効です`、`offset` が負・小数・空、`limit` が `0`・`101`・数でない・小数・空で 400 `ページの指定が無効です`。
   `kind` もページも不正なら `kind` の指摘。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の一覧の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の表）
@@ -399,8 +405,13 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   - 関数の登録: ポータルの「関数」に `listCatalogKinds`・`listCatalogEntries`（`app.http` の第1引数）があり、`GET /api/catalog/kinds` が図鑑に載せる種類（B-2 から植物だけ。それまでは定義表の3種類）を返す
   - 種類での絞り込み（`c.identification.kind = @kind`・`matchesKind = true`）: `GET /api/catalog/entries?kind=plant` に食べ物・風景の写真の名前が混ざらない（B-2 から `kind=food`・`kind=landscape` は Cosmos に触る前に 400 になるので、確かめるのは `plant` だけ）。
     同じ名前が別の種類にもあれば、それぞれの種類で別の項目になり枚数も分かれる。識別で「分類と合わない」（`matchesKind: false`）になった写真は、どの項目にも数えられない
-  - 枚数の集計（`GROUP BY c.identification.name`・`COUNT(1)`）: 各項目の `photoCount` が、ポータルのデータエクスプローラーで数えたその種類・その名前の写真の枚数と合い、`total` が名前の数と合う。`null` の鍵の行が項目に出ない
-  - 名前順とページの切り方: `limit` を省くと `min(50, total)` 件（既定 50 件）。項目が少ないうちは `limit=2` で `offset` を 0・2・4…とめくり、名前の符号単位の順で重複・欠落が無く、最後のページの先は `[]` で `total` が変わらない
+  - 枚数の集計（`GROUP BY c.identification.name`・`COUNT(1)`。P-1 から鍵は名前・属の学名・属名の組）: 各項目の `photoCount` が、ポータルのデータエクスプローラーで数えたその種類・その名前の写真の枚数と合い、`total` が名前の数と合う。`null` の鍵の行が項目に出ない
+  - 並び順とページの切り方: `limit` を省くと `min(50, total)` 件（既定 50 件）。項目が少ないうちは `limit=2` で `offset` を 0・2・4…とめくり、重複・欠落が無く、最後のページの先は `[]` で `total` が変わらない。並びは P-1 から属の学名の符号単位の順（同じ属は名前の順、`genus` が `null` の項目は最後。それまでは名前の符号単位の順）
+- 図鑑の属のまとめ（P-1。[04 §5](./04_data_design.md#5-クエリ) の 5.6・[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「属でまとめる」）。偽物は `GROUP BY` を解釈せず、純粋な関数のテストには行を直接渡しているので、次はデプロイ後にしか確かめられない
+  - 組ごとの行: データエクスプローラーで 5.6 の 1 のクエリ（`@kind = 'plant'`）を回し、名前・属の学名・属名の組ごとに1行ずつ返る（同じ名前で属の違う写真があれば、その名前の行が属ごとに分かれる）。行の `photoCount` の合計が、その名前の項目の `photoCount` と合う
+  - 属を書く前に識別した写真の行: P-1 のデプロイ直後（調べ直す前）は、既存の植物の写真の `attributes` に `genus`・`genusName` のキーが無い。そうした写真が名前ごとに1つの行にまとまり（キーの無い写真が1枚ずつ別の行にならない・行から外れない）、行に `genus`・`genusName` が無い（または `null`）こと。`GET /api/catalog/entries?kind=plant` でその項目が最後に並び、`genus`・`genusName` が `null` で、`photoCount` が写真の枚数と合う
+  - 調べ直した後: 写真ビューアの「植物を調べる」で調べ直した写真の項目に `genus`（ラテン語の1語）・`genusName` が付き、同じ属の項目が続けて並び、同じ属の項目の `genusName` がそろう。同じ名前の写真の一部だけを調べ直した間は、属の分かる写真の属が項目の属になる
+  - 項目の詳細の属: `GET /api/catalog/entry?kind=plant&name=<一覧に出た名前>` の `entry.genus`・`entry.genusName` が、見出しの写真の `identification.attributes` の値と一致する（`genus` は先頭だけ大文字に揃えた形。属の分からない写真なら `null`）
   - 表紙の URL: `coverThumbnailUrl`（SAS 付き）をブラウザで開いて画像が出る（サムネイルの無い写真が見出しなら原寸）。期限（60 分）を過ぎると 403
   - 見出しの選び方（複合インデックスでの `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC`）: 同じ名前の写真が2枚以上ある項目で、`confidence`・`description` と表紙が、
     データエクスプローラーで見たその名前の写真のうち `identification.confidence` が最も高いもの（同点なら `identification.at` が新しいもの）と一致する。複合インデックスが無いと 400 になる（推測）ので、500 `図鑑の一覧の取得に失敗しました` が出たら 4-0 の apply を確かめる

@@ -25,6 +25,8 @@ describe('図鑑の種類の一覧API', () => {
             label: '植物',
             fields: [
               { key: 'scientificName', label: '学名', type: 'string' },
+              { key: 'genusName', label: '属', type: 'string' },
+              { key: 'genus', label: '属の学名', type: 'string' },
               { key: 'familyName', label: '科名', type: 'string' }
             ]
           }
