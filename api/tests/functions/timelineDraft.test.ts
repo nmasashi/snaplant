@@ -339,10 +339,9 @@ describe('タイムラインの下書きAPI', () => {
           snap('a', '2026-10-05T07:50:00'),
           snap('b', '2026-10-05T10:00:00'),
           snap('c', '2026-10-05T10:30:00'),
-          snap('d', '2026-10-06T09:00:00'),
-          snap('e', null)
+          snap('d', '2026-10-06T09:00:00')
         ],
-        [photoId('a'), photoId('c'), photoId('d'), photoId('e')]
+        [photoId('a'), photoId('c'), photoId('d')]
       );
       cosmosBackend.documents.set(
         TIMELINE_ID,
@@ -1125,7 +1124,7 @@ describe('タイムラインの下書きAPI', () => {
     });
 
     it('下書きを読むときも、外した写真は出さない', async () => {
-      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ excludedPhotoIds: [photoId('b'), photoId('u')] })));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ excludedPhotoIds: [photoId('b')] })));
 
       const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
 

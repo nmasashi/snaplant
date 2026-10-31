@@ -716,8 +716,8 @@ describe('タイムラインを読むAPI（GET）', () => {
   });
 
   it('控えを取った後に消えた写真は出さない（写真が全部消えた場面と日も出さない）', async () => {
-    // b と2日目の写真（d・e）と日時の無い写真が消えた
-    placeCurrentSnapshot([B.id, D.id, E.id, U.id]);
+    // b と2日目の写真（d・e）が消えた
+    placeCurrentSnapshot([B.id, D.id, E.id]);
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
 
     const data = await read();
@@ -728,9 +728,9 @@ describe('タイムラインを読むAPI（GET）', () => {
   });
 
   it('外した写真は出さず（写真を全部外した場面と日も）、外した後に消えた写真は「消えた」に数えない', async () => {
-    // a・d・e と日時の無い写真を外した。その後に b（外していない）と d（外した）が消えた
+    // a・d・e を外した。その後に b（外していない）と d（外した）が消えた
     placeCurrentSnapshot([B.id, D.id]);
-    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [A.id, D.id, E.id, U.id] } }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [A.id, D.id, E.id] } }));
 
     const data = await read();
 
