@@ -16,7 +16,7 @@ import { readJsonBody } from '../utils/tripInput';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
-import { withRecutStarts } from '../services/timelineWriting';
+import { mergedExcludedPhotoIds, withRecutStarts } from '../services/timelineWriting';
 import { readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
@@ -298,12 +298,10 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     const writeFailed = isWriteFailed(draft);
     const adds = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds);
     // 外すと出す写真が1枚も無くなるなら断る（完成版で外すときと同じ。外す写真が増えないとき（送り直し）は断らない）。
-    // 区切りの直しの下書きは、当てるとき（下の文を書く受付・withRecutStarts）と同じく完成版の外した写真と合わせて見る
+    // 区切りの直しの下書きは、当てるとき（上の文を書く受付・withRecutStarts の mergedExcludedPhotoIds）と同じく完成版の外した写真と合わせて見る
     // （完成版で外すと下書きにも足すが、それに頼ると、写せなかったときに外せてしまい、当てるときに断られて「やめる」しか残らない）
     const afterwards =
-      draft.reason === 'recut' && timeline.doc.current
-        ? withRecutStarts(timeline.doc.current, { sceneStarts: draft.sceneStarts, excludedPhotoIds }).excludedPhotoIds
-        : excludedPhotoIds;
+      draft.reason === 'recut' && timeline.doc.current ? mergedExcludedPhotoIds(timeline.doc.current.excludedPhotoIds, excludedPhotoIds) : excludedPhotoIds;
     if (adds && !hasShownPhotos(photos, visiblePhotoIdsOf(existing, afterwards))) {
       return createNoDatedPhotosError();
     }
