@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
+import { TimelineService, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
@@ -8,6 +8,7 @@ import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { withRecutStarts } from '../services/timelineWriting';
+import { readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
   createTimelineStateConflict,
@@ -292,31 +293,21 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
 }
 
 /**
- * 下書きの控えと、旅行の今の写真の id を読む（区切りの保存と写真を外すで共有する）
- *
- * 読んだ後に他の操作が旅行を消した・下書きをやめた・作り直した（控えを消した）なら重なりなので、404 / 409 の応答を返す。下書きが同じまま控えだけ無ければ壊れているので投げる。
- * 最初から読み直して保存はしない（出し直した新しい下書きに、前の下書きへの直しを書いてしまう）
+ * 下書きの控えと、旅行の今の写真の id を読む（区切りの保存と写真を外すで共有する。控えが無いときは readUnlessOverlapped。下書きが同じかは id で見る）
  */
 async function readDraftPhotos(
   timelines: TimelineService,
   tripId: string,
   draft: TimelineDraft
 ): Promise<{ photos: TimelinePhotoSnapshot[]; existing: Set<string> } | { error: HttpResponseInit }> {
-  try {
-    const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
-    return { photos, existing };
-  } catch (error: any) {
-    if (!(error instanceof TimelineSnapshotMissingError)) {
-      throw error;
-    }
-    if (!(await new AlbumService().tripExists(tripId))) {
-      return { error: createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND) };
-    }
-    if ((await timelines.readTimeline(tripId))?.doc.draft?.id !== draft.id) {
-      return { error: createTimelineStateConflict() };
-    }
-    throw error;
+  const read = await readUnlessOverlapped(timelines, tripId, (doc) => doc?.draft?.id === draft.id, () =>
+    Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)])
+  );
+  if ('error' in read) {
+    return read;
   }
+  const [photos, existing] = read.value;
+  return { photos, existing };
 }
 
 /** 写真の id と文字列の組か（配列・null は違う） */

@@ -35,7 +35,7 @@ export interface TimelineDraft {
   sceneStarts: string[];
   /** 利用者が書いた場面のコメント（場面の最初の写真の id → 前後の空白を除いた空でない文）。文を書く AI に材料として渡す。無ければ空とみなす */
   sceneComments?: Record<string, string>;
-  /** 利用者がタイムラインから外した写真（控えの写真の id。控えの順）。消えた写真と同じく画面に出さない。戻さない。無ければ空とみなす */
+  /** 利用者がタイムラインから外した写真（控えの写真の id。重なりなし。並びに意味は無い）。消えた写真と同じく画面に出さない。戻さない。無ければ空とみなす */
   excludedPhotoIds?: string[];
   startedAt: string;
 }

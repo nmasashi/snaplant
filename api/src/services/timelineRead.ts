@@ -1,8 +1,12 @@
 import { UNFINISHED_PROCESSING_STATES } from '../constants/album';
 import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
-import { TimelineService, rereadIfSnapshotMissing } from './timelineService';
+import { HttpResponseInit } from '@azure/functions';
+import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from './timelineService';
 import { currentTimelineOf, draftStatusOf, visiblePhotoIdsOf } from './timelineView';
+import { TimelineDocument } from '../types/timeline';
+import { ErrorCode } from '../types/api';
+import { createNotFoundError, createTimelineStateConflict } from '../utils/response';
 
 /**
  * 完成版を読んだ形（GET …/timeline の data。05 §5.15）を組む
@@ -13,6 +17,36 @@ import { currentTimelineOf, draftStatusOf, visiblePhotoIdsOf } from './timelineV
  */
 export async function readTimelineBody(tripId: string) {
   return rereadIfSnapshotMissing(() => readTimelineBodyOnce(tripId));
+}
+
+/**
+ * 控えを使う読み取りを行い、控えが無ければ他の操作との重なりかを見分ける（05 §5.15 の共通の行。区切りの保存・区切りの直しの受付・写真を外す2つで共有する）
+ *
+ * 控えを消すのはタイムラインの書き込みの後なので、読んだ後に旅行の削除・下書きをやめる・作り直すと重なると控えだけが先に無くなる。
+ * 旅行が消えていれば 404、タイムラインが読んだときと違うものを指していれば 409 の応答を返す。同じものを指したまま控えだけ無ければ壊れているので投げる（500）。
+ * 最初から読み直して書くことはしない（変わった下書き・完成版に、前のものへの操作を書いてしまう）
+ * @param stillSame 読み直したタイムラインが、読んだときと同じ下書き・完成版を指しているか
+ */
+export async function readUnlessOverlapped<T>(
+  timelines: TimelineService,
+  tripId: string,
+  stillSame: (doc: TimelineDocument | undefined) => boolean,
+  read: () => Promise<T>
+): Promise<{ value: T } | { error: HttpResponseInit }> {
+  try {
+    return { value: await read() };
+  } catch (error: any) {
+    if (!(error instanceof TimelineSnapshotMissingError)) {
+      throw error;
+    }
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return { error: createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND) };
+    }
+    if (!stillSame((await timelines.readTimeline(tripId))?.doc)) {
+      return { error: createTimelineStateConflict() };
+    }
+    throw error;
+  }
 }
 
 async function readTimelineBodyOnce(tripId: string) {

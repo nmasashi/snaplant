@@ -2,13 +2,13 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { v4 as uuidv4 } from 'uuid';
 import { AlbumService } from '../services/albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { TimelineService, TimelineSnapshotMissingError } from '../services/timelineService';
+import { TimelineService } from '../services/timelineService';
 import { ErrorCode } from '../types/api';
-import { TimelineCurrent, TimelineDraft } from '../types/timeline';
+import { TimelineCurrent, TimelineDocument, TimelineDraft } from '../types/timeline';
 import { PHOTO_VALIDATION, TIMELINE_VALIDATION } from '../constants/validation';
 import { readJsonBody } from '../utils/tripInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
-import { readTimelineBody } from '../services/timelineRead';
+import { readTimelineBody, readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
   createTimelineBodyResponse,
@@ -62,7 +62,7 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
     };
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
-    const read = await readForCurrent(timelines, tripId, current, () =>
+    const read = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () =>
       Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)])
     );
     if ('error' in read) {
@@ -107,7 +107,7 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     if (!timeline || !current) {
       return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
-    const snapshot = await readForCurrent(timelines, tripId, current, () => timelines.readSnapshotPhotos(current.snapshotId));
+    const snapshot = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () => timelines.readSnapshotPhotos(current.snapshotId));
     if ('error' in snapshot) {
       return snapshot.error;
     }
@@ -140,32 +140,9 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
   }
 }
 
-/**
- * 完成版の控えを使う読み取りを行う（区切りの直しの受付と写真を外すで共有する）
- *
- * 完成版の控えが無いのは、読んだ後に旅行の削除や作り直しと重なったとき（区切りの保存と同じ扱い）。旅行が消えていれば 404、
- * 完成版が変わっていれば重なりの 409 の応答を返す。同じ完成版のまま控えだけ無ければ壊れているので投げる
- */
-async function readForCurrent<T>(
-  timelines: TimelineService,
-  tripId: string,
-  current: TimelineCurrent,
-  read: () => Promise<T>
-): Promise<{ value: T } | { error: HttpResponseInit }> {
-  try {
-    return { value: await read() };
-  } catch (error: any) {
-    if (!(error instanceof TimelineSnapshotMissingError)) {
-      throw error;
-    }
-    if (!(await new AlbumService().tripExists(tripId))) {
-      return { error: createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND) };
-    }
-    if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
-      return { error: createTimelineStateConflict() };
-    }
-    throw error;
-  }
+/** 読み直したタイムラインが、読んだときと同じ完成版（同じ控え）を指しているか（readUnlessOverlapped に渡す） */
+function sameCurrent(current: TimelineCurrent): (doc: TimelineDocument | undefined) => boolean {
+  return (doc) => doc?.current?.snapshotId === current.snapshotId;
 }
 
 /** 直せる文の欄（日はタイトル・まとめ、場面は見出し・一言。05 §5.15・§4） */
