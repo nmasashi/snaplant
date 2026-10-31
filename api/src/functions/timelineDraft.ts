@@ -298,8 +298,13 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     const writeFailed = isWriteFailed(draft);
     const adds = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds);
     // 外すと出す写真が1枚も無くなるなら断る（完成版で外すときと同じ。外す写真が増えないとき（送り直し）は断らない）。
-    // 区切りの直しの下書きは、始めたときに完成版の外した写真を写し、その後に完成版で外した写真も足しているので、下書きの分だけで見ればよい
-    if (adds && !hasShownPhotos(photos, visiblePhotoIdsOf(existing, excludedPhotoIds))) {
+    // 区切りの直しの下書きは、当てるとき（下の文を書く受付・withRecutStarts）と同じく完成版の外した写真と合わせて見る
+    // （完成版で外すと下書きにも足すが、それに頼ると、写せなかったときに外せてしまい、当てるときに断られて「やめる」しか残らない）
+    const afterwards =
+      draft.reason === 'recut' && timeline.doc.current
+        ? withRecutStarts(timeline.doc.current, { sceneStarts: draft.sceneStarts, excludedPhotoIds }).excludedPhotoIds
+        : excludedPhotoIds;
+    if (adds && !hasShownPhotos(photos, visiblePhotoIdsOf(existing, afterwards))) {
       return createNoDatedPhotosError();
     }
     const changed = adds || writeFailed;
