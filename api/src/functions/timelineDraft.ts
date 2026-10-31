@@ -135,7 +135,7 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
       if (!timeline.doc.current) {
         return createTimelineStateConflict();
       }
-      const current = withRecutStarts(timeline.doc.current, read.sceneStarts);
+      const current = withRecutStarts(timeline.doc.current, read);
       if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current, draft: null, updatedAt: now }, timeline.etag))) {
         return createTimelineStateConflict();
       }

@@ -169,14 +169,17 @@ function written<T>(text: T | undefined, what: string): T {
 
 /**
  * 完成版に直した区切りを当てる（06 §8.6）。残った場面の文はそのまま、足した場面の文は空、つなげて消えた場面の文は捨てる。
- * 日の文・作成日時・控えはそのまま（区切りを直しても日は変わらない）
+ * 日の文・作成日時・控えはそのまま（区切りを直しても日は変わらない）。
+ * 外した写真は、下書き（編集を始めたときの完成版から引き継ぎ、編集で足した）と完成版（編集の間に外した）を合わせる（どちらも戻さないので和でよい）
  */
-export function withRecutStarts(current: TimelineCurrent, sceneStarts: string[]): TimelineCurrent {
+export function withRecutStarts(current: TimelineCurrent, draft: Pick<TimelineDraft, 'sceneStarts' | 'excludedPhotoIds'>): TimelineCurrent {
+  const { sceneStarts } = draft;
   const sceneTexts: Record<string, TimelineSceneText> = {};
   for (const start of sceneStarts) {
     sceneTexts[start] = current.sceneTexts[start] ?? emptySceneText();
   }
-  return { ...current, sceneStarts, sceneTexts };
+  const excluded = current.excludedPhotoIds || draft.excludedPhotoIds ? [...new Set([...(current.excludedPhotoIds ?? []), ...(draft.excludedPhotoIds ?? [])])] : undefined;
+  return { ...current, sceneStarts, sceneTexts, ...(excluded ? { excludedPhotoIds: excluded } : {}) };
 }
 
 /** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */

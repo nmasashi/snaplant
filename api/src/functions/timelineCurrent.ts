@@ -57,6 +57,7 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
       dayStartHour: current.dayStartHour,
       proposedStarts: current.proposedStarts,
       sceneStarts: current.sceneStarts,
+      ...(current.excludedPhotoIds ? { excludedPhotoIds: current.excludedPhotoIds } : {}),
       startedAt: now,
     };
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
