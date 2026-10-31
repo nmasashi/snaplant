@@ -765,6 +765,47 @@ describe('タイムラインのワーカー', () => {
       );
     });
 
+    it('外した写真は AI に渡さず、写真を全部外した場面の文は頼まない（場面の最初の写真を外した場面は、残りの写真で頼む）。完成版は外した写真を引き継ぐ', async () => {
+      // a（a・b の場面の最初）と e（e だけの場面）を外した。AI に渡すのは b=0・c=1・d=2・f=3
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ excludedPhotoIds: [photoId('a'), photoId('e')] }) }));
+      aiReturns({
+        days: allTexts.days,
+        scenes: [
+          { start: 0, end: 0, label: '空港', note: '千歳で' },
+          { start: 1, end: 2, label: '昼ごはん', note: '札幌のラーメン' },
+          { start: 3, end: 3, label: 'おやつ', note: '小樽で一休み' }
+        ]
+      });
+
+      await runWorker();
+
+      const prompt = sentPrompt();
+      expect(prompt.split('\n').filter((line) => PHOTO_LINE.test(line.trimStart()))).toHaveLength(4);
+      expect(prompt).not.toContain('海鮮丼');
+      expect(prompt).not.toContain('小樽運河');
+      const current = storedTimeline()!.current!;
+      expect(current.sceneTexts).toEqual({
+        [photoId('a')]: aiScene('空港', '千歳で'),
+        [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン'),
+        [photoId('f')]: aiScene('おやつ', '小樽で一休み')
+      });
+      expect(current.sceneStarts).toEqual(STARTS);
+      expect(current.excludedPhotoIds).toEqual([photoId('a'), photoId('e')]);
+    });
+
+    it('写真を全部外した日の文は頼まない', async () => {
+      // 2日目の e・f を外した。AI に渡すのは1日目の a・b・c・d だけ
+      cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ draft: writingDraft({ excludedPhotoIds: [photoId('e'), photoId('f')] }) }));
+      aiReturns({ days: [allTexts.days[0]], scenes: allTexts.scenes.slice(0, 2) });
+
+      await runWorker();
+
+      expect(nonPhotoLines(sentPrompt()).some((line) => line.includes('2026-10-06'))).toBe(false);
+      const current = storedTimeline()!.current!;
+      expect(Object.keys(current.dayTexts)).toEqual(['2026-10-05']);
+      expect(Object.keys(current.sceneTexts)).toEqual([photoId('a'), photoId('c')]);
+    });
+
     it('場面の区切りと書いてほしい場面は、最初と最後の写真の番号の範囲で渡す（AI が場面の写真を数え違えないように）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
 
