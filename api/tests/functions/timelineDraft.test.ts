@@ -1151,6 +1151,26 @@ describe('タイムラインの下書きAPI', () => {
       expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({ ...timeline, draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
     });
 
+    it('区切りの直しの下書きでも、完成版の外した写真と合わせて出す写真が残るなら外せる', async () => {
+      // 下書きでは a・b を外し、完成版では c を外した。d を外しても e が残る
+      const draft = reviewing({ reason: 'recut', excludedPhotoIds: [photoId('a'), photoId('b')] });
+      const timeline = timelineDocument(TRIP_ID, {
+        current: { ...timelineCurrent(SNAPSHOT_ID), excludedPhotoIds: [photoId('c')] },
+        draft,
+        updatedAt: '2026-10-25T08:55:00.000Z'
+      });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({
+        ...timeline,
+        draft: { ...draft, excludedPhotoIds: [photoId('a'), photoId('b'), photoId('d')] },
+        updatedAt: NOW
+      });
+    });
+
     it('区切りの直しの下書きは、当てるときと同じく完成版の外した写真と合わせて、出す写真が1枚も無くなるなら 409（TIMELINE_NO_DATED_PHOTOS）で書かない', async () => {
       // 下書きでは a・b を外し、完成版では c・e を外した（下書きに写っていない）。d を外すと、合わせて出す写真が無くなる
       const timeline = timelineDocument(TRIP_ID, {
