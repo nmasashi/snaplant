@@ -185,6 +185,13 @@ void main() {
 
       expect(find.text('朝ごはん'), findsOneWidget);
       expect(find.text('7:50〜7:58 · 北海道千歳市 · 海鮮丼'), findsOneWidget);
+      // 場面に編集のボタンは置かない（見出しは場面の写真の一覧から直す。§8.8）
+      expect(
+          find.descendant(
+              of: find.ancestor(
+                  of: find.text('朝ごはん'), matching: find.byType(Card)),
+              matching: find.byType(IconButton)),
+          findsNothing);
       expect(find.text('港の市場で海鮮丼。'), findsOneWidget);
       expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
 
@@ -560,82 +567,6 @@ void main() {
     });
   });
 
-  group('サムネイルから写真ビューアを開く', () {
-    testWidgets('場面のサムネイルをタップすると、その写真を写真ビューアで開き、閉じたらタイムラインを読み直す',
-        (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await letFramesRun(tester);
-      expect(find.text('2026年10月5日 07:58').hitTestable(), findsOneWidget);
-
-      // 開いている間に、別の端末が作り直しを始めた
-      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'rebuild',
-        'phase': 'proposing',
-        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
-        'startedAt': '2026-10-26T09:00:00.000Z',
-      });
-      await tapBack(tester);
-      await letFramesRun(tester);
-      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('写真を読んでいる間にもう一度タップしても、写真ビューアは1つだけ開く', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      final reply = backend.holdNextReply(TripRoute.getPhoto);
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await tester.pump();
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await tester.pump();
-      reply.complete();
-      await letFramesRun(tester);
-
-      await tapBack(tester);
-      await letFramesRun(tester);
-      expect(find.text('2026年10月5日 07:58'), findsNothing);
-      expect(find.text('朝ごはん'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('タップした写真が消えていたら、「この写真は削除されています」を出してタイムラインを読み直す',
-        (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      // 写真 1 は旅行に無い（作った後に消えた）。読み直したことを、作っている間の表示が出ることで確かめる
-      backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'rebuild',
-        'phase': 'proposing',
-        'job': {'step': 'propose', 'state': 'pending', 'lastError': null},
-        'startedAt': '2026-10-26T09:00:00.000Z',
-      });
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:50'));
-      await letFramesRun(tester);
-      expect(find.text('この写真は削除されています'), findsOneWidget);
-      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
-      semantics.dispose();
-    });
-
-    testWidgets('写真を読めなかったら、エラーの文言を出し、表示はそのまま', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      backend.failNext(TripRoute.getPhoto);
-
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
-      await letFramesRun(tester);
-      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
-      expect(find.text('朝ごはん'), findsOneWidget);
-      semantics.dispose();
-    });
-  });
-
   testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、一言の無い場面はその行を出さない', (tester) async {
     await _openTimeline(tester, current: {
       'writtenAt': '2026-10-25T09:10:00.000Z',
@@ -659,59 +590,20 @@ void main() {
     expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
     expect(find.text('AI のまとめ'), findsNothing);
     expect(find.text('編集済み'), findsNothing);
-    // 見出しの印は出さず、見出しの所に「見出しなし」と出す（編集のボタンで書ける。§8.3）
+    // 見出しの印は出さず、見出しの所に「見出しなし」と出す（場面の写真の一覧で書ける。§8.8）
     expect(find.byIcon(Icons.circle), findsNothing);
     expect(find.text('見出しなし'), findsOneWidget);
   });
 
-  group('日と場面の文を直す（編集シート）', () {
-    /// 写真 1 から始まる場面（朝ごはん）の id
-    final breakfastId = timelinePhotoJson(1, null)['id'] as String;
-
-    /// 完成版の場面を偽のサーバから探す
-    Map<String, Object?> sceneOf(FakeTripBackend backend, String startPhotoId) {
-      final current = backend.timelinesByTripId[hokkaidoTripId]!['current']
-          as Map<String, Object?>;
-      return [
-        for (final day in current['days'] as List)
-          for (final scene in (day as Map)['scenes'] as List)
-            scene as Map<String, Object?>
-      ].firstWhere((scene) => scene['startPhotoId'] == startPhotoId);
-    }
-
+  group('日の文を直す（編集シート。場面の見出しは timeline_scene_photos_test.dart）', () {
     /// シートの [label] の欄
     Finder field(String label) => find.widgetWithText(TextField, label);
 
-    /// 最初の場面（朝ごはん）の編集シートを開く
-    Future<void> openSceneSheet(WidgetTester tester) async {
-      await tester.tap(find.bySemanticsLabel('この場面を編集').first);
+    /// 1日目の編集シートを開く（日と場面のシートに共通する扱いは、日のシートで確かめる）
+    Future<void> openDaySheet(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsLabel('この日を編集').first);
       await letFramesRun(tester);
     }
-
-    testWidgets('場面の編集のボタンで、今の見出しと一言を入れたシートを開き、見出しを直して保存すると描き直し、一言は送らず AI の文のまま残る',
-        (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-
-      await openSceneSheet(tester);
-      expect(find.text('場面を編集'), findsOneWidget);
-      expect(find.text('空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）'), findsOneWidget);
-      expect(tester.widget<TextField>(field('見出し')).controller!.text, '朝ごはん');
-      expect(
-          tester.widget<TextField>(field('一言')).controller!.text, '港の市場で海鮮丼。');
-
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-
-      expect(find.text('場面を編集'), findsNothing);
-      expect(find.text('市場の朝ごはん'), findsOneWidget);
-      expect(find.text('朝ごはん'), findsNothing);
-      // 直していない一言は送らず、AI の文のまま残る
-      expect(sceneOf(backend, breakfastId)['labelSource'], 'user');
-      expect(sceneOf(backend, breakfastId)['noteSource'], 'ai');
-      semantics.dispose();
-    });
 
     testWidgets('日の編集のボタンで「N日目を編集」を開き、まとめを直して保存すると描き直す', (tester) async {
       final semantics = tester.ensureSemantics();
@@ -738,82 +630,57 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('変えていない欄は送らず、AI の文のまま残る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      // 3日目はタイトルもまとめも AI の文
+      await _scrollTo(tester, find.text('3日目'));
+      await tester.tap(find.bySemanticsLabel('この日を編集').last);
+      await letFramesRun(tester);
+      expect(find.text('3日目を編集'), findsOneWidget);
+
+      await tester.enterText(field('タイトル'), '旭川のラーメン');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+
+      expect(find.text('旭川のラーメン'), findsOneWidget);
+      final days = (backend.timelinesByTripId[hokkaidoTripId]!['current']
+              as Map<String, Object?>)['days'] as List;
+      final third = days.cast<Map<String, Object?>>()
+          .firstWhere((day) => day['date'] == '2026-10-07');
+      expect(third['titleSource'], 'user');
+      expect(third['summarySource'], 'ai');
+      semantics.dispose();
+    });
+
     testWidgets('前後の空白だけを変えた欄は変えていないものとして、何も変えていなければ送らずに閉じる', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       // 送ってしまうと、この失敗でシートが開いたままになる
-      backend.failNext(TripRoute.timelineScenePatch);
+      backend.failNext(TripRoute.timelineDayPatch);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '  朝ごはん  ');
+      await openDaySheet(tester);
+      await tester.enterText(field('タイトル'), '  小樽の運河と寿司  ');
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
       semantics.dispose();
     });
 
-    testWidgets('場面の「見出し」「一言」の欄は 30・200 文字、日の「タイトル」「まとめ」の欄は 40・400 文字で止める',
+    testWidgets('日の「タイトル」「まとめ」の欄は 40・400 文字で止める',
         (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTimeline(tester);
 
-      for (final (sheet, limits) in [
-        ('場面', {'見出し': 30, '一言': 200}),
-        ('日', {'タイトル': 40, 'まとめ': 400}),
-      ]) {
-        await tester.tap(find.bySemanticsLabel('この$sheetを編集').first);
-        await letFramesRun(tester);
-        for (final MapEntry(key: label, value: limit) in limits.entries) {
-          await tester.enterText(field(label), 'あ' * (limit + 1));
-          await tester.pump();
-          expect(tester.widget<TextField>(field(label)).controller!.text.length,
-              limit, reason: '$sheetの「$label」');
-        }
-        await tester.tap(find.text('キャンセル'));
-        await letFramesRun(tester);
+      await openDaySheet(tester);
+      for (final (label, limit) in [('タイトル', 40), ('まとめ', 400)]) {
+        await tester.enterText(field(label), 'あ' * (limit + 1));
+        await tester.pump();
+        expect(tester.widget<TextField>(field(label)).controller!.text.length,
+            limit, reason: label);
       }
-      semantics.dispose();
-    });
-
-    testWidgets('欄を空にして保存すると、AI が書いた文に戻る', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final backend = await _openTimeline(tester);
-      backend.timelineAiTexts['$breakfastId:label'] = 'AI の朝ごはん';
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-
-      expect(find.text('AI の朝ごはん'), findsOneWidget);
-      expect(sceneOf(backend, breakfastId)['labelSource'], 'ai');
-      semantics.dispose();
-    });
-
-    testWidgets('「見出しなし」の場面（区切りを直して足した場面）は見出しを書けて、空にすると「見出しなし」に戻る', (tester) async {
-      final semantics = tester.ensureSemantics();
-      // 最初の場面は AI の文が無い（区切りを直して足した場面。05 §5.15）
-      final current = _current();
-      final firstScene = ((current['days'] as List).first as Map<String, Object?>)['scenes'] as List;
-      firstScene[0] = {...firstScene[0] as Map<String, Object?>, 'label': null, 'labelSource': null};
-      final backend = await _openTimeline(tester, current: current);
-      backend.timelineAiTexts['$breakfastId:label'] = null;
-      expect(find.text('見出しなし'), findsOneWidget);
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-      expect(find.text('市場'), findsOneWidget);
-      expect(find.text('見出しなし'), findsNothing);
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-      expect(find.text('見出しなし'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -821,52 +688,52 @@ void main() {
         (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
-      final reply = backend.holdNextReply(TripRoute.timelineScenePatch);
+      final reply = backend.holdNextReply(TripRoute.timelineDayPatch);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await openDaySheet(tester);
+      await tester.enterText(field('まとめ'), '市場と運河の一日。');
       // 2回目は、押せなくなった描き直しが届く前に押す
       await tester.tap(find.text('保存'));
       await tester.tap(find.text('保存'), warnIfMissed: false);
       await tester.pump();
       expect(_button(tester, '保存').onPressed, isNull);
       expect(_button(tester, 'キャンセル').onPressed, isNull);
-      await tester.drag(find.text('場面を編集'), const Offset(0, 600));
+      await tester.drag(find.text('1日目を編集'), const Offset(0, 600));
       await letFramesRun(tester);
-      expect(find.text('場面を編集'), findsOneWidget);
+      expect(find.text('1日目を編集'), findsOneWidget);
       // 端末の戻る操作（Android の戻るジェスチャーと同じ経路で PopScope を通る）。
       // 画面の戻るボタン（tapBack）はシートの下の旅行詳細の戻るボタンを狙い、実際はシートの外の幕に当たってしまう
       await tester.binding.handlePopRoute();
       // 閉じていくシートも、閉じ終えるまでは見つかる。閉じ終えるだけの時間を進めてから見る
       await letFramesRun(tester);
-      expect(find.text('場面を編集'), findsOneWidget);
+      expect(find.text('1日目を編集'), findsOneWidget);
 
       reply.complete();
       await letFramesRun(tester);
       // 旅行詳細のタイムラインのまま（2回目の応答で旅行詳細まで閉じない）
-      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('タイムライン'), findsOneWidget);
-      expect(find.text('市場の朝ごはん'), findsOneWidget);
+      expect(find.text('市場と運河の一日。'), findsOneWidget);
       semantics.dispose();
     });
 
     testWidgets('保存に失敗したら、シートを開いたままエラーの文言を出す', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
-      backend.failNext(TripRoute.timelineScenePatch);
+      backend.failNext(TripRoute.timelineDayPatch);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await openDaySheet(tester);
+      await tester.enterText(field('まとめ'), '市場と運河の一日。');
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(find.text('場面を編集'), findsOneWidget);
+      expect(find.text('1日目を編集'), findsOneWidget);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
       expect(_button(tester, '保存').onPressed, isNotNull);
       semantics.dispose();
     });
 
-    testWidgets('保存のときに別の端末がタイムラインを変えていたら（409）、その場面が無くなっていたら（404）、閉じて知らせ、読み直す',
+    testWidgets('保存のときに別の端末がタイムラインを変えていたら（409）、その日が無くなっていたら（404）、閉じて知らせ、読み直す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       for (final (label, status, code, message) in [
@@ -876,10 +743,10 @@ void main() {
           'TIMELINE_STATE_CONFLICT',
           'タイムラインが変わったか、作っている途中です。読み直してください'
         ),
-        ('404', 404, 'TIMELINE_NOT_FOUND', 'その場面はタイムラインにありません'),
+        ('404', 404, 'TIMELINE_NOT_FOUND', 'その日はタイムラインにありません'),
       ]) {
         final backend = await _openTimeline(tester);
-        backend.failNext(TripRoute.timelineScenePatch,
+        backend.failNext(TripRoute.timelineDayPatch,
             status: status, code: code, message: message);
         // 読み直したことを、作っている間の表示が出ることで確かめる
         backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
@@ -890,12 +757,12 @@ void main() {
           'startedAt': '2026-10-26T09:00:00.000Z',
         });
 
-        await openSceneSheet(tester);
-        await tester.enterText(field('見出し'), '市場の朝ごはん');
+        await openDaySheet(tester);
+        await tester.enterText(field('まとめ'), '市場と運河の一日。');
         await tester.tap(find.text('保存'));
         await letFramesRun(tester);
 
-        expect(find.text('場面を編集'), findsNothing, reason: label);
+        expect(find.text('1日目を編集'), findsNothing, reason: label);
         expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget,
             reason: label);
         expect(find.text('タイムラインの案を作っています'), findsOneWidget,
@@ -908,35 +775,16 @@ void main() {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await openDaySheet(tester);
+      await tester.enterText(field('まとめ'), '市場と運河の一日。');
       backend.trips.clear();
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('この旅行は削除されています'), findsOneWidget);
       // タイムラインが変わったのではない（読み直して気づくのではなく、保存の応答で旅行が無いと分かる）
       expect(find.text('タイムラインが変わりました。読み直しました'), findsNothing);
-      semantics.dispose();
-    });
-
-    testWidgets('下書きがある間も、場面の文を直せる', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await _openTimeline(tester, draft: {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'recut',
-        'phase': 'reviewing',
-        'job': null,
-        'startedAt': '2026-10-26T09:00:00.000Z',
-      });
-
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
-      await tester.tap(find.text('保存'));
-      await letFramesRun(tester);
-
-      expect(find.text('市場の朝ごはん'), findsOneWidget);
       semantics.dispose();
     });
   });
@@ -970,8 +818,8 @@ void main() {
       expect(find.textContaining('作った後に写真が'), findsNothing);
       expect(find.text('作り直す'), findsNothing);
 
-      // 写真ビューアを開いて閉じると、同じ表示のままタイムラインを読み直す（§8.3）
-      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      // 場面の写真の一覧を開いて閉じると、同じ表示のままタイムラインを読み直す（§8.3）
+      await tester.tap(find.text('朝ごはん'));
       await letFramesRun(tester);
       await tapBack(tester);
       await letFramesRun(tester);
@@ -1019,22 +867,20 @@ void main() {
           isNull);
     });
 
-    testWidgets('操作を送っている間は、日と場面の編集のボタンも押せない', (tester) async {
+    testWidgets('操作を送っている間は、日の編集のボタンも押せない', (tester) async {
       // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
       await _chooseFromMenu(tester, 'タイムラインを編集');
-      for (final label in ['この日を編集', 'この場面を編集']) {
-        expect(
-            tester
-                .widget<IconButton>(find.ancestor(
-                    of: find.bySemanticsLabel(label).first,
-                    matching: find.byType(IconButton)))
-                .onPressed,
-            isNull);
-      }
+      expect(
+          tester
+              .widget<IconButton>(find.ancestor(
+                  of: find.bySemanticsLabel('この日を編集').first,
+                  matching: find.byType(IconButton)))
+              .onPressed,
+          isNull);
 
       reply.complete();
       await letFramesRun(tester);

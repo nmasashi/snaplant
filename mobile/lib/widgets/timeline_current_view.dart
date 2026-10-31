@@ -13,21 +13,19 @@ class TimelineCurrentView extends StatelessWidget {
   const TimelineCurrentView({
     super.key,
     required this.current,
-    required this.onOpenPhoto,
+    required this.onOpenScene,
     required this.onEditDay,
-    required this.onEditScene,
     this.banner,
     this.notices = const [],
   });
 
   final TimelineCurrent current;
 
-  /// サムネイルをタップした（写真ビューアで開く。§8.3）。null ならタップを受けない（写真を読んでいる間・操作を送っている間）
-  final void Function(TimelinePhoto photo)? onOpenPhoto;
+  /// 場面をタップした（場面の写真の一覧を開く。§8.3・§8.8）。null ならタップを受けない（操作を送っている間）
+  final void Function(TimelineDay day, TimelineScene scene)? onOpenScene;
 
-  /// 日・場面の編集のボタン（§8.5）。null なら押せない（操作を送っている間）
+  /// 日の編集のボタン（§8.5）。null なら押せない（操作を送っている間）。場面の見出しは場面の写真の一覧から直す（§8.8）
   final void Function(TimelineDay day)? onEditDay;
-  final void Function(TimelineScene scene)? onEditScene;
 
   /// 完成版の上に出す、タイムラインを編集している途中の案内（§8.3）
   final Widget? banner;
@@ -55,12 +53,6 @@ class TimelineCurrentView extends StatelessWidget {
             textAlign: TextAlign.center),
       ],
     );
-  }
-
-  /// [photo] のサムネイルのタップ（受け付けないときは null）
-  VoidCallback? _tapOf(TimelinePhoto photo) {
-    final open = onOpenPhoto;
-    return open == null ? null : () => open(photo);
   }
 
   /// 日の見出し（何日目・日付・印）、タイトル、まとめ、場面のカード
@@ -111,12 +103,13 @@ class TimelineCurrentView extends StatelessWidget {
       ],
       for (final scene in day.scenes) ...[
         const SizedBox(height: 12),
-        _buildScene(scene, secondary),
+        _buildScene(day, scene, secondary),
       ],
     ];
   }
 
-  Widget _buildScene(TimelineScene scene, TextStyle secondary) {
+  Widget _buildScene(
+      TimelineDay day, TimelineScene scene, TextStyle secondary) {
     final details = [
       timelineTimeRange(scene.photos),
       if (scene.placeNames.isNotEmpty) scene.placeNames.join('、'),
@@ -124,69 +117,73 @@ class TimelineCurrentView extends StatelessWidget {
     ].join(' · ');
     final shown = scene.photos.take(_thumbnailCount).toList();
     final rest = scene.photos.length - shown.length;
+    final open = onOpenScene;
     return Card(
       margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                // 見出しの印と見出し。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）。
-                // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（編集のボタンで書ける）
-                if (scene.label != null) ...[
-                  Icon(Icons.circle,
-                      size: 10,
-                      color:
-                          scene.hasFood ? AppColors.secondary : AppColors.info),
-                  const SizedBox(width: 6),
-                  Expanded(
-                      child: Text(scene.label!,
-                          style: AppTextStyles.body1
-                              .copyWith(fontWeight: FontWeight.bold))),
-                ] else
-                  Expanded(child: Text('見出しなし', style: secondary)),
-                IconButton(
-                  icon:
-                      const Icon(Icons.edit_outlined, semanticLabel: 'この場面を編集'),
-                  tooltip: 'この場面を編集',
-                  onPressed:
-                      onEditScene == null ? null : () => onEditScene!(scene),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(details, style: secondary),
-            if (scene.note != null) ...[
-              const SizedBox(height: 4),
-              Text(scene.note!, style: AppTextStyles.body2),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                for (var i = 0; i <= _thumbnailCount; i++) ...[
-                  if (i > 0) const SizedBox(width: 2),
-                  Expanded(
-                    child: AspectRatio(
-                      aspectRatio: 1,
-                      child: i < shown.length
-                          ? TimelineThumbnail(
-                              photo: shown[i], onTap: _tapOf(shown[i]))
-                          : i == _thumbnailCount && rest > 0
-                              ? ColoredBox(
-                                  color: AppColors.surfaceVariant,
-                                  child: Center(
-                                      child: Text('+$rest枚',
-                                          style: AppTextStyles.body2)),
-                                )
-                              : const SizedBox.shrink(),
-                    ),
-                  ),
+      clipBehavior: Clip.antiAlias,
+      // 場面のどこをタップしても、場面の写真の一覧を開く（§8.3）
+      child: InkWell(
+        onTap: open == null ? null : () => open(day, scene),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  // 見出しの印と見出し。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）。
+                  // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（場面の写真の一覧で書ける）
+                  if (scene.label != null) ...[
+                    Icon(Icons.circle,
+                        size: 10,
+                        color: scene.hasFood
+                            ? AppColors.secondary
+                            : AppColors.info),
+                    const SizedBox(width: 6),
+                    Expanded(
+                        child: Text(scene.label!,
+                            style: AppTextStyles.body1
+                                .copyWith(fontWeight: FontWeight.bold))),
+                  ] else
+                    Expanded(child: Text('見出しなし', style: secondary)),
                 ],
+              ),
+              const SizedBox(height: 4),
+              Text(details, style: secondary),
+              if (scene.note != null) ...[
+                const SizedBox(height: 4),
+                Text(scene.note!, style: AppTextStyles.body2),
               ],
-            ),
-          ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  for (var i = 0; i <= _thumbnailCount; i++) ...[
+                    if (i > 0) const SizedBox(width: 2),
+                    Expanded(
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: i < shown.length
+                            // 写真のタップも場面を開く（読み上げで写真を選んだときも開けるように）
+                            ? TimelineThumbnail(
+                                photo: shown[i],
+                                onTap: open == null
+                                    ? null
+                                    : () => open(day, scene))
+                            : i == _thumbnailCount && rest > 0
+                                ? ColoredBox(
+                                    color: AppColors.surfaceVariant,
+                                    child: Center(
+                                        child: Text('+$rest枚',
+                                            style: AppTextStyles.body2)),
+                                  )
+                                : const SizedBox.shrink(),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
