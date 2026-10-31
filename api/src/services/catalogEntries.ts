@@ -9,14 +9,42 @@ import { CatalogHeadPhoto, CatalogNameCountRow } from './catalogQueries';
  * 集計とその並びは偽物では作れないので、入口ではなく catalogPageOf() を単体で確かめる（CLAUDE.md の名簿）
  */
 
-/** 名前の決まった、名前ごとの枚数の行 */
+/** 名前の決まった、名前ごとの枚数の行（属は名前ごとに1つに決めたもの） */
 interface CatalogNameCount {
   name: string;
+  genus: string | null;
+  genusName: string | null;
   photoCount: number;
 }
 
+/** 文字列の符号単位の順（ロケールに依らず、どの環境でも同じ。05 §5.14） */
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 /**
- * 名前ごとの枚数の行を名前順に並べ、offset から limit 件を切る
+ * GROUP BY の行（名前・属の組ごと）を名前ごとに合わせる。枚数は足し、属は写真の多い属（同じ枚数なら属の学名の順で先）にする。
+ * 属の分からない行（属を書く前に識別した写真など）は、属の分かる行があれば属に使わない
+ */
+function countsByName(rows: CatalogNameCountRow[]): CatalogNameCount[] {
+  const byName = new Map<string, { photoCount: number; genera: CatalogNameCountRow[] }>();
+  for (const row of rows) {
+    if (typeof row.name !== 'string') {
+      continue;
+    }
+    const counted = byName.get(row.name) ?? { photoCount: 0, genera: [] };
+    counted.photoCount += row.photoCount;
+    if (typeof row.genus === 'string') {
+      counted.genera.push(row);
+    }
+    byName.set(row.name, counted);
+  }
+  return [...byName].map(([name, { photoCount, genera }]) => {
+    const [top] = genera.sort((a, b) => b.photoCount - a.photoCount || byCodeUnit(a.genus as string, b.genus as string));
+    return { name, genus: top?.genus ?? null, genusName: top?.genusName ?? null, photoCount };
+  });
+}
+
+/**
+ * 名前ごとの枚数の行を属の学名の順（同じ属は名前の順、属が分からない項目は最後）に並べ、offset から limit 件を切る
  *
  * 並びは文字列の符号単位の順（ロケールに依らず、どの環境でも同じ。05 §5.14）。
  * GROUP BY の鍵が null の行は項目にしない（写っていると判断した写真は必ず名前を持つが、集計の鍵の null に頼らない）
@@ -30,9 +58,12 @@ function pageOfCatalogNames(
   offset: number,
   limit: number
 ): { page: CatalogNameCount[]; total: number } {
-  const named = rows
-    .filter((row): row is CatalogNameCount => typeof row.name === 'string')
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const named = countsByName(rows).sort((a, b) => {
+    if (a.genus !== b.genus) {
+      return a.genus === null ? 1 : b.genus === null ? -1 : byCodeUnit(a.genus, b.genus);
+    }
+    return byCodeUnit(a.name, b.name);
+  });
   return { page: named.slice(offset, offset + limit), total: named.length };
 }
 
@@ -46,7 +77,7 @@ function pageOfCatalogNames(
  */
 export function catalogEntryOf(
   kind: string,
-  row: CatalogNameCount,
+  row: Pick<CatalogNameCount, 'name' | 'photoCount'> & Partial<Pick<CatalogNameCount, 'genus' | 'genusName'>>,
   head: CatalogHeadPhoto | null,
   coverUrlOf: CoverUrlOf
 ): CatalogEntry | null {
@@ -67,6 +98,8 @@ export function catalogEntryOf(
     description: identification.description ?? null,
     characteristics: identification.characteristics ?? null,
     attributes: identification.attributes ?? {},
+    genus: row.genus ?? null,
+    genusName: row.genusName ?? null,
     photoCount: row.photoCount,
     coverThumbnailUrl: coverUrlOf(head.thumbnailBlobName ?? head.blobName),
   };

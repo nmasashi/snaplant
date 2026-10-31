@@ -13,6 +13,9 @@ import { PhotoDocument } from '../types/album';
 /** 図鑑の項目（名前）ごとの写真の枚数の行 */
 export interface CatalogNameCountRow {
   name: string | null;
+  /** 属の学名と属名（識別の attributes。属を書く前に識別した写真や、属を持たない種類では無い） */
+  genus?: string | null;
+  genusName?: string | null;
   photoCount: number;
 }
 
@@ -30,9 +33,10 @@ export async function queryCatalogNameCounts(container: Container, kind: string)
   const { resources } = await container.items
     .query<CatalogNameCountRow>({
       query:
-        'SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c' +
+        'SELECT c.identification.name AS name, c.identification.attributes.genus AS genus,' +
+        ' c.identification.attributes.genusName AS genusName, COUNT(1) AS photoCount FROM c' +
         ' WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true' +
-        ' GROUP BY c.identification.name',
+        ' GROUP BY c.identification.name, c.identification.attributes.genus, c.identification.attributes.genusName',
       parameters: [
         { name: '@type', value: 'photo' },
         { name: '@kind', value: kind },
