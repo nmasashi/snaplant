@@ -448,22 +448,40 @@ class _GenusHeadingTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final genus = heading.genus;
     final genusName = heading.genusName;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Text(genus == null ? '属が分からない' : genusName ?? genus,
-              style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.bold)),
-          if (genus != null && genusName != null) ...[
-            const SizedBox(width: 8),
-            Text(genus,
-                style: AppTextStyles.body1.copyWith(
-                    color: AppColors.textSecondary,
-                    fontStyle: FontStyle.italic)),
+    final bold = AppTextStyles.body1.copyWith(fontWeight: FontWeight.bold);
+    // 学名は斜体（属の学名だけを見出しにするときも同じ書き方にする）
+    final latin = AppTextStyles.body1
+        .copyWith(color: AppColors.textSecondary, fontStyle: FontStyle.italic);
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+        // 日本語の属名と属の学名の長さは決まっていない（AI の答えのまま）ので、収まらなければ省いて1行に収める
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Flexible(
+              child: Text(
+                  genus == null ? '属が分からない' : genusName ?? genus,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: genus != null && genusName == null
+                      ? latin.copyWith(
+                          color: bold.color, fontWeight: FontWeight.bold)
+                      : bold),
+            ),
+            if (genus != null && genusName != null) ...[
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(genus,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: latin),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
