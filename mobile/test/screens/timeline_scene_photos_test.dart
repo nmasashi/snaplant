@@ -218,6 +218,37 @@ void main() {
       reply.complete();
       await letFramesRun(tester);
     });
+
+    testWidgets('タイムラインを読み直している途中に場面を開いても、その読み直しの失敗を一覧の上に出さない', (tester) async {
+      final backend = await _openTimeline(tester);
+      backend.failNext(TripRoute.timeline);
+      final reply = backend.holdNextReply(TripRoute.timeline);
+      await tester.drag(find.text('1日目'), const Offset(0, 600));
+      await letFramesRun(tester);
+
+      await tester.tap(find.text('朝ごはん'));
+      await letFramesRun(tester);
+      reply.complete();
+      await letFramesRun(tester);
+
+      expect(_appBarText('朝ごはん'), findsOneWidget);
+      expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
+    });
+
+    testWidgets('場面の写真は、読み上げからもタップできる（完成版と一覧のどちらも）', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openTimeline(tester);
+      expect(tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
+          containsSemantics(label: '2026年10月5日 07:58', hasTapAction: true),
+          reason: '完成版');
+
+      await tester.tap(find.text('朝ごはん'));
+      await letFramesRun(tester);
+      expect(tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
+          containsSemantics(label: '2026年10月5日 07:58', hasTapAction: true),
+          reason: '一覧');
+      semantics.dispose();
+    });
   });
 
   group('写真ビューアを開く', () {
@@ -299,6 +330,27 @@ void main() {
         expect(find.text('タイムライン'), findsOneWidget, reason: label);
         expect(find.text(shown), findsOneWidget, reason: label);
       }
+      semantics.dispose();
+    });
+
+    testWidgets('閉じた後の読み直しの応答が、一覧から戻る途中に届いても、旅行詳細は閉じない', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+
+      // 場面が無くなっていた（一覧なら旅行詳細に戻る応答）を、一覧から戻り始めた後に返す
+      backend.timelinesByTripId[hokkaidoTripId] = _rebuilding;
+      final reply = backend.holdNextReply(TripRoute.timeline);
+      await tapBack(tester);
+      await letFramesRun(tester);
+      await tapBack(tester);
+      await tester.pump();
+      reply.complete();
+      await letFramesRun(tester);
+
+      expect(find.text('タイムライン'), findsOneWidget);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
       semantics.dispose();
     });
 
