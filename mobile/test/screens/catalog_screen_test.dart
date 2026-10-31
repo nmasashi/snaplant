@@ -24,10 +24,11 @@ FakeTripBackend _backend() => FakeTripBackend(
       },
     );
 
-/// 名前に番号を付けた [count] 件の植物の項目（ページを確かめる用。番号順が名前順）
-List<Map<String, Object?>> _manyPlants(int count) => [
+/// 名前に番号を付けた [count] 件の植物の項目（ページを確かめる用。番号順が名前順）。[genus]・[genusName] は全部の項目の属
+List<Map<String, Object?>> _manyPlants(int count, {String? genus, String? genusName}) => [
       for (var i = 0; i < count; i++)
-        catalogEntryJson('plant', '植物${i.toString().padLeft(3, '0')}'),
+        catalogEntryJson('plant', '植物${i.toString().padLeft(3, '0')}',
+            genus: genus, genusName: genusName),
     ];
 
 /// 種類のタブ（Tab）
@@ -152,12 +153,11 @@ void main() {
     testWidgets('続きのページで同じ属が続くなら、ページの境目に見出しを繰り返さない', (tester) async {
       final backend =
           FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
-        'plant': [
-          for (final entry in _manyPlants(60))
-            {...entry, 'genus': 'Aconitum', 'genusName': 'トリカブト属'},
-        ],
+        'plant': _manyPlants(60, genus: 'Aconitum', genusName: 'トリカブト属'),
       });
       await openCatalogTab(tester, backend);
+      // 見出しは一番上に1つある（見出しを出さない作りでは、下の「無い」が意味を持たない）
+      expect(find.text('トリカブト属'), findsOneWidget);
 
       await tester.drag(find.byType(ListView), const Offset(0, -20000));
       await letFramesRun(tester);
@@ -170,6 +170,22 @@ void main() {
       // 1ページ目の最後（植物049）と2ページ目の先頭（植物050）の間に見出しが無い（最初の見出しは画面のずっと上）
       expect(find.text('植物050'), findsOneWidget);
       expect(find.text('トリカブト属'), findsNothing);
+    });
+
+    testWidgets('日本語の属名と属の学名が長くても、見出しは画面の幅からはみ出さない', (tester) async {
+      // サーバは日本語の属名の長さを決めていない（AI の答えのまま）
+      final backend =
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+        'plant': [
+          catalogEntryJson('plant', 'ながいなまえのはな',
+              genus: 'Pseudotsugaphyllumgigantea',
+              genusName: 'とてもながいなまえのぞくとてもながいなまえのぞくとてもながいなまえのぞく'),
+        ],
+      });
+      await openCatalogTab(tester, backend);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('ながいなまえのはな'), findsOneWidget);
     });
 
     testWidgets('読んだ項目に属の分かるものが1つも無ければ（調べ直す前の写真だけなど）、見出しを出さない', (tester) async {
