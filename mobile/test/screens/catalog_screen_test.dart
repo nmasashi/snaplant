@@ -118,6 +118,38 @@ void main() {
     expect(find.text('88%'), findsOneWidget);
   });
 
+  group('属の見出し（02 §5 #56）', () {
+    testWidgets(
+        '属の学名の順に並んだ項目の前に属の見出し（日本語の属名と属の学名）を出し、属が分からない植物の前に「属が分からない」を出す。日本語の属名が無い属は属の学名を見出しにする',
+        (tester) async {
+      // サーバは属の学名の順（同じ属は名前の順、属が分からない項目は最後）に返す（05 §5.14）
+      final backend =
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+        'plant': [
+          catalogEntryJson('plant', 'ハナトリカブト',
+              genus: 'Aconitum', genusName: 'トリカブト属'),
+          catalogEntryJson('plant', 'ヤマトリカブト',
+              genus: 'Aconitum', genusName: 'トリカブト属'),
+          catalogEntryJson('plant', 'チングルマ', genus: 'Sieversia'),
+          catalogEntryJson('plant', 'なにかの花'),
+        ],
+      });
+      await openCatalogTab(tester, backend);
+
+      expect(find.text('トリカブト属'), findsOneWidget);
+      expect(find.text('Aconitum'), findsOneWidget);
+      expect(find.text('Sieversia'), findsOneWidget);
+      expect(find.text('属が分からない'), findsOneWidget);
+      // 見出しは、その属の最初の項目の上に1つ
+      double top(String text) => tester.getTopLeft(find.text(text)).dy;
+      expect(top('トリカブト属'), lessThan(top('ハナトリカブト')));
+      expect(top('ヤマトリカブト'), lessThan(top('Sieversia')));
+      expect(top('Sieversia'), lessThan(top('チングルマ')));
+      expect(top('チングルマ'), lessThan(top('属が分からない')));
+      expect(top('属が分からない'), lessThan(top('なにかの花')));
+    });
+  });
+
   testWidgets('種類のタブを切り替えると、その種類の項目を並べる', (tester) async {
     await openCatalogTab(tester, _backend());
 

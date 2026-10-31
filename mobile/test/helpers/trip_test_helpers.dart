@@ -1501,15 +1501,23 @@ Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async 
 
 /// 図鑑の項目（`GET /api/catalog/entries` の1件）。表紙の URL は Blob の場所に署名を付けた形。
 /// 本物の信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）。
-/// [description]・[characteristics] を省く（既定の ''）と「{名前}の説明」「{名前}の特徴」になる（空文字の説明は作れない）
+/// [description]・[characteristics] を省く（既定の ''）と「{名前}の説明」「{名前}の特徴」になる（空文字の説明は作れない）。
+/// [genus]・[genusName] は項目の属の学名と属名（P-1。省くと属が分からない項目）
 Map<String, Object?> catalogEntryJson(String kind, String name,
-        {num confidence = 90, int photoCount = 1, String? description = '', String? characteristics = ''}) => {
+        {num confidence = 90,
+        int photoCount = 1,
+        String? description = '',
+        String? characteristics = '',
+        String? genus,
+        String? genusName}) => {
       'kind': kind,
       'name': name,
       'confidence': confidence,
       'description': description == '' ? '$nameの説明' : description,
       'characteristics': characteristics == '' ? '$nameの特徴' : characteristics,
       'attributes': <String, Object?>{},
+      'genus': genus,
+      'genusName': genusName,
       'photoCount': photoCount,
       'coverThumbnailUrl': 'https://test.blob.core.windows.net/photos/${name.hashCode}.thumb.jpg?sv=2024&sig=test',
     };
