@@ -1111,6 +1111,82 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[1].photos.map((p: any) => p.id)).toEqual([photoId('c')]);
     });
 
+    it('外すと出す写真（撮影日時があり、消えておらず、外していない写真）が1枚も無くなるなら、409（TIMELINE_NO_DATED_PHOTOS）で書かない（日時の無い写真と消えた写真は数えない）', async () => {
+      // a・b・c を外してあり、e は控えを取った後に消えた。d を外すと、残るのは撮影日時の無い u だけ
+      cosmosBackend.documents.delete(photoId('e'));
+      const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: [photoId('a'), photoId('b'), photoId('c')] }), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('d')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS', message: '撮影日時のある写真がありません' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
+    it('出す写真がもう無い下書きでも、外す写真が増えなければ 409 にせず、書かずに 200 を返す（送り直しを断らない）', async () => {
+      // この決まりより前に、写真を全部外した下書き
+      const all = ['a', 'b', 'c', 'd', 'e'].map(photoId);
+      const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: all }), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
+    it('文を書くのに失敗した下書きで出す写真がもう無くても、外す写真が増えなければ 409 にせず、確かめ中に戻す', async () => {
+      const failed = reviewing({
+        phase: 'writing',
+        job: { step: 'write', state: 'failed', attempts: 3, lastError: 'ai', updatedAt: '2026-10-25T08:30:00.000Z' },
+        excludedPhotoIds: ['a', 'b', 'c', 'd', 'e'].map(photoId)
+      });
+      const timeline = timelineWith(failed);
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({ ...timeline, draft: { ...failed, phase: 'reviewing', job: null }, updatedAt: NOW });
+    });
+
+    it('区切りの直しの下書きでも、完成版の外した写真と合わせて出す写真が残るなら外せる', async () => {
+      // 下書きでは a・b を外し、完成版では c を外した。d を外しても e が残る
+      const draft = reviewing({ reason: 'recut', excludedPhotoIds: [photoId('a'), photoId('b')] });
+      const timeline = timelineDocument(TRIP_ID, {
+        current: { ...timelineCurrent(SNAPSHOT_ID), excludedPhotoIds: [photoId('c')] },
+        draft,
+        updatedAt: '2026-10-25T08:55:00.000Z'
+      });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual({
+        ...timeline,
+        draft: { ...draft, excludedPhotoIds: [photoId('a'), photoId('b'), photoId('d')] },
+        updatedAt: NOW
+      });
+    });
+
+    it('区切りの直しの下書きは、当てるときと同じく完成版の外した写真と合わせて、出す写真が1枚も無くなるなら 409（TIMELINE_NO_DATED_PHOTOS）で書かない', async () => {
+      // 下書きでは a・b を外し、完成版では c・e を外した（下書きに写っていない）。d を外すと、合わせて出す写真が無くなる
+      const timeline = timelineDocument(TRIP_ID, {
+        current: { ...timelineCurrent(SNAPSHOT_ID), excludedPhotoIds: [photoId('c'), photoId('e')] },
+        draft: reviewing({ reason: 'recut', excludedPhotoIds: [photoId('a'), photoId('b')] }),
+        updatedAt: '2026-10-25T08:55:00.000Z'
+      });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('d')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS', message: '撮影日時のある写真がありません' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
     it('文を書くのに失敗した下書きは、もう外した写真を送っても確かめ中に戻す', async () => {
       const failed = reviewing({
         phase: 'writing',

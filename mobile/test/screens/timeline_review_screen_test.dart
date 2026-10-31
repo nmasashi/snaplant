@@ -476,6 +476,27 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('外すと出す写真が1枚も無くなるなら、サーバが断った文言「撮影日時のある写真がありません」を出し、外さずに案の確認画面に留まる', (tester) async {
+      final semantics = tester.ensureSemantics();
+      // 写真が1枚だけの案
+      final backend = await _openTimeline(tester, draft: _reviewingDraft(scenes: const [
+        [
+          [1]
+        ]
+      ]));
+      await _openReview(tester);
+
+      await chooseExclude(tester, '2026年10月5日 07:50');
+      await tester.tap(find.text('外す'));
+      await letFramesRun(tester);
+
+      expect(find.text('撮影日時のある写真がありません'), findsOneWidget);
+      expect(excludedOf(backend), isEmpty);
+      expect(photoThumbnail('2026年10月5日 07:50'), findsOneWidget);
+      expect(_title('タイムラインの案'), findsOneWidget);
+      semantics.dispose();
+    });
+
     testWidgets('外すときに下書きが別の端末で変わっていたら（409）、知らせて旅行詳細に戻る', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
