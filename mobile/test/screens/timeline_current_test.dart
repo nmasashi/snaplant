@@ -612,6 +612,12 @@ void main() {
       await letFramesRun(tester);
     }
 
+    /// 1日目の編集シートを開く（日と場面のシートに共通する扱いは、日のシートで確かめる）
+    Future<void> openDaySheet(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsLabel('この日を編集').first);
+      await letFramesRun(tester);
+    }
+
     testWidgets('場面の編集のボタンで、今の見出しと一言を入れたシートを開き、見出しを直して保存すると描き直し、一言は送らず AI の文のまま残る',
         (tester) async {
       final semantics = tester.ensureSemantics();
@@ -666,14 +672,14 @@ void main() {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       // 送ってしまうと、この失敗でシートが開いたままになる
-      backend.failNext(TripRoute.timelineScenePatch);
+      backend.failNext(TripRoute.timelineDayPatch);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '  朝ごはん  ');
+      await openDaySheet(tester);
+      await tester.enterText(field('タイトル'), '  小樽の運河と寿司  ');
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsNothing);
       semantics.dispose();
     });
@@ -745,52 +751,52 @@ void main() {
         (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
-      final reply = backend.holdNextReply(TripRoute.timelineScenePatch);
+      final reply = backend.holdNextReply(TripRoute.timelineDayPatch);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await openDaySheet(tester);
+      await tester.enterText(field('まとめ'), '市場と運河の一日。');
       // 2回目は、押せなくなった描き直しが届く前に押す
       await tester.tap(find.text('保存'));
       await tester.tap(find.text('保存'), warnIfMissed: false);
       await tester.pump();
       expect(_button(tester, '保存').onPressed, isNull);
       expect(_button(tester, 'キャンセル').onPressed, isNull);
-      await tester.drag(find.text('場面を編集'), const Offset(0, 600));
+      await tester.drag(find.text('1日目を編集'), const Offset(0, 600));
       await letFramesRun(tester);
-      expect(find.text('場面を編集'), findsOneWidget);
+      expect(find.text('1日目を編集'), findsOneWidget);
       // 端末の戻る操作（Android の戻るジェスチャーと同じ経路で PopScope を通る）。
       // 画面の戻るボタン（tapBack）はシートの下の旅行詳細の戻るボタンを狙い、実際はシートの外の幕に当たってしまう
       await tester.binding.handlePopRoute();
       // 閉じていくシートも、閉じ終えるまでは見つかる。閉じ終えるだけの時間を進めてから見る
       await letFramesRun(tester);
-      expect(find.text('場面を編集'), findsOneWidget);
+      expect(find.text('1日目を編集'), findsOneWidget);
 
       reply.complete();
       await letFramesRun(tester);
       // 旅行詳細のタイムラインのまま（2回目の応答で旅行詳細まで閉じない）
-      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('タイムライン'), findsOneWidget);
-      expect(find.text('市場の朝ごはん'), findsOneWidget);
+      expect(find.text('市場と運河の一日。'), findsOneWidget);
       semantics.dispose();
     });
 
     testWidgets('保存に失敗したら、シートを開いたままエラーの文言を出す', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
-      backend.failNext(TripRoute.timelineScenePatch);
+      backend.failNext(TripRoute.timelineDayPatch);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await openDaySheet(tester);
+      await tester.enterText(field('まとめ'), '市場と運河の一日。');
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(find.text('場面を編集'), findsOneWidget);
+      expect(find.text('1日目を編集'), findsOneWidget);
       expect(find.text('サービスに一時的に接続できません。しばらく待ってから再試行してください。'), findsOneWidget);
       expect(_button(tester, '保存').onPressed, isNotNull);
       semantics.dispose();
     });
 
-    testWidgets('保存のときに別の端末がタイムラインを変えていたら（409）、その場面が無くなっていたら（404）、閉じて知らせ、読み直す',
+    testWidgets('保存のときに別の端末がタイムラインを変えていたら（409）、その日が無くなっていたら（404）、閉じて知らせ、読み直す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       for (final (label, status, code, message) in [
@@ -800,10 +806,10 @@ void main() {
           'TIMELINE_STATE_CONFLICT',
           'タイムラインが変わったか、作っている途中です。読み直してください'
         ),
-        ('404', 404, 'TIMELINE_NOT_FOUND', 'その場面はタイムラインにありません'),
+        ('404', 404, 'TIMELINE_NOT_FOUND', 'その日はタイムラインにありません'),
       ]) {
         final backend = await _openTimeline(tester);
-        backend.failNext(TripRoute.timelineScenePatch,
+        backend.failNext(TripRoute.timelineDayPatch,
             status: status, code: code, message: message);
         // 読み直したことを、作っている間の表示が出ることで確かめる
         backend.timelinesByTripId[hokkaidoTripId] = _timelineOf(draft: {
@@ -814,12 +820,12 @@ void main() {
           'startedAt': '2026-10-26T09:00:00.000Z',
         });
 
-        await openSceneSheet(tester);
-        await tester.enterText(field('見出し'), '市場の朝ごはん');
+        await openDaySheet(tester);
+        await tester.enterText(field('まとめ'), '市場と運河の一日。');
         await tester.tap(find.text('保存'));
         await letFramesRun(tester);
 
-        expect(find.text('場面を編集'), findsNothing, reason: label);
+        expect(find.text('1日目を編集'), findsNothing, reason: label);
         expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget,
             reason: label);
         expect(find.text('タイムラインの案を作っています'), findsOneWidget,
@@ -832,13 +838,13 @@ void main() {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
 
-      await openSceneSheet(tester);
-      await tester.enterText(field('見出し'), '市場の朝ごはん');
+      await openDaySheet(tester);
+      await tester.enterText(field('まとめ'), '市場と運河の一日。');
       backend.trips.clear();
       await tester.tap(find.text('保存'));
       await letFramesRun(tester);
 
-      expect(find.text('場面を編集'), findsNothing);
+      expect(find.text('1日目を編集'), findsNothing);
       expect(find.text('この旅行は削除されています'), findsOneWidget);
       // タイムラインが変わったのではない（読み直して気づくのではなく、保存の応答で旅行が無いと分かる）
       expect(find.text('タイムラインが変わりました。読み直しました'), findsNothing);
