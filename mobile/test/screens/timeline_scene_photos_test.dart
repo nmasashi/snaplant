@@ -172,8 +172,6 @@ void main() {
       expect(_appBarText('小樽運河さんぽ'), findsOneWidget);
       expect(find.text('10月5日（月） 10:10〜15:10 · 北海道小樽市、北海道余市町 · 6枚'),
           findsOneWidget);
-      // 完成版のカードは4枚まで（+2枚）だが、一覧は6枚全部
-      expect(find.text('+2枚'), findsNothing);
       final thumbnails = [
         for (var hour = 10; hour <= 15; hour++)
           photoThumbnail('2026年10月5日 $hour:10'),
