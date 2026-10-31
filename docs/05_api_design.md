@@ -187,7 +187,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 | `photoCount` | integer | その名前の写真の枚数（項目一覧は `GROUP BY` の `COUNT(1)`（P-1 から名前・属の組の行を名前ごとに足したもの。属が分かれても1つの項目の枚数）、項目の詳細は `SELECT VALUE COUNT(1)`。[04 §5.6](./04_data_design.md#56-図鑑のまとめ段階4)） |
 | `coverThumbnailUrl` | string | 見出しの写真のサムネイル（無ければ原寸）の SAS 付き URL。`null` にはならない |
 
-`GET /api/catalog/entries`（4-2a）と `GET /api/catalog/entry`（4-2b）が実装済み（型は `api/src/types/album.ts` の `CatalogEntry`。`genus`・`genusName` は P-1 で足した。P-2 の前のアプリは読まない）。項目一覧は、ページに項目が1つも無ければ写真の保存先の設定を読まない（表紙の URL を作らないため。旅行の表紙と同じ）。項目の詳細も、該当する写真が無い（`entry: null`）ときは設定を読まない（§5.14）。
+`GET /api/catalog/entries`（4-2a）と `GET /api/catalog/entry`（4-2b）が実装済み（型は `api/src/types/album.ts` の `CatalogEntry`。`genus`・`genusName` は P-1 で足した。P-2 の前のアプリは読まず、P-2 のアプリは null 可で読んで一覧の属の見出しに使う。§8）。項目一覧は、ページに項目が1つも無ければ写真の保存先の設定を読まない（表紙の URL を作らないため。旅行の表紙と同じ）。項目の詳細も、該当する写真が無い（`entry: null`）ときは設定を読まない（§5.14）。
 
 ### 3.4 Error
 
@@ -678,7 +678,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
   属の分からない写真（属を書く前に識別した写真、属の学名が空の写真など）は、属の分かる写真が1枚でもあれば属に使わない。枚数は属によらず名前ごとに足す（属が分かれても項目は1つ）
 - 項目一覧の `genusName` は属ごとに1つに揃える（その属の写真で最も多い書き方。同じ枚数なら文字列順で先）。同じ属の項目には同じ `genusName` が付く（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「属でまとめる」）
 - 項目の詳細（`GET /api/catalog/entry`）の `genus`・`genusName` は見出しの写真の識別から取るので、項目一覧の同じ項目の属と違うことがある（属が分かれた名前で、見出しの写真が少ない方の属のとき。`genusName` は属ごとに揃えないので、書き方が一覧と違うときも）
-- 属の見出しを出すのはアプリ（P-2）。P-2 の前のアプリは `genus`・`genusName` を読まないので、見出しの無いまま並びだけが属の順になる
+- 属の見出しを出すのはアプリ（P-2。**実装済み**。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。P-2 の前のアプリは `genus`・`genusName` を読まないので、見出しの無いまま並びだけが属の順になる
 数えてから見出しの写真を読むまでの間に、その名前の写真が無くなった（消された・やり直しで名前が変わった）項目は、そのページから外す（`total` は数えたときのまま）。まれで、次に開けば数え直される。
 そのため `entries` の件数は、続きがあっても `limit` より少ないことがある。
 項目の行は小さいので、ページごとに `GROUP BY` をやり直しても読む量は写真の枚数に依らない（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「規模の注意」）。
@@ -1069,7 +1069,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `updatePhotoCategory(photoId, category)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-1）。ボディは `{ category }`（`plant` / `food` / `landscape` / `other`）だけ。植物に変えたら、応答の写真は識別の待ち（§5.6） |
 | `requestPhotoProcessing(photoId, {hint, step, placeName})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c、`placeName` は C-2）。ボディは `{ step, hint, placeName }` で、`step` は省くと `'classify'`（やり直しダイアログは、写真のカテゴリが識別の対象（植物・食べ物・風景）で分類が済んでいれば `'identify'`、それ以外なら `'classify'` を渡す。C-1。それまではダイアログの「名前だけ」で `'identify'`）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く。`placeName` は渡したとき（null でないとき）だけ、そのまま（前後の空白を除かず、空でも）送る。null なら `placeName` のキーごと省く（撮影地を変えない）。ダイアログは「場所」の欄を利用者が直したときだけ渡す（直していなければ null。C-2。[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)） |
 | `getCatalogKinds()` | `GET /api/catalog/kinds` | `data['kinds']`（各要素の `kind`・`label`・`fields`（`key`・`label`・`type`）。`models/catalog.dart` の `CatalogKind`・`CatalogField`）。**実装済み**（4-3a） |
-| `getCatalogEntries(kind, {required offset, required limit})` | `GET /api/catalog/entries?kind=&offset=&limit=` | `data['entries']`・`data['total']`（`CatalogEntryPage`。項目は `CatalogEntry`）。**実装済み**（4-3a）。`kind`・`offset`・`limit` を毎回クエリに載せる（`Uri(queryParameters:)`。図鑑の画面は `limit` に 50 を渡す）。`entries` の件数は続きがあっても `limit` より少ないことがある（§5.14）ので、次の `offset` は呼び出し側が `limit` だけ進め、`total` 以上なら読み切り（[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。`CatalogEntry` は `description`・`characteristics` を null 可、`attributes` が無ければ空、それ以外の欄は必須として読む（P-1 で足した `genus`・`genusName` はまだ読まない。P-2） |
+| `getCatalogEntries(kind, {required offset, required limit})` | `GET /api/catalog/entries?kind=&offset=&limit=` | `data['entries']`・`data['total']`（`CatalogEntryPage`。項目は `CatalogEntry`）。**実装済み**（4-3a）。`kind`・`offset`・`limit` を毎回クエリに載せる（`Uri(queryParameters:)`。図鑑の画面は `limit` に 50 を渡す）。`entries` の件数は続きがあっても `limit` より少ないことがある（§5.14）ので、次の `offset` は呼び出し側が `limit` だけ進め、`total` 以上なら読み切り（[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)）。`CatalogEntry` は `description`・`characteristics` を null 可、`attributes` が無ければ空、それ以外の欄は必須として読む。P-1 で足した `genus`・`genusName` は null 可で読む（キーが無くても `null`。**実装済み**（P-2）。図鑑の一覧の属の見出しに使う。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)） |
 | `getCatalogEntry(kind, name, {continuationToken})` | `GET /api/catalog/entry?kind=&name=&continuationToken=` | `data['entry']`（null 可。`CatalogEntry`）・`data['photos']`・`data['continuationToken']`（null 可）（`models/catalog.dart` の `CatalogEntryDetail`。写真は `PhotoPage`）。**実装済み**（4-3b）。`kind`・`name` を毎回、`continuationToken` は渡したときだけクエリに載せる（`Uri(queryParameters:)` で組み立てるので、記号や空白を含む名前も URL エンコードされる）。`limit` は送らない（サーバの既定 100）。`urlExpiresAt` は読まない（`getPhotos` と同じ）。`photos` は `entry` が null でも必須として読む（サーバは `[]` を返す）。`CatalogEntry` の読み方は `getCatalogEntries` と同じ |
 
 `_parseResponse()` はボディ全体をコールバックに渡すので、各メソッドが `json['data']` を剥がす（CLAUDE.md「クライアント実装で踏みやすい罠」）。

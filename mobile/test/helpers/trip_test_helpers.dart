@@ -191,7 +191,7 @@ enum TripRoute {
 ///   本物は全部の検証の後に 404 を返すが、偽物はコメントの検証の直後に返す（アプリはコメントとカテゴリを一緒に送らない）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
-/// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は名前順）に
+/// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は属の学名の順、同じ属は名前の順なので、その順に入れる）に
 ///   `offset`（既定 0）から `limit`（既定 50）件返し、`total` は項目の総数。種類が [catalogKinds] に無ければ 400「図鑑の種類が無効です」、
 ///   `offset` が 0 以上の整数・`limit` が 1〜100 の整数でなければ 400「ページの指定が無効です」（本物と同じ）。
 ///   [catalogVanishedNames] の名前は、ページからは外すが `total` には数える（本物が、数えてから見出しを読むまでに写真が無くなった項目を外すのと同じ）。
@@ -1501,15 +1501,23 @@ Future<void> openCatalogTab(WidgetTester tester, FakeTripBackend backend) async 
 
 /// 図鑑の項目（`GET /api/catalog/entries` の1件）。表紙の URL は Blob の場所に署名を付けた形。
 /// 本物の信頼度は数（小数もある）で、説明と特徴は AI が返さなければ null（05 §3.3.1）。
-/// [description]・[characteristics] を省く（既定の ''）と「{名前}の説明」「{名前}の特徴」になる（空文字の説明は作れない）
+/// [description]・[characteristics] を省く（既定の ''）と「{名前}の説明」「{名前}の特徴」になる（空文字の説明は作れない）。
+/// [genus]・[genusName] は項目の属の学名と属名（P-1。省くと属が分からない項目）
 Map<String, Object?> catalogEntryJson(String kind, String name,
-        {num confidence = 90, int photoCount = 1, String? description = '', String? characteristics = ''}) => {
+        {num confidence = 90,
+        int photoCount = 1,
+        String? description = '',
+        String? characteristics = '',
+        String? genus,
+        String? genusName}) => {
       'kind': kind,
       'name': name,
       'confidence': confidence,
       'description': description == '' ? '$nameの説明' : description,
       'characteristics': characteristics == '' ? '$nameの特徴' : characteristics,
       'attributes': <String, Object?>{},
+      'genus': genus,
+      'genusName': genusName,
       'photoCount': photoCount,
       'coverThumbnailUrl': 'https://test.blob.core.windows.net/photos/${name.hashCode}.thumb.jpg?sv=2024&sig=test',
     };

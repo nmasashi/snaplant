@@ -24,10 +24,11 @@ FakeTripBackend _backend() => FakeTripBackend(
       },
     );
 
-/// 名前に番号を付けた [count] 件の植物の項目（ページを確かめる用。番号順が名前順）
-List<Map<String, Object?>> _manyPlants(int count) => [
+/// 名前に番号を付けた [count] 件の植物の項目（ページを確かめる用。番号順が名前順）。[genus]・[genusName] は全部の項目の属
+List<Map<String, Object?>> _manyPlants(int count, {String? genus, String? genusName}) => [
       for (var i = 0; i < count; i++)
-        catalogEntryJson('plant', '植物${i.toString().padLeft(3, '0')}'),
+        catalogEntryJson('plant', '植物${i.toString().padLeft(3, '0')}',
+            genus: genus, genusName: genusName),
     ];
 
 /// 種類のタブ（Tab）
@@ -116,6 +117,99 @@ void main() {
 
     expect(find.text('ユキノシタ'), findsOneWidget);
     expect(find.text('88%'), findsOneWidget);
+  });
+
+  group('属の見出し（02 §5 #56）', () {
+    testWidgets(
+        '属の学名の順に並んだ項目の前に属の見出し（日本語の属名と属の学名）を出し、属が分からない植物の前に「属が分からない」を出す。日本語の属名が無い属は属の学名を見出しにする',
+        (tester) async {
+      // サーバは属の学名の順（同じ属は名前の順、属が分からない項目は最後）に返す（05 §5.14）
+      final backend =
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+        'plant': [
+          catalogEntryJson('plant', 'ハナトリカブト',
+              genus: 'Aconitum', genusName: 'トリカブト属'),
+          catalogEntryJson('plant', 'ヤマトリカブト',
+              genus: 'Aconitum', genusName: 'トリカブト属'),
+          catalogEntryJson('plant', 'チングルマ', genus: 'Sieversia'),
+          catalogEntryJson('plant', 'なにかの花'),
+        ],
+      });
+      await openCatalogTab(tester, backend);
+
+      expect(find.text('トリカブト属'), findsOneWidget);
+      expect(find.text('Aconitum'), findsOneWidget);
+      expect(find.text('Sieversia'), findsOneWidget);
+      expect(find.text('属が分からない'), findsOneWidget);
+      // 見出しは、その属の最初の項目の上に1つ
+      double top(String text) => tester.getTopLeft(find.text(text)).dy;
+      expect(top('トリカブト属'), lessThan(top('ハナトリカブト')));
+      expect(top('ヤマトリカブト'), lessThan(top('Sieversia')));
+      expect(top('Sieversia'), lessThan(top('チングルマ')));
+      expect(top('チングルマ'), lessThan(top('属が分からない')));
+      expect(top('属が分からない'), lessThan(top('なにかの花')));
+    });
+
+    testWidgets('続きのページで同じ属が続くなら、ページの境目に見出しを繰り返さない', (tester) async {
+      final backend =
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+        'plant': _manyPlants(60, genus: 'Aconitum', genusName: 'トリカブト属'),
+      });
+      await openCatalogTab(tester, backend);
+      // 見出しは一番上に1つある（見出しを出さない作りでは、下の「無い」が意味を持たない）
+      expect(find.text('トリカブト属'), findsOneWidget);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await letFramesRun(tester);
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await letFramesRun(tester);
+      await tester.dragUntilVisible(
+          find.text('植物049'), find.byType(ListView), const Offset(0, 100));
+
+      expect(backend.catalogOffsetsReceived, [0, 50]);
+      // 1ページ目の最後（植物049）と2ページ目の先頭（植物050）の間に見出しが無い（最初の見出しは画面のずっと上）
+      expect(find.text('植物050'), findsOneWidget);
+      expect(find.text('トリカブト属'), findsNothing);
+    });
+
+    testWidgets('日本語の属名と属の学名が長くても、見出しは画面の幅からはみ出さない', (tester) async {
+      // サーバは日本語の属名の長さを決めていない（AI の答えのまま）
+      final backend =
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+        'plant': [
+          catalogEntryJson('plant', 'ながいなまえのはな',
+              genus: 'Pseudotsugaphyllumgigantea',
+              genusName: 'とてもながいなまえのぞくとてもながいなまえのぞくとてもながいなまえのぞく'),
+        ],
+      });
+      await openCatalogTab(tester, backend);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('ながいなまえのはな'), findsOneWidget);
+    });
+
+    testWidgets('属の見出しは、読み上げで見出しとして伝える', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openCatalogTab(
+          tester,
+          FakeTripBackend(functionKey: 'test-key', catalogEntriesByKind: {
+            'plant': [
+              catalogEntryJson('plant', 'ハナトリカブト',
+                  genus: 'Aconitum', genusName: 'トリカブト属'),
+            ],
+          }));
+
+      expect(tester.getSemantics(find.text('トリカブト属')),
+          containsSemantics(isHeader: true));
+      semantics.dispose();
+    });
+
+    testWidgets('読んだ項目に属の分かるものが1つも無ければ（調べ直す前の写真だけなど）、見出しを出さない', (tester) async {
+      await openCatalogTab(tester, _backend());
+
+      expect(find.text('ソメイヨシノ'), findsOneWidget);
+      expect(find.text('属が分からない'), findsNothing);
+    });
   });
 
   testWidgets('種類のタブを切り替えると、その種類の項目を並べる', (tester) async {
