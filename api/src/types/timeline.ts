@@ -75,6 +75,8 @@ export interface TimelineCurrent {
   /** 日付（YYYY-MM-DD）→ 文 */
   dayTexts: Record<string, TimelineDayText>;
   writtenAt: string;
+  /** 利用者がタイムラインから外した写真（下書きと同じ意味）。無ければ空とみなす */
+  excludedPhotoIds?: string[];
 }
 
 /** タイムラインの Cosmos DB の文書（旅行ごとに1件。id は "timeline-" + 旅行の id） */

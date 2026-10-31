@@ -34,7 +34,7 @@ export async function writeDraftTexts(
   draft: TimelineDraft
 ): Promise<{ plan: DayPlan[]; texts: TimelineAiTexts }> {
   const days = datedDaysOf(photos, draft.dayStartHour);
-  const plan = planOf(days, draft.sceneStarts);
+  const plan = planOf(days, draft.sceneStarts, new Set(draft.excludedPhotoIds ?? []));
   const photoOf = new Map(days.flatMap((day) => day.photos.map((photo) => [photo.id, { photo, dayNumber: day.dayNumber }] as const)));
   const writer = new TimelineWriterService();
   const texts: TimelineAiTexts = { scenes: new Map(), days: new Map() };
@@ -44,7 +44,8 @@ export async function writeDraftTexts(
     // 番号は呼び出しごとに 0 から振る
     const ordered = scenes.flatMap((scene) => scene.photoIds.map((id) => photoOf.get(id)!));
     const indexOf = new Map(ordered.map(({ photo }, index) => [photo.id, index]));
-    const sceneStarts = scenes.map((scene) => indexOf.get(scene.start)!);
+    // 場面の最初の写真を外した場面は、残りの最初の写真から渡す（文は場面の id（控えの最初の写真）に付ける）
+    const sceneStarts = scenes.map((scene) => indexOf.get(scene.photoIds[0])!);
     const written = await writer.write({
       photos: ordered,
       sceneStarts,
@@ -57,7 +58,10 @@ export async function writeDraftTexts(
       ),
       daysToWrite: call.filter((piece) => piece.writesDay).map(({ date, dayNumber }) => ({ date, dayNumber })),
     });
-    written.scenes.forEach((text, index) => texts.scenes.set(ordered[index].photo.id, text));
+    scenes.forEach((scene, index) => {
+      const text = written.scenes.get(sceneStarts[index]);
+      if (text) texts.scenes.set(scene.start, text);
+    });
     written.days.forEach((text, date) => texts.days.set(date, text));
   }
   return { plan, texts };
@@ -134,16 +138,25 @@ export function assembleCurrent(draft: TimelineDraft, plan: DayPlan[], texts: Ti
     sceneTexts,
     dayTexts,
     writtenAt: now,
+    ...(draft.excludedPhotoIds ? { excludedPhotoIds: draft.excludedPhotoIds } : {}),
   };
 }
 
-/** 日ごとに場面を組む（表示と同じ組み方。04 §1.6） */
-function planOf(days: TimelineDatedDay[], sceneStarts: string[]): DayPlan[] {
-  return days.map((day) => ({
-    date: day.date,
-    dayNumber: day.dayNumber,
-    scenes: scenesOfDay(day.photos, sceneStarts).map((photos) => ({ start: photos[0].id, photoIds: photos.map((photo) => photo.id) })),
-  }));
+/**
+ * 日ごとに場面を組む（表示と同じ組み方。04 §1.6）
+ *
+ * 外した写真は AI に渡さないので場面から除き、写真が全部外れた場面と日は文を頼まない（消えた写真は渡す。控えの写真のまま書く）
+ */
+function planOf(days: TimelineDatedDay[], sceneStarts: string[], excluded: Set<string>): DayPlan[] {
+  return days
+    .map((day) => ({
+      date: day.date,
+      dayNumber: day.dayNumber,
+      scenes: scenesOfDay(day.photos, sceneStarts)
+        .map((photos) => ({ start: photos[0].id, photoIds: photos.map((photo) => photo.id).filter((id) => !excluded.has(id)) }))
+        .filter((scene) => scene.photoIds.length > 0),
+    }))
+    .filter((day) => day.scenes.length > 0);
 }
 
 /** AI が書いた文。無ければ（応答の検証を通ったのに頼んだ場面・日が無い）投げる（内部の失敗として書き直す） */
