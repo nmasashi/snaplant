@@ -1224,6 +1224,16 @@ describe('タイムラインのワーカー', () => {
         expect(cosmosBackend.documents.has(SNAPSHOT_ID)).toBe(true);
       });
 
+      it('区切りを直した下書き（recut。AI なしにする前に積まれたもの）を当てるときも、下書きと完成版の外した写真を合わせる', async () => {
+        const current = { ...oldCurrent(), snapshotId: SNAPSHOT_ID, excludedPhotoIds: [photoId('a'), photoId('d')] };
+        cosmosBackend.documents.set(TIMELINE_ID, writingTimeline({ current, draft: writingDraft({ reason: 'recut', excludedPhotoIds: [photoId('a'), photoId('c')] }) }));
+
+        await runWorker();
+
+        // 並びに意味は無いので並べ替えて比べる（重なりが無いことは見る）
+        expect([...storedTimeline()!.current!.excludedPhotoIds!].sort()).toEqual([photoId('a'), photoId('c'), photoId('d')]);
+      });
+
       it('前の完成版の控えを消すのに失敗しても、完成版の入れ替えは済ませて例外を投げない（控えは旅行の削除で消える）', async () => {
         cosmosBackend.documents.set(TIMELINE_ID, rebuilding());
         cosmosBackend.forcedErrorById = { [OLD_SNAPSHOT_ID]: Object.assign(new Error('Service unavailable'), { code: 503 }) };

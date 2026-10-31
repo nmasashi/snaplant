@@ -385,17 +385,33 @@ describe('タイムラインの完成版の操作API', () => {
       expect(data.pendingPhotoCount).toBe(0);
     });
 
-    it('タイムラインを編集している途中でも外せ、編集中の下書きにも足す（案の確認画面にも出さない）', async () => {
+    it('タイムラインを編集している途中でも外せ、編集中の下書きにも足す', async () => {
       const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut', excludedPhotoIds: [photoId('d')] });
+      const timeline = timelineDocument(TRIP_ID, { current, draft });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      // 外した写真の並びに意味は無いので並べ替えて比べる
+      const stored = storedTimeline()!;
+      expect({ ...stored, draft: { ...stored.draft!, excludedPhotoIds: [...stored.draft!.excludedPhotoIds!].sort() } }).toEqual({
+        ...timeline,
+        current: { ...current, excludedPhotoIds: [photoId('b')] },
+        draft: { ...draft, excludedPhotoIds: [photoId('b'), photoId('d')] },
+        updatedAt: NOW
+      });
+    });
+
+    it('編集の途中でない下書き（5-6b より前の作り直し）があっても外せ、その下書きは変えない', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other', { reason: 'rebuild' });
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));
 
       const response = await exclude({ photoIds: [photoId('b')] });
 
       expect(response.status).toBe(200);
-      expect(storedTimeline()).toMatchObject({
-        current: { excludedPhotoIds: [photoId('b')] },
-        draft: { ...draft, excludedPhotoIds: [photoId('b'), photoId('d')] }
-      });
+      expect(storedTimeline()!.current!.excludedPhotoIds).toEqual([photoId('b')]);
+      expect(storedTimeline()!.draft).toEqual(draft);
     });
 
     it('外した写真が変わらなければ（もう外してある）書き込まずに、完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
@@ -451,6 +467,7 @@ describe('タイムラインの完成版の操作API', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NOT_FOUND', message: 'タイムラインが見つかりません' } });
     }));
 
+    // 控えが読めないときは区切りの直しの受付と同じ（05 §5.15 の共通の行。readUnlessOverlapped）。404・500 を含む全部の場合は「区切りを直し始める」で通し、ここはつながりを1行で見る
     it('控えを読む直前に完成版が別の控えに変わっていたら（作り直しで前の控えは消えた）、409 で書かない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
       const rebuilt = timelineDocument(TRIP_ID, { draft: timelineDraft('33333333-3333-4333-8333-333333333333', 'timeline-photos-other') });

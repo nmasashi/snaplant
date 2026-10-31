@@ -1200,6 +1200,7 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message } });
     }));
 
+    // 控えが読めないときは区切りの保存と同じ（05 §5.15 の共通の行。readUnlessOverlapped）。404・500 を含む全部の場合は「区切りを保存する」で通し、ここはつながりを1行で見る
     it('タイムラインを読んだ後に下書きがやめられて控えが消えていたら、409（TIMELINE_STATE_CONFLICT）で何も書かない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
       const cancelled = timelineWith(null, currentVersion);
@@ -1241,15 +1242,52 @@ describe('タイムラインの下書きAPI', () => {
       expect(response.jsonBody).toMatchObject({ success: false, error: { code, message } });
     }));
 
-    it('旅行が無ければ 404（TRIP_NOT_FOUND）、旅行IDがUUIDの形でなければ 400 を返す', async () => {
-      const invalid = await postTimelineDraftExcludedPhotosHandler(excludeRequest('not-a-uuid', { photoIds: [photoId('a')] }), mockContext);
-      cosmosBackend.documents.delete(TRIP_ID);
-      const missing = await exclude({ photoIds: [photoId('a')] });
+    it('控えを取った後に消えた写真・もう外した写真を含んでも外せる（控えで見る）', async () => {
+      // 控えを取った後に d を消した。e はもう外してある
+      cosmosBackend.documents.delete(photoId('d'));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ excludedPhotoIds: [photoId('e')] })));
 
-      expect(invalid.status).toBe(400);
-      expect(invalid.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
-      expect(missing.status).toBe(404);
-      expect(missing.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+      const response = await exclude({ photoIds: [photoId('e'), photoId('d')] });
+
+      expect(response.status).toBe(200);
+      expect([...(cosmosBackend.documents.get(TIMELINE_ID) as any).draft.excludedPhotoIds].sort()).toEqual([photoId('d'), photoId('e')]);
+    });
+
+    it('写真の保存先の設定に鍵が無ければ、書かずに 500 を返す（外したのに失敗と返さない）', async () => {
+      process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const timeline = timelineWith(reviewing());
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの更新に失敗しました' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
+    it('外す写真の指定が無効なら、旅行が無くても 400（データベースに触る前に見る）', async () => {
+      cosmosBackend.documents.delete(TRIP_ID);
+
+      const response = await exclude({});
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '外す写真は写真IDの配列で指定してください' } });
+    });
+
+    it('旅行が無ければ、404（TRIP_NOT_FOUND）を返す', async () => {
+      cosmosBackend.documents.delete(TRIP_ID);
+
+      const response = await exclude({ photoIds: [photoId('a')] });
+
+      expect(response.status).toBe(404);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TRIP_NOT_FOUND' } });
+    });
+
+    it('旅行IDがUUIDの形でなければ、400を返す', async () => {
+      const response = await postTimelineDraftExcludedPhotosHandler(excludeRequest('not-a-uuid', { photoIds: [photoId('a')] }), mockContext);
+
+      expect(response.status).toBe(400);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INVALID_REQUEST', message: '旅行IDの形式が無効です' } });
     });
   });
 
@@ -1399,9 +1437,8 @@ describe('タイムラインの下書きAPI', () => {
         const response = await postWrite();
 
         expect(response.status).toBe(200);
-        expect(new Set((cosmosBackend.documents.get(TIMELINE_ID) as any).current.excludedPhotoIds)).toEqual(
-          new Set([photoId('a'), photoId('c'), photoId('d')])
-        );
+        // 並びに意味は無いので並べ替えて比べる（重なりが無いことは見る）
+        expect([...(cosmosBackend.documents.get(TIMELINE_ID) as any).current.excludedPhotoIds].sort()).toEqual([photoId('a'), photoId('c'), photoId('d')]);
       });
 
       it('完成版が無いのに区切りを直している下書きは、AI に書かせず 409（TIMELINE_STATE_CONFLICT）で何も変えない', async () => {
