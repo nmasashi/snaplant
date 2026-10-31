@@ -325,12 +325,15 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
   "confidence": 92,
   "description": "日本で最も広く植えられているサクラの栽培品種。",
   "characteristics": "淡い桃色の花を葉より先に咲かせる",
-  "attributes": { "scientificName": "Prunus × yedoensis", "familyName": "バラ科" },
+  "attributes": { "scientificName": "Prunus × yedoensis", "genusName": "サクラ属", "genus": "Prunus", "familyName": "バラ科" },
   "reason": null,
   "model": "gpt-6-luna",
   "at": "2026-10-10T03:20:00.000Z"
 }
 ```
+
+植物の `attributes` のキーは定義表（§3.2）の順に `scientificName`（学名）・`genusName`（属。日本語の属名）・`genus`（属の学名。ラテン語の1語）・`familyName`（科名）。
+属の2つは P-1 で足した（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #56）ので、それより前に識別した植物の写真の `attributes` には `genusName`・`genus` のキーが無い（調べ直すと入る）。
 
 | 項目 | 型 | 説明 |
 |---|---|---|
@@ -349,9 +352,26 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 |---|---|
 | 名前 | `identification.name`。`matchesKind: true` の写真だけを数える |
 | 説明・特徴・属性・信頼度 | その名前の写真のうち **`identification.confidence` が最も高いもの**の値（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #8）。同点なら `identification.at` が新しい方（新しいモデルの結果を優先）。名前ごとに `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む |
-| 枚数 | 項目一覧は `GROUP BY c.identification.name` の `COUNT(1)`、項目の詳細は `SELECT VALUE COUNT(1)`（どちらも写真を読まずに数える） |
+| 枚数 | 項目一覧は名前・属の学名・属名の組の `GROUP BY` の `COUNT(1)` を名前ごとに足したもの（下の「属でまとめる」）、項目の詳細は `SELECT VALUE COUNT(1)`（どちらも写真を読まずに数える） |
+| 属・属の学名（`genusName`・`genus`） | 項目一覧は、名前ごとに `GROUP BY` の行から1つに決めた属と、属ごとに揃えた日本語の属名（下の「属でまとめる」）。項目の詳細は属の行を数えないので、見出しの写真の `attributes.genus`（一覧と同じく揃えた形）と `attributes.genusName`（前後の空白を除いたもの。属ごとには揃えない）。文字列でない・空・キーが無ければ `null`。どちらも P-1 で実装済み |
 | 表紙 | 見出しに使った写真のサムネイル（無ければ原寸） |
 | 項目の中の写真の並び | §5.3 と同じ（`sortAt` 昇順、継続トークンでページング） |
+
+#### 属でまとめる（P-1。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #56）
+
+**実装済み**（P-1。`services/catalogQueries.ts` の `queryCatalogNameCounts()`、`services/catalogEntries.ts`）。
+
+図鑑の一覧は属でまとめた順に並べる（属の見出しを出すのはアプリ。P-2）。項目そのものは今までどおり種類と名前で1件で、属は項目に付ける欄。
+
+- **数える**: `GROUP BY` の鍵を名前・属の学名・属名（`c.identification.attributes.genus`・`c.identification.attributes.genusName`）の組にする。同じ名前でも、写真ごとに AI が違う属を答えた・属の分からない写真（属を書く前に識別した写真）が混ざると、名前ごとに複数の行になる
+- **属の学名を揃える**: 行の属の学名は、前後の空白を除き、先頭の1文字を大文字・残りを小文字にした形をまとめる鍵にする（「 aconitum」も「ACONITUM」も `Aconitum`）。文字列でない・空（空白だけ）なら属が分からない行とする。項目の `genus` に出すのもこの揃えた形
+- **名前ごとに合わせる**: 同じ名前の行の枚数を足して項目の枚数にする（属が分かれても項目は1つ）。項目の属（`genus`）は、その名前の行を揃えた属の学名ごとに枚数を足し、最も多い属（同じ枚数なら符号単位の順で先）。
+  日本語の属名が違う行（「トリカブト属」と「トリカブト」）も、属の学名が同じなら同じ属として足す。属の分からない行は、属の分かる行が1つでもあれば属に使わない（枚数には足す）。属の分かる行が無ければ、項目の `genus`・`genusName` とも `null`
+- **日本語の属名を属ごとに揃える**: 項目の `genusName` は、項目ではなく属ごとに1つ決める。揃えた属の学名がその属の行を、一覧の全部の名前から集め（その属を選ばなかった名前の行も含む）、日本語の属名（前後の空白を除いたもの。空なら数えない）の書き方ごとに枚数を足し、最も多い書き方（同じ枚数なら符号単位の順で先）にする。同じ属の項目には同じ `genusName` が付く（属の見出し（P-2）が項目ごとに揺れないように）。その属の行に日本語の属名が1つも無ければ `null`
+- **並べる**: 揃えた属の学名の符号単位の順に並べ、同じ属の中は名前の符号単位の順、属が分からない項目は最後（その中は名前の順）。並べてから `offset` / `limit` で切る（下の「規模の注意」の 2 段）
+- 属を持たない種類（食べ物・風景。今は図鑑に載せない）は、どの行も属の学名が無いので、項目の属は `null` で名前の順になる
+
+P-2 の前のアプリは項目の `genus`・`genusName` を読まないので、属の見出しの無いまま一覧の並びが属の学名の順になる（同じ属の植物が続けて並ぶ。名前の順ではなくなる）。
 
 この形で成り立つこと:
 
@@ -367,8 +387,8 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 | 段 | 何を読むか | 読む量 |
 |---|---|---|
-| 1. 名前ごとの枚数 | `GROUP BY c.identification.name` で `COUNT(1)`。結果は項目の数（数十〜数百行、1行 100 B 程度）だけ | 写真の枚数に依らず小さい。RU はインデックスを走査する分（推測） |
-| 2. 名前順に並べて1ページ分に切る | 1 の結果をサーバで `name` の文字列順（符号単位の順。[05 §5.14](./05_api_design.md#514-図鑑段階4)）に並べ（名前が `null` の行は項目にしない）、`offset` / `limit`（既定 50 件。`CATALOG_PAGE_SIZE`）で切る。`GROUP BY` と `ORDER BY` は同じクエリに書けない（推測）ので並べ替えはサーバで行うが、並べるのは項目の行だけで写真は読まない | 同上 |
+| 1. 名前・属の組ごとの枚数 | `GROUP BY c.identification.name, c.identification.attributes.genus, c.identification.attributes.genusName` で `COUNT(1)`（P-1 から。それまでは `GROUP BY c.identification.name`）。結果は項目の数（数十〜数百行、1行 100 B 程度）と、名前ごとに属が分かれた分だけ | 写真の枚数に依らず小さい。RU はインデックスを走査する分（推測） |
+| 2. 名前ごとに合わせ、属の順に並べて1ページ分に切る | 1 の結果をサーバで名前ごとに合わせ（上の「属でまとめる」）、属の学名の文字列順（符号単位の順。同じ属は `name` の順、属が分からない項目は最後。[05 §5.14](./05_api_design.md#514-図鑑段階4)。P-1 から。それまでは `name` の順）に並べ（名前が `null` の行は項目にしない）、`offset` / `limit`（既定 50 件。`CATALOG_PAGE_SIZE`）で切る。`GROUP BY` と `ORDER BY` は同じクエリに書けない（推測）ので並べ替えはサーバで行うが、並べるのは項目の行だけで写真は読まない | 同上 |
 | 3. ページの項目ごとに見出しの写真 | 項目ごとに `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC` で1枚だけ読む（`identification` 全体・Blob 名）。1ページ 50 件なら 50 クエリを並列に投げる。数えてから読むまでに写真が無くなっていた項目はページから外す（[05 §5.14](./05_api_design.md#514-図鑑段階4)） | 1項目 1 KB × ページの件数。写真の総数に依らない |
 
 項目の詳細も同じで、`COUNT(1)`・`TOP 1`・写真のページ（`sortAt` 順の継続トークン）の3クエリ。**どれも読む量が写真の総数に比例しない。**
@@ -384,7 +404,8 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 小さな規模では RU がやや多く、大きな規模では桁で少ない。個人の規模でも 400 RU/s の枠に収まるので、最初からこの形にする。
 
 - 読むのは開いた種類の分だけ（種類をまとめて読まない。図鑑に載せる種類が1つなら、その種類だけ）。旅行の画面は図鑑の読み取りをしない
-- 段 1 の `GROUP BY` は Cosmos SQL の集計で、null の鍵や `ORDER BY` との併用の制約がある（推測）。段階4の最初に手で確かめる（[08 §5.3](./08_test_plan.md#53-段階34で足すもの)）
+- 段 1 の `GROUP BY` は Cosmos SQL の集計で、null の鍵や `ORDER BY` との併用の制約がある（推測）。段階4の最初に手で確かめる（[08 §5.3](./08_test_plan.md#53-段階34で足すもの)）。
+  P-1 で鍵に足した属の2つは、属を書く前に識別した写真では `attributes` にキーが無い（undefined）。そうした写真が1つのグループになり、行の `genus`・`genusName` が欠ける（サーバは欠けた値を属の分からない行として扱う）ことは推測で、P-1 のデプロイ後に手で確かめる（同じ節）
 - 段 3 の2項目の `ORDER BY` には複合インデックス（`/identification/confidence` 降順, `/identification/at` 降順）が要る（[07 §3](./07_infrastructure_design.md#3-段階4)）。
   無いと 400 になる（推測）ので、インフラの PR を API より先に apply する
 
@@ -405,11 +426,14 @@ export const CATALOG_KINDS = {
     label: '植物',
     inCatalog: true,      // 図鑑に載せる（02 #51。植物だけ）
     autoIdentify: true,   // 分類の後に自動で詳しく識別する（02 #51。植物だけ）
-    namingRule: '品種名が分かれば品種名、品種名は分からないが種名が分かれば種名、種名も特定できなければ属名',
-    // openAIVisionService.ts の plantIdentificationPrompt() の命名規則の文言を移す
+    // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 #56）
+    namingRule: '種の和名（例: ハナトリカブト）。種まで特定できなければ「〇〇属の一種」（例: トリカブト属の一種）とし、信頼度を低くする',
     fields: [
-      { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
-      { key: 'familyName',     label: '科名', type: 'string', prompt: '科名（日本語）。特定できない場合は null' },
+      { key: 'scientificName', label: '学名',     type: 'string', prompt: '学名。特定できない場合は null' },
+      { key: 'genusName',      label: '属',       type: 'string', prompt: '属名（日本語。例: トリカブト属）。特定できない場合は null' },
+      // 図鑑は属でまとめる。日本語の属名は揺れやすいので、まとめる鍵はラテン語の1語にする（02 #56）
+      { key: 'genus',          label: '属の学名', type: 'string', prompt: '属の学名（ラテン語の1語。例: Aconitum）。特定できない場合は null' },
+      { key: 'familyName',     label: '科名',     type: 'string', prompt: '科名（日本語）。特定できない場合は null' },
     ],
   },
   food: {
@@ -436,6 +460,11 @@ export const CATALOG_KINDS = {
 } as const;
 ```
 
+**実装済み**（P-1。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #56）: 植物の `namingRule`（種の和名。種まで分からなければ「〇〇属の一種」で信頼度を低く。それまでは品種名が分かれば品種名）と、`fields` の属（`genusName`）・属の学名（`genus`）。植物の欄の順は学名・属・属の学名・科名。
+アプリの項目詳細は `fields` を順に回すので、アプリを変えなくても「属」「属の学名」の行が科名の前に出る（P-1 の前に識別した写真が見出しなら「—」）。
+
+`prompt`・`namingRule` の文言は AI への指示で契約外（[06 §3.1](./06_processing_design.md#31-契約)。上のコードはその時点の写しで、正はコード）。契約は `key`・`label`・`type` と、名前の決まりが何を指示するか（06 §3.1）まで。
+
 `type` は `'string' | 'string[]'` の2つから始める。数値が要る項目（標高など）が出たら `'number'` を足す。
 
 この表から追従するもの:
@@ -448,6 +477,7 @@ export const CATALOG_KINDS = {
 | 識別結果の検証 | `confidence` の 0〜100、`attributes` の値が `fields` の `type` に合うか（合わなければ AI の失敗）。`fields` に無いキーは捨てる（[06 §3.1](./06_processing_design.md#31-契約)。4-1a で実装済み） | 4 |
 | `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`inCatalog` が true の種類だけを返す（B-2 で実装済み）。`prompt`・`namingRule`・`inCatalog`・`autoIdentify` は返さない | 4・分析の見直し |
 | 図鑑の API | `kind` が表に無いか、`inCatalog` が false（`isListedInCatalog()` が false）なら 400（図鑑に載せない種類を断るのは B-2 で実装済み）。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4) | 4・分析の見直し |
+| 図鑑の一覧の並び | 一覧は `fields` の `genus`（属の学名）と `genusName`（属）の値でまとめて並べ、項目に付ける（§3.1 の「属でまとめる」。P-1 で実装済み）。この2つのキーは集計のクエリ（§5.6）と組み立て（`catalogEntries.ts`）に書いてあり、表には追従しない（キーを変えると、まとめと項目の欄が `null` になる） | P-1 |
 | Flutter | 図鑑の画面が取得して保持する。図鑑は起動時のタブなので、アプリの起動時に取得する（4-5 から。それまでは3つ目のタブ「図鑑（新）」を初めて開いたときに取得していた。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)。4-3a で実装済み）。種類タブは `kinds` から作る（4-3a で実装済み。種類が1つならタブを出さずにその種類の項目を並べる。B-2 で実装済み）。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」。4-3b）。写真のカテゴリの表示名（写真ビューア・旅行詳細のチップ）はアプリの表で、この表には追従しない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #33） | 4 |
 | `PATCH` の検証 | 段階4では `attributes` を利用者が直す機能は入れない。入れるときは `fields` の `type` で検証 | — |
 
@@ -520,7 +550,7 @@ export const CATALOG_KINDS = {
 | 5.3 | 旅行の写真一覧・未所属 | 旅行あり: `WHERE c.type = @type AND c.tripId = @tripId ORDER BY c.sortAt ASC`（未所属は同じ SQL に `@tripId = null`）。`maxItemCount` と継続トークンでページ | `@tripId` で絞る（未所属は `tripId` が `null` のもの）。ページの切れ目と継続トークンの受け渡し | `@tripId = null` が `null` の写真だけに一致すること・`ORDER BY c.sortAt` の並び・継続トークンでページが続くこと |
 | 5.4 | カテゴリの絞り込み（段階3。実装済み。旅行詳細のチップは旅行と AND、設定画面の接続テストは `category` だけ。カテゴリ横断画面は 2026-10-24 に消した） | `WHERE c.type = @type AND c.category = @category ORDER BY c.sortAt ASC`。旅行も指定されたら 5.3 の `AND c.tripId = @tripId` を `category` の前に足す（`AlbumService.listPhotos()` が指定された条件だけをつなぐ）。ページは 5.3 と同じ | `@category` で絞る（旅行をまたぐ・旅行と AND） | `c.category = @category` の絞り込みと、`tripId` との AND・並び |
 | 5.5 | タグ一覧（段階3。タグを付ける画面を入れるときに使う） | `SELECT DISTINCT VALUE t FROM c JOIN t IN c.tags WHERE c.type = @type` | × | 全部 |
-| 5.6 | 図鑑の項目一覧（段階4。4-2a で実装済み。`services/catalogQueries.ts`） | 枚数: `SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前順に並べてページに切る所は○（`services/catalogEntries.ts` の純粋な関数に行を直接渡す。偽物は集計を作れない） | `@kind`・`matchesKind` の絞り込み、`GROUP BY`（`null` の鍵）、複合インデックスの `ORDER BY` で選ばれる見出し |
+| 5.6 | 図鑑の項目一覧（段階4。4-2a で実装済み。属の組で数えるのは P-1 で実装済み。`services/catalogQueries.ts`） | 枚数: `SELECT c.identification.name AS name, c.identification.attributes.genus AS genus, c.identification.attributes.genusName AS genusName, COUNT(1) AS photoCount FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true GROUP BY c.identification.name, c.identification.attributes.genus, c.identification.attributes.genusName`／見出し: 項目ごとに `SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName ORDER BY c.identification.confidence DESC, c.identification.at DESC` | 集計の行と見出しの写真から `CatalogEntry` を組み立て、名前ごとに合わせ、属の順に並べてページに切る所は○（`services/catalogEntries.ts` の純粋な関数に行を直接渡す。偽物は集計を作れない） | `@kind`・`matchesKind` の絞り込み、`GROUP BY`（`null` の鍵と、属のキーが無い写真の鍵）、複合インデックスの `ORDER BY` で選ばれる見出し |
 | 5.7 | 項目の詳細と写真（段階4。4-2b で実装済み。見出しは 5.6 の 3 と同じ `queryCatalogHead()`、枚数は `catalogQueries.ts` の `queryCatalogPhotoCount()`、写真は `AlbumService.listPhotos()` の `entry`） | 写真: `SELECT * FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName ORDER BY c.sortAt ASC`。ページは 5.3 と同じ。枚数: `SELECT VALUE COUNT(1) FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName` | 写真を `@kind`・`@entryName` で絞る（偽物は `matchesKind` を見ない）。ページの切れ目と継続トークンの受け渡し | `matchesKind` の絞り込み・`ORDER BY c.sortAt` の並び・`COUNT`・見出しの選び方 |
 | 5.8 | 再投入のタイマー（段階3。実装済み） | `SELECT c.id, c.processing FROM c WHERE c.type = @type AND c.processing.state IN ('pending', 'classifying', 'identifying') AND c.processing.updatedAt < @before`（`@before` は今の 10 分前の ISO 文字列。**`failed` は含めない**。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`fetchAll()` で読む | ×（偽物は `@type` でしか絞らない。タイマーは同じ条件をコードでも見直すので、単体テストはそちらを通る） | 全部 |
 | 5.9 | 掃除のタイマー（段階3。実装済み） | `SELECT c.id, c.tripId, c.blobName FROM c WHERE c.type = @type`（`@type = 'photo'`。全写真の薄い射影）と、旅行の id の一覧 `SELECT c.id FROM c WHERE c.type = @type`（`@type = 'trip'`）。どちらも `fetchAll()` で読む | 突き合わせは○ | 射影 |
@@ -618,11 +648,12 @@ Blob を先、ドキュメントを後。逆だと「壊れた表示の写真」
 写真を全部読まずにまとめる（§3.1 の「規模の注意」）。
 
 ```sql
--- 1. 名前ごとの枚数（結果は項目の数だけ）
-SELECT c.identification.name AS name, COUNT(1) AS photoCount
+-- 1. 名前・属の学名・属名の組ごとの枚数（結果は項目の数と、名前ごとに属が分かれた分だけ。P-1 から）
+SELECT c.identification.name AS name, c.identification.attributes.genus AS genus,
+       c.identification.attributes.genusName AS genusName, COUNT(1) AS photoCount
 FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true
-GROUP BY c.identification.name
--- 2.（サーバで name の文字列順に並べ、offset / limit で1ページ分に切る）
+GROUP BY c.identification.name, c.identification.attributes.genus, c.identification.attributes.genusName
+-- 2.（サーバで名前ごとに合わせ、属の学名の文字列順（同じ属は name の順、属が分からない項目は最後）に並べ、offset / limit で1ページ分に切る。§3.1 の「属でまとめる」）
 -- 3. ページの項目ごとに見出しの写真を1枚（信頼度が最も高く、同点なら識別の日時が新しいもの。複合インデックスが要る）
 SELECT TOP 1 c.id, c.identification, c.thumbnailBlobName, c.blobName
 FROM c WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName
@@ -631,8 +662,8 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 
 `@type = 'photo'`。1 と 3 は実装済み（4-2a。`services/catalogQueries.ts` の `queryCatalogNameCounts()`・`queryCatalogHead()`。2 と組み立ては `services/catalogEntries.ts`）。
 項目の名前のパラメータは `@name` ではなく `@entryName`（決めた当時、テスト用の Cosmos の偽物は `@name` を植物図鑑の文書の `name` の絞り込みに使っていて、`@name` で渡すと偽物が写真をすべて外したため。偽物のその扱いは 4-6 で消した。5.7 も同じ名前にする）。
-1 の行と 3 の写真から、§3.1 の表のとおり `CatalogEntry`（名前・説明・特徴・属性・信頼度・枚数・表紙）を組み立てる。
-項目の詳細（§5 の 5.7。4-2b で実装済み）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、3 と同じ条件（`@kind`・`matchesKind = true`・`@entryName`）で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。`AlbumService.getCatalogEntry()` は先に見出しを読み、無ければ（その種類と名前の写真が0枚）残りの2本を投げずに項目なし（`entry: null`・`photos: []`）とする。あれば枚数と写真のページを並列に読み、枚数が 0 なら項目なしとする（読む間に写真が消された・名前が変わったときに、見出しだけ残った食い違った項目を返さない）。
+1 の行と 3 の写真から、§3.1 の表のとおり `CatalogEntry`（名前・説明・特徴・属性・属と属の学名・信頼度・枚数・表紙）を組み立てる（属は 1 の行から名前ごとに決めたもの。P-1）。
+項目の詳細（§5 の 5.7。4-2b で実装済み）は、3 と同じ `TOP 1`（見出し）、`SELECT VALUE COUNT(1)`（枚数）、3 と同じ条件（`@kind`・`matchesKind = true`・`@entryName`）で絞って `ORDER BY c.sortAt ASC` の写真のページ（§5.3 と同じ継続トークン）の3本。`AlbumService.getCatalogEntry()` は先に見出しを読み、無ければ（その種類と名前の写真が0枚）残りの2本を投げずに項目なし（`entry: null`・`photos: []`）とする。あれば枚数と写真のページを並列に読み、枚数が 0 なら項目なしとする（読む間に写真が消された・名前が変わったときに、見出しだけ残った食い違った項目を返さない）。項目の詳細は 1 の行を数えないので、属と属の学名は見出しの写真の `attributes` から取る（P-1。一覧の属と違うことがある。05 §3.3.1）。
 
 識別結果の書き込みは**写真1枚への patch 1回**（[06 §3.2](./06_processing_design.md#32-書き込み)）。項目の文書が無いので、`create` の 409 も、
 信頼度を比べて項目を書き換える処理も、写真の付け替えも無い。
