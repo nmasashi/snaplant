@@ -24,12 +24,12 @@ const trimmedOrNull = (value: unknown): string | null => (typeof value === 'stri
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * 属の学名をまとめる鍵に揃える（前後の空白を除き、先頭だけ大文字。空なら null）。
- * AI の答えの揺れ（「 aconitum」など）で、同じ属が別の見出しに分かれないように
+ * 属の学名をまとめる鍵に揃える（最初の1語を、先頭だけ大文字にする。空なら null）。
+ * AI の答えの揺れ（「 aconitum」や、学名・「sp.」まで答えた「Aconitum chinense」など）で、同じ属が別の見出しに分かれないように
  */
 function genusKeyOf(value: unknown): string | null {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  return trimmed === '' ? null : trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  const word = trimmedOrNull(value)?.split(/\s+/)[0];
+  return word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : null;
 }
 
 /** 枚数の最も多い鍵（同じ枚数なら符号単位の順で先）。無ければ null */
