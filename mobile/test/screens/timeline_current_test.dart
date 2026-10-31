@@ -510,6 +510,26 @@ void main() {
       expect(firstDaySceneCount(backend), 1);
     });
 
+    testWidgets('編集で最初の写真を外した場面を「つなげる」ときも、消える見出しと一言を添えて確かめる（場面の id は外した写真のまま）', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester,
+          current: currentWithSecondScene(label: '小樽運河さんぽ', note: '運河沿いを歩いた。'));
+      await _chooseFromMenu(tester, 'タイムラインを編集');
+      await tester.longPress(photoThumbnail('2026年10月5日 10:10'));
+      await letFramesRun(tester);
+      await tester.tap(find.text('タイムラインから外す'));
+      await letFramesRun(tester);
+      await tester.tap(find.text('外す'));
+      await letFramesRun(tester);
+
+      await tester.tap(find.text('つなげる'));
+      await letFramesRun(tester);
+      expect(inDialog(find.text('消える見出し: 小樽運河さんぽ')), findsOneWidget);
+      await tapInDialog(tester, 'キャンセル');
+      expect(firstDaySceneCount(backend), 2);
+      semantics.dispose();
+    });
+
     testWidgets('編集で「つなげる」とき、後ろの場面に一言だけがあれば、消える一言だけを添えて確かめる',
         (tester) async {
       final backend = await _openTimeline(tester,

@@ -450,20 +450,19 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('最初の写真を外した場面も、つなげて保存できる', (tester) async {
+    testWidgets('場面の途中の写真を外すと、その写真だけを外して描き直す', (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       await _openReview(tester);
-      await chooseExclude(tester, '2026年10月5日 07:50');
+
+      await chooseExclude(tester, '2026年10月5日 07:58');
       await tester.tap(find.text('外す'));
       await letFramesRun(tester);
 
-      await tester.tap(find.text('つなげる'));
-      await letFramesRun(tester);
-
-      expect(find.text('7:58〜11:40 · 北海道千歳市、北海道小樽市 · 3枚'), findsOneWidget);
-      expect(find.text('つなげる'), findsNothing);
-      expect(excludedOf(backend), [idOf(1)]);
+      expect(excludedOf(backend), [idOf(2)]);
+      expect(photoThumbnail('2026年10月5日 07:58'), findsNothing);
+      expect(photoThumbnail('2026年10月5日 07:50'), findsOneWidget);
+      expect(find.text('7:50 · 北海道千歳市 · 1枚'), findsOneWidget);
       semantics.dispose();
     });
 
