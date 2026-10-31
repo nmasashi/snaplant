@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
-// 場面の写真の一覧（docs/03_screen_design.md §8.8。U-1a）。
+// 場面の写真の一覧（docs/03_screen_design.md §8.8。U-1a）と、そこから開く場面の見出しの編集シート（§8.5 の場面の欄）。
 // 入口は旅行詳細の「タイムライン」の完成版（§8.3）の場面のタップ
 
 /// 場面の写真（番号から id を作る）
@@ -303,6 +303,8 @@ void main() {
       final semantics = tester.ensureSemantics();
       final backend = await _openScene(tester, '朝ごはん');
       backend.failNext(TripRoute.getPhoto);
+      // 読み直したら見出しが替わる（読み直さないことを確かめる目印）
+      _relabelBreakfast(backend, '市場の朝ごはん');
 
       await tester.tap(photoThumbnail('2026年10月5日 07:58'));
       await letFramesRun(tester);
@@ -351,6 +353,21 @@ void main() {
 
       expect(find.text('タイムライン'), findsOneWidget);
       expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('閉じた後に読み直すと、旅行が消されていたら旅行詳細に戻り「この旅行は削除されています」を出す',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openScene(tester, '朝ごはん');
+      await tester.tap(photoThumbnail('2026年10月5日 07:58'));
+      await letFramesRun(tester);
+
+      backend.trips.clear();
+      await tapBack(tester);
+      await letFramesRun(tester);
+      expect(_appBarText('朝ごはん'), findsNothing);
+      expect(find.text('この旅行は削除されています'), findsOneWidget);
       semantics.dispose();
     });
 

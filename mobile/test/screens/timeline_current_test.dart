@@ -186,7 +186,12 @@ void main() {
       expect(find.text('朝ごはん'), findsOneWidget);
       expect(find.text('7:50〜7:58 · 北海道千歳市 · 海鮮丼'), findsOneWidget);
       // 場面に編集のボタンは置かない（見出しは場面の写真の一覧から直す。§8.8）
-      expect(find.bySemanticsLabel('この場面を編集'), findsNothing);
+      expect(
+          find.descendant(
+              of: find.ancestor(
+                  of: find.text('朝ごはん'), matching: find.byType(Card)),
+              matching: find.byType(IconButton)),
+          findsNothing);
       expect(find.text('港の市場で海鮮丼。'), findsOneWidget);
       expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
 
@@ -585,7 +590,7 @@ void main() {
     expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
     expect(find.text('AI のまとめ'), findsNothing);
     expect(find.text('編集済み'), findsNothing);
-    // 見出しの印は出さず、見出しの所に「見出しなし」と出す（編集のボタンで書ける。§8.3）
+    // 見出しの印は出さず、見出しの所に「見出しなし」と出す（場面の写真の一覧で書ける。§8.8）
     expect(find.byIcon(Icons.circle), findsNothing);
     expect(find.text('見出しなし'), findsOneWidget);
   });
@@ -622,6 +627,29 @@ void main() {
       expect(find.text('市場と運河の一日。'), findsOneWidget);
       // 直したのは1日目（ほかの日を直していない）
       expect(find.text('朝は市場で海鮮丼、昼は運河を歩いた。'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('変えていない欄は送らず、AI の文のまま残る', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final backend = await _openTimeline(tester);
+      // 3日目はタイトルもまとめも AI の文
+      await _scrollTo(tester, find.text('3日目'));
+      await tester.tap(find.bySemanticsLabel('この日を編集').last);
+      await letFramesRun(tester);
+      expect(find.text('3日目を編集'), findsOneWidget);
+
+      await tester.enterText(field('タイトル'), '旭川のラーメン');
+      await tester.tap(find.text('保存'));
+      await letFramesRun(tester);
+
+      expect(find.text('旭川のラーメン'), findsOneWidget);
+      final days = (backend.timelinesByTripId[hokkaidoTripId]!['current']
+              as Map<String, Object?>)['days'] as List;
+      final third = days.cast<Map<String, Object?>>()
+          .firstWhere((day) => day['date'] == '2026-10-07');
+      expect(third['titleSource'], 'user');
+      expect(third['summarySource'], 'ai');
       semantics.dispose();
     });
 
@@ -846,15 +874,13 @@ void main() {
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
       await _chooseFromMenu(tester, 'タイムラインを編集');
-      for (final label in ['この日を編集']) {
-        expect(
-            tester
-                .widget<IconButton>(find.ancestor(
-                    of: find.bySemanticsLabel(label).first,
-                    matching: find.byType(IconButton)))
-                .onPressed,
-            isNull);
-      }
+      expect(
+          tester
+              .widget<IconButton>(find.ancestor(
+                  of: find.bySemanticsLabel('この日を編集').first,
+                  matching: find.byType(IconButton)))
+              .onPressed,
+          isNull);
 
       reply.complete();
       await letFramesRun(tester);
