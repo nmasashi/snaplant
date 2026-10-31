@@ -17,6 +17,9 @@ interface CatalogNameCount {
   photoCount: number;
 }
 
+/** 文字列ならそのまま、それ以外は null */
+const stringOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+
 /** 文字列の符号単位の順（ロケールに依らず、どの環境でも同じ。05 §5.14） */
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -98,8 +101,9 @@ export function catalogEntryOf(
     description: identification.description ?? null,
     characteristics: identification.characteristics ?? null,
     attributes: identification.attributes ?? {},
-    genus: row.genus ?? null,
-    genusName: row.genusName ?? null,
+    // 一覧は名前ごとに決めた属（行）、詳細は属の行を数えないので見出しの写真の識別から取る
+    genus: row.genus !== undefined ? row.genus : stringOrNull(identification.attributes?.genus),
+    genusName: row.genusName !== undefined ? row.genusName : stringOrNull(identification.attributes?.genusName),
     photoCount: row.photoCount,
     coverThumbnailUrl: coverUrlOf(head.thumbnailBlobName ?? head.blobName),
   };
