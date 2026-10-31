@@ -429,7 +429,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
           children: [
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
-            _buildPhotos(scene.photos, scene: scene),
+            _buildPhotos(scene),
             // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
             if (_draft!.reason != 'recut') ...[
               const SizedBox(height: 4),
@@ -463,10 +463,9 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
     );
   }
 
-  /// 写真を5列のサムネイルで全部並べる
+  /// 場面の写真を5列のサムネイルで全部並べる
   /// 長押しで写真のメニュー（「この写真から新しい場面」は場面の最初の写真では出さない。「タイムラインから外す」はどの写真にも出す）
-  Widget _buildPhotos(List<TimelinePhoto> photos,
-      {required TimelineScene scene}) {
+  Widget _buildPhotos(TimelineScene scene) {
     return GridView.count(
       crossAxisCount: _columns,
       mainAxisSpacing: 2,
@@ -474,7 +473,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
-        for (final (index, photo) in photos.indexed)
+        for (final (index, photo) in scene.photos.indexed)
           GestureDetector(
             onLongPress: _sending
                 ? null
