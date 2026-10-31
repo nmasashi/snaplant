@@ -73,22 +73,13 @@ class TimelineCurrent {
   final String writtenAt;
   final List<TimelineDay> days;
 
-  /// 撮影日時の無い写真
-  final List<TimelinePhoto> undatedPhotos;
-
-  const TimelineCurrent(
-      {required this.writtenAt,
-      required this.days,
-      required this.undatedPhotos});
+  const TimelineCurrent({required this.writtenAt, required this.days});
 
   factory TimelineCurrent.fromJson(Map<String, dynamic> json) =>
       TimelineCurrent(
         writtenAt: json['writtenAt'] as String,
         days: (json['days'] as List<dynamic>)
             .map((e) => TimelineDay.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        undatedPhotos: (json['undatedPhotos'] as List<dynamic>)
-            .map((e) => TimelinePhoto.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
 }
@@ -109,16 +100,12 @@ class TimelineDraftStatus {
   /// 日ごとの場面（`GET …/timeline/draft` が、区切りを確かめられる下書きにだけ付ける）。無ければ null
   final List<TimelineDay>? days;
 
-  /// 撮影日時の無い写真（[days] と一緒に付く）
-  final List<TimelinePhoto>? undatedPhotos;
-
   const TimelineDraftStatus(
       {required this.id,
       required this.reason,
       required this.phase,
       required this.job,
-      this.days,
-      this.undatedPhotos});
+      this.days});
 
   factory TimelineDraftStatus.fromJson(Map<String, dynamic> json) {
     final job = json['job'] as Map<String, dynamic>?;
@@ -129,9 +116,6 @@ class TimelineDraftStatus {
       job: job == null ? null : TimelineJob.fromJson(job),
       days: (json['days'] as List<dynamic>?)
           ?.map((e) => TimelineDay.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      undatedPhotos: (json['undatedPhotos'] as List<dynamic>?)
-          ?.map((e) => TimelinePhoto.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }
