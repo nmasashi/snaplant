@@ -439,6 +439,22 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline);
     });
 
+    it('完成版ではもう外してあり、編集中の下書きにだけ足すときも、下書きに出す写真が無くなるなら 409（TIMELINE_NO_DATED_PHOTOS）で書かない', async () => {
+      // 完成版は a・b を外している。編集中の下書きは c・d・a を外していて、b はまだ出している
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, {
+        reason: 'recut',
+        excludedPhotoIds: [photoId('a'), photoId('c'), photoId('d')]
+      });
+      const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('a'), photoId('b')] }, draft });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS' } });
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
     it('もう外してある写真だけを送り直したときは、出す写真が無くても 409 にせず、書かずに完成版を読んだ形を返す', async () => {
       // a・b・c は外してあり、d は消えた（出す写真は無い）。c を送り直しても何も変わらない
       cosmosBackend.documents.delete(photoId('d'));
