@@ -2,7 +2,7 @@ import { UNFINISHED_PROCESSING_STATES } from '../constants/album';
 import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
 import { TimelineService, rereadIfSnapshotMissing } from './timelineService';
-import { currentTimelineOf, draftStatusOf } from './timelineView';
+import { currentTimelineOf, draftStatusOf, visiblePhotoIdsOf } from './timelineView';
 
 /**
  * 完成版を読んだ形（GET …/timeline の data。05 §5.15）を組む
@@ -34,12 +34,8 @@ async function readTimelineBodyOnce(tripId: string) {
     const existing = new Set(photos.map((photo) => photo.id));
     const snapshotIds = new Set(snapshot.map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
-    current = currentTimelineOf(
-      doc.current,
-      snapshot,
-      (photoId) => existing.has(photoId) && !excluded.has(photoId),
-      urlOfPhotos(new PhotoStorageService(), expiresOn)
-    );
+    const visible = visiblePhotoIdsOf(existing, doc.current.excludedPhotoIds);
+    current = currentTimelineOf(doc.current, snapshot, (photoId) => visible.has(photoId), urlOfPhotos(new PhotoStorageService(), expiresOn));
     // 日時の無い写真も数える（作り直せば控えに入る）。外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
       added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,

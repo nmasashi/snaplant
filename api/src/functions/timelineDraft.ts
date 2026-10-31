@@ -2,8 +2,9 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { AlbumService } from '../services/albumService';
 import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
-import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay } from '../services/timelineView';
+import { datedDaysOf, draftStatusOf, reviewingDraftOf, scenesOfDay, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
 import { readJsonBody } from '../utils/tripInput';
+import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
 import { withRecutStarts } from '../services/timelineWriting';
@@ -205,9 +206,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return draftPhotos.error;
     }
     const { photos, existing } = draftPhotos;
-    const excluded = new Set(draft.excludedPhotoIds ?? []);
-    const visible = new Set([...existing].filter((id) => !excluded.has(id)));
-    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, visible);
+    const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, visiblePhotoIdsOf(existing, draft.excludedPhotoIds));
     if (!normalized) {
       return createValidationError('区切りが無効です');
     }
@@ -248,16 +247,9 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
   if (!isValidUUID(tripId)) {
     return createValidationError('旅行IDの形式が無効です');
   }
-  const read = await readJsonBody(request);
+  const read = await readPhotoIdsToExclude(request);
   if ('error' in read) {
     return read.error;
-  }
-  if (read.body === null || read.body === undefined) {
-    return createValidationError('リクエストボディが指定されていません');
-  }
-  const { photoIds } = read.body as { photoIds?: unknown };
-  if (!Array.isArray(photoIds) || photoIds.length === 0 || !photoIds.every((id) => typeof id === 'string')) {
-    return createValidationError('外す写真は写真IDの配列で指定してください');
   }
   try {
     if (!(await new AlbumService().tripExists(tripId))) {
@@ -277,14 +269,13 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
       return draftPhotos.error;
     }
     const { photos, existing } = draftPhotos;
-    const snapshotIds = new Set(photos.map((photo) => photo.id));
-    if (photoIds.some((id) => !snapshotIds.has(id))) {
+    const excludedPhotoIds = withExcludedPhotos(draft.excludedPhotoIds, read.photoIds, photos);
+    if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
-    const excluded = new Set([...(draft.excludedPhotoIds ?? []), ...photoIds]);
     const saved: TimelineDraft = {
       ...draft,
-      excludedPhotoIds: photos.map((photo) => photo.id).filter((id) => excluded.has(id)),
+      excludedPhotoIds,
       ...(isWriteFailed(draft) ? { phase: 'reviewing', job: null } : {})
     };
     // 保存先の設定が足りなければ、書き換える前に失敗させる（区切りの保存と同じ）

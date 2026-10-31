@@ -208,13 +208,13 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
  * @param urlOf Blob 名から読み取りの SAS 付き URL
  */
 export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
-  const excluded = new Set(draft.excludedPhotoIds ?? []);
+  const visible = visiblePhotoIdsOf(existing, draft.excludedPhotoIds);
   const layout = layoutTimeline({
     photos,
     sceneStarts: draft.sceneStarts,
     proposedStarts: draft.proposedStarts,
     dayStartHour: draft.dayStartHour,
-    exists: (photoId) => existing.has(photoId) && !excluded.has(photoId),
+    exists: (photoId) => visible.has(photoId),
     urlOf,
   });
   const comments = draft.sceneComments ?? {};
@@ -223,6 +223,29 @@ export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnap
     scenes: day.scenes.map((scene) => ({ ...scene, comment: comments[scene.startPhotoId] ?? null })),
   }));
   return { ...draftStatusOf(draft), ...layout, days };
+}
+
+/**
+ * 画面に出す写真の id（旅行に今もあり、外していない写真。外した写真は消えた写真と同じに扱う。02 §5 #52）
+ * @param existing 旅行の今の写真の id
+ * @param excludedPhotoIds 利用者がタイムラインから外した写真
+ */
+export function visiblePhotoIdsOf(existing: Set<string>, excludedPhotoIds: string[] | undefined): Set<string> {
+  const excluded = new Set(excludedPhotoIds ?? []);
+  return new Set([...existing].filter((id) => !excluded.has(id)));
+}
+
+/**
+ * 外した写真に足した一覧（控えの順・重なりなし。戻さないので、前に外した写真も残す）
+ * @returns 控えに無い写真があれば null（400 にする）
+ */
+export function withExcludedPhotos(previous: string[] | undefined, added: string[], photos: TimelinePhotoSnapshot[]): string[] | null {
+  const snapshotIds = new Set(photos.map((photo) => photo.id));
+  if (added.some((id) => !snapshotIds.has(id))) {
+    return null;
+  }
+  const excluded = new Set([...(previous ?? []), ...added]);
+  return photos.map((photo) => photo.id).filter((id) => excluded.has(id));
 }
 
 /** 下書きの状態（応答の形。05 §5.15） */

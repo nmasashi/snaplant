@@ -18,7 +18,8 @@ import {
   createValidationError,
   isValidUUID
 } from '../utils/response';
-import { reviewingDraftOf } from '../services/timelineView';
+import { reviewingDraftOf, withExcludedPhotos } from '../services/timelineView';
+import { readPhotoIdsToExclude } from '../utils/timelineInput';
 
 /**
  * タイムラインの完成版の区切りを直し始める API
@@ -102,16 +103,9 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
   if (!isValidUUID(tripId)) {
     return createValidationError('旅行IDの形式が無効です');
   }
-  const read = await readJsonBody(request);
+  const read = await readPhotoIdsToExclude(request);
   if ('error' in read) {
     return read.error;
-  }
-  if (read.body === null || read.body === undefined) {
-    return createValidationError('リクエストボディが指定されていません');
-  }
-  const { photoIds } = read.body as { photoIds?: unknown };
-  if (!Array.isArray(photoIds) || photoIds.length === 0 || !photoIds.every((id) => typeof id === 'string')) {
-    return createValidationError('外す写真は写真IDの配列で指定してください');
   }
   try {
     if (!(await new AlbumService().tripExists(tripId))) {
@@ -139,12 +133,11 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
       }
       throw error;
     }
-    const snapshotIds = new Set(photos.map((photo) => photo.id));
-    if (photoIds.some((id) => !snapshotIds.has(id))) {
+    const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, photos);
+    if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
     }
-    const excluded = new Set([...(current.excludedPhotoIds ?? []), ...photoIds]);
-    const edited: TimelineCurrent = { ...current, excludedPhotoIds: photos.map((photo) => photo.id).filter((id) => excluded.has(id)) };
+    const edited: TimelineCurrent = { ...current, excludedPhotoIds };
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
       return createTimelineStateConflict();
     }
