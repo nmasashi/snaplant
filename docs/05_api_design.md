@@ -735,8 +735,9 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 - どのエンドポイントも、`tripId` が UUID の形でなければ 400 `旅行IDの形式が無効です`、旅行が無ければ 404 `TRIP_NOT_FOUND`（旅行の API と同じ。先に判定する）
 - データベースに届かなければ 503 `DATABASE_ERROR`、それ以外の失敗は 500 `INTERNAL_ERROR`（`message` は §7.2）
-- 下書き・完成版が指す写真の控え（`timelinePhotos`）が読めないときは、空の日と場面や「区切りが無効です」は返さない（5-1c）。控えを消すのはタイムラインの書き込みの後なので、読んだ後に他の操作（下書きをやめる・作り直す・旅行の削除）と重なると控えだけが先に無くなる。`GET …/timeline`・`GET …/draft` は最初から読み直して（3回まで）今の状態を返す（旅行が消えていれば 404）。`PATCH` の2つの応答（書いた後に `GET …/timeline` と同じ形を組む）も同じく読み直す（5-2b）。`POST …/recut` は `PUT …/draft/scenes` と同じく読み直して保存はせず（下書きを書かない）、旅行が消えていれば 404 `TRIP_NOT_FOUND`、完成版が変わっていれば（`current.snapshotId` が違う・完成版が無い）409 `TIMELINE_STATE_CONFLICT`、同じ完成版のまま控えが無ければ壊れているので 500 `INTERNAL_ERROR`（5-2b）。`PUT …/draft/scenes` は読み直して保存はせず（出し直した新しい下書きに前の直しを書かないため）、旅行が消えていれば 404 `TRIP_NOT_FOUND`、下書きが変わっていれば 409 `TIMELINE_STATE_CONFLICT`。読み直しても控えが無い・下書きが同じままなら壊れているので 500 `INTERNAL_ERROR`
-- ボディを受けるもの（`PUT`・`PATCH`）は、JSON として読めなければ 400 `リクエストボディの形式が無効です`、`null` なら 400 `リクエストボディが指定されていません`（写真の `PATCH` と同じ）
+- 下書き・完成版が指す写真の控え（`timelinePhotos`）が読めないときは、空の日と場面や「区切りが無効です」は返さない（5-1c）。控えを消すのはタイムラインの書き込みの後なので、読んだ後に他の操作（下書きをやめる・作り直す・旅行の削除）と重なると控えだけが先に無くなる。`GET …/timeline`・`GET …/draft` は最初から読み直して（3回まで）今の状態を返す（旅行が消えていれば 404）。`PATCH` の2つの応答（書いた後に `GET …/timeline` と同じ形を組む）も同じく読み直す（5-2b）。`POST …/recut` は `PUT …/draft/scenes` と同じく読み直して保存はせず（下書きを書かない）、旅行が消えていれば 404 `TRIP_NOT_FOUND`、完成版が変わっていれば（`current.snapshotId` が違う・完成版が無い）409 `TIMELINE_STATE_CONFLICT`、同じ完成版のまま控えが無ければ壊れているので 500 `INTERNAL_ERROR`（5-2b）。`PUT …/draft/scenes` は読み直して保存はせず（出し直した新しい下書きに前の直しを書かないため）、旅行が消えていれば 404 `TRIP_NOT_FOUND`、下書きが変わっていれば 409 `TIMELINE_STATE_CONFLICT`。読み直しても控えが無い・下書きが同じままなら壊れているので 500 `INTERNAL_ERROR`。
+  写真を外す2つ（T-1）は、`POST …/draft/excluded-photos` が `PUT …/draft/scenes` と、`POST …/excluded-photos` が `POST …/recut` と同じ扱いで書かない。`POST …/excluded-photos` の応答（書いた後に `GET …/timeline` と同じ形を組む）は `PATCH` の2つと同じく読み直す
+- ボディを受けるもの（`PUT`・`PATCH`、写真を外す2つの `POST`（T-1））は、JSON として読めなければ 400 `リクエストボディの形式が無効です`、`null` なら 400 `リクエストボディが指定されていません`（写真の `PATCH` と同じ）
 - 書き込みは読んだ文書の `_etag` 付きの置き換えで、読んでから書くまでに他（ワーカー・別の操作）が書いていたら 409 `TIMELINE_STATE_CONFLICT` `タイムラインが変わったか、作っている途中です。読み直してください`。下の表の「状態が合わない」も同じコードと文言
 - 「作っている途中」は、下書きの `job.state` が `pending` / `running` のとき
 
@@ -871,7 +872,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（T-1。`timelineDraft.ts` の `postTimelineDraftExcludedPhotos`）。
 
-判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 下の表の 1 → 旅行が無い（404 `TRIP_NOT_FOUND`）→ 表の 2〜4。表の 1 はデータベースに触る前に見る（§1）。
+判定の順は、`tripId` の形 → ボディ（共通の行。JSON として読めない・`null`）→ 下の表の 1 → 旅行が無い（404 `TRIP_NOT_FOUND`）→ 表の 2〜4。表の 1 はデータベースに触る前に見る（§1）。表の 4 は控えが要るので、タイムラインと控えを読んだ後に見る（§1 の「Cosmos DB に触る前に全部弾く」の例外。`PUT …/draft/scenes` の 6 と同じ）。
 
 | # | 条件 | 応答 |
 |---|---|---|
@@ -943,7 +944,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 判定の順は `tripId` の形 → ボディ（共通の行）→ `photoIds`（下書きの表の 1 と同じ 400）→ 旅行が無い（404 `TRIP_NOT_FOUND`）→ 完成版が無い（タイムラインが無いときも、下書きだけのときも）404 `TIMELINE_NOT_FOUND` `タイムラインが見つかりません` → 完成版の控えに無い写真の id を含む 400 `外す写真が無効です`。どれも何も書かない
 - それ以外は、完成版の `excludedPhotoIds` に足して（控えの順・重なりなし）、タイムラインの `updatedAt` を今にする。区切り・文・作成日時は変えない。応答は `GET …/timeline` と同じ形（外した写真を除いた完成版）
 - 下書きがあっても外せる（下書きは変えない）。タイムラインを編集している途中（`recut`）なら、当てるときに下書きの外した写真と合わせる（`POST …/draft/write`）。5-6b より前に作った作り直し（`rebuild`）の下書きは、書き終えたときに完成版を置き換えるので、そのとき外した写真は残らない
-- 控えが読めないとき（他の操作との重なり）は `POST …/recut` と同じ（共通の行。旅行が消えていれば 404、完成版が変わっていれば 409、同じ完成版のまま控えが無ければ 500）
+- 控えが読めないとき（他の操作との重なり）は `POST …/recut` と同じ（共通の行。旅行が消えていれば 404、完成版が変わっていれば 409、同じ完成版のまま控えが無ければ 500）。完成版の控えだけを読み、旅行の写真は書く前には読まない
+- 応答は書いた後に読み直した `GET …/timeline` と同じ形（`PATCH` の2つと同じ。読み直したときに旅行が消えていれば 404 `TRIP_NOT_FOUND`）。写真の保存先の設定はこの読み直しで読むので、足りなければ書いた後に 500 になる（`POST …/draft/excluded-photos`・`POST …/recut` は書く前に読む）
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの更新に失敗しました`（§7.2）
 
@@ -980,7 +982,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 409 | `TIMELINE_NO_DATED_PHOTOS` | 撮影日時のある写真が無い | 同上 |
 | 400 / 413 / 415 / 500 / 502 / 503 | 既存のコード | 既存と同じ意味 | |
 
-段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）と `POST …/recut`・`PATCH` の2つ（5-2b。`タイムラインが見つかりません`、`PATCH` はほかに `その日はタイムラインにありません`・`その場面はタイムラインにありません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`・`POST …/recut`・`PATCH` の2つ（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。§5.15 のタイムラインのエンドポイントは全部実装済み（5-2b）。
+段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）と `POST …/recut`・`PATCH` の2つ（5-2b。`タイムラインが見つかりません`、`PATCH` はほかに `その日はタイムラインにありません`・`その場面はタイムラインにありません`）、`POST …/draft/excluded-photos`（T-1。`タイムラインの下書きが見つかりません`）・`POST …/excluded-photos`（T-1。`タイムラインが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`・`POST …/recut`・`PATCH` の2つ・`POST …/draft/excluded-photos`・`POST …/excluded-photos`（T-1）（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。§5.15 のタイムラインのエンドポイントは全部実装済み（5-2b。写真を外す2つは T-1）。
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
@@ -1012,7 +1014,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `PUT …/draft/scenes` | `タイムラインの区切りの保存に失敗しました` |
 | `DELETE …/draft`・`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}`・`POST …/draft/excluded-photos`・`POST …/excluded-photos`（T-1） | `タイムラインの更新に失敗しました` |
 
-段階5の行は全部実装済み（`GET …/timeline/draft`・`POST …/timeline`・`DELETE …/draft` は 5-1a、`GET …/timeline`・`PUT …/draft/scenes` は 5-1c、`POST …/draft/write` は 5-2a、`POST …/recut`・`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}` は 5-2b）。
+段階5の行は全部実装済み（`GET …/timeline/draft`・`POST …/timeline`・`DELETE …/draft` は 5-1a、`GET …/timeline`・`PUT …/draft/scenes` は 5-1c、`POST …/draft/write` は 5-2a、`POST …/recut`・`PATCH …/days/{date}`・`PATCH …/scenes/{photoId}` は 5-2b、`POST …/draft/excluded-photos`・`POST …/excluded-photos` は T-1）。
 
 ### 7.3 502 / 503
 
