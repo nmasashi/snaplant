@@ -149,15 +149,14 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
     if ('error' in draftPhotos) {
       return draftPhotos.error;
     }
-    const excludedPhotoIds =
-      read.reason === 'recut' ? withRecutStarts(timeline.doc.current!, read).excludedPhotoIds : read.excludedPhotoIds;
+    const recut = read.reason === 'recut' ? withRecutStarts(timeline.doc.current!, read) : null;
+    const excludedPhotoIds = recut ? recut.excludedPhotoIds : read.excludedPhotoIds;
     if (!hasShownPhotos(draftPhotos.photos, visiblePhotoIdsOf(draftPhotos.existing, excludedPhotoIds))) {
       return createNoDatedPhotosError();
     }
     const now = new Date().toISOString();
-    if (read.reason === 'recut') {
-      const current = withRecutStarts(timeline.doc.current!, read);
-      if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current, draft: null, updatedAt: now }, timeline.etag))) {
+    if (recut) {
+      if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: recut, draft: null, updatedAt: now }, timeline.etag))) {
         return createTimelineStateConflict();
       }
       return createSuccessResponse({ draft: null, urlExpiresAt: photoUrlExpiresOn().toISOString() });

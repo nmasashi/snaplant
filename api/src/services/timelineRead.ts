@@ -3,7 +3,7 @@ import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
 import { HttpResponseInit } from '@azure/functions';
 import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from './timelineService';
-import { currentTimelineOf, draftStatusOf, visiblePhotoIdsOf } from './timelineView';
+import { currentTimelineOf, draftStatusOf } from './timelineView';
 import { TimelineDocument } from '../types/timeline';
 import { ErrorCode } from '../types/api';
 import { createNotFoundError, createTimelineStateConflict } from '../utils/response';
@@ -69,8 +69,9 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     const existing = new Set(photos.map((photo) => photo.id));
     const snapshotIds = new Set(snapshot.map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
-    const visible = visiblePhotoIdsOf(existing, doc.current.excludedPhotoIds);
-    current = currentTimelineOf(doc.current, snapshot, (photoId) => visible.has(photoId), urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
+    // 外した写真は消えた写真と同じく出さない（visiblePhotoIdsOf と同じ決まり。集合を作り直さないように述語で渡す）
+    const shown = (photoId: string) => existing.has(photoId) && !excluded.has(photoId);
+    current = currentTimelineOf(doc.current, snapshot, shown, urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
     // 日時の無い写真はタイムラインに入れない（作り直しても入らない）ので数えない（02 §5 #54）。
     // 外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
