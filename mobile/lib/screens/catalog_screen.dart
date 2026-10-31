@@ -467,8 +467,7 @@ class _GenusHeadingTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: genus != null && genusName == null
-                      ? latin.copyWith(
-                          color: bold.color, fontWeight: FontWeight.bold)
+                      ? bold.copyWith(fontStyle: FontStyle.italic)
                       : bold),
             ),
             if (genus != null && genusName != null) ...[
