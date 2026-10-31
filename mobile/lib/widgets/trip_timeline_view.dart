@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../models/timeline.dart';
-import '../models/photo.dart';
-import '../screens/photo_viewer_screen.dart';
+import '../screens/timeline_scene_screen.dart';
 import '../screens/timeline_review_screen.dart';
 import '../services/api_service.dart';
 import '../services/upload_queue.dart';
@@ -247,53 +246,20 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     await _create();
   }
 
-  /// 写真を読み、写真ビューアでその1枚を開く。閉じたらタイムラインを読み直す（ビューアで消した・直したことを出す。§8.3）
-  Future<void> _openPhoto(TimelinePhoto photo) async {
+  /// 場面の写真の一覧を開き、閉じたら（どう閉じても）タイムラインを読み直す（一覧で直した見出しや、写真ビューアで消した・直したことを出す。§8.3）
+  Future<void> _openScene(TimelineDay day, TimelineScene scene) async {
     if (_sending) return;
-    // 写真を読む間も操作と同じに扱う（前に始めた読み直しの応答を使わず、ほかのタップと操作を受け付けない。§8.1・§8.3）
-    final generation = ++_generation;
-    _pollTimer?.cancel();
-    setState(() => _sending = true);
-    Photo? loaded;
-    try {
-      loaded = await widget.apiService.getPhoto(photo.id);
-    } catch (e) {
-      debugPrint('TripTimelineView: 写真の読み込みエラー: $e');
-      if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      if (e is ApiException && e.isPhotoNotFound) {
-        messenger.showSnackBar(const SnackBar(content: Text('この写真は削除されています')));
-        await _load(showLoading: false);
-        return;
-      }
-      messenger.showSnackBar(SnackBar(
-          content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-    if (!mounted) return;
-    if (loaded == null) {
-      // 表示はそのまま。作っている途中の下書きなら読み直しを続ける
-      if (generation == _generation) _schedulePoll();
-      return;
-    }
-    final photos = ValueNotifier<List<Photo>>([loaded]);
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PhotoViewerScreen(
-          apiService: widget.apiService,
-          uploadQueue: widget.uploadQueue,
-          photos: photos,
-          initialIndex: 0,
-          onReachEnd: () {},
-          hasMore: () => false,
-          onDeleted: (_) => photos.value = const [],
-          onUpdated: (updated) => photos.value = [updated],
-        ),
+        builder: (context) => TimelineSceneScreen(
+            apiService: widget.apiService,
+            uploadQueue: widget.uploadQueue,
+            tripId: widget.tripId,
+            date: day.date,
+            scene: scene),
       ),
     );
-    photos.dispose();
     if (!mounted) return;
     await _load(showLoading: false);
   }
@@ -469,7 +435,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     }
     return TimelineCurrentView(
       current: current,
-      onOpenPhoto: _sending ? null : _openPhoto,
+      onOpenScene: _sending ? null : _openScene,
       onEditDay: _sending ? null : _editDay,
       onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildEditBanner(draft),

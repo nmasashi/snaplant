@@ -1,0 +1,169 @@
+import 'package:flutter/material.dart';
+import '../models/photo.dart';
+import '../models/timeline.dart';
+import '../services/api_service.dart';
+import '../services/upload_queue.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../utils/timeline_format.dart';
+import '../widgets/timeline_thumbnail.dart';
+import 'photo_viewer_screen.dart';
+
+/// 場面の写真の一覧（docs/03_screen_design.md §8.8）
+///
+/// 旅行詳細が読んだ完成版の場面をそのまま出す（開くときには読まない）。写真ビューアを閉じたら完成版を読み直し、
+/// 同じ場面（最初の写真の id が同じもの）で描き直す。場面が無くなっていたら旅行詳細に戻る
+class TimelineSceneScreen extends StatefulWidget {
+  const TimelineSceneScreen(
+      {super.key,
+      required this.apiService,
+      required this.uploadQueue,
+      required this.tripId,
+      required this.date,
+      required this.scene});
+
+  final ApiService apiService;
+
+  /// 写真の送信の列（写真ビューアに渡す）
+  final UploadQueue uploadQueue;
+  final String tripId;
+
+  /// 場面の日の日付（`YYYY-MM-DD`）
+  final String date;
+  final TimelineScene scene;
+
+  @override
+  State<TimelineSceneScreen> createState() => _TimelineSceneScreenState();
+}
+
+class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
+  late String _date = widget.date;
+  late TimelineScene _scene = widget.scene;
+
+  // 写真を読んでいる間と読み直している間は、写真のタップを受け付けない（写真ビューアを重ねて開かない。
+  // 読み直しの応答で、後から直した表示を古い状態に戻さない。§8.8）
+  bool _busy = false;
+
+  /// 写真を読み、写真ビューアでその1枚を開く。閉じたら読み直す（ビューアで消した・直したことを出す。§8.8）
+  Future<void> _openPhoto(TimelinePhoto photo) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    Photo? loaded;
+    try {
+      loaded = await widget.apiService.getPhoto(photo.id);
+    } catch (e) {
+      debugPrint('TimelineSceneScreen: 写真の読み込みエラー: $e');
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      if (e is ApiException && e.isPhotoNotFound) {
+        messenger.showSnackBar(const SnackBar(content: Text('この写真は削除されています')));
+        await _reload();
+        return;
+      }
+      messenger.showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.userMessage : '写真の読み込みに失敗しました')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted || loaded == null) return;
+    final photos = ValueNotifier<List<Photo>>([loaded]);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PhotoViewerScreen(
+          apiService: widget.apiService,
+          uploadQueue: widget.uploadQueue,
+          photos: photos,
+          initialIndex: 0,
+          onReachEnd: () {},
+          hasMore: () => false,
+          onDeleted: (_) => photos.value = const [],
+          onUpdated: (updated) => photos.value = [updated],
+        ),
+      ),
+    );
+    photos.dispose();
+    if (!mounted) return;
+    await _reload();
+  }
+
+  /// 完成版を読み直し、同じ場面で描き直す。完成版・場面が無くなった、旅行が無いなら旅行詳細に戻る
+  /// （旅行詳細が読み直して今の状態を出す）。それ以外の失敗は表示はそのままでエラーの文言を出す
+  Future<void> _reload() async {
+    setState(() => _busy = true);
+    try {
+      final overview = await widget.apiService.getTimeline(widget.tripId);
+      if (!mounted) return;
+      final found = _findScene(overview.timeline?.current);
+      if (found == null) {
+        Navigator.pop(context);
+        return;
+      }
+      setState(() {
+        _date = found.$1;
+        _scene = found.$2;
+      });
+    } catch (e) {
+      debugPrint('TimelineSceneScreen: タイムラインの読み込みエラー: $e');
+      if (!mounted) return;
+      if (e is ApiException && e.isTripNotFound) {
+        Navigator.pop(context);
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(e is ApiException ? e.userMessage : 'タイムラインの読み込みに失敗しました')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// [current] の中の、出している場面と最初の写真の id が同じ場面とその日の日付。無ければ null
+  (String, TimelineScene)? _findScene(TimelineCurrent? current) {
+    for (final day in current?.days ?? const <TimelineDay>[]) {
+      for (final scene in day.scenes) {
+        if (scene.startPhotoId == _scene.startPhotoId) return (day.date, scene);
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scene = _scene;
+    final details = [
+      timelineTimeRange(scene.photos),
+      if (scene.placeNames.isNotEmpty) scene.placeNames.join('、'),
+      '${scene.photos.length}枚',
+    ].join(' · ');
+    return Scaffold(
+      appBar: AppBar(title: Text(scene.label ?? '見出しなし')),
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            sliver: SliverToBoxAdapter(
+              child: Text('${timelineDateLabel(_date)} $details',
+                  style: AppTextStyles.body2
+                      .copyWith(color: AppColors.textSecondary)),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            sliver: SliverGrid.count(
+              crossAxisCount: 3,
+              mainAxisSpacing: 2,
+              crossAxisSpacing: 2,
+              children: [
+                for (final photo in scene.photos)
+                  TimelineThumbnail(
+                      photo: photo,
+                      onTap: _busy ? null : () => _openPhoto(photo)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
