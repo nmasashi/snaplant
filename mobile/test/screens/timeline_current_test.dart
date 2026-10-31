@@ -217,7 +217,7 @@ void main() {
       for (var hour = 10; hour <= 15; hour++) {
         expect(photoThumbnail('2026年10月5日 $hour:10'), findsOneWidget);
       }
-      expect(find.textContaining(RegExp(r'^\+\d+枚$')), findsNothing);
+      expect(find.textContaining(RegExp(r'[+＋]\s*\d')), findsNothing);
 
       await _scrollTo(tester, find.text('昼ごはん'));
       expect(find.text('3日目'), findsOneWidget);
@@ -289,7 +289,7 @@ void main() {
           greaterThan(tester.getTopLeft(small[1]).dx));
       expect(tester.getSize(large[0]).width,
           greaterThan(tester.getSize(small[0]).width * 1.5));
-      // 小さい列の4つ目が「+3枚」
+      // 小さい列の4つ目が「+2枚」
       expect(tester.getCenter(find.text('+2枚')).dx,
           greaterThan(tester.getTopRight(small[2]).dx));
     });
