@@ -1103,6 +1103,17 @@ describe('タイムラインの下書きAPI', () => {
       expect(data.draft.undatedPhotos).toEqual([]);
     });
 
+    it('外した写真が変わらなければ（もう外してある）書き込まずに、確かめ中の日と場面を返す（ほかの操作を 409 にしない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: [photoId('b')] }), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+      expect((response.jsonBody as any).data.draft.days[0].scenes[1].photos.map((p: any) => p.id)).toEqual([photoId('c')]);
+    });
+
     it('下書きを読むときも、外した写真は出さない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing({ excludedPhotoIds: [photoId('b'), photoId('u')] })));
 

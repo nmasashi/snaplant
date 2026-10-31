@@ -385,14 +385,40 @@ describe('タイムラインの完成版の操作API', () => {
       expect(data.pendingPhotoCount).toBe(0);
     });
 
-    it('タイムラインを編集している途中（下書きがある）でも外せる（下書きはそのまま）', async () => {
-      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut' });
+    it('タイムラインを編集している途中でも外せ、編集中の下書きにも足す（案の確認画面にも出さない）', async () => {
+      const draft = timelineDraft('33333333-3333-4333-8333-333333333333', CURRENT_SNAPSHOT_ID, { reason: 'recut', excludedPhotoIds: [photoId('d')] });
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, draft }));
 
       const response = await exclude({ photoIds: [photoId('b')] });
 
       expect(response.status).toBe(200);
-      expect(storedTimeline()).toMatchObject({ current: { excludedPhotoIds: [photoId('b')] }, draft });
+      expect(storedTimeline()).toMatchObject({
+        current: { excludedPhotoIds: [photoId('b')] },
+        draft: { ...draft, excludedPhotoIds: [photoId('b'), photoId('d')] }
+      });
+    });
+
+    it('外した写真が変わらなければ（もう外してある）書き込まずに、完成版を読んだ形を返す（ほかの操作を 409 にしない）', async () => {
+      const timeline = timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [photoId('b')] }, updatedAt: '2026-10-08T12:14:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      expect(storedTimeline()).toEqual(timeline);
+      expect((response.jsonBody as any).data.timeline.current.days[0].scenes[0].photos.map((p: any) => p.id)).toEqual([photoId('a')]);
+    });
+
+    it('写真の保存先の設定に鍵が無ければ、書かずに 500 を返す（外したのに失敗と返さない）', async () => {
+      process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const timeline = timelineDocument(TRIP_ID, { current });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの更新に失敗しました' } });
+      expect(storedTimeline()).toEqual(timeline);
     });
 
     // photoIds の形の 400 は下書きの表の 1 と同じ規則（05 §5.15）。全ケースとボディの共通の行（JSON として読めない・null）は
