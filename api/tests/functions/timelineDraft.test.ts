@@ -1111,6 +1111,19 @@ describe('タイムラインの下書きAPI', () => {
       expect((response.jsonBody as any).data.draft.days[0].scenes[1].photos.map((p: any) => p.id)).toEqual([photoId('c')]);
     });
 
+    it('外すと出す写真（撮影日時があり、消えておらず、外していない写真）が1枚も無くなるなら、409（TIMELINE_NO_DATED_PHOTOS）で書かない（日時の無い写真と消えた写真は数えない）', async () => {
+      // a・b・c を外してあり、e は控えを取った後に消えた。d を外すと、残るのは撮影日時の無い u だけ
+      cosmosBackend.documents.delete(photoId('e'));
+      const timeline = timelineDocument(TRIP_ID, { draft: reviewing({ excludedPhotoIds: [photoId('a'), photoId('b'), photoId('c')] }), updatedAt: '2026-10-25T08:55:00.000Z' });
+      cosmosBackend.documents.set(TIMELINE_ID, timeline);
+
+      const response = await exclude({ photoIds: [photoId('d')] });
+
+      expect(response.status).toBe(409);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'TIMELINE_NO_DATED_PHOTOS', message: '撮影日時のある写真がありません' } });
+      expect(cosmosBackend.documents.get(TIMELINE_ID)).toEqual(timeline);
+    });
+
     it('文を書くのに失敗した下書きは、もう外した写真を送っても確かめ中に戻す', async () => {
       const failed = reviewing({
         phase: 'writing',
