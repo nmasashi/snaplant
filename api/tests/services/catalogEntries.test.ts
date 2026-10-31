@@ -174,6 +174,23 @@ describe('catalogPageOf', () => {
       ]);
     });
 
+    it('属の学名が2語以上（学名や「sp.」まで答えた）なら、最初の1語を属としてまとめる', async () => {
+      // AI が「ラテン語の1語」の指示を守らなかったときに、同じ属が別の見出しに分かれないように
+      const plantRows = [
+        { name: 'ハナトリカブト', genus: 'Aconitum chinense', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum sp.', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 }
+      ];
+
+      const result = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
+
+      expect(result.entries.map(({ name, genus }) => ({ name, genus }))).toEqual([
+        { name: 'ハナトリカブト', genus: 'Aconitum' },
+        { name: 'ヤマトリカブト', genus: 'Aconitum' },
+        { name: 'チングルマ', genus: 'Sieversia' }
+      ]);
+    });
+
     it('同じ属の項目には、その属の写真で最も多い日本語の属名（同じ枚数なら符号単位の順で先）を揃えて付ける。日本語の属名が1つも無い属は null', async () => {
       // 属の見出し（P-2）が項目ごとに違う名前にならないように
       const plantRows = [
