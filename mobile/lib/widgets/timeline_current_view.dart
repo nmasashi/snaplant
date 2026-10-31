@@ -15,7 +15,6 @@ class TimelineCurrentView extends StatelessWidget {
     required this.current,
     required this.onOpenScene,
     required this.onEditDay,
-    required this.onEditScene,
     this.banner,
     this.notices = const [],
   });
@@ -25,9 +24,8 @@ class TimelineCurrentView extends StatelessWidget {
   /// 場面をタップした（場面の写真の一覧を開く。§8.3・§8.8）。null ならタップを受けない（操作を送っている間）
   final void Function(TimelineDay day, TimelineScene scene)? onOpenScene;
 
-  /// 日・場面の編集のボタン（§8.5）。null なら押せない（操作を送っている間）
+  /// 日の編集のボタン（§8.5）。null なら押せない（操作を送っている間）。場面の見出しは場面の写真の一覧から直す（§8.8）
   final void Function(TimelineDay day)? onEditDay;
-  final void Function(TimelineScene scene)? onEditScene;
 
   /// 完成版の上に出す、タイムラインを編集している途中の案内（§8.3）
   final Widget? banner;
@@ -134,7 +132,7 @@ class TimelineCurrentView extends StatelessWidget {
               Row(
                 children: [
                   // 見出しの印と見出し。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）。
-                  // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（編集のボタンで書ける）
+                  // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（場面の写真の一覧で書ける）
                   if (scene.label != null) ...[
                     Icon(Icons.circle,
                         size: 10,
@@ -148,13 +146,6 @@ class TimelineCurrentView extends StatelessWidget {
                                 .copyWith(fontWeight: FontWeight.bold))),
                   ] else
                     Expanded(child: Text('見出しなし', style: secondary)),
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined,
-                        semanticLabel: 'この場面を編集'),
-                    tooltip: 'この場面を編集',
-                    onPressed:
-                        onEditScene == null ? null : () => onEditScene!(scene),
-                  ),
                 ],
               ),
               const SizedBox(height: 4),

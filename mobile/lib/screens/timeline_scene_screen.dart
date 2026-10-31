@@ -6,6 +6,7 @@ import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/timeline_format.dart';
+import '../widgets/timeline_edit_sheet.dart';
 import '../widgets/timeline_thumbnail.dart';
 import 'photo_viewer_screen.dart';
 
@@ -118,6 +119,43 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
     }
   }
 
+  /// 場面の見出しを直す（§8.5）。保存できたら応答の同じ場面で描き直す。タイムラインが変わった・旅行が無いなら
+  /// 旅行詳細に戻る（旅行詳細が読み直して今の状態を出す。§8.8）
+  Future<void> _editLabel() async {
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      // 下に引いて閉じると PopScope を通らず、保存中でも閉じてしまう（§8.5）。閉じるのは「キャンセル」とシートの外のタップ
+      enableDrag: false,
+      builder: (context) => TimelineEditSheet(
+        title: '見出しを編集',
+        fields: [
+          TimelineEditField(
+              key: 'label', label: '見出し', maxLength: 30, initial: _scene.label),
+        ],
+        // 区切りを直して足した場面は AI の見出しが無いので、空にすると見出しなしに戻る（5-5a）
+        hint: '空にすると、AI が書いた見出しに戻ります（AI が書いていない場面は見出しなしになります）',
+        onSave: (changes) => widget.apiService
+            .updateTimelineScene(widget.tripId, _scene.startPhotoId, changes),
+      ),
+    );
+    if (!mounted || result == null) return;
+    if (result is TimelineOverview) {
+      final found = _findScene(result.timeline?.current);
+      if (found != null) {
+        setState(() {
+          _date = found.$1;
+          _scene = found.$2;
+        });
+        return;
+      }
+    } else if (!(result is ApiException && result.isTripNotFound)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('タイムラインが変わりました。読み直しました')));
+    }
+    Navigator.pop(context);
+  }
+
   /// [current] の中の、出している場面と最初の写真の id が同じ場面とその日の日付。無ければ null
   (String, TimelineScene)? _findScene(TimelineCurrent? current) {
     for (final day in current?.days ?? const <TimelineDay>[]) {
@@ -137,7 +175,16 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
       '${scene.photos.length}枚',
     ].join(' · ');
     return Scaffold(
-      appBar: AppBar(title: Text(scene.label ?? '見出しなし')),
+      appBar: AppBar(
+        title: Text(scene.label ?? '見出しなし'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, semanticLabel: '見出しを編集'),
+            tooltip: '見出しを編集',
+            onPressed: _busy ? null : _editLabel,
+          ),
+        ],
+      ),
       body: CustomScrollView(
         slivers: [
           SliverPadding(

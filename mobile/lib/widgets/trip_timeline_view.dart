@@ -281,21 +281,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
             .updateTimelineDay(widget.tripId, day.date, changes),
       );
 
-  /// 場面の文を直す（§8.5）。場面は最初の写真の id で指す
-  Future<void> _editScene(TimelineScene scene) => _edit(
-        title: '場面を編集',
-        fields: [
-          TimelineEditField(
-              key: 'label', label: '見出し', maxLength: 30, initial: scene.label),
-          TimelineEditField(
-              key: 'note', label: '一言', maxLength: 200, initial: scene.note),
-        ],
-        // 区切りを直して足した場面は AI の文が無いので、空にすると空に戻る（5-5a）
-        hint: '空にすると、AI が書いた文に戻ります（AI が書いていない場面は空になります）',
-        save: (changes) => widget.apiService
-            .updateTimelineScene(widget.tripId, scene.startPhotoId, changes),
-      );
-
   /// 編集シートを開き、保存できたら応答で描き直す。タイムラインが変わった・旅行が無いなら §8.1 のとおりに扱う
   Future<void> _edit({
     required String title,
@@ -437,7 +422,6 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       current: current,
       onOpenScene: _sending ? null : _openScene,
       onEditDay: _sending ? null : _editDay,
-      onEditScene: _sending ? null : _editScene,
       banner: draft == null ? null : _buildEditBanner(draft),
       notices: [
         if (draft == null &&
