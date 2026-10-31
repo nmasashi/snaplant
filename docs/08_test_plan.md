@@ -222,7 +222,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - ワーカー（識別。4-1a）: 処理中は `identifying`（`attempts` +1）。`identification` が `{ kind, matchesKind: true, name（trim 済み）, confidence, description, characteristics, attributes, reason: null, model, at }` で書かれ、`comment` が AI の一言（trim 済み）・`commentSource: "ai"` になり、`done`・`step: "identify"`。キューには積まない。
   `matchesKind: false` なら名前が無くても受け付け、`name`・`description`・`characteristics` が `null`、`attributes` が `{}`、`reason` が AI の一言で、`comment` は変わらない。
   AI の一言が空白だけならコメントを書かずに結果は書く。前回の AI のコメント（`commentSource: "ai"`）は書き直す。`attributes` は定義表のキーだけを書く（定義に無いキーは捨てる）。信頼度 0 と 100 は受け付ける
-- 識別の AI に送るもの（[06 §3.1](./06_processing_design.md#31-契約)。モックの受けた要求で確かめる）: 画像（原寸の読み取り 15 分の SAS、`detail: "low"`）とテキストの2パート、strict な `json_schema` の共通項目（型と `required`、`additionalProperties: false`）と `attributes`（写真の種類の `fields` の全キーが `required`、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` が string）、`max_completion_tokens`（`max_tokens` と `temperature` は送らない）。
+- 識別の AI に送るもの（[06 §3.1](./06_processing_design.md#31-契約)。モックの受けた要求で確かめる）: 画像（原寸の読み取り 15 分の SAS、`detail: "low"`）とテキストの2パート、strict な `json_schema` の共通項目（型と `required`、`additionalProperties: false`）と `attributes`（写真の種類の `fields` の全キーが `required`、`string` は `["string","null"]`、`string[]` は `["array","null"]` で `items` が string。植物は `scientificName`・`genusName`・`genus`・`familyName`。属の2つは P-1）、`max_completion_tokens`（`max_tokens` と `temperature` は送らない）。
   分類用のデプロイ名があっても今のデプロイ（`baseURL`・`model`・`identification.model`）。プロンプトに種類の `namingRule` と、ある手がかり（`hint`・撮影地・撮影日時 `YYYY-MM-DD HH:mm`）を含み、無い値（`null`）は含まない
 - 識別の失敗（4-1a）: 応答の検証違反（`matchesKind` が真偽値でない、信頼度が数値でないか 0〜100 の外、写っているのに名前が無い・空白だけ・100 文字超、`attributes` の値の型が合わない）と SDK のエラーは、識別の待ち（`step: "identify"`）に戻して `lastError: "ai"`・例外。上限の回は `failed`・`step: "identify"` で例外を投げない。
   `matchesKind: false` でも信頼度は検証する。写っていて名前がちょうど 100 文字、`attributes` の値が `null`（特定できない）は受け付ける。
@@ -243,11 +243,17 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 図鑑のまとめ（4-2a で実装済み。組み立ての純粋関数に行を直接渡して。`tests/services/catalogEntries.test.ts`）: 枚数の行 `{ name, photoCount }` と項目ごとの `TOP 1` の結果から `CatalogEntry` が組み立てられる
   （`confidence`・`description`・`characteristics`・`attributes` は見出しの写真の識別から、`photoCount` は行から、`kind` は渡した種類、表紙はサムネイルの URL で、サムネイルが無ければ原寸の URL）。
   名前の文字列順（符号単位）に並べて `offset` から `limit` 件を切り、`total` はページに依らない。`offset` が項目の数を超えれば空のページで `total` はそのまま。名前が `null` の行は項目にも `total` にも数えない。
-  見出しの写真が無くなっていた項目はページから外し、`total` はそのまま
+  見出しの写真が無くなっていた項目はページから外し、`total` はそのまま。
+  属でまとめる（P-1 で実装済み。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #56）: 行は `{ name, genus, genusName, photoCount }`（名前・属の組ごと）で、項目を属の学名の順（同じ属は名前の順、属が分からない項目は最後）に並べてから `offset` / `limit` で切り、項目に `genus`・`genusName` が付く。
+  ページは並べてから切る（届いた行の順のままでは切らない）。
+  同じ名前の行が属ごとに複数あれば1つの項目にまとめて枚数を足し、属は写真の多い属（同じ枚数なら属の学名の順で先）にする。属の分からない行の方が枚数が多くても、属の分かる行があればその属にする。
+  属の学名は前後の空白と大文字小文字を揃えて（最初の1語を先頭だけ大文字。「Aconitum chinense」「Aconitum sp.」も Aconitum）まとめ、空なら属が分からないものとし、同じ属は日本語の属名の書き方が違っても枚数を合わせて数える。
+  同じ属の項目には、その属の写真で最も多い日本語の属名（同じ枚数なら符号単位の順で先）を揃えて付け、日本語の属名が1つも無い属は `genusName` が `null`。属の行を持たない種類（食べ物）の項目は `genus`・`genusName` が `null`
+- 図鑑の項目の詳細の属（P-1 で実装済み。`catalogEntry.test.ts`）: `entry` の `genus`・`genusName` は見出しの写真の識別の `attributes.genus`・`attributes.genusName`（ほかの写真の属が違っても見出しの写真の属）。見出しの写真が属を書く前に識別したもの（`attributes` に属のキーが無い）なら、どちらも `null`
 - 図鑑の API の置き場（4-2a で決めた）: 偽物は `GROUP BY` も `ORDER BY` も解釈しないので、名前ごとの枚数の行と見出しの写真（信頼度の高い1枚）を入口から作れない。
   旅行一覧と同じく、行と見出しの写真から項目のページを組み立てる所を純粋な関数（`catalogEntries.ts`）に分けて `tests/services/catalogEntries.test.ts` で確かめ（CLAUDE.md の名簿）、
   入口のテストは検証・0件・データベースの障害を見る。SQL の絞り込み・並び・集計は §5.3 で手で確かめる
-- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。`prompt`・`namingRule` は返さない
+- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。植物の項目は学名・属・属の学名・科名の順（属の2つは P-1）。`prompt`・`namingRule` は返さない
 - 図鑑の項目一覧（4-2a で実装済み。`catalogEntries.test.ts`。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: 識別された写真が無ければ 200 で `{ entries: [], total: 0 }`。
   `offset=0`・`limit=100`（上限）・`limit=1` は受け付ける。`kind` が無い・`other`・`constructor`・大文字小文字が違う（`Plant`）・図鑑に載せない `food`・`landscape`（B-2）で 400 `図鑑の種類が無効です`、`offset` が負・小数・空、`limit` が `0`・`101`・数でない・小数・空で 400 `ページの指定が無効です`。
   `kind` もページも不正なら `kind` の指摘。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の一覧の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の表）
@@ -276,6 +282,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 **実装済み**（#128。`tests/functions/timelineCurrent.test.ts`・`timelineDraft.test.ts`）: 「文の編集」の、上限を見た目の1文字で数えることと前後の U+0085 を除くこと。「場面のコメント」の、100 文字を見た目の1文字で数えること（[05 §9.6](./05_api_design.md#96-利用者が書く文の文字数と前後の空白)）。
 **実装済み**（T-1・T-2。`tests/functions/timelineDraft.test.ts`・`timelineCurrent.test.ts`・`processTimeline.test.ts`・`timeline.test.ts`）: 「写真を外す」。
 **実装済み**（T-2b。`tests/functions/timeline.test.ts`・`timelineDraft.test.ts`）: 「下書きの読み取り」と「完成版を読む」の、撮影日時の無い写真を出さないこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #54）。
+**実装済み**（T-2c。`tests/functions/timelineDraft.test.ts`）: 「写真を外す」の、案の確認で外すと出す写真が無くなるときの 409（区切りの直しは完成版と合わせて見る）と、外す写真が増えない送り直しは断らないこと。
 
 入口はエンドポイント（`api/tests/functions/`）とワーカー（`processTimeline`）。AI はモックし、渡したもの（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの) の要素）と応答の検証を確かめる。
 
@@ -308,7 +315,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 写真を外す（T-1・T-2。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52・#54）: 案の確認（`POST …/draft/excluded-photos`）は外した写真を控えの順・重なりなしで下書きに足し、応答と下書きの読み取りに出さない（場面の最初の写真を外しても場面の id とコメントは残り、写真が全部外れた場面と日は出さない）。文を書くのに失敗した下書きは確かめ中に戻る。もう外した写真だけなら書かない
   下書きが無い 404、確かめられる状態でない 409、`photoIds` が写真 ID の配列でない（空も）・控えに無い 400、読んでから書くまでに他が書いた・控えが消えた 409。完成版（`POST …/excluded-photos`）は、完成版が無ければ 404、`photoIds` の形と控えに無い写真は同じ 400、重なりは 409 で、もう外した写真だけなら書かない。区切りを直している間に外すと、編集中の下書きにも足す。外した写真は「作った後に消えた」に数えない
   区切りの保存で、写真を全部外した場面の区切りは送られなくても残す。文を書く AI に外した写真を渡さず、写真を全部外した場面と日の文は頼まない。区切りの直しは完成版の外した写真を引き継ぎ、当てるときに下書きと完成版の外した写真を合わせる
-  出す写真（撮影日時があり、消えておらず、外していない写真）が1枚も無くなるときは 409 `TIMELINE_NO_DATED_PHOTOS` で書かない（`POST …/draft/write`。区切りの直しは完成版と合わせた写真で見る。`POST …/excluded-photos` は編集中の下書きと合わせて見る）
+  出す写真（撮影日時があり、消えておらず、外していない写真）が1枚も無くなるときは 409 `TIMELINE_NO_DATED_PHOTOS` で書かない（`POST …/draft/write`。区切りの直しは完成版と合わせた写真で見る。`POST …/excluded-photos` は編集中の下書きと合わせて見る。`POST …/draft/excluded-photos` は外す写真が増えるときだけ断り（T-2c。区切りの直しは完成版と合わせた写真で見る）、出す写真がもう無い下書きでも、外す写真が増えない送り直しは 409 にせず 200 で、確かめ中なら書かず、文を書くのに失敗した下書きは確かめ中に戻す）
 
 ## 4. 段階2のシナリオ一覧（mobile）
 
@@ -347,7 +354,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 旅行一覧: 一覧・0 件・失敗・再試行の表示。先頭の行の枚数（`unassignedPhotoCount`）。旅行を作るダイアログの検証（空の旅行名）と成功後の再読み込み
 - 旅行詳細: 一覧・0 件・失敗。404 で「この旅行は削除されています」。削除ダイアログの文言に枚数が入り、既定が「写真は残す」で、選んだ方が `deletePhotos` に載る（`MockClient` が受けたクエリ）。0 枚なら選択肢が無い。削除成功で戻る。削除失敗で留まる
 - ページ: 1 ページ目の応答に `continuationToken` があれば下端で 2 ページ目を取り、`null` なら取らない。下に引っ張ると先頭から取り直す
-- 旅行詳細の日の見出し（[03 §4.4](./03_screen_design.md#44-旅行詳細画面)）: 撮影の日が変わるところに「N日目」と日付、その日の写真は新しい行から。3:59 は前の日・4:00 から次の日。写真の無い日を挟むと番号が飛ぶ。撮影日時の無い写真は見出しを作らず前の写真と同じ見出しの下（先頭なら見出しの前）。カテゴリで絞っても旅行の最初の日が1日目。続きのページで同じ日が続いても見出しを重ねない
+- 旅行詳細の日の見出し（[03 §4.4.1](./03_screen_design.md#441-画面要素)）: 撮影の日が変わるところに「N日目」と日付、その日の写真は新しい行から。3:59 は前の日・4:00 から次の日。写真の無い日を挟むと番号が飛ぶ。撮影日時の無い写真は見出しを作らず前の写真と同じ見出しの下（先頭なら見出しの前）。カテゴリで絞っても旅行の最初の日が1日目。続きのページで同じ日が続いても見出しを重ねない
 - 未所属: 「旅行から外す」が無い
 - 写真ビューア: 撮影日時・地名・緯度経度・なしの表示。削除で次の写真へ、最後なら戻る
 - `PhotoGrid`: 長押しで選択モード、タップで切り替え、「表示中をすべて選択」、「×」で解除。操作ボタンは 0 枚で押せない
@@ -398,8 +405,13 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   - 関数の登録: ポータルの「関数」に `listCatalogKinds`・`listCatalogEntries`（`app.http` の第1引数）があり、`GET /api/catalog/kinds` が図鑑に載せる種類（B-2 から植物だけ。それまでは定義表の3種類）を返す
   - 種類での絞り込み（`c.identification.kind = @kind`・`matchesKind = true`）: `GET /api/catalog/entries?kind=plant` に食べ物・風景の写真の名前が混ざらない（B-2 から `kind=food`・`kind=landscape` は Cosmos に触る前に 400 になるので、確かめるのは `plant` だけ）。
     同じ名前が別の種類にもあれば、それぞれの種類で別の項目になり枚数も分かれる。識別で「分類と合わない」（`matchesKind: false`）になった写真は、どの項目にも数えられない
-  - 枚数の集計（`GROUP BY c.identification.name`・`COUNT(1)`）: 各項目の `photoCount` が、ポータルのデータエクスプローラーで数えたその種類・その名前の写真の枚数と合い、`total` が名前の数と合う。`null` の鍵の行が項目に出ない
-  - 名前順とページの切り方: `limit` を省くと `min(50, total)` 件（既定 50 件）。項目が少ないうちは `limit=2` で `offset` を 0・2・4…とめくり、名前の符号単位の順で重複・欠落が無く、最後のページの先は `[]` で `total` が変わらない
+  - 枚数の集計（`GROUP BY c.identification.name`・`COUNT(1)`。P-1 から鍵は名前・属の学名・属名の組）: 各項目の `photoCount` が、ポータルのデータエクスプローラーで数えたその種類・その名前の写真の枚数と合い、`total` が名前の数と合う。`null` の鍵の行が項目に出ない
+  - 並び順とページの切り方: `limit` を省くと `min(50, total)` 件（既定 50 件）。項目が少ないうちは `limit=2` で `offset` を 0・2・4…とめくり、重複・欠落が無く、最後のページの先は `[]` で `total` が変わらない。並びは P-1 から属の学名の符号単位の順（同じ属は名前の順、`genus` が `null` の項目は最後。それまでは名前の符号単位の順）
+- 図鑑の属のまとめ（P-1。[04 §5](./04_data_design.md#5-クエリ) の 5.6・[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の「属でまとめる」）。偽物は `GROUP BY` を解釈せず、純粋な関数のテストには行を直接渡しているので、次はデプロイ後にしか確かめられない
+  - 組ごとの行: データエクスプローラーで 5.6 の 1 のクエリ（`@kind = 'plant'`）を回し、名前・属の学名・属名の組ごとに1行ずつ返る（同じ名前で属の違う写真があれば、その名前の行が属ごとに分かれる）。行の `photoCount` の合計が、その名前の項目の `photoCount` と合う
+  - 属を書く前に識別した写真の行: P-1 のデプロイ直後（調べ直す前）は、既存の植物の写真の `attributes` に `genus`・`genusName` のキーが無い。そうした写真が名前ごとに1つの行にまとまり（キーの無い写真が1枚ずつ別の行にならない・行から外れない）、行に `genus`・`genusName` が無い（または `null`）こと。`GET /api/catalog/entries?kind=plant` でその項目が最後に並び、`genus`・`genusName` が `null` で、`photoCount` が写真の枚数と合う
+  - 調べ直した後: 写真ビューアの「植物を調べる」で調べ直した写真の項目に `genus`（ラテン語の1語）・`genusName` が付き、同じ属の項目が続けて並び、同じ属の項目の `genusName` がそろう。同じ名前の写真の一部だけを調べ直した間は、属の分かる写真の属が項目の属になる
+  - 項目の詳細の属: `GET /api/catalog/entry?kind=plant&name=<一覧に出た名前>` の `entry.genus`・`entry.genusName` が、見出しの写真の `identification.attributes` の値と一致する（`genus` は先頭だけ大文字に揃えた形。属の分からない写真なら `null`）
   - 表紙の URL: `coverThumbnailUrl`（SAS 付き）をブラウザで開いて画像が出る（サムネイルの無い写真が見出しなら原寸）。期限（60 分）を過ぎると 403
   - 見出しの選び方（複合インデックスでの `TOP 1 … ORDER BY c.identification.confidence DESC, c.identification.at DESC`）: 同じ名前の写真が2枚以上ある項目で、`confidence`・`description` と表紙が、
     データエクスプローラーで見たその名前の写真のうち `identification.confidence` が最も高いもの（同点なら `identification.at` が新しいもの）と一致する。複合インデックスが無いと 400 になる（推測）ので、500 `図鑑の一覧の取得に失敗しました` が出たら 4-0 の apply を確かめる
@@ -434,7 +446,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 ### 5.4 段階5（タイムライン）で足すもの
 
 - クエリ（[04 §5](./04_data_design.md#5-クエリ) の 5.12〜5.15）: 旅行1つ分の写真の射影が控えになり、撮影日時の無い写真はタイムラインに出ない。写真の id と解析の状態のクエリ（5.13。5-1c で `{ "state": c.processing.state } AS processing` のオブジェクトの射影を足した）で、増えた・消えた枚数が合い、解析中の写真の数が `pendingPhotoCount` に出る（`none`・`failed` は数えない。オブジェクトの射影が実環境で `{ processing: { state } }` の形で返らないと、解析中の枚数が 0 になる。偽物は SELECT を解釈しないので、ここだけは手で確かめる）。止まった下書きを再投入のタイマーが積み直す
-- 写真を外す（T-1・T-2）と撮影日時の無い写真（02 §5 #54）: 旅行の写真のクエリ（5.13）の射影に足した `c.takenAt` が実環境で読める。作った後に撮影日時の無い写真（スクリーンショットなど）を足しても「写真が増えました」が出ず、撮影日時のある写真を足すと出る。案の確認画面で撮影日時のある写真を全部外して「この案で見出しを付ける」を押すと「撮影日時のある写真がありません」と出て、何も変わらない
+- 写真を外す（T-1・T-2）と撮影日時の無い写真（02 §5 #54）: 旅行の写真のクエリ（5.13）の射影に足した `c.takenAt` が実環境で読める。作った後に撮影日時の無い写真（スクリーンショットなど）を足しても「写真が増えました」が出ず、撮影日時のある写真を足すと出る。案の確認画面で撮影日時のある写真の最後の1枚を外すと「撮影日時のある写真がありません」と出て、外れない（T-2c。それより前は全部外せて、「この案で見出しを付ける」でこの文言が出た）
 - 区切り案と文の質（デプロイ後に、実際の旅行1つで）: 食事・食べ歩き・店内の写真がそれらしく区切られるか。見出しと一言が手がかりや判断の過程に触れていないか。渡していないことを作っていないか。気になった例は `docs/09_backlog.md` に記録して、プロンプトの要素を見直す
 - トークン使用量と時間の実測（[06 §8.5](./06_processing_design.md#85-費用)）: 写真の多い旅行で、区切り案・文それぞれの入力・出力のトークンと、押してから表示まで
 - 日の区切り: 深夜（0〜4時）に撮った写真が前の日に入る。`TIMELINE_DAY_START_HOUR` を `0` にして作り直すと、日付どおりに分かれる

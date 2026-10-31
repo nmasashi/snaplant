@@ -125,6 +125,10 @@ export interface CatalogEntry {
   description: string | null;
   characteristics: string | null;
   attributes: Record<string, unknown>;
+  /** 属の学名（ラテン語の1語。図鑑の一覧はこれでまとめる。02 §5 #56）。分からなければ、または属を持たない種類は null */
+  genus: string | null;
+  /** 属名（日本語。属の見出しに出す）。分からなければ null */
+  genusName: string | null;
   /** その名前の写真の枚数 */
   photoCount: number;
   /** 見出しの写真のサムネイル（無ければ原寸）の SAS 付き URL */

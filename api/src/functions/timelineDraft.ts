@@ -16,7 +16,7 @@ import { readJsonBody } from '../utils/tripInput';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
 import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
-import { withRecutStarts } from '../services/timelineWriting';
+import { mergedExcludedPhotoIds, withRecutStarts } from '../services/timelineWriting';
 import { readUnlessOverlapped } from '../services/timelineRead';
 import {
   createDatabaseErrorResponse,
@@ -296,7 +296,16 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     // 外した写真が増えなければ（もう外してある）書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる。文の PATCH と同じ）。
     // 文を書くのに失敗した下書きは、増えなくても確かめ中に戻す（外すを押したので、案の確認に戻ったものとして扱う）
     const writeFailed = isWriteFailed(draft);
-    const changed = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds) || writeFailed;
+    const adds = addsExcludedPhotos(draft.excludedPhotoIds, excludedPhotoIds);
+    // 外すと出す写真が1枚も無くなるなら断る（完成版で外すときと同じ。外す写真が増えないとき（送り直し）は断らない）。
+    // 区切りの直しの下書きは、当てるとき（上の文を書く受付の withRecutStarts）と同じく、完成版の外した写真と合わせて見る（合わせ方は withRecutStarts が使う mergedExcludedPhotoIds）
+    // （完成版で外すと下書きにも足すが、それに頼ると、写せなかったときに外せてしまい、当てるときに断られて「やめる」しか残らない）
+    const afterwards =
+      draft.reason === 'recut' && timeline.doc.current ? mergedExcludedPhotoIds(timeline.doc.current.excludedPhotoIds, excludedPhotoIds) : excludedPhotoIds;
+    if (adds && !hasShownPhotos(photos, visiblePhotoIdsOf(existing, afterwards))) {
+      return createNoDatedPhotosError();
+    }
+    const changed = adds || writeFailed;
     const saved: TimelineDraft = changed ? { ...draft, excludedPhotoIds, ...(writeFailed ? { phase: 'reviewing', job: null } : {}) } : draft;
     // 保存先の設定が足りなければ、書き換える前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();

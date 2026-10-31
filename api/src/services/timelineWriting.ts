@@ -178,8 +178,17 @@ export function withRecutStarts(current: TimelineCurrent, draft: Pick<TimelineDr
   for (const start of sceneStarts) {
     sceneTexts[start] = current.sceneTexts[start] ?? emptySceneText();
   }
-  const excluded = current.excludedPhotoIds || draft.excludedPhotoIds ? [...new Set([...(current.excludedPhotoIds ?? []), ...(draft.excludedPhotoIds ?? [])])] : undefined;
+  const excluded = mergedExcludedPhotoIds(current.excludedPhotoIds, draft.excludedPhotoIds);
   return { ...current, sceneStarts, sceneTexts, ...(excluded ? { excludedPhotoIds: excluded } : {}) };
+}
+
+/**
+ * 区切りの直しを当てるときの外した写真（完成版と下書きの和。どちらも戻さないので和でよい）。どちらも無ければ undefined
+ *
+ * 当てる前に、当てた後の出す写真を確かめる受付（写真を外す2つ）も、これで同じ見方にする
+ */
+export function mergedExcludedPhotoIds(current: string[] | undefined, draft: string[] | undefined): string[] | undefined {
+  return current || draft ? [...new Set([...(current ?? []), ...(draft ?? [])])] : undefined;
 }
 
 /** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */

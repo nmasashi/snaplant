@@ -4,7 +4,7 @@ import '../services/upload_queue.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
-/// 送信の進み具合バナー（docs/03_screen_design.md §4.7「進み具合バナー」）
+/// 送信の進み具合バナー（docs/03_screen_design.md §4.7.4）
 ///
 /// 列に数える項目があるときだけ出す。[includes] で数える送り先を選ぶ（旅行詳細はその旅行宛てだけ）
 class UploadBanner extends StatelessWidget {

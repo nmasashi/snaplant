@@ -13,6 +13,9 @@ import { PhotoDocument } from '../types/album';
 /** 図鑑の項目（名前）ごとの写真の枚数の行 */
 export interface CatalogNameCountRow {
   name: string | null;
+  /** 属の学名と属名（識別の attributes。属を書く前に識別した写真や、属を持たない種類では無い） */
+  genus?: string | null;
+  genusName?: string | null;
   photoCount: number;
 }
 
@@ -20,9 +23,9 @@ export interface CatalogNameCountRow {
 export type CatalogHeadPhoto = Pick<PhotoDocument, 'id' | 'identification' | 'thumbnailBlobName' | 'blobName'>;
 
 /**
- * 種類ごとに、名前ごとの写真の枚数を数える（分類どおりの種類が写っている写真だけ）
+ * 種類ごとに、名前と属（属の学名・属名）の組ごとの写真の枚数を数える（分類どおりの種類が写っている写真だけ。名前ごとに合わせるのは catalogEntries.ts）
  *
- * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けないので、名前順に並べるのは呼び出し側
+ * GROUP BY は Cosmos SQL の制約で ORDER BY と同じクエリに書けないので、並べる（属の学名の順、同じ属は名前の順）のは呼び出し側（catalogEntries.ts）
  * @param container album コンテナ
  * @param kind 図鑑の種類
  */
@@ -30,9 +33,10 @@ export async function queryCatalogNameCounts(container: Container, kind: string)
   const { resources } = await container.items
     .query<CatalogNameCountRow>({
       query:
-        'SELECT c.identification.name AS name, COUNT(1) AS photoCount FROM c' +
+        'SELECT c.identification.name AS name, c.identification.attributes.genus AS genus,' +
+        ' c.identification.attributes.genusName AS genusName, COUNT(1) AS photoCount FROM c' +
         ' WHERE c.type = @type AND c.identification.kind = @kind AND c.identification.matchesKind = true' +
-        ' GROUP BY c.identification.name',
+        ' GROUP BY c.identification.name, c.identification.attributes.genus, c.identification.attributes.genusName',
       parameters: [
         { name: '@type', value: 'photo' },
         { name: '@kind', value: kind },

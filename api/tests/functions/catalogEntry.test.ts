@@ -47,7 +47,7 @@ const identifiedPhoto = (
       confidence,
       description: name === null ? null : `${name}の説明`,
       characteristics: name === null ? null : `${name}の特徴`,
-      attributes: name === null ? {} : { scientificName: `${name}の学名`, familyName: 'ウリ科' },
+      attributes: name === null ? {} : { scientificName: `${name}の学名`, genusName: 'キュウリ属', genus: 'Cucumis', familyName: 'ウリ科' },
       reason: name === null ? '写っていない' : null,
       model: 'gpt-6-luna',
       at: '2026-10-18T09:40:00.000Z'
@@ -117,6 +117,12 @@ describe('図鑑の項目の詳細API', () => {
 
   it('種類と名前で開くと、200で見出しの写真からの項目と、その種類・名前の写真の1ページを返す', async () => {
     // 同じ名前でも種類が違う写真（食べ物のメロン）と、写っていない写真は含めない（04 §3.1）
+    // 見出しでない写真（b）の属は違う。項目の属は見出しの写真（a）から取る（02 §5 #56）
+    const b = cosmosBackend.documents.get('b'.repeat(64)) as any;
+    cosmosBackend.documents.set(b.id, {
+      ...b,
+      identification: { ...b.identification, attributes: { ...b.identification.attributes, genusName: 'スイカ属', genus: 'Citrullus' } }
+    });
     const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'メロン' }), mockContext);
 
     expect(response.status).toBe(200);
@@ -128,7 +134,10 @@ describe('図鑑の項目の詳細API', () => {
       confidence: 92,
       description: 'メロンの説明',
       characteristics: 'メロンの特徴',
-      attributes: { scientificName: 'メロンの学名', familyName: 'ウリ科' },
+      attributes: { scientificName: 'メロンの学名', genusName: 'キュウリ属', genus: 'Cucumis', familyName: 'ウリ科' },
+      // 属は見出しの写真の識別から取る（一覧と同じ欄。02 §5 #56）
+      genus: 'Cucumis',
+      genusName: 'キュウリ属',
       coverThumbnailUrl: urlOf(`${'a'.repeat(64)}.thumb.jpg`)
     });
     expect(photoIdsOf(response).sort()).toEqual(['a'.repeat(64), 'b'.repeat(64)]);
@@ -138,6 +147,33 @@ describe('図鑑の項目の詳細API', () => {
     });
     expect(data.continuationToken).toBeNull();
     expect(data.urlExpiresAt).toBe('2026-10-18T13:00:00.000Z');
+  });
+
+  it('見出しの写真が属を書く前に識別したものなら、項目の属と属の学名は null', async () => {
+    // 既存の植物の写真は、調べ直すまで識別の結果に属を持たない（02 §5 #56）
+    const old = identifiedPhoto('f', 'plant', 'ハナトリカブト', 70);
+    cosmosBackend.documents.set(old.id, {
+      ...old,
+      identification: { ...(old.identification as any), attributes: { scientificName: 'Aconitum chinense', familyName: 'キンポウゲ科' } }
+    });
+
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'ハナトリカブト' }), mockContext);
+
+    const { entry } = (response.jsonBody as any).data;
+    expect([entry.genus, entry.genusName]).toEqual([null, null]);
+  });
+
+  it('項目の詳細の属の学名も、一覧と同じく前後の空白を除き先頭だけ大文字に揃え、日本語の属名は前後の空白を除く', async () => {
+    const photo = identifiedPhoto('f', 'plant', 'ハナトリカブト', 70);
+    cosmosBackend.documents.set(photo.id, {
+      ...photo,
+      identification: { ...(photo.identification as any), attributes: { genus: ' aconitum ', genusName: ' トリカブト属 ' } }
+    });
+
+    const response = await getCatalogEntryHandler(createRequest({ kind: 'plant', name: 'ハナトリカブト' }), mockContext);
+
+    const { entry } = (response.jsonBody as any).data;
+    expect([entry.genus, entry.genusName]).toEqual(['Aconitum', 'トリカブト属']);
   });
 
   it('名前は前後の空白を除いてから比べる', async () => {

@@ -740,7 +740,7 @@ class _PhotoTile extends StatelessWidget {
   }
 }
 
-/// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/03_screen_design.md §4.4）
+/// 送信の列にある写真のマス。端末の画像を半透明で出し、回転する印を重ねる（docs/03_screen_design.md §4.4.1）
 class _PendingTile extends StatelessWidget {
   const _PendingTile({required this.item, required this.state});
 

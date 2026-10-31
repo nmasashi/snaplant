@@ -21,7 +21,7 @@ import {
 } from '../utils/response';
 import { addsExcludedPhotos, hasShownPhotos, reviewingDraftOf, visiblePhotoIdsOf, withExcludedPhotos } from '../services/timelineView';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
-import { withRecutStarts } from '../services/timelineWriting';
+import { mergedExcludedPhotoIds } from '../services/timelineWriting';
 
 /**
  * タイムラインの完成版の区切りを直し始める API
@@ -129,12 +129,9 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
     let storage: PhotoStorageService | undefined;
     // 外した写真が増えなければ（完成版でも編集中の下書きでも、もう外してある）書かない（文の PATCH と同じ。書くと同じときに読んだ他の操作が 409 になる）
     if (addsExcludedPhotos(current.excludedPhotoIds, excludedPhotoIds) || changesDraft) {
-      // 外すと出す写真が1枚も無くなるなら断る（作る受付と同じ。02 §5 #54）。編集の途中なら、当てるとき（withRecutStarts）と同じく下書きで外した写真と合わせて見る
+      // 外すと出す写真が1枚も無くなるなら断る（作る受付と同じ。02 §5 #54）。編集の途中なら、当てるとき（withRecutStarts）と同じく（合わせ方は withRecutStarts が使う mergedExcludedPhotoIds）下書きで外した写真と合わせて見る
       // （完成版の画面から外すと、編集中の下書きが空になったことに気づけず、保存できずに「やめる」しか無くなる）。何も変わらない送り直しは断らない
-      const afterwards =
-        recutting && draftExcluded
-          ? withRecutStarts({ ...current, excludedPhotoIds }, { sceneStarts: recutting.sceneStarts, excludedPhotoIds: draftExcluded }).excludedPhotoIds
-          : excludedPhotoIds;
+      const afterwards = recutting && draftExcluded ? mergedExcludedPhotoIds(excludedPhotoIds, draftExcluded) : excludedPhotoIds;
       if (!hasShownPhotos(photos, visiblePhotoIdsOf(existing, afterwards))) {
         return createNoDatedPhotosError();
       }

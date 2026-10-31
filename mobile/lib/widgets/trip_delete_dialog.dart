@@ -3,7 +3,7 @@ import '../models/trip.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 
-/// 旅行の削除の確認ダイアログ（docs/03_screen_design.md §4.4「削除」）
+/// 旅行の削除の確認ダイアログ（docs/03_screen_design.md §4.4.3）
 ///
 /// 中の写真を残すか消すかを利用者に選ばせる。既定は「写真は残す」（誤操作で写真が消えないように）。
 /// 削除できたら結果を返して閉じる。削除の処理は呼び出し側が [onDelete] で渡す

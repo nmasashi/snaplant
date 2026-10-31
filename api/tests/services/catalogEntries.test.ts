@@ -56,6 +56,9 @@ describe('catalogPageOf', () => {
           description: '味噌ラーメンの説明',
           characteristics: '味噌ラーメンの特徴',
           attributes: { genre: 'ラーメン', mainIngredients: ['中華麺'] },
+          // 属の行が無い種類（食べ物）は、属が分からない項目と同じ
+          genus: null,
+          genusName: null,
           photoCount: 3,
           coverThumbnailUrl: `https://test.blob.core.windows.net/photos/${'c'.repeat(64)}.thumb.jpg?sas`
         }
@@ -95,6 +98,116 @@ describe('catalogPageOf', () => {
 
     expect(result.total).toBe(4);
     expect(namesOf(result)).toEqual(['味噌ラーメン', '塩ラーメン', '豚骨ラーメン', '醤油ラーメン']);
+  });
+
+  describe('属でまとめる（02 §5 #56）', () => {
+    /** 見出しの写真（属は行から取るので、見出しの識別の中身は問わない） */
+    const plantHeadOf = async (name: string) => headFor(name, 80, { ハナトリカブト: 'a', ヤマトリカブト: 'b', チングルマ: 'c' }[name] ?? 'd');
+
+    it('項目を属の学名の順に並べ（同じ属は名前の順、属が分からない項目は最後）、項目に属と属の学名を付ける', async () => {
+      // 行は順不同。属の学名の順は Aconitum → Sieversia、名前の順はハ（U+30CF）→ ヤ（U+30E4）
+      const plantRows = [
+        { name: 'なにかの花', genus: null, genusName: null, photoCount: 1 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 }
+      ];
+
+      const all = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
+
+      expect(all.entries.map(({ name, genus, genusName, photoCount }) => ({ name, genus, genusName, photoCount }))).toEqual([
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 },
+        { name: 'なにかの花', genus: null, genusName: null, photoCount: 1 }
+      ]);
+    });
+
+    it('ページは属の学名の順に並べてから切る', async () => {
+      // 届いた順のまま切ると［なにかの花、チングルマ］になる行
+      const plantRows = [
+        { name: 'なにかの花', genus: null, genusName: null, photoCount: 1 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 }
+      ];
+
+      const page = await catalogPageOf('plant', plantRows, 0, 2, plantHeadOf, coverUrlOf);
+
+      expect(namesOf(page)).toEqual(['ハナトリカブト', 'ヤマトリカブト']);
+      expect(page.total).toBe(4);
+    });
+
+    it('同じ名前の写真で属が分かれたら（GROUP BY の行が名前ごとに複数）、写真の多い属（同じ枚数なら属の学名の順で先）にし、枚数は合わせる。属の分からない写真より属の分かる写真を採る', async () => {
+      // AI が写真ごとに違う属を返したとき。属の分からない写真（属を書く前に識別した写真など）が多くても、属の分かる写真の属にする
+      const plantRows = [
+        { name: 'ハナトリカブト', genus: 'Delphinium', genusName: 'オオヒエンソウ属', photoCount: 1 },
+        { name: 'ハナトリカブト', genus: null, genusName: null, photoCount: 3 },
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 },
+        { name: 'ヤマトリカブト', genus: 'Delphinium', genusName: 'オオヒエンソウ属', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 1 }
+      ];
+
+      const result = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
+
+      expect(result.entries.map(({ name, genus, genusName, photoCount }) => ({ name, genus, genusName, photoCount }))).toEqual([
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 6 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 }
+      ]);
+      expect(result.total).toBe(2);
+    });
+
+    it('属の学名は前後の空白と大文字小文字を揃えてまとめ（先頭だけ大文字）、空なら属が分からないものとし、同じ属は日本語の属名の書き方が違っても枚数を合わせて数える', async () => {
+      // AI の答えの揺れ（「 aconitum」「トリカブト」）で、同じ属が別の見出しに分かれたり、写真の多い属に負けたりしないように
+      const plantRows = [
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 },
+        { name: 'ハナトリカブト', genus: ' aconitum', genusName: 'トリカブト', photoCount: 2 },
+        { name: 'ハナトリカブト', genus: 'Delphinium', genusName: 'オオヒエンソウ属', photoCount: 3 },
+        { name: 'なにかの花', genus: '', genusName: null, photoCount: 1 }
+      ];
+
+      const result = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
+
+      expect(result.entries.map(({ name, genus, photoCount }) => ({ name, genus, photoCount }))).toEqual([
+        { name: 'ハナトリカブト', genus: 'Aconitum', photoCount: 7 },
+        { name: 'なにかの花', genus: null, photoCount: 1 }
+      ]);
+    });
+
+    it('属の学名が2語以上（学名や「sp.」まで答えた）なら、最初の1語を属としてまとめる', async () => {
+      // AI が「ラテン語の1語」の指示を守らなかったときに、同じ属が別の見出しに分かれないように
+      const plantRows = [
+        { name: 'ハナトリカブト', genus: 'Aconitum chinense', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum sp.', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 }
+      ];
+
+      const result = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
+
+      expect(result.entries.map(({ name, genus }) => ({ name, genus }))).toEqual([
+        { name: 'ハナトリカブト', genus: 'Aconitum' },
+        { name: 'ヤマトリカブト', genus: 'Aconitum' },
+        { name: 'チングルマ', genus: 'Sieversia' }
+      ]);
+    });
+
+    it('同じ属の項目には、その属の写真で最も多い日本語の属名（同じ枚数なら符号単位の順で先）を揃えて付ける。日本語の属名が1つも無い属は null', async () => {
+      // 属の見出し（P-2）が項目ごとに違う名前にならないように
+      const plantRows = [
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: null, photoCount: 4 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: null, photoCount: 1 }
+      ];
+
+      const result = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
+
+      expect(result.entries.map(({ name, genus, genusName }) => ({ name, genus, genusName }))).toEqual([
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属' },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属' },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: null }
+      ]);
+    });
   });
 
   it('見出しの写真にサムネイルが無ければ、表紙は原寸のURL', async () => {
