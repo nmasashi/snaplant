@@ -164,8 +164,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 
 void main() {
   group('完成したタイムラインの表示', () {
-    testWidgets(
-        '日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、一番下に作成日時を出す（操作のボタンは出さない）',
+    testWidgets('日ごとに見出し・タイトル・まとめ・印と場面のカードを並べ、一番下に作成日時を出す（操作のボタンは出さない）',
         (tester) async {
       // 作成日時は端末の時刻で出す。日本時間でないと期待値が合わない（CI は TZ=Asia/Tokyo）
       expect(DateTime(2026, 10, 25).timeZoneOffset, const Duration(hours: 9));
@@ -183,36 +182,119 @@ void main() {
       // タイトルを利用者が直した日
       expect(find.text('編集済み'), findsOneWidget);
 
+      // 場面: 左に始まりの時刻、右に見出しと枚数、写真、一番下に終わりの時刻と地名（縦の時間の線の形。U-1b）
+      expect(find.text('7:50'), findsOneWidget);
       expect(find.text('朝ごはん'), findsOneWidget);
-      expect(find.text('7:50〜7:58 · 北海道千歳市 · 海鮮丼'), findsOneWidget);
+      expect(find.text('2枚'), findsOneWidget);
+      expect(find.text('〜7:58 · 北海道千歳市'), findsOneWidget);
+      expect(tester.getTopLeft(find.text('7:50')).dx,
+          lessThan(tester.getTopLeft(find.text('朝ごはん')).dx));
+      expect(tester.getTopLeft(find.text('2枚')).dx,
+          greaterThan(tester.getTopRight(find.text('朝ごはん')).dx));
+      expect(
+          tester.getTopLeft(find.text('〜7:58 · 北海道千歳市')).dy,
+          greaterThan(
+              tester.getBottomLeft(photoThumbnail('2026年10月5日 07:58')).dy));
+      // 場面の一言と、写真の識別の名前は出さない（02 §5 #55）
+      expect(find.text('港の市場で海鮮丼。'), findsNothing);
+      expect(find.textContaining('· 海鮮丼'), findsNothing);
       // 場面に編集のボタンは置かない（見出しは場面の写真の一覧から直す。§8.8）
       expect(
           find.descendant(
-              of: find.ancestor(
-                  of: find.text('朝ごはん'), matching: find.byType(Card)),
+              of: find
+                  .ancestor(
+                      of: find.text('朝ごはん'), matching: find.byType(InkWell))
+                  .first,
               matching: find.byType(IconButton)),
           findsNothing);
-      expect(find.text('港の市場で海鮮丼。'), findsOneWidget);
-      expect(photoThumbnail('2026年10月5日 07:58'), findsOneWidget);
 
-      await _scrollTo(tester, find.text('小樽運河さんぽ'));
-      expect(find.text('10:10〜15:10 · 北海道小樽市'), findsOneWidget);
-      // 6枚のうち4枚を出し、残りを「+2枚」
-      expect(photoThumbnail('2026年10月5日 13:10'), findsOneWidget);
-      expect(photoThumbnail('2026年10月5日 14:10'), findsNothing);
-      expect(find.text('+2枚'), findsOneWidget);
+      await _scrollTo(tester, find.text('〜15:10 · 北海道小樽市'));
+      expect(find.text('10:10'), findsOneWidget);
+      expect(find.text('6枚'), findsOneWidget);
+      // 6枚なら全部出す（大きい2枚と小さい4枚）
+      for (var hour = 10; hour <= 15; hour++) {
+        expect(photoThumbnail('2026年10月5日 $hour:10'), findsOneWidget);
+      }
+      expect(find.textContaining('+'), findsNothing);
 
       await _scrollTo(tester, find.text('昼ごはん'));
       expect(find.text('3日目'), findsOneWidget);
       expect(find.text('10月7日（水）'), findsOneWidget);
       // タイトルもまとめも AI の文の日
       expect(find.text('AI のまとめ'), findsOneWidget);
-      expect(find.text('12:00 · 醤油ラーメン'), findsOneWidget);
+      // 1枚で地名の無い場面は、終わりの時刻と地名の行を出さない
+      expect(find.text('12:00'), findsOneWidget);
+      expect(find.text('1枚'), findsOneWidget);
+      expect(find.textContaining('〜12:00'), findsNothing);
+      expect(find.text('醤油ラーメン。'), findsNothing);
+      expect(find.textContaining('醤油ラーメン'), findsNothing);
 
       await _scrollTo(tester, find.text('10月25日 18:10 に作成'));
       expect(tester.getTopLeft(find.text('10月25日 18:10 に作成')).dy,
-          greaterThan(tester.getTopLeft(find.text('12:00 · 醤油ラーメン')).dy));
+          greaterThan(tester.getTopLeft(find.text('昼ごはん')).dy));
       semantics.dispose();
+    });
+
+    testWidgets('場面の写真は最初の2枚を大きく並べ、3枚目からを小さく1行に並べ、7枚以上なら小さい列の4つ目を「+{残り}枚」にする',
+        (tester) async {
+      await _openTimeline(tester, current: {
+        'writtenAt': '2026-10-25T09:10:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'title': null,
+            'titleSource': null,
+            'summary': null,
+            'summarySource': null,
+            'scenes': [
+              _scene([
+                for (var n = 1; n <= 8; n++) _photo(n, '2026-10-05T1$n:00:00'),
+              ], label: '小樽運河さんぽ', note: null),
+            ],
+          },
+        ],
+      });
+
+      final large = [
+        photoThumbnail('2026年10月5日 11:00'),
+        photoThumbnail('2026年10月5日 12:00'),
+      ];
+      final small = [
+        for (var hour = 13; hour <= 15; hour++)
+          photoThumbnail('2026年10月5日 $hour:00'),
+      ];
+      for (final thumbnail in [...large, ...small]) {
+        expect(thumbnail, findsOneWidget);
+      }
+      // 8枚のうち5枚を出し、残りの3枚を「+3枚」
+      expect(photoThumbnail('2026年10月5日 16:00'), findsNothing);
+      expect(find.text('+3枚'), findsOneWidget);
+
+      // 大きい2枚が1行目、小さい列がその下の1行
+      final largeTop = tester.getTopLeft(large[0]).dy;
+      expect(tester.getTopLeft(large[1]).dy, largeTop);
+      for (final thumbnail in [...small, find.text('+3枚')]) {
+        expect(tester.getTopLeft(thumbnail).dy,
+            greaterThan(tester.getBottomLeft(large[0]).dy - 1));
+      }
+      expect(tester.getTopLeft(small[2]).dy, tester.getTopLeft(small[0]).dy);
+      expect(tester.getSize(large[0]).width,
+          greaterThan(tester.getSize(small[0]).width * 1.5));
+      // 小さい列の4つ目が「+3枚」
+      expect(tester.getCenter(find.text('+3枚')).dx,
+          greaterThan(tester.getTopRight(small[2]).dx));
+    });
+
+    testWidgets('左の始まりの時刻をタップしても、場面の写真の一覧を開く', (tester) async {
+      await _openTimeline(tester);
+
+      await tester.tap(find.text('7:50'));
+      await letFramesRun(tester);
+
+      expect(
+          find.descendant(of: find.byType(AppBar), matching: find.text('朝ごはん')),
+          findsOneWidget);
     });
   });
 
@@ -567,7 +649,7 @@ void main() {
     });
   });
 
-  testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、一言の無い場面はその行を出さない', (tester) async {
+  testWidgets('タイトルもまとめも無い日は印を出さず、見出しの無い場面（区切りを直して足した場面）は見出しの所に「見出しなし」と出し、1枚の場面は終わりの時刻を出さずに地名だけを出す', (tester) async {
     await _openTimeline(tester, current: {
       'writtenAt': '2026-10-25T09:10:00.000Z',
       'days': [
@@ -587,7 +669,10 @@ void main() {
     });
 
     expect(find.text('1日目'), findsOneWidget);
-    expect(find.text('7:50 · 北海道千歳市'), findsOneWidget);
+    // 1枚の場面は終わりの時刻を出さず、地名だけ
+    expect(find.text('7:50'), findsOneWidget);
+    expect(find.text('北海道千歳市'), findsOneWidget);
+    expect(find.textContaining('〜7:50'), findsNothing);
     expect(find.text('AI のまとめ'), findsNothing);
     expect(find.text('編集済み'), findsNothing);
     // 見出しの印は出さず、見出しの所に「見出しなし」と出す（場面の写真の一覧で書ける。§8.8）
