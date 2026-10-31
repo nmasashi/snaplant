@@ -104,7 +104,7 @@ describe('catalogPageOf', () => {
     /** 見出しの写真（属は行から取るので、見出しの識別の中身は問わない） */
     const plantHeadOf = async (name: string) => headFor(name, 80, { ハナトリカブト: 'a', ヤマトリカブト: 'b', チングルマ: 'c' }[name] ?? 'd');
 
-    it('項目を属の学名の順に並べ（同じ属は名前の順、属が分からない項目は最後）、offset から limit 件を切り、項目に属と属の学名を付ける', async () => {
+    it('項目を属の学名の順に並べ（同じ属は名前の順、属が分からない項目は最後）、項目に属と属の学名を付ける', async () => {
       // 行は順不同。属の学名の順は Aconitum → Sieversia、名前の順はハ（U+30CF）→ ヤ（U+30E4）
       const plantRows = [
         { name: 'なにかの花', genus: null, genusName: null, photoCount: 1 },
@@ -114,7 +114,6 @@ describe('catalogPageOf', () => {
       ];
 
       const all = await catalogPageOf('plant', plantRows, 0, 50, plantHeadOf, coverUrlOf);
-      const page = await catalogPageOf('plant', plantRows, 1, 2, plantHeadOf, coverUrlOf);
 
       expect(all.entries.map(({ name, genus, genusName, photoCount }) => ({ name, genus, genusName, photoCount }))).toEqual([
         { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 },
@@ -122,7 +121,20 @@ describe('catalogPageOf', () => {
         { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 },
         { name: 'なにかの花', genus: null, genusName: null, photoCount: 1 }
       ]);
-      expect(namesOf(page)).toEqual(['ヤマトリカブト', 'チングルマ']);
+    });
+
+    it('ページは属の学名の順に並べてから切る', async () => {
+      // 届いた順のまま切ると［なにかの花、チングルマ］になる行
+      const plantRows = [
+        { name: 'なにかの花', genus: null, genusName: null, photoCount: 1 },
+        { name: 'チングルマ', genus: 'Sieversia', genusName: 'チングルマ属', photoCount: 1 },
+        { name: 'ヤマトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 1 },
+        { name: 'ハナトリカブト', genus: 'Aconitum', genusName: 'トリカブト属', photoCount: 2 }
+      ];
+
+      const page = await catalogPageOf('plant', plantRows, 0, 2, plantHeadOf, coverUrlOf);
+
+      expect(namesOf(page)).toEqual(['ハナトリカブト', 'ヤマトリカブト']);
       expect(page.total).toBe(4);
     });
 
