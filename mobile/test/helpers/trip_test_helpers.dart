@@ -513,7 +513,12 @@ class FakeTripBackend {
               for (final photo in (scene['photos'] as List).cast<Map<String, Object?>>()) photo['id'],
         };
         if (!photoIds.every(known.contains)) return _error(400, 'INVALID_REQUEST', '外す写真が無効です');
-        final excluded = {...?(draft['excludedPhotoIds'] as List?)?.cast<String>(), ...photoIds.cast<String>()};
+        final before = {...?(draft['excludedPhotoIds'] as List?)?.cast<String>()};
+        final excluded = {...before, ...photoIds.cast<String>()};
+        // 本物と同じく、外す写真が増えて下書きの写真が1枚も残らないなら断る（下書きの日と場面には撮影日時のある写真しか無い。T-2c）
+        if (excluded.length > before.length && known.every(excluded.contains)) {
+          return _error(409, 'TIMELINE_NO_DATED_PHOTOS', '撮影日時のある写真がありません');
+        }
         final saved = {...draft, 'phase': 'reviewing', 'job': null, 'excludedPhotoIds': excluded.toList()};
         timelinesByTripId[tripId] = {...timeline, 'draft': saved};
         return _ok(200, {'draft': _visibleDraft(saved), 'urlExpiresAt': '2026-10-10T04:12:45.000Z'});
