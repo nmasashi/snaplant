@@ -60,7 +60,7 @@ Map<String, Object?> _current() => {
                 ],
                 label: '小樽運河さんぽ',
                 note: null,
-                placeNames: ['北海道小樽市']),
+                placeNames: ['北海道小樽市', '北海道余市町']),
           ],
         },
         {
@@ -187,8 +187,9 @@ void main() {
       expect(find.text('朝ごはん'), findsOneWidget);
       expect(find.text('2枚'), findsOneWidget);
       expect(find.text('〜7:58 · 北海道千歳市'), findsOneWidget);
-      expect(tester.getTopLeft(find.text('7:50')).dx,
-          lessThan(tester.getTopLeft(find.text('朝ごはん')).dx));
+      // 始まりの時刻は右の欄（見出し・写真・終わりの時刻の行）より左の欄に置く
+      expect(tester.getTopRight(find.text('7:50')).dx,
+          lessThanOrEqualTo(tester.getTopLeft(find.text('〜7:58 · 北海道千歳市')).dx));
       expect(tester.getTopLeft(find.text('2枚')).dx,
           greaterThan(tester.getTopRight(find.text('朝ごはん')).dx));
       expect(
@@ -199,23 +200,24 @@ void main() {
       expect(find.text('港の市場で海鮮丼。'), findsNothing);
       expect(find.textContaining('· 海鮮丼'), findsNothing);
       // 場面に編集のボタンは置かない（見出しは場面の写真の一覧から直す。§8.8）
-      expect(
-          find.descendant(
-              of: find
-                  .ancestor(
-                      of: find.text('朝ごはん'), matching: find.byType(InkWell))
-                  .first,
-              matching: find.byType(IconButton)),
-          findsNothing);
+      final sceneTop = tester.getTopLeft(find.text('7:50')).dy;
+      final sceneBottom =
+          tester.getBottomLeft(find.text('〜7:58 · 北海道千歳市')).dy;
+      final buttons = find.byType(IconButton);
+      for (var i = 0; i < buttons.evaluate().length; i++) {
+        final y = tester.getCenter(buttons.at(i)).dy;
+        expect(y < sceneTop || y > sceneBottom, isTrue,
+            reason: '場面の範囲にボタンがある（y=$y）');
+      }
 
-      await _scrollTo(tester, find.text('〜15:10 · 北海道小樽市'));
+      await _scrollTo(tester, find.text('〜15:10 · 北海道小樽市、北海道余市町'));
       expect(find.text('10:10'), findsOneWidget);
       expect(find.text('6枚'), findsOneWidget);
       // 6枚なら全部出す（大きい2枚と小さい4枚）
       for (var hour = 10; hour <= 15; hour++) {
         expect(photoThumbnail('2026年10月5日 $hour:10'), findsOneWidget);
       }
-      expect(find.textContaining('+'), findsNothing);
+      expect(find.textContaining(RegExp(r'^\+\d+枚$')), findsNothing);
 
       await _scrollTo(tester, find.text('昼ごはん'));
       expect(find.text('3日目'), findsOneWidget);
@@ -226,7 +228,6 @@ void main() {
       expect(find.text('12:00'), findsOneWidget);
       expect(find.text('1枚'), findsOneWidget);
       expect(find.textContaining('〜12:00'), findsNothing);
-      expect(find.text('醤油ラーメン。'), findsNothing);
       expect(find.textContaining('醤油ラーメン'), findsNothing);
 
       await _scrollTo(tester, find.text('10月25日 18:10 に作成'));
@@ -249,7 +250,7 @@ void main() {
             'summarySource': null,
             'scenes': [
               _scene([
-                for (var n = 1; n <= 8; n++) _photo(n, '2026-10-05T1$n:00:00'),
+                for (var n = 1; n <= 7; n++) _photo(n, '2026-10-05T1$n:00:00'),
               ], label: '小樽運河さんぽ', note: null),
             ],
           },
@@ -267,22 +268,29 @@ void main() {
       for (final thumbnail in [...large, ...small]) {
         expect(thumbnail, findsOneWidget);
       }
-      // 8枚のうち5枚を出し、残りの3枚を「+3枚」
+      // 7枚のうち5枚を出し、残りの2枚を「+2枚」
       expect(photoThumbnail('2026年10月5日 16:00'), findsNothing);
-      expect(find.text('+3枚'), findsOneWidget);
+      expect(find.text('+2枚'), findsOneWidget);
 
       // 大きい2枚が1行目、小さい列がその下の1行
       final largeTop = tester.getTopLeft(large[0]).dy;
       expect(tester.getTopLeft(large[1]).dy, largeTop);
-      for (final thumbnail in [...small, find.text('+3枚')]) {
+      for (final thumbnail in [...small, find.text('+2枚')]) {
         expect(tester.getTopLeft(thumbnail).dy,
             greaterThan(tester.getBottomLeft(large[0]).dy - 1));
       }
       expect(tester.getTopLeft(small[2]).dy, tester.getTopLeft(small[0]).dy);
+      // 撮影の順に左から
+      expect(tester.getTopLeft(large[1]).dx,
+          greaterThan(tester.getTopLeft(large[0]).dx));
+      expect(tester.getTopLeft(small[1]).dx,
+          greaterThan(tester.getTopLeft(small[0]).dx));
+      expect(tester.getTopLeft(small[2]).dx,
+          greaterThan(tester.getTopLeft(small[1]).dx));
       expect(tester.getSize(large[0]).width,
           greaterThan(tester.getSize(small[0]).width * 1.5));
       // 小さい列の4つ目が「+3枚」
-      expect(tester.getCenter(find.text('+3枚')).dx,
+      expect(tester.getCenter(find.text('+2枚')).dx,
           greaterThan(tester.getTopRight(small[2]).dx));
     });
 
