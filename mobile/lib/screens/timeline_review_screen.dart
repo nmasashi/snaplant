@@ -181,18 +181,25 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 区切りを保存し、応答で描き直す。失敗したら表示はそのまま（§8.4）。[comments] を渡せば場面のコメントも送る
   Future<void> _save(List<String> sceneStarts,
-      {Map<String, String>? comments}) async {
+          {Map<String, String>? comments}) =>
+      _sendAndRedraw(
+          () => widget.apiService.saveTimelineScenes(widget.tripId, sceneStarts,
+              sceneComments: comments),
+          '保存に失敗しました');
+
+  /// 下書きへの操作を送り、応答の下書きで描き直す（区切りの保存と写真を外す）。送っている間はほかの操作を受け付けない。
+  /// 失敗したら表示はそのまま（§8.4。[fallback] は ApiException でないときの文言）
+  Future<void> _sendAndRedraw(
+      Future<TimelineDraftStatus> Function() operation, String fallback) async {
     setState(() => _sending = true);
     try {
-      final draft = await widget.apiService.saveTimelineScenes(
-          widget.tripId, sceneStarts,
-          sceneComments: comments);
+      final draft = await operation();
       if (!mounted) return;
       setState(() => _draft = draft);
     } catch (e) {
-      debugPrint('TimelineReviewScreen: 区切りの保存のエラー: $e');
+      debugPrint('TimelineReviewScreen: 下書きの操作のエラー: $e');
       if (!mounted) return;
-      _handleOperationError(e, '保存に失敗しました');
+      _handleOperationError(e, fallback);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -292,19 +299,9 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
         message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
         confirmLabel: '外す');
     if (!confirmed || !mounted) return;
-    setState(() => _sending = true);
-    try {
-      final draft = await widget.apiService
-          .excludeTimelinePhotos(widget.tripId, [photo.id]);
-      if (!mounted) return;
-      setState(() => _draft = draft);
-    } catch (e) {
-      debugPrint('TimelineReviewScreen: 写真を外すエラー: $e');
-      if (!mounted) return;
-      _handleOperationError(e, 'タイムラインの操作に失敗しました');
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+    await _sendAndRedraw(
+        () => widget.apiService.excludeTimelinePhotos(widget.tripId, [photo.id]),
+        'タイムラインの操作に失敗しました');
   }
 
   @override
