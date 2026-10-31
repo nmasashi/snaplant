@@ -89,6 +89,73 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
   }
 }
 
+/**
+ * タイムラインの完成版から写真を外す API（02 §5 #52）
+ * POST /api/trips/{tripId}/timeline/excluded-photos  { photoIds: string[] }
+ *
+ * 外した写真は完成版に足すだけで戻さない。区切りと文は変えない（場面の最初の写真を外しても場面の id は控えの最初の写真のまま）。
+ * 下書きがあっても外せる（タイムラインを編集している途中なら、当てるときに下書きの外した写真と合わせる。06 §8.6）
+ */
+export async function postTimelineExcludedPhotosHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const tripId = request.params.tripId;
+  context.log(`タイムラインの完成版から写真を外すリクエストを受信: 旅行=${tripId}`);
+  if (!isValidUUID(tripId)) {
+    return createValidationError('旅行IDの形式が無効です');
+  }
+  const read = await readJsonBody(request);
+  if ('error' in read) {
+    return read.error;
+  }
+  if (read.body === null || read.body === undefined) {
+    return createValidationError('リクエストボディが指定されていません');
+  }
+  const { photoIds } = read.body as { photoIds?: unknown };
+  if (!Array.isArray(photoIds) || photoIds.length === 0 || !photoIds.every((id) => typeof id === 'string')) {
+    return createValidationError('外す写真は写真IDの配列で指定してください');
+  }
+  try {
+    if (!(await new AlbumService().tripExists(tripId))) {
+      return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+    }
+    const timelines = new TimelineService();
+    const timeline = await timelines.readTimeline(tripId);
+    const current = timeline?.doc.current;
+    if (!timeline || !current) {
+      return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
+    }
+    let photos: TimelinePhotoSnapshot[];
+    try {
+      photos = await timelines.readSnapshotPhotos(current.snapshotId);
+    } catch (error: any) {
+      // 区切りの直しの受付と同じ扱い（旅行の削除・作り直しとの重なりなら 404 / 409、同じ完成版のまま控えだけ無ければ壊れている）
+      if (!(error instanceof TimelineSnapshotMissingError)) {
+        throw error;
+      }
+      if (!(await new AlbumService().tripExists(tripId))) {
+        return createNotFoundError('指定された旅行が見つかりません', ErrorCode.TRIP_NOT_FOUND);
+      }
+      if ((await timelines.readTimeline(tripId))?.doc.current?.snapshotId !== current.snapshotId) {
+        return createTimelineStateConflict();
+      }
+      throw error;
+    }
+    const snapshotIds = new Set(photos.map((photo) => photo.id));
+    if (photoIds.some((id) => !snapshotIds.has(id))) {
+      return createValidationError('外す写真が無効です');
+    }
+    const excluded = new Set([...(current.excludedPhotoIds ?? []), ...photoIds]);
+    const edited: TimelineCurrent = { ...current, excludedPhotoIds: photos.map((photo) => photo.id).filter((id) => excluded.has(id)) };
+    if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
+      return createTimelineStateConflict();
+    }
+    // 画面は外した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
+    return createTimelineBodyResponse(await readTimelineBody(tripId));
+  } catch (error: any) {
+    context.log('タイムラインの完成版から写真を外すエラー:', error);
+    return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
+  }
+}
+
 /** 直せる文の欄（日はタイトル・まとめ、場面は見出し・一言。05 §5.15・§4） */
 interface TextField<K extends string> {
   key: K;
@@ -247,6 +314,13 @@ app.http('postTimelineRecut', {
   authLevel: 'function',
   route: 'trips/{tripId}/timeline/recut',
   handler: postTimelineRecutHandler,
+});
+
+app.http('postTimelineExcludedPhotos', {
+  methods: ['POST'],
+  authLevel: 'function',
+  route: 'trips/{tripId}/timeline/excluded-photos',
+  handler: postTimelineExcludedPhotosHandler,
 });
 
 app.http('patchTimelineDay', {

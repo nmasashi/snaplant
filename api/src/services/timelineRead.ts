@@ -33,11 +33,17 @@ async function readTimelineBodyOnce(tripId: string) {
     const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
     const existing = new Set(photos.map((photo) => photo.id));
     const snapshotIds = new Set(snapshot.map((photo) => photo.id));
-    current = currentTimelineOf(doc.current, snapshot, (photoId) => existing.has(photoId), urlOfPhotos(new PhotoStorageService(), expiresOn));
-    // 日時の無い写真も数える（作り直せば控えに入る）
+    const excluded = new Set(doc.current.excludedPhotoIds ?? []);
+    current = currentTimelineOf(
+      doc.current,
+      snapshot,
+      (photoId) => existing.has(photoId) && !excluded.has(photoId),
+      urlOfPhotos(new PhotoStorageService(), expiresOn)
+    );
+    // 日時の無い写真も数える（作り直せば控えに入る）。外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
       added: photos.filter((photo) => !snapshotIds.has(photo.id)).length,
-      removed: snapshot.filter((photo) => !existing.has(photo.id)).length,
+      removed: snapshot.filter((photo) => !existing.has(photo.id) && !excluded.has(photo.id)).length,
     };
   }
   return {
