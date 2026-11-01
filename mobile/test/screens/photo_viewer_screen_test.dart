@@ -351,19 +351,7 @@ void main() {
     // ビューアで末尾の10:30まで払って2ページ目を読ませる。失敗の応答を遅らせて、ビューアを開いている間に失敗が届く形にする
     final semantics = tester.ensureSemantics();
     final backend = _thirtyThreePhotosBackend();
-    await openTripsTab(tester, backend);
-    final releaseFirstPage = Completer<void>();
-    backend.holds[TripRoute.photos] = releaseFirstPage.future;
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    backend.holds.remove(TripRoute.photos);
-    releaseFirstPage.complete();
-    await letFramesRun(tester);
-    await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
-    await tester.pump();
-    await tester.tap(photoThumbnail('2026年10月5日 10:15'));
-    await letFramesRun(tester);
-    expect(backend.photoPagesReceived, 1, reason: '2ページ目はまだ要求されていない');
+    await _openViewerAt1015BeforeSecondPage(tester, backend);
     backend.failNext(TripRoute.photos);
     final reply = backend.holdNextReply(TripRoute.photos);
 
