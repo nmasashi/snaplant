@@ -140,7 +140,7 @@ describe('写真詳細API', () => {
         sortAt: '2026-10-05T12:30:15',
         location: { latitude: 43.7706, longitude: 142.365, placeName: '北海道旭川市', placeSource: 'device' },
         category: 'food',
-        tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }, { name: '旅館', kind: 'food', x: 0.5, y: 0.5, source: 'user' }],
+        tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }, { name: '旅館', kind: 'food', x: 0.5, y: 0.5, source: 'ai' }],
         comment: 'ホテルの朝食',
         commentSource: 'user',
         hint: 'ビュッフェ',
@@ -187,7 +187,7 @@ describe('写真詳細API', () => {
       expect((response.jsonBody as any).data.photo.tags).toEqual([]);
     });
 
-    it('C-3a より前に保存した文字列のタグは、応答に出さない（タグは名前・種類・位置の形だけを返す。04 §2）', async () => {
+    it('C-3a より前に保存した文字列のタグは、応答に出さない（タグは名前・種類・位置・出どころの形だけを返す。04 §2）', async () => {
       const tag = { name: '海鮮丼', kind: 'food', x: 0.4, y: 0.6, source: 'user' };
       const savedPhoto = photoDocument(PHOTO_ID, { tags: ['古いタグ', tag] as any });
       cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto, ...COSMOS_SYSTEM_FIELDS });

@@ -304,7 +304,7 @@ describe('写真更新API', () => {
 
   it('C-4 より前に保存した、出どころの無いタグは、利用者のタグとして返す（04 §2）', async () => {
     freezeNow();
-    cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }] as PhotoTag[] }));
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }] }));
 
     const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment: '旅館' }), mockContext);
 
@@ -359,7 +359,7 @@ describe('写真更新API', () => {
     ['タグの y が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', kind: 'food', x: 0.5 }] }), 'タグの位置が無効です'],
     // 上限は同じ名前のタグも数える（同じ名前を除かない。02 §5 #57）
     ['tagsが同じ名前を含めて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), tag('タグ1')] }), 'タグは20個までです'],
-    // タグの中の順（要素ごとに先頭から。1つの要素の中では 8 → 9 → 9.1 → 9.2。05 §5.6）
+    // タグの中の順（要素ごとに先頭から。1つの要素の中では 8 → 8.5（出どころ）→ 9 → 9.1 → 9.2。05 §5.6）
     ['1つのタグで名前・種類・位置が全部無効(名前の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '', kind: 'animal', x: 5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
     ['1つのタグで種類と位置が無効(種類の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal', x: 5 })] }), 'タグの種類が無効です'],
     ['1つ目のタグの種類が無効で2つ目が文字列(先の要素の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal' }), '旅館'] }), 'タグの種類が無効です'],
