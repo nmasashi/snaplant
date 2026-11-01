@@ -50,6 +50,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _selection = PhotoSelection();
   // 写真の一覧を先頭から読み直すたびに進める（グリッドの key にして作り直す）
   int _gridVersion = 0;
+  // 「タイムライン」を出している（グリッドを隠している）間に写真の一覧が変わりうることがあった。「写真」に戻したときに読み直す（§8.1）
+  bool _photosStale = false;
   // チップで選んだカテゴリ。「すべて」なら null。画面を開き直すと「すべて」に戻る（§5.3）
   String? _category;
   // 「タイムライン」を出しているか（切り替え。§8.1）。画面を開き直すと「写真」に戻る
@@ -178,8 +180,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   /// 選んだ写真を移した・消した後に、写真の一覧と見出しの枚数を読み直す。
   /// 見出しを取り直せなくても前の値のまま出す（操作は済んで知らせも出ているので、画面をエラーで置き換えない）
+  ///
+  /// 「タイムライン」を出している間は一覧を読まずに印だけ付け、「写真」に戻したときに読み直す（§8.1）
   Future<void> _reloadPhotos() async {
-    setState(() => _gridVersion++);
+    if (_showsTimeline) {
+      _photosStale = true;
+    } else {
+      setState(() => _gridVersion++);
+    }
     await _loadTrip(keepOnFailure: true);
   }
 
@@ -284,6 +292,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             showSelectedIcon: false,
             onSelectionChanged: (selected) => setState(() {
               _showsTimeline = selected.single;
+              if (!_showsTimeline && _photosStale) {
+                _photosStale = false;
+                _gridVersion++;
+              }
               // 前に開いていたタイムラインの項目を残さない（開き直したタイムラインが読めたら入れ直す）
               _timelineMenu = null;
             }),
@@ -403,6 +415,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                   tripId: trip.id,
                   onTripNotFound: _markTripDeleted,
                   onMenuChanged: (menu) => _timelineMenu = menu,
+                  onSceneClosed: _reloadPhotos,
                 ),
             ],
           ),

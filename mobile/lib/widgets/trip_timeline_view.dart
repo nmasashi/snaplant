@@ -41,7 +41,8 @@ class TripTimelineView extends StatefulWidget {
       required this.uploadQueue,
       required this.tripId,
       required this.onTripNotFound,
-      required this.onMenuChanged});
+      required this.onMenuChanged,
+      required this.onSceneClosed});
 
   final ApiService apiService;
 
@@ -55,6 +56,9 @@ class TripTimelineView extends StatefulWidget {
   /// 旅行詳細のメニューに出すタイムラインの項目を渡す（描くたび）。完成版を出していて下書きが無いときだけで、それ以外は null。
   /// 旅行詳細はメニューを開くときに最後に受け取ったものを読むだけで、受け取っても描き直さない（描いている間に呼んでよい）
   final ValueChanged<TimelineMenu?> onMenuChanged;
+
+  /// 場面の写真の一覧を閉じたときに呼ぶ（一覧から開いた写真ビューアで写真を消した・直したかもしれない。旅行詳細は写真の一覧を読み直す印を付ける。§8.1）
+  final VoidCallback onSceneClosed;
 
   @override
   State<TripTimelineView> createState() => _TripTimelineViewState();
@@ -286,6 +290,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       ),
     );
     if (!mounted) return;
+    widget.onSceneClosed();
     await _load(showLoading: false);
   }
 
