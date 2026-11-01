@@ -29,8 +29,10 @@ Map<String, Object?> _scene(List<Map<String, Object?>> photos,
 List<Map<String, Object?>> _scenes() => [
       _scene(
           [
-            _photo(1, '2026-10-05T07:50:00', category: 'food'),
-            _photo(2, '2026-10-05T07:58:00', category: 'food'),
+            _photo(1, '2026-10-05T07:50:00',
+                category: 'food', placeName: '北海道千歳市'),
+            _photo(2, '2026-10-05T07:58:00',
+                category: 'food', placeName: '北海道千歳市'),
           ],
           label: '朝ごはん',
           placeNames: ['北海道千歳市']),
@@ -421,7 +423,8 @@ void main() {
       await tester.longPress(photoThumbnail('2026年10月5日 15:10'));
       await letFramesRun(tester);
       expect(find.text('タイムラインから外す'), findsOneWidget);
-      await tapBack(tester);
+      // メニューの外（上の方）をタップして、選ばずに閉じる
+      await tester.tapAt(const Offset(200, 100));
       await letFramesRun(tester);
       expect(find.text('タイムラインから外す'), findsNothing);
       expect(find.text('タイムラインから外しますか？'), findsNothing);
