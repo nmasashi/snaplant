@@ -107,11 +107,14 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
 
   it('書き込みが失敗したら、そこで止めて失敗を伝える（続きは、もう一度回せば拾える）', async () => {
     cosmosBackend.documents.set(photoId('a'), foodPhoto(photoId('a')));
-    cosmosBackend.forcedPatchError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+    cosmosBackend.documents.set(photoId('b'), foodPhoto(photoId('b')));
+    // 1枚目の書き込みが失敗したら、2枚目には進まない（失敗を飛ばして続けると、Cosmos の障害で全部を飛ばして「0 枚」と終わる）
+    cosmosBackend.forcedErrorById = { [photoId('a')]: Object.assign(new Error('Service Unavailable'), { code: 503 }) };
 
     await expect(enqueueUntaggedFoodPhotos({ apply: true, log })).rejects.toThrow('Service Unavailable');
 
     expect(stored(photoId('a'))).toEqual(foodPhoto(photoId('a')));
+    expect(stored(photoId('b'))).toEqual(foodPhoto(photoId('b')));
   });
 
   it('読んだ後に解析の進み具合が変わった写真（やり直しの受付が入った）は書かず、ほかの写真は書く', async () => {

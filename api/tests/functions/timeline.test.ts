@@ -303,6 +303,9 @@ describe('タイムラインを作るAPI', () => {
     const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
 
     expect(response.status).toBe(202);
+    // 提案の写真も控えに入り、下書きを作って積む
+    expect(storedSnapshots()[0].photos.map((photo: { id: string }) => photo.id)).toEqual([photoId('a'), photoId('b')]);
+    expect(queuedMessages()).toEqual([['timeline-processing', [{ tripId: TRIP_ID, draftId: storedTimeline()!.draft!.id }]]]);
   });
 
   it.each(['pending', 'classifying', 'identifying'] as const)(
