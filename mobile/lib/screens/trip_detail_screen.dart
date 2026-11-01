@@ -367,38 +367,46 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         ),
         _uploadBanner(),
         _buildViewSwitch(),
-        if (_showsTimeline)
-          Expanded(
-            child: TripTimelineView(
-              apiService: widget.apiService,
-              uploadQueue: widget.uploadQueue,
-              tripId: trip.id,
-              onTripNotFound: _markTripDeleted,
-              onMenuChanged: (menu) => _timelineMenu = menu,
-            ),
-          ),
         if (!_showsTimeline) _buildCategoryChips(),
-        if (!_showsTimeline)
-          Expanded(
-            child: PhotoGrid(
-              key: ValueKey(_gridVersion),
-              apiService: widget.apiService,
-              uploadQueue: widget.uploadQueue,
-              tripId: trip.id,
-              category: _category,
-              dayOneTakenAt: trip.firstTakenAt,
-              // 見出しを取り直せなくても前の値のまま、写真の一覧は読み直す
-              onRefresh: () => _loadTrip(keepOnFailure: true),
-              selection: _selection,
-              emptyTitle: _category == null
-                  ? 'まだ写真がありません'
-                  : 'この旅行に${categoryLabel(_category!)}の写真はありません',
-              emptyMessage:
-                  _category == null ? '「写真を追加」からギャラリーの写真を送りましょう' : null,
-              onTripNotFound: _markTripDeleted,
-              onViewerClosed: _reloadPhotos,
-            ),
+        Expanded(
+          child: Stack(
+            children: [
+              // 「タイムライン」を出している間もグリッドは隠して残す（戻ってもスクロールの位置と読み込んだページのまま。§8.1）
+              Offstage(
+                offstage: _showsTimeline,
+                child: TickerMode(
+                  enabled: !_showsTimeline,
+                  child: PhotoGrid(
+                    key: ValueKey(_gridVersion),
+                    apiService: widget.apiService,
+                    uploadQueue: widget.uploadQueue,
+                    tripId: trip.id,
+                    category: _category,
+                    dayOneTakenAt: trip.firstTakenAt,
+                    // 見出しを取り直せなくても前の値のまま、写真の一覧は読み直す
+                    onRefresh: () => _loadTrip(keepOnFailure: true),
+                    selection: _selection,
+                    emptyTitle: _category == null
+                        ? 'まだ写真がありません'
+                        : 'この旅行に${categoryLabel(_category!)}の写真はありません',
+                    emptyMessage:
+                        _category == null ? '「写真を追加」からギャラリーの写真を送りましょう' : null,
+                    onTripNotFound: _markTripDeleted,
+                    onViewerClosed: _reloadPhotos,
+                  ),
+                ),
+              ),
+              if (_showsTimeline)
+                TripTimelineView(
+                  apiService: widget.apiService,
+                  uploadQueue: widget.uploadQueue,
+                  tripId: trip.id,
+                  onTripNotFound: _markTripDeleted,
+                  onMenuChanged: (menu) => _timelineMenu = menu,
+                ),
+            ],
           ),
+        ),
       ],
     );
   }
