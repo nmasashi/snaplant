@@ -1,4 +1,4 @@
-import { Photo, PhotoDocument } from '../types/album';
+import { Photo, PhotoDocument, PhotoTag } from '../types/album';
 import { PhotoStorageService, photoUrlExpiresOn } from './photoStorageService';
 
 /**
@@ -25,7 +25,7 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
     category: doc.category,
     categorySource: doc.categorySource ?? null,
     // C-3a より前は文字列の配列だった（画面が無く、本番は空のはず）。名前・種類・位置の形のタグだけを返す（04 §2）。欄の無い文書はタグ無し
-    tags: (doc.tags ?? []).filter((tag) => typeof tag === 'object' && tag !== null),
+    tags: (doc.tags ?? []).filter((tag): tag is PhotoTag => typeof tag === 'object' && tag !== null),
     comment: doc.comment,
     commentSource: doc.commentSource,
     hint: doc.hint,

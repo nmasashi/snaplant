@@ -4,7 +4,7 @@ import { createErrorResponse, createValidationError, isValidUUID } from './respo
 import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { CONTEXT_INFO_VALIDATION, FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
-import { PHOTO_KINDS } from '../catalog/kinds';
+import { PHOTO_KINDS, PhotoKind } from '../catalog/kinds';
 import { PhotoTag } from '../types/album';
 import { readPageLimit } from './pageLimit';
 import { exceedsLength, trimUserText } from './userText';
@@ -396,15 +396,15 @@ export async function readPhotoUpdateInput(
     if (tags.length > TAG_VALIDATION.MAX_COUNT) {
       return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
     }
-    const read: PhotoTag[] = [];
+    const parsedTags: PhotoTag[] = [];
     for (const tag of tags) {
       const result = readPhotoTag(tag);
       if (typeof result === 'string') {
         return { error: createValidationError(result) };
       }
-      read.push(result);
+      parsedTags.push(result);
     }
-    input.tags = read;
+    input.tags = parsedTags;
   }
   if (category !== undefined) {
     if (typeof category !== 'string' || !PHOTO_KINDS.includes(category)) {
@@ -434,7 +434,8 @@ function readPhotoTag(tag: unknown): PhotoTag | string {
   if (!isRatio(x) || !isRatio(y)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_POSITION;
   }
-  return { name: trimmed, kind, x, y };
+  // 種類は PHOTO_KINDS に含まれることを上で確かめた
+  return { name: trimmed, kind: kind as PhotoKind, x, y };
 }
 
 /** 画像の中の位置の割合（0 以上 1 以下の数）か */
