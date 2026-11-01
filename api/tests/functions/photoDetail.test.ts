@@ -187,7 +187,7 @@ describe('写真詳細API', () => {
       expect((response.jsonBody as any).data.photo.tags).toEqual([]);
     });
 
-    it('C-3a より前に保存した文字列のタグは、応答に出さない（タグは名前・種類・位置・出どころの形だけを返す。04 §2）', async () => {
+    it('C-3a より前に保存した文字列のタグは、応答に出さない（タグはオブジェクトの形のものだけを返す。04 §2）', async () => {
       const tag = { name: '海鮮丼', kind: 'food', x: 0.4, y: 0.6, source: 'user' };
       const savedPhoto = photoDocument(PHOTO_ID, { tags: ['古いタグ', tag] as any });
       cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto, ...COSMOS_SYSTEM_FIELDS });
