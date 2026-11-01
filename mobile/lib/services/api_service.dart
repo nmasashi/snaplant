@@ -87,7 +87,8 @@ class ApiService {
 
     if (error is ApiException) {
       return error;
-    } else if (error is SocketException && !kIsWeb) {
+    } else if ((error is SocketException || error is TlsException) && !kIsWeb) {
+      // TLS の失敗（公衆 Wi-Fi のログイン画面の横取りなど）は、IOClient が ClientException に包まずにそのまま投げる
       // Web環境ではSocketExceptionを異なって処理
       return ApiException(
         statusCode: 0,
