@@ -24,7 +24,7 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
     location: doc.location,
     category: doc.category,
     categorySource: doc.categorySource ?? null,
-    // C-3a より前は文字列の配列だった（画面が無く、本番は空のはず）。名前・種類・位置・出どころの形のタグだけを返す（04 §2）。欄の無い文書はタグ無し
+    // C-3a より前は文字列の配列だった（画面が無く、本番は空のはず）。オブジェクトの形のタグだけを返す（04 §2）。欄の無い文書はタグ無し
     // C-4 より前のタグには出どころが無い。利用者が付けたものなので user として返す
     tags: (doc.tags ?? [])
       .filter((tag): tag is StoredPhotoTag => typeof tag === 'object' && tag !== null)

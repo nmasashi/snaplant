@@ -433,7 +433,7 @@ function readPhotoTag(tag: unknown): PhotoTag | string {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
   }
   const { name, kind, x, y, source } = tag as { name?: unknown; kind?: unknown; x?: unknown; y?: unknown; source?: unknown };
-  // 出どころは省けば利用者のもの（今のアプリ（C-3b）は送らないので全部 user になる。直さなかった AI のタグを ai のまま送るのは C-4c のアプリ。05 §5.6）
+  // 出どころは省けば利用者のもの（アプリの送り方は 05 §5.6）
   if (source !== undefined && source !== 'ai' && source !== 'user') {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
   }
