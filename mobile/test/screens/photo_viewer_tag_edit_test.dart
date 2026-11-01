@@ -323,7 +323,7 @@ void main() {
                 number: n,
                 tripId: hokkaidoTripId,
                 takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00',
-                tags: n == 30 ? [_tag('ご飯')] : const []),
+                tags: n == 30 ? [_tag('ご飯', source: 'ai')] : const []),
         ],
       },
     );
@@ -347,9 +347,12 @@ void main() {
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget, reason: '開いている写真のまま');
     await tester.tapAt(_at(tester, 0.8, 0.75));
     await letFramesRun(tester);
-    final moved = (backend.photosByTripId[hokkaidoTripId]![29]['tags'] as List).single as Map;
+    final photos = backend.photosByTripId[hokkaidoTripId]!;
+    final moved = (photos[29]['tags'] as List).single as Map;
     expect([moved['name'], moved['source']], ['ご飯', 'user']);
     expect(moved['x'] as num, closeTo(0.8, 0.01));
+    expect(moved['y'] as num, closeTo(0.75, 0.01));
+    expect(photos[30]['tags'], isEmpty, reason: '届いた 10:31 は変えない');
     await finishImageLoading(tester);
   });
 
