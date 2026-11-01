@@ -449,7 +449,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2（実装済み）の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 
-**リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
+**リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number, "source"?: "ai" | "user" }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列。`source` は C-4 から（未実装）: 省くと `user`、`ai`・`user` のどちらでもなければ 400 `INVALID_REQUEST`「タグの形式が無効です」（9 の前に見る）。応答の各タグにも `source` を出す（無いタグは `user`）。アプリは、直さなかったタグは受け取った `source` のまま送り、直したタグと新しく付けたタグは `user` で送る）
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
