@@ -169,6 +169,23 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('日付の選択の範囲（1900〜2100 年）の外の手で付けた日時も、「変更」でそのまま保存すると同じ日時で保存される', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend(takenAt: '0850-05-01T10:00:00', takenAtSource: 'user');
+    await _openViewer(tester, backend, '0850年5月1日 10:00');
+    await tester.tap(find.text('変更'));
+    await letFramesRun(tester);
+    // 送ったことを保存先の値で確かめるため、保存先の撮影日時を開いた後に消しておく（同じ値のままだと、送らなくても通る）
+    _storedPhoto(backend)['takenAt'] = null;
+
+    await tester.tap(find.text('保存'));
+    await letFramesRun(tester);
+
+    expect(_storedPhoto(backend)['takenAt'], '0850-05-01T10:00:00');
+    expect(find.text('撮影日時を変えました'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('保存を待っている間は、下に払っても端末の戻る操作でもシートの外のタップでも閉じず、日付・時刻・「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
