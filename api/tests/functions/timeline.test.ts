@@ -752,6 +752,17 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
   });
 
+  it('作った後に撮影日時を手で付けた写真（控えでは撮影日時が無い）は、増えた写真に数える（作り直すと入るので。02 §5 #59）', async () => {
+    // 控えの日時の無い写真 u に、作った後で撮影日時を手で付けた
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(U.id, photoDocument(U.id, { tripId: TRIP_ID, takenAt: '2026-10-05T12:00:00', takenAtSource: 'user' }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
+  });
+
   it('完成版の控えと比べて増えた・消えた撮影日時のある写真の枚数を返し、完成版があっても解析中の写真を数える', async () => {
     // b が消え、控えに無い撮影日時のある写真が2枚増えた（1枚は解析中）
     placeCurrentSnapshot([B.id]);
