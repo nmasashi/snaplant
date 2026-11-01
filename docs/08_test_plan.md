@@ -374,7 +374,8 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 ### 3.11 タグの提案（C-4）で足すシナリオ（骨格）
 
 **実装済み**（C-4b。`tests/functions/processPhoto.test.ts` の「タグの提案」、`tests/functions/requeueStalePhotos.test.ts`、`tests/scripts/enqueueUntagged.test.ts`）: 下の1〜4番目の行と、スクリプトの行。再投入のタイマーが止まった提案（`tagging`）を拾うこと。
-**実装済み**（C-4c。`mobile/test/screens/photo_viewer_tag_bubbles_test.dart`、サムネイルの印は `photo_classification_test.dart`）: 「写真ビューア」の行のうち、吹き出しで出す・表示の切り替えを覚える・提案を待つ間の文言（待っている・している間は「分類中...」もサムネイルの印も出さない）と、付ける・消すときに残したタグの出どころを受け取ったまま送ること。タグを押して直す・動かす・消すは C-4d。
+**実装済み**（C-4c。`mobile/test/screens/photo_viewer_tag_bubbles_test.dart`、サムネイルの印は `photo_classification_test.dart`）: 「写真ビューア」の行のうち、吹き出しで出す・表示の切り替えを覚える・提案を待つ間の文言（待っている・している間は「分類中...」もサムネイルの印も出さない）と、付ける・消すときに残したタグの出どころを受け取ったまま送ること。
+**実装済み**（C-4d。`mobile/test/screens/photo_viewer_tag_edit_test.dart`）: タグを押して直す（名前・種類）・位置を動かす・直すシートから消す。
 
 - 分類の結果が食べ物で、タグが無い写真は、タグの提案の待ち（`pending`・`step: "tag"`）になってキューに積まれる。タグがある・食べ物でない写真は `done`
 - 提案のワーカー: AI に `detail: "high"` の画像と食べ物の名前の決まりを送り、答えの皿ごとに `{ name, kind: "food", x, y, source: "ai" }` のタグを書いて `done`。名前の切り詰め・位置を 0〜1 に収める・21 個目から捨てる。答えが空ならタグは書かずに `done`
