@@ -46,7 +46,7 @@ class PhotoViewerScreen extends StatefulWidget {
   final int initialIndex;
 
   /// 読み込み済みの末尾の写真まで来たときに呼ぶ（一覧が続きのページを読む）。
-  /// 一覧は、写真の無いページ（続きはある）が返っても自分で続けて読む（ビューアは写真が増えるまで頼み直さない。docs/03_screen_design.md §4.6）
+  /// 一覧は、写真の無いページ（続きはある）が返っても自分で続けて読む（ビューアは、空のページが返ったことを理由には頼み直さない。docs/03_screen_design.md §4.6）
   final VoidCallback onReachEnd;
 
   /// 一覧にまだ読んでいない続きのページがあるか
