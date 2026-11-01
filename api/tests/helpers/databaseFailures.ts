@@ -12,7 +12,7 @@ type DatabaseFailureCase = [string, Error, number, string, string];
 
 const UNREACHABLE_MESSAGE = 'データベースに接続できません';
 
-// 行の実体。6行の表も2行の表も、ここから名前で取る
+// 行の実体。7行の表も2行の表も、ここから名前で取る
 const nameResolutionFailure = (): DatabaseFailureCase => [
   '名前解決に失敗したときは、接続できないエラー（503）を返す',
   restError('ENOTFOUND', 'getaddrinfo ENOTFOUND example.documents.azure.com'),
@@ -30,6 +30,14 @@ const connectionRefusedFailure = (): DatabaseFailureCase => [
 const connectionTimeoutFailure = (): DatabaseFailureCase => [
   '接続が時間切れになったときは、接続できないエラー（503）を返す',
   restError('ETIMEDOUT', 'connect ETIMEDOUT 10.0.0.1:443'),
+  503,
+  'DATABASE_ERROR',
+  UNREACHABLE_MESSAGE
+];
+// Cosmos SDK が自分の待ち時間（requestTimeout）で打ち切ると、errno ではなく code・name が 'TimeoutError' のエラーを投げる（@azure/cosmos の TimeoutError）
+const sdkTimeoutFailure = (): DatabaseFailureCase => [
+  'データベースの応答を待ちきれなかったときも、接続できないエラー（503）を返す',
+  Object.assign(new Error('Timeout Error! Request took more than 60000 ms'), { name: 'TimeoutError', code: 'TimeoutError' }),
   503,
   'DATABASE_ERROR',
   UNREACHABLE_MESSAGE
@@ -57,18 +65,19 @@ const cosmosInternalFailure = (internalErrorMessage: string): DatabaseFailureCas
 ];
 
 /**
- * データベースの失敗の分類の表（全6行）。接続できない障害は 503、それ以外は 500 で、
+ * データベースの失敗の分類の表（全7行）。接続できない障害は 503、それ以外は 500 で、
  * 500 の message だけがハンドラごとに違う。
  *
  * 分類は旅行アルバムの全エンドポイント（createDatabaseErrorResponse を通るもの）で同じ規則
  * （utils/errors.ts の isConnectivityError）なので、
- * 6行すべてを回すのは `trips.test.ts` の「旅行の作成」の1箇所だけにしている。
+ * 7行すべてを回すのは `trips.test.ts` の「旅行の作成」の1箇所だけにしている。
  * 他のエンドポイントは `databaseFailureCases()`（2行）で、ハンドラがこの分類につながっていることだけを見る
  */
 export const allDatabaseFailureCases = (internalErrorMessage: string): DatabaseFailureCase[] => [
   nameResolutionFailure(),
   connectionRefusedFailure(),
   connectionTimeoutFailure(),
+  sdkTimeoutFailure(),
   wrappedConnectionFailure(),
   unexpectedFailure(internalErrorMessage),
   cosmosInternalFailure(internalErrorMessage)
