@@ -186,7 +186,7 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 | C-3a | **実装済み**（C-3a）。api: 写真の `tags` を `{ name, kind, x, y }` の配列にする（`PATCH /api/photos/{photoId}` の検証と保存、応答。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。アプリより先に出す（C-3b のアプリは形を変えた応答を読む） | api | 小 |
 | C-3b | **実装済み**（C-3b）。mobile: 写真ビューアでタグを見る・付ける・消す（[03 §5.7](./03_screen_design.md#57-写真のタグ)） | mobile | 中 |
 | C-4 | **AI がタグを提案する（食べ物）。** 決めたことは [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #61（2026-11-01。試作とモックで確かめた）。画面は [03 §5.9](./03_screen_design.md#59-タグの見せ方と直し方c-4)、処理は [06 §9](./06_processing_design.md#9-タグの提案c-4)。下の4つに分ける | api・mobile | 大 |
-| C-4a | api: タグに出どころ `source`（`ai`／`user`）を持たせる（`PATCH /api/photos/{photoId}` の検証と保存、応答。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。アプリより先に出す | api | 小 |
+| C-4a | **実装済み**（C-4a）。api: タグに出どころ `source`（`ai`／`user`）を持たせる（`PATCH /api/photos/{photoId}` の検証と保存、応答。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。アプリより先に出す | api | 小 |
 | C-4b | api: 分類で食べ物になった、タグの無い写真の提案の待ち（`step: "tag"`）と、提案のワーカー（`detail: "high"`）、既にある写真のスクリプト（`enqueueUntagged.ts`）。[06 §9](./06_processing_design.md#9-タグの提案c-4) | api | 中 |
 | C-4c | mobile: タグを吹き出しで見せる、上のバーで表示の ON・OFF（アプリ全体で覚える）、提案を待つ間の文言、送るタグに `source` を付ける（[03 §5.9](./03_screen_design.md#59-タグの見せ方と直し方c-4)） | mobile | 中 |
 | C-4d | mobile: タグを押して直す（名前・種類・位置を動かす・消す。[03 §5.9](./03_screen_design.md#59-タグの見せ方と直し方c-4)） | mobile | 中 |
