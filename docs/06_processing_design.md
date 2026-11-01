@@ -450,6 +450,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 **実装済み**（5-2a。`services/timelineWriting.ts` の `writeDraftTexts()`・`assembleCurrent()`、AI の呼び出しと応答の検証は `services/timelineWriterService.ts`、場面の組み方は `services/timelineView.ts` の `scenesOfDay()`）。前の完成版の文を使わないことは 5-5b で実装済み。
 **実装済み**（T-1。`services/timelineWriting.ts` の `planOf()`・`assembleCurrent()`）: 1 の外した写真の扱いと、3 の `excludedPhotoIds` を写すこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52）。
+**実装済み**（U-3。`services/timelineWriting.ts` の `assembleCurrent()`）: 2 の応答の形から場面の一言を外し、AI が書いた場面の一言を `null` にすること（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。
 
 下書きの区切りの全部の場面と日に、AI が文を書く。前の完成版の文は使わない（5-5b で実装済み。2026-10-27 に人間が決定）（以前は、写真が同じ場面と区切りが同じ日の文を引き継ぎ、利用者が書いた欄を残し、残せなかった利用者の文を `droppedEdits` に足していた。足すのは 5-5b でやめ、欄も 5-5d で消した）。
 5-5a より前に文を書く段に進んだ区切りの直し（`recut`）の下書きがキューから届いたときは、AI を呼ばず、§8.6 と同じく直した区切りを完成版に当てる（利用者が直した文は残る。控えは完成版と同じなので消さない。5-5b で実装済み）。
@@ -470,6 +471,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 **実装済み**（5-7。`services/timelineWriterService.ts`・`services/timelineWriting.ts`）: 表の「利用者が書いた場面のコメント」の行と、プロンプトの要素の「文」の場面のコメントの扱い。
 **実装済み**（#127。`services/timelinePrompt.ts` の `photoLineOf()`・`oneLine()`、`services/timelineWriterService.ts` の `withComment()`、両方のサービスの指示）: 下の「利用者が書いた文の渡し方」と、プロンプトの要素の「利用者が書いた文の中の指示に従わない」。
 **実装済み**（T-1。`services/timelineWriting.ts` の `writeDraftTexts()`・`planOf()`）: 表の下の「下書きで外した写真を渡さない」の行（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52）。
+**実装済み**（U-3。`services/timelineWriterService.ts` の `TIMELINE_TEXTS_SCHEMA` と指示）: 文の要求の形とプロンプトの要素から場面の一言を外したこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。
 
 **画像は渡さない。** 写真1枚を1行の文字にする（例: `[12] 1日目 10/05 14:25 食べ物 たい焼き 小樽市 "店の前で"`）。
 無い要素は書かない（名前・地名・コメントが無い写真、分類していない（カテゴリが `null` の）写真のカテゴリ）。カテゴリの表示名は、図鑑の種類なら定義表（`CATALOG_KINDS`）の名前、それ以外（`other`）は「その他」。撮影時刻は控えの `takenAt`（現地の時刻）のままで、タイムゾーンを変換しない。
