@@ -349,13 +349,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
       case TagEditAction.move:
         setState(() => _movingTag = index);
       case TagEditAction.delete:
-        // シートを開いている間に写真が置き換わっていたら、今の写真で消す（古いタグの配列を送り直さない）。
-        // そのタグが無くなっていたら何もしない
-        final current =
-            widget.photos.value.where((p) => p.id == photo.id).firstOrNull;
-        if (current != null && index < current.tags.length) {
-          await _deleteTag(current, index);
-        }
+        await _deleteTag(photo, index);
     }
   }
 
