@@ -19,7 +19,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 - 応答は封筒 `{ success: true, data }` / `{ success: false, error: { code, message, details? } }`。`utils/response.ts` のヘルパー経由で作る
 - **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
-- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
+- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。Cosmos DB の判定はこれだけで、ハンドラごとに複製しない）で、
   errno が `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` はストレージ・AI 側の判定と共有する。`ETIMEDOUT` は 2026-11-01 に足した。それまでは 500）。
   応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）。
   `cause` をたどるのは10段までで、循環していても止まる（見つからなければ接続できない以外の失敗として下の 500）

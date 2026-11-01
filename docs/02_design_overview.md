@@ -100,7 +100,7 @@ Azure Functions で動くものは3種類あり、どれも同じ Function App�
 | レスポンスの封筒と契約（`api/src/utils/response.ts`。`details` は契約外） | そのまま流用。`ErrorCode`（`api/src/types/api.ts` 30〜41行）に `TRIP_NOT_FOUND`・`PHOTO_NOT_FOUND` を足す（図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない） | `ApiException.fromResponse()`（`mobile/lib/services/api_service.dart` 454行）が封筒を前提にしている |
 | `createNotFoundError()`（`utils/response.ts`。もとは `PLANT_NOT_FOUND` 固定） | 第2引数で `code` を取る形に拡張した。**`code` は必須で既定値を置かない**。既存の呼び出し（`plantDetail.ts`）は `PLANT_NOT_FOUND` を明示して渡す（実装済み。PR 2） | 既定値を置くと、旅行や写真の 404 で渡し忘れたときに植物のコードが返り、クライアントの分岐を誤らせる |
 | `UpstreamError` と 502 / 503 の分類（`utils/errors.ts`、`createUpstreamErrorResponse()`） | 流用。`PhotoStorageService` と Storage Queue は `'storage'`、分類器・識別器は `'ai'`。段階3で Azure Maps を入れるなら `UpstreamService` に `'geocoding'` を足す | 「どこで失敗したか」で分類する方針（CLAUDE.md「レスポンス規約」） |
-| Cosmos DB 側の 503 判定（6箇所に複製。`docs/09_backlog.md`） | 新ハンドラは `hasCauseCode()` を使う述語 `isConnectivityError()` を1つ作って使う。既存6箇所の置き換えは別作業 | 7箇所目を作らない |
+| Cosmos DB 側の 503 判定（植物図鑑の6箇所に複製していた） | 新ハンドラは `hasCauseCode()` を使う述語 `isConnectivityError()` を1つ作って使う。既存6箇所の置き換えは別作業（4-6 で植物図鑑の API ごと消えたので、今の判定は `isConnectivityError()` だけ） | 7箇所目を作らない |
 | Function Key 認証、`app.ts` の import 登録 | 流用。**新しい関数ファイルは `app.ts` に import を足す** | CLAUDE.md「関数の登録経路」 |
 | `container.item(id, id)` の形（`api/src/services/cosmosService.ts` 42行） | そのまま流用。`album` も PK `/id` | [04 §1](./04_data_design.md#1-cosmos-db) |
 | `StorageService` の URL 検証（4条件）と削除の二層防御 | **設計で不要にする。** 写真 API は URL を受け取らず Blob 名を保存し、URL はサーバが応答のたびに組み立てる | [05 §6](./05_api_design.md#6-sas-付き-url) |
@@ -398,7 +398,7 @@ Cosmos DB は別パーティションの文書をまとめて原子的に書け�
 | 識別結果で保存しなかった画像が永続コンテナに残る | 引き継がない。送った写真はすべてアルバムに残す（要件 5.2） |
 | `save` の重複チェックが read-then-write で同時リクエストに効かない | 引き継がない。id を中身から決めることで、一意キー無しでも `create` の 409 で DB が保証する |
 | UUID の生成方法が2つある | 新コードは `uuid` パッケージ。サーバで振るのは旅行の id だけ |
-| 接続障害の判定が6箇所に複製 | 新ハンドラは `isConnectivityError()` を使う。既存6箇所の置き換えは別作業 |
+| 接続障害の判定が6箇所に複製 | 新ハンドラは `isConnectivityError()` を使う。既存6箇所の置き換えは別作業（4-6 で植物図鑑の API ごと消えた） |
 | `ETIMEDOUT` の分類 | 2026-11-01 に `isConnectivityError()` の集合（`UNREACHABLE_ERRNOS`）に `ETIMEDOUT` を足し、Cosmos DB・ストレージ・AI で揃えた。新ハンドラだけ違う集合にしない |
 | Cosmos のシステム項目が応答に含まれる可能性 | 新しい API は応答に出す項目を明示的に詰め替える（[05 §3](./05_api_design.md#3-データモデル)） |
 | `host.json` の `http` がトップレベルにある | 段階3で `extensions.queues` を足すときに `extensions.http` へ直す（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)） （PR 3-1 で直した） |
