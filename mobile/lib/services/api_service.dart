@@ -15,17 +15,19 @@ import '../utils/image_mime_type.dart';
 class ApiService {
   final String baseUrl;
   final String? functionKey;
-  final http.Client _client;
+  /// 時間切れを付けないクライアント。直接使うのは写真の送信だけ（送信の列の 60 秒で打ち切る）。
+  /// ほかの呼び出しは [_timedClient] を通す（docs/03_screen_design.md §9.2）
+  final http.Client _rawClient;
   /// 写真の送信を除く呼び出しに使う、応答を 30 秒で打ち切るクライアント（docs/03_screen_design.md §9.2）。
   /// 処理中のダイアログは処理中は閉じないので、応答が返らないまま止まると出られなくなる。
   /// 写真の送信は大きな画像を送るので、これを通さず、送信の列の 60 秒の時間切れだけで打ち切る
-  late final http.Client _timedClient = _TimeoutClient(_client, requestTimeout);
+  late final http.Client _timedClient = _TimeoutClient(_rawClient, requestTimeout);
 
   /// 写真の送信を除く呼び出しの時間切れ
   static const requestTimeout = Duration(seconds: 30);
 
   /// 旅行の削除に使う、応答を [deleteTripTimeout] で打ち切るクライアント
-  late final http.Client _tripDeleteClient = _TimeoutClient(_client, deleteTripTimeout);
+  late final http.Client _tripDeleteClient = _TimeoutClient(_rawClient, deleteTripTimeout);
 
   /// 旅行の削除の時間切れ。サーバは中の写真を1枚ずつ消す（外す）ので、写真の多い旅行では 30 秒を超えうる。
   /// Azure の前段が HTTP の要求を打ち切る 230 秒より長くして、サーバが返せる応答は待つ（docs/03_screen_design.md §9.2）
@@ -39,7 +41,7 @@ class ApiService {
     required this.baseUrl,
     this.functionKey,
     http.Client? client,
-  })  : _client = client ?? http.Client(),
+  })  : _rawClient = client ?? http.Client(),
         _ownsClient = client == null;
 
   /// API リクエストのヘッダーを取得
@@ -583,7 +585,7 @@ class ApiService {
         ));
       }
       final response =
-          await http.Response.fromStream(await _client.send(request));
+          await http.Response.fromStream(await _rawClient.send(request));
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return Photo.fromJson(data['photo'] as Map<String, dynamic>);
@@ -751,7 +753,7 @@ class ApiService {
   /// リソースのクリーンアップ
   void dispose() {
     if (_ownsClient) {
-      _client.close();
+      _rawClient.close();
     }
   }
 }
