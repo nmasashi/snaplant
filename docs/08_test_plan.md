@@ -259,7 +259,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 図鑑の API の置き場（4-2a で決めた）: 偽物は `GROUP BY` も `ORDER BY` も解釈しないので、名前ごとの枚数の行と見出しの写真（信頼度の高い1枚）を入口から作れない。
   旅行一覧と同じく、行と見出しの写真から項目のページを組み立てる所を純粋な関数（`catalogEntries.ts`）に分けて `tests/services/catalogEntries.test.ts` で確かめ（CLAUDE.md の名簿）、
   入口のテストは検証・0件・データベースの障害を見る。SQL の絞り込み・並び・集計は §5.3 で手で確かめる
-- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。植物の項目は学名・属・属の学名・科名の順（属の2つは P-1）。`prompt`・`namingRule` は返さない
+- 図鑑の種類の一覧（4-2a で実装済み。`catalogKinds.test.ts`）: 200 で、定義表のうち図鑑に載せる種類（植物だけ。食べ物・風景は返さない。B-2 で実装済み）が、種類ごとの項目（`key`・`label`・`type`）と一緒に返る。植物の項目は学名・属・属の学名・科名の順（属の2つは P-1）。`prompt`・`namingRule`・`commentRule` は返さない
 - 図鑑の項目一覧（4-2a で実装済み。`catalogEntries.test.ts`。[05 §5.14](./05_api_design.md#514-図鑑段階4)）: 識別された写真が無ければ 200 で `{ entries: [], total: 0 }`。
   `offset=0`・`limit=100`（上限）・`limit=1` は受け付ける。`kind` が無い・`other`・`constructor`・大文字小文字が違う（`Plant`）・図鑑に載せない `food`・`landscape`（B-2）で 400 `図鑑の種類が無効です`、`offset` が負・小数・空、`limit` が `0`・`101`・数でない・小数・空で 400 `ページの指定が無効です`。
   `kind` もページも不正なら `kind` の指摘。データベースの読み取りの失敗で 503 `DATABASE_ERROR` / 500 `図鑑の一覧の取得に失敗しました`（`tests/helpers/databaseFailures.ts` の表）
