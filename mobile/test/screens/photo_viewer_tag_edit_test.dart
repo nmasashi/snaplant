@@ -158,6 +158,28 @@ void main() {
     await finishImageLoading(tester);
   });
 
+  testWidgets('名前（前後の空白を除いて）と種類が今のままなら「保存」を押せない', (tester) async {
+    await _openViewer(tester, _photo(tags: [_tag('ご飯', source: 'ai')]), waitFor: _onPhoto('ご飯'));
+
+    await _openEditSheet(tester, 'ご飯');
+    expect(_saveButton(tester).onPressed, isNull, reason: '開いたまま');
+    await tester.enterText(_inSheet(find.byType(TextField)), ' ご飯 ');
+    await tester.pump();
+    expect(_saveButton(tester).onPressed, isNull, reason: '前後の空白だけ');
+
+    await tester.tap(_option('その他'));
+    await tester.pump();
+    expect(_saveButton(tester).onPressed, isNotNull, reason: '種類を変えた');
+    await tester.tap(_option('食べ物'));
+    await tester.pump();
+    expect(_saveButton(tester).onPressed, isNull, reason: '種類を戻した');
+
+    await tester.enterText(_inSheet(find.byType(TextField)), '白ご飯');
+    await tester.pump();
+    expect(_saveButton(tester).onPressed, isNotNull, reason: '名前を変えた');
+    await finishImageLoading(tester);
+  });
+
   testWidgets('保存に失敗したらシートに留まって理由を出す', (tester) async {
     final backend = await _openViewer(tester, _photo(tags: [_tag('ご飯')]), waitFor: _onPhoto('ご飯'));
     backend.failNext(TripRoute.updatePhoto,
