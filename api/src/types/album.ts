@@ -56,10 +56,10 @@ export interface PhotoLocation {
   placeSource: 'device' | 'server' | 'user' | null;
 }
 
-/** 写真の解析（分類・識別）の進み具合。段階2の写真は state: none、段階3から送った写真は pending から始まる */
+/** 写真の解析（分類・識別・タグの提案）の進み具合。段階2の写真は state: none、段階3から送った写真は pending から始まる。tagging と tag は C-4 */
 export interface PhotoProcessing {
-  state: 'none' | 'pending' | 'classifying' | 'identifying' | 'done' | 'failed';
-  step: 'classify' | 'identify' | null;
+  state: 'none' | 'pending' | 'classifying' | 'identifying' | 'tagging' | 'done' | 'failed';
+  step: 'classify' | 'identify' | 'tag' | null;
   attempts: number;
   lastError: string | null;
   updatedAt: string | null;

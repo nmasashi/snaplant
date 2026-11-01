@@ -18,6 +18,8 @@ export interface AnalyzeRequest {
 	imageUrl?: string;
 	/** 出力の上限（推論のトークンも含む）。省略すると 4,000（分類・識別） */
 	maxCompletionTokens?: number;
+	/** 画像の細かさ。省略すると low（分類・識別。トークン消費を抑える）。タグの提案は皿の位置を答えさせるので high（06 §9） */
+	detail?: "low" | "high";
 }
 
 export class OpenAIVisionService {
@@ -87,7 +89,7 @@ export class OpenAIVisionService {
 										type: "image_url" as const,
 										image_url: {
 											url: request.imageUrl,
-											detail: "low" as const, // トークン消費を抑制
+											detail: request.detail ?? ("low" as const),
 										},
 									},
 								]

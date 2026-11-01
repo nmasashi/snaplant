@@ -649,6 +649,34 @@ export class AlbumService {
   }
 
   /**
+   * AI が提案したタグを写真に書く（06 §9）。担当したときのままで、タグが1つも無いときだけ書く
+   *
+   * 提案を待つ間に利用者がタグを付けていたら書かない（利用者のタグを上書きしない。02 §5 #61）。
+   * 条件を Cosmos が原子的に評価するので、読んでから書くまでの間に付いたタグも消さない
+   * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
+   * @param result 書く値
+   * @returns 書けたら true。タグがある・担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async writeSuggestedTags(
+    id: string,
+    claimed: PhotoProcessing,
+    result: { tags: PhotoTag[]; processing: PhotoProcessing; updatedAt: string }
+  ): Promise<boolean> {
+    return this.patchIfStillClaimed(
+      id,
+      claimed,
+      [
+        { op: 'set', path: '/tags', value: result.tags },
+        { op: 'set', path: '/processing', value: result.processing },
+        { op: 'set', path: '/updatedAt', value: result.updatedAt },
+      ],
+      // 項目の無い文書もありうる（04 §2）。ARRAY_LENGTH は項目が無いと未定義（比べると偽）なので、IS_DEFINED でつなぐ
+      'NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0'
+    );
+  }
+
+  /**
    * AI のコメントを写真に書く。担当したときのままで、利用者がコメントを書いていない（commentSource が null か ai）ときだけ書く
    *
    * コメントは利用者の PATCH と AI の両方が書く唯一の欄（04 §7.4）。条件を Cosmos が原子的に評価するので、

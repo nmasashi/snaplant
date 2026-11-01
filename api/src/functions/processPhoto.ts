@@ -4,10 +4,11 @@ import { PhotoClassifierService } from '../services/photoClassifierService';
 import { PhotoStorageService } from '../services/photoStorageService';
 import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../constants/album';
 import { UpstreamError } from '../utils/errors';
-import { PhotoDocument, PhotoProcessing } from '../types/album';
+import { PhotoDocument, PhotoProcessing, PhotoTag } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
 import { identifiesAutomatically, isCatalogKind } from '../catalog/kinds';
 import { PhotoIdentifierService } from '../services/photoIdentifierService';
+import { PhotoTaggerService } from '../services/photoTaggerService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 
 /**
@@ -29,18 +30,18 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     context.log(`写真がありません（消された後のメッセージ。何もしません）: ID=${photoId}`);
     return;
   }
-  // やる処理は写真の step から読む（分類か識別）。待ち（state が pending）かどうかは、担当の条件付き patch が見る。
+  // やる処理は写真の step から読む（分類・識別・タグの提案）。待ち（state が pending）かどうかは、担当の条件付き patch が見る。
   // 読んだ値で先に判断しても、読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる
   const step = photo.processing.step;
-  if (step !== 'classify' && step !== 'identify') {
+  if (step !== 'classify' && step !== 'identify' && step !== 'tag') {
     context.log(`解析の待ちではありません（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}`);
     return;
   }
-  const label = step === 'classify' ? '分類' : '識別';
+  const label = step === 'classify' ? '分類' : step === 'identify' ? '識別' : 'タグの提案';
   const attempts = photo.processing.attempts + 1;
   const claimedProcessing: PhotoProcessing = {
     ...photo.processing,
-    state: step === 'classify' ? 'classifying' : 'identifying',
+    state: step === 'classify' ? 'classifying' : step === 'identify' ? 'identifying' : 'tagging',
     step,
     attempts,
     updatedAt: new Date().toISOString(),
@@ -57,8 +58,10 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     const imageUrl = storage.readUrl(photo.blobName, new Date(Date.now() + CLASSIFY_IMAGE_SAS_MINUTES * 60 * 1000));
     if (step === 'classify') {
       await classifyPhoto(album, photo, claimedProcessing, imageUrl, context);
-    } else {
+    } else if (step === 'identify') {
       await identifyPhoto(album, photo, claimedProcessing, imageUrl, context);
+    } else {
+      await tagPhoto(album, photo, claimedProcessing, imageUrl, context);
     }
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が写真に残り続ける）
@@ -110,11 +113,14 @@ async function classifyPhoto(
     await album.writeAiComment(photo.id, claimedProcessing, result.comment);
   }
   const identifies = identifiesAutomatically(result.kind);
+  // 食べ物で、タグが1つも無ければ AI にタグを提案させる（C-4。06 §9）。読んだ時点のタグで決め、書くときにもう一度タグが無いことを条件にする
+  const tags = !identifies && result.kind === 'food' && (photo.tags ?? []).length === 0;
+  const next: PhotoProcessing['step'] = identifies ? 'identify' : tags ? 'tag' : null;
   const written = await album.writeClassification(photo.id, claimedProcessing, {
     category: result.kind,
     classification: { kind: result.kind, confidence: result.confidence, model: result.model, at: now },
-    processing: identifies
-      ? { state: 'pending', step: 'identify', attempts: 0, lastError: null, updatedAt: now }
+    processing: next
+      ? { state: 'pending', step: next, attempts: 0, lastError: null, updatedAt: now }
       : { state: 'done', step: 'classify', attempts, lastError: null, updatedAt: now },
     updatedAt: now,
   });
@@ -123,7 +129,7 @@ async function classifyPhoto(
     return;
   }
   context.log(`写真の分類が済みました: ID=${photo.id}, 種類=${result.kind}`);
-  if (identifies) {
+  if (next) {
     await enqueuePhotoOrLog(photo.id, context.log.bind(context));
   }
 }
@@ -213,3 +219,32 @@ app.storageQueue('processPhoto', {
   connection: 'AzureWebJobsStorage',
   handler: processPhotoHandler,
 });
+
+/**
+ * 担当した食べ物の写真に、AI が提案した皿ごとのタグを書く（C-4。06 §9）
+ *
+ * 提案を待つ間に利用者がタグを付けていたら、AI のタグは書かずに済みにする（利用者のタグを上書きしない）。
+ * 失敗は投げる（呼び出し側が待ちに戻すか failed にする）
+ */
+async function tagPhoto(
+  album: AlbumService,
+  photo: PhotoDocument,
+  claimedProcessing: PhotoProcessing,
+  imageUrl: string,
+  context: InvocationContext
+): Promise<void> {
+  const dishes = await new PhotoTaggerService().suggest(imageUrl);
+  const now = new Date().toISOString();
+  const done: PhotoProcessing = { state: 'done', step: 'tag', attempts: claimedProcessing.attempts, lastError: null, updatedAt: now };
+  const tags: PhotoTag[] = dishes.map((dish) => ({ name: dish.name, kind: 'food', x: dish.x, y: dish.y, source: 'ai' }));
+  if (tags.length > 0 && (await album.writeSuggestedTags(photo.id, claimedProcessing, { tags, processing: done, updatedAt: now }))) {
+    context.log(`タグを提案しました: ID=${photo.id}, 個数=${tags.length}`);
+    return;
+  }
+  // 料理が無い、または利用者のタグが先にあった。進み具合だけを済みにする
+  if (!(await album.writeProcessing(photo.id, claimedProcessing, done))) {
+    context.log(`タグの提案の間にやり直しの受付が入ったので、この結果は書きません: ID=${photo.id}`);
+    return;
+  }
+  context.log(`タグは書かずに済みにしました（料理が無いか、利用者のタグがある）: ID=${photo.id}`);
+}
