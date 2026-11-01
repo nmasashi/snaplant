@@ -382,6 +382,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         if (!_showsTimeline) _buildCategoryChips(),
         Expanded(
           child: Stack(
+            fit: StackFit.expand,
             children: [
               // 「タイムライン」を出している間もグリッドは隠して残す（戻ってもスクロールの位置と読み込んだページのまま。§8.1）
               Offstage(

@@ -97,6 +97,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // アプリが裏に回っている（前に出ていない）間は、下書きの読み直しを止める（§8.1）
   late final AppLifecycleListener _lifecycle;
   bool _hidden = false;
+  // 場面の写真の一覧を開いている（読み直しを止めている。閉じたら読み直す）
+  bool _sceneOpen = false;
+  // 下書きの読み直しの応答を待っている（前に戻ったときに重ねて読まない）
+  bool _polling = false;
 
   @override
   void initState() {
@@ -121,7 +125,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 前に戻ったら、作っている途中の下書きならすぐ読み直す（その後は 5 秒ごとに戻る）
   void _onShow() {
     _hidden = false;
-    if (_needsPolling) _poll();
+    // 操作を送っている間と場面の写真の一覧を開いている間は読み直さない（終わった後に読み直す。§8.1）
+    if (_needsPolling && !_sending && !_sceneOpen && !_polling) _poll();
   }
 
   /// 下書きを読み直し続けるか（作っている途中の下書きを出している間。エラーを出している間は読み直さない）
@@ -201,6 +206,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (shown == null || shownDraft == null) return;
     final generation = _generation;
     TimelineDraftStatus? draft;
+    _polling = true;
     try {
       draft = await widget.apiService.getTimelineDraft(widget.tripId);
     } catch (e) {
@@ -214,6 +220,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
       // 読み直しの失敗は出さず、次の回にもう一度読む
       _schedulePoll();
       return;
+    } finally {
+      _polling = false;
     }
     // 待っている間に読み込みや操作を始めていたら、古い表示を元にした読み直しの結果は使わない
     if (!mounted || generation != _generation) return;
@@ -278,6 +286,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     // 開く前に始めた読み直しの応答は使わない（失敗を一覧の上に出さない。§8.1）。閉じたら読み直す
     ++_generation;
     _pollTimer?.cancel();
+    _sceneOpen = true;
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -289,6 +298,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
             scene: scene),
       ),
     );
+    _sceneOpen = false;
     if (!mounted) return;
     widget.onSceneClosed();
     await _load(showLoading: false);
