@@ -122,6 +122,33 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('保存を待っている間は「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend();
+    await _openViewer(tester, backend, '撮影日時なし');
+    await tester.tap(find.text('日時を付ける'));
+    await letFramesRun(tester);
+    final reply = backend.holdNextReply(TripRoute.updatePhoto);
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete();
+    });
+
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+
+    expect(find.byType(BottomSheet), findsOneWidget);
+    for (final label in ['キャンセル', '保存']) {
+      final button = tester.widget<ButtonStyleButton>(find.ancestor(
+          of: find.descendant(of: find.byType(BottomSheet), matching: find.text(label)),
+          matching: find.bySubtype<ButtonStyleButton>()));
+      expect(button.onPressed, isNull, reason: label);
+    }
+    reply.complete();
+    await letFramesRun(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('保存に失敗したらシートに留まって理由を出し、カメラが記録した撮影日時の 409 ならその文言を出す', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
