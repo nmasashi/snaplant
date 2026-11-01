@@ -1,3 +1,6 @@
+/** 一言の頼み方の既定（確証が無いときは可能性として補足させる。食べ物だけ補足させない。02 §5 #60） */
+const HEDGED_COMMENT_RULE = '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。';
+
 /**
  * 図鑑の種類の定義表（docs/04_data_design.md §3.2）
  *
@@ -10,8 +13,8 @@ export const CATALOG_KINDS = {
     label: '植物',
     inCatalog: true,
     autoIdentify: true,
+    commentRule: HEDGED_COMMENT_RULE,
     // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 §5 #56）
-    commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
     namingRule: '種の和名（例: ハナトリカブト）。種まで特定できなければ「〇〇属の一種」（例: トリカブト属の一種）とし、信頼度を低くする',
     fields: [
       { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
@@ -38,7 +41,7 @@ export const CATALOG_KINDS = {
     label: '風景',
     inCatalog: false,
     autoIdentify: false,
-    commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
+    commentRule: HEDGED_COMMENT_RULE,
     namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
     fields: [
       { key: 'placeType', label: '場所の種類', type: 'string', prompt: '山・海・寺社・街並みなど' },
