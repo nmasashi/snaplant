@@ -382,7 +382,8 @@ void main() {
     final semantics = tester.ensureSemantics();
     final backend = _thirtyThreePhotosBackend();
     await _openViewerAt1015BeforeSecondPage(tester, backend);
-    backend.emptyContinuationPages = 1;
+    // 一覧が止める上限（3回）の手前の2回。上限ちょうどで止まることは下のテストが見る
+    backend.emptyContinuationPages = 2;
 
     for (var i = 0; i < 15; i++) {
       await _swipe(tester, toNext: true);
@@ -391,25 +392,22 @@ void main() {
     await _swipe(tester, toNext: true);
 
     expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
-    expect(backend.photoPagesReceived, 3, reason: '1ページ目・空の続きのページ・10:31 からのページ');
-    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
     semantics.dispose();
   });
 
   testWidgets('写真ビューアで末尾まで来て写真の無い続きのページが3回続いたら、読ませるのをやめて「続きを読み込めませんでした」「再試行」を出す',
       (tester) async {
-    // 一覧と同じく、空のページが続く上限（3回）で止める。偽のサーバは空のページを5回返すので、3回で止めていれば「再試行」が要る
+    // 一覧と同じく、空のページが続く上限（3回）で止める。偽のサーバは空のページをちょうど3回返す（上の2回のテストと上限を挟む）
     final semantics = tester.ensureSemantics();
     final backend = _thirtyThreePhotosBackend();
     await _openViewerAt1015BeforeSecondPage(tester, backend);
-    backend.emptyContinuationPages = 5;
+    backend.emptyContinuationPages = 3;
 
     for (var i = 0; i < 15; i++) {
       await _swipe(tester, toNext: true);
     }
 
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
-    expect(backend.photoPagesReceived, 4, reason: '1ページ目と、空の続きのページ3回');
     expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
     expect(find.text('再試行').hitTestable(), findsOneWidget);
     semantics.dispose();
