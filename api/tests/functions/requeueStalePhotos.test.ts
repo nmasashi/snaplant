@@ -101,6 +101,15 @@ describe('再投入のタイマー', () => {
     expect(queuedPhotoIds()).toEqual([]);
   });
 
+  it('タグの提案（C-4）が上限に達したら、失敗にせず済みにする（分類は済んでいる。画面に分類の失敗と出さない。06 §9）', async () => {
+    cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'tagging', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: STALE }));
+
+    await requeueStalePhotosHandler(timer, mockContext);
+
+    expect(stored(photoId('a')).processing).toEqual({ state: 'done', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: NOW });
+    expect(queuedPhotoIds()).toEqual([]);
+  });
+
   it('止まっていない（失敗・対象外・済み・処理中で10分未満）写真は拾わない（写真も変えず、積まない）', () => forEachCase([
     ['上限まで失敗した（failed）', { state: 'failed', step: 'classify', attempts: 3, lastError: 'ai', updatedAt: STALE }],
     ['解析の対象になっていない（none）', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
