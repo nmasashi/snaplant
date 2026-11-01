@@ -219,9 +219,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         _show(_overview!.withDraft(draft));
       });
 
-  /// 確かめてからタイムラインの編集（区切りの直し）をやめ、タイムラインを読み直す（§8.3）
-  Future<void> _discard() async {
-    if (!await confirmDiscardEdit(context) || !mounted) {
+  /// [confirm] で確かめてから下書きを捨て、タイムラインを読み直す。
+  /// タイムラインの編集（区切りの直し）をやめるとき（§8.3）と、失敗した下書きをやめるとき（§8.2。「もう一度」が通らないときに抜けられるように）
+  Future<void> _discard(Future<bool> Function(BuildContext) confirm) async {
+    if (!await confirm(context) || !mounted) {
       return;
     }
     await _send(() async {
@@ -470,7 +471,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 完成版の上の、タイムラインを編集している（区切りの直し。recut）下書きの案内（§8.3）
   Widget _buildEditBanner(TimelineDraftStatus draft) {
     final discard = OutlinedButton(
-        onPressed: _sending ? null : _discard, child: const Text('やめる'));
+        onPressed: _sending ? null : () => _discard(confirmDiscardEdit),
+        child: const Text('やめる'));
     Widget review(String label) => OutlinedButton(
         onPressed: _sending ? null : () => _review(editing: true),
         child: Text(label));
@@ -488,7 +490,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     return TimelineNoticeCard(text: title, actions: actions);
   }
 
-  /// 下書きの状態（§8.2 の3行目から）。作り始めたら最後まで進むので「やめる」は出さない
+  /// 下書きの状態（§8.2 の3行目から）。作っている途中は最後まで進むので「やめる」は出さず、失敗した下書きにだけ出す
   Widget _buildDraft(TimelineDraftStatus draft) {
     // 案の確認画面（§8.4）を開く。確かめ待ちと、文を書くのに失敗した下書き
     Widget review({required bool primary}) {
@@ -503,11 +505,16 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     // 失敗した段をやり直す
     Widget retry(Future<void> Function() send) => ElevatedButton(
         onPressed: _sending ? null : send, child: const Text('もう一度'));
+    // 失敗した下書きを捨てる
+    final discard = TextButton(
+        onPressed: _sending ? null : () => _discard(confirmDiscardFailedDraft),
+        child: const Text('やめる'));
     if (draft.phase == 'writing') {
       if (draft.isFailed) {
         return _StatusView(title: '見出しとまとめを書けませんでした', actions: [
           retry(_write),
           review(primary: false),
+          discard,
         ]);
       }
       return const _StatusView(
@@ -523,7 +530,9 @@ class _TripTimelineViewState extends State<TripTimelineView> {
           actions: [review(primary: true)]);
     }
     if (draft.isFailed) {
-      return _StatusView(title: 'タイムラインの案を作れませんでした', actions: [retry(_create)]);
+      return _StatusView(
+          title: 'タイムラインの案を作れませんでした',
+          actions: [retry(_create), discard]);
     }
     // AI がすぐ終わると思わせない（実行環境の入れ替えで止まると、再投入のタイマーが拾うまで 10 分ほどかかる。§8.2）
     return const _StatusView(
