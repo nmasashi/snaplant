@@ -255,7 +255,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 | `latitude` / `longitude` | テキスト | × | 緯度・経度（10進）。**両方そろえて送る**（片方だけは 400。下の表の 14）。どちらも無ければ `location: null` |
 | `placeName` | テキスト | × | 地名。緯度・経度と一緒に送る。1〜100 文字 |
 
-`takenAtSource` は受け取らない。サーバが `takenAt` の有無から `exif` / `none` を入れる。
+`takenAtSource` は受け取らない。サーバが `takenAt` の有無から `exif` / `none` を入れる（手で付けた `user` は `PATCH /api/photos/{photoId}` の `takenAt` で。§5.6）。
 `sortAt` もサーバが決める（`takenAt` があればそれ、無ければ `uploadedAt` を日本時間に直したもの。[04 §1.3](./04_data_design.md#13-写真type-photo)）。`category` は `null`、`tags` は `[]` で作る。
 `location.placeSource` は `placeName` を送ったときだけ `"device"`、緯度・経度だけなら `placeName`・`placeSource` とも `null`。
 `comment`・`commentSource`・`hint`・`classification`・`identification` は `null`、`processing` は段階3から `{ state: "pending", step: "classify", attempts: 0, lastError: null, updatedAt: <保存した時刻> }`（段階2は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`）、
@@ -447,14 +447,14 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 利用者のコメント・タグ・カテゴリを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 
-**リクエスト:** `{ "comment"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
+**リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
 | 1 | `photoId` の形式が無効 | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 2 | ボディが JSON としてパースできない | 400 `INVALID_REQUEST` | `リクエストボディの形式が無効です` |
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
-| 4 | `comment`・`tags`・`category` のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
+| 4 | `comment`・`takenAt`・`tags`・`category` のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
 | 6 | `comment` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
@@ -464,7 +464,9 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 9.2 | `tags` の要素の `x`・`y` が、0 以上 1 以下の数でない（文字列・`null`・無い・範囲の外） | 400 `INVALID_REQUEST` | `タグの位置が無効です` |
 | 9.5 | `tags` が 20 個を超える（`TAG_MAX_COUNT`。同じ名前も数える） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
+| 9.7 | `takenAt` があり、`null` でも、実在する日時の `YYYY-MM-DDTHH:mm:ss`（タイムゾーン無し。写真の送信と同じ検証）でもない | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
+| 11 | `takenAt` があり、写真の撮影日時がカメラの記録（EXIF）から読んだもの（`takenAtSource` が `"exif"`） | 409 `TAKEN_AT_FROM_CAMERA` | `カメラが記録した撮影日時は変えられません` |
 
 検証は `photoId`（1）→ ボディ（2〜9.6。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 の順）→ 写真があるか（10）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
 タグの要素の 8〜9.2 は要素ごとに先頭から見て、1つの要素の中では 8 → 9 → 9.1 → 9.2 の順に確かめ、最初に当たった条件の `message` を返す（例: 1つ目の要素の種類が無効で2つ目が文字列なら、9.1 の `タグの種類が無効です`）。ただし数の上限（9.5）は要素の中身より先に見る（20 個を超える配列は、要素を確かめずに 9.5 で断る。大きな配列を全部確かめてから断らないため。/code-review の指摘）（**実装済み**（C-3a））。
@@ -472,6 +474,9 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
+- `takenAt`（D-1。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）: 利用者が撮影日時を手で付ける・直す・消す。写真を読んでから書く（11 の確かめのため）。
+  文字列なら `takenAt`（送った値）・`takenAtSource: "user"`・`sortAt`（`takenAt` と同じ値。[04 §1.3](./04_data_design.md#13-写真type-photo)）を書く。`null` なら `takenAt: null`・`takenAtSource: "none"`・`sortAt`（`uploadedAt` から作る。写真の送信と同じ決め方）を書く。
+  撮影日時の無い写真に `null` を送っても受け付ける（書く値は今と同じ）。送らなければ `takenAt`・`takenAtSource`・`sortAt` に触らない
 - `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は `{ name, kind, x, y }` だけを保存し（ほかのキーは捨てる）、`name` は前後の空白を除く。
   同じ名前のタグも除かずに残し、並びは送った順（**実装済み**（C-3a。`utils/photoInput.ts` の `readPhotoTag()`）。C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57。C-3a より前は文字列の配列で、重複を除いていた）。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
 - `category`（C-1）: 利用者が手で決めたカテゴリにする（AI を通さない）。写真を読んでから、次のように書く。送らなければ `category`・`categorySource`・`identification`・`processing`・コメントに触らない
