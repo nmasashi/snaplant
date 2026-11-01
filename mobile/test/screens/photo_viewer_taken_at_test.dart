@@ -42,11 +42,10 @@ Future<void> _openViewer(WidgetTester tester, FakeTripBackend backend, String la
 Map<String, Object?> _storedPhoto(FakeTripBackend backend) =>
     backend.photosByTripId[hokkaidoTripId]!.firstWhere((photo) => photo['id'] == _undatedNumber.toRadixString(16).padLeft(64, '0'));
 
-/// 保存先の撮影日時を消しておく（シートを開いた後に呼び、送ったことを保存先の値で確かめるため。同じ値のままだと、送らなくても通る）
+/// 保存先の撮影日時だけを消しておく（シートを開いた後に呼び、送ったことを保存先の撮影日時で確かめるため。同じ値のままだと、送らなくても通る）
+/// 本物のサーバが作らない状態（撮影日時なしの印や並びは元のまま）で、保存の後の撮影日時を見るためだけに使う
 void _forgetStoredTakenAt(FakeTripBackend backend) {
-  _storedPhoto(backend)
-    ..['takenAt'] = null
-    ..['takenAtSource'] = 'none';
+  _storedPhoto(backend)['takenAt'] = null;
 }
 
 void main() {
