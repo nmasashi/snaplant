@@ -115,6 +115,39 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('「タイムライン」から「写真」に戻しても写真の一覧を読み直さず、スクロールの位置と読み込んだページのまま出す', (tester) async {
+      // 1ページ30枚で33枚。下端まで送って2ページ目（10:31〜10:33）まで読み、末尾の 10:33 を出した状態で切り替える。
+      // 読み直すと先頭のページだけになり、位置も先頭に戻るので、10:33 は出ない
+      final semantics = tester.ensureSemantics();
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: 33)],
+        functionKey: 'test-key',
+        pageSize: 30,
+        photosByTripId: {
+          hokkaidoTripId: [
+            for (var n = 1; n <= 33; n++)
+              photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+          ],
+        },
+      );
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      await tester.drag(photoGridScroll(), const Offset(0, -5000));
+      await letFramesRun(tester);
+      await tester.drag(photoGridScroll(), const Offset(0, -5000));
+      await letFramesRun(tester);
+      expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+
+      await _showTimeline(tester);
+      expect(photoThumbnail('2026年10月5日 10:33'), findsNothing);
+      await tester.tap(find.text('写真'));
+      await letFramesRun(tester);
+
+      expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
+      semantics.dispose();
+    });
+
     testWidgets('写真を複数選択している間は、切り替えを出さない', (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTripDetail(tester);
