@@ -86,12 +86,16 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   static final _lastDate = DateTime(2100, 12, 31);
 
   /// [date] を選べる範囲に収める（範囲の外の日付では選択が開けない。付けるときの初期値も収める）
-  static DateTime _withinRange(DateTime date) =>
-      date.isBefore(_firstDate) ? _firstDate : (date.isAfter(_lastDate) ? _lastDate : date);
+  static DateTime _withinRange(DateTime date) => date.isBefore(_firstDate)
+      ? _firstDate
+      : (date.isAfter(_lastDate) ? _lastDate : date);
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
-        context: context, initialDate: _withinRange(_date), firstDate: _firstDate, lastDate: _lastDate);
+        context: context,
+        initialDate: _withinRange(_date),
+        firstDate: _firstDate,
+        lastDate: _lastDate);
     if (picked == null || !mounted) return;
     setState(() {
       _date = picked;
@@ -129,7 +133,7 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   String _two(int value) => value.toString().padLeft(2, '0');
 
   String get _takenAtValue =>
-      '${_date.year}-${_two(_date.month)}-${_two(_date.day)}T${_two(_time.hour)}:${_two(_time.minute)}:00';
+      '${_date.year.toString().padLeft(4, '0')}-${_two(_date.month)}-${_two(_date.day)}T${_two(_time.hour)}:${_two(_time.minute)}:00';
 
   /// 手がかりの文（旅行の期間と送った日時）
   List<String> get _hints {
