@@ -797,7 +797,8 @@ C-2 の前は、どのカテゴリでも題「解析をやり直す」・欄「�
 
 ### 5.7 写真のタグ
 
-C-3（C-3b）で作る。決定は [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57（写真の中の場所に付ける「点＋名前＋種類」のタグ。まず手で付ける・消す土台を作り、AI の提案（C-4）はその上に載せる）。
+**実装済み**（C-3b。`screens/photo_viewer_screen.dart` の「タグを付ける」・`_addTag()`・`_deleteTag()`・下の情報のタグの一覧、写真の上のタグは `widgets/tagged_photo_image.dart`、シートは `widgets/tag_edit_sheet.dart`）。
+C-3（C-3b）で作った。決定は [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57（写真の中の場所に付ける「点＋名前＋種類」のタグ。まず手で付ける・消す土台を作り、AI の提案（C-4）はその上に載せる）。
 タグの形と保存は [04 §2](./04_data_design.md#2-カテゴリとタグ)・[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)（`tags` を配列ごと置き換える）。
 
 ```
