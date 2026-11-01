@@ -19,8 +19,8 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 - 応答は封筒 `{ success: true, data }` / `{ success: false, error: { code, message, details? } }`。`utils/response.ts` のヘルパー経由で作る
 - **契約はステータス・`code`・`message` まで。`details` の文言は契約外**（CLAUDE.md「レスポンス規約」）。ただし 500・502・503 で `details` を返さないことは契約（§9.2）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
-- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
-  errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有する。`ETIMEDOUT` は含めないので 500 になる）。
+- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。Cosmos DB の判定はこれだけで、ハンドラごとに複製しない）で、
+  errno が `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT` のもの、または Cosmos SDK が自分の待ち時間で打ち切ったエラー（`code` が `TimeoutError`）を `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` はストレージ・AI 側の判定と共有する。`ETIMEDOUT` は 2026-11-01 に足した。それまでは 500）。
   応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）。
   `cause` をたどるのは10段までで、循環していても止まる（見つからなければ接続できない以外の失敗として下の 500）
 - Blob Storage の失敗 → `UpstreamError('storage')` → 502 / 503 `STORAGE_ERROR`（既存の `message`）。AI の失敗は段階3以降で `'ai'`。
@@ -1173,15 +1173,14 @@ API 全体に共通する、認証・応答の封筒・エラー・AI 識別サ�
 |---|---|---|---|
 | Blob Storage の操作 | 接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | 503 `STORAGE_ERROR` | `ストレージサービスに接続できません` |
 | Blob Storage の操作 | 上記以外（接続できたうえでの失敗） | 502 `STORAGE_ERROR` | `ストレージサービスでエラーが発生しました` |
-| AI 識別の呼び出し | 接続できない（`ENOTFOUND` / `ECONNREFUSED`） | 503 `AI_SERVICE_ERROR` | `AIサービスに接続できません` |
+| AI 識別の呼び出し | 接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | 503 `AI_SERVICE_ERROR` | `AIサービスに接続できません` |
 | AI 識別の呼び出し | 上記以外 | 502 `AI_SERVICE_ERROR` | `AIサービスでエラーが発生しました` |
 
 AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`UpstreamError` の種類ごとに持つ表なので、コードに残っている。
 
 - **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行う（OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）。
   たどるのは10段までで、原因が循環していても止まる（見つからなければ接続できない以外の失敗として扱う）
-- `ETIMEDOUT` を 503 にするのは Blob Storage の操作だけ（Cosmos DB の `ETIMEDOUT` は 500 `INTERNAL_ERROR`。`docs/09_backlog.md` の「`ETIMEDOUT` を 503 に分類するのは Blob Storage の操作だけ」）
-- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）
+- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`、と Cosmos SDK が応答を待ちきれずに打ち切った `TimeoutError`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）。SDK の打ち切りは要求を送った後なので書けていることもある。旅行などの作成はアプリが自動で送り直さず、500 でも利用者は押し直すので変わらない。写真の送信は 503 を自動で送り直すが、同じ写真は id で1枚にまとまる（最初の書き込みが通っていたときは、解析は再投入のタイマーが拾うまで遅れる。[06 §1](./06_processing_design.md#1-キューとワーカー段階3)）（2026-11-01 に人間が決定）。errno の一覧（`UNREACHABLE_ERRNOS`）は Cosmos DB・ストレージ・AI で同じで、Cosmos DB だけ SDK の打ち切りを足す（`ETIMEDOUT` は以前 Blob Storage の操作だけで、Cosmos DB では 500 `INTERNAL_ERROR` だった。2026-11-01 に揃えた。**実装済み**（Cosmos の時間切れの 503））
 
 ### 9.5 AI 識別サービスへの接続
 

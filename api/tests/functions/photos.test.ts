@@ -781,8 +781,8 @@ describe('写真API', () => {
         STORAGE_FAILED
       ],
       // 接続できないとみなす errno（05 §5.1 の ENOTFOUND・ECONNREFUSED・ETIMEDOUT）は全部ここで通す。
-      // ストレージの失敗を応答にする入口は写真の保存だけで、ETIMEDOUT を含むのはストレージだけ
-      // （Cosmos DB の errno の全部を通すのは trips.test.ts の「旅行の作成」）
+      // ストレージの失敗を応答にする入口は写真の保存だけ。errno の一覧は Cosmos DB と共有だが、ストレージの判定が
+      // それを使っていることはここでしか見ていない（Cosmos DB の errno の全部を通すのは trips.test.ts の「旅行の作成」）
       [
         '原寸のアップロードがENOTFOUNDで失敗したときは、接続できないエラー（503）を返す',
         (backend) => { backend.forcedUploadError = storageUnreachable('ENOTFOUND'); },

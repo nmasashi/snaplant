@@ -446,34 +446,6 @@ URL を受け取って検証する API も無い。ただし Azurite で動く�
 同じ文脈の Cosmos DB Emulator / E2E は却下済み
 （`10_proposals.md` の「Cosmos の SQL を検証する層を作る」）。
 
-### `ETIMEDOUT` を 503 に分類するのは Blob Storage の操作だけ
-
-接続障害の分類が、Blob Storage の操作とそれ以外で1つずれている。
-
-| 判定 | 503 に分類する `code` |
-|---|---|
-| Blob Storage の操作（`createUpstreamErrorResponse()` の `'storage'`。応答にするのは `POST /api/photos` だけ） | `ENOTFOUND` / `ECONNREFUSED` / **`ETIMEDOUT`** |
-| Cosmos DB（`isConnectivityError()`。旅行アルバムのすべてのハンドラ） | `ENOTFOUND` / `ECONNREFUSED` のみ（`ETIMEDOUT` は 500 `INTERNAL_ERROR`） |
-| AI 識別の呼び出し（`'ai'`） | `ENOTFOUND` / `ECONNREFUSED` のみ。ただし今は応答にするエンドポイントが無い（AI を呼ぶのは裏のワーカーだけで、ワーカーは `lastError: "ai"` を書くだけ） |
-
-どちらも `hasCauseCode()`（`api/src/utils/errors.ts`）で `cause` の奥までたどり、errno の一覧は `UNREACHABLE_ERRNOS` を共有している。
-ストレージだけがそれに `ETIMEDOUT` を足している。
-（以前は植物図鑑の Cosmos DB を使う6箇所がトップレベルの `code` を手で比べていたが、4-6 で植物図鑑の API ごと消えた。）
-
-**実行時の症状**: Cosmos DB への接続がタイムアウトした場合、
-旅行アルバムの API は 503 ではなく 500 `INTERNAL_ERROR` を返す。
-タイムアウトは時間を置けば回復しうる障害なので、クライアントの
-再試行判断を誤らせる（54ae670 で `ENOTFOUND` について直したのと同じ型の問題）。
-
-**判断が必要な点**: Cosmos DB 側（`UNREACHABLE_ERRNOS`）に `ETIMEDOUT` を足すか。
-
-**推奨**: **足す。** タイムアウトは「到達できていない」側なので 503 が適切で、
-すべての判定が同じ集合を見ているのが素直。
-
-**着手時の手順**: Cosmos DB の失敗の表（`api/tests/helpers/databaseFailures.ts`）に `ETIMEDOUT` の行を足す
-（Blob Storage の側は `photos.test.ts` の `storageFailureCases` に先行例がある）。全入口のステータスが変わる契約変更なので、
-実装後は仕様書（`docs/05_api_design.md` §9.4「502 / 503 の振り分け」と §1）も更新すること。
-
 ### タイムラインを作った後に手で付けた撮影日時を直した・消した写真を知らせない（api、旅行アルバム。判断待ち）
 
 D-3 で、作った後に撮影日時を手で付けた写真（控えでは日時が無い）を「写真が増えた」に数えるようにした（[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
