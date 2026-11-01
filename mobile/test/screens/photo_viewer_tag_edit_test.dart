@@ -309,9 +309,9 @@ void main() {
     await finishImageLoading(tester);
   });
 
-  testWidgets('動かす間に一覧の続きのページが届いても、動かす間を終えない（動かしている写真は置き換わっていない）', (tester) async {
+  testWidgets('動かす間に一覧の続きのページが届いても、動かす間を終えず、開いている写真のそのタグを動かせる', (tester) async {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は1枚（10:31）。グリッドを末尾まで払って2ページ目を要求させ、その返事を止めておく。
-    // 読み込み済みの末尾の 10:30 を開いて動かす間に入ってから、2ページ目を届ける
+    // 読み込み済みの末尾の 10:30 を開いて動かす間に入ってから、2ページ目を届け、写真の上をタップする
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 31)],
       functionKey: 'test-key',
@@ -327,6 +327,7 @@ void main() {
         ],
       },
     );
+    useImageCacheOf(backend, _image);
     await openTripsTab(tester, backend);
     await tester.tap(find.text('北海道 2026秋'));
     await letFramesRun(tester);
@@ -335,17 +336,21 @@ void main() {
     await letFramesRun(tester);
     await tester.tap(photoThumbnail('2026年10月5日 10:30'));
     await letFramesRun(tester);
+    await pumpUntilImageShown(tester, _onPhoto('ご飯'));
 
-    // 札の名前から開けば、画像を読み込まなくても動かす間に入れる
-    await tester.tap(_chipLabel('ご飯'));
-    await letFramesRun(tester);
-    await tester.tap(_inSheet(find.text('位置を動かす')));
-    await letFramesRun(tester);
+    await _startMoving(tester, 'ご飯');
     expect(backend.photoPagesReceived, 2, reason: '2ページ目を要求している');
     reply.complete();
     await letFramesRun(tester);
 
     expect(find.text('新しい位置をタップしてください'), findsOneWidget);
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget, reason: '開いている写真のまま');
+    await tester.tapAt(_at(tester, 0.8, 0.75));
+    await letFramesRun(tester);
+    final moved = (backend.photosByTripId[hokkaidoTripId]![29]['tags'] as List).single as Map;
+    expect([moved['name'], moved['source']], ['ご飯', 'user']);
+    expect(moved['x'] as num, closeTo(0.8, 0.01));
+    await finishImageLoading(tester);
   });
 
   testWidgets('動かす間に写真を削除したら、次の写真では動かす間を終える', (tester) async {
