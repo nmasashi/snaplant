@@ -124,7 +124,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - サムネイルが無い写真は `thumbnailUrl: null`
 - 削除（`deletePhoto`）はドキュメントだけを消し、消したドキュメントを返す（原寸・サムネイルの Blob はハンドラが消す。§3.6）。無ければ、または読んだ後・消す前に消されていたら（404）`null`
 - move: 指定した id の `tripId` が変わり `updatedAt` が更新される。`null` で外せる。無い id は `notFound` に入り残りは動く。他の項目（`comment` など）は変わらない
-- PATCH: `comment` を保存して `commentSource: "user"`、`null` で消して `commentSource: null`。`tags` は置き換わり、重複は除かれる。`comment`・`tags` だけなら `category`・`identification`・`processing` は変わらない（解析中の写真でも通る）。`category`（C-1）はハンドラのテストで確かめる（§3.6）
+- PATCH: `comment` を保存して `commentSource: "user"`、`null` で消して `commentSource: null`。`tags` は置き換わり、重複は除かない（C-3a から。それまでは除いていた）。`comment`・`tags` だけなら `category`・`identification`・`processing` は変わらない（解析中の写真でも通る）。`category`（C-1）はハンドラのテストで確かめる（§3.6）
 
 ### 3.4 `functions/trips.ts` / `tripDetail.ts`
 
@@ -176,8 +176,8 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   Blob の削除失敗でも 200 で、原寸で失敗してもサムネイルは消える。Cosmos の読み取り・削除の失敗（503 / 500）と、読んだ後・消す前に消されていた（404）ときは、ドキュメントも画像も変わらない
 - `PATCH`（`photoUpdate.test.ts`）: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証（順序の例を含む）。`comment` だけ・`tags` だけ・両方。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`。
   コメント 500 文字・タグの名前 30 文字は前後の空白を除いて数える（ちょうどなら通る）。文字数は見た目の1文字で数える（つないだ絵文字でちょうど上限なら通る。#128）。結合文字を重ねて見た目は1文字でも、UTF-16 で上限 × 32 を超える文は文字数の上限と同じ 400（`コメントは500文字以内で指定してください`）で何も変えず、ちょうど上限なら通る（#128。規則は全欄共通の関数で、テストはコメントの境目の2本だけ）。タグの名前の前後の U+0085 も除く（#128）。
-  タグ（C-3a で実装済み）: `{ name, kind, x, y }` だけを保存し（ほかのキーは捨てる）、位置は 0 と 1 ちょうども通る。同じ名前のタグも1つにまとめず送った順に全部残し、同じ名前を含めて 20 個なら通って 21 個で 400。
-  C-3a より前の文字列のタグが文書に残っていても、応答（`GET`）には出さない（`photoDetail.test.ts`）。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
+  タグ（C-3a で実装済み）: `{ name, kind, x, y }`（C-4a から `source` も。省いたタグは `user`、`ai` はそのまま）だけを保存し（ほかのキーは捨てる）、位置は 0 と 1 ちょうども通る。同じ名前のタグも1つにまとめず送った順に全部残し、同じ名前を含めて 20 個なら通って 21 個で 400。
+  C-3a より前の文字列のタグが文書に残っていても、応答（`GET`）には出さない（`photoDetail.test.ts`）。C-4a より前の `source` の無いタグは、応答で `source: "user"` になる（`PATCH` の応答で確かめる）。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
 - `PATCH` のカテゴリ（C-1。`photoUpdate.test.ts`。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）: `category` が分類の種類に無い（`animal`）・大文字小文字が違う（`Plant`）・`null`・数値で 400 `カテゴリが無効です`。
   植物に変えると 200 で、応答と文書が `category: "plant"`・`categorySource: "user"`・`identification: null`・`processing` が `{ pending, identify, 0, null, 今 }` になり、AI が書いたコメントが `comment: null`・`commentSource: null` になり（ほかの欄は変わらない）、キューに `{ photoId }` が1つ積まれる。
   自動で調べない種類（植物から食べ物）に変えると `identification: null`・AI が書いたコメントが `null`・`processing` が `{ done, classify, 0, null, 今 }` で、積まない。利用者が書いたコメント（`commentSource: "user"`）はカテゴリを変えても残る。写真を読んだ後・書く前に（`beforePatch`）利用者がコメントを書いていたら残り、AI がコメントを書いていたら消え、どちらも 200 で応答の写真も同じ（書き込みの条件に合わず読み直す）。分類に失敗した（`failed`・カテゴリ無し）写真を `other` にすると `done`・`attempts: 0` で、積まない。
@@ -377,7 +377,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 提案のワーカー: AI に `detail: "high"` の画像と食べ物の名前の決まりを送り、答えの皿ごとに `{ name, kind: "food", x, y, source: "ai" }` のタグを書いて `done`。名前の切り詰め・位置を 0〜1 に収める・21 個目から捨てる。答えが空ならタグは書かずに `done`
 - 提案を待つ間に利用者がタグを付けていたら、タグは書かずに `done`（利用者のタグが残る）
 - AI の失敗・検証違反は `lastError: "ai"` で再投入、上限で `failed`
-- `PATCH /api/photos/{photoId}` の `tags[].source`: 省くと `user`、`ai`・`user` 以外は 400。応答の各タグに `source`（無いタグは `user`）
+- `PATCH /api/photos/{photoId}` の `tags[].source`（**実装済み**（C-4a）。`photoUpdate.test.ts`）: 省くと `user`、`ai`・`user` 以外（`AI`・`null`）は 400 `タグの形式が無効です`（同じ要素の名前も無効なら、名前より先に見てこの文言）。応答の各タグに `source`（無いタグは `user`）
 - 写真ビューア（03 §5.9）: 吹き出しで出す、表示の切り替えを覚える、タグを押して直す・動かす・消す（直したタグは `user` で送る）、提案を待つ間の文言
 - 既にある食べ物の写真のスクリプト: 数えるだけ／`--apply` で待ちにする
 
