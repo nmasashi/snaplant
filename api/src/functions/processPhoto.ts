@@ -34,7 +34,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
   // 読んだ値で先に判断しても、読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる
   const step = photo.processing.step;
   // 継承したプロパティ（toString など）を段と取り違えないよう、表の自分のキーだけを見る
-  if (step === null || !Object.hasOwn(STEPS, step)) {
+  if (step === null || !Object.prototype.hasOwnProperty.call(STEPS, step)) {
     context.log(`解析の待ちではありません（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}`);
     return;
   }
