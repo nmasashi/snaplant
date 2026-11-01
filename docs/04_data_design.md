@@ -431,8 +431,8 @@ export const CATALOG_KINDS = {
     label: '植物',
     inCatalog: true,      // 図鑑に載せる（02 #51。植物だけ）
     autoIdentify: true,   // 分類の後に自動で詳しく識別する（02 #51。植物だけ）
-    // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 #56）
     commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
+    // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 #56）
     namingRule: '種の和名（例: ハナトリカブト）。種まで特定できなければ「〇〇属の一種」（例: トリカブト属の一種）とし、信頼度を低くする',
     fields: [
       { key: 'scientificName', label: '学名',     type: 'string', prompt: '学名。特定できない場合は null' },
