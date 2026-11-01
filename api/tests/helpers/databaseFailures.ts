@@ -56,7 +56,8 @@ const cosmosInternalFailure = (internalErrorMessage: string): DatabaseFailureCas
  * 分類は旅行アルバムの全エンドポイント（createDatabaseErrorResponse を通るもの）で同じ規則
  * （utils/errors.ts の isConnectivityError）なので、
  * 5行すべてを回すのは `trips.test.ts` の「旅行の作成」の1箇所だけにしている。
- * 他のエンドポイントは `databaseFailureCases()`（2行）で、ハンドラがこの分類につながっていることだけを見る
+ * 他のエンドポイントは `databaseFailureCases()`（2行）で、ハンドラがこの分類につながっていることだけを見る。
+ * 500・503 で details を返さないこと（05 §9.2）も、旅行の作成の1箇所で見る
  */
 export const allDatabaseFailureCases = (internalErrorMessage: string): DatabaseFailureCase[] => [
   nameResolutionFailure(),

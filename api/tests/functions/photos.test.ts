@@ -811,7 +811,7 @@ describe('写真API', () => {
     ];
 
     it.each(storageFailureCases)(
-      '写真の保存で、画像の保存先が失敗したら理由を返し、写真のドキュメントは作られない（%s）',
+      '写真の保存で、画像の保存先が失敗したら決まった文言を返し（SDK の文言は返さない）、写真のドキュメントは作られない（%s）',
       async (_case, inject, status, message) => {
         inject(blobBackend);
         const request = createPhotoRequest(formDataWith({ thumbnail: imageFile(THUMBNAIL_BYTES) }));
