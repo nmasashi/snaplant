@@ -91,7 +91,7 @@ class TimelineDraftStatus {
   /// `create`（初めて作る）・`rebuild`（作り直し）・`recut`（区切りの直し）
   final String reason;
 
-  /// `proposing`（区切りの案）・`reviewing`（確かめ待ち）・`writing`（見出しと一言）
+  /// `proposing`（区切りの案）・`reviewing`（確かめ待ち）・`writing`（見出しとまとめ）
   final String phase;
 
   /// 裏の処理の状態。確かめ待ちでは null
@@ -129,7 +129,7 @@ class TimelineDraftStatus {
 
 /// 下書きの裏の処理（`job` の `step`・`state`・`lastError`）
 class TimelineJob {
-  /// `propose`（区切りの案）・`write`（見出しと一言）
+  /// `propose`（区切りの案）・`write`（見出しとまとめ）
   final String step;
 
   /// `pending`・`running`・`failed`
@@ -194,7 +194,7 @@ class TimelineScene {
   /// 食べ物の写真がある場面か（見出しの印の色）
   final bool hasFood;
 
-  /// 場面の見出しと一言（完成版だけ。文が無ければ null）
+  /// 場面の見出しと一言（完成版だけ。文が無ければ null。AI は U-3 から一言を書かないので、一言は U-3 より前に書いたものだけ）
   final String? label;
   final String? note;
 

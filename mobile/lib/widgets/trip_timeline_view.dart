@@ -202,7 +202,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// タイムラインを作る（失敗した区切りの案の「もう一度」も同じ）
   Future<void> _create() => _accept(widget.apiService.createTimeline);
 
-  /// 見出しと一言を書かせる（失敗した文の「もう一度」）
+  /// 見出しとまとめを書かせる（失敗した文の「もう一度」）
   Future<void> _write() => _accept(widget.apiService.writeTimeline);
 
   /// 受け付けた下書きの状態（作る・書かせるの応答）で、読み直さずに表示を進める。
@@ -606,7 +606,7 @@ class _StatusView extends StatelessWidget {
   }
 }
 
-/// 文を書いている間の3つの段（区切りの案・区切りの確認は済み、見出しと一言を書いている。§8.2）
+/// 文を書いている間の3つの段（区切りの案・区切りの確認は済み、見出しとまとめを書いている。§8.2）
 class _WritingSteps extends StatelessWidget {
   const _WritingSteps();
 

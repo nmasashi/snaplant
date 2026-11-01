@@ -427,7 +427,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
             _buildPhotos(scene),
-            // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
+            // AI が見出しを書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
             if (_draft!.reason != 'recut') ...[
               const SizedBox(height: 4),
               _buildComment(scene),
