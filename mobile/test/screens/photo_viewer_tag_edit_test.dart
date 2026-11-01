@@ -23,29 +23,35 @@ Map<String, Object?> _tag(String name,
         {String kind = 'food', double x = 0.5, double y = 0.5, String source = 'user'}) =>
     {'name': name, 'kind': kind, 'x': x, 'y': y, 'source': source};
 
-/// 撮影日時が 2026年10月6日 10:15 の食べ物の写真
-Map<String, Object?> _photo({List<Map<String, Object?>> tags = const []}) => photoJson(
-    number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-06T10:15:00', tags: tags)
+/// 撮影日時が 2026年10月6日 10:15 の食べ物の写真（[number] が 2 なら 10月7日）
+Map<String, Object?> _photo({List<Map<String, Object?>> tags = const [], int number = 1}) => photoJson(
+    number: number,
+    tripId: hokkaidoTripId,
+    takenAt: '2026-10-${(5 + number).toString().padLeft(2, '0')}T10:15:00',
+    tags: tags)
   ..['category'] = 'food';
 
-/// 旅行詳細を開き、1枚目の写真をタップしてビューアを開く。[waitFor] が出るまで画像を読み込ませる
+/// 旅行詳細を開き、1枚目の写真をタップしてビューアを開く（[more] の写真は後ろに並べる）。
+/// [waitFor] があれば、それが出るまで画像を読み込ませる（無ければ画像を読み込ませない）
 Future<FakeTripBackend> _openViewer(WidgetTester tester, Map<String, Object?> photo,
-    {required Finder waitFor}) async {
+    {Finder? waitFor, List<Map<String, Object?>> more = const []}) async {
   final backend = FakeTripBackend(
-    trips: [hokkaidoTrip(photoCount: 1)],
+    trips: [hokkaidoTrip(photoCount: 1 + more.length)],
     functionKey: 'test-key',
     photosByTripId: {
-      hokkaidoTripId: [photo]
+      hokkaidoTripId: [photo, ...more]
     },
   );
-  useImageCacheOf(backend, _image);
+  if (waitFor != null) useImageCacheOf(backend, _image);
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
   await letFramesRun(tester);
   await tester.tap(photoThumbnail(_takenAt));
   await letFramesRun(tester);
-  await pumpUntilImageShown(tester, waitFor);
-  expect(waitFor, findsWidgets);
+  if (waitFor != null) {
+    await pumpUntilImageShown(tester, waitFor);
+    expect(waitFor, findsWidgets);
+  }
   return backend;
 }
 
@@ -61,11 +67,16 @@ Finder _onPhoto(String name) => find.descendant(
 Finder _chipLabel(String name) =>
     find.descendant(of: find.byType(RawChip), matching: find.text(name));
 
-/// 画像の中の割合 ([x], [y]) の画面の位置（横長 2:1 の画像を、写真の枠の中に縦横の比を保って中央に収める。§5.1）
-Offset _at(WidgetTester tester, double x, double y) {
+/// 画像が描かれている範囲（横長 2:1 の画像を、写真の枠の中に縦横の比を保って中央に収める。§5.1）
+Rect _imageRect(WidgetTester tester) {
   final box = tester.getRect(find.byType(InteractiveViewer));
   final width = math.min(box.width, box.height * 2);
-  final rect = Rect.fromCenter(center: box.center, width: width, height: width / 2);
+  return Rect.fromCenter(center: box.center, width: width, height: width / 2);
+}
+
+/// 画像の中の割合 ([x], [y]) の画面の位置
+Offset _at(WidgetTester tester, double x, double y) {
+  final rect = _imageRect(tester);
   return Offset(rect.left + rect.width * x, rect.top + rect.height * y);
 }
 
@@ -269,7 +280,90 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.text(serverErrorMessage), findsOneWidget);
+    expect(find.text('新しい位置をタップしてください'), findsNothing);
+    // 表示はそのまま: 吹き出しは元の位置（0.2, 0.3）の真上
+    final bubble = tester.getRect(_onPhoto('ご飯'));
+    final point = _at(tester, 0.2, 0.3);
+    expect((bubble.center.dx - point.dx).abs(), lessThan(2));
+    expect(bubble.bottom, lessThan(point.dy));
     expect(_storedTags(backend), tags);
+    await finishImageLoading(tester);
+  });
+
+  testWidgets('動かす間は、画像の外（余白）のタップでは何もせず、上のバーも隠さず、前後の写真へも移らない', (tester) async {
+    final tags = [_tag('ご飯', x: 0.2, y: 0.3)];
+    final backend = await _openViewer(tester, _photo(tags: tags),
+        more: [_photo(number: 2)], waitFor: _onPhoto('ご飯'));
+    await _startMoving(tester, 'ご飯');
+
+    final box = tester.getRect(find.byType(InteractiveViewer));
+    await tester.tapAt(Offset(box.center.dx, (box.top + _imageRect(tester).top) / 2));
+    await letFramesRun(tester);
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.text('新しい位置をタップしてください'), findsOneWidget);
+
+    await tester.drag(find.byType(PageView), const Offset(-400, 0));
+    await letFramesRun(tester);
+    expect(find.text(_takenAt), findsOneWidget);
+    expect(_storedTags(backend), tags);
+    await finishImageLoading(tester);
+  });
+
+  testWidgets('動かす間に写真を削除したら、次の写真では動かす間を終える', (tester) async {
+    // 札の名前から開けば、画像を読み込まなくても動かす間に入れる
+    await _openViewer(tester, _photo(tags: [_tag('ご飯')]), more: [_photo(number: 2, tags: [_tag('夕食')])]);
+    await tester.tap(_chipLabel('ご飯'));
+    await letFramesRun(tester);
+    await tester.tap(_inSheet(find.text('位置を動かす')));
+    await letFramesRun(tester);
+
+    await tester.tap(find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('削除')));
+    await letFramesRun(tester);
+
+    expect(find.text('2026年10月7日 10:15'), findsOneWidget);
+    expect(find.text('新しい位置をタップしてください'), findsNothing);
+  });
+
+  testWidgets('動かした位置を送っている間は、吹き出しを押しても直すシートを開かず、「タグを付ける」を押せない', (tester) async {
+    final backend = await _openViewer(
+        tester, _photo(tags: [_tag('ご飯', x: 0.2, y: 0.3), _tag('夕食', x: 0.7, y: 0.6)]),
+        waitFor: _onPhoto('夕食'));
+    await _startMoving(tester, 'ご飯');
+    final reply = backend.holdNextReply(TripRoute.updatePhoto);
+
+    await tester.tapAt(_at(tester, 0.8, 0.75));
+    await tester.pump();
+    expect(_addButton(tester).onPressed, isNull);
+    await tester.tap(_onPhoto('夕食'), warnIfMissed: false);
+    await tester.pump();
+    expect(find.text('タグを直す'), findsNothing);
+
+    reply.complete();
+    await letFramesRun(tester);
+    expect(_addButton(tester).onPressed, isNotNull);
+    await finishImageLoading(tester);
+  });
+
+  testWidgets('直したタグの保存を待っている間は、「位置を動かす」「このタグを消す」を押せない', (tester) async {
+    final backend = await _openViewer(tester, _photo(tags: [_tag('ご飯')]), waitFor: _onPhoto('ご飯'));
+    final reply = backend.holdNextReply(TripRoute.updatePhoto);
+
+    await _openEditSheet(tester, 'ご飯');
+    await tester.enterText(_inSheet(find.byType(TextField)), '白ご飯');
+    await tester.pump();
+    await tester.tap(_inSheet(find.text('保存')));
+    await tester.pump();
+
+    for (final label in ['位置を動かす', 'このタグを消す']) {
+      final button = tester.widget<TextButton>(
+          find.ancestor(of: _inSheet(find.text(label)), matching: find.byWidgetPredicate((w) => w is TextButton)).first);
+      expect(button.onPressed, isNull, reason: label);
+    }
+
+    reply.complete();
+    await letFramesRun(tester);
     await finishImageLoading(tester);
   });
 
