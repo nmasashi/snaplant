@@ -391,6 +391,7 @@ void main() {
     await _swipe(tester, toNext: true);
 
     expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
+    expect(backend.photoPagesReceived, 3, reason: '1ページ目・空の続きのページ・10:31 からのページ');
     expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
     semantics.dispose();
   });
@@ -410,6 +411,7 @@ void main() {
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
     expect(backend.photoPagesReceived, 4, reason: '1ページ目と、空の続きのページ3回');
     expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
+    expect(find.text('再試行').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
 
