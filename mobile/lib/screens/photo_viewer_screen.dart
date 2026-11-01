@@ -91,6 +91,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   // 写真の上のタグ（吹き出し）を出すか。アプリ全体で端末に覚える（03 §5.9）
   bool _tagsVisible = true;
+  // 覚えている値を読み終える前に切り替えを押した（読んだ古い値で押した結果を上書きしない）
+  bool _tagsVisibleToggled = false;
 
   /// 1枚の写真に付けられるタグの数（サーバの TAG_MAX_COUNT の既定値。05 §5.6）
   static const _maxTags = 20;
@@ -110,7 +112,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   Future<void> _loadTagsVisible() async {
     final prefs = await SharedPreferences.getInstance();
     final visible = prefs.getBool(_tagsVisibleKey) ?? true;
-    if (mounted && visible != _tagsVisible) {
+    if (mounted && !_tagsVisibleToggled && visible != _tagsVisible) {
       setState(() => _tagsVisible = visible);
     }
   }
@@ -118,6 +120,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   /// 写真の上のタグを出す・隠すを切り替えて覚える
   Future<void> _toggleTagsVisible() async {
     final visible = !_tagsVisible;
+    _tagsVisibleToggled = true;
     setState(() => _tagsVisible = visible);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_tagsVisibleKey, visible);
@@ -784,7 +787,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                                 ),
                               ),
                             ),
-                          // タグの一覧。写真の上の点は読み上げで探せないので、ここでも知らせ、消せるようにする（03 §5.7）
+                          // タグの一覧。写真の上のタグ（吹き出し）は読み上げで探せないので、ここでも知らせ、消せるようにする（03 §5.7）
                           if (photo.tags.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
