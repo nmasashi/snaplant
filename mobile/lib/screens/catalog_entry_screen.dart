@@ -80,6 +80,8 @@ class _CatalogEntryScreenState extends State<CatalogEntryScreen> {
     if (page is! _EntryPhotoPage) return;
     final entry = page.entry;
     if (entry == null) {
+      // 選択中に分かったときは選択も解く（見えない写真の選択を残さず、戻る1回で戻れるように。docs/03_screen_design.md §6.2）
+      _selection.clear();
       setState(() => _vanished = true);
       widget.onEntryLoaded?.call(null);
       return;
