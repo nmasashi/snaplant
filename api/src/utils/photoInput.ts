@@ -4,7 +4,7 @@ import { createErrorResponse, createValidationError, isValidUUID } from './respo
 import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { CONTEXT_INFO_VALIDATION, FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
-import { PHOTO_KINDS, PhotoKind } from '../catalog/kinds';
+import { PHOTO_KINDS, isPhotoKind } from '../catalog/kinds';
 import { PhotoTag } from '../types/album';
 import { readPageLimit } from './pageLimit';
 import { exceedsLength, trimUserText } from './userText';
@@ -428,14 +428,13 @@ function readPhotoTag(tag: unknown): PhotoTag | string {
   if (trimmed === '' || exceedsLength(trimmed, TAG_VALIDATION.MAX_LENGTH)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH;
   }
-  if (typeof kind !== 'string' || !PHOTO_KINDS.includes(kind)) {
+  if (!isPhotoKind(kind)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_KIND;
   }
   if (!isRatio(x) || !isRatio(y)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_POSITION;
   }
-  // 種類は PHOTO_KINDS に含まれることを上で確かめた
-  return { name: trimmed, kind: kind as PhotoKind, x, y };
+  return { name: trimmed, kind, x, y };
 }
 
 /** 画像の中の位置の割合（0 以上 1 以下の数）か */
