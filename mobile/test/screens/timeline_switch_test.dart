@@ -536,13 +536,14 @@ void main() {
       await _waitForPoll(tester);
       expect(backend.timelineDraftReadsReceived, 1, reason: '裏にある間は読み直さない');
 
+      final timelineReads = backend.timelineReadsReceived;
       for (final state in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
         tester.binding.handleAppLifecycleStateChanged(state);
       }
       await letFramesRun(tester);
-      expect(backend.timelineDraftReadsReceived, 2, reason: '前に戻ったらすぐ読み直す');
+      expect(backend.timelineReadsReceived, timelineReads + 1, reason: '前に戻ったらすぐタイムラインを読み直す');
       await _waitForPoll(tester);
-      expect(backend.timelineDraftReadsReceived, 3, reason: 'また 5 秒ごとに読み直す');
+      expect(backend.timelineDraftReadsReceived, 2, reason: 'また 5 秒ごとに下書きを読み直す');
     });
 
     testWidgets('旅行詳細を閉じると、下書きの読み直しを止める', (tester) async {
