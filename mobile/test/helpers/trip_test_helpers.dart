@@ -57,6 +57,7 @@ Map<String, Object?> photoJson({
   required int number,
   String? tripId,
   String? takenAt,
+  String? takenAtSource,
   bool hasThumbnail = true,
   List<Map<String, Object?>> tags = const [],
 }) {
@@ -70,7 +71,8 @@ Map<String, Object?> photoJson({
     'contentType': 'image/jpeg',
     'fileSize': 1234567,
     'takenAt': takenAt,
-    'takenAtSource': takenAt == null ? null : 'exif',
+    // 撮影日時の出どころ（本物は exif・user・none。手で付けた日時を置くときだけ user を渡す）
+    'takenAtSource': takenAtSource ?? (takenAt == null ? 'none' : 'exif'),
     'sortAt': takenAt ?? '2026-10-10T12:12:45',
     'location': null,
     'category': null,
@@ -1328,7 +1330,8 @@ class FakeTripBackend {
       return _error(400, 'INVALID_REQUEST', 'リクエストボディの形式が無効です');
     }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
-    if (body is! Map<String, dynamic> || !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category'))) {
+    if (body is! Map<String, dynamic> ||
+        !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category') || body.containsKey('takenAt'))) {
       return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
     }
     if (body.containsKey('comment')) {
@@ -1391,6 +1394,20 @@ class FakeTripBackend {
           'updatedAt': processAcceptedAt,
         };
       }
+    }
+    if (body.containsKey('takenAt')) {
+      // 実際のサーバと同じ（05 §5.6 の 9.7・11。D-1）: タイムゾーン無しの日時か null。カメラの撮影日時は 409。並びも書き直す
+      final takenAt = body['takenAt'];
+      if (takenAt != null && (takenAt is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$').hasMatch(takenAt))) {
+        return _error(400, 'INVALID_REQUEST', '撮影日時の形式が無効です');
+      }
+      if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+      if (photo['takenAtSource'] == 'exif') {
+        return _error(409, 'TAKEN_AT_FROM_CAMERA', 'カメラが記録した撮影日時は変えられません');
+      }
+      photo['takenAt'] = takenAt;
+      photo['takenAtSource'] = takenAt == null ? 'none' : 'user';
+      photo['sortAt'] = takenAt ?? '2026-10-10T12:12:45';
     }
     photo!['updatedAt'] = processAcceptedAt;
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
