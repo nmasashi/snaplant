@@ -192,6 +192,65 @@ void main() {
       });
     });
 
+    testWidgets('「タイムライン」で場面の写真の一覧を開いて閉じた後に「写真」に戻すと、写真の一覧を先頭から読み直し、その間に消えた写真は出ない', (tester) async {
+      // 場面の写真の一覧（§8.8）からは写真ビューアで写真を消せる。ここでは開いている間に偽のサーバから消して、その形を作る
+      final semantics = tester.ensureSemantics();
+      final backend = FakeTripBackend(
+        trips: [hokkaidoTrip(photoCount: 2)],
+        functionKey: 'test-key',
+        photosByTripId: {
+          hokkaidoTripId: [
+            photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+            photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          ],
+        },
+      );
+      backend.timelinesByTripId[hokkaidoTripId] = {
+        'current': {
+          'writtenAt': '2026-10-25T09:10:00.000Z',
+          'days': [
+            {
+              'date': '2026-10-05',
+              'dayNumber': 1,
+              'title': '小樽',
+              'titleSource': 'ai',
+              'summary': '運河を歩いた。',
+              'summarySource': 'ai',
+              'scenes': [
+                {
+                  ...timelineSceneJson([timelinePhotoJson(1, '2026-10-05T10:01:00'), timelinePhotoJson(2, '2026-10-05T10:02:00')]),
+                  'placeNames': <String>[],
+                  'label': '運河さんぽ',
+                  'labelSource': 'ai',
+                  'note': null,
+                  'noteSource': null,
+                },
+              ],
+            },
+          ],
+        },
+        'draft': null,
+        'changes': {'added': 0, 'removed': 0},
+      };
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      expect(photoThumbnail('2026年10月5日 10:02'), findsOneWidget);
+      await _showTimeline(tester);
+      await tester.tap(find.text('運河さんぽ'));
+      await letFramesRun(tester);
+      backend.photosByTripId[hokkaidoTripId]!.removeAt(1);
+      await tapBack(tester);
+      await letFramesRun(tester);
+
+      await tester.tap(find.text('写真'));
+      await letFramesRun(tester);
+
+      expect(photoThumbnail('2026年10月5日 10:01'), findsOneWidget);
+      expect(photoThumbnail('2026年10月5日 10:02'), findsNothing);
+      semantics.dispose();
+    });
+
     testWidgets('写真を複数選択している間は、切り替えを出さない', (tester) async {
       final semantics = tester.ensureSemantics();
       await _openTripDetail(tester);
