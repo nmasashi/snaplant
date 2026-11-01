@@ -245,13 +245,15 @@ async function editTimelineText(request: HttpRequest, context: InvocationContext
       }
       edited = { ...current, sceneTexts: { ...current.sceneTexts, [key]: withEdits(current.sceneTexts[key], edits.values) } };
     }
+    // 応答の写真の URL を作れないなら、書く前に失敗させる（書いた後だと、直したのに失敗と返す。写真を外す受付と同じ）
+    const storage = new PhotoStorageService();
     // 文が変わらなければ書かない（書くと _etag が変わり、同じときに読んだ他の操作が 409 になる）
     const changed = JSON.stringify(edited) !== JSON.stringify(current);
     if (changed && !(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, current: edited, updatedAt: new Date().toISOString() }, timeline.etag))) {
       return createTimelineStateConflict();
     }
     // 画面は直した後の完成版を描き直すので、完成版を読んだ形（GET …/timeline と同じ）で返す
-    return createTimelineBodyResponse(await readTimelineBody(tripId));
+    return createTimelineBodyResponse(await readTimelineBody(tripId, storage));
   } catch (error: any) {
     context.log('タイムラインの文の更新エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');

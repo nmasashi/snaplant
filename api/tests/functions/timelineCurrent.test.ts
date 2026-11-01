@@ -559,6 +559,18 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' }));
     });
 
+    // PATCH の2つ（…/days/{date}・…/scenes/{photoId}）は 05 §5.15 の同じ表で決まる1つの操作なので、…/days/{date} で見る
+    it('写真の保存先の設定に鍵が無ければ、書かずに 500 を返す（直したのに失敗と返さない）', async () => {
+      process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
+      const timeline = storedTimeline();
+
+      const response = await patchDay('2026-10-05', { title: '小樽の旅' });
+
+      expect(response.status).toBe(500);
+      expect(response.jsonBody).toMatchObject({ success: false, error: { code: 'INTERNAL_ERROR', message: 'タイムラインの更新に失敗しました' } });
+      expect(storedTimeline()).toEqual(timeline);
+    });
+
     it('日のタイトルを前後の空白を除いて保存して書いた主を利用者にし、完成版を読んだ形で返す（送らなかった、利用者が直したまとめはそのまま）', async () => {
       const edited = { ...current, dayTexts: { ...current.dayTexts, '2026-10-05': { ...current.dayTexts['2026-10-05'], summary: '自分のまとめ', summarySource: 'user' as const } } };
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: edited, updatedAt: '2026-10-08T12:14:00.000Z' }));
