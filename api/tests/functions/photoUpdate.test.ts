@@ -724,30 +724,35 @@ describe('写真更新API', () => {
       ['撮影日時の無い写真に付ける', { takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00' }, '2026-10-05T12:00:00'],
       ['手で付けた撮影日時を直す', { takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }, '2026-10-06T08:30:00']
     ], async (_case, current, takenAt) => {
-      cosmosBackend.documents.set(PHOTO_ID, storedPhoto(current));
+      freezeNow();
+      const photo = storedPhoto(current);
+      cosmosBackend.documents.set(PHOTO_ID, photo);
 
       const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt }), mockContext);
 
       expect(response.status).toBe(200);
-      const photo = (response.jsonBody as any).data.photo;
-      expect([photo.takenAt, photo.takenAtSource]).toEqual([takenAt, 'user']);
-      const stored = cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
-      expect([stored.takenAt, stored.takenAtSource, stored.sortAt]).toEqual([takenAt, 'user', takenAt]);
-      expect([stored.comment, stored.category]).toEqual(['ホテルの朝食', 'food']);
+      const returned = (response.jsonBody as any).data.photo;
+      expect([returned.takenAt, returned.takenAtSource]).toEqual([takenAt, 'user']);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, takenAt, takenAtSource: 'user', sortAt: takenAt, updatedAt: UPDATED_AT });
     }));
 
-    it('takenAt に null を送ると、手で付けた撮影日時を消し、並びの日時を送った日時（日本時間）に戻す', async () => {
+    it('takenAt に null を送ると、撮影日時なしにして、並びの日時を送った日時（日本時間）に戻す', () => forEachCase<[string, Partial<PhotoDocument>]>([
+      ['手で付けた撮影日時を消す', { takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }],
+      // 書く値は今と同じでも断らない（05 §5.6 の takenAt の項目）
+      ['撮影日時の無い写真に null を送る', { takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00' }]
+    ], async (_case, current) => {
       // 送った日時 2026-09-21T01:00:00Z は、日本時間で 2026-09-21T10:00:00
-      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }));
+      freezeNow();
+      const photo = storedPhoto(current);
+      cosmosBackend.documents.set(PHOTO_ID, photo);
 
       const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt: null }), mockContext);
 
       expect(response.status).toBe(200);
-      const photo = (response.jsonBody as any).data.photo;
-      expect([photo.takenAt, photo.takenAtSource]).toEqual([null, 'none']);
-      const stored = cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
-      expect([stored.takenAt, stored.takenAtSource, stored.sortAt]).toEqual([null, 'none', '2026-09-21T10:00:00']);
-    });
+      const returned = (response.jsonBody as any).data.photo;
+      expect([returned.takenAt, returned.takenAtSource]).toEqual([null, 'none']);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00', updatedAt: UPDATED_AT });
+    }));
 
     it('カメラが記録した撮影日時の写真には、409 で断って何も変えない', () => forEachCase<[string, string | null]>([
       ['日時を変える', '2026-10-06T08:30:00'],
