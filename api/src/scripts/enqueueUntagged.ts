@@ -18,9 +18,10 @@ export async function enqueueUntaggedFoodPhotos(options: {
   const now = new Date().toISOString();
   // クエリと同じ条件をコードでも見る（クエリの絞り込みはテストで確かめられない）。崩れても、タグのある写真や解析中の写真を書き換えない
   const targets = (await album.listUntaggedFoodPhotos()).filter(
-    (photo) => photo.processing?.state === 'done' && photo.category === 'food' && (photo.tags ?? []).length === 0
+    // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）ので除く
+    (photo) => photo.processing?.state === 'done' && photo.category === 'food' && photo.categorySource !== 'user' && (photo.tags ?? []).length === 0
   );
-  options.log(`タグの提案の対象（解析が済んでタグの無い、食べ物の写真）: ${targets.length} 枚`);
+  options.log(`タグの提案の対象（解析が済んでタグの無い、AI が食べ物と分類した写真）: ${targets.length} 枚`);
   if (!options.apply) {
     options.log('--apply が無いので、何も書きません');
     return { found: targets.length, marked: 0 };

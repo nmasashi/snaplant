@@ -3,6 +3,7 @@ import { TAG_VALIDATION } from '../constants/validation';
 import { OpenAIVisionService } from './openAIVisionService';
 import { UpstreamError } from '../utils/errors';
 import { GRAPHEMES } from '../utils/graphemes';
+import { exceedsLength, trimUserText } from '../utils/userText';
 
 /**
  * タグの提案の応答の形（Structured Outputs。docs/06_processing_design.md §9）
@@ -68,24 +69,35 @@ export class PhotoTaggerService {
         detail: 'high',
       })) as { dishes: unknown };
 
-      // strict のスキーマでも、空の名前や数でない位置が来ないことは保証されない。通らない応答は AI の失敗にする
+      // strict のスキーマでも、空の名前や数でない位置が来ないことは保証されない。形の崩れた応答は AI の失敗にする
       if (!Array.isArray(result.dishes)) {
         throw new Error('dishesが配列ではありません');
       }
-      return result.dishes.slice(0, TAG_VALIDATION.MAX_COUNT).map((dish: any) => {
-        const name = typeof dish?.name === 'string' ? dish.name.trim() : '';
-        if (name === '') {
-          throw new Error('料理の名前が空です');
-        }
-        if (typeof dish.x !== 'number' || typeof dish.y !== 'number') {
-          throw new Error('料理の位置が数ではありません');
-        }
-        return { name: truncate(name, TAG_VALIDATION.MAX_LENGTH), x: clamp(dish.x), y: clamp(dish.y) };
-      });
+      // 通らない皿だけを捨てる（1皿の誤りで、通った皿まで捨てて detail: high の呼び出しをやり直さない）
+      return result.dishes
+        .map(toSuggestion)
+        .filter((dish): dish is DishSuggestion => dish !== null)
+        .slice(0, TAG_VALIDATION.MAX_COUNT);
     } catch (error: any) {
       throw new UpstreamError(`タグの提案に失敗しました: ${error.message}`, 'ai', error);
     }
   }
+}
+
+/**
+ * AI の皿1つを提案にする。名前は手で付けるタグと同じ決まり（05 §5.6・§9.6）で前後の空白を除いて切り詰め、通らなければ null
+ *
+ * 手で付けるタグの検証が断る名前を保存すると、アプリがタグを送り直したときに 400 になって直せなくなる
+ */
+function toSuggestion(dish: any): DishSuggestion | null {
+  if (typeof dish?.name !== 'string' || typeof dish.x !== 'number' || typeof dish.y !== 'number') {
+    return null;
+  }
+  const name = trimUserText(truncate(trimUserText(dish.name), TAG_VALIDATION.MAX_LENGTH));
+  if (name === '' || exceedsLength(name, TAG_VALIDATION.MAX_LENGTH)) {
+    return null;
+  }
+  return { name, x: clamp(dish.x), y: clamp(dish.y) };
 }
 
 /** 見た目の文字数（05 §9.6）で切り詰める */

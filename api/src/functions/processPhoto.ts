@@ -70,8 +70,9 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     const failed = attempts >= photoProcessingMaxAttempts();
     // 失敗の記録より先にログを出す。記録も失敗したとき（Cosmos の障害など）に、元の原因が残らなくなるため
     context.log(`写真の${label}に失敗しました: ID=${photo.id}, 回数=${attempts}, 失敗した所=${lastError}${failed ? '（上限のため失敗にします）' : ''}`, error);
+    // タグの提案は、上限でも failed にせず済みにする（分類は済んでいる。failed だとアプリが分類の失敗と出す。06 §9、02 §5 #61）
     const written = await album.writeProcessing(photo.id, claimedProcessing, {
-      state: failed ? 'failed' : 'pending',
+      state: failed ? (step === 'tag' ? 'done' : 'failed') : 'pending',
       step,
       attempts,
       lastError,
