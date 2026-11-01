@@ -68,6 +68,8 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
     const existing = new Set(photos.map((photo) => photo.id));
     const snapshotIds = new Set(snapshot.map((photo) => photo.id));
+    // 控えでは撮影日時が無かった写真。作った後に撮影日時を手で付けたら、作り直すと入るので増えた写真に数える（02 §5 #59）
+    const undatedInSnapshot = new Set(snapshot.filter((photo) => photo.takenAt === null).map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
     // 外した写真は消えた写真と同じく出さない（visiblePhotoIdsOf と同じ決まり。集合を作り直さないように述語で渡す）
     const shown = (photoId: string) => existing.has(photoId) && !excluded.has(photoId);
@@ -75,7 +77,7 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     // 日時の無い写真はタイムラインに入れない（作り直しても入らない）ので数えない（02 §5 #54）。
     // 外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
-      added: photos.filter((photo) => photo.takenAt !== null && !snapshotIds.has(photo.id)).length,
+      added: photos.filter((photo) => photo.takenAt !== null && (!snapshotIds.has(photo.id) || undatedInSnapshot.has(photo.id))).length,
       removed: snapshot.filter((photo) => photo.takenAt !== null && !existing.has(photo.id) && !excluded.has(photo.id)).length,
     };
   }
