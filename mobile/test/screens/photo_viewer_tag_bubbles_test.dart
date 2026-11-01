@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:snaplant_mobile/main.dart';
 
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
@@ -110,21 +111,27 @@ void main() {
   });
 
   testWidgets('表示の切り替えはアプリ全体で覚え、ビューアを開き直しても、アプリを開き直しても隠したまま', (tester) async {
-    final photos = [_photo(tags: [_tag('ご飯')])];
-    await _openViewer(tester, photos, waitFor: _onPhoto('ご飯'));
+    final backend = await _openViewer(tester, [_photo(tags: [_tag('ご飯')])], waitFor: _onPhoto('ご飯'));
     await tester.tap(find.text('タグ 表示中'));
     await letFramesRun(tester);
 
     await tapBack(tester);
+    await letFramesRun(tester);
     await tester.tap(photoThumbnail(_takenAt));
     await letFramesRun(tester);
     expect(find.text('タグ 非表示'), findsOneWidget);
     expect(_onPhoto('ご飯'), findsNothing);
     await finishImageLoading(tester);
 
-    // アプリを開き直す（木を消してから開く。CLAUDE.md）
+    // アプリを開き直す（木を消してから開く。CLAUDE.md）。openTripsTab は端末の保存を空にするので使わない
     await tester.pumpWidget(const SizedBox());
-    await _openViewer(tester, photos);
+    await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
+    await tester.tap(find.text('旅行'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail(_takenAt));
+    await letFramesRun(tester);
     expect(find.text('タグ 非表示'), findsOneWidget);
     await finishImageLoading(tester);
   });
