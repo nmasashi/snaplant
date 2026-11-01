@@ -61,12 +61,17 @@ export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED
  * すべてのハンドラが使う（createDatabaseErrorResponse）。Cosmos SDK 4.x は接続の失敗を RestError に包み、errno を
  * トップレベルの `code` に載せる（@typespec/ts-http-runtime の nodeHttpClient）。それでも
  * `hasCauseCode()` で `cause` までたどるのは、HTTP クライアントが fetch 系に変わると OpenAI SDK と
- * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージ・AI の判定と共有）
+ * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージ・AI の判定と共有）。
+ * Cosmos SDK が自分の待ち時間（requestTimeout）で打ち切ったとき（code が 'TimeoutError'）も、時間を置けば回復しうるので含める
+ * （要求を送った後の打ち切りなので書けていることもあるが、500 でも利用者は押し直すので変わらない。アプリは書き込みを自動で送り直さない。2026-11-01）
  * @param error 判定するエラー
  */
 export function isConnectivityError(error: unknown): boolean {
-  return hasCauseCode(error, UNREACHABLE_ERRNOS);
+  return hasCauseCode(error, [...UNREACHABLE_ERRNOS, COSMOS_TIMEOUT_CODE]);
 }
+
+/** Cosmos SDK が自分の待ち時間で打ち切ったときのエラーの code（@azure/cosmos の TimeoutErrorCode。SDK は公開していない） */
+const COSMOS_TIMEOUT_CODE = 'TimeoutError';
 
 /**
  * JSON としては読めるが、Cosmos が受け付けない継続トークン（別の絞り込みのものなど。Cosmos は 400 で拒む。推測）
