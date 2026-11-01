@@ -581,6 +581,8 @@ describe('写真の解析のワーカー', () => {
 
       // 命名規則も写真の種類のもの（06 §3.1）
       expect(promptText()).toContain(CATALOG_KINDS.food.namingRule);
+      // 食べ物は「〇〇の可能性もある」の補足を頼まない（名物名を一言で推し量らせない。06 §3.1、02 §5 #60）
+      expect(promptText()).not.toContain('可能性もある');
       const attributes = sent[0].body.response_format.json_schema.schema.properties.attributes;
       expect(Object.keys(attributes.properties).sort()).toEqual(['genre', 'mainIngredients']);
       expect(attributes.properties.genre.type).toEqual(['string', 'null']);
@@ -607,6 +609,8 @@ describe('写真の解析のワーカー', () => {
       await runWorker();
 
       expect(promptText()).toContain(CATALOG_KINDS.plant.namingRule);
+      // 植物は、確証が無いときに「〇〇の可能性もある」と補足させる（06 §3.1。食べ物だけ頼まない）
+      expect(promptText()).toContain('可能性もある');
       expect(promptText()).toContain('旭川の公園');
       expect(promptText()).toContain('北海道旭川市');
       // 撮影日時は分まで（YYYY-MM-DD HH:mm。06 §3.1）
