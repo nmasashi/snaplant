@@ -144,6 +144,24 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('変えるときは、旅行を読んでいる間も「保存」を押せる（初期値が今の日時で、旅行を読んでも替わらないので）', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend(takenAt: '2026-10-05T08:30:00', takenAtSource: 'user');
+    await _openViewer(tester, backend, '2026年10月5日 08:30');
+    final reply = backend.holdNextReply(TripRoute.detail);
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete();
+    });
+    await tester.tap(find.text('変更'));
+    await letFramesRun(tester);
+
+    final save = tester.widget<FilledButton>(find.ancestor(of: find.text('保存'), matching: find.byType(FilledButton)));
+    expect(save.onPressed, isNotNull);
+    reply.complete();
+    await letFramesRun(tester);
+    semantics.dispose();
+  });
+
   testWidgets('保存を待っている間は、下に払っても端末の戻る操作でもシートの外のタップでも閉じず、日付・時刻・「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
