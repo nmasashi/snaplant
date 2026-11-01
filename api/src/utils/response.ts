@@ -6,7 +6,7 @@ import { UNREACHABLE_ERRNOS, UpstreamError, UpstreamService, hasCauseCode, isCon
 /**
  * 上流のサービスごとの、接続できない（到達していない）とみなす errno と応答
  *
- * ストレージだけ ETIMEDOUT を含む（AI の失敗は今は応答にならない。下の ai の行）
+ * どれも UNREACHABLE_ERRNOS を使う（AI の失敗は今は応答にならない。下の ai の行）
  */
 const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
   code: ErrorCode;
@@ -24,7 +24,7 @@ const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
   },
   storage: {
     code: ErrorCode.STORAGE_ERROR,
-    unreachableCodes: [...UNREACHABLE_ERRNOS, 'ETIMEDOUT'],
+    unreachableCodes: UNREACHABLE_ERRNOS,
     unreachableMessage: 'ストレージサービスに接続できません',
     failedMessage: 'ストレージサービスでエラーが発生しました'
   }
