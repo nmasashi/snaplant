@@ -502,6 +502,32 @@ void main() {
       expect(backend.timelineDraftReadsReceived, 1);
     });
 
+    testWidgets('アプリが裏に回っている間は下書きの読み直しを止め、前に戻ったらすぐ読み直して、また 5 秒ごとに読み直す', (tester) async {
+      // 裏に回ると OS は inactive → hidden → paused の順に知らせ、戻ると逆の順に知らせる
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1);
+
+      for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await letFramesRun(tester);
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 1, reason: '裏にある間は読み直さない');
+
+      for (final state in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await letFramesRun(tester);
+      expect(backend.timelineDraftReadsReceived, 2, reason: '前に戻ったらすぐ読み直す');
+      await _waitForPoll(tester);
+      expect(backend.timelineDraftReadsReceived, 3, reason: 'また 5 秒ごとに読み直す');
+    });
+
     testWidgets('旅行詳細を閉じると、下書きの読み直しを止める', (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
