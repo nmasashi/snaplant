@@ -44,7 +44,8 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   /// 今の撮影日時か、送った日（端末の時刻）の日付
   DateTime _initialDate() {
     final takenAt = widget.photo.takenAt;
-    if (takenAt != null) return _withinRange(DateTime.parse(takenAt.substring(0, 10)));
+    // 今の日時はそのまま出す（範囲に収めて書き換えると、利用者が選んでいない日付で保存してしまう）
+    if (takenAt != null) return DateTime.parse(takenAt.substring(0, 10));
     final uploadedAt = widget.photo.uploadedAt;
     final local = uploadedAt == null
         ? DateTime.now()
@@ -84,13 +85,13 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   static final _firstDate = DateTime(1900);
   static final _lastDate = DateTime(2100, 12, 31);
 
-  /// [date] を選べる範囲に収める（壊れた撮影日時などで範囲の外になると、選択が開けず、範囲の外の日付を送ってしまう）
+  /// [date] を選べる範囲に収める（範囲の外の日付では選択が開けない。付けるときの初期値も収める）
   static DateTime _withinRange(DateTime date) =>
       date.isBefore(_firstDate) ? _firstDate : (date.isAfter(_lastDate) ? _lastDate : date);
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
-        context: context, initialDate: _date, firstDate: _firstDate, lastDate: _lastDate);
+        context: context, initialDate: _withinRange(_date), firstDate: _firstDate, lastDate: _lastDate);
     if (picked == null || !mounted) return;
     setState(() {
       _date = picked;
