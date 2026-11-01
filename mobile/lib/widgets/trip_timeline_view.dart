@@ -505,13 +505,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         onPressed: _sending ? null : send, child: const Text('もう一度'));
     if (draft.phase == 'writing') {
       if (draft.isFailed) {
-        return _StatusView(title: '見出しと一言を書けませんでした', actions: [
+        return _StatusView(title: '見出しとまとめを書けませんでした', actions: [
           retry(_write),
           review(primary: false),
         ]);
       }
       return const _StatusView(
-        title: '見出しと一言を書いています',
+        title: '見出しとまとめを書いています',
         message: 'ふつうは1分ほどで終わります。この画面を閉じても続きます。',
         actions: [_WritingSteps()],
       );
@@ -519,7 +519,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
     if (draft.phase == 'reviewing') {
       return _StatusView(
           title: 'タイムラインの案ができました',
-          message: '場面の分け方を確かめてから、AI が見出しと一言を書きます。',
+          message: '場面の分け方を確かめてから、AI が見出しとまとめを書きます。',
           actions: [review(primary: true)]);
     }
     if (draft.isFailed) {
@@ -637,7 +637,7 @@ class _WritingSteps extends StatelessWidget {
                 child: CircularProgressIndicator(
                     strokeWidth: 2,
                     valueColor: AlwaysStoppedAnimation(AppColors.primary))),
-            '見出しと一言'),
+            '見出しとまとめ'),
       ],
     );
   }

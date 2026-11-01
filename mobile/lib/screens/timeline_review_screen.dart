@@ -501,7 +501,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しと一言はそのまま残します' : '見出しと一言は AI が書きます'}',
+              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しとまとめはそのまま残します' : '見出しとまとめは AI が書きます'}',
               style: AppTextStyles.caption
                   .copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
