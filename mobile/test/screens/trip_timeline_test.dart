@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/app_test_helpers.dart';
+import '../helpers/gallery_test_helpers.dart';
+import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
+import '../helpers/upload_test_helpers.dart';
 
 // 旅行詳細のタイムライン（docs/03_screen_design.md §8.1・§8.2。段階5の 5-3a）。
 // 入口は旅行詳細の「写真」「タイムライン」の切り替え。ワーカーが進んだこと（区切り案ができた・文を書き終えた）は、
@@ -146,6 +151,54 @@ void main() {
 
       expect(photoThumbnail('2026年10月5日 10:33'), findsOneWidget);
       semantics.dispose();
+    });
+
+    group('隠している間の読み直し', () {
+      // 送った写真のサムネイルを出したまま実時間を進めるので、画像のキャッシュの置き場（path_provider）を一時ディレクトリに差し替える
+      // （pending_photo_tiles_test.dart と同じ。テストごとに差し替えると互いに干渉する）
+      late Directory cacheDirectory;
+      const channel = MethodChannel('plugins.flutter.io/path_provider');
+
+      setUpAll(() {
+        cacheDirectory = Directory.systemTemp.createTempSync('snaplant_image_cache');
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async => cacheDirectory.path);
+      });
+
+      tearDownAll(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+        try {
+          cacheDirectory.deleteSync(recursive: true);
+        } catch (_) {
+          // キャッシュの掃除のタイマーなどが使っている間は消せないことがある。一時ディレクトリなので残っても構わない
+        }
+      });
+
+      testWidgets('「タイムライン」を出している間に送信が一区切りついたら、隠したまま写真の一覧を読み直し、「写真」に戻すと送った写真が出る', (tester) async {
+        // 送信の応答を止めておき、「タイムライン」に切り替えてから放す。一区切りの読み直しは隠したグリッドで起きる
+        final semantics = tester.ensureSemantics();
+        useFakeImageCompress();
+        useGalleryReturning([writeTestImage('one.png', bytes: [...tinyPngBytes, 1])]);
+        final backend = await _openTripDetail(tester);
+        final release = backend.holdNextReply(TripRoute.upload);
+        await tester.tap(find.text('写真を追加'));
+        await waitUntilUploadsReceived(tester, backend, 1);
+        await letFramesRun(tester);
+        await _showTimeline(tester);
+
+        release.complete();
+        await waitRealTime(tester);
+        await letFramesRun(tester);
+        await tester.tap(find.text('写真'));
+        await letFramesRun(tester);
+
+        // 送った写真（撮影日時なし）が、読み直した一覧に出ている
+        await waitUntilFound(tester, find.bySemanticsLabel(RegExp('^撮影日時なし')));
+        expect(find.bySemanticsLabel(RegExp('^撮影日時なし')), findsOneWidget);
+        // キャッシュの掃除のタイマーを済ませる
+        await tester.pump(const Duration(seconds: 20));
+        semantics.dispose();
+      });
     });
 
     testWidgets('写真を複数選択している間は、切り替えを出さない', (tester) async {
