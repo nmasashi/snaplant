@@ -17,10 +17,10 @@ final _image = base64Decode(
 
 const _takenAt = '2026年10月6日 10:15';
 
-/// タグ（名前・種類・位置。04 §2）
+/// タグ（名前・種類・位置・出どころ。04 §2）
 Map<String, Object?> _tag(String name,
         {String kind = 'food', double x = 0.5, double y = 0.5}) =>
-    {'name': name, 'kind': kind, 'x': x, 'y': y};
+    {'name': name, 'kind': kind, 'x': x, 'y': y, 'source': 'user'};
 
 /// 撮影日時が 2026年10月6日 10:15 の写真（[number] が 2 なら 10月7日）
 Map<String, Object?> _photo(
@@ -114,7 +114,7 @@ void main() {
       ];
       await _openViewer(tester, _photo(tags: tags), waitFor: _onPhoto('味噌汁'));
 
-      // 名前は点の右に、点と同じ高さで出す（点は画像の中の割合の位置）。同じ名前のタグもあるので、名前ごとに「どれかがその位置にある」で見る
+      // 名前は吹き出しで、タグの位置の真上に出す（§5.9。C-4c）。同じ名前のタグもあるので、名前ごとに「どれかがその位置にある」で見る
       for (final tag in tags) {
         final point = _at(tester, tag['x'] as double, tag['y'] as double);
         final labels = _onPhoto(tag['name'] as String);
@@ -124,9 +124,9 @@ void main() {
         ];
         expect(
             rects.any((rect) =>
-                (rect.center.dy - point.dy).abs() < 2 &&
-                rect.left >= point.dx &&
-                rect.left <= point.dx + 24),
+                (rect.center.dx - point.dx).abs() < 2 &&
+                rect.bottom < point.dy &&
+                point.dy - rect.bottom < 24),
             isTrue,
             reason: '$tag');
       }
@@ -410,14 +410,16 @@ void main() {
           ]),
           waitFor: _onPhoto('味噌汁'));
 
-      await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(24, 0));
+      // 吹き出しはタグの位置の上に出る（§5.9）
+      await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(0, -20));
       await letFramesRun(tester);
       expect(find.text('「海鮮丼」のタグを消しますか？'), findsOneWidget);
       await tester.tap(find.text('キャンセル'));
       await letFramesRun(tester);
       expect(_storedTags(backend), hasLength(3));
 
-      await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(24, 0));
+      // 吹き出しはタグの位置の上に出る（§5.9）
+      await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(0, -20));
       await letFramesRun(tester);
       await tester.tap(find.text('消す'));
       await letFramesRun(tester);
