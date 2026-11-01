@@ -165,8 +165,8 @@ void main() {
         }
       });
 
-      testWidgets('「タイムライン」を出している間に送信が一区切りついたら、隠したまま写真の一覧を読み直し、「写真」に戻すと送った写真が出る', (tester) async {
-        // 送信の応答を止めておき、「タイムライン」に切り替えてから放す。一区切りの読み直しは隠したグリッドで起きる
+      testWidgets('「タイムライン」を出している間に送信が一区切りついたら、「写真」に戻したときに写真の一覧を読み直し、送った写真が出る', (tester) async {
+        // 送信の応答を止めておき、「タイムライン」に切り替えてから放す。隠している間は一覧を読まず、「写真」に戻したときに読み直す
         final semantics = tester.ensureSemantics();
         useFakeImageCompress();
         useGalleryReturning([writeTestImage('one.png', bytes: [...tinyPngBytes, 1])]);
