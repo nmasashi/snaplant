@@ -77,7 +77,7 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     // 日時の無い写真はタイムラインに入れない（作り直しても入らない）ので数えない（02 §5 #54）。
     // 外した写真は画面に出していないので、その後に消えても知らせない
     changes = {
-      added: photos.filter((photo) => photo.takenAt !== null && (!snapshotIds.has(photo.id) || undatedInSnapshot.has(photo.id))).length,
+      added: photos.filter((photo) => photo.takenAt !== null && (!snapshotIds.has(photo.id) || undatedInSnapshot.has(photo.id)) && !excluded.has(photo.id)).length,
       removed: snapshot.filter((photo) => photo.takenAt !== null && !existing.has(photo.id) && !excluded.has(photo.id)).length,
     };
   }
