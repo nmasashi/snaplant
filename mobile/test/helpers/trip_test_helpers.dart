@@ -1318,6 +1318,12 @@ class FakeTripBackend {
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
   }
 
+  /// 実在する日時か（2月30日などを断る。本物の isExistingDateTime と同じ）
+  static bool _isExistingDateTime(String value) {
+    final parsed = DateTime.tryParse('${value}Z');
+    return parsed != null && parsed.toIso8601String().substring(0, 19) == value;
+  }
+
   http.Response _updatePhoto(http.Request request) {
     final photoId = request.url.pathSegments[2];
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
@@ -1398,7 +1404,7 @@ class FakeTripBackend {
     if (body.containsKey('takenAt')) {
       // 実際のサーバと同じ（05 §5.6 の 9.7・11。D-1）: タイムゾーン無しの日時か null。カメラの撮影日時は 409。並びも書き直す
       final takenAt = body['takenAt'];
-      if (takenAt != null && (takenAt is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$').hasMatch(takenAt))) {
+      if (takenAt != null && (takenAt is! String || !_isExistingDateTime(takenAt) || !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$').hasMatch(takenAt))) {
         return _error(400, 'INVALID_REQUEST', '撮影日時の形式が無効です');
       }
       if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
@@ -1407,7 +1413,9 @@ class FakeTripBackend {
       }
       photo['takenAt'] = takenAt;
       photo['takenAtSource'] = takenAt == null ? 'none' : 'user';
-      photo['sortAt'] = takenAt ?? '2026-10-10T12:12:45';
+      // 消したら、送った日時を日本時間に直した値に戻す（本物の computeSortAt と同じ）
+      photo['sortAt'] = takenAt ??
+          DateTime.parse(photo['uploadedAt'] as String).toUtc().add(const Duration(hours: 9)).toIso8601String().substring(0, 19);
     }
     photo!['updatedAt'] = processAcceptedAt;
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
