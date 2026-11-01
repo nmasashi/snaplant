@@ -42,6 +42,10 @@ Map<String, Object?> tripJson({
   };
 }
 
+/// 偽のサーバがサムネイルに返す画像（横 20・縦 40 の PNG。原寸と縦横の比を変えて、読む画像の取り違えを見分ける）
+final _thumbnailImage = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAABQAAAAoCAIAAABxU02MAAAAJElEQVR4nGPQqDhBNmIY1TyqeVTzqOZRzaOaRzWPah7VTC4CAKOYZT36cB51AAAAAElFTkSuQmCC');
+
 /// 写真の画像を置く Blob のホスト（偽のサーバは、このホストへの要求に [FakeTripBackend.imageBytes] を返す）
 const testBlobHost = 'stsnaplant.blob.core.windows.net';
 
@@ -313,7 +317,8 @@ class FakeTripBackend {
   /// 宛先ごとに、応答を返すのをこの Future が終わるまで止める（Completer の future を入れる）
   final Map<TripRoute, Future<void>> holds = {};
 
-  /// 写真の画像（Blob の URL）を読む要求に返す画像のバイト列。null なら 404（画像は読み込めない。テストの既定）。
+  /// 写真の原寸の画像（Blob の URL）を読む要求に返す画像のバイト列。null なら 404（画像は読み込めない。テストの既定）。
+  /// null でなければ、サムネイルには縦横の比の違う画像（[_thumbnailImage]）を返す
   /// 画像を読み込ませるテスト（写真の上のタグ。03 §5.7）は、原寸のキャッシュを差し替えてから使う（`useImageCacheOf`）
   Uint8List? imageBytes;
 
@@ -407,8 +412,11 @@ class FakeTripBackend {
     // 関数キーはヘッダで受け取る（Azure Functions は x-functions-key ヘッダでも ?code= でも受け付ける。アプリはヘッダで送る。docs/05 §9.1）
     // 写真の画像は Blob から SAS 付きの URL で読む（関数キーは要らない）
     if (request.url.host == testBlobHost) {
-      final bytes = imageBytes;
-      return bytes == null ? http.Response('', 404) : http.Response.bytes(bytes, 200, headers: {'content-type': 'image/png'});
+      // サムネイル（`<id>.thumb.jpg`）には原寸と縦横の比の違う画像を返す（ビューアが読む画像を取り違えると、写真の上のタグの位置がずれる）
+      final bytes = request.url.path.endsWith('.thumb.jpg') ? _thumbnailImage : imageBytes;
+      return bytes == null || imageBytes == null
+          ? http.Response('', 404)
+          : http.Response.bytes(bytes, 200, headers: {'content-type': 'image/png'});
     }
     if (request.url.host != testApiHost || request.headers['x-functions-key'] != functionKey) {
       return http.Response('', 404);

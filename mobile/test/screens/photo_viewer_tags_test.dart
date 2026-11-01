@@ -91,9 +91,7 @@ Finder _inSheet(Finder finder) =>
     find.descendant(of: find.byType(BottomSheet), matching: finder);
 
 /// シートの種類の選択肢 [label]
-RadioListTile<String> _option(WidgetTester tester, String label) =>
-    tester.widget<RadioListTile<String>>(_inSheet(find.ancestor(
-        of: find.text(label), matching: find.byType(RadioListTile<String>))));
+Finder _option(String label) => _inSheet(find.widgetWithText(RadioListTile<String>, label));
 
 /// 「タグを付ける」を押し、画像の中の割合 ([x], [y]) をタップしてシートを開く
 Future<void> _startAdding(WidgetTester tester, double x, double y) async {
@@ -112,23 +110,42 @@ void main() {
         _tag('海鮮丼', x: 0.25, y: 0.75),
         _tag('味噌汁', x: 0.7, y: 0.2),
         _tag('海鮮丼', x: 0.8, y: 0.8),
+        _tag('刺身', x: 0.4, y: 0.4),
       ];
       await _openViewer(tester, _photo(tags: tags), waitFor: _onPhoto('味噌汁'));
 
-      // 名前は点の右に出す（点は画像の中の割合の位置）
-      for (final (index, tag) in tags.indexed) {
-        final name = tag['name'] as String;
+      // 名前は点の右に、点と同じ高さで出す（点は画像の中の割合の位置）。同じ名前のタグもあるので、名前ごとに「どれかがその位置にある」で見る
+      for (final tag in tags) {
         final point = _at(tester, tag['x'] as double, tag['y'] as double);
-        final label = _onPhoto(name).at(name == '海鮮丼' && index == 2 ? 1 : 0);
-        expect(tester.getCenter(label).dy, closeTo(point.dy, 12), reason: '$index');
-        expect(tester.getTopLeft(label).dx, inInclusiveRange(point.dx, point.dx + 24),
-            reason: '$index');
+        final labels = _onPhoto(tag['name'] as String);
+        final rects = [
+          for (var i = 0; i < labels.evaluate().length; i++)
+            tester.getRect(labels.at(i))
+        ];
+        expect(
+            rects.any((rect) =>
+                (rect.center.dy - point.dy).abs() < 2 &&
+                rect.left >= point.dx &&
+                rect.left <= point.dx + 24),
+            isTrue,
+            reason: '$tag');
       }
       expect(find.text('タグ:'), findsOneWidget);
       expect(_chip('海鮮丼'), findsNWidgets(2));
-      expect(_chip('味噌汁'), findsOneWidget);
-      expect(tester.getTopLeft(_chip('海鮮丼').first).dx,
-          lessThan(tester.getTopLeft(_chip('味噌汁')).dx));
+      // 札は保存順（海鮮丼・味噌汁・海鮮丼・刺身）
+      final order = [
+        _chip('海鮮丼').first,
+        _chip('味噌汁'),
+        _chip('海鮮丼').last,
+        _chip('刺身'),
+      ].map((chip) => tester.getTopLeft(chip)).toList();
+      for (var i = 1; i < order.length; i++) {
+        final before = order[i - 1];
+        final after = order[i];
+        expect(after.dy > before.dy || (after.dy == before.dy && after.dx > before.dx),
+            isTrue,
+            reason: '$i 枚目の札が前の札の後ろにある');
+      }
 
       // 写真をタップして上のバーと下の情報を隠すと、写真の上のタグも消える
       await tester.tapAt(_at(tester, 0.5, 0.5));
@@ -168,7 +185,8 @@ void main() {
       await letFramesRun(tester);
 
       expect(_inSheet(find.text('タグを付ける')), findsOneWidget);
-      expect(_option(tester, '食べ物').groupValue, 'food');
+      // 選ばれているかは読み上げの「選択済み」で見る
+      expect(tester.getSemantics(_option('食べ物')), containsSemantics(isChecked: true));
       await tester.enterText(_inSheet(find.byType(TextField)), '  味噌汁 ');
       await tester.pump();
       await tester.tap(_inSheet(find.text('保存')));
@@ -195,7 +213,7 @@ void main() {
           waitFor: _onPhoto('海鮮丼'));
 
       await _startAdding(tester, 0.5, 0.5);
-      expect(_option(tester, 'その他').groupValue, 'other');
+      expect(tester.getSemantics(_option('その他')), containsSemantics(isChecked: true));
       await tester.enterText(_inSheet(find.byType(TextField)), '紅葉');
       await tester.tap(_inSheet(find.text('植物')));
       await tester.pump();
@@ -274,7 +292,7 @@ void main() {
       await finishImageLoading(tester);
     });
 
-    testWidgets('保存に失敗したらシートに留まって理由を出し、保存を待っている間は「キャンセル」「保存」もシートの外のタップも効かない',
+    testWidgets('保存に失敗したらシートに留まって理由を出し、押し直せる。保存を待っている間は「キャンセル」「保存」もシートの外のタップも下へ払う操作も効かない',
         (tester) async {
       final backend = await _openViewer(tester, _photo(tags: [_tag('海鮮丼')]),
           waitFor: _onPhoto('海鮮丼'));
@@ -283,26 +301,40 @@ void main() {
       await tester.pump();
 
       final reply = backend.holdNextReply(TripRoute.updatePhoto);
+      addTearDown(() {
+        if (!reply.isCompleted) reply.complete();
+      });
       backend.failNext(TripRoute.updatePhoto,
           status: 500, code: 'INTERNAL_ERROR', message: '写真の更新に失敗しました');
       await tester.tap(_inSheet(find.text('保存')));
       await tester.pump();
-      // 待っている間は閉じない
+      // 待っている間は、シートの外のタップでも下へ払っても閉じず、「キャンセル」「保存」も押せない
       await tester.tapAt(const Offset(10, 10));
       await tester.pump();
+      await tester.drag(_inSheet(find.text('タグを付ける')), const Offset(0, 500));
+      await tester.pump();
       expect(find.byType(BottomSheet), findsOneWidget);
-      expect(
-          tester.widget<ButtonStyleButton>(find.ancestor(
-                  of: _inSheet(find.text('キャンセル')),
-                  matching: find.bySubtype<ButtonStyleButton>()))
-              .onPressed,
-          isNull);
+      for (final label in ['キャンセル', '保存']) {
+        expect(
+            tester.widget<ButtonStyleButton>(find.ancestor(
+                    of: _inSheet(find.text(label)),
+                    matching: find.bySubtype<ButtonStyleButton>()))
+                .onPressed,
+            isNull,
+            reason: label);
+      }
       reply.complete();
       await letFramesRun(tester);
 
       expect(find.byType(BottomSheet), findsOneWidget);
       expect(_inSheet(find.text(serverErrorMessage)), findsOneWidget);
       expect(_storedTags(backend), [_tag('海鮮丼')]);
+
+      // 失敗した後は、そのまま押し直せる
+      await tester.tap(_inSheet(find.text('保存')));
+      await letFramesRun(tester);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(_storedTags(backend), hasLength(2));
       await finishImageLoading(tester);
     });
 
@@ -335,12 +367,33 @@ void main() {
       expect(find.text('タグを付ける場所をタップしてください'), findsNothing);
     });
 
+    testWidgets('画像を読み込めないときは、付ける間に写真をタップしても何もしない', (tester) async {
+      await _openViewer(tester, _photo(tags: [_tag('海鮮丼')]), loadImage: false);
+      await tester.tap(find.byTooltip('タグを付ける'));
+      await letFramesRun(tester);
+
+      await tester.tapAt(tester.getCenter(find.byType(InteractiveViewer)));
+      await letFramesRun(tester);
+
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.text('タグを付ける場所をタップしてください'), findsOneWidget);
+    });
+
     testWidgets('タグが 20 個ある写真では「タグを付ける」を押せない', (tester) async {
       await _openViewer(
           tester, _photo(tags: [for (var i = 0; i < 20; i++) _tag('タグ$i')]),
           loadImage: false);
 
       expect(_addButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('タグが 19 個の写真では「タグを付ける」を押せる', (tester) async {
+      await _openViewer(
+          tester, _photo(tags: [for (var i = 0; i < 19; i++) _tag('タグ$i')]),
+          loadImage: false);
+
+      expect(_addButton(tester).onPressed, isNotNull);
     });
   });
 
@@ -357,14 +410,14 @@ void main() {
           ]),
           waitFor: _onPhoto('味噌汁'));
 
-      await tester.tap(_onPhoto('海鮮丼').at(1));
+      await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(24, 0));
       await letFramesRun(tester);
       expect(find.text('「海鮮丼」のタグを消しますか？'), findsOneWidget);
       await tester.tap(find.text('キャンセル'));
       await letFramesRun(tester);
       expect(_storedTags(backend), hasLength(3));
 
-      await tester.tap(_onPhoto('海鮮丼').at(1));
+      await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(24, 0));
       await letFramesRun(tester);
       await tester.tap(find.text('消す'));
       await letFramesRun(tester);
@@ -453,6 +506,11 @@ void main() {
       reply.complete();
       await letFramesRun(tester);
       expect(_storedTags(backend), [_tag('海鮮丼', x: 0.3)]);
+      // 消し終えたら、また押せる
+      expect(_addButton(tester).onPressed, isNotNull);
+      await tester.tap(find.byTooltip('海鮮丼のタグを消す'));
+      await letFramesRun(tester);
+      expect(find.text('「海鮮丼」のタグを消しますか？'), findsOneWidget);
       await finishImageLoading(tester);
     });
   });
