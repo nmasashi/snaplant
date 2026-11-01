@@ -90,12 +90,12 @@ export function timelineDayStartHour(): number {
 export const TIMELINE_SNAPSHOT_COMMENT_LENGTH = 100;
 
 /**
- * 解析（分類・識別）が済んでいない写真の状態
+ * 解析（分類・識別・タグの提案）が済んでいない写真の状態
  *
  * 再投入のタイマーが拾う状態で、タイムラインを作れない状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。
- * SQL の IN の並び（albumService.listStalePhotos）も同じ3つにする
+ * SQL の IN の並び（albumService.listStalePhotos）も同じものにする
  */
-export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying'];
+export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying', 'tagging'];
 
 /**
  * タイムラインの区切り案の max_completion_tokens（推論のトークンも含む）
