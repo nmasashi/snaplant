@@ -116,8 +116,8 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `contentType` | string | ○ | 2 | 原寸の Content-Type（`FILE_UPLOAD.SUPPORTED_IMAGE_TYPES` のいずれか） |
 | `fileSize` | number | ○ | 2 | 原寸のバイト数 |
 | `takenAt` | string \| null | ○（null 可） | 2 | 撮影日時。**タイムゾーン無し**の `YYYY-MM-DDTHH:mm:ss`。EXIF に無ければ `null`。`Z` を付けない（付けると Flutter の `toLocal()` で9時間ずれる。#23 と同型） |
-| `takenAtSource` | `"exif"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。出どころが増えたら値を足す |
-| `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
+| `takenAtSource` | `"exif"` \| `"user"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。D-1 から（**実装済み**（D-1））、利用者が撮影日時を手で付けたら `"user"`（直せて、消すと `"none"` に戻る。`"exif"` の写真は手で変えられない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59・[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)） |
+| `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない（撮影日時を手で付ける・消すと書き直す。下の説明。D-1 で実装済み）。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
 | `location` | object \| null | ○（null 可） | 2 | 位置情報。無ければ `null`（要件 5.2「位置情報は必須にしない」） |
 | `location.latitude` / `longitude` | number \| null | ○（null 可。C-2） | 2 | 緯度（-90〜90）・経度（-180〜180）。送信（`POST /api/photos`）で作った `location` では必ず数値。利用者が位置情報の無い写真に地名を書いたとき（C-2）だけ両方 `null`（地名だけの撮影地。このとき `placeName` は必ずある。地名を消すと `location` ごと `null` に戻る） |
 | `location.placeName` | string \| null | ○（null 可） | 2 | 地名（市区町村など）。送信では 1〜100 文字（`PHOTO_PLACE_NAME_MAX_LENGTH`）で、空白だけは不可。送られたまま保存する（前後の空白を除かない）。C-2 からは解析を頼むとき（`process` の `placeName`）に利用者が直せ、そのときは前後の空白を除いた値を保存する（100 文字は見た目の1文字で数える。[05 §9.6](./05_api_design.md#96-利用者が書く文の文字数と前後の空白)） |
@@ -154,7 +154,8 @@ Blob 名に旅行の id を含めない。旅行への出し入れで Blob を�
 - `sortAt` は文字列として比べる（`YYYY-MM-DDTHH:mm:ss` は辞書順が時刻順と一致する）。同値の並びは Cosmos に任せる（固定したければ複合インデックス（`sortAt`, `id`）を足す。段階2では入れない）
 - **`null` の扱いの問題が無くなる。** Cosmos の `ORDER BY` が null を先頭に置くか、項目が無いドキュメントを結果から外すか（推測）を気にせずに済む。`sortAt` は常に文字列で、欠けることが無い
 - `takenAt` は `POST /api/photos` の後に変わらない（段階2〜4に `takenAt` を直す API は無い）ので、`sortAt` を作成時に1回決めれば食い違わない。
-  出どころが増えて `takenAt` を後から直す API を足すなら、同じ patch で `sortAt` も書き直す
+  出どころが増えて `takenAt` を後から直す API を足すなら、同じ patch で `sortAt` も書き直す。
+  **実装済み**（D-1）: 撮影日時を手で付ける・直す・消す `PATCH /api/photos/{photoId}` の `takenAt` は、同じ patch で `sortAt` を上の表の決め方で書き直す（付けたら `takenAt` と同じ値、消したら `uploadedAt` から作る値。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）
 - 要件 5.2「撮影日時順に並べるときは末尾に置くなど」は、「撮影日時の無い写真はアップロード日時の位置に置く」で満たす。
   ふつうは旅行中の撮影日時よりアップロードが後なので、結果として末尾付近に並ぶ
 
@@ -283,6 +284,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
   利用者が区切りを保存するとき（5-1c）は、控えに無い・撮影日時の無い写真の id、重なり、撮影の順でない並びを 400 で弾き、各日の最初の写真と、写真が全部消えた場面の区切りが抜けていれば補う（5-3b・5-4a）ので、保存した下書きの `sceneStarts` は控えの撮影日時のある写真だけで、撮影の順に並び、各日の最初の写真を含む（[05 §5.15](./05_api_design.md#515-タイムライン段階5)）
 - **利用者が直した区切り**: `sceneStarts` と `proposedStarts` の差。足した区切り = `sceneStarts` にあって `proposedStarts` に無いもの、消した区切り = その逆（表示の `startedBy` に使う。作り直しでは新しい案に当てない。5-5b で実装済み）
 - **控えは作るとき・作り直すときに取る**。その後に写真が増えた・消えたときは、作り直すまで控えのまま（画面は増えた・消えた枚数を知らせる。消えた写真は出さず、写真が全部消えた場面と日は出さない）。やり直しで名前やカテゴリが変わったことは知らせない（作り直せば新しい控えになる）。
+  撮影日時も控えのまま出す。作った後に撮影日時を手で付けた写真（控えでは撮影日時が無い）は、作り直すまでタイムラインに出さず、増えた枚数に数える。手で付けた撮影日時を作った後に消した写真は、控えの日時のまま出し、消えた枚数に数えない（D-3 で実装済み。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59・[05 §5.15](./05_api_design.md#515-タイムライン段階5)）。
   何日目かと場面の分け方は、消えた写真も含めた控えで決め、出すときに消えた写真を除く（写真を消しても日の番号や区切りが動かない。場面の最初の写真が消えても、場面の id は控えの最初の写真のまま）
 - **外した写真**（T-1 で実装済み。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52）: `excludedPhotoIds` の写真は、消えた写真と同じく出さない（写真を全部外した場面と日も出さない）。何日目かと場面の分け方は外した写真も含めた控えで決めるので、場面の最初の写真を外しても場面の id は控えの最初の写真のままで、文と場面のコメントもその id に付いたまま。
   写真が変わった枚数の「消えた」（`changes.removed`）には数えない。区切りの保存で補う「写真が全部消えた場面の区切り」には、写真を全部外した場面も入る。文を書く AI には外した写真を渡さず、写真を全部外した場面と日の文は書かない（その場面・日の文は完成版に無い）。
@@ -680,7 +682,7 @@ ORDER BY c.identification.confidence DESC, c.identification.at DESC
 | 旅行の削除（写真も消す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).delete()` + Blob 削除 → `item(tripId, tripId).delete()` |
 | 旅行の削除（写真は残す） | 中の写真の射影（5.10）をページで読み、1枚ずつ `item(id, id).patch([{ op: 'set', path: '/tripId', value: null }, { op: 'set', path: '/updatedAt', value: now }])`（move の「外す」と同じ）→ `item(tripId, tripId).delete()` |
 | 写真の削除 | `item(id, id).delete()` → Blob 削除（失敗はログ） |
-| コメント・タグ・カテゴリの更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])`。カテゴリ（C-1。実装済み）を送ったときは先に `item(id, id).read()` で今のカテゴリと `processing` を読み、`categorySource`（と、変わる・分類を止めるときは `category`・`identification`・`processing`）の `set` を同じ patch に入れる。カテゴリが変わる・分類を止めるときは、読んだときのコメントが AI のもの（`commentSource: "ai"`）なら `comment`・`commentSource` を `null` にする `set` も同じ patch に入れ、条件は、読んだときのコメントが AI のものなら `FROM c WHERE c.commentSource = "ai"`、それ以外なら `FROM c WHERE (IS_NULL(c.commentSource) OR c.commentSource = "user")` を付けて `item(id, id).patch({ operations, condition })` で書く。412（読んだ後に他がコメントを書いた）なら読み直して書き直す（3回まで。「カテゴリの変更で AI のコメントを消す」で実装済み）。それ以外は条件を付けない。読んだときに無ければ（と patch の 404）写真が無い。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) |
+| コメント・タグ・カテゴリ・撮影日時の更新 | `item(id, id).patch([{ op: 'set', path: '/comment', ... }, ...])`。カテゴリ（C-1。実装済み）を送ったときは先に `item(id, id).read()` で今のカテゴリと `processing` を読み、`categorySource`（と、変わる・分類を止めるときは `category`・`identification`・`processing`）の `set` を同じ patch に入れる。カテゴリが変わる・分類を止めるときは、読んだときのコメントが AI のもの（`commentSource: "ai"`）なら `comment`・`commentSource` を `null` にする `set` も同じ patch に入れ、条件は、読んだときのコメントが AI のものなら `FROM c WHERE c.commentSource = "ai"`、それ以外なら `FROM c WHERE (IS_NULL(c.commentSource) OR c.commentSource = "user")` を付けて `item(id, id).patch({ operations, condition })` で書く。412（読んだ後に他がコメントを書いた）なら読み直して書き直す（3回まで。「カテゴリの変更で AI のコメントを消す」で実装済み）。それ以外は条件を付けない。読んだときに無ければ（と patch の 404）写真が無い。撮影日時（`takenAt`。D-1 で実装済み）を送ったときも先に `item(id, id).read()` で読み（カテゴリと一緒なら読むのは1回）、`takenAtSource` が `"exif"` なら書かずに 409、それ以外は `takenAt`・`takenAtSource`・`sortAt` の `set` を同じ patch に入れる（撮影日時の分は条件を付けない）。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) |
 | やり直しの受付（段階3。`POST /api/photos/{photoId}/process`） | `item(id, id).patch([processing・hint・comment・commentSource・updatedAt の set])`（`step: "classify"` なら `categorySource: null` の set も。C-1 で実装済み）。`step: "identify"` か場所（`placeName`）を送ったときは先に `item(id, id).read()` で読み、場所の地名が今と違えば `location` の set も同じ patch に入れる（C-2 で実装済み。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)）。条件は付けない（解析中でも最新の依頼で上書きする）。読んだときに無ければ（と patch の 404）写真が無い |
 | 再投入のタイマーが止まった写真を戻す（段階3） | `item(id, id).patch({ operations: [processing の set], condition: 'FROM c WHERE c.processing.state = "<読んだ state>" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ attempts> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"' })`（`AlbumService.writeProcessing()`）。412・404 なら触らずに次へ |
 | 分類まで済んだ写真を識別の待ちにする（段階4。手で回すスクリプト。[06 §1.2](./06_processing_design.md#12-流れ)） | 上と同じ `writeProcessing()`（読んだときの `processing` の条件付き patch）で `processing` を `{ state: "pending", step: "identify", attempts: 0, lastError: null, updatedAt: <今> }` に。412・404 なら飛ばして次へ。キューには積まない（再投入のタイマーが積む） |
@@ -887,15 +889,15 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 宛先の旅行が、存在の検査の後に消された | 消えた旅行を指す写真 | どの一覧にも出ない（写真は消えていない） | 掃除（段階3。§7.3） |
 | 写真が同時に消された | 404 → `notFound` | 文言に「見つかりませんでした」 | — |
 
-**PATCH**（`PATCH /api/photos/{photoId}`。文書1つ。カテゴリを送ったときは、順: 写真を読む → patch（カテゴリが変わる・分類を止めるときはコメントの出どころの条件付き。412 なら読むところからやり直す）→（識別の待ちになったら）キューに投入。カテゴリの行は C-1 で、AI のコメントを消す行は「カテゴリの変更で AI のコメントを消す」で実装済み）
+**PATCH**（`PATCH /api/photos/{photoId}`。文書1つ。カテゴリを送ったときは、順: 写真を読む → patch（カテゴリが変わる・分類を止めるときはコメントの出どころの条件付き。412 なら読むところからやり直す）→（識別の待ちになったら）キューに投入。カテゴリの行は C-1 で、AI のコメントを消す行は「カテゴリの変更で AI のコメントを消す」で実装済み。撮影日時（`takenAt`）を送ったときも先に写真を読み、カメラが記録した撮影日時（`takenAtSource: "exif"`）なら何も書かずに 409。撮影日時の分は D-1 で実装済み）
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| （カテゴリ）写真の読み取り | 何も変わらない | 失敗（503 / 500） | 再送 |
+| （カテゴリ・撮影日時）写真の読み取り | 何も変わらない | 失敗（503 / 500） | 再送 |
 | patch | 何も変わらない | 失敗 | 再送 |
 | （カテゴリが変わる・分類を止める）patch の条件に合わない（読んだ後に他がコメントを書いた）のが3回続く | 何も変わらない | 失敗（500） | 再送 |
 | （カテゴリを植物に変えた）キューへの投入 | `pending`・`step: "identify"` の写真。メッセージは無い | 成功（200。投入の失敗で失敗を返さない）。「識別中...」のまま | 自動（再投入のタイマーが `processing.step` を見て積む） |
-| ワーカーの書き込みと重なる（コメント・タグ） | patch は項目単位で、利用者が書く欄（`comment`・`tags`・`tripId`）と AI が書く欄（`category`・`classification`・`identification`・`processing`）が分かれているので、互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch で書き、412 なら書かない（§7.4）。「解析中」で利用者の更新を止めるロックは置かない | — | 自動 |
+| ワーカーの書き込みと重なる（コメント・タグ） | patch は項目単位で、利用者が書く欄（`comment`・`tags`・`tripId`。D-1 から撮影日時の `takenAt`・`takenAtSource`・`sortAt`）と AI が書く欄（`category`・`classification`・`identification`・`processing`）が分かれているので、互いを消すことは無い。`comment` だけは両方が書くので、ワーカーは「`commentSource` が `"user"` でなければ」の条件付き patch で書き、412 なら書かない（§7.4）。「解析中」で利用者の更新を止めるロックは置かない | — | 自動 |
 | 分類・識別の間にカテゴリを手で決めた（カテゴリが変わったか、分類が済んでいない（待っている・している・失敗した）写真） | 手で決めたカテゴリと、`PATCH` が書いた `processing`（済み、または植物なら識別の待ち）。書いたときに AI のコメントだったら消えている | 手で決めたカテゴリ | 走っていた分類・識別の結果・失敗・コメントは、担当したときの `processing` の条件に合わず 412 で書かれない（§7.4）。植物なら `PATCH` が積んだメッセージが識別を担当する |
 
 **やり直しの受付**（`POST /api/photos/{photoId}/process`。[05 §5.7](./05_api_design.md#57-post-apiphotosphotoidprocess段階3)。順: （`step: "identify"` か、場所 `placeName` を送ったとき）写真を読む → patch → キューに投入。場所を直すときは撮影地（`location`）も同じ patch で書く。場所を送ったときの読み取りと `location` の書き込みは C-2 で実装済み）

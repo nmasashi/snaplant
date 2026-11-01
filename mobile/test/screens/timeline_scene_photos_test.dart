@@ -205,7 +205,7 @@ void main() {
     });
 
     testWidgets('操作を送っている間は、場面をタップしても一覧を開かない', (tester) async {
-      // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
+      // 送っている間の扱いは §8.1 と同じ。全ケースは timeline_switch_test.dart の「操作を送っている間は…」で通している
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
       await tester.tap(find.byIcon(Icons.more_vert));

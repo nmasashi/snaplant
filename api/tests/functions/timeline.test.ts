@@ -628,7 +628,8 @@ describe('タイムラインを読むAPI（GET）', () => {
   /** 完成版の控えを置き、removed 以外の控えの写真を旅行の写真として置く */
   const placeCurrentSnapshot = (removed: string[] = []) => {
     cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, PHOTOS));
-    PHOTOS.filter((photo) => !removed.includes(photo.id)).forEach((photo) => placePhoto(photo.id));
+    // 今の写真にも控えと同じ撮影日時を置く（控えには日時があるのに今は無い、というずれを作らない）
+    PHOTOS.filter((photo) => !removed.includes(photo.id)).forEach((photo) => placePhoto(photo.id, 'done', TRIP_ID, photo.takenAt));
   };
 
   const getRequest = (tripId: string) => createRequest(tripId, 'GET');
@@ -750,6 +751,37 @@ describe('タイムラインを読むAPI（GET）', () => {
     const data = await read();
 
     expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
+  });
+
+  it('作った後に撮影日時を手で付けた写真（控えでは撮影日時が無い）は、増えた写真に数える（作り直すと入るので。02 §5 #59）', async () => {
+    // 控えの日時の無い写真 u に、作った後で撮影日時を手で付けた
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(U.id, photoDocument(U.id, { tripId: TRIP_ID, takenAt: '2026-10-05T12:00:00', takenAtSource: 'user' }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
+  });
+
+  it('作った後に手で付けた撮影日時を消した写真は、消えた写真に数えない', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(C.id, photoDocument(C.id, { tripId: TRIP_ID, takenAt: null }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 0, removed: 0 });
+  });
+
+  it('完成版から外した写真は、作った後に撮影日時を手で付けても増えた写真に数えない（日時のある写真を外したときと同じ）', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(U.id, photoDocument(U.id, { tripId: TRIP_ID, takenAt: '2026-10-05T12:00:00', takenAtSource: 'user' }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current: { ...current, excludedPhotoIds: [U.id] } }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 0, removed: 0 });
   });
 
   it('完成版の控えと比べて増えた・消えた撮影日時のある写真の枚数を返し、完成版があっても解析中の写真を数える', async () => {

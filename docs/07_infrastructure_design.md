@@ -269,10 +269,10 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | 名前（置き場） | 値 | 意味 | どこで使うか | 段階 |
 |---|---|---|---|---|
 | `PHOTO_VALIDATION.ID_REGEX`（`constants/validation.ts`） | `/^[0-9a-f]{64}$/` | 写真 id の形（小文字16進） | 写真 id を受けるすべて | 2 |
-| `PHOTO_VALIDATION.TAKEN_AT_REGEX` | `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/` + 実在する日時 | 撮影日時の形 | `POST /api/photos` | 2 |
+| `PHOTO_VALIDATION.TAKEN_AT_REGEX` | `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/` + 実在する日時 | 撮影日時の形 | `POST /api/photos`・`PATCH /api/photos/{photoId}` の `takenAt`（D-1 で実装済み） | 2 |
 | `PHOTO_VALIDATION.COORDINATE_REGEX` | `/^-?[0-9]+(\.[0-9]+)?$/` + 緯度 ±90・経度 ±180 | 緯度・経度の形（10進だけ） | `POST /api/photos` | 2 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | 旅行 id の形 | 旅行 id を受けるすべて | 2 |
-| `SORT_AT_UTC_OFFSET_MINUTES`（`constants/album.ts`） | `540`（日本時間） | 撮影日時が無い写真の `sortAt` を `uploadedAt` から作るときのずらし | `computeSortAt()`（`utils/sortAt.ts`。`POST /api/photos` のハンドラが呼ぶ。[04 §1.3](./04_data_design.md#13-写真type-photo)） | 2 |
+| `SORT_AT_UTC_OFFSET_MINUTES`（`constants/album.ts`） | `540`（日本時間） | 撮影日時が無い写真の `sortAt` を `uploadedAt` から作るときのずらし | `computeSortAt()`（`utils/sortAt.ts`。`POST /api/photos` のハンドラと、撮影日時を手で付ける・消す `AlbumService.updatePhoto()`（D-1 で実装済み）が呼ぶ。[04 §1.3](./04_data_design.md#13-写真type-photo)） | 2 |
 | `PHOTO_SAS_START_SKEW_MINUTES`（`constants/album.ts`） | `5`（発行の 5 分前から有効） | SAS の `startsOn`。時計のずれの吸収 | `PhotoStorageService.readUrl()`（一時画像の SAS には付けない） | 2 |
 | `PHOTO_CONTINUATION_TOKEN_LIMIT_KB`（`constants/album.ts`） | `2` | 写真一覧の継続トークンの大きさの上限（KB）。クエリパラメータで受け渡すので URL の長さに収める | `AlbumService.listPhotos()`（`GET /api/photos`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)） | 2 |
 | `FILE_UPLOAD.EXTENSION_BY_CONTENT_TYPE`（既存） | — | Blob 名の拡張子 | `POST /api/photos` | 2 |

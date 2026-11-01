@@ -684,6 +684,27 @@ class ApiService {
     }
   }
 
+  /// 写真の撮影日時を手で付ける・直す・消す（02 §5 #59。D-2）
+  /// PATCH /api/photos/{photoId}
+  ///
+  /// [takenAt] はタイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`。null なら消す。直した写真を返す
+  Future<Photo> updatePhotoTakenAt(String photoId, String? takenAt) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _timedClient.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'takenAt': takenAt}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 写真のカテゴリを手で決める（02 §5 #53）
   /// PATCH /api/photos/{photoId}
   ///
@@ -792,7 +813,8 @@ class _TimeoutClient extends http.BaseClient {
 class ApiException implements Exception {
   final int statusCode;
 
-  /// サーバが封筒の `error.code` で返したエラーコード。封筒を読めなかった場合は null
+  /// サーバが封筒の `error.code` で返したエラーコード。封筒を読めなかった場合は null。
+  /// 応答の時間切れはアプリが [timeoutCode] を付ける
   final String? code;
   final String message;
   final String? body;
@@ -804,7 +826,10 @@ class ApiException implements Exception {
   /// 応答が時間切れまでに返らなかった。通信の失敗（ステータス 0）として扱う（docs/03_screen_design.md §9.2・§4.7.3）。
   /// API の呼び出しと写真の送信の列の両方が投げるので、分け方と文言を1か所にまとめる
   static const timedOut =
-      ApiException(statusCode: 0, message: '応答がありませんでした');
+      ApiException(statusCode: 0, code: timeoutCode, message: '応答がありませんでした');
+
+  /// 時間切れの [code]。サーバの封筒のコードではなく、アプリが付ける。サーバが遅いだけのときに、ネットワークの確認を促さない文言にするため
+  static const timeoutCode = 'TIMEOUT';
 
   const ApiException({
     required this.statusCode,
@@ -861,7 +886,7 @@ class ApiException implements Exception {
 
   @override
   String toString() {
-    return 'ApiException(statusCode: $statusCode, message: $message)';
+    return 'ApiException(statusCode: $statusCode, code: $code, message: $message)';
   }
 
   /// ユーザー向けのエラーメッセージを取得
@@ -874,6 +899,9 @@ class ApiException implements Exception {
       case unclassifiedStatus:
         return '予期しないエラーが発生しました。繰り返し発生する場合は、設定のエンドポイントを確認してください。';
       case 0:
+        if (code == timeoutCode) {
+          return 'サーバーから応答がありませんでした。しばらく待ってから再試行してください。';
+        }
         return 'ネットワークに接続できません。インターネット接続を確認してください。';
       case 401:
         return 'APIキーが無効です。設定を確認してください。';

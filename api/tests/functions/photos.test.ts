@@ -992,6 +992,13 @@ describe('写真API', () => {
         '撮影日時の形式が無効です'
       ],
       [
+        'takenAtの日付と時刻の間が空白',
+        () => createPhotoRequest(formDataWith({ takenAt: '2026-10-05 12:30:15' })),
+        400,
+        INVALID,
+        '撮影日時の形式が無効です'
+      ],
+      [
         'takenAtが存在しない日付（2月30日）',
         () => createPhotoRequest(formDataWith({ takenAt: '2026-02-30T12:00:00' })),
         400,

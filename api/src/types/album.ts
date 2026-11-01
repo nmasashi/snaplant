@@ -81,7 +81,7 @@ interface PhotoFields {
   fileSize: number;
   /** 撮影日時（タイムゾーン無しの YYYY-MM-DDTHH:mm:ss）。無ければ null */
   takenAt: string | null;
-  takenAtSource: 'exif' | 'none';
+  takenAtSource: 'exif' | 'user' | 'none';
   /** 並べ替え用の日時（utils/sortAt.ts） */
   sortAt: string;
   location: PhotoLocation | null;

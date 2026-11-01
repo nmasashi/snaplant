@@ -5,11 +5,13 @@ import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { photoResponseData } from '../services/photoView';
 import {
   createDatabaseErrorResponse,
+  createErrorResponse,
   createNotFoundError,
   createSuccessResponse,
   createValidationError
 } from '../utils/response';
-import { ErrorCode } from '../types/api';
+import { ErrorCode, HttpStatusCode } from '../types/api';
+import { TakenAtFromCameraError } from '../utils/errors';
 import { readPhotoUpdateInput } from '../utils/photoInput';
 import { PHOTO_VALIDATION } from '../constants/validation';
 
@@ -63,7 +65,7 @@ export async function deletePhotoHandler(request: HttpRequest, context: Invocati
 }
 
 /**
- * 写真更新 API（利用者のコメント・タグ・カテゴリを直す）
+ * 写真更新 API（利用者のコメント・タグ・カテゴリ・撮影日時を直す。カメラが記録した撮影日時の写真に撮影日時を送ると 409）
  * PATCH /api/photos/{photoId}
  *
  * カテゴリを変えると識別を消して解析の状態を書き換え、植物なら品種を調べる待ちにしてキューに積む（02 §5 #53）
@@ -91,6 +93,9 @@ export async function updatePhotoHandler(request: HttpRequest, context: Invocati
     }
     return createSuccessResponse(photoResponseData(photo, storage));
   } catch (error: any) {
+    if (error instanceof TakenAtFromCameraError) {
+      return createErrorResponse(ErrorCode.TAKEN_AT_FROM_CAMERA, error.message, HttpStatusCode.CONFLICT);
+    }
     context.log('写真更新エラー:', error);
     return createDatabaseErrorResponse(error, '写真の更新に失敗しました');
   }

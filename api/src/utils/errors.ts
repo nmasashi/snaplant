@@ -80,3 +80,14 @@ export class InvalidContinuationTokenError extends Error {
     this.name = 'InvalidContinuationTokenError';
   }
 }
+
+/**
+ * カメラが記録した撮影日時（EXIF）の写真に、撮影日時を手で付けようとした（D-1。docs/05_api_design.md §5.6 の 11）。
+ * 写真を読んで分かるので、ハンドラが 409 にする
+ */
+export class TakenAtFromCameraError extends Error {
+  constructor() {
+    super('カメラが記録した撮影日時は変えられません');
+    this.name = 'TakenAtFromCameraError';
+  }
+}
