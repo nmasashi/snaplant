@@ -151,7 +151,7 @@ describe('写真一覧API', () => {
         sortAt: '2026-10-05T09:00:00',
         location: { latitude: 43.7706, longitude: 142.365, placeName: '北海道旭川市', placeSource: 'device' },
         category: 'landscape',
-        tags: [{ name: '朝', kind: 'food', x: 0.5, y: 0.5 }],
+        tags: [{ name: '朝', kind: 'food', x: 0.5, y: 0.5, source: 'user' }],
         comment: 'ホテルの窓からの眺め',
         commentSource: 'user'
       });
@@ -162,7 +162,7 @@ describe('写真一覧API', () => {
         takenAtSource: 'exif',
         sortAt: '2026-10-06T12:30:15',
         category: 'food',
-        tags: [{ name: '昼食', kind: 'food', x: 0.5, y: 0.5 }, { name: '旅館', kind: 'food', x: 0.5, y: 0.5 }],
+        tags: [{ name: '昼食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }, { name: '旅館', kind: 'food', x: 0.5, y: 0.5, source: 'user' }],
         uploadedAt: '2026-10-09T01:00:00.000Z',
         updatedAt: '2026-10-09T02:30:00.000Z'
       });
@@ -222,7 +222,7 @@ describe('写真一覧API', () => {
       const photoU2 = storedPhoto(PHOTO_UNASSIGNED_2_ID, null, {
         fileSize: 54321,
         sortAt: '2026-10-08T12:00:00',
-        tags: [{ name: 'メモ', kind: 'food', x: 0.5, y: 0.5 }]
+        tags: [{ name: 'メモ', kind: 'food', x: 0.5, y: 0.5, source: 'user' }]
       });
       const { tripId: _omittedTripId, ...documentWithoutTripField } = storedPhoto(PHOTO_WITHOUT_TRIP_FIELD_ID, null);
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
@@ -329,8 +329,8 @@ describe('写真一覧API', () => {
     it('結果がまだ揃わず空のページが返っても、続きを読んで写真を返す', async () => {
       freezeNow('2026-10-10T03:12:45.000Z');
       cosmosBackend.emptyPagesBeforeResults = 2;
-      const photoA1 = storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { sortAt: '2026-10-05T09:00:00', tags: [{ name: '朝', kind: 'food', x: 0.5, y: 0.5 }] });
-      const photoA2 = storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { sortAt: '2026-10-06T12:30:15', tags: [{ name: '昼食', kind: 'food', x: 0.5, y: 0.5 }] });
+      const photoA1 = storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { sortAt: '2026-10-05T09:00:00', tags: [{ name: '朝', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] });
+      const photoA2 = storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { sortAt: '2026-10-06T12:30:15', tags: [{ name: '昼食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] });
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
       cosmosBackend.documents.set(PHOTO_A1_ID, photoA1);
       cosmosBackend.documents.set(PHOTO_A2_ID, photoA2);
