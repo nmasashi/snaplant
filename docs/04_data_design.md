@@ -124,13 +124,13 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `location.placeSource` | `"device"` \| `"server"` \| `"user"` \| null | ○（null 可） | 2（`"user"` は C-2） | 地名の出どころ。段階2は、`placeName` を送られたら `"device"`（端末の Geocoder）、無ければ `null`。段階3で Azure Maps が埋めたら `"server"`。利用者が解析を頼むときに地名を直したら `"user"`。緯度・経度のある写真で地名を消したときも `"user"`（`placeName: null`・`placeSource: "user"` は「利用者が地名を消した」印。`null` にすると「まだ地名を引いていない」と区別できず、後で地名を引き直すと消した地名が戻るため）。今と同じ地名なら変えない（C-2） |
 | `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーと、利用者のカテゴリの更新（`PATCH /api/photos/{photoId}` の `category`。C-1。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）が書く。横断は `c.category = @category`（§5 の 5.4） |
 | `categorySource` | `"user"` \| null | ×（無いのは `null` と同じ） | C-1 | カテゴリの出どころ。利用者がカテゴリを手で決めたら `"user"`（`PATCH` の `category`。今と同じカテゴリを送っても付く）。分類からのやり直しの受付（`process` の `step: "classify"`）が `null` に戻す。**写真の作成（`POST /api/photos`）では書かない**ので、C-1 より前の写真と、どちらの操作も受けていない写真には項目が無い（クエリで使わないので、無いのと `null` の2通りを扱う所は無い。API の応答では `null` で返す。[05 §3.3](./05_api_design.md#33-photo)）。ワーカーは読まない（手で決めたカテゴリを AI が上書きしないのは、`PATCH` が `processing` を書き換えるから。§7.4） |
-| `tags` | object[] | ○ | 2（形は C-3） | 利用者が付けるタグだけ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる。AI は書かない。C-3 から各要素は `{ name, kind, x, y }`（§2） |
+| `tags` | object[] | ○ | 2（形は C-3） | 写真の中の場所に付けるタグ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる。C-3 から各要素は `{ name, kind, x, y }`、C-4 から出どころ `source` も持つ（§2）。C-4 から AI も、タグが1つも無い食べ物の写真にだけ書く（[06 §9](./06_processing_design.md#9-タグの提案c-4)） |
 | `comment` | string \| null | ○（null 可） | 2（値は4） | 一言コメント。前後の空白を除いて 500 文字まで（`PHOTO_COMMENT_MAX_LENGTH`）。除いた値を保存する |
 | `commentSource` | `"ai"` \| `"user"` \| null | ○（null 可） | 2（値は4） | コメントの出どころ。`"ai"` は分類・識別のワーカーが書いたコメント、`"user"` は利用者が `PATCH` の `comment` で書いたコメント。やり直しの受付（`process`）はどちらでも `comment` と一緒に `null` に戻す。カテゴリを手で変えたとき（`PATCH` の `category`。カテゴリが変わるか分類が済んでいない写真）は、`"ai"` のときだけ `comment` と一緒に `null` に戻す（利用者のコメントは残す。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)） |
 | `hint` | string \| null | ○（null 可） | 2（値は3） | 最後のやり直しで利用者が渡した手がかり。前後の空白を除いて保存し、500 文字まで（`CONTEXT_INFO_VALIDATION`）。やり直しで渡さなければ（空白だけも）`null` に戻る。分類と識別の AI に手がかりとして渡す（[06 §2.2](./06_processing_design.md#22-契約structured-outputs)・[§3.1](./06_processing_design.md#31-契約)） |
 | `classification` | object \| null | ○（null 可） | 3 | `{ kind, confidence, model, at }`。[06 §2](./06_processing_design.md#2-分類段階3) |
 | `identification` | object \| null | ○（null 可） | 4 | `{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`（§3.1）。**図鑑はこの項目からまとめる**。「種類ごとの1件に写真が複数」（要件 5.5）は `identification.kind` と `identification.name` が同じ写真の集まりとして表す。[06 §3](./06_processing_design.md#3-識別段階4) |
-| `processing` | object | ○ | 2（値は3） | `{ state, step, attempts, lastError, updatedAt }`。`state` は `none` / `pending` / `classifying` / `identifying` / `done` / `failed`、`step` は `null` / `classify` / `identify`（次にやる、またはやっている処理。タイマーが再投入するときに見る。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`lastError` は `null` か、どこで失敗したか（`"ai"` / `"internal"`。例外の文言は入れない）。段階2は `state: "none"`・`step: null` 固定。段階3から、送信（`POST /api/photos`）は `state: "pending"`・`step: "classify"`・`updatedAt` に保存した時刻で作る |
+| `processing` | object | ○ | 2（値は3） | `{ state, step, attempts, lastError, updatedAt }`。`state` は `none` / `pending` / `classifying` / `identifying` / `done` / `failed`、`step` は `null` / `classify` / `identify` / `tag`（`tag` と `state` の `tagging` は C-4。次にやる、またはやっている処理。タイマーが再投入するときに見る。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。`lastError` は `null` か、どこで失敗したか（`"ai"` / `"internal"`。例外の文言は入れない）。段階2は `state: "none"`・`step: null` 固定。段階3から、送信（`POST /api/photos`）は `state: "pending"`・`step: "classify"`・`updatedAt` に保存した時刻で作る |
 | `uploadedAt` / `updatedAt` | string (ISO 8601, UTC) | ○ | 2 | サーバが付ける。作成時は同じ値 |
 
 段階2から**全項目を書く**（段階3・4で使う項目も `null` で）。項目が無いドキュメントと `null` のドキュメントは Cosmos SQL で振る舞いが違う
@@ -294,13 +294,13 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 
 ## 2. カテゴリとタグ
 
-**カテゴリ（AI が付ける大分類）は写真の専用の欄 `category` に、タグ（`tags`）は利用者が付けるものだけにする**（2026-10-12 に人間が決定）。
+**カテゴリ（AI が付ける大分類）は写真の専用の欄 `category` に、タグ（`tags`）は利用者が付けるものだけにする**（2026-10-12 に人間が決定）。C-4 から AI もタグを提案するが、書くのはタグが1つも無い写真にだけで、各タグに出どころ（`source`）を持つので、利用者のタグと混ざっても見分けられる（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #61）。
 以前の案（`tags` に `category:<kind>` の予約名を混ぜる）は採らない。書く主体が欄で分かれるので、ワーカーと利用者が同じ配列を編集し合う処理（接頭辞で選り分けて結合する）が要らない。
 
 | 欄 | 形 | 付ける主体 | 例 |
 |---|---|---|---|
 | `category`（写真だけ） | `CATALOG_KINDS` のキー（§3）または `other`（`OTHER_KIND`。`api/src/catalog/kinds.ts`）。分類前は `null` | 分類 AI（段階3）。利用者が手で直せる（`PATCH /api/photos/{photoId}`。手で決めたら `categorySource: "user"`。C-1 で実装済み）。**写真にちょうど1つ** | `"food"`、`"other"` |
-| `tags`（写真） | 写真の中の場所に付けるタグの配列（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57）。各要素は `{ name, kind, x, y }`: `name` は前後の空白を除いた 1〜30 文字（`TAG_MAX_LENGTH`）、`kind` は `plant` / `food` / `landscape` / `other`（カテゴリと同じ）、`x`・`y` は向きを直した後の画像の中の位置の割合（左上が 0、右下が 1）。1枚に 20 個まで（`TAG_MAX_COUNT`）。同じ名前を何個付けてもよい（重複を除かない）。並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は [03 §5.7](./03_screen_design.md#57-写真のタグ)） | `{ "name": "海鮮丼", "kind": "food", "x": 0.42, "y": 0.61 }` |
+| `tags`（写真） | 写真の中の場所に付けるタグの配列（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57）。各要素は `{ name, kind, x, y }`: `name` は前後の空白を除いた 1〜30 文字（`TAG_MAX_LENGTH`）、`kind` は `plant` / `food` / `landscape` / `other`（カテゴリと同じ）、`x`・`y` は向きを直した後の画像の中の位置の割合（左上が 0、右下が 1）。C-4 から `source` は `ai`（AI が提案した）か `user`（利用者が付けた、または直した）。`source` の無いタグ（C-4 より前）は `user` として扱う。1枚に 20 個まで（`TAG_MAX_COUNT`）。同じ名前を何個付けてもよい（重複を除かない）。並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は [03 §5.7](./03_screen_design.md#57-写真のタグ)・§5.9）。C-4 から AI も（タグが1つも無い食べ物の写真だけ。[06 §9](./06_processing_design.md#9-タグの提案c-4)） | `{ "name": "海鮮丼", "kind": "food", "x": 0.42, "y": 0.61 }` |
 | `tags`（旅行） | 1〜30 文字の文字列の配列（使う画面は無い。C-3 で変えていない） | — | `[]` |
 
 - 分類の確信度やモデル名は `classification` に別に持つ。`category` は「横断して見るための索引」、`classification` は「根拠」
