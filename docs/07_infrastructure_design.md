@@ -293,9 +293,9 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | 名前（置き場） | 値 | 意味 | 根拠 |
 |---|---|---|---|
 | 送信の同時本数（`UploadQueue`） | `2` | `POST /api/photos` を同時に送る数 | [02 §4.7](./02_design_overview.md#47-送り方は1リクエスト1枚クライアントが同時2本まで要件-52) |
-| 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ（分類できない失敗の -1 は送り直さない） | [03 §4.7.3](./03_screen_design.md#473-送信) |
-| 送信の時間切れ（`UploadQueue` の `_requestTimeout`） | 60 秒 | 1回の `POST /api/photos` の応答を待つ長さ。過ぎたら通信の失敗として送り直す | [03 §4.7.3](./03_screen_design.md#473-送信) |
-| API の呼び出しの時間切れ（`ApiService.requestTimeout`） | 30 秒（旅行の削除だけ 4 分。`ApiService.deleteTripTimeout`） | 写真の送信を除く呼び出しで、要求から本文の読み終わりまでを待つ長さ。過ぎたら通信の失敗（ステータス 0）。旅行の削除はサーバが写真を1枚ずつ処理するので長くし、Azure の前段の 230 秒より長くする | [03 §9.2](./03_screen_design.md#92-エラー表示apiexceptionusermessage) |
+| 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ（分類できない失敗の -1 は送り直さない。-1 は通信の失敗の扱いで実装済み） | [03 §4.7.3](./03_screen_design.md#473-送信) |
+| 送信の時間切れ（`UploadQueue` の `_requestTimeout`） | 60 秒 | 1回の `POST /api/photos` の応答を待つ長さ。過ぎたら通信の失敗として送り直す（#60 で実装済み） | [03 §4.7.3](./03_screen_design.md#473-送信) |
+| API の呼び出しの時間切れ（`ApiService.requestTimeout`） | 30 秒（旅行の削除だけ 4 分。`ApiService.deleteTripTimeout`） | 写真の送信を除く呼び出しで、要求から本文の読み終わりまでを待つ長さ。過ぎたら通信の失敗（ステータス 0）。旅行の削除はサーバが写真を1枚ずつ処理するので長くし、Azure の前段の 230 秒より長くする（通信の失敗の扱いで実装済み） | [03 §9.2](./03_screen_design.md#92-エラー表示apiexceptionusermessage) |
 | サムネイル（`UploadQueue`。`upload_queue.dart` の `_thumbnailLongSide`・`_thumbnailQuality`） | 長辺 320px・画質 70・JPEG | 一覧用の小さな画像 | [04 §4.2](./04_data_design.md#42-blob-名)・[03 §4.7.2](./03_screen_design.md#472-準備) |
 | 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。縮小してもハッシュが決まることは実機で確かめた） | 原寸の大きさ | [09 §6](./11_implementation_plan.md#6-最初に実機で確かめること) |
 | 地名の変換（`UploadQueue`。`upload_queue.dart` の `_placeNameTimeout`） | タイムアウト 5 秒、キャッシュの鍵は小数3桁（`shared_preferences`。引けた地名だけを残す） | 端末の Geocoder | [06 §4.2](./06_processing_design.md#42-段階2端末) |
