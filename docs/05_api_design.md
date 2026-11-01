@@ -820,7 +820,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`）。
 
-- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`（タグの提案。C-4b で足した。`constants/album.ts` の `UNFINISHED_PROCESSING_STATES`））ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
+- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。タグの提案（`step: "tag"`。C-4b）の写真は数えない（タイムラインの AI はタグを読まないので、待たせない。2026-11-02 に人間が決定。`constants/album.ts` の `blocksTimeline()`）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
 - 読むのは、タイムラインの文書と旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と解析の状態）を並べて、完成版があればその控え。増えた・消えた枚数と `pendingPhotoCount` は同じ 5.13 の結果から数える。下書きの控えは読まない（`draft` は状態だけ）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
@@ -841,7 +841,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | # | 条件 | 応答 |
 |---|---|---|
 | 1 | 作っている途中 | 409 `TIMELINE_STATE_CONFLICT` |
-| 2 | 解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`（C-4b））がある。`none`・`done`・`failed` は済んだものとして扱う | 409 `TIMELINE_PHOTOS_PROCESSING` `解析中の写真があります。終わってから作ってください` |
+| 2 | 解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）がある。`none`・`done`・`failed` は済んだものとして扱う。タグの提案（`step: "tag"`。C-4b）の写真は済んだものとして扱う（上の `pendingPhotoCount` と同じ） | 409 `TIMELINE_PHOTOS_PROCESSING` `解析中の写真があります。終わってから作ってください` |
 | 3 | 撮影日時のある写真が1枚も無い（写真が無い旅行も） | 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません` |
 | 4 | それ以外 | 202。写真の控えを取り（`TIMELINE_DAY_START_HOUR` もこのときに読む）、新しい下書き（`reason: "create"`・`phase: "proposing"`・`job: { step: "propose", state: "pending", attempts: 0, lastError: null }`・`proposedStarts` と `sceneStarts` は空）を書いてキューへ投入。**完成版があれば消す**（`current: null`。作り直しは今のタイムラインを消して一から作る。5-6b から。それより前は下の「5-6b まで」の行）。前の下書き（確かめ途中・失敗。区切りを直している途中の `recut` も）は置き換える。投入に失敗しても 202（再投入のタイマーが拾う。写真の `process` と同じ） |
 
