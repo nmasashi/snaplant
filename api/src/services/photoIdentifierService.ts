@@ -84,7 +84,7 @@ export class PhotoIdentifierService {
     kind: CatalogKind,
     clues: { placeName: string | null; takenAt: string | null; hint: string | null }
   ): Promise<PhotoIdentification> {
-    const { label, namingRule } = CATALOG_KINDS[kind];
+    const { label, namingRule, commentRule } = CATALOG_KINDS[kind];
     const clueLines = [
       clues.hint ? `利用者からの手がかり: ${clues.hint}` : null,
       clues.placeName ? `撮影地: ${clues.placeName}` : null,
@@ -93,15 +93,10 @@ export class PhotoIdentifierService {
     ].filter((line) => line !== null);
     const clueSection =
       clueLines.length > 0 ? `\n追加情報：\n${clueLines.join('\n')}\nこの情報を参考にして、識別の精度を向上させてください。\n` : '';
-    // 食べ物は「〇〇の可能性もある」と補足させると、名前で控えさせた名物名を一言で推し量る。タイムラインの AI は一言を事実として読むので、補足させない（02 §5 #60）
-    const uncertainty =
-      kind === 'food'
-        ? '名物名や店の料理名は、名前の決まりで使ってよいときのほかは、comment でも推し量って書かないでください。'
-        : '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。';
     const prompt = `
 この写真に写っている${label}を識別してください。
 名前の決まり: ${namingRule}
-候補を列挙せず、1つに決めてください。${uncertainty}
+候補を列挙せず、1つに決めてください。${commentRule}
 comment は、後で写真を見返す人に向けた、写っている${label}についての一言にしてください。
 時間がたつと手がかりの内容は分からなくなるので、手がかりや追加情報、識別の過程（「手がかりと一致する」など）には触れないでください。
 写真に${label}が写っていなければ、matchesKind を false にし、comment にそう判断した理由を書いてください。

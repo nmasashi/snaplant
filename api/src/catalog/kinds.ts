@@ -3,7 +3,7 @@
  *
  * 種類を足すときは、この表に1行足す。分類 AI の選択肢（段階3）と、識別 AI のスキーマ・
  * `GET /api/catalog/kinds`（段階4）がこの表から追従する。段階3で使うのはキー（分類の選択肢）だけで、
- * `namingRule` と `fields` は段階4の識別で使う
+ * `namingRule`・`commentRule`（一言の頼み方）と `fields` は段階4の識別で使う
  */
 export const CATALOG_KINDS = {
   plant: {
@@ -11,6 +11,7 @@ export const CATALOG_KINDS = {
     inCatalog: true,
     autoIdentify: true,
     // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 §5 #56）
+    commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
     namingRule: '種の和名（例: ハナトリカブト）。種まで特定できなければ「〇〇属の一種」（例: トリカブト属の一種）とし、信頼度を低くする',
     fields: [
       { key: 'scientificName', label: '学名', type: 'string', prompt: '学名。特定できない場合は null' },
@@ -24,6 +25,8 @@ export const CATALOG_KINDS = {
     label: '食べ物',
     inCatalog: false,
     autoIdentify: false,
+    // 「〇〇の可能性もある」と補足させると、名前で控えさせた名物名を一言で推し量る。タイムラインの AI は一言を事実として読むので、補足させない（02 §5 #60）
+    commentRule: '名物名や店の料理名は、名前の決まりで使ってよいときのほかは、comment でも推し量って書かないでください。',
     // 2026-11-01: 細かい料理名（名物名）が外れることが多かったので、一般的な料理名を基本にし、固有の名前は根拠のあるときだけにした（02 §5 #60）
     namingRule: '一般的な料理名（例: 味噌ラーメン・海鮮丼）か、分からなければ料理の種類（例: ラーメン）。名物名や店の看板料理などの固有の名前は、利用者の手がかりや写真の中の文字（メニュー・看板など）で分かるときだけにし、見た目や撮影地だけで推し量らない',
     fields: [
@@ -35,6 +38,7 @@ export const CATALOG_KINDS = {
     label: '風景',
     inCatalog: false,
     autoIdentify: false,
+    commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
     namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
     fields: [
       { key: 'placeType', label: '場所の種類', type: 'string', prompt: '山・海・寺社・街並みなど' },
