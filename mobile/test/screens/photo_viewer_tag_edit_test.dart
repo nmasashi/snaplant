@@ -237,6 +237,34 @@ void main() {
     await finishImageLoading(tester);
   });
 
+  testWidgets('タグを付ける間・動かす間は、吹き出しを押しても直すシートを開かず、その位置のタップになる', (tester) async {
+    final backend = await _openViewer(
+        tester, _photo(tags: [_tag('ご飯', x: 0.3, y: 0.5), _tag('夕食', x: 0.7, y: 0.5)]),
+        waitFor: _onPhoto('夕食'));
+
+    // 付ける間: 付けるシートを開く
+    await tester.tap(find.byTooltip('タグを付ける'));
+    await letFramesRun(tester);
+    await tester.tap(_onPhoto('ご飯'));
+    await letFramesRun(tester);
+    expect(_inSheet(find.text('タグを付ける')), findsOneWidget);
+    expect(_inSheet(find.text('タグを直す')), findsNothing);
+    await tester.tap(_inSheet(find.text('キャンセル')));
+    await letFramesRun(tester);
+    await tester.tap(find.text('やめる'));
+    await letFramesRun(tester);
+
+    // 動かす間: 押した吹き出しの場所へ動かす（吹き出しはタグの位置の上にある）
+    await _startMoving(tester, '夕食');
+    await tester.tap(_onPhoto('ご飯'));
+    await letFramesRun(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    final moved = _storedTags(backend)[1] as Map<Object?, Object?>;
+    expect(moved['x'] as num, closeTo(0.3, 0.05));
+    expect(moved['y'] as num, lessThan(0.5));
+    await finishImageLoading(tester);
+  });
+
   testWidgets('「このタグを消す」で確認を出し、「消す」でそのタグを除いて送る', (tester) async {
     final backend = await _openViewer(
         tester, _photo(tags: [_tag('ご飯', source: 'ai', x: 0.2), _tag('夕食', x: 0.7)]),
