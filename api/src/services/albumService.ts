@@ -331,7 +331,7 @@ export class AlbumService {
   }
 
   /**
-   * 写真の利用者のコメント・タグ・カテゴリを直す
+   * 写真の利用者のコメント・タグ・カテゴリ・撮影日時を直す
    *
    * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
    * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別と AI が書いたコメントを消して解析の状態を書き換える（02 §5 #53）。
@@ -339,7 +339,9 @@ export class AlbumService {
    * カテゴリを書き換える patch は、読んだときのコメントの出どころを条件にする。読んだ後に他がコメントを書いていたら（412）読み直して書き直す
    * （読んだ後に利用者が書いたコメントを消さず、AI が書いたコメントを残さない。1回の patch なので、途中まで書いた状態も残らない）
    * @param id 写真 ID
-   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか）
+   * 撮影日時は手で付けた印（takenAtSource: "user"）と並びの日時（sortAt）も書き、null なら消して送った日時の並びに戻す。
+   * カメラが記録した撮影日時（exif）の写真は TakenAtFromCameraError を投げる（02 §5 #59）。
+   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
   async updatePhoto(
@@ -359,7 +361,7 @@ export class AlbumService {
   }
 
   /**
-   * updatePhoto の1回分。写真を読んで（カテゴリを送ったときだけ）、直す項目を1回の patch で書く
+   * updatePhoto の1回分。写真を読んで（カテゴリか撮影日時を送ったときだけ）、直す項目を1回の patch で書く
    * @param id 写真 ID
    * @param changes 直す項目
    * @returns 更新後の写真のドキュメント。無ければ null。読んだ後にコメントが書かれていたら 412 を投げる
