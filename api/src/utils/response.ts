@@ -134,13 +134,14 @@ export function createNoDatedPhotosError(): HttpResponseInit {
 
 /**
  * 内部サーバーエラーレスポンス
+ *
+ * details は付けない（500 で内部の例外の文言を外に出さない。原因はログで追う。05 §9.2）
  */
-export function createInternalError(message: string = 'サーバー内部エラーが発生しました', details?: string): HttpResponseInit {
+export function createInternalError(message: string = 'サーバー内部エラーが発生しました'): HttpResponseInit {
   return createErrorResponse(
     ErrorCode.INTERNAL_ERROR,
     message,
-    HttpStatusCode.INTERNAL_SERVER_ERROR,
-    details
+    HttpStatusCode.INTERNAL_SERVER_ERROR
   );
 }
 
