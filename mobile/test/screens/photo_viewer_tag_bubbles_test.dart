@@ -148,24 +148,7 @@ void main() {
     await finishImageLoading(tester);
   });
 
-  testWidgets('タグの提案を待っている写真は、旅行詳細のサムネイルに分類中の印を付けない（分類は済んでいる）', (tester) async {
-    final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 1)],
-      functionKey: 'test-key',
-      photosByTripId: {
-        hokkaidoTripId: [
-          _photo(processing: {'state': 'pending', 'step': 'tag', 'attempts': 0, 'lastError': null, 'updatedAt': '2026-10-06T01:15:00.000Z'})
-        ]
-      },
-    );
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-
-    expect(photoThumbnail(_takenAt), findsOneWidget);
-    expect(find.bySemanticsLabel('$_takenAt、分類中'), findsNothing);
-    expect(find.byIcon(Icons.hourglass_empty), findsNothing);
-  });
+  // タグの提案を待っている写真のサムネイルに分類中の印を付けないこと（§5.5）は、photo_classification_test.dart のサムネイルの印の表で見る
 
   testWidgets('タグを付ける・消すときは、直さなかったタグを受け取った出どころのまま送り、新しく付けたタグは user で送る', (tester) async {
     final backend = await _openViewer(tester, [
