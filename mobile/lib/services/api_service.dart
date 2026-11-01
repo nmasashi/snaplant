@@ -767,8 +767,7 @@ class _TimeoutClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
     return _sendAndRead(request).timeout(_timeout,
-        onTimeout: () => throw const ApiException(
-            statusCode: 0, message: '応答がありませんでした'));
+        onTimeout: () => throw ApiException.timedOut);
   }
 
   Future<http.StreamedResponse> _sendAndRead(http.BaseRequest request) async {
@@ -799,6 +798,11 @@ class ApiException implements Exception {
   /// 通信の失敗でない、分類できない失敗（2xx の本文を読めないなど）のステータス。送り直しても直らないので、ステータス 0（通信の失敗）と分ける
   /// （docs/03_screen_design.md §9.2）
   static const unclassifiedStatus = -1;
+
+  /// 応答が時間切れまでに返らなかった。通信の失敗（ステータス 0）として扱う（docs/03_screen_design.md §9.2・§4.7.3）。
+  /// API の呼び出しと写真の送信の列の両方が投げるので、分け方と文言を1か所にまとめる
+  static const timedOut =
+      ApiException(statusCode: 0, message: '応答がありませんでした');
 
   const ApiException({
     required this.statusCode,
