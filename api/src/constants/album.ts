@@ -95,6 +95,16 @@ export const TIMELINE_SNAPSHOT_COMMENT_LENGTH = 100;
  * 再投入のタイマーが拾う状態で、タイムラインを作れない状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。
  * SQL の IN の並び（albumService.listStalePhotos）も同じものにする
  */
+/**
+ * 試行の上限に達した写真の状態。タグの提案（C-4）だけは failed にせず done にする
+ *
+ * タグの提案は分類が済んだ後の段で、failed にするとアプリが「分類に失敗しました」と出す。AI が失敗したら何も出さずにタグ無しのまま（06 §9、02 §5 #61）。
+ * ワーカーの失敗の記録と再投入のタイマーの両方が使う
+ */
+export function givenUpState(step: PhotoProcessing['step']): PhotoProcessing['state'] {
+  return step === 'tag' ? 'done' : 'failed';
+}
+
 export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying', 'tagging'];
 
 /**

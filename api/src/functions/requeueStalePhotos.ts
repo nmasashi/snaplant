@@ -3,7 +3,7 @@ import { AlbumService } from '../services/albumService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { TimelineService } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
-import { PHOTO_REQUEUE_AFTER_MINUTES, UNFINISHED_PROCESSING_STATES, photoProcessingMaxAttempts } from '../constants/album';
+import { PHOTO_REQUEUE_AFTER_MINUTES, UNFINISHED_PROCESSING_STATES, givenUpState, photoProcessingMaxAttempts } from '../constants/album';
 
 /**
  * 再投入のタイマー（10 分ごと）
@@ -50,7 +50,7 @@ async function requeuePhotos(now: Date, before: string, maxAttempts: number, con
     // ワーカーは解析待ち（pending）の写真しか担当しないので、処理中の写真は解析待ちに戻してから積む
     const written = await album.writeProcessing(photo.id, read, {
       ...read,
-      state: giveUp ? 'failed' : 'pending',
+      state: giveUp ? givenUpState(read.step) : 'pending',
       updatedAt: now.toISOString(),
     });
     if (!written) {

@@ -2,7 +2,7 @@ import { app, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
 import { PhotoClassifierService } from '../services/photoClassifierService';
 import { PhotoStorageService } from '../services/photoStorageService';
-import { CLASSIFY_IMAGE_SAS_MINUTES, photoProcessingMaxAttempts } from '../constants/album';
+import { CLASSIFY_IMAGE_SAS_MINUTES, givenUpState, photoProcessingMaxAttempts } from '../constants/album';
 import { UpstreamError } from '../utils/errors';
 import { PhotoDocument, PhotoProcessing, PhotoTag } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
@@ -64,9 +64,8 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     const failed = attempts >= photoProcessingMaxAttempts();
     // 失敗の記録より先にログを出す。記録も失敗したとき（Cosmos の障害など）に、元の原因が残らなくなるため
     context.log(`写真の${label}に失敗しました: ID=${photo.id}, 回数=${attempts}, 失敗した所=${lastError}${failed ? '（上限のため失敗にします）' : ''}`, error);
-    // タグの提案は、上限でも failed にせず済みにする（分類は済んでいる。failed だとアプリが分類の失敗と出す。06 §9、02 §5 #61）
     const written = await album.writeProcessing(photo.id, claimedProcessing, {
-      state: failed ? (step === 'tag' ? 'done' : 'failed') : 'pending',
+      state: failed ? givenUpState(step) : 'pending',
       step,
       attempts,
       lastError,
