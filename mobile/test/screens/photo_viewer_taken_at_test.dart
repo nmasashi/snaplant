@@ -156,6 +156,8 @@ void main() {
     await letFramesRun(tester);
     // まだ旅行を読んでいる（期間の手がかりが出ていない）
     expect(find.textContaining('の期間は'), findsNothing);
+    // 送ったことを保存先の値で確かめるため、保存先の撮影日時を開いた後に消しておく（同じ値のままだと、送らなくても通る）
+    _storedPhoto(backend)['takenAt'] = null;
 
     await tester.tap(find.text('保存'));
     await letFramesRun(tester);
