@@ -24,6 +24,13 @@ class ApiService {
   /// 写真の送信を除く呼び出しの時間切れ
   static const requestTimeout = Duration(seconds: 30);
 
+  /// 旅行の削除に使う、応答を [deleteTripTimeout] で打ち切るクライアント
+  late final http.Client _tripDeleteClient = _TimeoutClient(_client, deleteTripTimeout);
+
+  /// 旅行の削除の時間切れ。サーバは中の写真を1枚ずつ消す（外す）ので、写真の多い旅行では 30 秒を超えうる。
+  /// Azure の前段が HTTP の要求を打ち切る 230 秒より長くして、サーバが返せる応答は待つ（docs/03_screen_design.md §9.2）
+  static const deleteTripTimeout = Duration(minutes: 4);
+
   // 自分で作った client だけを閉じる。渡された client は渡した側のもので、閉じると渡した側が使い回せなくなる
   final bool _ownsClient;
 
@@ -216,7 +223,7 @@ class ApiService {
       {required bool deletePhotos}) async {
     try {
       final url = _buildUrl('/api/trips/$tripId?deletePhotos=$deletePhotos');
-      final response = await _timedClient.delete(Uri.parse(url), headers: _headers);
+      final response = await _tripDeleteClient.delete(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripDeleteResult(
