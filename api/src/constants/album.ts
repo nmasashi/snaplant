@@ -117,8 +117,11 @@ export function blocksTimeline(processing: { state: PhotoProcessing['state']; st
   return UNFINISHED_PROCESSING_STATES.includes(processing.state) && TIMELINE_BLOCKING_STEPS.includes(processing.step);
 }
 
-/** タイムラインを待たせる解析の段（タイムラインの AI が読む分類と識別。段を足しても、ここに足さなければ待たせない） */
-const TIMELINE_BLOCKING_STEPS: readonly PhotoProcessing['step'][] = ['classify', 'identify'];
+/**
+ * タイムラインを待たせる解析の段（タイムラインの AI が読む分類と識別。段を足しても、ここに足さなければ待たせない）。
+ * 段の無い済んでいない写真は無いはずだが、あれば待たせる側に倒す（null）
+ */
+const TIMELINE_BLOCKING_STEPS: readonly PhotoProcessing['step'][] = ['classify', 'identify', null];
 
 /**
  * タイムラインの区切り案の max_completion_tokens（推論のトークンも含む）
