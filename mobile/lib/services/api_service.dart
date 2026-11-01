@@ -425,7 +425,7 @@ class ApiService {
     }
   }
 
-  /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す。
+  /// 下書きの区切りで見出しとまとめを書かせる。受け付けた下書きの状態を返す。
   /// 区切りを直している下書き（recut）は、AI を使わずその場で完成版に当てて下書きが無くなるので null を返す（06 §8.6）
   /// POST /api/trips/{tripId}/timeline/draft/write
   Future<TimelineDraftStatus?> writeTimeline(String tripId) =>

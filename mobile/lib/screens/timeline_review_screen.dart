@@ -427,7 +427,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
             _buildPhotos(scene),
-            // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
+            // AI が見出しを書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
             if (_draft!.reason != 'recut') ...[
               const SizedBox(height: 4),
               _buildComment(scene),
@@ -501,7 +501,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しと一言はそのまま残します' : '見出しと一言は AI が書きます'}',
+              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しとまとめはそのまま残します' : '見出しとまとめは AI が書きます'}',
               style: AppTextStyles.caption
                   .copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
