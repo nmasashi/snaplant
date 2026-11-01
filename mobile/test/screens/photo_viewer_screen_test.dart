@@ -353,6 +353,7 @@ void main() {
     }
 
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(backend.photoPagesReceived, 2, reason: '末尾に来て2ページ目を要求した');
     expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing, reason: '読み込み中で、まだ失敗していない');
     reply.complete();
     await letFramesRun(tester);
@@ -362,6 +363,7 @@ void main() {
     await tester.tap(find.text('再試行').hitTestable());
     await letFramesRun(tester);
 
+    expect(backend.photoPagesReceived, 3, reason: '「再試行」で2ページ目を要求し直した');
     expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget, reason: '読み直しにまた失敗した');
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
     semantics.dispose();
