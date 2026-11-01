@@ -684,6 +684,27 @@ class ApiService {
     }
   }
 
+  /// 写真の撮影日時を手で付ける・直す・消す（02 §5 #59。D-2）
+  /// PATCH /api/photos/{photoId}
+  ///
+  /// [takenAt] はタイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`。null なら消す。直した写真を返す
+  Future<Photo> updatePhotoTakenAt(String photoId, String? takenAt) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _timedClient.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'takenAt': takenAt}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 写真のカテゴリを手で決める（02 §5 #53）
   /// PATCH /api/photos/{photoId}
   ///

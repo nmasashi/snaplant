@@ -45,7 +45,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/photos/move` | POST | `{ moved, notFound }` | `{ photoIds, tripId }`。送り方 ③ と「外す」。1回 200 件まで | 2 | `photoMove.ts` |
 | `/api/photos/{photoId}` | GET | `{ photo, urlExpiresAt }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
-| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, takenAt?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み）。`tags` の形（`{ name, kind, x, y }`）は C-3a、タグの画面は C-3b（どちらも実装済み）。`takenAt`（撮影日時を手で付ける。カメラの撮影日時の写真は 409）は D-1（実装済み）、画面は D-2 | 2 | `photoDetail.ts` |
+| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, takenAt?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み）。`tags` の形（`{ name, kind, x, y }`）は C-3a、タグの画面は C-3b（どちらも実装済み）。`takenAt`（撮影日時を手で付ける。カメラの撮影日時の写真は 409）は D-1（実装済み）、画面は D-2（実装済み） | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint?, placeName? }`。写真に `step`・`hint` を書いてキューに投入。`placeName`（撮影地の地名を直す）は C-2（実装済み） | 3（`identify` は4） | `photoProcess.ts` |
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの名前の `DISTINCT` | 未定（C-3 には入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
@@ -447,7 +447,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 **実装済み**（D-1。`photoDetail.ts`・`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）: `takenAt`（利用者が撮影日時を手で付ける・直す・消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）。表の 4 の条件と 9.7・11、下の `takenAt` の項目、「書き込みは」の項目の撮影日時の分。
 
-利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2 の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
+利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2（実装済み）の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 
 **リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
 
@@ -1085,6 +1085,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグは下の `updatePhotoTags`（C-3b） |
 | `updatePhotoTags(photoId, tags)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-3b）。ボディは `{ tags }`（付ける・消すのどちらも、今のタグに足した・除いた配列ごと。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。写真の `tags`（`name`・`kind`・`x`・`y`）は C-3b から読む |
+| `updatePhotoTakenAt(photoId, takenAt)` | `PATCH /api/photos/{photoId}` | `data['photo']`。送るのは `{ takenAt }`（タイムゾーン無しの日時か null）。**実装済み**（D-2。[03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）。写真の `takenAtSource`・`uploadedAt` を読む（`Photo`。シートの手がかりと「手で付けた日時」に使う） |
 | `updatePhotoCategory(photoId, category)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-1）。ボディは `{ category }`（`plant` / `food` / `landscape` / `other`）だけ。植物に変えたら、応答の写真は識別の待ち（§5.6） |
 | `requestPhotoProcessing(photoId, {hint, step, placeName})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c、`placeName` は C-2）。ボディは `{ step, hint, placeName }` で、`step` は省くと `'classify'`（やり直しダイアログは、写真のカテゴリが識別の対象（植物・食べ物・風景）で分類が済んでいれば `'identify'`、それ以外なら `'classify'` を渡す。C-1。それまではダイアログの「名前だけ」で `'identify'`）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く。`placeName` は渡したとき（null でないとき）だけ、そのまま（前後の空白を除かず、空でも）送る。null なら `placeName` のキーごと省く（撮影地を変えない）。ダイアログは「場所」の欄を利用者が直したときだけ渡す（直していなければ null。C-2。[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)） |
 | `getCatalogKinds()` | `GET /api/catalog/kinds` | `data['kinds']`（各要素の `kind`・`label`・`fields`（`key`・`label`・`type`）。`models/catalog.dart` の `CatalogKind`・`CatalogField`）。**実装済み**（4-3a） |

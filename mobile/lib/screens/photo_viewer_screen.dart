@@ -14,6 +14,7 @@ import '../widgets/comment_edit_dialog.dart';
 import '../widgets/confirm_action_dialog.dart';
 import '../widgets/retry_processing_dialog.dart';
 import '../widgets/tag_edit_sheet.dart';
+import '../widgets/taken_at_sheet.dart';
 import '../widgets/tagged_photo_image.dart';
 import 'catalog_entry_screen.dart';
 
@@ -237,6 +238,23 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(updated);
   }
 
+  /// 撮影日時を手で付ける・変えるシートを開く（03 §5.8）。保存できたら写真を置き換えて知らせる
+  Future<void> _editTakenAt(Photo photo) async {
+    final result = await showModalBottomSheet<(Photo, String)>(
+      context: context,
+      isScrollControlled: true,
+      // 下へ払って閉じる操作は PopScope を通らず、保存を待っている間でも閉じてしまう（タグのシートと同じ）
+      enableDrag: false,
+      builder: (context) =>
+          TakenAtSheet(apiService: widget.apiService, photo: photo),
+    );
+    if (result == null || !mounted) return;
+    final (updated, message) = result;
+    widget.onUpdated(updated);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   /// [photo] のカテゴリを、シートで選び直す（03 §5.6）
   Future<void> _editCategory(Photo photo) async {
     final updated = await showModalBottomSheet<Photo>(
@@ -446,6 +464,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                   onRetry: () => _retry(photos[index]),
                   onEditComment: () => _editComment(photos[index]),
                   onEditCategory: () => _editCategory(photos[index]),
+                  onEditTakenAt: () => _editTakenAt(photos[index]),
                   // タグを消している間は付けない（消す前のタグで保存して、消したタグを戻さない）
                   onTapImageAt: _addingTag && !_sendingTag
                       ? (position) => _addTag(photos[index], position)
@@ -493,6 +512,7 @@ class _PhotoPage extends StatefulWidget {
       required this.onRetry,
       required this.onEditComment,
       required this.onEditCategory,
+      required this.onEditTakenAt,
       required this.onTapImageAt,
       required this.onDeleteTag,
       required this.addingTag,
@@ -512,6 +532,9 @@ class _PhotoPage extends StatefulWidget {
 
   /// カテゴリのボタン（カテゴリを選ぶシートを開く）
   final VoidCallback onEditCategory;
+
+  /// 撮影日時の「日時を付ける」「変更」（撮影日時を付けるシートを開く。03 §5.8）
+  final VoidCallback onEditTakenAt;
 
   /// タグを付ける間に、画像の中をタップした（画像の中の割合）。タグを付ける間でないときと、タグを消している間は null
   final ValueChanged<Offset>? onTapImageAt;
@@ -571,6 +594,38 @@ class _PhotoPageState extends State<_PhotoPage> {
     if (zoomed == _zoomed) return;
     setState(() => _zoomed = zoomed);
     widget.onZoomChanged(zoomed);
+  }
+
+  /// 撮影日時の行。撮影日時の無い写真には「日時を付ける」、手で付けた写真には「手で付けた日時」と「変更」を出す。
+  /// カメラが記録した撮影日時の写真にはボタンを出さない（03 §5.8）
+  Widget _takenAtRow(Photo photo) {
+    final text = Text(formatTakenAt(photo.takenAt),
+        style: AppTextStyles.body1.copyWith(color: Colors.white));
+    final manual = photo.takenAtSource == 'user';
+    if (photo.takenAt != null && !manual) return text;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              text,
+              if (manual)
+                Text('手で付けた日時',
+                    style:
+                        AppTextStyles.caption.copyWith(color: Colors.white70)),
+            ],
+          ),
+        ),
+        OutlinedButton(
+          onPressed: widget.onEditTakenAt,
+          style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: Colors.white70)),
+          child: Text(manual ? '変更' : '日時を付ける'),
+        ),
+      ],
+    );
   }
 
   @override
@@ -655,9 +710,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(formatTakenAt(photo.takenAt),
-                              style: AppTextStyles.body1
-                                  .copyWith(color: Colors.white)),
+                          _takenAtRow(photo),
                           Text(_placeText(photo),
                               style: AppTextStyles.body1
                                   .copyWith(color: Colors.white)),
