@@ -132,8 +132,8 @@ void main() {
   testWidgets('名前が写真の枠の幅に入りきらなければ、吹き出しを枠の中に収める（末尾を切る）', (tester) async {
     const name = 'いか刺しとうに丼といくら丼とほたての浜焼きと焼きとうもろこし';
     await _openViewer(tester, [_photo(tags: [_tag(name)])], waitFor: _onPhoto(name));
-    // 幅 300dp の端末にする
-    tester.view.physicalSize = const Size(900, 2220);
+    // 幅 360dp の端末にする（30 文字の名前は入りきらない）
+    tester.view.physicalSize = const Size(1080, 2220);
     await letFramesRun(tester);
 
     expect(_inside(tester.getRect(_onPhoto(name)), _frame(tester)), isTrue,
