@@ -33,15 +33,15 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
   // やる処理は写真の step から読む（分類・識別・タグの提案）。待ち（state が pending）かどうかは、担当の条件付き patch が見る。
   // 読んだ値で先に判断しても、読んでから担当するまでの間に変わりうるので、判断を1か所（Cosmos が原子的に評価する条件）にまとめる
   const step = photo.processing.step;
-  if (step !== 'classify' && step !== 'identify' && step !== 'tag') {
+  if (step === null || !(step in STEPS)) {
     context.log(`解析の待ちではありません（何もしません）: ID=${photoId}, 読んだ状態=${photo.processing.state}`);
     return;
   }
-  const label = step === 'classify' ? '分類' : step === 'identify' ? '識別' : 'タグの提案';
+  const { label, state, run } = STEPS[step];
   const attempts = photo.processing.attempts + 1;
   const claimedProcessing: PhotoProcessing = {
     ...photo.processing,
-    state: step === 'classify' ? 'classifying' : step === 'identify' ? 'identifying' : 'tagging',
+    state,
     step,
     attempts,
     updatedAt: new Date().toISOString(),
@@ -56,13 +56,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
   try {
     const storage = new PhotoStorageService();
     const imageUrl = storage.readUrl(photo.blobName, new Date(Date.now() + CLASSIFY_IMAGE_SAS_MINUTES * 60 * 1000));
-    if (step === 'classify') {
-      await classifyPhoto(album, photo, claimedProcessing, imageUrl, context);
-    } else if (step === 'identify') {
-      await identifyPhoto(album, photo, claimedProcessing, imageUrl, context);
-    } else {
-      await tagPhoto(album, photo, claimedProcessing, imageUrl, context);
-    }
+    await run(album, photo, claimedProcessing, imageUrl, context);
   } catch (error: any) {
     // どこで失敗したかだけを書く。例外のメッセージは書かない（SDK 由来の文言が写真に残り続ける）
     const lastError = error instanceof UpstreamError ? error.service : 'internal';
@@ -89,6 +83,20 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     }
   }
 }
+
+/** 解析の段ごとの、ログの名前・担当中の状態・処理（段を足すときはここに1行足す） */
+const STEPS: Record<
+  NonNullable<PhotoProcessing['step']>,
+  {
+    label: string;
+    state: PhotoProcessing['state'];
+    run: (album: AlbumService, photo: PhotoDocument, claimed: PhotoProcessing, imageUrl: string, context: InvocationContext) => Promise<void>;
+  }
+> = {
+  classify: { label: '分類', state: 'classifying', run: (...args) => classifyPhoto(...args) },
+  identify: { label: '識別', state: 'identifying', run: (...args) => identifyPhoto(...args) },
+  tag: { label: 'タグの提案', state: 'tagging', run: (...args) => tagPhoto(...args) },
+};
 
 /**
  * 担当した写真を分類し、AI の一言と結果を書く。種類が自動で識別する種類（植物）なら識別の待ちにして積む（06 §2.3）
@@ -244,7 +252,7 @@ async function tagPhoto(
   }
   // 料理が無い、または利用者のタグが先にあった。進み具合だけを済みにする
   if (!(await album.writeProcessing(photo.id, claimedProcessing, done))) {
-    context.log(`タグの提案の間にやり直しの受付が入ったので、この結果は書きません: ID=${photo.id}`);
+    context.log(`タグの提案の間にやり直しの受付が入ったか、写真が消されたので、この結果は書きません: ID=${photo.id}`);
     return;
   }
   context.log(`タグは書かずに済みにしました（料理が無いか、利用者のタグがある）: ID=${photo.id}`);
