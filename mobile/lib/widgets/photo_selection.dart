@@ -39,6 +39,14 @@ class PhotoSelection extends ChangeNotifier {
     _loadedIds = photoIds;
   }
 
+  /// 選択を [photoIds] にある写真に絞る（一覧を先頭から読み直したとき。選択モードは抜けない）
+  void retainOnly(Iterable<String> photoIds) {
+    final kept = photoIds.toSet();
+    final before = _selectedIds.length;
+    _selectedIds.retainWhere(kept.contains);
+    if (_selectedIds.length != before) notifyListeners();
+  }
+
   /// 読み込んだ写真をすべて選ぶ
   void selectAll() {
     _selectedIds.addAll(_loadedIds);
