@@ -677,13 +677,22 @@ describe('タイムラインのワーカー', () => {
         { date: '2026-10-06', title: '小樽', summary: '小樽運河を歩いた。' }
       ],
       scenes: [
-        { start: 0, end: 1, label: '朝ごはん', note: '空港の海鮮丼' },
-        { start: 2, end: 3, label: '昼ごはん', note: '札幌のラーメン' },
-        { start: 4, end: 4, label: '運河', note: '小樽運河' },
-        { start: 5, end: 5, label: 'おやつ', note: '小樽で一休み' }
+        { start: 0, end: 1, label: '朝ごはん' },
+        { start: 2, end: 3, label: '昼ごはん' },
+        { start: 4, end: 4, label: '運河' },
+        { start: 5, end: 5, label: 'おやつ' }
       ]
     };
-    /** AI が書いた場面の文（作り直しでも前の文を引き継がないので、書いたときの写真は持たない。06 §8.3） */
+    /** AI が書いた場面の文。一言は書かせない（U-3。作り直しでも前の文を引き継がないので、書いたときの写真は持たない。06 §8.3） */
+    const writtenScene = (label: string) => ({
+      label,
+      labelSource: 'ai' as const,
+      aiLabel: label,
+      note: null,
+      noteSource: null,
+      aiNote: null
+    });
+    /** U-3 より前に AI が書いた場面の文（一言も書いていた。前の完成版に残っている） */
     const aiScene = (label: string, note: string) => ({
       label,
       labelSource: 'ai' as const,
@@ -722,10 +731,10 @@ describe('タイムラインのワーカー', () => {
       aiReturns({
         days: allTexts.days,
         scenes: [
-          { start: 0, end: 1, label: '朝', note: '一言' },
-          { start: 2, end: 2, label: '昼', note: '一言' },
-          { start: 3, end: 3, label: '夜中', note: '一言' },
-          { start: 4, end: 5, label: '運河', note: '一言' }
+          { start: 0, end: 1, label: '朝' },
+          { start: 2, end: 2, label: '昼' },
+          { start: 3, end: 3, label: '夜中' },
+          { start: 4, end: 5, label: '運河' }
         ]
       });
 
@@ -748,10 +757,10 @@ describe('タイムラインのワーカー', () => {
             proposedStarts: PROPOSED,
             sceneStarts: STARTS,
             sceneTexts: {
-              [photoId('a')]: aiScene('朝ごはん', '空港の海鮮丼'),
-              [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン'),
-              [photoId('e')]: aiScene('運河', '小樽運河'),
-              [photoId('f')]: aiScene('おやつ', '小樽で一休み')
+              [photoId('a')]: writtenScene('朝ごはん'),
+              [photoId('c')]: writtenScene('昼ごはん'),
+              [photoId('e')]: writtenScene('運河'),
+              [photoId('f')]: writtenScene('おやつ')
             },
             dayTexts: {
               '2026-10-05': aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。'),
@@ -771,9 +780,9 @@ describe('タイムラインのワーカー', () => {
       aiReturns({
         days: allTexts.days,
         scenes: [
-          { start: 0, end: 0, label: '空港', note: '千歳で' },
-          { start: 1, end: 2, label: '昼ごはん', note: '札幌のラーメン' },
-          { start: 3, end: 3, label: 'おやつ', note: '小樽で一休み' }
+          { start: 0, end: 0, label: '空港' },
+          { start: 1, end: 2, label: '昼ごはん' },
+          { start: 3, end: 3, label: 'おやつ' }
         ]
       });
 
@@ -785,9 +794,9 @@ describe('タイムラインのワーカー', () => {
       expect(prompt).not.toContain('小樽運河');
       const current = storedTimeline()!.current!;
       expect(current.sceneTexts).toEqual({
-        [photoId('a')]: aiScene('空港', '千歳で'),
-        [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン'),
-        [photoId('f')]: aiScene('おやつ', '小樽で一休み')
+        [photoId('a')]: writtenScene('空港'),
+        [photoId('c')]: writtenScene('昼ごはん'),
+        [photoId('f')]: writtenScene('おやつ')
       });
       expect(current.sceneStarts).toEqual(STARTS);
       expect(current.excludedPhotoIds).toEqual([photoId('a'), photoId('e')]);
@@ -903,10 +912,9 @@ describe('タイムラインのワーカー', () => {
               properties: {
                 start: expect.objectContaining({ type: 'integer' }),
                 end: expect.objectContaining({ type: 'integer' }),
-                label: expect.objectContaining({ type: 'string' }),
-                note: expect.objectContaining({ type: 'string' })
+                label: expect.objectContaining({ type: 'string' })
               },
-              required: ['start', 'end', 'label', 'note'],
+              required: ['start', 'end', 'label'],
               additionalProperties: false
             })
           })
@@ -920,7 +928,7 @@ describe('タイムラインのワーカー', () => {
     it('AI の応答の日や場面が頼んだものと合わないときは AI の失敗として、下書きを待ちに戻して例外を投げる（完成版は作らない）', () => forEachCase<[string, unknown]>([
       ['頼んだ日が無い', { ...allTexts, days: allTexts.days.slice(1) }],
       ['同じ日が2回ある', { ...allTexts, days: [allTexts.days[0], allTexts.days[0]] }],
-      ['頼んでいない場面がある', { ...allTexts, scenes: [{ start: 1, end: 1, label: 'x', note: 'x' }, ...allTexts.scenes.slice(1)] }],
+      ['頼んでいない場面がある', { ...allTexts, scenes: [{ start: 1, end: 1, label: 'x' }, ...allTexts.scenes.slice(1)] }],
       ['頼んだ場面が無い', { ...allTexts, scenes: allTexts.scenes.slice(1) }],
       // 番号と文の組を取り違えた応答（最初の場面に、次の場面の範囲と文を返した）。最初の写真の番号だけでは見分けられない
       ['場面の最後の写真の番号が、その場面と合わない', { ...allTexts, scenes: [{ ...allTexts.scenes[1], start: 0 }, ...allTexts.scenes.slice(1)] }],
@@ -940,24 +948,24 @@ describe('タイムラインのワーカー', () => {
       );
     }));
 
-    it('AI の文は前後の空白を除き、上限（タイトル 40・まとめ 400・見出し 30・一言 200 文字）を超える分は切り詰める', async () => {
+    it('AI の文は前後の空白を除き、上限（タイトル 40・まとめ 400・見出し 30 文字）を超える分は切り詰める', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       aiReturns({
         days: [{ date: '2026-10-05', title: ` ${'題'.repeat(41)} `, summary: 'ま'.repeat(401) }, allTexts.days[1]],
-        scenes: [{ start: 0, end: 1, label: `　${'見'.repeat(31)}`, note: '一'.repeat(201) }, ...allTexts.scenes.slice(1)]
+        scenes: [{ start: 0, end: 1, label: `　${'見'.repeat(31)}` }, ...allTexts.scenes.slice(1)]
       });
 
       await runWorker();
 
       const current = storedTimeline()!.current!;
       expect(current.dayTexts['2026-10-05']).toMatchObject({ title: '題'.repeat(40), aiTitle: '題'.repeat(40), summary: 'ま'.repeat(400) });
-      expect(current.sceneTexts[photoId('a')]).toMatchObject({ label: '見'.repeat(30), aiLabel: '見'.repeat(30), note: '一'.repeat(200) });
+      expect(current.sceneTexts[photoId('a')]).toMatchObject({ label: '見'.repeat(30), aiLabel: '見'.repeat(30) });
     });
 
     it('上限で切り詰めるときは、絵文字などの途中（サロゲートペアの片割れ）で切らない', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       // 29 文字の後に絵文字（UTF-16 で 2 つ分）。30 で切ると絵文字の前半だけが残る
-      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label: `${'見'.repeat(29)}🍣`, note: '一言' }, ...allTexts.scenes.slice(1)] });
+      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label: `${'見'.repeat(29)}🍣` }, ...allTexts.scenes.slice(1)] });
 
       await runWorker();
 
@@ -968,7 +976,7 @@ describe('タイムラインのワーカー', () => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
       // 結合文字を 31 個重ねた1文字（UTF-16 で 32 個分）。見出しの上限 30 に1文字も収まらない
       const label = `a${String.fromCharCode(0x301).repeat(31)}`;
-      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
+      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label }, ...allTexts.scenes.slice(1)] });
 
       await expect(runWorker()).rejects.toThrow();
 
@@ -985,7 +993,7 @@ describe('タイムラインのワーカー', () => {
       ['空白の後ろ', `${'見'.repeat(29)} ${'見'.repeat(5)}`, '見'.repeat(29)]
     ], async (_label, label, expected) => {
       cosmosBackend.documents.set(TIMELINE_ID, writingTimeline());
-      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label, note: '一言' }, ...allTexts.scenes.slice(1)] });
+      aiReturns({ ...allTexts, scenes: [{ start: 0, end: 1, label }, ...allTexts.scenes.slice(1)] });
 
       await runWorker();
 
@@ -993,7 +1001,7 @@ describe('タイムラインのワーカー', () => {
     }));
 
     describe('写真の多い旅行（一度に渡すのは 400 枚まで）', () => {
-      const scene = (start: number, end: number, label: string) => ({ start, end, label, note: `${label}の一言` });
+      const scene = (start: number, end: number, label: string) => ({ start, end, label });
       const day = (date: string, title: string) => ({ date, title, summary: `${title}のまとめ` });
       /** 区切り（AI の案も同じ）の文を書く待ちの下書きを置く */
       const useWritingDraft = (starts: string[]) =>
@@ -1114,10 +1122,10 @@ describe('タイムラインのワーカー', () => {
           proposedStarts: PROPOSED,
           sceneStarts: STARTS,
           sceneTexts: {
-            [photoId('a')]: aiScene('朝ごはん', '空港の海鮮丼'),
-            [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン'),
-            [photoId('e')]: aiScene('運河', '小樽運河'),
-            [photoId('f')]: aiScene('おやつ', '小樽で一休み')
+            [photoId('a')]: writtenScene('朝ごはん'),
+            [photoId('c')]: writtenScene('昼ごはん'),
+            [photoId('e')]: writtenScene('運河'),
+            [photoId('f')]: writtenScene('おやつ')
           },
           dayTexts: {
             '2026-10-05': aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。'),
@@ -1161,10 +1169,10 @@ describe('タイムラインのワーカー', () => {
         // 前の文は、残さないうえに AI にも渡さない
         expect(sentPrompt().includes('前の')).toBe(false);
         expect(storedTimeline()!.current!.sceneTexts).toEqual({
-          [photoId('a')]: aiScene('朝ごはん', '空港の海鮮丼'),
-          [photoId('c')]: aiScene('昼ごはん', '札幌のラーメン'),
-          [photoId('e')]: aiScene('運河', '小樽運河'),
-          [photoId('f')]: aiScene('おやつ', '小樽で一休み')
+          [photoId('a')]: writtenScene('朝ごはん'),
+          [photoId('c')]: writtenScene('昼ごはん'),
+          [photoId('e')]: writtenScene('運河'),
+          [photoId('f')]: writtenScene('おやつ')
         });
         expect(storedTimeline()!.current!.dayTexts).toEqual({
           '2026-10-05': aiDay('千歳と札幌', '空港で海鮮丼を食べ、札幌でラーメン。'),
@@ -1181,7 +1189,7 @@ describe('タイムラインのワーカー', () => {
 
         await runWorker();
 
-        expect(storedTimeline()!.current!.sceneTexts[photoId('e')]).toEqual(aiScene('運河', '小樽運河'));
+        expect(storedTimeline()!.current!.sceneTexts[photoId('e')]).toEqual(writtenScene('運河'));
         expect(storedTimeline()!.draft).toBeNull();
       });
 
