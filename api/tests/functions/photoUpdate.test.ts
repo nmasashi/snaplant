@@ -360,6 +360,8 @@ describe('写真更新API', () => {
     // 形式と実在の全ケースは写真の送信の入口（photos.test.ts の「13: takenAt の形式と実在」）で通し、ここでは確かめを通ることだけを見る
     ['takenAtが実在しない日付', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: '2026-02-30T12:00:00' }), '撮影日時の形式が無効です'],
     ['takenAtが数値', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: 20261005 }), '撮影日時の形式が無効です'],
+    // 文字列に直すと正しい日時になる値も、文字列でなければ断る（照合は値を文字列に直すので、文字列かは別に確かめる）
+    ['takenAtが配列（文字列に直すと正しい日時）', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: ['2026-10-05T12:00:00'] }), '撮影日時の形式が無効です'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
   ], async (_case, photoId, json, message) => {
