@@ -29,6 +29,8 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   // 利用者が日付を選んだか（選んだ後は、旅行の期間が届いても初期値に戻さない）
   bool _datePicked = false;
   TripSummary? _trip;
+  // 旅行を読んでいる間は保存させない（読む前に保存すると、期間の初日ではなく送った日で付いてしまう。03 §5.8）
+  late bool _tripLoading = widget.photo.tripId != null;
   bool _busy = false;
   String? _error;
 
@@ -74,6 +76,7 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
     } catch (e) {
       debugPrint('TakenAtSheet: 旅行の読み込みエラー: $e');
     }
+    if (mounted) setState(() => _tripLoading = false);
   }
 
   Future<void> _pickDate() async {
@@ -194,7 +197,7 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: _busy
+                    onPressed: _busy || _tripLoading
                         ? null
                         : () => _send(_takenAtValue,
                             _changing ? '撮影日時を変えました' : '撮影日時を付けました'),
