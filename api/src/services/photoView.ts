@@ -28,7 +28,7 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
     // C-4 より前のタグには出どころが無い。利用者が付けたものなので user として返す
     tags: (doc.tags ?? [])
       .filter((tag): tag is StoredPhotoTag => typeof tag === 'object' && tag !== null)
-      .map((tag): PhotoTag => ({ ...tag, source: tag.source ?? 'user' })),
+      .map((tag): PhotoTag => ({ name: tag.name, kind: tag.kind, x: tag.x, y: tag.y, source: tag.source ?? 'user' })),
     comment: doc.comment,
     commentSource: doc.commentSource,
     hint: doc.hint,

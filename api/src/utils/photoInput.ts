@@ -425,7 +425,7 @@ export async function readPhotoUpdateInput(
 }
 
 /**
- * タグ1つを読んで検証する（05 §5.6 の 8〜9.2）。名前・種類・位置だけを取り出し、ほかのキーは捨てる
+ * タグ1つを読んで検証する（05 §5.6 の 8〜9.2。出どころ（C-4）は名前より先に見る）。名前・種類・位置・出どころだけを取り出し、ほかのキーは捨てる
  * @returns 検証を通ったタグ、または 400 の理由の文言
  */
 function readPhotoTag(tag: unknown): PhotoTag | string {
