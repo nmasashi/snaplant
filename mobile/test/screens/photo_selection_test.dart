@@ -1,8 +1,12 @@
+import 'dart:io';
 import 'dart:ui' show SemanticsFlag;
 
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/app_test_helpers.dart';
+import '../helpers/gallery_test_helpers.dart';
+import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 複数選択と、旅行への出し入れ・削除（docs/03_screen_design.md §4.8）を、利用者から見た振る舞いで確かめる。
@@ -82,8 +86,9 @@ void main() {
   });
 
   // 旅行に属さない写真の画面は、下に引っ張っても見出しのために旅行を取り直さない（画面全体が描き直されない）。
-  // 選択が絞られたことは選択の知らせだけで見出しに届くので、旅行詳細とは別に確かめる
-  testWidgets('旅行に属さない写真の画面でも、選択モード中に下に引っ張って読み直すと、別の端末で消された写真は選択から外れ、見出しの枚数も減る', (tester) async {
+  // 選択が絞られたことは選択の知らせだけで見出しに届くので、旅行詳細とは別に確かめる。
+  // 選んでいた写真だけが消えて 0 枚になっても、選択モードは抜けない（§4.8「選んだ枚数が 0 になっても選択モードのまま」）
+  testWidgets('旅行に属さない写真の画面でも、選択モード中に下に引っ張って読み直すと、別の端末で消された写真は選択から外れ、0枚になっても選択モードのまま「0枚を選択中」を出す', (tester) async {
     final backend = FakeTripBackend(
       trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)],
       unassignedPhotoCount: 2,
@@ -97,19 +102,77 @@ void main() {
     await openTripsTab(tester, backend);
     await tester.tap(find.text('旅行に属さない写真'));
     await letFramesRun(tester);
-    await tester.longPress(photoThumbnail('2026年9月1日 10:15'));
+    await tester.longPress(photoThumbnail('2026年9月2日 12:30'));
     await letFramesRun(tester);
-    await tester.tap(photoThumbnail('2026年9月2日 12:30'));
-    await letFramesRun(tester);
-    expect(find.text('2枚を選択中'), findsOneWidget);
+    expect(find.text('1枚を選択中'), findsOneWidget);
     // 別の端末で、選んでいた 9月2日 の写真が消された
     backend.photosByTripId['none']!.removeAt(1);
-    backend.unassignedPhotoCount = 1;
 
     await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
 
     expect(photoThumbnail('2026年9月2日 12:30'), findsNothing);
-    expect(find.text('1枚を選択中'), findsOneWidget);
+    expect(find.text('0枚を選択中'), findsOneWidget);
+  });
+
+  group('送信の一区切り', () {
+    // 送信が一区切りつくと、画面はグリッドを作り直して先頭のページから読み直す。読み直したサムネイルを出したまま実時間を進めるので、
+    // 画像のキャッシュの置き場（path_provider）を一時ディレクトリに差し替える（pending_photo_tiles_test.dart と同じ。テストごとに差し替えると互いに干渉する）
+    late Directory cacheDirectory;
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+
+    setUpAll(() {
+      cacheDirectory = Directory.systemTemp.createTempSync('snaplant_image_cache');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async => cacheDirectory.path);
+    });
+
+    tearDownAll(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+      try {
+        cacheDirectory.deleteSync(recursive: true);
+      } catch (_) {
+        // キャッシュの掃除のタイマーなどが使っている間は消せないことがある。一時ディレクトリなので残っても構わない
+      }
+    });
+
+    testWidgets('選択モード中に送信が一区切りついて一覧を読み直すと、別の端末で消された写真は選択から外れる', (tester) async {
+      useFakeImageCompress();
+      useGalleryReturning([writeTestImage('one.png', bytes: [...tinyPngBytes, 1])]);
+      final backend = FakeTripBackend(
+        trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 2)],
+        photosByTripId: {
+          hokkaidoTripId: [
+            photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:01:00'),
+            photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:02:00'),
+          ],
+        },
+      );
+      final release = backend.holdNextReply(TripRoute.upload);
+      await openTripsTab(tester, backend);
+      await tester.tap(find.text('北海道 2026秋'));
+      await letFramesRun(tester);
+      // 選択モードでは「写真を追加」が隠れるので、先に送って応答を止めておく
+      await tester.tap(find.text('写真を追加'));
+      await waitUntilUploadsReceived(tester, backend, 1);
+      await letFramesRun(tester);
+      await tester.longPress(photoThumbnail('2026年10月5日 10:01'));
+      await letFramesRun(tester);
+      await tester.tap(photoThumbnail('2026年10月5日 10:02'));
+      await letFramesRun(tester);
+      expect(find.text('2枚を選択中'), findsOneWidget);
+      // 別の端末で、選んでいた 10:02 の写真が消された
+      backend.photosByTripId[hokkaidoTripId]!.removeAt(1);
+
+      release.complete();
+      // 送った写真（撮影日時なし）が一覧に出たら、読み直しが済んでいる
+      await waitUntilFound(tester, find.bySemanticsLabel(RegExp('^撮影日時なし')));
+      await letFramesRun(tester);
+
+      expect(photoThumbnail('2026年10月5日 10:02'), findsNothing);
+      expect(find.text('1枚を選択中'), findsOneWidget);
+      // キャッシュの掃除のタイマーを済ませる
+      await tester.pump(const Duration(seconds: 20));
+    });
   });
 }
