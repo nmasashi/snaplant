@@ -518,6 +518,25 @@ void main() {
       });
     }
 
+    testWidgets('完成版が残っている作り直しの下書き（5-6b より前に始めたもの）の失敗の「やめる」で捨てると、残っている完成版に戻る',
+        (tester) async {
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(current: _current, draft: {
+            ..._draft('proposing', step: 'propose', state: 'failed', lastError: 'ai'),
+            'reason': 'rebuild',
+          }));
+      await _showTimeline(tester);
+      expect(find.text('タイムラインの案を作れませんでした'), findsOneWidget);
+
+      await tester.tap(find.text('やめる'));
+      await letFramesRun(tester);
+      await tapInDialog(tester, '捨てる');
+
+      expect(_draftOf(backend), isNull);
+      expect(find.textContaining('に作成'), findsOneWidget);
+      expect(find.text('タイムラインはまだありません'), findsNothing);
+    });
+
     testWidgets('作り直しの下書き（rebuild。完成版が残っている）があれば、完成版があっても作っている間の表示にする',
         (tester) async {
       await _openTripDetail(tester,
