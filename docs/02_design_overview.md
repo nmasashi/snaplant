@@ -399,7 +399,7 @@ Cosmos DB は別パーティションの文書をまとめて原子的に書け�
 | `save` の重複チェックが read-then-write で同時リクエストに効かない | 引き継がない。id を中身から決めることで、一意キー無しでも `create` の 409 で DB が保証する |
 | UUID の生成方法が2つある | 新コードは `uuid` パッケージ。サーバで振るのは旅行の id だけ |
 | 接続障害の判定が6箇所に複製 | 新ハンドラは `isConnectivityError()` を使う。既存6箇所の置き換えは別作業 |
-| `ETIMEDOUT` の分類のずれ | `isConnectivityError()` の集合に `ETIMEDOUT` を含めるかは、既存の判断（バックログ）に合わせる。新ハンドラだけ違う集合にしない |
+| `ETIMEDOUT` の分類 | 2026-11-01 に `isConnectivityError()` の集合（`UNREACHABLE_ERRNOS`）に `ETIMEDOUT` を足し、Cosmos DB・ストレージ・AI で揃えた。新ハンドラだけ違う集合にしない |
 | Cosmos のシステム項目が応答に含まれる可能性 | 新しい API は応答に出す項目を明示的に詰め替える（[05 §3](./05_api_design.md#3-データモデル)） |
 | `host.json` の `http` がトップレベルにある | 段階3で `extensions.queues` を足すときに `extensions.http` へ直す（[07 §4](./07_infrastructure_design.md#4-hostjson-の変更)） （PR 3-1 で直した） |
 | azurerm v5 で `images` が非公開になる懸念 | 4-7 で `images` を Terraform の定義から消したので無くなった（残る `photos` は最初から非公開） |
