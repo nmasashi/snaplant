@@ -193,6 +193,39 @@ void main() {
     expect(find.text('送り直す'), findsOneWidget);
   });
 
+  testWidgets('送り直しの最後の1回が60秒の時間切れで失敗したら、バナーに「1枚を送信できませんでした（サーバーから応答がありませんでした。…）」を出す', (tester) async {
+    // 時間切れはネットワークの失敗と文言を分ける（03 §9.2。写真の送信の 60 秒も同じ）。60 秒を何度も進めないよう、
+    // 3回目までは 503 で失敗させ、送り直しの最後の1回（4回目）だけを応答の止まった時間切れにする
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    for (var i = 0; i < 3; i++) {
+      backend.failNext(TripRoute.upload);
+    }
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await letUploadFail(tester, backend, 1);
+    await tester.pump(const Duration(seconds: 3));
+    await letUploadFail(tester, backend, 2);
+    await tester.pump(const Duration(seconds: 5));
+    await letUploadFail(tester, backend, 3);
+    final lastReply = backend.holdNextReply(TripRoute.upload);
+    addTearDown(() {
+      if (!lastReply.isCompleted) lastReply.complete();
+    });
+    await tester.pump(const Duration(seconds: 9));
+    await waitUntilUploadsReceived(tester, backend, 4);
+    await tester.pump(const Duration(seconds: 60));
+    await waitRealTime(tester);
+    await letFramesRun(tester);
+
+    expect(find.text('1枚を送信できませんでした（サーバーから応答がありませんでした。しばらく待ってから再試行してください。）'), findsOneWidget);
+  });
+
   testWidgets('送信の応答（201）の本文を読めないときは、送り直さずにすぐ失敗にし、バナーに「1枚を送信できませんでした（予期しないエラーが発生しました。…）」を出す', (tester) async {
     // 本文を読めない失敗は通信の失敗ではない（分類できない失敗。03 §9.2）。送り直しても直らないので送り直さない。
     // 送り直すなら、待つ間はバナーが「送信中」のままなので、時間を進める前に失敗の行が出ていることで、送り直しを待っていないと分かる。
