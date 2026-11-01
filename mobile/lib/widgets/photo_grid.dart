@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -288,8 +289,9 @@ class _PhotoGridState extends State<PhotoGrid> {
             _consecutiveEmptyPages >= _maxConsecutiveEmptyPages;
       });
       // 写真の無いページ（続きはある）なら、そのまま次を読む。グリッドの下端の組み立てを待たないので、
-      // 写真ビューアを上に開いている間も末尾で止まらない（docs/03_screen_design.md §3・§4.6。上の上限で止まる）
-      if (page.photos.isEmpty) _loadMore();
+      // 写真ビューアを上に開いている間も末尾で止まらない（docs/03_screen_design.md §3・§4.6。上の上限で止まる）。
+      // 続けて読んだ分の失敗は、その読み込みが自分で扱う（ここの catch には来ない）
+      if (page.photos.isEmpty) unawaited(_loadMore());
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
