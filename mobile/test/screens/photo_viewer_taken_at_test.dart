@@ -190,6 +190,22 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('日付の選択の範囲（1900〜2100 年）の外の手で付けた日時でも日付の選択を開け、範囲の端の日付が出て、OK でその日付になる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend(takenAt: '0850-05-01T10:00:00', takenAtSource: 'user');
+    await _openViewer(tester, backend, '0850年5月1日 10:00');
+    await tester.tap(find.text('変更'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.text('850年5月1日'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('OK'));
+    await letFramesRun(tester);
+
+    expect(find.text('1900年1月1日'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('保存を待っている間は、下に払っても端末の戻る操作でもシートの外のタップでも閉じず、日付・時刻・「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
