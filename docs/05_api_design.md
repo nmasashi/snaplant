@@ -47,7 +47,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み） | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint?, placeName? }`。写真に `step`・`hint` を書いてキューに投入。`placeName`（撮影地の地名を直す）は C-2（実装済み） | 3（`identify` は4） | `photoProcess.ts` |
-| `/api/tags` | GET | `{ tags }` | 利用者のタグの `DISTINCT` | 未定（タグを付ける画面と一緒） | `tags.ts` |
+| `/api/tags` | GET | `{ tags }` | 利用者のタグの名前の `DISTINCT` | 未定（C-3 には入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
 | `/api/catalog/entries` | GET | `{ entries, total }` | `kind=` 必須（図鑑に載せる種類だけ。食べ物・風景は 400）。`GROUP BY` で数え、項目ごとに見出しの写真を1枚読む。属の学名の順（同じ属は名前の順、属が分からない項目は最後。P-1）に並べ、`offset` / `limit` でページ。各項目に `genus`・`genusName`（P-1）・`photoCount`・`coverThumbnailUrl`（`urlExpiresAt` は付けない） | 4（4-2a。食べ物・風景を断るのは B-2。実装済み） | `catalogEntries.ts` |
 | `/api/catalog/entry` | GET | `{ entry, photos, continuationToken, urlExpiresAt }` | `kind=` と `name=`（URL エンコード）で1件を指定（`kind` は図鑑に載せる種類だけ。食べ物・風景は 400）。該当する写真が無ければ `entry: null`。`photos` は `GET /api/photos` と同じページング（ページごとに `entry` も読み直す） | 4（4-2b。食べ物・風景を断るのは B-2。実装済み） | `catalogEntry.ts` |
@@ -213,7 +213,8 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 | `PHOTO_VALIDATION.MAX_LENGTH.COMMENT` | `PHOTO_COMMENT_MAX_LENGTH` | 500 | `PATCH /api/photos/{photoId}` |
 | `PHOTO_VALIDATION.THUMBNAIL_MAX_SIZE` | `THUMBNAIL_MAX_SIZE` | 1048576（1MB） | `POST /api/photos` |
 | `MOVE_VALIDATION.MAX_IDS` | `MOVE_MAX_IDS` | 200 | `POST /api/photos/move` |
-| `TAG_VALIDATION.MAX_LENGTH` | `TAG_MAX_LENGTH` | 30 | `PATCH /api/photos/{photoId}` |
+| `TAG_VALIDATION.MAX_LENGTH` | `TAG_MAX_LENGTH` | 30 | `PATCH /api/photos/{photoId}`（タグの名前 `tags[].name`） |
+| `TAG_VALIDATION.MAX_COUNT` | `TAG_MAX_COUNT` | 20 | `PATCH /api/photos/{photoId}`（1枚の写真のタグの数。同じ名前も数える） |
 | `FILE_UPLOAD.MAX_SIZE`・`SUPPORTED_IMAGE_TYPES`（既存） | `MAX_FILE_SIZE` | 10MB | `POST /api/photos` の原寸 |
 | `CONTEXT_INFO_VALIDATION.MAX_LENGTH`（既存） | `CONTEXT_INFO_MAX_LENGTH` | 500 | `process` の `hint` |
 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
@@ -222,10 +223,10 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 | `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT` | `TIMELINE_SCENE_COMMENT_MAX_LENGTH` | 100 | `PUT /api/trips/{tripId}/timeline/draft/scenes` の `sceneComments`（場面のコメント。前後の空白を除いて数える（§9.6）。5-7 で実装済み） |
 | `TIMELINE_VALIDATION.DATE_REGEX` | — | `/^\d{4}-\d{2}-\d{2}$/`（加えて実在する日付であること） | 同上の `date` |
 
-実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`MAX_LENGTH.COMMENT`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`MOVE_VALIDATION.MAX_IDS`、`TAG_VALIDATION.MAX_LENGTH`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4b 時点）。
+実装済みは `TRIP_VALIDATION` の2つ、`PHOTO_VALIDATION` の `ID_REGEX`・`TAKEN_AT_REGEX`・`COORDINATE_REGEX`・`MAX_LENGTH.PLACE_NAME`・`MAX_LENGTH.COMMENT`・`THUMBNAIL_MAX_SIZE`・`PAGE_SIZE`・`MAX_PAGE_SIZE`、`MOVE_VALIDATION.MAX_IDS`、`TAG_VALIDATION.MAX_LENGTH`、`PHOTO_SAS_EXPIRY_MINUTES` と既存のもの（PR 4b 時点）。`TAG_VALIDATION.MAX_COUNT` は PR 4b のレビューの指摘への対応で足した（実装済み）。
 `CATALOG_VALIDATION` は、使うエンドポイント（段階4）と一緒に足す。`NAME_MAX_LENGTH` は識別の応答の検証で使うので 4-1a で、`PAGE_SIZE`・`MAX_PAGE_SIZE` は `GET /api/catalog/entries` と一緒に 4-2a で足した（どちらも実装済み）。
 図鑑の 400 の `message`（`図鑑の種類が無効です`・`ページの指定が無効です`。`CATALOG_VALIDATION.ERROR_MESSAGES` の `KIND_INVALID`・`PAGE_INVALID`）は上限値を埋め込まない固定の文言。
-コメント・タグ・move の上限も `message` に値を埋め込む（`コメントは500文字以内で指定してください`・`タグは1〜30文字で指定してください`・`一度に移動できる写真は200枚までです`）。
+コメント・タグ・move の上限も `message` に値を埋め込む（`コメントは500文字以内で指定してください`・`タグの名前は1〜30文字で指定してください`・`タグは20個までです`・`一度に移動できる写真は200枚までです`）。
 `PHOTO_SAS_EXPIRY_MINUTES` は定数にせず、`photoUrlExpiresOn()` が応答を作るたびに `positiveIntFromEnv()` で読む（正の整数として読めない値（数字でない・0・負）は 60）。
 `limit` の 400 の `message`（`1ページの枚数は1〜200で指定してください`）は `PHOTO_MAX_PAGE_SIZE` の値を埋め込む。
 `TIMELINE_VALIDATION.MAX_LENGTH` は 5-2a で足した（実装済み。タイムラインのワーカーが AI の文を上限で切り詰める。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。5-2b からは `PATCH` の2つも同じ値を 400 の上限に使う（実装済み。`message` に上限値を埋め込む。§5.15）。`TIMELINE_VALIDATION.DATE_REGEX` は `PATCH …/days/{date}` と一緒に 5-2b で足した（実装済み。形に加えて、暦にある日付かも見る）。`constants/validation.ts` には、入力検証ではないが時刻（0〜23）の環境変数を読む `hourFromEnv()` も置いた（5-1a。実装済み。`TIMELINE_DAY_START_HOUR` を読む。読み方は [07 §6.1](./07_infrastructure_design.md#61-api-の環境変数)）。
@@ -437,13 +438,13 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 ### 5.6 `PATCH /api/photos/{photoId}`
 
-**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの30文字は前後の空白を除いた後で数える。文字数の数え方（見た目の1文字）と前後の空白（U+0085 を含む）は §9.6（コメントの U+0085 は #127、タグの U+0085 と数え方は #128 で実装済み）。タグの重複は前後の空白を除いた後の値で、先に出たものを残す。
+**実装済み**（PR 4b。`photoDetail.ts`、検証は `readPhotoUpdateInput`）。コメントの500文字とタグの名前の30文字は前後の空白を除いた後で数える。文字数の数え方（見た目の1文字）と前後の空白（U+0085 を含む）は §9.6（コメントの U+0085 は #127、タグの U+0085 と数え方は #128 で実装済み）。C-3a からタグは名前・種類・位置の形で、同じ名前のタグも除かない（下の `tags` の項目）。
 
 **実装済み**（C-1。`photoDetail.ts`・`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）: `category`（利用者がカテゴリを手で決める。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #53）。表の 4 の条件と 9.6、下の `category` の項目、書き込みとキューへの投入。
 
 **実装済み**（カテゴリの変更で AI のコメントを消す。`AlbumService.updatePhoto()`）: `category` で AI が書いたコメント（`commentSource: "ai"`）を条件付き patch で消すこと（下の `category` の項目の2つ目の中ほどと、「書き込みは」の項目）。
 
-利用者のコメント・タグ・カテゴリを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・未定（タグ）。
+利用者のコメント・タグ・カテゴリを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 
 **リクエスト:** `{ "comment"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
 
@@ -465,6 +466,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
 検証は `photoId`（1）→ ボディ（2〜9.6。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 の順）→ 写真があるか（10）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
+タグの要素の 8〜9.2 は要素ごとに先頭から見て、1つの要素の中では 8 → 9 → 9.1 → 9.2 の順に確かめ、最初に当たった条件の `message` を返す（例: 1つ目の要素の種類が無効で2つ目が文字列なら、9.1 の `タグの種類が無効です`）。ただし数の上限（9.5）は要素の中身より先に見る（20 個を超える配列は、要素を確かめずに 9.5 で断る。大きな配列を全部確かめてから断らないため。/code-review の指摘）（**実装済み**（C-3a））。
 ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`tags`・`category` のどれも無いものとして扱い、4 になる。`comment`・`tags`・`category` 以外のキー（`hint` など）は無視し、それだけなら 4。
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
@@ -650,7 +652,7 @@ Cosmos へ接続できなければ（写真の読み取り・patch のどちら�
 
 ### 5.13 `GET /api/tags`（段階は未定）
 
-`{ tags: string[] }`。写真の `tags`（利用者のタグ）の `DISTINCT`。文字列順。タグを付ける画面を入れる段階で一緒に入れる（カテゴリは `GET /api/catalog/kinds` + `other` で分かるので、ここには含めない）。
+`{ tags: string[] }`。写真の `tags`（利用者のタグ）の名前（`tags[].name`）の `DISTINCT`。文字列順。タグの名前の入力の候補を出すときに入れる（タグを付ける画面（C-3）には入れない。#57）（カテゴリは `GET /api/catalog/kinds` + `other` で分かるので、ここには含めない）。
 500 の `message`: `タグ一覧の取得に失敗しました`。
 
 ### 5.14 図鑑（段階4）
@@ -1233,7 +1235,7 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT
   （文書の大きさの上限や AI に渡す文の大きさ）。1文字が長い絵文字（肌の色を付けた家族の絵文字で 19 単位）を上限の文字数まで並べても、この上限には当たらない
 - **前後の空白**は、JavaScript の `trim()` が除くもの（空白・タブ・改行・全角空白など）に U+0085（次の行）を足したもの。アプリの `trim()`（Dart）と同じ。
   前後の空白を除く欄は、除いた後の文で数え、除いた後の文を保存する
-- 除いて空になった文（空白だけ・U+0085 だけ）の扱いは欄ごとに違い、各節に書いてある。旅行名は 400 `旅行名が指定されていません`、タグは 400 `タグは1〜30文字で指定してください`、
+- 除いて空になった文（空白だけ・U+0085 だけ）の扱いは欄ごとに違い、各節に書いてある。旅行名は 400 `旅行名が指定されていません`、タグの名前は 400 `タグの名前は1〜30文字で指定してください`、
   写真のコメントと手がかりは `null`、場所は `null`（撮影地の地名を消す。§5.7）、完成版の文は AI が書いた文に戻す、場面のコメントは持たない
 - 上限を超えたときの 400 の `message` は欄ごとに固定で、上限の値を埋め込む（各節）
 
