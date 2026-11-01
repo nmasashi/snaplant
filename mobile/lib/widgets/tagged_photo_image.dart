@@ -90,11 +90,15 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
     return Alignment.center.inscribe(fitted, Offset.zero & box);
   }
 
-  /// 吹き出しの箱の高さ（1行の名前と余白と枠）。上の端に入りきるかを、箱を置く前に決めるのに使う
+  /// 吹き出しの箱の高さ（1行の名前と余白と枠）。上の端に入りきるかを、箱を置く前に決めるのに使う。
+  /// 箱の [Text] と同じく、周りの文字の決まり（テーマの行の高さ・フォント）に [_labelStyle] を重ねて測る（ずれると上の端で切れる）
   static double _labelHeight(BuildContext context) {
+    final defaults = DefaultTextStyle.of(context);
     final painter = TextPainter(
-        text: const TextSpan(text: 'あ', style: _labelStyle),
+        text: TextSpan(text: 'あ', style: defaults.style.merge(_labelStyle)),
         textScaler: MediaQuery.textScalerOf(context),
+        textHeightBehavior: defaults.textHeightBehavior,
+        locale: Localizations.maybeLocaleOf(context),
         textDirection: TextDirection.ltr,
         maxLines: 1)
       ..layout();
@@ -137,6 +141,8 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
       final rect = imageSize == null
           ? null
           : _fittedRect(imageSize, constraints.biggest);
+      // どのタグでも同じなので、吹き出しを出すときに1回だけ測る
+      late final labelHeight = _labelHeight(context);
       return GestureDetector(
         // タグを付ける間は、余白のタップも受けて何もしない（外側の部品に渡さない）
         behavior: onTapAt == null
@@ -160,7 +166,7 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
                     Offset(rect.left + rect.width * tag.x,
                         rect.top + rect.height * tag.y),
                     tag.name,
-                    _labelHeight(context),
+                    labelHeight,
                     onTapTag == null ? null : () => onTapTag(index)),
           ],
         ),
