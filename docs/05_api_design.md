@@ -470,7 +470,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
 - `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は `{ name, kind, x, y }` だけを保存し（ほかのキーは捨てる）、`name` は前後の空白を除く。
-  同じ名前のタグも除かずに残し、並びは送った順（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57。C-3a より前は文字列の配列で、重複を除いていた）。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
+  同じ名前のタグも除かずに残し、並びは送った順（**実装済み**（C-3a。`utils/photoInput.ts` の `readPhotoTag()`）。C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57。C-3a より前は文字列の配列で、重複を除いていた）。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
 - `category`（C-1）: 利用者が手で決めたカテゴリにする（AI を通さない）。写真を読んでから、次のように書く。送らなければ `category`・`categorySource`・`identification`・`processing`・コメントに触らない
   - いつも `categorySource: "user"` を書く（今と同じカテゴリでも）
   - 今のカテゴリと違うか、写真の分類が済んでいない（`processing.step` が `classify` で `state` が `pending`・`classifying`・`failed`）ときは、さらに `category`（送った値）・`identification: null`（前の識別を消す。植物から変えれば図鑑から外れる）・`processing` を書く。
