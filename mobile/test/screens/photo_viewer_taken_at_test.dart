@@ -144,7 +144,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('変えるときは、旅行を読んでいる間も「保存」を押せる（初期値が今の日時で、旅行を読んでも替わらないので）', (tester) async {
+  testWidgets('変えるときは、旅行を読んでいる間も「保存」を押せ、今の日時のまま保存できる（初期値が今の日時で、旅行を読んでも替わらないので）', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend(takenAt: '2026-10-05T08:30:00', takenAtSource: 'user');
     await _openViewer(tester, backend, '2026年10月5日 08:30');
@@ -154,9 +154,14 @@ void main() {
     });
     await tester.tap(find.text('変更'));
     await letFramesRun(tester);
+    // まだ旅行を読んでいる（期間の手がかりが出ていない）
+    expect(find.textContaining('の期間は'), findsNothing);
 
-    final save = tester.widget<FilledButton>(find.ancestor(of: find.text('保存'), matching: find.byType(FilledButton)));
-    expect(save.onPressed, isNotNull);
+    await tester.tap(find.text('保存'));
+    await letFramesRun(tester);
+
+    expect(_storedPhoto(backend)['takenAt'], '2026-10-05T08:30:00');
+    expect(find.text('撮影日時を変えました'), findsOneWidget);
     reply.complete();
     await letFramesRun(tester);
     semantics.dispose();
