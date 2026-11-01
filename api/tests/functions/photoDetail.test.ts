@@ -177,6 +177,16 @@ describe('写真詳細API', () => {
       });
     });
 
+    it('タグの欄の無い写真の文書は、タグが無いものとして返す', async () => {
+      const { tags: _tags, ...withoutTags } = photoDocument(PHOTO_ID);
+      cosmosBackend.documents.set(PHOTO_ID, { ...withoutTags, ...COSMOS_SYSTEM_FIELDS });
+
+      const response = await getPhotoHandler(createGetPhotoRequest(PHOTO_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo.tags).toEqual([]);
+    });
+
     it('C-3a より前に保存した文字列のタグは、応答に出さない（タグは名前・種類・位置の形だけを返す。04 §2）', async () => {
       const tag = { name: '海鮮丼', kind: 'food', x: 0.4, y: 0.6 };
       const savedPhoto = photoDocument(PHOTO_ID, { tags: ['古いタグ', tag] as any });

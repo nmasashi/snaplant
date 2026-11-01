@@ -340,6 +340,8 @@ describe('写真更新API', () => {
     ['タグの y が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', kind: 'food', x: 0.5 }] }), 'タグの位置が無効です'],
     // 上限は同じ名前のタグも数える（同じ名前を除かない。02 §5 #57）
     ['tagsが同じ名前を含めて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), tag('タグ1')] }), 'タグは20個までです'],
+    // 数は要素の中身より先に見る（大きな配列を、全部の要素を確かめてから断らない）
+    ['tagsが21個で、中に形式の無効なものがある', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), null] }), 'タグは20個までです'],
     // カテゴリは分類の種類（plant・food・landscape・other）のどれか。大文字小文字も区別する
     ['categoryが分類の種類に無い', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'animal' }), 'カテゴリが無効です'],
     ['categoryの大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'Plant' }), 'カテゴリが無効です'],
