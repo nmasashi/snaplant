@@ -53,7 +53,7 @@ export class UpstreamError extends Error {
  * ストレージだけは ETIMEDOUT も含めている（docs/09_backlog.md で揃えるか判断待ち）。
  * 一覧を別々に持つと片方だけ直されて分類がずれるので、ここを唯一の実体にする
  */
-export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED'];
+export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'];
 
 /**
  * Cosmos DB に接続できない障害（503 にするもの）かを判定する
