@@ -1,4 +1,4 @@
-import { CatalogKind } from '../catalog/kinds';
+import { CatalogKind, PhotoKind } from '../catalog/kinds';
 
 /**
  * 旅行アルバムの型定義
@@ -86,7 +86,6 @@ interface PhotoFields {
   sortAt: string;
   location: PhotoLocation | null;
   category: string | null;
-  tags: string[];
   comment: string | null;
   commentSource: 'ai' | 'user' | null;
   hint: string | null;
@@ -100,6 +99,11 @@ interface PhotoFields {
 /** 写真の Cosmos DB のドキュメント */
 export interface PhotoDocument extends PhotoFields {
   type: 'photo';
+  /**
+   * 利用者が写真の中の場所に付けたタグ（04 §2）。C-3a より前は文字列の配列で、その頃に付けた文字列が残りうる
+   * （画面が無かったので本番は空のはず）。欄の無い文書もありうる。読むときは応答の形（photoView.ts）で揃える
+   */
+  tags?: (PhotoTag | string)[];
   /** photos コンテナの Blob 名 */
   blobName: string;
   /** サムネイルの Blob 名。無ければ null */
@@ -110,6 +114,8 @@ export interface PhotoDocument extends PhotoFields {
 
 /** 写真（API の応答の形）。Blob 名の代わりに SAS 付きの URL を持つ */
 export interface Photo extends PhotoFields {
+  /** 利用者が写真の中の場所に付けたタグ（名前・種類・位置の形のものだけ） */
+  tags: PhotoTag[];
   /** 利用者がカテゴリを手で決めたら user。無ければ null */
   categorySource: 'user' | null;
   imageUrl: string;
@@ -153,4 +159,15 @@ export interface CatalogEntryQuery {
   limit: number;
   /** 前のページの継続トークン。先頭からなら undefined */
   continuationToken: string | undefined;
+}
+
+/** 写真の中の場所に付けるタグ（04 §2。02 §5 #57。C-3） */
+export interface PhotoTag {
+  /** 名前（前後の空白を除き、TAG_VALIDATION.MAX_LENGTH 文字まで。同じ名前のタグが写真に何個あってもよい） */
+  name: string;
+  /** 種類（カテゴリと同じ plant・food・landscape・other） */
+  kind: PhotoKind;
+  /** 向きを直した後の画像の中の位置の割合（左上が 0、右下が 1） */
+  x: number;
+  y: number;
 }

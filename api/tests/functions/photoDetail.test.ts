@@ -140,7 +140,7 @@ describe('写真詳細API', () => {
         sortAt: '2026-10-05T12:30:15',
         location: { latitude: 43.7706, longitude: 142.365, placeName: '北海道旭川市', placeSource: 'device' },
         category: 'food',
-        tags: ['朝食', '旅館'],
+        tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }, { name: '旅館', kind: 'food', x: 0.5, y: 0.5 }],
         comment: 'ホテルの朝食',
         commentSource: 'user',
         hint: 'ビュッフェ',
@@ -175,6 +175,27 @@ describe('写真詳細API', () => {
           urlExpiresAt: '2026-10-10T04:12:45.000Z'
         }
       });
+    });
+
+    it('タグの欄の無い写真の文書は、タグが無いものとして返す', async () => {
+      const { tags: _tags, ...withoutTags } = photoDocument(PHOTO_ID);
+      cosmosBackend.documents.set(PHOTO_ID, { ...withoutTags, ...COSMOS_SYSTEM_FIELDS });
+
+      const response = await getPhotoHandler(createGetPhotoRequest(PHOTO_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo.tags).toEqual([]);
+    });
+
+    it('C-3a より前に保存した文字列のタグは、応答に出さない（タグは名前・種類・位置の形だけを返す。04 §2）', async () => {
+      const tag = { name: '海鮮丼', kind: 'food', x: 0.4, y: 0.6 };
+      const savedPhoto = photoDocument(PHOTO_ID, { tags: ['古いタグ', tag] as any });
+      cosmosBackend.documents.set(PHOTO_ID, { ...savedPhoto, ...COSMOS_SYSTEM_FIELDS });
+
+      const response = await getPhotoHandler(createGetPhotoRequest(PHOTO_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo.tags).toEqual([tag]);
     });
 
     // 写真IDの形式は小文字16進64文字だけ。大文字を許すと同じ写真に2つの id ができるので、大文字は400になる。

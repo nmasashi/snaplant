@@ -245,7 +245,8 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `MAX_FILE_SIZE`（既存） | `10485760`（10MB） | 原寸のバイト数の上限 | `POST /api/photos`（植物図鑑の `upload` と共用していた。4-6 で削除） | 2 |
 | `CONTEXT_INFO_MAX_LENGTH`（既存） | `500` | やり直しの手がかり `hint` の上限 | `POST /api/photos/{photoId}/process`（植物図鑑の `contextInfo` と共用していた。4-6 で削除） | 3 |
 | `MOVE_MAX_IDS` | `200` | move の1回の上限（件） | `POST /api/photos/move` | 2 |
-| `TAG_MAX_LENGTH` | `30` | 利用者のタグの上限（文字） | `PATCH /api/photos/{photoId}` | 2 |
+| `TAG_MAX_LENGTH` | `30` | 写真のタグの名前（`tags[].name`）の上限（文字。前後の空白を除いて数える） | `PATCH /api/photos/{photoId}` | 2 |
+| `TAG_MAX_COUNT` | `20` | 1枚の写真のタグの数の上限（個。C-3a から同じ名前も数える） | `PATCH /api/photos/{photoId}`（`TAG_VALIDATION.MAX_COUNT`） | 2 |
 | `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | `100` / `200` | 写真一覧の1ページの既定と上限（枚）。上限は `limit` の 400 の `message` にも埋め込まれる | `GET /api/photos`・`GET /api/catalog/entry` | 2 |
 | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | `50` / `100` | 図鑑の項目一覧の1ページの既定と上限（件） | `GET /api/catalog/entries` | 4 |
 | `PHOTO_QUEUE_NAME` | （必須。既定値なし。Terraform が `photo-processing` を入れる）。ワーカーのトリガーは `queueName: '%PHOTO_QUEUE_NAME%'` でアプリの設定から解決するので既定値を持てず、投入する側（`PhotoQueueService`）も揃えて、未設定・空・空白だけなら投げる（`POST /api/photos` は投入の失敗として 201） | 分類・識別のキュー名 | 投入する側（`PhotoQueueService`。`POST /api/photos`・`POST /api/photos/{photoId}/process`・再投入のタイマー。どれも投入の失敗はログだけ）とワーカー（`processPhoto.ts` のトリガー） | 3 |

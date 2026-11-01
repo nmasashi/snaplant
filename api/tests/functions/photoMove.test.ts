@@ -61,7 +61,7 @@ const savedPhoto = (id: string, tripId: string | null): PhotoDocument =>
     sortAt: '2026-10-05T12:30:15',
     location: { latitude: 43.7706, longitude: 142.365, placeName: '北海道旭川市', placeSource: 'device' },
     category: 'food',
-    tags: ['朝食', '旅館'],
+    tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }, { name: '旅館', kind: 'food', x: 0.5, y: 0.5 }],
     comment: `ホテルの朝食 ${id.slice(0, 1)}`,
     commentSource: 'user',
     hint: 'ビュッフェ',
