@@ -164,11 +164,10 @@ export function createUpstreamErrorResponse(error: UpstreamError): HttpResponseI
     return createErrorResponse(
       mapping.code,
       mapping.unreachableMessage,
-      HttpStatusCode.SERVICE_UNAVAILABLE,
-      error.message
+      HttpStatusCode.SERVICE_UNAVAILABLE
     );
   }
-  return createErrorResponse(mapping.code, mapping.failedMessage, HttpStatusCode.BAD_GATEWAY, error.message);
+  return createErrorResponse(mapping.code, mapping.failedMessage, HttpStatusCode.BAD_GATEWAY);
 }
 
 /**
@@ -193,11 +192,10 @@ export function createDatabaseErrorResponse(error: any, internalMessage: string)
     return createErrorResponse(
       ErrorCode.DATABASE_ERROR,
       'データベースに接続できません',
-      HttpStatusCode.SERVICE_UNAVAILABLE,
-      error.message
+      HttpStatusCode.SERVICE_UNAVAILABLE
     );
   }
-  return createInternalError(internalMessage, error.message);
+  return createInternalError(internalMessage);
 }
 
 /**
