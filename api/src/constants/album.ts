@@ -102,7 +102,7 @@ export function givenUpState(step: PhotoProcessing['step']): PhotoProcessing['st
 /**
  * 解析（分類・識別・タグの提案）が済んでいない写真の状態
  *
- * 再投入のタイマーが拾う状態で、タイムラインを作れない状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。
+ * 再投入のタイマーが拾う状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。タイムラインを待たせるかは、この状態に段も合わせて見る blocksTimeline() で決める。
  * SQL の IN の並び（albumService.listStalePhotos）も同じものにする
  */
 export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying', 'tagging'];
@@ -114,8 +114,11 @@ export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] =
  * 再投入のタイマーは、タグの提案も含めて UNFINISHED_PROCESSING_STATES で拾う
  */
 export function blocksTimeline(processing: { state: PhotoProcessing['state']; step: PhotoProcessing['step'] }): boolean {
-  return UNFINISHED_PROCESSING_STATES.includes(processing.state) && processing.step !== 'tag';
+  return UNFINISHED_PROCESSING_STATES.includes(processing.state) && TIMELINE_BLOCKING_STEPS.includes(processing.step);
 }
+
+/** タイムラインを待たせる解析の段（タイムラインの AI が読む分類と識別。段を足しても、ここに足さなければ待たせない） */
+const TIMELINE_BLOCKING_STEPS: readonly PhotoProcessing['step'][] = ['classify', 'identify'];
 
 /**
  * タイムラインの区切り案の max_completion_tokens（推論のトークンも含む）
