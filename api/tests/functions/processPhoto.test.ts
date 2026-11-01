@@ -922,6 +922,16 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto().processing).toEqual({ state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
+    it('答えた皿がどれも検証に通らなければ、料理が無いとは見なさず、AI の失敗として待ちに戻す（やり直せば通る見込みがある）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ dishes: [{ name: '  ', x: 0.5, y: 0.5 }, { name: 'ご飯', x: '0.5', y: 0.5 }] });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto().tags).toEqual([]);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'tag', attempts: 1, lastError: 'ai', updatedAt: NOW });
+    });
+
     it('名前の前後の空白は、手で付けるタグと同じく U+0085 も除き、切り詰めた後の末尾の空白も除く', async () => {
       // 手で付けるタグの検証（05 §9.6）が断る名前を保存しない。保存した後にアプリがタグを送り直すと 400 になるため
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
