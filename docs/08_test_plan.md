@@ -290,7 +290,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 **実装済み**（T-2b。`tests/functions/timeline.test.ts`・`timelineDraft.test.ts`）: 「下書きの読み取り」と「完成版を読む」の、撮影日時の無い写真を出さないこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #54）。
 **実装済み**（T-2c。`tests/functions/timelineDraft.test.ts`）: 「写真を外す」の、案の確認で外すと出す写真が無くなるときの 409（区切りの直しは完成版と合わせて見る）と、外す写真が増えない送り直しは断らないこと。
 **実装済み**（U-3。`tests/functions/processTimeline.test.ts`）: 「文」の、場面の一言を書かせないこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。
-**実装済み**（D-3。`tests/functions/timeline.test.ts`）: 「完成版を読む」の、作った後に撮影日時を手で付けた写真（控えでは撮影日時が無い）を増えた写真に数えること（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）。
+**実装済み**（D-3。`tests/functions/timeline.test.ts`）: 「完成版を読む」の、作った後に撮影日時を手で付けた写真（控えでは撮影日時が無い）を増えた写真に数えること（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）。完成版から外した写真は、日時を付けても増えた写真に数えないこと。作った後に手で付けた撮影日時を消した写真は、消えた写真に数えないこと。
 
 入口はエンドポイント（`api/tests/functions/`）とワーカー（`processTimeline`）。AI はモックし、渡したもの（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの) の要素）と応答の検証を確かめる。
 
