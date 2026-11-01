@@ -332,6 +332,32 @@ void main() {
     expect(error?.statusCode, 0);
     expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
   });
+
+  // 旅行の削除は、サーバが中の写真を1枚ずつ消す（外す）ので、写真の多い旅行では 30 秒を超えうる。
+  // 旅行の削除だけは、Azure の前段が HTTP の要求を打ち切る 230 秒より長い 4 分で打ち切る（docs/03_screen_design.md §9.2）
+  testWidgets('旅行の削除は 30 秒では打ち切らず、応答が 4 分返らなければ、ステータス 0 の「ネットワークに接続できません」にする', (tester) async {
+    final reply = Completer<http.Response>();
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete(http.Response('', 500));
+    });
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) => reply.future),
+    );
+    ApiException? error;
+    unawaited(service.deleteTrip('trip-1', deletePhotos: true).then<void>((_) {}, onError: (Object e) {
+      error = e as ApiException;
+    }));
+
+    await tester.pump(const Duration(seconds: 30));
+    expect(error, isNull);
+    await tester.pump(const Duration(milliseconds: 209999));
+    expect(error, isNull);
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(error?.statusCode, 0);
+    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
 }
 
 Future<ApiException> _captureApiException(Future<Object?> Function() action) async {
