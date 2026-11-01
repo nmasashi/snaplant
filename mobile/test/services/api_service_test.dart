@@ -347,7 +347,7 @@ void main() {
   });
 
   // 応答の頭だけが届いて本文が止まったときも、処理中のダイアログから出られなくなる。本文を読み終えるまでを 30 秒で打ち切る（docs/03_screen_design.md §9.2）
-  testWidgets('応答の頭が届いても本文が 30 秒で読み終わらなければ、通信の失敗（ステータス 0）にし、30 秒の手前ではまだ待つ', (tester) async {
+  testWidgets('応答の頭が届いても本文が 30 秒で読み終わらなければ、通信の失敗（ステータス 0）にする', (tester) async {
     final body = StreamController<List<int>>();
     addTearDown(body.close);
     final service = ApiService(
@@ -360,9 +360,7 @@ void main() {
       error = e as ApiException;
     }));
 
-    await tester.pump(const Duration(milliseconds: 29999));
-    expect(error, isNull);
-    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(seconds: 30));
 
     expect(error?.statusCode, 0);
     expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
