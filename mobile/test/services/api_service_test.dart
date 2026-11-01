@@ -151,6 +151,15 @@ void main() {
         'サーバーが混雑しています。しばらく待ってから再試行してください。',
       ),
       (
+        // エンドポイントを http:// で設定したとき。Function App は https_only なので、書き込み（POST など）には https への転送（301）を返し、
+        // http は POST の転送を辿らない。設定の誤りなので、https で始まる URL にするよう案内する
+        '3xx（転送）は https で始まる URL への設定の見直しを促す',
+        301,
+        '',
+        null,
+        'エンドポイントの URL を確認してください（https で始まる URL にしてください）。',
+      ),
+      (
         // Function Key が違う（Functions のランタイムが返す。アプリを通らないので封筒にならない）
         '401はAPIキーの確認を促す',
         401,
@@ -190,7 +199,7 @@ void main() {
       ),
     ];
 
-    test('ステータスと封筒の有無に応じた日本語のメッセージを返す（413・429・401・404・500・503）', () async {
+    test('ステータスと封筒の有無に応じた日本語のメッセージを返す（413・429・301・401・404・500・503）', () async {
       for (final (title, statusCode, body, expectedCode, expectedMessage) in userMessageCases) {
         final service = _serviceResponding('POST', '/api/trips', statusCode, body);
 
