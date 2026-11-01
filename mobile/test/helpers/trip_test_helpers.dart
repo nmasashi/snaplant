@@ -689,7 +689,7 @@ class FakeTripBackend {
       final text = (body[field] as String?)?.trim() ?? '';
       if (text.isEmpty) {
         // AI の文に戻す（AI の文が無い欄は文も主も null。5-5a）。登録が無ければ、入れ忘れとして知らせる。
-        // ApiService がこの例外を通信の失敗として包むので、テストでは「ネットワークに接続できません」の文言が出る（それが出たら登録を疑う）
+        // ApiService がこの例外を分類できない失敗（ステータス -1）として包むので、テストでは「予期しないエラーが発生しました。…」の文言が出る（それが出たら登録を疑う）
         if (!timelineAiTexts.containsKey('$key:$field')) throw StateError('timelineAiTexts に $key:$field を入れてください');
         final aiText = timelineAiTexts['$key:$field'];
         target[field] = aiText;

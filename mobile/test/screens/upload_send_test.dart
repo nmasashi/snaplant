@@ -193,6 +193,32 @@ void main() {
     expect(find.text('送り直す'), findsOneWidget);
   });
 
+  testWidgets('送信の応答（201）の本文を読めないときは、送り直さずにすぐ失敗にし、バナーに「1枚を送信できませんでした（予期しないエラーが発生しました。…）」を出す', (tester) async {
+    // 本文を読めない失敗は通信の失敗ではない（分類できない失敗。03 §9.2）。送り直しても直らないので送り直さない。
+    // 送り直すなら、待つ間はバナーが「送信中」のままなので、時間を進める前に失敗の行が出ていることで、送り直しを待っていないと分かる。
+    // そのうえで、送り直しの待ち（2秒・4秒・8秒）を全部過ぎるまで進めても、要求が1回しか届かないことも見る
+    final image = writeTestImage('hokkaido.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)]);
+    backend.failNextWithoutEnvelope(TripRoute.upload, status: 201, body: '<html><body>ok</body></html>');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    expect(find.text('写真を追加'), findsOneWidget);
+
+    await tester.tap(find.text('写真を追加'));
+    await letUploadFail(tester, backend, 1);
+    await letFramesRun(tester);
+
+    const failed = '1枚を送信できませんでした（予期しないエラーが発生しました。繰り返し発生する場合は、設定のエンドポイントを確認してください。）';
+    expect(find.text(failed), findsOneWidget);
+    await tester.pump(const Duration(seconds: 15));
+    await waitRealTime(tester);
+    await letFramesRun(tester);
+    expect(backend.uploadsReceived, 1);
+    expect(find.text(failed), findsOneWidget);
+  });
+
   testWidgets('送り先の旅行が別の端末で消されていて 404 になったら、同じ旅行宛ての残りの写真は送らずに失敗にし、バナーに「3枚を送信できませんでした（旅行が見つかりません）」を出す', (tester) async {
     // 詳細を開いたあとで、偽のサーバから旅行を消す（画面は取り直さないので、詳細は開いたまま）。
     // 同時に送るのは2本。1枚目と2枚目の応答（どちらも 404）を保留して、3枚目の準備が済み、待ちに入った（「送信中 0/3」）ところで返す。

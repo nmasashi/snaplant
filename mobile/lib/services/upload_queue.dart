@@ -363,8 +363,7 @@ class UploadQueue extends ChangeNotifier {
                 thumbnail: item.thumbnail,
                 placeName: item.placeName)
             .timeout(_requestTimeout,
-                onTimeout: () => throw const ApiException(
-                    statusCode: 0, message: '応答がありませんでした'));
+                onTimeout: () => throw ApiException.timedOut);
         _states[item] = UploadState.done;
         // 送信は「入れる」ではないので、既にある写真の宛先は変わらない（docs/05_api_design.md §5.1）
         if (photo.tripId != item.tripId) _alreadyElsewhere.add(item);
