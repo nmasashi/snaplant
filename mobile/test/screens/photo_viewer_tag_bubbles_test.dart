@@ -136,17 +136,20 @@ void main() {
     await finishImageLoading(tester);
   });
 
-  testWidgets('タグの提案を待っている・している写真は「AI がタグを考えています…（写真を閉じても続きます）」を出し、「分類中...」は出さない', (tester) async {
-    await _openViewer(tester, [
-      _photo(processing: {'state': 'tagging', 'step': 'tag', 'attempts': 1, 'lastError': null, 'updatedAt': '2026-10-06T01:15:00.000Z'})
-    ]);
+  // 待っている（pending）と、している（tagging）
+  for (final state in ['pending', 'tagging']) {
+    testWidgets('タグの提案の段で $state の写真は「AI がタグを考えています…（写真を閉じても続きます）」を出し、「分類中...」は出さない', (tester) async {
+      await _openViewer(tester, [
+        _photo(processing: {'state': state, 'step': 'tag', 'attempts': 1, 'lastError': null, 'updatedAt': '2026-10-06T01:15:00.000Z'})
+      ]);
 
-    expect(find.text('AI がタグを考えています…（写真を閉じても続きます）'), findsOneWidget);
-    expect(find.text('分類中...'), findsNothing);
-    // カテゴリは決まっているので、手で直すボタンを出す
-    expect(find.text('食べ物'), findsWidgets);
-    await finishImageLoading(tester);
-  });
+      expect(find.text('AI がタグを考えています…（写真を閉じても続きます）'), findsOneWidget);
+      expect(find.text('分類中...'), findsNothing);
+      // カテゴリは決まっているので、手で直すボタンを出す
+      expect(find.text('食べ物'), findsWidgets);
+      await finishImageLoading(tester);
+    });
+  }
 
   // タグの提案を待っている写真のサムネイルに分類中の印を付けないこと（§5.5）は、photo_classification_test.dart のサムネイルの印の表で見る
 
