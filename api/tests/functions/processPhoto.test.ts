@@ -575,7 +575,7 @@ describe('写真の解析のワーカー', () => {
     it('種類ごとの項目は写真の種類の定義から作り、文字列の配列の項目は配列（null 可）で受ける', async () => {
       // 食べ物は料理のジャンル（文字列）と主な食材（文字列の配列）
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
-      aiReturns({ ...plantAnswer, name: '札幌味噌ラーメン', attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] } });
+      aiReturns({ ...plantAnswer, name: '味噌ラーメン', attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] } });
 
       await runWorker();
 
@@ -588,7 +588,7 @@ describe('写真の解析のワーカー', () => {
       expect(attributes.properties.mainIngredients.items).toEqual({ type: 'string' });
       expect(storedPhoto().identification).toMatchObject({
         kind: 'food',
-        name: '札幌味噌ラーメン',
+        name: '味噌ラーメン',
         attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] }
       });
     });
