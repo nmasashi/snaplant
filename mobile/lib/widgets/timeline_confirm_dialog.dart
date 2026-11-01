@@ -31,6 +31,11 @@ Future<bool> confirmDiscardEdit(BuildContext context) =>
     confirmTimelineAction(context,
         message: '編集をやめて、今のタイムラインのままにしますか？', confirmLabel: 'やめる');
 
+/// 失敗した下書きの「やめる」の確認（§8.2）。作りかけのタイムラインを捨てる
+Future<bool> confirmDiscardFailedDraft(BuildContext context) =>
+    confirmTimelineAction(context,
+        message: '作りかけのタイムラインを捨てますか？', confirmLabel: '捨てる');
+
 /// 「作り直す」の確認（§8.6）。旅行詳細のメニューと、写真が変わった案内の「作り直す」で出す。
 /// 作り直しは今のタイムラインを消し、手で直した文と区切りも捨てて一から作るので、そのことを知らせる
 Future<bool> confirmRebuildTimeline(BuildContext context) =>
