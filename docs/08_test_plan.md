@@ -140,7 +140,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   `deletePhotos` が `TRUE`・空文字で 400、無い旅行に `deletePhotos` を付け忘れると 400（検証が 404 より先）。同じ id のドキュメントが写真だけなら 404。
   画像の削除に失敗しても 200 で写真と旅行の文書は消える。写真の無い旅行はどちらを選んでも 0 枚で消える。結果の揃わない空のページが挟まっても全部処理する。
   最後の旅行の削除が 404 でも 200。旅行の読み取り・射影・写真の patch・写真の削除のどこで失敗しても 503 / 500 で、旅行は残る
-- 各エンドポイントの 503 `DATABASE_ERROR`（表で `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT` を回す。`cause` の奥に持つ形も1本）と 500 の `message`
+- 各エンドポイントの 503 `DATABASE_ERROR`（表で `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT`・SDK の打ち切り（`TimeoutError`）を回す。`cause` の奥に持つ形も1本）と 500 の `message`
 
 ### 3.5 `functions/photos.ts`
 

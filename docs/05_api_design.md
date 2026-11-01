@@ -20,7 +20,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 - **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
 - Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。Cosmos DB の判定はこれだけで、ハンドラごとに複製しない）で、
-  errno が `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` はストレージ・AI 側の判定と共有する。`ETIMEDOUT` は 2026-11-01 に足した。それまでは 500）。
+  errno が `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT` のもの、または Cosmos SDK が自分の待ち時間で打ち切ったエラー（`code` が `TimeoutError`）を `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` はストレージ・AI 側の判定と共有する。`ETIMEDOUT` は 2026-11-01 に足した。それまでは 500）。
   応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）。
   `cause` をたどるのは10段までで、循環していても止まる（見つからなければ接続できない以外の失敗として下の 500）
 - Blob Storage の失敗 → `UpstreamError('storage')` → 502 / 503 `STORAGE_ERROR`（既存の `message`）。AI の失敗は段階3以降で `'ai'`。
@@ -1180,7 +1180,7 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 
 - **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行う（OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）。
   たどるのは10段までで、原因が循環していても止まる（見つからなければ接続できない以外の失敗として扱う）
-- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）。どの判定も同じ errno の一覧を使う（`ETIMEDOUT` は以前 Blob Storage の操作だけで、Cosmos DB では 500 `INTERNAL_ERROR` だった。2026-11-01 に揃えた。**実装済み**（Cosmos の時間切れの 503））
+- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`、と Cosmos SDK が応答を待ちきれずに打ち切った `TimeoutError`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）。SDK の打ち切りは要求を送った後なので書けていることもあるが、500 でも利用者は押し直すので変わらない（アプリは書き込みを自動で送り直さない。写真の送信は同じ写真が1枚にまとまる。2026-11-01 に人間が決定）。どの判定も同じ errno の一覧を使う（`ETIMEDOUT` は以前 Blob Storage の操作だけで、Cosmos DB では 500 `INTERNAL_ERROR` だった。2026-11-01 に揃えた。**実装済み**（Cosmos の時間切れの 503））
 
 ### 9.5 AI 識別サービスへの接続
 
