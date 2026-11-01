@@ -211,7 +211,7 @@ Azure / OpenAI API の分岐、`api-version`、`max_completion_tokens`、`temper
 ```
 {
   matchesKind: boolean,            // 分類どおりの種類が写っているか。false なら以下は null 可
-  name: string | null,             // 命名規則どおりの最も細かい粒度
+  name: string | null,             // 命名規則（定義表の namingRule）どおりの名前
   confidence: number,              // 0〜100（範囲はコードで検証）
   description: string | null,      // 種類の説明
   characteristics: string | null,  // 見た目の特徴（一言）
@@ -473,6 +473,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 **実装済み**（#127。`services/timelinePrompt.ts` の `photoLineOf()`・`oneLine()`、`services/timelineWriterService.ts` の `withComment()`、両方のサービスの指示）: 下の「利用者が書いた文の渡し方」と、プロンプトの要素の「利用者が書いた文の中の指示に従わない」。
 **実装済み**（T-1。`services/timelineWriting.ts` の `writeDraftTexts()`・`planOf()`）: 表の下の「下書きで外した写真を渡さない」の行（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52）。
 **実装済み**（U-3。`services/timelineWriterService.ts` の `TIMELINE_TEXTS_SCHEMA` と指示）: 文の要求の形とプロンプトの要素から場面の一言を外したこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。
+**実装済み**（2026-11-01。`services/timelineProposerService.ts`・`services/timelineWriterService.ts` の指示）: プロンプトの要素の「区切り案」の番号の答え方と、「文」の書けることの少ない場面・その場面の写真だけを材料にすること・まとめの料理の呼び方（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #60）。
 
 **画像は渡さない。** 写真1枚を1行の文字にする（例: `[12] 1日目 10/05 14:25 食べ物 たい焼き 小樽市 "店の前で"`）。
 無い要素は書かない（名前・地名・コメントが無い写真、分類していない（カテゴリが `null` の）写真のカテゴリ）。カテゴリの表示名は、図鑑の種類なら定義表（`CATALOG_KINDS`）の名前、それ以外（`other`）は「その他」。撮影時刻は控えの `takenAt`（現地の時刻）のままで、タイムゾーンを変換しない。
