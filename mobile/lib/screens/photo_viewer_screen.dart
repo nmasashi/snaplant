@@ -86,8 +86,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   late int _index = widget.initialIndex;
   // タグを付ける間（写真の上のタップでその位置にタグを付ける。03 §5.7）
   bool _addingTag = false;
-  // 位置を動かしているタグの番号（写真の上のタップでそのタグをその位置に動かす。03 §5.9.3）
-  int? _movingTag;
+  // 位置を動かしているタグ（写真と、その中のタグの番号。写真の上のタップでそのタグをその位置に動かす。03 §5.9.3）
+  ({Photo photo, int index})? _moving;
   // タグを消しているところ（送っている間は、ほかのタグを消す操作と「タグを付ける」を受けない）
   bool _sendingTag = false;
 
@@ -138,8 +138,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   /// 続きのページが届いて、削除の後に待っていた位置に写真が来たら、そこへ移る
   void _onPhotosChanged() {
     // 上のバーの「やり直す」は今の写真のカテゴリで決まるので、写真が変わったら組み直す。
-    // タグの位置を動かす間なら終える（タグを消した・写真を置き換えたで番号がずれ、別のタグを動かさないため。03 §5.9.3）
-    if (mounted) setState(() => _movingTag = null);
+    // 動かしている写真が置き換わったら（タグを消した、など）、動かす間を終える（番号がずれて別のタグを動かさないため。03 §5.9.3）。
+    // 続きのページが届いただけなら、写真は同じものが残るので終えない
+    if (mounted) {
+      setState(() {
+        if (!_isShown(_moving?.photo)) _moving = null;
+      });
+    }
     final pending = _pendingIndex;
     if (pending == null || widget.photos.value.length <= pending) return;
     _pendingIndex = null;
@@ -182,7 +187,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     setState(() {
       _zoomed = false;
       _addingTag = false;
-      _movingTag = null;
+      _moving = null;
     });
     // 後ろの写真が今の位置に詰まったら、それが次の写真。それが読み込み済みの末尾なら続きを読ませる
     // （ページの位置が変わらないので onPageChanged は呼ばれない）
@@ -323,12 +328,16 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   }
 
   /// 写真の上で位置を選んでいる間か（タグを付ける間と、タグの位置を動かす間。03 §5.7・§5.9.3）
-  bool get _choosingPosition => _addingTag || _movingTag != null;
+  bool get _choosingPosition => _addingTag || _moving != null;
+
+  /// [photo] が、置き換わらずに一覧に残っているか（null なら false）
+  bool _isShown(Photo? photo) =>
+      photo != null && widget.photos.value.any((p) => identical(p, photo));
 
   /// 写真の上で位置を選ぶのをやめる
   void _stopChoosingPosition() => setState(() {
         _addingTag = false;
-        _movingTag = null;
+        _moving = null;
       });
 
   /// [photo] の [index] 番目のタグを直すシートを開く。「位置を動かす」なら動かす間にし、「このタグを消す」なら確かめて消す（03 §5.9.3）
@@ -347,7 +356,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
       case final Photo updated:
         widget.onUpdated(updated);
       case TagEditAction.move:
-        setState(() => _movingTag = index);
+        // シートを開いている間に写真が置き換わっていたら、動かす間にしない（番号がずれていうるため）
+        if (_isShown(photo)) {
+          setState(() => _moving = (photo: photo, index: index));
+        }
       case TagEditAction.delete:
         await _deleteTag(photo, index);
     }
@@ -357,7 +369,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   Future<void> _moveTag(Photo photo, int index, Offset position) async {
     final tag = photo.tags[index];
     setState(() {
-      _movingTag = null;
+      _moving = null;
       _sendingTag = true;
     });
     try {
@@ -501,7 +513,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                   if (_shownPhoto case final photo?)
                     IconButton(
                       onPressed: _sendingTag ||
-                              _movingTag != null ||
+                              _moving != null ||
                               photo.tags.length >= _maxTags
                           ? null
                           : () => setState(() => _addingTag = true),
@@ -579,9 +591,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                       ? null
                       : _addingTag
                           ? (position) => _addTag(photos[index], position)
-                          : switch (_movingTag) {
-                              final moving? => (position) =>
-                                  _moveTag(photos[index], moving, position),
+                          : switch (_moving) {
+                              final moving? => (position) => _moveTag(
+                                  photos[index], moving.index, position),
                               null => null,
                             },
                   onDeleteTag: (tagIndex) =>
