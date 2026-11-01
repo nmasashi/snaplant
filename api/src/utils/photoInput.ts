@@ -392,6 +392,10 @@ export async function readPhotoUpdateInput(
     if (!Array.isArray(tags)) {
       return { error: createValidationError('タグは配列で指定してください') };
     }
+    // 数は要素の中身より先に見る（大きな配列を、全部の要素を確かめてから断らない）
+    if (tags.length > TAG_VALIDATION.MAX_COUNT) {
+      return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
+    }
     const read: PhotoTag[] = [];
     for (const tag of tags) {
       const result = readPhotoTag(tag);
@@ -399,9 +403,6 @@ export async function readPhotoUpdateInput(
         return { error: createValidationError(result) };
       }
       read.push(result);
-    }
-    if (read.length > TAG_VALIDATION.MAX_COUNT) {
-      return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
     }
     input.tags = read;
   }
