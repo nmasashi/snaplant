@@ -86,6 +86,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   late int _index = widget.initialIndex;
   // タグを付ける間（写真の上のタップでその位置にタグを付ける。03 §5.7）
   bool _addingTag = false;
+  // 位置を動かしているタグの番号（写真の上のタップでそのタグをその位置に動かす。03 §5.9.3）
+  int? _movingTag;
   // タグを消しているところ（送っている間は、ほかのタグを消す操作と「タグを付ける」を受けない）
   bool _sendingTag = false;
 
@@ -179,6 +181,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     setState(() {
       _zoomed = false;
       _addingTag = false;
+      _movingTag = null;
     });
     // 後ろの写真が今の位置に詰まったら、それが次の写真。それが読み込み済みの末尾なら続きを読ませる
     // （ページの位置が変わらないので onPageChanged は呼ばれない）
@@ -318,6 +321,61 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(updated);
   }
 
+  /// 写真の上で位置を選んでいる間か（タグを付ける間と、タグの位置を動かす間。03 §5.7・§5.9.3）
+  bool get _choosingPosition => _addingTag || _movingTag != null;
+
+  /// 写真の上で位置を選ぶのをやめる
+  void _stopChoosingPosition() => setState(() {
+        _addingTag = false;
+        _movingTag = null;
+      });
+
+  /// [photo] の [index] 番目のタグを直すシートを開く。「位置を動かす」なら動かす間にし、「このタグを消す」なら確かめて消す（03 §5.9.3）
+  Future<void> _editTag(Photo photo, int index) async {
+    if (_sendingTag) return;
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      // 下へ払って閉じる操作は PopScope を通らず、保存を待っている間でも閉じてしまう（カテゴリのシートと同じ）
+      enableDrag: false,
+      builder: (context) => TagEditSheet.edit(
+          apiService: widget.apiService, photo: photo, index: index),
+    );
+    if (!mounted) return;
+    switch (result) {
+      case final Photo updated:
+        widget.onUpdated(updated);
+      case TagEditAction.move:
+        setState(() => _movingTag = index);
+      case TagEditAction.delete:
+        await _deleteTag(photo, index);
+    }
+  }
+
+  /// [photo] の [index] 番目のタグを、画像の中の [position]（割合）に動かす。出どころは user（03 §5.9.3）
+  Future<void> _moveTag(Photo photo, int index, Offset position) async {
+    final tag = photo.tags[index];
+    setState(() {
+      _movingTag = null;
+      _sendingTag = true;
+    });
+    try {
+      final updated = await widget.apiService.updatePhotoTags(
+          photo.id,
+          [...photo.tags]..[index] = PhotoTag(
+              name: tag.name, kind: tag.kind, x: position.dx, y: position.dy));
+      if (mounted) widget.onUpdated(updated);
+    } catch (e) {
+      debugPrint('PhotoViewerScreen: タグの移動エラー: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is ApiException ? e.userMessage : 'タグの保存に失敗しました')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingTag = false);
+    }
+  }
+
   /// [photo] の [index] 番目のタグを、確かめてから消す（同じ名前のほかのタグは残す）
   Future<void> _deleteTag(Photo photo, int index) async {
     if (_sendingTag) return;
@@ -408,11 +466,11 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // タグを付ける間の端末の戻る操作は、ビューアを閉じずに付ける間を終える（03 §5.7）
+    // タグを付ける間・動かす間の端末の戻る操作は、ビューアを閉じずにその間を終える（03 §5.7・§5.9.3）
     return PopScope(
-      canPop: !_addingTag,
+      canPop: !_choosingPosition,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) setState(() => _addingTag = false);
+        if (!didPop) _stopChoosingPosition();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -438,10 +496,12 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                           semanticsLabel: _tagsVisible ? 'タグを隠す' : 'タグを出す'),
                     ),
                   ),
-                  // タグが上限まである写真と、タグを消している間は押せない（03 §5.7）
+                  // タグが上限まである写真と、タグを送っている間・動かす間は押せない（03 §5.7・§5.9.3）
                   if (_shownPhoto case final photo?)
                     IconButton(
-                      onPressed: _sendingTag || photo.tags.length >= _maxTags
+                      onPressed: _sendingTag ||
+                              _movingTag != null ||
+                              photo.tags.length >= _maxTags
                           ? null
                           : () => setState(() => _addingTag = true),
                       color: Colors.white,
@@ -458,21 +518,23 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                     child: const Text('削除'),
                   ),
                 ],
-                // タグを付ける間の案内（03 §5.7）
-                bottom: _addingTag
+                // タグを付ける間・動かす間の案内（03 §5.7・§5.9.3）
+                bottom: _choosingPosition
                     ? PreferredSize(
                         preferredSize: const Size.fromHeight(48),
                         child: Container(
                           color: Colors.black87,
                           padding: const EdgeInsets.only(left: 16),
                           child: Row(children: [
-                            const Expanded(
-                              child: Text('タグを付ける場所をタップしてください',
-                                  style: TextStyle(color: Colors.white)),
+                            Expanded(
+                              child: Text(
+                                  _addingTag
+                                      ? 'タグを付ける場所をタップしてください'
+                                      : '新しい位置をタップしてください',
+                                  style: const TextStyle(color: Colors.white)),
                             ),
                             TextButton(
-                              onPressed: () =>
-                                  setState(() => _addingTag = false),
+                              onPressed: _stopChoosingPosition,
                               style: TextButton.styleFrom(
                                   foregroundColor: Colors.white),
                               child: const Text('やめる'),
@@ -484,16 +546,16 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               )
             : null,
         body: GestureDetector(
-          // タグを付ける間は、写真のタップで上のバーを出し入れしない（タップはタグを付ける場所に使う）
-          onTap: _addingTag
+          // タグを付ける間・動かす間は、写真のタップで上のバーを出し入れしない（タップはタグの場所に使う）
+          onTap: _choosingPosition
               ? null
               : () => setState(() => _showChrome = !_showChrome),
           child: ValueListenableBuilder<List<Photo>>(
             valueListenable: widget.photos,
             builder: (context, photos, _) => PageView.builder(
               controller: _pageController,
-              // 拡大中とタグを付ける間は、前後の写真へ移らない
-              physics: _zoomed || _addingTag
+              // 拡大中とタグを付ける間・動かす間は、前後の写真へ移らない
+              physics: _zoomed || _choosingPosition
                   ? const NeverScrollableScrollPhysics()
                   : null,
               itemCount: photos.length,
@@ -511,13 +573,22 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                   onEditComment: () => _editComment(photos[index]),
                   onEditCategory: () => _editCategory(photos[index]),
                   onEditTakenAt: () => _editTakenAt(photos[index]),
-                  // タグを消している間は付けない（消す前のタグで保存して、消したタグを戻さない）
-                  onTapImageAt: _addingTag && !_sendingTag
-                      ? (position) => _addTag(photos[index], position)
-                      : null,
+                  // タグを送っている間は付けない・動かさない（送る前のタグで保存して、送った変更を戻さない）
+                  onTapImageAt: _sendingTag
+                      ? null
+                      : _addingTag
+                          ? (position) => _addTag(photos[index], position)
+                          : switch (_movingTag) {
+                              final moving? => (position) =>
+                                  _moveTag(photos[index], moving, position),
+                              null => null,
+                            },
                   onDeleteTag: (tagIndex) =>
                       _deleteTag(photos[index], tagIndex),
-                  addingTag: _addingTag,
+                  // 付ける間・動かす間はその位置のタップになるので開かない。送っている間は押しても何もしない（_editTag）
+                  onEditTag: _choosingPosition
+                      ? null
+                      : (tagIndex) => _editTag(photos[index], tagIndex),
                   onOpenEntry: _openEntry,
                   onZoomChanged: (zoomed) {
                     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -562,7 +633,7 @@ class _PhotoPage extends StatefulWidget {
       required this.onEditTakenAt,
       required this.onTapImageAt,
       required this.onDeleteTag,
-      required this.addingTag,
+      required this.onEditTag,
       required this.onOpenEntry,
       required this.onZoomChanged});
 
@@ -586,14 +657,14 @@ class _PhotoPage extends StatefulWidget {
   /// 撮影日時の「日時を付ける」「変更」（撮影日時を付けるシートを開く。03 §5.8）
   final VoidCallback onEditTakenAt;
 
-  /// タグを付ける間に、画像の中をタップした（画像の中の割合）。タグを付ける間でないときと、タグを消している間は null
+  /// タグを付ける間・動かす間に、画像の中をタップした（画像の中の割合）。その間でないときと、タグを送っている間は null
   final ValueChanged<Offset>? onTapImageAt;
 
-  /// タグ（写真の上の名前・下の情報の札の「✕」）を消す（タグの番号）
+  /// タグ（下の情報の札の「✕」）を消す（タグの番号）
   final ValueChanged<int> onDeleteTag;
 
-  /// タグを付ける間か（写真の上の名前のタップで消さない）
-  final bool addingTag;
+  /// タグ（写真の上の吹き出し・下の情報の札の名前）を直すシートを開く（タグの番号）。開かない間は null（03 §5.9.3）
+  final ValueChanged<int>? onEditTag;
 
   /// 図鑑の項目へのリンク（種類と名前で開く）
   final void Function(String kind, String name) onOpenEntry;
@@ -719,7 +790,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                   tags: photo.tags,
                   showTags: widget.showTags,
                   onTapAt: widget.onTapImageAt,
-                  onTapTag: widget.addingTag ? null : widget.onDeleteTag,
+                  onTapTag: widget.onEditTag,
                 ),
                 // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す。
                 // 読み込んだ後もサムネイルは透明になって原寸の上に重なったまま残るので、タップを受けない（写真の上のタグに届かせる。§5.7）
@@ -800,9 +871,15 @@ class _PhotoPageState extends State<_PhotoPage> {
                                       style: AppTextStyles.body1
                                           .copyWith(color: Colors.white)),
                                   for (final (index, tag) in photo.tags.indexed)
-                                    Chip(
+                                    InputChip(
                                       label: Text(tag.name),
                                       visualDensity: VisualDensity.compact,
+                                      // 名前を押すと直すシートを開く（03 §5.9.3）
+                                      onPressed: switch (widget.onEditTag) {
+                                        final onEditTag? => () =>
+                                            onEditTag(index),
+                                        null => null,
+                                      },
                                       onDeleted: () =>
                                           widget.onDeleteTag(index),
                                       deleteButtonTooltipMessage:
