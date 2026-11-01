@@ -105,6 +105,15 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     expect(stored(photoId('a'))).toEqual(foodPhoto(photoId('a')));
   });
 
+  it('書き込みが失敗したら、そこで止めて失敗を伝える（続きは、もう一度回せば拾える）', async () => {
+    cosmosBackend.documents.set(photoId('a'), foodPhoto(photoId('a')));
+    cosmosBackend.forcedPatchError = Object.assign(new Error('Service Unavailable'), { code: 503 });
+
+    await expect(enqueueUntaggedFoodPhotos({ apply: true, log })).rejects.toThrow('Service Unavailable');
+
+    expect(stored(photoId('a'))).toEqual(foodPhoto(photoId('a')));
+  });
+
   it('読んだ後に解析の進み具合が変わった写真（やり直しの受付が入った）は書かず、ほかの写真は書く', async () => {
     cosmosBackend.documents.set(photoId('a'), foodPhoto(photoId('a')));
     cosmosBackend.documents.set(photoId('b'), foodPhoto(photoId('b')));

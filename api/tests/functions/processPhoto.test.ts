@@ -820,6 +820,43 @@ describe('写真の解析のワーカー', () => {
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
     });
 
+    it.each(['landscape', 'other'])('分類の結果が食べ物でなければ（%s）、タグが無くてもタグの提案に回さず、分類で済みにする', async (kind) => {
+      // detail: high の AI の呼び出しに回すのは食べ物だけ（費用。06 §9）
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [] }));
+      aiReturns({ kind, confidence: 70, reason: 'テスト', comment: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().processing).toEqual({ state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('食べ物でもタグがある写真は、タグの提案に回さず、分類で済みにする', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] }));
+      aiReturns({ kind: 'food', confidence: 70, reason: 'テスト', comment: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().processing).toEqual({ state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('タグの項目が無い文書（04 §2）でも、食べ物ならタグの提案の待ちにし、提案のタグを書く', async () => {
+      const { tags: _classifyTags, ...noTags } = pendingPhoto();
+      cosmosBackend.documents.set(PHOTO_ID, noTags as PhotoDocument);
+      aiReturns({ kind: 'food', confidence: 82.5, reason: 'テスト', comment: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'tag', attempts: 0, lastError: null, updatedAt: NOW });
+
+      aiReturns({ dishes: [{ name: 'ご飯', x: 0.2, y: 0.3 }] });
+
+      await runWorker();
+
+      expect(storedPhoto().tags).toEqual([{ name: 'ご飯', kind: 'food', x: 0.2, y: 0.3, source: 'ai' }]);
+    });
+
     it('タグの提案の待ちの写真は、AI が答えた皿ごとに、食べ物の AI のタグを書いて済みにする', async () => {
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
       aiReturns({ dishes: [{ name: ' ご飯 ', x: 0.19, y: 0.33 }, { name: '味噌汁', x: 0.88, y: 0.4 }] });
@@ -849,6 +886,14 @@ describe('写真の解析のワーカー', () => {
       expect(image.detail).toBe('high');
       expect(image.url).toContain(`/photos/${PHOTO_ID}.jpg`);
       expect(promptText()).toContain(CATALOG_KINDS.food.namingRule);
+      // 応答の形 { dishes: [{ name, x, y }] }（06 §9）。strict では全部の項目が required で、ほかの項目を許さない（説明の文言は見ない）
+      const format = sent[0].body.response_format;
+      expect(format.type).toBe('json_schema');
+      expect(format.json_schema.strict).toBe(true);
+      const dish = format.json_schema.schema.properties.dishes.items;
+      expect([...dish.required].sort()).toEqual(['name', 'x', 'y']);
+      expect(dish.additionalProperties).toBe(false);
+      expect([dish.properties.name.type, dish.properties.x.type, dish.properties.y.type]).toEqual(['string', 'number', 'number']);
     });
 
     it('提案している間、写真は処理中（tagging）で、回数と時刻が更新されている', async () => {
@@ -883,8 +928,8 @@ describe('写真の解析のワーカー', () => {
 
       await runWorker();
 
-      expect(storedPhoto().tags).toEqual([]);
-      expect(storedPhoto().processing).toEqual({ state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW });
+      // タグも写真の更新時刻も書かない（進み具合だけを済みにする）
+      expect(storedPhoto()).toEqual({ ...waitingPhoto(), processing: { state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW } });
     });
 
     it('提案を待つ間に利用者がタグを付けていたら、AI のタグは書かずに済みにする（利用者のタグを上書きしない）', async () => {

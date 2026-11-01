@@ -230,6 +230,10 @@ function satisfiesCondition(doc: unknown, condition: string): boolean {
     // 配列が無いか空（タグの提案を書くときの条件。06 §9）。Cosmos の ARRAY_LENGTH は項目が無いと未定義（比べると偽）なので、IS_DEFINED でつなぐ
     const emptyArray = /^\(NOT IS_DEFINED\(c\.([A-Za-z_][\w.]*)\) OR ARRAY_LENGTH\(c\.([A-Za-z_][\w.]*)\) = 0\)$/.exec(term.trim());
     if (emptyArray) {
+      // 本物は2つの path を別々に評価する。書き違えた条件を偽物が通さないよう、同じ path のときだけ解釈する
+      if (emptyArray[1] !== emptyArray[2]) {
+        throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
+      }
       const value = valueAt(emptyArray[1]);
       return value === undefined || (Array.isArray(value) && value.length === 0);
     }
