@@ -1,7 +1,8 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
-import { InvalidContinuationTokenError } from '../utils/errors';
+import { InvalidContinuationTokenError, TakenAtFromCameraError } from '../utils/errors';
+import { computeSortAt } from '../utils/sortAt';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS, identifiesAutomatically } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoLocation, PhotoProcessing, PhotoTag, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
@@ -343,7 +344,7 @@ export class AlbumService {
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
   ): Promise<PhotoDocument | null> {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -365,15 +366,25 @@ export class AlbumService {
    */
   private async patchPhotoChanges(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
     let condition: string | undefined;
-    if (changes.category !== undefined) {
-      const current = await this.getPhoto(id);
-      if (!current) {
-        return null;
+    // カテゴリと撮影日時は、今の写真を見て書くものを決める
+    const current = changes.category !== undefined || changes.takenAt !== undefined ? await this.getPhoto(id) : undefined;
+    if (current === null) {
+      return null;
+    }
+    if (changes.takenAt !== undefined && current) {
+      // カメラが記録した撮影日時は変えさせない（02 §5 #59）
+      if (current.takenAtSource === 'exif') {
+        throw new TakenAtFromCameraError();
       }
+      operations.push({ op: 'set', path: '/takenAt', value: changes.takenAt });
+      operations.push({ op: 'set', path: '/takenAtSource', value: changes.takenAt === null ? 'none' : 'user' });
+      operations.push({ op: 'set', path: '/sortAt', value: computeSortAt(changes.takenAt, current.uploadedAt) });
+    }
+    if (changes.category !== undefined && current) {
       operations.push({ op: 'set', path: '/categorySource', value: 'user' });
       // 分類が済んでいない（待っている・している・失敗した）写真は、同じカテゴリでも解析の状態を書き換える
       // （分類を止めないと AI がカテゴリを書き換える。失敗した写真は、手で決めたら失敗から出す）

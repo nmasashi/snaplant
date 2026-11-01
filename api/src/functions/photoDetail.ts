@@ -5,11 +5,13 @@ import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { photoResponseData } from '../services/photoView';
 import {
   createDatabaseErrorResponse,
+  createErrorResponse,
   createNotFoundError,
   createSuccessResponse,
   createValidationError
 } from '../utils/response';
-import { ErrorCode } from '../types/api';
+import { ErrorCode, HttpStatusCode } from '../types/api';
+import { TakenAtFromCameraError } from '../utils/errors';
 import { readPhotoUpdateInput } from '../utils/photoInput';
 import { PHOTO_VALIDATION } from '../constants/validation';
 
@@ -91,6 +93,9 @@ export async function updatePhotoHandler(request: HttpRequest, context: Invocati
     }
     return createSuccessResponse(photoResponseData(photo, storage));
   } catch (error: any) {
+    if (error instanceof TakenAtFromCameraError) {
+      return createErrorResponse(ErrorCode.TAKEN_AT_FROM_CAMERA, error.message, HttpStatusCode.CONFLICT);
+    }
     context.log('写真更新エラー:', error);
     return createDatabaseErrorResponse(error, '写真の更新に失敗しました');
   }
