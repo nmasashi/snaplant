@@ -66,6 +66,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | `image_picker_platform_interface` の偽物 | `pickMultiImage()` の差し替え（`test/helpers/gallery_test_helpers.dart` の `FakeMultiGallery`。元にした `camera_screen_test.dart` は 4-5 で画面と一緒に消した） |
 | 小さな JPEG の資産 | EXIF（撮影日時・GPS あり/なし）を持つ数 KB の JPEG を `test/assets/` に置き、EXIF の読み取りとハッシュの固定値に使う |
 | `Geocoder` | `geocoding_platform_interface` の `GeocodingPlatformFactory.instance` を偽物に差し替える（`test/helpers/geocoding_test_helpers.dart`。知っている場所の近くには結果を返し、知らない場所には空のリスト。失敗・応答しないも作れる。引いた座標を残す） |
+| 写真の画像（`cached_network_image`） | 既定では読み込めない（テストの環境の HTTP は失敗し、置き場の `path_provider` も無い）。画像の大きさが要るテスト（写真の上のタグ。C-3b）は、`utils/photo_cache_manager.dart` の `PhotoCacheManager.testOverride` を、偽のサーバ（`FakeTripBackend` の `imageBytes`）から取り、置き場をメモリにしたキャッシュに替える（`test/helpers/trip_test_helpers.dart` の `useImageCacheOf`） |
 | 画像の圧縮（サムネイル） | `flutter_image_compress` の `FlutterImageCompressPlatform.instance` を偽物に差し替える（`test/helpers/image_compress_test_helpers.dart`。Android の実装と同じ規則で、渡された最小の幅・高さから作る寸法を決め、寸法・画質・形式を結果として残す。EXIF の回転は再現しない） |
 
 ## 3. 段階2のシナリオ一覧（api）
@@ -173,8 +174,10 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - `GET`: 400（形式）・404 `PHOTO_NOT_FOUND`・200
 - `DELETE`: 400・404・200 `写真が正常に削除されました`。`store` から原寸とサムネイルが消え、別の写真は残る。サムネイルの無い写真は原寸だけ消える。
   Blob の削除失敗でも 200 で、原寸で失敗してもサムネイルは消える。Cosmos の読み取り・削除の失敗（503 / 500）と、読んだ後・消す前に消されていた（404）ときは、ドキュメントも画像も変わらない
-- `PATCH`（`photoUpdate.test.ts`）: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証（順序の例を含む）。`comment` だけ・`tags` だけ（両方を送る正常系のテストは無い）。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`。
-  コメント 500 文字・タグ 30 文字は前後の空白を除いて数える（ちょうどなら通る）。文字数は見た目の1文字で数える（つないだ絵文字でちょうど上限なら通る。#128）。結合文字を重ねて見た目は1文字でも、UTF-16 で上限 × 32 を超える文は文字数の上限と同じ 400（`コメントは500文字以内で指定してください`）で何も変えず、ちょうど上限なら通る（#128。規則は全欄共通の関数で、テストはコメントの境目の2本だけ）。前後の空白を除くと同じになるタグは1つにまとめる（前後の U+0085 も除いてから。#128）。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
+- `PATCH`（`photoUpdate.test.ts`）: [05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 1〜10 の各検証（順序の例を含む）。`comment` だけ・`tags` だけ・両方。既存の `category` が変わらない。前後の空白を除いて空の `comment` は `null`。
+  コメント 500 文字・タグの名前 30 文字は前後の空白を除いて数える（ちょうどなら通る）。文字数は見た目の1文字で数える（つないだ絵文字でちょうど上限なら通る。#128）。結合文字を重ねて見た目は1文字でも、UTF-16 で上限 × 32 を超える文は文字数の上限と同じ 400（`コメントは500文字以内で指定してください`）で何も変えず、ちょうど上限なら通る（#128。規則は全欄共通の関数で、テストはコメントの境目の2本だけ）。タグの名前の前後の U+0085 も除く（#128）。
+  タグ（C-3a で実装済み）: `{ name, kind, x, y }` だけを保存し（ほかのキーは捨てる）、位置は 0 と 1 ちょうども通る。同じ名前のタグも1つにまとめず送った順に全部残し、同じ名前を含めて 20 個なら通って 21 個で 400。
+  C-3a より前の文字列のタグが文書に残っていても、応答（`GET`）には出さない（`photoDetail.test.ts`）。解析中（`pending`）の写真でも通る。patch の失敗で 503 / 500
 - `PATCH` のカテゴリ（C-1。`photoUpdate.test.ts`。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）: `category` が分類の種類に無い（`animal`）・大文字小文字が違う（`Plant`）・`null`・数値で 400 `カテゴリが無効です`。
   植物に変えると 200 で、応答と文書が `category: "plant"`・`categorySource: "user"`・`identification: null`・`processing` が `{ pending, identify, 0, null, 今 }` になり、AI が書いたコメントが `comment: null`・`commentSource: null` になり（ほかの欄は変わらない）、キューに `{ photoId }` が1つ積まれる。
   自動で調べない種類（植物から食べ物）に変えると `identification: null`・AI が書いたコメントが `null`・`processing` が `{ done, classify, 0, null, 今 }` で、積まない。利用者が書いたコメント（`commentSource: "user"`）はカテゴリを変えても残る。写真を読んだ後・書く前に（`beforePatch`）利用者がコメントを書いていたら残り、AI がコメントを書いていたら消え、どちらも 200 で応答の写真も同じ（書き込みの条件に合わず読み直す）。分類に失敗した（`failed`・カテゴリ無し）写真を `other` にすると `done`・`attempts: 0` で、積まない。

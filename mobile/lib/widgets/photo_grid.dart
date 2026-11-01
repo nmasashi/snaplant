@@ -120,8 +120,9 @@ class _PhotoGridState extends State<PhotoGrid> {
   String? _continuationToken;
   // 続きのページを読んでいる（重ねて読まない）
   bool _isLoadingMore = false;
-  // 続きの取得に失敗した。「再試行」が押されるまで自動では取り直さない（既存と同じく自動の再試行はしない）
-  bool _loadMoreFailed = false;
+  // 続きの取得に失敗した。「再試行」が押されるまで自動では取り直さない（既存と同じく自動の再試行はしない）。
+  // 写真ビューアと共有し、ビューアの末尾でも知らせて読み直せるようにする（docs/03_screen_design.md §4.6）
+  final _loadMoreFailed = ValueNotifier<bool>(false);
   // 先頭のページで一覧を置き換えるたびに進める。読み込みは始めたときの世代を控え、その間に進んでいたら結果（成功も失敗も）を捨てる。
   // 「再試行」と引っ張る読み直しが重なっても、先に終わった方を採り、後から届いた古い結果で上書きしない
   int _generation = 0;
@@ -155,6 +156,7 @@ class _PhotoGridState extends State<PhotoGrid> {
   void dispose() {
     widget.uploadQueue.removeListener(_onUploadQueueChanged);
     _loaded.dispose();
+    _loadMoreFailed.dispose();
     super.dispose();
   }
 
@@ -229,9 +231,11 @@ class _PhotoGridState extends State<PhotoGrid> {
       widget.uploadQueue.markLanded(page.photos.map((p) => p.id));
       _continuationToken = page.continuationToken;
       _isLoadingMore = false;
-      _loadMoreFailed = false;
+      _loadMoreFailed.value = false;
       _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
     });
+    // 選択を読み直した一覧にある写真に絞る（消された写真や捨てた続きのページの写真を、見えないまま数えて送らない。docs/03_screen_design.md §4.8）
+    widget.selection.retainOnly(page.photos.map((p) => p.id));
     widget.onFirstPageApplied?.call(page);
   }
 
@@ -265,7 +269,7 @@ class _PhotoGridState extends State<PhotoGrid> {
   /// 続きのページを読んで末尾に足す。読んでいる最中や、最後まで読んだ後は何もしない
   Future<void> _loadMore() async {
     final token = _continuationToken;
-    if (_isLoadingMore || _loadMoreFailed || token == null) return;
+    if (_isLoadingMore || _loadMoreFailed.value || token == null) return;
     final generation = _generation;
     setState(() => _isLoadingMore = true);
     try {
@@ -280,7 +284,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         _consecutiveEmptyPages =
             page.photos.isEmpty ? _consecutiveEmptyPages + 1 : 0;
         // 空のページが続くなら止める（続きがあるかは分からないので、0枚の案内ではなく「再試行」を出す）
-        _loadMoreFailed = page.continuationToken != null &&
+        _loadMoreFailed.value = page.continuationToken != null &&
             _consecutiveEmptyPages >= _maxConsecutiveEmptyPages;
       });
     } catch (e) {
@@ -289,7 +293,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       if (_notifyIfTripNotFound(e)) return;
       setState(() {
         _isLoadingMore = false;
-        _loadMoreFailed = true;
+        _loadMoreFailed.value = true;
       });
     }
   }
@@ -297,7 +301,7 @@ class _PhotoGridState extends State<PhotoGrid> {
   /// 失敗した続きを「再試行」で取り直す
   void _retryLoadMore() {
     setState(() {
-      _loadMoreFailed = false;
+      _loadMoreFailed.value = false;
       _consecutiveEmptyPages = 0;
     });
     _loadMore();
@@ -337,6 +341,8 @@ class _PhotoGridState extends State<PhotoGrid> {
                 initialIndex: index,
                 onReachEnd: _loadMore,
                 hasMore: () => _continuationToken != null,
+                loadMoreFailed: _loadMoreFailed,
+                onRetryLoadMore: _retryLoadMore,
                 onDeleted: _removeLoaded,
                 onUpdated: _replaceLoaded)));
     await widget.onViewerClosed?.call();
@@ -432,7 +438,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         ),
       );
     }
-    final hasFooter = _loadMoreFailed || _isLoadingMore;
+    final hasFooter = _loadMoreFailed.value || _isLoadingMore;
     final itemCount = photos.length + pending.length;
     Widget tileAt(int index) {
       if (index >= photos.length) {
@@ -444,7 +450,7 @@ class _PhotoGridState extends State<PhotoGrid> {
       if (index >= photos.length - _loadMoreThreshold &&
           _continuationToken != null &&
           !_isLoadingMore &&
-          !_loadMoreFailed) {
+          !_loadMoreFailed.value) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _loadMore();
         });
@@ -500,7 +506,7 @@ class _PhotoGridState extends State<PhotoGrid> {
             ),
           ),
         ),
-        if (_loadMoreFailed)
+        if (_loadMoreFailed.value)
           Padding(
             padding: const EdgeInsets.all(8),
             child: Row(

@@ -4,7 +4,7 @@ import { sqlString } from '../utils/sqlString';
 import { InvalidContinuationTokenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS, identifiesAutomatically } from '../catalog/kinds';
-import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoLocation, PhotoProcessing, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
+import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoLocation, PhotoProcessing, PhotoTag, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
 import { PhotoCountRow, queryCover, queryPhotoCounts, queryTakenAtRanges } from './albumQueries';
 import { queryCatalogHead, queryCatalogNameCounts, queryCatalogPhotoCount } from './catalogQueries';
 import { catalogEntryOf, catalogPageOf } from './catalogEntries';
@@ -343,7 +343,7 @@ export class AlbumService {
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: string[]; category?: string }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string }
   ): Promise<PhotoDocument | null> {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -365,7 +365,7 @@ export class AlbumService {
    */
   private async patchPhotoChanges(
     id: string,
-    changes: { comment?: string | null; tags?: string[]; category?: string }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
     let condition: string | undefined;

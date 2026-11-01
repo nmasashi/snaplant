@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 /// 旅行アルバムの写真用のキャッシュ（docs/03_screen_design.md §3）
@@ -9,8 +10,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 /// 上限は件数でしか決められない（バイト数では決められない）。サムネイル（数十KB）と原寸（数MB）を同じ上限にすると
 /// 原寸で端末の容量を使い切るので、分ける
 class PhotoCacheManager {
-  /// サムネイルと旅行の表紙。数百枚の旅行をいくつか見ても入れ替わらない件数
-  static final CacheManager thumbnails = CacheManager(
+  static final CacheManager _defaultThumbnails = CacheManager(
     Config(
       'travelAlbumThumbnails',
       stalePeriod: const Duration(days: 30),
@@ -18,14 +18,27 @@ class PhotoCacheManager {
     ),
   );
 
-  /// 原寸（写真ビューアと、サムネイルの無い写真のグリッド）。1枚が大きいので少なくする
-  static final CacheManager images = CacheManager(
+  static final CacheManager _defaultImages = CacheManager(
     Config(
       'travelAlbumImages',
       stalePeriod: const Duration(days: 7),
       maxNrOfCacheObjects: 100,
     ),
   );
+
+  /// サムネイルと旅行の表紙。数百枚の旅行をいくつか見ても入れ替わらない件数
+  static CacheManager get thumbnails => _testOverride ?? _defaultThumbnails;
+
+  /// 原寸（写真ビューアと、サムネイルの無い写真のグリッド）。1枚が大きいので少なくする
+  static CacheManager get images => _testOverride ?? _defaultImages;
+
+  static CacheManager? _testOverride;
+
+  /// サムネイルと原寸のキャッシュを [manager] に差し替える（null で戻す）。テストだけが使う。
+  /// テストの環境では画像の HTTP がいつも失敗し、写真の上のタグ（03 §5.7）が画像の大きさを知れないので、
+  /// 画像を読み込ませるテストは、取りに行く先を偽のサーバにし、置き場を端末のディレクトリでないものにしたキャッシュに替える
+  @visibleForTesting
+  static set testOverride(CacheManager? manager) => _testOverride = manager;
 }
 
 /// サムネイルのキャッシュのキー

@@ -245,7 +245,8 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `MAX_FILE_SIZE`（既存） | `10485760`（10MB） | 原寸のバイト数の上限 | `POST /api/photos`（植物図鑑の `upload` と共用していた。4-6 で削除） | 2 |
 | `CONTEXT_INFO_MAX_LENGTH`（既存） | `500` | やり直しの手がかり `hint` の上限 | `POST /api/photos/{photoId}/process`（植物図鑑の `contextInfo` と共用していた。4-6 で削除） | 3 |
 | `MOVE_MAX_IDS` | `200` | move の1回の上限（件） | `POST /api/photos/move` | 2 |
-| `TAG_MAX_LENGTH` | `30` | 利用者のタグの上限（文字） | `PATCH /api/photos/{photoId}` | 2 |
+| `TAG_MAX_LENGTH` | `30` | 写真のタグの名前（`tags[].name`）の上限（文字。前後の空白を除いて数える） | `PATCH /api/photos/{photoId}` | 2 |
+| `TAG_MAX_COUNT` | `20` | 1枚の写真のタグの数の上限（個。C-3a から同じ名前も数える） | `PATCH /api/photos/{photoId}`（`TAG_VALIDATION.MAX_COUNT`） | 2 |
 | `PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE` | `100` / `200` | 写真一覧の1ページの既定と上限（枚）。上限は `limit` の 400 の `message` にも埋め込まれる | `GET /api/photos`・`GET /api/catalog/entry` | 2 |
 | `CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE` | `50` / `100` | 図鑑の項目一覧の1ページの既定と上限（件） | `GET /api/catalog/entries` | 4 |
 | `PHOTO_QUEUE_NAME` | （必須。既定値なし。Terraform が `photo-processing` を入れる）。ワーカーのトリガーは `queueName: '%PHOTO_QUEUE_NAME%'` でアプリの設定から解決するので既定値を持てず、投入する側（`PhotoQueueService`）も揃えて、未設定・空・空白だけなら投げる（`POST /api/photos` は投入の失敗として 201） | 分類・識別のキュー名 | 投入する側（`PhotoQueueService`。`POST /api/photos`・`POST /api/photos/{photoId}/process`・再投入のタイマー。どれも投入の失敗はログだけ）とワーカー（`processPhoto.ts` のトリガー） | 3 |
@@ -292,7 +293,9 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | 名前（置き場） | 値 | 意味 | 根拠 |
 |---|---|---|---|
 | 送信の同時本数（`UploadQueue`） | `2` | `POST /api/photos` を同時に送る数 | [02 §4.7](./02_design_overview.md#47-送り方は1リクエスト1枚クライアントが同時2本まで要件-52) |
-| 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ | [03 §4.7.3](./03_screen_design.md#473-送信) |
+| 送信の再試行（`UploadQueue`） | 3 回、2 → 4 → 8 秒 | ステータス 0 / 429 / 503 のときだけ（分類できない失敗の -1 は送り直さない。-1 は通信の失敗の扱いで実装済み） | [03 §4.7.3](./03_screen_design.md#473-送信) |
+| 送信の時間切れ（`UploadQueue` の `_requestTimeout`） | 60 秒 | 1回の `POST /api/photos` の応答を待つ長さ。過ぎたら通信の失敗として送り直す（#60 で実装済み） | [03 §4.7.3](./03_screen_design.md#473-送信) |
+| API の呼び出しの時間切れ（`ApiService.requestTimeout`） | 30 秒（旅行の削除だけ 4 分。`ApiService.deleteTripTimeout`） | 写真の送信を除く呼び出しで、要求から本文の読み終わりまでを待つ長さ。過ぎたら通信の失敗（ステータス 0）。旅行の削除はサーバが写真を1枚ずつ処理するので長くし、Azure の前段の 230 秒より長くする（通信の失敗の扱いで実装済み） | [03 §9.2](./03_screen_design.md#92-エラー表示apiexceptionusermessage) |
 | サムネイル（`UploadQueue`。`upload_queue.dart` の `_thumbnailLongSide`・`_thumbnailQuality`） | 長辺 320px・画質 70・JPEG | 一覧用の小さな画像 | [04 §4.2](./04_data_design.md#42-blob-名)・[03 §4.7.2](./03_screen_design.md#472-準備) |
 | 画像の縮小（`image_picker`） | 画質 85・最大 1920px（既存と同じ。縮小してもハッシュが決まることは実機で確かめた） | 原寸の大きさ | [09 §6](./11_implementation_plan.md#6-最初に実機で確かめること) |
 | 地名の変換（`UploadQueue`。`upload_queue.dart` の `_placeNameTimeout`） | タイムアウト 5 秒、キャッシュの鍵は小数3桁（`shared_preferences`。引けた地名だけを残す） | 端末の Geocoder | [06 §4.2](./06_processing_design.md#42-段階2端末) |

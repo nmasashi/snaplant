@@ -215,6 +215,73 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('続きのページの読み込みに失敗していたら、写真ビューアの読み込んだ末尾の写真でだけ「続きを読み込めませんでした」「再試行」を出し、「再試行」で続きを読んで先へスワイプできる', (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。グリッドを下端まで送ると2ページ目を読むので、その1回を失敗させる。
+    // 一覧（グリッド）にも同じ文言が出るが、ビューアの下に隠れているので、ビューアの中に出ていることは hitTestable で見る
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.photos);
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget,
+        reason: '読み込んだ末尾の写真（10:30）');
+
+    await _swipe(tester, toNext: false);
+
+    expect(find.text('2026年10月5日 10:29').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing,
+        reason: '末尾でない写真（10:29）');
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget,
+        reason: '末尾の写真（10:30）へ戻った');
+    await tester.tap(find.text('再試行').hitTestable());
+    await letFramesRun(tester);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing,
+        reason: '「再試行」で続きを読めた');
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('続きのページの読み込みに失敗していて、写真ビューアで読み込んだ末尾の写真を削除したら、続きを待つ間も「再試行」を出し、「再試行」で届いた次の写真へ移る',
+      (tester) async {
+    // 10:30 は読み込み済みの末尾だが、本当の末尾ではない（続きがある）。削除すると読み込み済みの写真を使い切り、続きを待つ（§4.6）
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.photos);
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '削除');
+
+    expect(find.byType(PageView), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('再試行').hitTestable());
+    await letFramesRun(tester);
+
+    expect(_isOnScreen(tester, '2026年10月5日 10:31'), isTrue);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('グリッドを下端まで送っていなくても、写真ビューアで読み込んだ末尾の写真まで来ると、一覧が次のページを読み、続けてスワイプできる',
       (tester) async {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
@@ -256,6 +323,49 @@ void main() {
     await _swipe(tester, toNext: true);
 
     expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('写真ビューアで末尾まで来て続きのページの読み込みに失敗したら、読み込んでいる間は出さず、失敗が届いてから「続きを読み込めませんでした」「再試行」を出し、読み直しにまた失敗したら同じ表示に戻る',
+      (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。グリッドは送らずに10:15を開き（2ページ目は要求されていない）、
+    // ビューアで末尾の10:30まで払って2ページ目を読ませる。失敗の応答を遅らせて、ビューアを開いている間に失敗が届く形にする
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await openTripsTab(tester, backend);
+    final releaseFirstPage = Completer<void>();
+    backend.holds[TripRoute.photos] = releaseFirstPage.future;
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.holds.remove(TripRoute.photos);
+    releaseFirstPage.complete();
+    await letFramesRun(tester);
+    await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
+    await tester.pump();
+    await tester.tap(photoThumbnail('2026年10月5日 10:15'));
+    await letFramesRun(tester);
+    expect(backend.photoPagesReceived, 1, reason: '2ページ目はまだ要求されていない');
+    backend.failNext(TripRoute.photos);
+    final reply = backend.holdNextReply(TripRoute.photos);
+
+    for (var i = 0; i < 15; i++) {
+      await _swipe(tester, toNext: true);
+    }
+
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(backend.photoPagesReceived, 2, reason: '末尾に来て2ページ目を要求した');
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing, reason: '読み込み中で、まだ失敗していない');
+    reply.complete();
+    await letFramesRun(tester);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget, reason: 'ビューアを開いている間に失敗した');
+
+    backend.failNext(TripRoute.photos);
+    await tester.tap(find.text('再試行').hitTestable());
+    await letFramesRun(tester);
+
+    expect(backend.photoPagesReceived, 3, reason: '「再試行」で2ページ目を要求し直した');
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget, reason: '読み直しにまた失敗した');
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
 

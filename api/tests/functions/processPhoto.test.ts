@@ -54,7 +54,7 @@ const ENV_KEYS = [
 const pendingPhoto = (overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
   photoDocument(PHOTO_ID, {
     tripId: TRIP_ID,
-    tags: ['朝食'],
+    tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }],
     comment: 'ホテルの朝食',
     commentSource: 'user',
     processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' },
@@ -1206,7 +1206,7 @@ describe('写真の解析のワーカー', () => {
       cosmosBackend.beforePatch = () => {
         cosmosBackend.beforePatch = () => {
           cosmosBackend.beforePatch = undefined;
-          const edited: PhotoDocument = { ...storedPhoto(), tags: ['朝食', '札幌'], tripId: null };
+          const edited: PhotoDocument = { ...storedPhoto(), tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }, { name: '札幌', kind: 'food', x: 0.5, y: 0.5 }], tripId: null };
           cosmosBackend.documents.set(PHOTO_ID, edited);
         };
       };
@@ -1214,7 +1214,7 @@ describe('写真の解析のワーカー', () => {
       await runWorker();
 
       expect(storedPhoto()).toMatchObject({
-        tags: ['朝食', '札幌'],
+        tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }, { name: '札幌', kind: 'food', x: 0.5, y: 0.5 }],
         tripId: null,
         category: 'food',
         classification: { kind: 'food' }

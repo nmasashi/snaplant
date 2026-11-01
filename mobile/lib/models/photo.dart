@@ -44,6 +44,9 @@ class Photo {
   /// 前回の解析のやり直しで利用者が書いた手がかり。無ければ null
   final String? hint;
 
+  /// 利用者が写真の中の場所に付けたタグ（保存順。03 §5.7）
+  final List<PhotoTag> tags;
+
   const Photo({
     required this.id,
     this.tripId,
@@ -61,6 +64,7 @@ class Photo {
     this.comment,
     this.commentSource,
     this.hint,
+    this.tags = const [],
   });
 
   factory Photo.fromJson(Map<String, dynamic> json) {
@@ -86,8 +90,41 @@ class Photo {
       comment: json['comment'] as String?,
       commentSource: json['commentSource'] as String?,
       hint: json['hint'] as String?,
+      tags: [
+        for (final tag in json['tags'] as List<dynamic>? ?? const [])
+          PhotoTag.fromJson(tag as Map<String, dynamic>),
+      ],
     );
   }
+}
+
+/// 写真の中の場所に付けたタグ（docs/04_data_design.md §2。C-3）
+class PhotoTag {
+  /// 名前（同じ名前のタグが写真に何個あってもよい）
+  final String name;
+
+  /// 種類（カテゴリと同じ `plant` / `food` / `landscape` / `other`）
+  final String kind;
+
+  /// 向きを直した後の画像の中の位置の割合（左上が 0、右下が 1）
+  final double x;
+  final double y;
+
+  const PhotoTag(
+      {required this.name,
+      required this.kind,
+      required this.x,
+      required this.y});
+
+  factory PhotoTag.fromJson(Map<String, dynamic> json) => PhotoTag(
+        name: json['name'] as String,
+        kind: json['kind'] as String,
+        x: (json['x'] as num).toDouble(),
+        y: (json['y'] as num).toDouble(),
+      );
+
+  /// `PATCH /api/photos/{photoId}` の `tags` の要素
+  Map<String, Object> toJson() => {'name': name, 'kind': kind, 'x': x, 'y': y};
 }
 
 /// AI の識別の結果（写真の `identification`。docs/04_data_design.md §2.1）のうち、画面が使う項目

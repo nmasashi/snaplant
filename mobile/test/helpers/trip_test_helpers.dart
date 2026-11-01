@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/material.dart';
@@ -8,7 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:snaplant_mobile/main.dart';
+import 'package:snaplant_mobile/utils/photo_cache_manager.dart';
 import 'package:snaplant_mobile/widgets/photo_grid.dart';
 
 import 'app_test_helpers.dart';
@@ -39,14 +42,23 @@ Map<String, Object?> tripJson({
   };
 }
 
+/// 偽のサーバがサムネイルに返す画像（横 20・縦 40 の PNG。原寸と縦横の比を変えて、読む画像の取り違えを見分ける）
+final _thumbnailImage = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAABQAAAAoCAIAAABxU02MAAAAJElEQVR4nGPQqDhBNmIY1TyqeVTzqOZRzaOaRzWPah7VTC4CAKOYZT36cB51AAAAAElFTkSuQmCC');
+
+/// 写真の画像を置く Blob のホスト（偽のサーバは、このホストへの要求に [FakeTripBackend.imageBytes] を返す）
+const testBlobHost = 'stsnaplant.blob.core.windows.net';
+
 /// 写真（Photo。docs/05_api_design.md §3.3）の JSON を作る。
 /// [number] から 64 桁の小文字16進の id を作る（実際の id は画像の SHA-256）。サムネイルの URL は SAS 付きの形にする。
-/// [takenAt] はタイムゾーン無しの撮影日時（`2026-10-05T12:30:15`）。[hasThumbnail] が false ならサムネイルが無い写真（thumbnailUrl が null）
+/// [takenAt] はタイムゾーン無しの撮影日時（`2026-10-05T12:30:15`）。[hasThumbnail] が false ならサムネイルが無い写真（thumbnailUrl が null）。
+/// [tags] は写真の中の場所に付けたタグ（`{ name, kind, x, y }`。04 §2）
 Map<String, Object?> photoJson({
   required int number,
   String? tripId,
   String? takenAt,
   bool hasThumbnail = true,
+  List<Map<String, Object?>> tags = const [],
 }) {
   final id = number.toRadixString(16).padLeft(64, '0');
   const blobHost = 'https://stsnaplant.blob.core.windows.net/photos';
@@ -62,7 +74,7 @@ Map<String, Object?> photoJson({
     'sortAt': takenAt ?? '2026-10-10T12:12:45',
     'location': null,
     'category': null,
-    'tags': <String>[],
+    'tags': [for (final tag in tags) {...tag}],
     'comment': null,
     'commentSource': null,
     'hint': null,
@@ -188,10 +200,10 @@ enum TripRoute {
 /// - `POST /api/photos/{photoId}/process` は、写真を分類の待ち（`pending`・`classify`・回数 0・時刻は [processAcceptedAt]）にし、
 ///   手がかり（前後の空白を除き、空なら null）を `hint` に書き、コメントを消して、202 で `{ photo, urlExpiresAt }` を返す（docs/05_api_design.md §5.7）。
 ///   `step` は `processing.step` に書く（`classify` なら `categorySource` を null にする）。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
-/// - `PATCH /api/photos/{photoId}` はコメントとカテゴリを書き換える。コメントは前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`。
+/// - `PATCH /api/photos/{photoId}` はコメント・タグ・カテゴリを書き換える。タグは配列ごと置き換え、検証は本物と同じ（形式・名前・種類・位置・20 個まで。C-3a）。コメントは前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`。
 ///   カテゴリは本物と同じ決まり（手で決めた印を付け、変わったか分類中なら識別と AI が書いたコメントを消し、植物なら識別の待ち、ほかは済み。05 §5.6）。
-///   200 で `{ photo, urlExpiresAt }`。`comment`・`category` のキーがどちらも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
-///   本物は全部の検証の後に 404 を返すが、偽物はコメントの検証の直後に返す（アプリはコメントとカテゴリを一緒に送らない）
+///   200 で `{ photo, urlExpiresAt }`。`comment`・`tags`・`category` のキーがどれも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
+///   本物は全部の検証の後に 404 を返すが、偽物はコメント・タグ・カテゴリのそれぞれの検証の直後に返す（アプリはこれらを一緒に送らない）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は属の学名の順、同じ属は名前の順なので、その順に入れる）に
@@ -305,6 +317,11 @@ class FakeTripBackend {
   /// 宛先ごとに、応答を返すのをこの Future が終わるまで止める（Completer の future を入れる）
   final Map<TripRoute, Future<void>> holds = {};
 
+  /// 写真の原寸の画像（Blob の URL）を読む要求に返す画像のバイト列。null なら 404（画像は読み込めない。テストの既定）。
+  /// null でなければ、サムネイルには縦横の比の違う画像（[_thumbnailImage]）を返す
+  /// 画像を読み込ませるテスト（写真の上のタグ。03 §5.7）は、原寸のキャッシュを差し替えてから使う（`useImageCacheOf`）
+  Uint8List? imageBytes;
+
   /// 削除の要求ごとの `deletePhotos` の値（無ければ null）
   final List<String?> deletePhotosSent = [];
 
@@ -393,6 +410,13 @@ class FakeTripBackend {
 
   Future<http.Response> _handle(http.Request request) async {
     // 関数キーはヘッダで受け取る（Azure Functions は x-functions-key ヘッダでも ?code= でも受け付ける。アプリはヘッダで送る。docs/05 §9.1）
+    // 写真の画像は Blob から SAS 付きの URL で読む（関数キーは要らない）
+    if (request.url.host == testBlobHost) {
+      // サムネイル（`<id>.thumb.jpg`）には原寸と縦横の比の違う画像を返す（ビューアが読む画像を取り違えると、写真の上のタグの位置がずれる）
+      if (imageBytes == null) return http.Response('', 404);
+      final bytes = request.url.path.endsWith('.thumb.jpg') ? _thumbnailImage : imageBytes!;
+      return http.Response.bytes(bytes, 200, headers: {'content-type': 'image/png'});
+    }
     if (request.url.host != testApiHost || request.headers['x-functions-key'] != functionKey) {
       return http.Response('', 404);
     }
@@ -665,7 +689,7 @@ class FakeTripBackend {
       final text = (body[field] as String?)?.trim() ?? '';
       if (text.isEmpty) {
         // AI の文に戻す（AI の文が無い欄は文も主も null。5-5a）。登録が無ければ、入れ忘れとして知らせる。
-        // ApiService がこの例外を通信の失敗として包むので、テストでは「ネットワークに接続できません」の文言が出る（それが出たら登録を疑う）
+        // ApiService がこの例外を分類できない失敗（ステータス -1）として包むので、テストでは「予期しないエラーが発生しました。…」の文言が出る（それが出たら登録を疑う）
         if (!timelineAiTexts.containsKey('$key:$field')) throw StateError('timelineAiTexts に $key:$field を入れてください');
         final aiText = timelineAiTexts['$key:$field'];
         target[field] = aiText;
@@ -1282,7 +1306,7 @@ class FakeTripBackend {
   http.Response _updatePhoto(http.Request request) {
     final photoId = request.url.pathSegments[2];
     final photo = photosByTripId.values.expand((photos) => photos).where((p) => p['id'] == photoId).firstOrNull;
-    // 実際のサーバの検証の順（docs/05_api_design.md §5.6 の 1〜6・10。タグは送らないので検証しない）
+    // 実際のサーバの検証の順（docs/05_api_design.md §5.6 の 1〜10。タグは 9 と 9.1〜9.5 の中身を本物と同じに見る）
     if (!_photoIdPattern.hasMatch(photoId)) return _error(400, 'INVALID_REQUEST', '写真IDの形式が無効です');
     final Object? body;
     try {
@@ -1291,7 +1315,7 @@ class FakeTripBackend {
       return _error(400, 'INVALID_REQUEST', 'リクエストボディの形式が無効です');
     }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
-    if (body is! Map<String, dynamic> || !(body.containsKey('comment') || body.containsKey('category'))) {
+    if (body is! Map<String, dynamic> || !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category'))) {
       return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
     }
     if (body.containsKey('comment')) {
@@ -1302,6 +1326,28 @@ class FakeTripBackend {
       if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
       photo['comment'] = trimmed.isEmpty ? null : trimmed;
       photo['commentSource'] = trimmed.isEmpty ? null : 'user';
+    }
+    if (body.containsKey('tags')) {
+      // 実際のサーバと同じ（05 §5.6。C-3a）: 配列ごと置き換え、名前の前後の空白を除き、同じ名前も残す。数を先に見る
+      final tags = body['tags'];
+      if (tags is! List) return _error(400, 'INVALID_REQUEST', 'タグは配列で指定してください');
+      if (tags.length > 20) return _error(400, 'INVALID_REQUEST', 'タグは20個までです');
+      final saved = <Map<String, Object?>>[];
+      for (final tag in tags) {
+        if (tag is! Map<String, dynamic>) return _error(400, 'INVALID_REQUEST', 'タグの形式が無効です');
+        final name = tag['name'] is String ? (tag['name'] as String).trim() : '';
+        if (name.isEmpty || name.characters.length > 30) {
+          return _error(400, 'INVALID_REQUEST', 'タグの名前は1〜30文字で指定してください');
+        }
+        if (!const {'plant', 'food', 'landscape', 'other'}.contains(tag['kind'])) {
+          return _error(400, 'INVALID_REQUEST', 'タグの種類が無効です');
+        }
+        bool ratio(Object? value) => value is num && value >= 0 && value <= 1;
+        if (!ratio(tag['x']) || !ratio(tag['y'])) return _error(400, 'INVALID_REQUEST', 'タグの位置が無効です');
+        saved.add({'name': name, 'kind': tag['kind'], 'x': tag['x'], 'y': tag['y']});
+      }
+      if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+      photo['tags'] = saved;
     }
     if (body.containsKey('category')) {
       // 実際のサーバと同じ（05 §5.6。02 §5 #53）: 手で決めた印を付け、変わった（か分類が済んでいない）ときだけ、
@@ -1660,3 +1706,45 @@ Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
+
+/// 写真の画像を [backend] から読み込めるようにする（写真のキャッシュを、偽のサーバから取り、端末のディレクトリを使わないものに替える。
+/// テストの終わりに戻す）。テストの環境では画像の HTTP がいつも失敗するので、写真の上のタグ（03 §5.7）のように
+/// 画像の大きさが要るテストだけが使う。画像は実時間で読み込まれるので [pumpUntilImageShown] で待ち、
+/// テストの最後に [finishImageLoading] を呼ぶ
+void useImageCacheOf(FakeTripBackend backend, Uint8List image) {
+  backend.imageBytes = image;
+  // 前のテストで読み込みを始めたまま止まった画像（画像を読み込ませないテストは、取得が進まずに置き場に残る）を、同じ写真で使い回さないよう消す
+  _clearImageCache();
+  PhotoCacheManager.testOverride = CacheManager(Config(
+    'test-photos-${_imageCacheCount++}',
+    repo: NonStoringObjectProvider(),
+    fileSystem: MemoryCacheSystem(),
+    fileService: HttpFileService(httpClient: backend.client),
+  ));
+  addTearDown(() {
+    PhotoCacheManager.testOverride = null;
+    // 読み込んだ画像は画面の部品の共有の置き場（ImageCache）に残り、後のテストで同じ写真が読み込めてしまうので消す
+    _clearImageCache();
+  });
+}
+
+/// 画面の部品の共有の画像の置き場（ImageCache）を空にする（読み込み済みと、読み込み中のものも）
+void _clearImageCache() {
+  PaintingBinding.instance.imageCache
+    ..clear()
+    ..clearLiveImages();
+}
+
+var _imageCacheCount = 0;
+
+/// [finder] に当たるものが出るまで、実時間とフレームを少しずつ交互に進める（画像の取得と読み込みは実時間でしか進まない。最長 5 秒）
+Future<void> pumpUntilImageShown(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
+/// 画像の取得に付随する後始末のタイマー（キャッシュの掃除。flutter_cache_manager の CacheStore.cleanupRunMinInterval は 3.4.1 で 10 秒）を進め、
+/// テストの終わりに残さない。間隔が多少変わっても残らないよう、その倍の 20 秒進める
+Future<void> finishImageLoading(WidgetTester tester) => tester.pump(const Duration(seconds: 20));

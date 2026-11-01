@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -151,6 +153,15 @@ void main() {
         'サーバーが混雑しています。しばらく待ってから再試行してください。',
       ),
       (
+        // エンドポイントを http:// で設定したとき。Function App は https_only なので、書き込み（POST など）には https への転送（301）を返し、
+        // http は POST の転送を辿らない。設定の誤りなので、https で始まる URL にするよう案内する
+        '3xx（転送）は https で始まる URL への設定の見直しを促す',
+        301,
+        '',
+        null,
+        'エンドポイントの URL を確認してください（https で始まる URL にしてください）。',
+      ),
+      (
         // Function Key が違う（Functions のランタイムが返す。アプリを通らないので封筒にならない）
         '401はAPIキーの確認を促す',
         401,
@@ -190,7 +201,7 @@ void main() {
       ),
     ];
 
-    test('ステータスと封筒の有無に応じた日本語のメッセージを返す（413・429・401・404・500・503）', () async {
+    test('ステータスと封筒の有無に応じた日本語のメッセージを返す（413・429・301・401・404・500・503）', () async {
       for (final (title, statusCode, body, expectedCode, expectedMessage) in userMessageCases) {
         final service = _serviceResponding('POST', '/api/trips', statusCode, body);
 
@@ -215,6 +226,18 @@ void main() {
 
       expect(error.code, 'STORAGE_ERROR');
       expect(error.userMessage, '外部サービスでエラーが発生しました。繰り返し発生する場合は、時間を置いてからお試しください。');
+    });
+
+    // 古い API や別のサービスを指したときに返りうる、JSON としては正しいが data の形が違う応答。
+    // 通信の失敗ではなく、送り直しても直らない失敗（-1）にする（docs/03_screen_design.md §9.2）。
+    // 本文を JSON として読めない応答（-1）は upload_send_test.dart が写真の送信で見る
+    test('2xx の応答が JSON でも data の形が違うときは、分類できない失敗（-1）にして予期しないエラーを案内する', () async {
+      final service = _serviceResponding('POST', '/api/trips', 201, {'success': true, 'data': {}});
+
+      final error = await _captureApiException(() => service.createTrip('北海道', null));
+
+      expect(error.statusCode, -1);
+      expect(error.userMessage, '予期しないエラーが発生しました。繰り返し発生する場合は、設定のエンドポイントを確認してください。');
     });
   });
 
@@ -279,6 +302,94 @@ void main() {
     expect(error.statusCode, 0);
     expect(error.message, 'ネットワークに接続できません');
     expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
+
+  // TLS の失敗（公衆 Wi-Fi のログイン画面が通信を横取りしたときなど）は、IOClient が ClientException に包まずにそのまま投げる。
+  // 通信の失敗として扱う（写真の送信は送り直す。docs/03_screen_design.md §9.2）
+  test('TLS の失敗（HandshakeException）もステータス 0 の「ネットワークに接続できません」にする', () async {
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) async {
+        throw const HandshakeException('Connection terminated during handshake');
+      }),
+    );
+
+    final error = await _captureApiException(() => service.getTrips());
+
+    expect(error.statusCode, 0);
+    expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
+
+  // 処理中のダイアログ（削除の確認・旅行の作成など）は処理中は閉じないので、応答が返らないまま止まると出られなくなる。
+  // 写真の送信を除く呼び出しは 30 秒で打ち切り、通信の失敗にする（docs/03_screen_design.md §9.2）。
+  // 時間はフェイクの時間（testWidgets の pump）で進める。写真の送信を 30 秒で切らないことは upload_send_test.dart の 60 秒の時間切れのテストが守る。
+  // 呼び出しは旅行の作成を代表にしている（ほかのメソッドが同じ時間切れを通ることは、テストでは守らない）
+  testWidgets('応答が 30 秒返らなければ通信の失敗（ステータス 0）にして「ネットワークに接続できません。…」と案内し、30 秒の手前ではまだ待つ', (tester) async {
+    final reply = Completer<http.Response>();
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete(http.Response('', 500));
+    });
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) => reply.future),
+    );
+    ApiException? error;
+    unawaited(service.createTrip('北海道', null).then<void>((_) {}, onError: (Object e) {
+      error = e as ApiException;
+    }));
+
+    await tester.pump(const Duration(milliseconds: 29999));
+    expect(error, isNull);
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(error?.statusCode, 0);
+    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
+
+  // 応答の頭だけが届いて本文が止まったときも、処理中のダイアログから出られなくなる。本文を読み終えるまでを 30 秒で打ち切る（docs/03_screen_design.md §9.2）
+  testWidgets('応答の頭が届いても本文が 30 秒で読み終わらなければ、通信の失敗（ステータス 0）にする', (tester) async {
+    final body = StreamController<List<int>>();
+    addTearDown(body.close);
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient.streaming((request, _) async =>
+          http.StreamedResponse(body.stream, 201, headers: _jsonHeaders)),
+    );
+    ApiException? error;
+    unawaited(service.createTrip('北海道', null).then<void>((_) {}, onError: (Object e) {
+      error = e as ApiException;
+    }));
+
+    await tester.pump(const Duration(seconds: 30));
+
+    expect(error?.statusCode, 0);
+    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
+
+  // 旅行の削除は、サーバが中の写真を1枚ずつ消す（外す）ので、写真の多い旅行では 30 秒を超えうる。
+  // 旅行の削除だけは、Azure の前段が HTTP の要求を打ち切る 230 秒より長い 4 分で打ち切る（docs/03_screen_design.md §9.2）
+  testWidgets('旅行の削除は 30 秒では打ち切らず、応答が 4 分返らなければ、ステータス 0 の「ネットワークに接続できません」にする', (tester) async {
+    final reply = Completer<http.Response>();
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete(http.Response('', 500));
+    });
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) => reply.future),
+    );
+    ApiException? error;
+    unawaited(service.deleteTrip('trip-1', deletePhotos: true).then<void>((_) {}, onError: (Object e) {
+      error = e as ApiException;
+    }));
+
+    await tester.pump(const Duration(seconds: 30));
+    expect(error, isNull);
+    await tester.pump(const Duration(milliseconds: 209999));
+    expect(error, isNull);
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(error?.statusCode, 0);
+    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
   });
 }
 

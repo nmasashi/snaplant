@@ -52,7 +52,7 @@ const classifiedPhoto = (overrides: Partial<PhotoDocument> = {}): PhotoDocument 
   photoDocument(PHOTO_ID, {
     tripId: TRIP_ID,
     category: 'food',
-    tags: ['夕食'],
+    tags: [{ name: '夕食', kind: 'food', x: 0.5, y: 0.5 }],
     comment: '屋台で食べた',
     commentSource: 'user',
     hint: null,

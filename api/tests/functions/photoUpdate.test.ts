@@ -3,7 +3,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { QueueClient } from '@azure/storage-queue';
 import { updatePhotoHandler } from '../../src/functions/photoDetail';
-import { PhotoDocument } from '../../src/types/album';
+import { PhotoDocument, PhotoTag } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
@@ -36,8 +36,10 @@ const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=tests
 // 写真の id(画像のバイト列の SHA-256。小文字16進 64 文字)。このファイルでは画像のバイト列は使わない
 const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1';
 
-// 重複しない個数 count のタグ(タグ1、タグ2、…)。個数の上限を境界で見るために使う
-const distinctTags = (count: number): string[] => Array.from({ length: count }, (_, i) => `タグ${i + 1}`);
+// タグ（名前・種類・位置。04 §2）。種類と位置は既定の値にし、見たい項目だけを変える
+const tag = (name: string, overrides: Record<string, unknown> = {}): PhotoTag => ({ name, kind: 'food', x: 0.5, y: 0.5, ...overrides });
+// 個数 count のタグ(タグ1、タグ2、…)。個数の上限を境界で見るために使う
+const tagsOf = (count: number) => Array.from({ length: count }, (_, i) => tag(`タグ${i + 1}`));
 
 // 写真が属する旅行の id(UUID v4 の形)。写真を直すときに旅行は引かないので、旅行のドキュメントは置かない
 const TRIP_ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -74,7 +76,7 @@ const storedPhoto = (overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
     ...photoDocument(PHOTO_ID, {
       tripId: TRIP_ID,
       category: 'food',
-      tags: ['朝食', '旅館'],
+      tags: [tag('朝食'), tag('旅館')],
       comment: 'ホテルの朝食',
       commentSource: 'ai',
       processing: { state: 'done', step: null, attempts: 1, lastError: null, updatedAt: '2026-09-21T01:05:00.000Z' },
@@ -161,7 +163,7 @@ describe('写真更新API', () => {
       sortAt: '2026-10-05T12:30:15',
       location: { latitude: 43.7706, longitude: 142.365, placeName: '北海道旭川市', placeSource: 'device' },
       category: 'food',
-      tags: ['旅館'],
+      tags: [tag('旅館')],
       comment: null,
       commentSource: null,
       hint: 'ビュッフェ',
@@ -266,50 +268,50 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as any).comment).toBe(saved);
   }));
 
-  it('タグを送ると、元のタグは消えて送ったタグに置き換わり、カテゴリは変わらない', async () => {
+  it('タグ（名前・種類・位置）を送ると、元のタグは消えて送ったタグに置き換わる。名前の前後の空白を除き、ほかのキーは保存せず、カテゴリは変わらない', async () => {
     freezeNow();
-    const photo = storedPhoto({ tags: ['朝食', '旅館'], category: 'food' });
+    const photo = storedPhoto({ tags: [tag('朝食'), tag('旅館')], category: 'food' });
     cosmosBackend.documents.set(PHOTO_ID, photo);
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['夕食', '温泉'] });
+    // 位置は画像の端（0 と 1）も置ける
+    const request = createUpdatePhotoRequest(PHOTO_ID, {
+      tags: [
+        { name: '  夕食 ', kind: 'food', x: 0, y: 1, memo: '保存しない' },
+        { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 },
+        { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5 },
+        { name: '箸置き', kind: 'other', x: 0.6, y: 0.4 }
+      ]
+    });
 
     const response = await updatePhotoHandler(request, mockContext);
 
     expect(response.status).toBe(200);
+    const saved = [
+      { name: '夕食', kind: 'food', x: 0, y: 1 },
+      { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 },
+      { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5 },
+      { name: '箸置き', kind: 'other', x: 0.6, y: 0.4 }
+    ];
     const body = response.jsonBody as any;
-    expect(body.data.photo.tags).toEqual(['夕食', '温泉']);
+    expect(body.data.photo.tags).toEqual(saved);
     expect(body.data.photo.category).toBe('food');
     // タグだけを送ったときは、コメントとその出どころ(AI が書いたもの)に触らない
     expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
       ...photo,
-      tags: ['夕食', '温泉'],
+      tags: saved,
       updatedAt: UPDATED_AT
     });
   });
 
-  it('重複したタグは1つにまとめ、先に出たものを残す', async () => {
+  it('同じ名前のタグは1つにまとめず、送った順に全部残す（皿が2つなど。02 §5 #57）', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['温泉', '旅館', '温泉'] });
+    const tags = [tag('皿', { x: 0.2 }), tag('汁'), tag('皿', { x: 0.8 })];
 
-    const response = await updatePhotoHandler(request, mockContext);
-
-    expect(response.status).toBe(200);
-    const body = response.jsonBody as any;
-    expect(body.data.photo.tags).toEqual(['温泉', '旅館']);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉', '旅館']);
-  });
-
-  it('タグの前後の空白は除いて保存する', async () => {
-    freezeNow();
-    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['  温泉  ', '旅館 '] });
-
-    const response = await updatePhotoHandler(request, mockContext);
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { tags }), mockContext);
 
     expect(response.status).toBe(200);
-    const body = response.jsonBody as any;
-    expect(body.data.photo.tags).toEqual(['温泉', '旅館']);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉', '旅館']);
+    expect((response.jsonBody as any).data.photo.tags).toEqual(tags);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(tags);
   });
 
   // 05 §5.6 の 1〜9 を、表の順に。どの行も、写真は保存済みで(404 で先に返らない)、何も変わらない。
@@ -324,13 +326,31 @@ describe('写真更新API', () => {
     ['commentが配列', PHOTO_ID, jest.fn().mockResolvedValue({ comment: ['夕食'] }), 'コメントは文字列で指定してください'],
     ['commentが前後の空白を除いて501文字', PHOTO_ID, jest.fn().mockResolvedValue({ comment: ` ${'あ'.repeat(501)} ` }), 'コメントは500文字以内で指定してください'],
     ['tagsが文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: '温泉' }), 'タグは配列で指定してください'],
-    ['tagsが配列でないオブジェクト', PHOTO_ID, jest.fn().mockResolvedValue({ tags: { 0: '温泉' } }), 'タグは配列で指定してください'],
-    ['tagsの要素に文字列でないものがある', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', 123] }), 'タグは文字列で指定してください'],
-    ['tagsの要素が空の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', ''] }), 'タグは1〜30文字で指定してください'],
-    ['tagsの要素が空白だけ', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', '   '] }), 'タグは1〜30文字で指定してください'],
-    ['tagsの要素が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: ['温泉', ` ${'あ'.repeat(31)} `] }), 'タグは1〜30文字で指定してください'],
-    // 上限は重複を除いた後の個数で数える(21個とも違う値)。9 の後の行
-    ['tagsが重複を除いて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: distinctTags(21) }), 'タグは20個までです'],
+    ['tagsが配列でないオブジェクト', PHOTO_ID, jest.fn().mockResolvedValue({ tags: { 0: tag('温泉') } }), 'タグは配列で指定してください'],
+    ['tagsの要素が文字列（C-3a より前の形）', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉'), '旅館'] }), 'タグの形式が無効です'],
+    ['tagsの要素がnull', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉'), null] }), 'タグの形式が無効です'],
+    ['tagsの要素が配列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [[tag('温泉')]] }), 'タグの形式が無効です'],
+    ['タグの名前が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ kind: 'food', x: 0.5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
+    ['タグの名前が数値', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: 123, kind: 'food', x: 0.5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
+    ['タグの名前が空の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉'), tag('')] }), 'タグの名前は1〜30文字で指定してください'],
+    ['タグの名前が空白だけ', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('   ')] }), 'タグの名前は1〜30文字で指定してください'],
+    ['タグの名前が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag(` ${'あ'.repeat(31)} `)] }), 'タグの名前は1〜30文字で指定してください'],
+    ['タグの種類が分類の種類に無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal' })] }), 'タグの種類が無効です'],
+    ['タグの種類が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', x: 0.5, y: 0.5 }] }), 'タグの種類が無効です'],
+    ['タグの種類の大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'Food' })] }), 'タグの種類が無効です'],
+    ['タグの x が 1 を超える', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { x: 1.01 })] }), 'タグの位置が無効です'],
+    ['タグの y が負', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { y: -0.01 })] }), 'タグの位置が無効です'],
+    ['タグの x が数の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { x: '0.5' })] }), 'タグの位置が無効です'],
+    ['タグの y が null', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { y: null })] }), 'タグの位置が無効です'],
+    ['タグの y が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', kind: 'food', x: 0.5 }] }), 'タグの位置が無効です'],
+    // 上限は同じ名前のタグも数える（同じ名前を除かない。02 §5 #57）
+    ['tagsが同じ名前を含めて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), tag('タグ1')] }), 'タグは20個までです'],
+    // タグの中の順（要素ごとに先頭から。1つの要素の中では 8 → 9 → 9.1 → 9.2。05 §5.6）
+    ['1つのタグで名前・種類・位置が全部無効(名前の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '', kind: 'animal', x: 5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
+    ['1つのタグで種類と位置が無効(種類の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal', x: 5 })] }), 'タグの種類が無効です'],
+    ['1つ目のタグの種類が無効で2つ目が文字列(先の要素の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal' }), '旅館'] }), 'タグの種類が無効です'],
+    // 数は要素の中身より先に見る（大きな配列を、全部の要素を確かめてから断らない）
+    ['tagsが21個で、中に形式の無効なものがある', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), null] }), 'タグは20個までです'],
     // カテゴリは分類の種類（plant・food・landscape・other）のどれか。大文字小文字も区別する
     ['categoryが分類の種類に無い', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'animal' }), 'カテゴリが無効です'],
     ['categoryの大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'Plant' }), 'カテゴリが無効です'],
@@ -366,29 +386,29 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).comment).toBe(comment);
   });
 
-  it('タグが前後の空白を除いて30文字なら、空白を含めて30文字を超えていても保存できる', async () => {
+  it('タグの名前が前後の空白を除いて30文字なら、空白を含めて30文字を超えていても保存できる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const tag = 'あ'.repeat(30);
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [` ${tag} `] });
+    const name = 'あ'.repeat(30);
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [tag(` ${name} `)] });
 
     const response = await updatePhotoHandler(request, mockContext);
 
     expect(response.status).toBe(200);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual([tag]);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual([tag(name)]);
   });
 
   // 家族の絵文字は見た目は1文字、UTF-16 では8単位
-  it('コメントとタグの文字数は見た目の1文字で数え、絵文字でちょうど上限なら保存できる', async () => {
+  it('コメントとタグの名前の文字数は見た目の1文字で数え、絵文字でちょうど上限なら保存できる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
     const comment = '👨‍👩‍👧'.repeat(500);
-    const tag = '👨‍👩‍👧'.repeat(30);
+    const name = '👨‍👩‍👧'.repeat(30);
 
-    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment, tags: [tag] }), mockContext);
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment, tags: [tag(name)] }), mockContext);
 
     expect(response.status).toBe(200);
-    expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ comment, tags: [tag] });
+    expect(cosmosBackend.documents.get(PHOTO_ID)).toMatchObject({ comment, tags: [tag(name)] });
   });
 
   it('結合文字を重ねて見た目は1文字でも、とても長い文は上限を超えたとして 400 で何も変えない（文字数の規則はほかの欄と同じ関数）', async () => {
@@ -416,52 +436,41 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).comment).toBe(comment);
   });
 
-  it('タグの前後の U+0085（次の行）も空白として除く（アプリの trim と同じ。除くと同じになるタグは1つにまとめる）', async () => {
+  it('タグの名前の前後の U+0085（次の行）も空白として除く（アプリの trim と同じ）', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['温泉', '\u0085温泉\u0085'] });
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [tag('\u0085温泉\u0085')] });
 
     const response = await updatePhotoHandler(request, mockContext);
 
     expect(response.status).toBe(200);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉']);
-  });
-
-  it('前後の空白を除くと同じになるタグは、1つにまとめる', async () => {
-    freezeNow();
-    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: ['温泉', ' 温泉 '] });
-
-    const response = await updatePhotoHandler(request, mockContext);
-
-    expect(response.status).toBe(200);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(['温泉']);
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual([tag('温泉')]);
   });
 
   it('コメントとタグを同時に送ると、両方が保存される', async () => {
     freezeNow();
-    const photo = storedPhoto({ tags: ['朝食', '旅館'], comment: 'ホテルの朝食', commentSource: 'ai' });
+    const photo = storedPhoto({ tags: [tag('朝食'), tag('旅館')], comment: 'ホテルの朝食', commentSource: 'ai' });
     cosmosBackend.documents.set(PHOTO_ID, photo);
-    const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石', tags: ['夕食', '温泉'] });
+    const request = createUpdatePhotoRequest(PHOTO_ID, { comment: '夕食の懐石', tags: [tag('夕食'), tag('温泉')] });
 
     const response = await updatePhotoHandler(request, mockContext);
 
     expect(response.status).toBe(200);
     const body = response.jsonBody as any;
     expect(body.data.photo.comment).toBe('夕食の懐石');
-    expect(body.data.photo.tags).toEqual(['夕食', '温泉']);
+    expect(body.data.photo.tags).toEqual([tag('夕食'), tag('温泉')]);
     expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({
       ...photo,
       comment: '夕食の懐石',
       commentSource: 'user',
-      tags: ['夕食', '温泉'],
+      tags: [tag('夕食'), tag('温泉')],
       updatedAt: UPDATED_AT
     });
   });
 
   it('tagsに空の配列を送ると、タグが全部消え、コメントには触らない', async () => {
     freezeNow();
-    const photo = storedPhoto({ tags: ['朝食', '旅館'] });
+    const photo = storedPhoto({ tags: [tag('朝食'), tag('旅館')] });
     cosmosBackend.documents.set(PHOTO_ID, photo);
     const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [] });
 
@@ -495,23 +504,12 @@ describe('写真更新API', () => {
   it('タグがちょうど20個なら保存できる', async () => {
     freezeNow();
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: distinctTags(20) });
+    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: tagsOf(20) });
 
     const response = await updatePhotoHandler(request, mockContext);
 
     expect(response.status).toBe(200);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(distinctTags(20));
-  });
-
-  it('重複を含めて21個でも、重複を除いて20個なら保存できる', async () => {
-    freezeNow();
-    cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
-    const request = createUpdatePhotoRequest(PHOTO_ID, { tags: [...distinctTags(20), 'タグ1'] });
-
-    const response = await updatePhotoHandler(request, mockContext);
-
-    expect(response.status).toBe(200);
-    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(distinctTags(20));
+    expect((cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument).tags).toEqual(tagsOf(20));
   });
 
   describe('カテゴリを手で直す（02 §5 #53）', () => {

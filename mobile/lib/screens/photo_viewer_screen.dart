@@ -13,6 +13,8 @@ import '../widgets/category_edit_sheet.dart';
 import '../widgets/comment_edit_dialog.dart';
 import '../widgets/confirm_action_dialog.dart';
 import '../widgets/retry_processing_dialog.dart';
+import '../widgets/tag_edit_sheet.dart';
+import '../widgets/tagged_photo_image.dart';
 import 'catalog_entry_screen.dart';
 
 /// 写真ビューア（docs/03_screen_design.md §4.6）
@@ -27,6 +29,8 @@ class PhotoViewerScreen extends StatefulWidget {
       required this.initialIndex,
       required this.onReachEnd,
       required this.hasMore,
+      this.loadMoreFailed,
+      this.onRetryLoadMore,
       required this.onDeleted,
       required this.onUpdated});
 
@@ -46,6 +50,13 @@ class PhotoViewerScreen extends StatefulWidget {
 
   /// 一覧にまだ読んでいない続きのページがあるか
   final bool Function() hasMore;
+
+  /// 一覧の続きのページの読み込みに失敗しているか（一覧と共有する）。失敗していたら、読み込み済みの末尾で知らせて
+  /// [onRetryLoadMore] で読み直させる（docs/03_screen_design.md §4.6）。続きの無い一覧（タイムラインの場面）は渡さない
+  final ValueListenable<bool>? loadMoreFailed;
+
+  /// 失敗した続きのページを一覧に読み直させる
+  final VoidCallback? onRetryLoadMore;
 
   /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
   final void Function(String photoId) onDeleted;
@@ -70,6 +81,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   bool _openingEntry = false;
   // 今出している写真の位置（上のバーの「やり直す」を出すかを決める）
   late int _index = widget.initialIndex;
+  // タグを付ける間（写真の上のタップでその位置にタグを付ける。03 §5.7）
+  bool _addingTag = false;
+  // タグを消しているところ（送っている間は、ほかのタグを消す操作と「タグを付ける」を受けない）
+  bool _sendingTag = false;
+
+  /// 1枚の写真に付けられるタグの数（サーバの TAG_MAX_COUNT の既定値。05 §5.6）
+  static const _maxTags = 20;
 
   @override
   void initState() {
@@ -126,7 +144,11 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         .showSnackBar(const SnackBar(content: Text('写真を削除しました')));
     widget.onDeleted(photo.id);
     // 消した写真の拡大は次の写真に持ち越さない（ページは写真の id で作り直すので、スワイプの停止だけを解く）
-    setState(() => _zoomed = false);
+    // タグを付ける間も、次の写真には持ち越さない
+    setState(() {
+      _zoomed = false;
+      _addingTag = false;
+    });
     // 後ろの写真が今の位置に詰まったら、それが次の写真。それが読み込み済みの末尾なら続きを読ませる
     // （ページの位置が変わらないので onPageChanged は呼ばれない）
     final remaining = widget.photos.value.length;
@@ -144,6 +166,40 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     }
     // 次の写真が無い（一覧の末尾の写真だった）なら一覧へ戻る
     Navigator.pop(context);
+  }
+
+  /// 続きのページの読み込みに失敗したときに、読み込み済みの末尾の写真（削除で使い切って続きを待っている間も）の下に出す知らせ
+  Widget? _loadMoreFailedBar() {
+    final failed = widget.loadMoreFailed;
+    final retry = widget.onRetryLoadMore;
+    if (failed == null || retry == null) return null;
+    return ValueListenableBuilder<bool>(
+      valueListenable: failed,
+      builder: (context, isFailed, _) {
+        // 削除で使い切って続きを待っている間は、今の位置が読み込み済みの写真の外にあるので、これで一緒に見る
+        final atEnd = _index >= widget.photos.value.length - 1;
+        if (!isFailed || !atEnd) return const SizedBox.shrink();
+        return SafeArea(
+          child: Container(
+            color: Colors.black87,
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('続きを読み込めませんでした',
+                    style: TextStyle(color: Colors.white)),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: retry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('再試行'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// 今出している写真の位置と写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
@@ -194,6 +250,59 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('カテゴリを変えました')));
     widget.onUpdated(updated);
+  }
+
+  /// [photo] の画像の中の [position]（割合）に、シートで名前と種類を聞いてタグを付ける。付けたらタグを付ける間を終える
+  Future<void> _addTag(Photo photo, Offset position) async {
+    final updated = await showModalBottomSheet<Photo>(
+      context: context,
+      isScrollControlled: true,
+      // 下へ払って閉じる操作は PopScope を通らず、保存を待っている間でも閉じてしまう（カテゴリのシートと同じ）
+      enableDrag: false,
+      builder: (context) => TagEditSheet(
+          apiService: widget.apiService,
+          photo: photo,
+          x: position.dx,
+          y: position.dy),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _addingTag = false);
+    widget.onUpdated(updated);
+  }
+
+  /// [photo] の [index] 番目のタグを、確かめてから消す（同じ名前のほかのタグは残す）
+  Future<void> _deleteTag(Photo photo, int index) async {
+    if (_sendingTag) return;
+    final name = photo.tags[index].name;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text('「$name」のタグを消しますか？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('消す')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _sendingTag = true);
+    try {
+      final updated = await widget.apiService
+          .updatePhotoTags(photo.id, [...photo.tags]..removeAt(index));
+      if (mounted) widget.onUpdated(updated);
+    } catch (e) {
+      debugPrint('PhotoViewerScreen: タグの削除エラー: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is ApiException ? e.userMessage : 'タグの削除に失敗しました')));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingTag = false);
+    }
   }
 
   /// 種類 [kindKey]・名前 [name] の図鑑の項目詳細を開く。見出しの欄に種類の一覧の fields が要るので、先に種類の一覧を読む
@@ -251,49 +360,103 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: _showChrome
-          ? AppBar(
-              backgroundColor: Colors.black54,
-              foregroundColor: Colors.white,
-              actions: [
-                // 頼む写真が無い間（続きを待っている）と、その他の写真（調べるものが無い。03 §5.6）には出さない
-                if (_shownPhoto case final photo?
-                    when photo.category != otherCategory)
-                  _analysisButton(photo),
-                TextButton(
-                  onPressed: _deleteCurrent,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  child: const Text('削除'),
-                ),
-              ],
-            )
-          : null,
-      body: GestureDetector(
-        onTap: () => setState(() => _showChrome = !_showChrome),
-        child: ValueListenableBuilder<List<Photo>>(
-          valueListenable: widget.photos,
-          builder: (context, photos, _) => PageView.builder(
-            controller: _pageController,
-            physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
-            itemCount: photos.length,
-            onPageChanged: (index) {
-              setState(() => _index = index);
-              if (index == photos.length - 1) widget.onReachEnd();
-            },
-            itemBuilder: (context, index) => _PhotoPage(
-                // 削除で後ろの写真が詰まったときに、前の写真の拡大の状態を引き継がない
-                key: ValueKey(photos[index].id),
-                photo: photos[index],
-                showInfo: _showChrome,
-                onRetry: () => _retry(photos[index]),
-                onEditComment: () => _editComment(photos[index]),
-                onEditCategory: () => _editCategory(photos[index]),
-                onOpenEntry: _openEntry,
-                onZoomChanged: (zoomed) {
-                  if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
-                }),
+    // タグを付ける間の端末の戻る操作は、ビューアを閉じずに付ける間を終える（03 §5.7）
+    return PopScope(
+      canPop: !_addingTag,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _addingTag = false);
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        bottomNavigationBar: _loadMoreFailedBar(),
+        appBar: _showChrome
+            ? AppBar(
+                backgroundColor: Colors.black54,
+                foregroundColor: Colors.white,
+                actions: [
+                  // タグが上限まである写真と、タグを消している間は押せない（03 §5.7）
+                  if (_shownPhoto case final photo?)
+                    IconButton(
+                      onPressed: _sendingTag || photo.tags.length >= _maxTags
+                          ? null
+                          : () => setState(() => _addingTag = true),
+                      color: Colors.white,
+                      tooltip: 'タグを付ける',
+                      icon: const Icon(Icons.sell_outlined),
+                    ),
+                  // 頼む写真が無い間（続きを待っている）と、その他の写真（調べるものが無い。03 §5.6）には出さない
+                  if (_shownPhoto case final photo?
+                      when photo.category != otherCategory)
+                    _analysisButton(photo),
+                  TextButton(
+                    onPressed: _deleteCurrent,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    child: const Text('削除'),
+                  ),
+                ],
+                // タグを付ける間の案内（03 §5.7）
+                bottom: _addingTag
+                    ? PreferredSize(
+                        preferredSize: const Size.fromHeight(48),
+                        child: Container(
+                          color: Colors.black87,
+                          padding: const EdgeInsets.only(left: 16),
+                          child: Row(children: [
+                            const Expanded(
+                              child: Text('タグを付ける場所をタップしてください',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _addingTag = false),
+                              style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white),
+                              child: const Text('やめる'),
+                            ),
+                          ]),
+                        ),
+                      )
+                    : null,
+              )
+            : null,
+        body: GestureDetector(
+          // タグを付ける間は、写真のタップで上のバーを出し入れしない（タップはタグを付ける場所に使う）
+          onTap: _addingTag
+              ? null
+              : () => setState(() => _showChrome = !_showChrome),
+          child: ValueListenableBuilder<List<Photo>>(
+            valueListenable: widget.photos,
+            builder: (context, photos, _) => PageView.builder(
+              controller: _pageController,
+              // 拡大中とタグを付ける間は、前後の写真へ移らない
+              physics: _zoomed || _addingTag
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
+              itemCount: photos.length,
+              onPageChanged: (index) {
+                setState(() => _index = index);
+                if (index == photos.length - 1) widget.onReachEnd();
+              },
+              itemBuilder: (context, index) => _PhotoPage(
+                  // 削除で後ろの写真が詰まったときに、前の写真の拡大の状態を引き継がない
+                  key: ValueKey(photos[index].id),
+                  photo: photos[index],
+                  showInfo: _showChrome,
+                  onRetry: () => _retry(photos[index]),
+                  onEditComment: () => _editComment(photos[index]),
+                  onEditCategory: () => _editCategory(photos[index]),
+                  // タグを消している間は付けない（消す前のタグで保存して、消したタグを戻さない）
+                  onTapImageAt: _addingTag && !_sendingTag
+                      ? (position) => _addTag(photos[index], position)
+                      : null,
+                  onDeleteTag: (tagIndex) =>
+                      _deleteTag(photos[index], tagIndex),
+                  addingTag: _addingTag,
+                  onOpenEntry: _openEntry,
+                  onZoomChanged: (zoomed) {
+                    if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+                  }),
+            ),
           ),
         ),
       ),
@@ -329,6 +492,9 @@ class _PhotoPage extends StatefulWidget {
       required this.onRetry,
       required this.onEditComment,
       required this.onEditCategory,
+      required this.onTapImageAt,
+      required this.onDeleteTag,
+      required this.addingTag,
       required this.onOpenEntry,
       required this.onZoomChanged});
 
@@ -345,6 +511,15 @@ class _PhotoPage extends StatefulWidget {
 
   /// カテゴリのボタン（カテゴリを選ぶシートを開く）
   final VoidCallback onEditCategory;
+
+  /// タグを付ける間に、画像の中をタップした（画像の中の割合）。タグを付ける間でないときと、タグを消している間は null
+  final ValueChanged<Offset>? onTapImageAt;
+
+  /// タグ（写真の上の名前・下の情報の札の「✕」）を消す（タグの番号）
+  final ValueChanged<int> onDeleteTag;
+
+  /// タグを付ける間か（写真の上の名前のタップで消さない）
+  final bool addingTag;
 
   /// 図鑑の項目へのリンク（種類と名前で開く）
   final void Function(String kind, String name) onOpenEntry;
@@ -432,14 +607,25 @@ class _PhotoPageState extends State<_PhotoPage> {
                 cacheKey: imageCacheKey(photo.id),
                 cacheManager: PhotoCacheManager.images,
                 fit: BoxFit.contain,
-                // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す
+                // 画像の上にタグを出す（画像を読み込めた後だけ。03 §5.7）
+                imageBuilder: (context, image) => TaggedPhotoImage(
+                  image: image,
+                  tags: photo.tags,
+                  showTags: widget.showInfo,
+                  onTapAt: widget.onTapImageAt,
+                  onTapTag: widget.addingTag ? null : widget.onDeleteTag,
+                ),
+                // 原寸を読むまでの間は、グリッドで読んだサムネイルを出す。
+                // 読み込んだ後もサムネイルは透明になって原寸の上に重なったまま残るので、タップを受けない（写真の上のタグに届かせる。§5.7）
                 placeholder: (context, url) => thumbnailUrl == null
                     ? const SizedBox.shrink()
-                    : CachedNetworkImage(
-                        imageUrl: thumbnailUrl,
-                        cacheKey: thumbnailCacheKey(photo.id),
-                        cacheManager: PhotoCacheManager.thumbnails,
-                        fit: BoxFit.contain,
+                    : IgnorePointer(
+                        child: CachedNetworkImage(
+                          imageUrl: thumbnailUrl,
+                          cacheKey: thumbnailCacheKey(photo.id),
+                          cacheManager: PhotoCacheManager.thumbnails,
+                          fit: BoxFit.contain,
+                        ),
                       ),
                 // SAS の期限切れ（403）などで読めないときは、グリッドと同じ文言を出す。戻って一覧を読み直せば新しい URL になる
                 errorWidget: (context, url, error) => const Center(
@@ -494,6 +680,30 @@ class _PhotoPageState extends State<_PhotoPage> {
                                     const Icon(Icons.expand_more, size: 18),
                                   ],
                                 ),
+                              ),
+                            ),
+                          // タグの一覧。写真の上の点は読み上げで探せないので、ここでも知らせ、消せるようにする（03 §5.7）
+                          if (photo.tags.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text('タグ:',
+                                      style: AppTextStyles.body1
+                                          .copyWith(color: Colors.white)),
+                                  for (final (index, tag) in photo.tags.indexed)
+                                    Chip(
+                                      label: Text(tag.name),
+                                      visualDensity: VisualDensity.compact,
+                                      onDeleted: () =>
+                                          widget.onDeleteTag(index),
+                                      deleteButtonTooltipMessage:
+                                          '${tag.name}のタグを消す',
+                                    ),
+                                ],
                               ),
                             ),
                           if (isProcessingInProgress(photo.processingState))
