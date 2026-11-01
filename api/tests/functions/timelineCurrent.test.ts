@@ -559,7 +559,7 @@ describe('タイムラインの完成版の操作API', () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current, updatedAt: '2026-10-08T12:14:00.000Z' }));
     });
 
-    // 日と場面は同じ処理（editTimelineText）を通るので、日で見る
+    // PATCH の2つ（…/days/{date}・…/scenes/{photoId}）は 05 §5.15 の同じ表で決まる1つの操作なので、…/days/{date} で見る
     it('写真の保存先の設定に鍵が無ければ、書かずに 500 を返す（直したのに失敗と返さない）', async () => {
       process.env.STORAGE_CONNECTION_STRING = 'DefaultEndpointsProtocol=https;AccountName=test;EndpointSuffix=core.windows.net';
       const timeline = storedTimeline();
