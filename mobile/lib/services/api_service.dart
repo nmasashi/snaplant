@@ -411,6 +411,20 @@ class ApiService {
     }
   }
 
+  /// 完成版から写真を外す（場面の写真の一覧。戻さない）。外した後のタイムラインを返す
+  /// POST /api/trips/{tripId}/timeline/excluded-photos
+  Future<TimelineOverview> excludeCurrentTimelinePhotos(
+      String tripId, List<String> photoIds) async {
+    try {
+      final url = _buildUrl('/api/trips/$tripId/timeline/excluded-photos');
+      final response = await _client.post(Uri.parse(url),
+          headers: _headers, body: jsonEncode({'photoIds': photoIds}));
+      return _parseResponse(response, _overviewOf);
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 下書きの区切りで見出しと一言を書かせる。受け付けた下書きの状態を返す。
   /// 区切りを直している下書き（recut）は、AI を使わずその場で完成版に当てて下書きが無くなるので null を返す（06 §8.6）
   /// POST /api/trips/{tripId}/timeline/draft/write

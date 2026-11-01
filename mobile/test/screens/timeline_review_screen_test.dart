@@ -516,6 +516,18 @@ void main() {
       expect(_title('タイムラインの案'), findsNothing);
       semantics.dispose();
     });
+
+    testWidgets('写真の長押しのメニューは、読み上げからも開ける', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openTimeline(tester);
+      await _openReview(tester);
+
+      expect(
+          tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
+          containsSemantics(
+              label: '2026年10月5日 07:58', hasLongPressAction: true));
+      semantics.dispose();
+    });
   });
 
   group('場面のコメント', () {
