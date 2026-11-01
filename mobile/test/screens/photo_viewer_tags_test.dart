@@ -351,14 +351,15 @@ void main() {
           tester, _photo(tags: [_tag('海鮮丼'), _tag('味噌汁')]),
           loadImage: false);
 
-      await tester.tap(find.byTooltip('味噌汁のタグを消す'));
+      // 押した札のタグを消す（最後の札でなくても）
+      await tester.tap(find.byTooltip('海鮮丼のタグを消す'));
       await letFramesRun(tester);
-      expect(find.text('「味噌汁」のタグを消しますか？'), findsOneWidget);
+      expect(find.text('「海鮮丼」のタグを消しますか？'), findsOneWidget);
       await tester.tap(find.text('消す'));
       await letFramesRun(tester);
 
-      expect(_storedTags(backend), [_tag('海鮮丼')]);
-      expect(_chip('味噌汁'), findsNothing);
+      expect(_storedTags(backend), [_tag('味噌汁')]);
+      expect(_chip('海鮮丼'), findsNothing);
     });
 
     testWidgets('消すのに失敗したら理由をスナックバーに出し、表示はそのまま', (tester) async {
