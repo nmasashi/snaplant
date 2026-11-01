@@ -106,15 +106,6 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   void _onPhotosChanged() {
     // 上のバーの「やり直す」は今の写真のカテゴリで決まるので、写真が変わったら組み直す
     if (mounted) setState(() {});
-    // 続きのページが写真の無いページ（続きはある）で返っても、末尾にいれば続けて読ませる（docs/03_screen_design.md §4.6）。
-    // 一覧は読み込み中の印を戻す前に写真を知らせるので、次のフレームで頼む（空のページが続く上限で一覧が止める）
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted &&
-          _index >= widget.photos.value.length - 1 &&
-          widget.hasMore()) {
-        widget.onReachEnd();
-      }
-    });
     final pending = _pendingIndex;
     if (pending == null || widget.photos.value.length <= pending) return;
     _pendingIndex = null;

@@ -287,6 +287,9 @@ class _PhotoGridState extends State<PhotoGrid> {
         _loadMoreFailed.value = page.continuationToken != null &&
             _consecutiveEmptyPages >= _maxConsecutiveEmptyPages;
       });
+      // 写真の無いページ（続きはある）なら、そのまま次を読む。グリッドの下端の組み立てを待たないので、
+      // 写真ビューアを上に開いている間も末尾で止まらない（docs/03_screen_design.md §3・§4.6。上の上限で止まる）
+      if (page.photos.isEmpty) _loadMore();
     } catch (e) {
       debugPrint('PhotoGrid: 写真の続きの読み込みエラー: $e');
       if (!mounted || generation != _generation) return;
