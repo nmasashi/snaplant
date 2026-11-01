@@ -68,7 +68,8 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
     const existing = new Set(photos.map((photo) => photo.id));
     // 控えで撮影日時があった写真。控えに無い写真と、控えでは撮影日時が無く作った後に手で付けた写真は、
-    // 作り直すと入るので増えた写真に数える（02 §5 #59）
+    // 作り直すと入るので増えた写真に数える（02 §5 #59）。ただし外した写真は数えない（控えの写真しか外せないので、
+    // 効くのは控えでは日時が無かった写真。日時のある写真を外したときと同じく、外したものを増えたとは知らせない）
     const datedInSnapshot = new Set(snapshot.filter((photo) => photo.takenAt !== null).map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
     // 外した写真は消えた写真と同じく出さない（visiblePhotoIdsOf と同じ決まり。集合を作り直さないように述語で渡す）
