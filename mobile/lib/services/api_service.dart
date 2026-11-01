@@ -813,6 +813,10 @@ class ApiException implements Exception {
 
   /// ユーザー向けのエラーメッセージを取得
   String get userMessage {
+    // エンドポイントを http:// で設定すると、https_only の Function App は書き込みに転送（301）を返し、http は辿らない（docs/03_screen_design.md §9.2）
+    if (statusCode >= 300 && statusCode < 400) {
+      return 'エンドポイントの URL を確認してください（https で始まる URL にしてください）。';
+    }
     switch (statusCode) {
       case unclassifiedStatus:
         return '予期しないエラーが発生しました。繰り返し発生する場合は、設定のエンドポイントを確認してください。';
