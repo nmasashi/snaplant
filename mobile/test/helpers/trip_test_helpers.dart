@@ -680,7 +680,7 @@ class FakeTripBackend {
 
   /// 完成版から写真を外す（05 §5.15 の `POST …/excluded-photos`。T-1）。外した写真を完成版の場面から取り除き（本物と同じく、写真が全部外れた場面と日は出さず、
   /// 場面の id は最初の写真を外しても元のまま）、`GET …/timeline` と同じ形で返す。外すと完成版の写真が1枚も残らないなら 409 `TIMELINE_NO_DATED_PHOTOS`。
-  /// 偽物は外した写真を覚えない（同じ写真の送り直しは 400 になる。本物は書かずに 200）。場面の地名と食べ物の印は直さず、編集中の下書きにも合わせない
+  /// 偽物は外した写真を覚えない（同じ写真の送り直しは 400 になる。本物は書かずに 200）。編集中の下書きにも合わせない
   http.Response _excludeFromCurrent(http.Request request, String tripId, Map<String, Object?>? timeline) {
     final photoIds = (jsonDecode(request.body) as Map<String, Object?>)['photoIds'];
     if (photoIds is! List || photoIds.isEmpty || photoIds.any((id) => id is! String)) {
@@ -704,7 +704,13 @@ class FakeTripBackend {
           'scenes': [
             for (final scene in (day['scenes'] as List).cast<Map<String, Object?>>())
               if (photosOf(scene).any((photo) => !photoIds.contains(photo['id'])))
-                {...scene, 'photos': [for (final photo in photosOf(scene)) if (!photoIds.contains(photo['id'])) photo]},
+                {
+                  // 本物と同じく、場面の地名・食べ物の印・時刻は残った写真から作り直す（見出しと一言は残す）
+                  ...scene,
+                  ...timelineSceneJson([for (final photo in photosOf(scene)) if (!photoIds.contains(photo['id'])) photo],
+                      startedBy: scene['startedBy'] as String? ?? 'ai', comment: scene['comment'] as String?),
+                  'startPhotoId': scene['startPhotoId'],
+                },
           ],
         },
     ];

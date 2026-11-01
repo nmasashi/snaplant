@@ -9,8 +9,9 @@ import '../helpers/trip_test_helpers.dart';
 
 /// 場面の写真（番号から id を作る）
 Map<String, Object?> _photo(int number, String takenAt,
-        {String category = 'landscape'}) =>
-    timelinePhotoJson(number, takenAt, category: category);
+        {String category = 'landscape', String? placeName}) =>
+    timelinePhotoJson(number, takenAt,
+        category: category, placeName: placeName);
 
 /// 完成版の場面（05 §5.15 の `current.days[].scenes[]`）
 Map<String, Object?> _scene(List<Map<String, Object?>> photos,
@@ -36,7 +37,8 @@ List<Map<String, Object?>> _scenes() => [
       _scene(
           [
             for (var n = 3; n <= 8; n++)
-              _photo(n, '2026-10-05T1${n - 3}:10:00'),
+              _photo(n, '2026-10-05T1${n - 3}:10:00',
+                  placeName: n == 8 ? '北海道余市町' : '北海道小樽市'),
           ],
           label: '小樽運河さんぽ',
           placeNames: ['北海道小樽市', '北海道余市町']),
@@ -411,10 +413,19 @@ void main() {
         ];
 
     testWidgets(
-        '写真を長押しして「タイムラインから外す」を選ぶと確認のダイアログを出し、「キャンセル」なら何も送らず写真もそのまま、「外す」でその写真を外して、同じ場面を描き直す',
+        '写真を長押しすると「タイムラインから外す」のメニューを出し（選ばずに閉じたら何もしない）、選ぶと確認のダイアログを出し、「キャンセル」なら何も送らず写真もそのまま、「外す」でその写真を外して、同じ場面を描き直す',
         (tester) async {
       final semantics = tester.ensureSemantics();
       final backend = await _openScene(tester, '小樽運河さんぽ');
+
+      await tester.longPress(photoThumbnail('2026年10月5日 15:10'));
+      await letFramesRun(tester);
+      expect(find.text('タイムラインから外す'), findsOneWidget);
+      await tapBack(tester);
+      await letFramesRun(tester);
+      expect(find.text('タイムラインから外す'), findsNothing);
+      expect(find.text('タイムラインから外しますか？'), findsNothing);
+      expect(_appBarText('小樽運河さんぽ'), findsOneWidget);
 
       await openExcludeDialog(tester, '2026年10月5日 15:10');
       expect(find.text('タイムラインから外しますか？'), findsOneWidget);
@@ -432,7 +443,7 @@ void main() {
       expect(takenAtsOf(backend, 3), isNot(contains('2026-10-05T15:10:00')));
       expect(_appBarText('小樽運河さんぽ'), findsOneWidget);
       expect(photoThumbnail('2026年10月5日 15:10'), findsNothing);
-      expect(find.text('10月5日（月） 10:10〜14:10 · 北海道小樽市、北海道余市町 · 5枚'),
+      expect(find.text('10月5日（月） 10:10〜14:10 · 北海道小樽市 · 5枚'),
           findsOneWidget);
       semantics.dispose();
     });
@@ -536,10 +547,12 @@ void main() {
       await tester.longPress(photoThumbnail('2026年10月5日 07:58'));
       await letFramesRun(tester);
       expect(find.text('タイムラインから外す'), findsNothing, reason: '長押し');
+      expect(_appBarText('朝ごはん'), findsOneWidget,
+          reason: '長押し（タップとして写真ビューアを開かない）');
       await tester.tap(photoThumbnail('2026年10月5日 07:58'));
       await letFramesRun(tester);
-      expect(find.text('2026年10月5日 07:58').hitTestable(), findsNothing,
-          reason: 'タップ');
+      expect(_appBarText('朝ごはん'), findsOneWidget,
+          reason: 'タップ（写真ビューアを重ねない）');
 
       reply.complete();
       await letFramesRun(tester);
