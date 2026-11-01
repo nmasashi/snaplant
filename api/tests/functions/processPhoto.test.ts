@@ -581,8 +581,6 @@ describe('写真の解析のワーカー', () => {
 
       // 命名規則も写真の種類のもの（06 §3.1）
       expect(promptText()).toContain(CATALOG_KINDS.food.namingRule);
-      // 食べ物は「〇〇の可能性もある」の補足を頼まない（名物名を一言で推し量らせない。06 §3.1、02 §5 #60）
-      expect(promptText()).not.toContain('可能性もある');
       const attributes = sent[0].body.response_format.json_schema.schema.properties.attributes;
       expect(Object.keys(attributes.properties).sort()).toEqual(['genre', 'mainIngredients']);
       expect(attributes.properties.genre.type).toEqual(['string', 'null']);
@@ -593,6 +591,20 @@ describe('写真の解析のワーカー', () => {
         name: '味噌ラーメン',
         attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] }
       });
+    });
+
+    it.each([
+      ['食べ物', 'food', 'plant'],
+      ['植物', 'plant', 'food']
+    ] as const)('%sの識別では、一言についてその種類の決まりを頼み、ほかの種類の決まりは頼まない', async (_label, kind, other) => {
+      // 決まりの文言は契約外（06 §3.1）。種類ごとの決まりが渡ることだけを見る。食べ物は「〇〇の可能性もある」の補足を頼まない（02 §5 #60）。
+      // 決まりの中身が推測寄りに書き換わることは単体テストでは確かめられないので、デプロイ後に手で確かめる（08 §5.4）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: kind }));
+
+      await runWorker();
+
+      expect(promptText()).toContain(CATALOG_KINDS[kind].commentRule);
+      expect(promptText()).not.toContain(CATALOG_KINDS[other].commentRule);
     });
 
     it('プロンプトには、種類の命名規則と、ある手がかり（やり直しの手がかり・撮影地・撮影日時）を含める', async () => {
@@ -609,8 +621,6 @@ describe('写真の解析のワーカー', () => {
       await runWorker();
 
       expect(promptText()).toContain(CATALOG_KINDS.plant.namingRule);
-      // 植物は、確証が無いときに「〇〇の可能性もある」と補足させる（06 §3.1。食べ物だけ頼まない）
-      expect(promptText()).toContain('可能性もある');
       expect(promptText()).toContain('旭川の公園');
       expect(promptText()).toContain('北海道旭川市');
       // 撮影日時は分まで（YYYY-MM-DD HH:mm。06 §3.1）
