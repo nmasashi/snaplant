@@ -145,7 +145,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの「場所」の欄の事前入力と、欄の下の案内の出し分けにも使う（[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)）。
 段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。段階4（4-3c）からは `processing.step`（無ければ `null`。状態の表示を「分類中...」「識別中...」に分ける）と `identification` の `kind`・`matchesKind`・`name`（図鑑の項目へのリンクと、分類と合わない写真の案内。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）も読む。`processing` のほかの項目、`classification`、`identification` のほかの項目は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`takenAtSource` は撮影日時の出どころで、`"exif"`（送信のときにカメラの記録から読んだ）・`"user"`（利用者が手で付けた。§5.6。**実装済み**（D-1））・`"none"`（撮影日時が無い）のどれか（[04 §1.3](./04_data_design.md#13-写真type-photo)）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
-`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)。C-3a から各要素は `{ name, kind, x, y }`）。
+`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は写真の中の場所に付けたタグ（[04 §2](./04_data_design.md#2-カテゴリとタグ)。C-3a から各要素は `{ name, kind, x, y }`、C-4a から出どころ `source` も。C-4b から AI のタグ（`source: "ai"`）も入る）。
 **実装済み**（C-4a。`services/photoView.ts`）: 各タグに出どころ `source`（`"ai"` / `"user"`）を必ず付けて返す。`source` の無いタグ（C-4a より前に保存したもの）は `"user"` で返す。写真を返すすべての応答（`categorySource` と同じ）に付く。
 **実装済み**（C-3b。`models/photo.dart` の `PhotoTag`）: クライアントは `tags` を読み（無い・`null` なら空）、各要素の `name`・`kind`（文字列）と `x`・`y`（数）を必須として読む。写真ビューアの写真の上と下の情報にタグを出す（[03 §5.7](./03_screen_design.md#57-写真のタグ)）。`source` は読まない（読むのは C-4c から）。
 `categorySource`（**実装済み**（C-1））は、利用者がカテゴリを手で決めた（§5.6）なら `"user"`、それ以外は `null`。ドキュメントに項目が無い写真（C-1 より前の写真と、手で決めたことも分類からやり直したことも無い写真。[04 §1.3](./04_data_design.md#13-写真type-photo)）も `null` で返す。写真を返すすべての応答（`POST /api/photos`・`GET /api/photos`・`GET` / `PATCH /api/photos/{photoId}`・`process`・`GET /api/catalog/entry` の `photos`）に付く。
@@ -474,7 +474,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 11 | `takenAt` があり、写真の撮影日時がカメラの記録（EXIF）から読んだもの（`takenAtSource` が `"exif"`） | 409 `TAKEN_AT_FROM_CAMERA` | `カメラが記録した撮影日時は変えられません` |
 
 検証は `photoId`（1）→ ボディ（2〜9.7。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 → `takenAt` の 9.7 の順）→ 写真があるか（10）→ カメラが記録した撮影日時か（11。`takenAt` を送ったときだけ。写真を読んで分かる）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
-タグの要素の 8〜9.2 は要素ごとに先頭から見て、1つの要素の中では 8 → 8.5 → 9 → 9.1 → 9.2 の順に確かめ、最初に当たった条件の `message` を返す（例: 1つ目の要素の種類が無効で2つ目が文字列なら、9.1 の `タグの種類が無効です`。1つの要素で `source` と名前の両方が無効なら、8.5 の `タグの形式が無効です`）。ただし数の上限（9.5）は要素の中身より先に見る（20 個を超える配列は、要素を確かめずに 9.5 で断る。大きな配列を全部確かめてから断らないため。/code-review の指摘）（**実装済み**（C-3a））。
+タグの要素の 8〜9.2 は要素ごとに先頭から見て、1つの要素の中では 8 → 8.5 → 9 → 9.1 → 9.2 の順に確かめ、最初に当たった条件の `message` を返す（例: 1つ目の要素の種類が無効で2つ目が文字列なら、9.1 の `タグの種類が無効です`。1つの要素で `source` と名前の両方が無効なら、8.5 の `タグの形式が無効です`）。ただし数の上限（9.5）は要素の中身より先に見る（20 個を超える配列は、要素を確かめずに 9.5 で断る。大きな配列を全部確かめてから断らないため。/code-review の指摘）（**実装済み**（C-3a。8.5 は C-4a））。
 ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`takenAt`・`tags`・`category` のどれも無いものとして扱い、4 になる。`comment`・`takenAt`・`tags`・`category` 以外のキー（`hint` など）は無視し、それだけなら 4。
 11 で断るときは何も書かない（`comment`・`tags`・`category` を一緒に送っても、どれも書かない）。
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
