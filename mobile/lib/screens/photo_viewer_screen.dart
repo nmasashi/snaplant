@@ -420,8 +420,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 foregroundColor: Colors.white,
                 actions: [
                   // 写真の上のタグの表示の切り替え（03 §5.9）
+                  // 読み上げは見た目の文字ではなく、押すとどうなるか（「タグを隠す」／「タグを出す」）だけにする
                   Tooltip(
                     message: _tagsVisible ? 'タグを隠す' : 'タグを出す',
+                    excludeFromSemantics: true,
                     child: TextButton.icon(
                       onPressed: _toggleTagsVisible,
                       style:
@@ -429,7 +431,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                       icon: Icon(_tagsVisible
                           ? Icons.label_outline
                           : Icons.label_off_outlined),
-                      label: Text(_tagsVisible ? 'タグ 表示中' : 'タグ 非表示'),
+                      label: Text(_tagsVisible ? 'タグ 表示中' : 'タグ 非表示',
+                          semanticsLabel: _tagsVisible ? 'タグを隠す' : 'タグを出す'),
                     ),
                   ),
                   // タグが上限まである写真と、タグを消している間は押せない（03 §5.7）
