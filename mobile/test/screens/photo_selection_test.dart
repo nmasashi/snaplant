@@ -47,6 +47,40 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('選択モード中に下に引っ張って読み直すと、読み直しで捨てた続きのページで選んでいた写真も選択から外れる', (tester) async {
+    // 1ページ30枚にして、31〜33枚目を続きのページに置く。読み直しは先頭のページだけを読み、続きのページは捨てる（§3）。
+    // 先頭のページで画面が埋まる枚数にする（埋まらないと、グリッドが続きのページをすぐに読み直す）
+    final backend = FakeTripBackend(
+      trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 33)],
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 33; n++)
+            photoJson(number: n, tripId: hokkaidoTripId, takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    // 下端まで送ると続きのページが届く。届いた写真が見えるまで、もう一度送る
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.longPress(photoThumbnail('2026年10月5日 10:33'));
+    await letFramesRun(tester);
+    expect(find.text('1枚を選択中'), findsOneWidget);
+    await tester.drag(photoGridScroll(), const Offset(0, 5000));
+    await letFramesRun(tester);
+
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年10月5日 10:33'), findsNothing);
+    expect(find.text('0枚を選択中'), findsOneWidget);
+  });
+
   // 旅行に属さない写真の画面は、下に引っ張っても見出しのために旅行を取り直さない（画面全体が描き直されない）。
   // 選択が絞られたことは選択の知らせだけで見出しに届くので、旅行詳細とは別に確かめる
   testWidgets('旅行に属さない写真の画面でも、選択モード中に下に引っ張って読み直すと、別の端末で消された写真は選択から外れ、見出しの枚数も減る', (tester) async {
