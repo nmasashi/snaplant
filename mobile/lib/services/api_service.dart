@@ -865,7 +865,7 @@ class ApiException implements Exception {
 
   @override
   String toString() {
-    return 'ApiException(statusCode: $statusCode, message: $message)';
+    return 'ApiException(statusCode: $statusCode, code: $code, message: $message)';
   }
 
   /// ユーザー向けのエラーメッセージを取得
