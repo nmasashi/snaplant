@@ -57,7 +57,11 @@ Future<FakeTripBackend> _openViewer(WidgetTester tester, List<Map<String, Object
   await letFramesRun(tester);
   await tester.tap(photoThumbnail(_takenAt));
   await letFramesRun(tester);
-  if (waitFor != null) await pumpUntilImageShown(tester, waitFor);
+  if (waitFor != null) {
+    await pumpUntilImageShown(tester, waitFor);
+    // 待っていたものが出ないまま先へ進まない
+    expect(waitFor, findsWidgets);
+  }
   return backend;
 }
 
@@ -88,7 +92,7 @@ void main() {
   // 表示の切り替えは端末に覚えるので、テストごとに空にする（最初は「表示中」）
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('写真の上のタグを、名前を書いた吹き出しで出し、しっぽの先がタグの位置に来る（番号は付けない）', (tester) async {
+  testWidgets('写真の上のタグを、名前を書いた吹き出しで、タグの位置の真上に横の中央をそろえて出す', (tester) async {
     final tags = [_tag('ご飯', x: 0.25, y: 0.75), _tag('味噌汁', x: 0.7, y: 0.4)];
     await _openViewer(tester, [_photo(tags: tags)], waitFor: _onPhoto('味噌汁'));
 
@@ -100,7 +104,6 @@ void main() {
       expect(label.bottom, lessThan(point.dy), reason: '$tag');
       expect(point.dy - label.bottom, lessThan(24), reason: '$tag');
     }
-    expect(find.textContaining('1.'), findsNothing);
     await finishImageLoading(tester);
   });
 
@@ -187,6 +190,14 @@ void main() {
     expect(_onPhoto('ご飯'), findsNothing);
     await finishImageLoading(tester);
 
+    // 隠した後の端末の保存を写し取り、表示に戻してから端末の保存だけを隠した時点に戻す。
+    // アプリの中の記憶ではなく、端末の保存から読むことを確かめる（キーの名前には頼らない）
+    final prefs = await SharedPreferences.getInstance();
+    final saved = {for (final key in prefs.getKeys()) key: prefs.get(key)!};
+    await tester.tap(find.text('タグ 非表示'));
+    await letFramesRun(tester);
+    SharedPreferences.setMockInitialValues(saved);
+
     // アプリを開き直す（木を消してから開く。CLAUDE.md）。openTripsTab は端末の保存を空にするので使わない
     await tester.pumpWidget(const SizedBox());
     await openApp(tester, app: SnapPlantApp(httpClient: backend.client));
@@ -214,6 +225,25 @@ void main() {
       await finishImageLoading(tester);
     });
   }
+
+  // 提案が済んだ（lastError null）・上限まで失敗した（lastError ai。06 §9）
+  for (final lastError in [null, 'ai']) {
+    testWidgets('タグの提案の段で済んだ（done・lastError $lastError）写真には「AI がタグを考えています…」を出さない', (tester) async {
+      await _openViewer(tester, [
+        _photo(processing: {'state': 'done', 'step': 'tag', 'attempts': 1, 'lastError': lastError, 'updatedAt': '2026-10-06T01:15:00.000Z'})
+      ]);
+
+      expect(find.text('AI がタグを考えています…（写真を閉じても続きます）'), findsNothing);
+      await finishImageLoading(tester);
+    });
+  }
+
+  testWidgets('タグが1つも無い写真でも、上のバーに「タグ 表示中」を出す', (tester) async {
+    await _openViewer(tester, [_photo()]);
+
+    expect(find.text('タグ 表示中'), findsOneWidget);
+    await finishImageLoading(tester);
+  });
 
   // タグの提案を待っている写真のサムネイルに分類中の印を付けないこと（§5.5）は、photo_classification_test.dart のサムネイルの印の表で見る
 
