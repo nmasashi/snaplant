@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,10 @@ import '../helpers/trip_test_helpers.dart';
 /// 横 40・縦 20（横長 2:1）の PNG
 final _image = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAJElEQVR4nGM4UaExIIhh1OJRi0ctHrV41OJRi0ctHrV45FgMAJcsZT0VWwT2AAAAAElFTkSuQmCC');
+
+/// 横 10・縦 40（縦長 1:4）の PNG。写真の枠の高さいっぱいに出る（上に余白が無い）
+final _tallImage = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAoCAIAAABINPzXAAAAF0lEQVR4nGOowAsYRqVHpUelR6WHmjQAoqYyn3DnMNsAAAAASUVORK5CYII=');
 
 const _takenAt = '2026年10月6日 10:15';
 
@@ -40,13 +45,13 @@ Map<String, Object?> _photo(
 
 /// 旅行詳細を開き、1枚目の写真をタップしてビューアを開く。[waitFor] が出るまで画像を読み込ませる
 Future<FakeTripBackend> _openViewer(WidgetTester tester, List<Map<String, Object?>> photos,
-    {Finder? waitFor}) async {
+    {Finder? waitFor, Uint8List? image}) async {
   final backend = FakeTripBackend(
     trips: [hokkaidoTrip(photoCount: photos.length)],
     functionKey: 'test-key',
     photosByTripId: {hokkaidoTripId: photos},
   );
-  useImageCacheOf(backend, _image);
+  useImageCacheOf(backend, image ?? _image);
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
   await letFramesRun(tester);
@@ -64,13 +69,20 @@ List<Object?> _storedTags(FakeTripBackend backend) =>
 Finder _onPhoto(String name) => find.descendant(
     of: find.byType(InteractiveViewer), matching: find.text(name));
 
-/// 画像の中の割合 ([x], [y]) の画面の位置（横長 2:1 の画像を、写真の枠の中に縦横の比を保って中央に収める。§5.1）
-Offset _at(WidgetTester tester, double x, double y) {
-  final box = tester.getRect(find.byType(InteractiveViewer));
-  final width = math.min(box.width, box.height * 2);
-  final rect = Rect.fromCenter(center: box.center, width: width, height: width / 2);
+/// 画像の中の割合 ([x], [y]) の画面の位置（横と縦の比が [aspect]（既定は横長 2:1）の画像を、写真の枠の中に縦横の比を保って中央に収める。§5.1）
+Offset _at(WidgetTester tester, double x, double y, {double aspect = 2}) {
+  final box = _frame(tester);
+  final width = math.min(box.width, box.height * aspect);
+  final rect = Rect.fromCenter(center: box.center, width: width, height: width / aspect);
   return Offset(rect.left + rect.width * x, rect.top + rect.height * y);
 }
+
+/// 写真の枠（画像の外の余白も含む）
+Rect _frame(WidgetTester tester) => tester.getRect(find.byType(InteractiveViewer));
+
+/// [inner] が [outer] の中に収まっているか
+bool _inside(Rect inner, Rect outer) =>
+    inner.left >= outer.left && inner.right <= outer.right && inner.top >= outer.top && inner.bottom <= outer.bottom;
 
 void main() {
   // 表示の切り替えは端末に覚えるので、テストごとに空にする（最初は「表示中」）
@@ -89,6 +101,43 @@ void main() {
       expect(point.dy - label.bottom, lessThan(24), reason: '$tag');
     }
     expect(find.textContaining('1.'), findsNothing);
+    await finishImageLoading(tester);
+  });
+
+  testWidgets('左右の端の近くのタグは、吹き出しを写真の枠の中に収まるまで横にずらし、位置の上に出す', (tester) async {
+    final tags = [_tag('ご飯', x: 0.01, y: 0.5), _tag('味噌汁', x: 0.99, y: 0.5)];
+    await _openViewer(tester, [_photo(tags: tags)], waitFor: _onPhoto('味噌汁'));
+
+    for (final tag in tags) {
+      final point = _at(tester, tag['x'] as double, tag['y'] as double);
+      final label = tester.getRect(_onPhoto(tag['name'] as String));
+      expect(_inside(label, _frame(tester)), isTrue, reason: '$tag $label ${_frame(tester)}');
+      expect(label.bottom, lessThan(point.dy), reason: '$tag');
+    }
+    await finishImageLoading(tester);
+  });
+
+  testWidgets('上の端の近くで吹き出しが入りきらないタグは、吹き出しを位置の下に出す', (tester) async {
+    await _openViewer(tester, [_photo(tags: [_tag('ご飯', x: 0.5, y: 0.01)])], waitFor: _onPhoto('ご飯'), image: _tallImage);
+
+    final point = _at(tester, 0.5, 0.01, aspect: 0.25);
+    final label = tester.getRect(_onPhoto('ご飯'));
+    expect(_inside(label, _frame(tester)), isTrue, reason: '$label ${_frame(tester)}');
+    expect(label.top, greaterThan(point.dy));
+    expect(label.top - point.dy, lessThan(24));
+    expect((label.center.dx - point.dx).abs(), lessThan(2));
+    await finishImageLoading(tester);
+  });
+
+  testWidgets('名前が写真の枠の幅に入りきらなければ、吹き出しを枠の中に収める（末尾を切る）', (tester) async {
+    const name = 'いか刺しとうに丼といくら丼とほたての浜焼きと焼きとうもろこし';
+    await _openViewer(tester, [_photo(tags: [_tag(name)])], waitFor: _onPhoto(name));
+    // 幅 300dp の端末にする
+    tester.view.physicalSize = const Size(900, 2220);
+    await letFramesRun(tester);
+
+    expect(_inside(tester.getRect(_onPhoto(name)), _frame(tester)), isTrue,
+        reason: '${tester.getRect(_onPhoto(name))} ${_frame(tester)}');
     await finishImageLoading(tester);
   });
 
