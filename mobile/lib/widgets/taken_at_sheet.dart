@@ -30,7 +30,8 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   bool _datePicked = false;
   TripSummary? _trip;
   // 旅行を読んでいる間は保存させない（読む前に保存すると、期間の初日ではなく送った日で付いてしまう。03 §5.8）
-  late bool _tripLoading = widget.photo.tripId != null;
+  // （変えるときは初期値が今の日時で、旅行を読んでも替えないので止めない）
+  late bool _tripLoading = !_changing && widget.photo.tripId != null;
   bool _busy = false;
   String? _error;
 
@@ -43,12 +44,12 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
   /// 今の撮影日時か、送った日（端末の時刻）の日付
   DateTime _initialDate() {
     final takenAt = widget.photo.takenAt;
-    if (takenAt != null) return DateTime.parse(takenAt.substring(0, 10));
+    if (takenAt != null) return _withinRange(DateTime.parse(takenAt.substring(0, 10)));
     final uploadedAt = widget.photo.uploadedAt;
     final local = uploadedAt == null
         ? DateTime.now()
         : DateTime.parse(uploadedAt).toLocal();
-    return DateTime(local.year, local.month, local.day);
+    return _withinRange(DateTime(local.year, local.month, local.day));
   }
 
   TimeOfDay _initialTime() {
@@ -70,7 +71,7 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
         _trip = trip;
         final first = trip.firstTakenAt;
         if (!_changing && !_datePicked && first != null) {
-          _date = DateTime.parse(first.substring(0, 10));
+          _date = _withinRange(DateTime.parse(first.substring(0, 10)));
         }
       });
     } catch (e) {
@@ -79,14 +80,17 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
     if (mounted) setState(() => _tripLoading = false);
   }
 
-  /// 日付の選択で選べる範囲。初期値がこの外（壊れた撮影日時など）だと選択が開けないので、範囲に収めて渡す
+  /// 日付の選択で選べる範囲
   static final _firstDate = DateTime(1900);
   static final _lastDate = DateTime(2100, 12, 31);
 
+  /// [date] を選べる範囲に収める（壊れた撮影日時などで範囲の外になると、選択が開けず、範囲の外の日付を送ってしまう）
+  static DateTime _withinRange(DateTime date) =>
+      date.isBefore(_firstDate) ? _firstDate : (date.isAfter(_lastDate) ? _lastDate : date);
+
   Future<void> _pickDate() async {
-    final initial = _date.isBefore(_firstDate) ? _firstDate : (_date.isAfter(_lastDate) ? _lastDate : _date);
     final picked = await showDatePicker(
-        context: context, initialDate: initial, firstDate: _firstDate, lastDate: _lastDate);
+        context: context, initialDate: _date, firstDate: _firstDate, lastDate: _lastDate);
     if (picked == null || !mounted) return;
     setState(() {
       _date = picked;
