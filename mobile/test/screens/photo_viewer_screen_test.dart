@@ -215,7 +215,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('続きのページの読み込みに失敗していたら、写真ビューアの読み込んだ末尾の写真で「続きを読み込めませんでした」「再試行」を出し、「再試行」で続きを読んで先へスワイプできる', (tester) async {
+  testWidgets('続きのページの読み込みに失敗していたら、写真ビューアの読み込んだ末尾の写真でだけ「続きを読み込めませんでした」「再試行」を出し、「再試行」で続きを読んで先へスワイプできる', (tester) async {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。グリッドを下端まで送ると2ページ目を読むので、その1回を失敗させる。
     // 一覧（グリッド）にも同じ文言が出るが、ビューアの下に隠れているので、ビューアの中に出ていることは hitTestable で見る
     final semantics = tester.ensureSemantics();
@@ -229,35 +229,28 @@ void main() {
     await tester.tap(photoThumbnail('2026年10月5日 10:30'));
     await letFramesRun(tester);
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
-
-    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
-    await tester.tap(find.text('再試行').hitTestable());
-    await letFramesRun(tester);
-    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
-
-    await _swipe(tester, toNext: true);
-
-    expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
-    semantics.dispose();
-  });
-
-  testWidgets('続きのページの読み込みに失敗していても、読み込んだ末尾でない写真では「続きを読み込めませんでした」を出さない', (tester) async {
-    final semantics = tester.ensureSemantics();
-    final backend = _thirtyThreePhotosBackend();
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    backend.failNext(TripRoute.photos);
-    await tester.drag(photoGridScroll(), const Offset(0, -5000));
-    await letFramesRun(tester);
-    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
-    await letFramesRun(tester);
-    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget,
+        reason: '読み込んだ末尾の写真（10:30）');
 
     await _swipe(tester, toNext: false);
 
     expect(find.text('2026年10月5日 10:29').hitTestable(), findsOneWidget);
-    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing,
+        reason: '末尾でない写真（10:29）');
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget,
+        reason: '末尾の写真（10:30）へ戻った');
+    await tester.tap(find.text('再試行').hitTestable());
+    await letFramesRun(tester);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing,
+        reason: '「再試行」で続きを読めた');
+
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
 
