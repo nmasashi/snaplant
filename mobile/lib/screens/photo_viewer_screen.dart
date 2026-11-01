@@ -176,8 +176,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     return ValueListenableBuilder<bool>(
       valueListenable: failed,
       builder: (context, isFailed, _) {
-        final atEnd = _pendingIndex != null ||
-            _index >= widget.photos.value.length - 1;
+        // 削除で使い切って続きを待っている間は、今の位置が読み込み済みの写真の外にあるので、これで一緒に見る
+        final atEnd = _index >= widget.photos.value.length - 1;
         if (!isFailed || !atEnd) return const SizedBox.shrink();
         return SafeArea(
           child: Container(
