@@ -72,7 +72,8 @@ const COSMOS_UNREACHABLE_CODES: readonly string[] = [...UNREACHABLE_ERRNOS, 'Tim
  * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージ・AI の判定と共有）に、
  * Cosmos SDK が自分の待ち時間（requestTimeout）で打ち切ったときの TimeoutError を足したもの（時間を置けば回復しうるので。2026-11-01）。
  * 打ち切りは要求を送った後なので書けていることもある。旅行などの作成はアプリが自動で送り直さず、500 でも利用者は押し直すので変わらない。
- * 写真の送信は 503 を自動で送り直すが、同じ写真は id（画像の SHA-256）で1枚にまとまる
+ * 写真の送信は 503 を自動で送り直すが、同じ写真は id（画像の SHA-256）で1枚にまとまる（最初の書き込みが通っていたときは送り直しが 409 になり、
+ * 解析の待ちに積まないので、解析は再投入のタイマーが拾うまで遅れる。06 §1）。「接続できない」という名前でも、書けていないとは限らない
  * @param error 判定するエラー
  */
 export function isConnectivityError(error: unknown): boolean {

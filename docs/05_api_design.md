@@ -1180,7 +1180,7 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 
 - **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行う（OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）。
   たどるのは10段までで、原因が循環していても止まる（見つからなければ接続できない以外の失敗として扱う）
-- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`、と Cosmos SDK が応答を待ちきれずに打ち切った `TimeoutError`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）。SDK の打ち切りは要求を送った後なので書けていることもある。旅行などの作成はアプリが自動で送り直さず、500 でも利用者は押し直すので変わらない。写真の送信は 503 を自動で送り直すが、同じ写真は id で1枚にまとまる（2026-11-01 に人間が決定）。errno の一覧（`UNREACHABLE_ERRNOS`）は Cosmos DB・ストレージ・AI で同じで、Cosmos DB だけ SDK の打ち切りを足す（`ETIMEDOUT` は以前 Blob Storage の操作だけで、Cosmos DB では 500 `INTERNAL_ERROR` だった。2026-11-01 に揃えた。**実装済み**（Cosmos の時間切れの 503））
+- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`、と Cosmos SDK が応答を待ちきれずに打ち切った `TimeoutError`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）。SDK の打ち切りは要求を送った後なので書けていることもある。旅行などの作成はアプリが自動で送り直さず、500 でも利用者は押し直すので変わらない。写真の送信は 503 を自動で送り直すが、同じ写真は id で1枚にまとまる（最初の書き込みが通っていたときは、解析は再投入のタイマーが拾うまで遅れる。[06 §1](./06_processing_design.md#1-キューとワーカー段階3)）（2026-11-01 に人間が決定）。errno の一覧（`UNREACHABLE_ERRNOS`）は Cosmos DB・ストレージ・AI で同じで、Cosmos DB だけ SDK の打ち切りを足す（`ETIMEDOUT` は以前 Blob Storage の操作だけで、Cosmos DB では 500 `INTERNAL_ERROR` だった。2026-11-01 に揃えた。**実装済み**（Cosmos の時間切れの 503））
 
 ### 9.5 AI 識別サービスへの接続
 
