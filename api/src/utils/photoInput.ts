@@ -432,7 +432,11 @@ function readPhotoTag(tag: unknown): PhotoTag | string {
   if (typeof tag !== 'object' || tag === null || Array.isArray(tag)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
   }
-  const { name, kind, x, y } = tag as { name?: unknown; kind?: unknown; x?: unknown; y?: unknown };
+  const { name, kind, x, y, source } = tag as { name?: unknown; kind?: unknown; x?: unknown; y?: unknown; source?: unknown };
+  // 出どころは省けば利用者のもの（アプリは直さなかった AI のタグだけ ai のまま送る。05 §5.6）
+  if (source !== undefined && source !== 'ai' && source !== 'user') {
+    return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
+  }
   const trimmed = typeof name === 'string' ? trimUserText(name) : '';
   if (trimmed === '' || exceedsLength(trimmed, TAG_VALIDATION.MAX_LENGTH)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH;
@@ -443,7 +447,7 @@ function readPhotoTag(tag: unknown): PhotoTag | string {
   if (!isRatio(x) || !isRatio(y)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_POSITION;
   }
-  return { name: trimmed, kind, x, y };
+  return { name: trimmed, kind, x, y, source: source ?? 'user' };
 }
 
 /** 画像の中の位置の割合（0 以上 1 以下の数）か */
