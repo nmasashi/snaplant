@@ -199,7 +199,7 @@ enum TripRoute {
 /// - `PATCH /api/photos/{photoId}` はコメント・タグ・カテゴリを書き換える。タグは配列ごと置き換え、検証は本物と同じ（形式・名前・種類・位置・20 個まで。C-3a）。コメントは前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`。
 ///   カテゴリは本物と同じ決まり（手で決めた印を付け、変わったか分類中なら識別と AI が書いたコメントを消し、植物なら識別の待ち、ほかは済み。05 §5.6）。
 ///   200 で `{ photo, urlExpiresAt }`。`comment`・`category` のキーがどちらも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
-///   本物は全部の検証の後に 404 を返すが、偽物はコメントの検証の直後に返す（アプリはコメントとカテゴリを一緒に送らない）
+///   本物は全部の検証の後に 404 を返すが、偽物はコメント・タグ・カテゴリのそれぞれの検証の直後に返す（アプリはこれらを一緒に送らない）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
 /// - `GET /api/catalog/kinds` は [catalogKinds] を返す。`GET /api/catalog/entries` は [catalogEntriesByKind] のその種類の項目を、入れた順（本物は属の学名の順、同じ属は名前の順なので、その順に入れる）に
