@@ -6,7 +6,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 複数選択と、旅行への出し入れ・削除（docs/03_screen_design.md §4.8）を、利用者から見た振る舞いで確かめる。
-// 旅行の API は偽のサーバ（helpers の FakeTripBackend）。アプリ全体を開いて旅行一覧から旅行詳細へ進む。
+// 旅行の API は偽のサーバ（helpers の FakeTripBackend）。アプリ全体を開いて、旅行一覧から旅行詳細（または旅行に属さない写真の画面）へ進む。
 // この節のほかのテストは、まだ trip_detail_screen_test.dart にある（節ごとに分ける前からあるファイル）
 
 void main() {
