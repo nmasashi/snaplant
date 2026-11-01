@@ -137,8 +137,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   /// 続きのページが届いて、削除の後に待っていた位置に写真が来たら、そこへ移る
   void _onPhotosChanged() {
-    // 上のバーの「やり直す」は今の写真のカテゴリで決まるので、写真が変わったら組み直す
-    if (mounted) setState(() {});
+    // 上のバーの「やり直す」は今の写真のカテゴリで決まるので、写真が変わったら組み直す。
+    // タグの位置を動かす間なら終える（タグを消した・写真を置き換えたで番号がずれ、別のタグを動かさないため。03 §5.9.3）
+    if (mounted) setState(() => _movingTag = null);
     final pending = _pendingIndex;
     if (pending == null || widget.photos.value.length <= pending) return;
     _pendingIndex = null;
