@@ -49,8 +49,8 @@ export class UpstreamError extends Error {
 /**
  * 接続できない（503 にする）とみなす errno
  *
- * Cosmos DB（isConnectivityError）と AI の判定（utils/response.ts）が共有する。
- * ストレージだけは ETIMEDOUT も含めている（docs/09_backlog.md で揃えるか判断待ち）。
+ * Cosmos DB（isConnectivityError）と、ストレージ・AI の判定（utils/response.ts）が共有する。
+ * 時間切れ（ETIMEDOUT）も、時間を置けば回復しうる「到達できていない」側なので含める（2026-11-01 に Cosmos DB にも揃えた）。
  * 一覧を別々に持つと片方だけ直されて分類がずれるので、ここを唯一の実体にする
  */
 export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'];
@@ -61,7 +61,7 @@ export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED
  * すべてのハンドラが使う（createDatabaseErrorResponse）。Cosmos SDK 4.x は接続の失敗を RestError に包み、errno を
  * トップレベルの `code` に載せる（@typespec/ts-http-runtime の nodeHttpClient）。それでも
  * `hasCauseCode()` で `cause` までたどるのは、HTTP クライアントが fetch 系に変わると OpenAI SDK と
- * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージの判定と共有）
+ * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージ・AI の判定と共有）
  * @param error 判定するエラー
  */
 export function isConnectivityError(error: unknown): boolean {
