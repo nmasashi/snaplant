@@ -66,8 +66,8 @@ List<Object?> _storedTags(FakeTripBackend backend) =>
 Finder _onPhoto(String name) => find.descendant(
     of: find.byType(InteractiveViewer), matching: find.text(name));
 
-/// 下の情報のタグの一覧の、名前が [name] の札
-Finder _chip(String name) => find.widgetWithText(Chip, name);
+/// 下の情報のタグの一覧の、名前が [name] の札（押せる札も含めて、札の部品で探す）
+Finder _chip(String name) => find.widgetWithText(RawChip, name);
 
 /// 画像が描かれている範囲（横長 2:1 の画像を、写真の枠の中に縦横の比を保って中央に収める。§5.1）
 Rect _imageRect(WidgetTester tester) {
@@ -399,7 +399,7 @@ void main() {
 
   group('タグを消す', () {
     testWidgets(
-        '写真の上のタグの名前をタップすると確認を出し、「キャンセル」なら何もせず、「消す」で押したタグだけを除いて送る（同じ名前の他のタグは残る）',
+        '写真の上のタグの直すシートの「このタグを消す」で確認を出し、「キャンセル」なら何もせず、「消す」で押したタグだけを除いて送る（同じ名前の他のタグは残る）',
         (tester) async {
       final backend = await _openViewer(
           tester,
@@ -410,16 +410,19 @@ void main() {
           ]),
           waitFor: _onPhoto('味噌汁'));
 
-      // 吹き出しはタグの位置の上に出る（§5.9）
+      // 吹き出しはタグの位置の上に出る。押すと直すシートを開く（§5.9.3）
       await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(0, -20));
+      await letFramesRun(tester);
+      await tester.tap(_inSheet(find.text('このタグを消す')));
       await letFramesRun(tester);
       expect(find.text('「海鮮丼」のタグを消しますか？'), findsOneWidget);
       await tester.tap(find.text('キャンセル'));
       await letFramesRun(tester);
       expect(_storedTags(backend), hasLength(3));
 
-      // 吹き出しはタグの位置の上に出る（§5.9）
       await tester.tapAt(_at(tester, 0.7, 0.7) + const Offset(0, -20));
+      await letFramesRun(tester);
+      await tester.tap(_inSheet(find.text('このタグを消す')));
       await letFramesRun(tester);
       await tester.tap(find.text('消す'));
       await letFramesRun(tester);
@@ -503,7 +506,7 @@ void main() {
       expect(find.text('「海鮮丼」のタグを消しますか？'), findsNothing, reason: '一覧の✕');
       await tester.tap(_onPhoto('海鮮丼'), warnIfMissed: false);
       await tester.pump();
-      expect(find.text('「海鮮丼」のタグを消しますか？'), findsNothing, reason: '写真の上の名前');
+      expect(find.text('タグを直す'), findsNothing, reason: '写真の上の名前');
 
       reply.complete();
       await letFramesRun(tester);

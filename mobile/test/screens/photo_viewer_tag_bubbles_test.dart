@@ -165,7 +165,7 @@ void main() {
     await letFramesRun(tester);
 
     expect(_onPhoto('ご飯'), findsNothing);
-    expect(find.widgetWithText(Chip, 'ご飯'), findsOneWidget);
+    expect(find.widgetWithText(RawChip, 'ご飯'), findsOneWidget);
     expect(find.text('タグ 非表示'), findsOneWidget);
     expect(find.byTooltip('タグを出す'), findsOneWidget);
 
