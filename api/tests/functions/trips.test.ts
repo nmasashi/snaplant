@@ -242,7 +242,7 @@ describe('旅行API', () => {
       expect(cosmosBackend.documents.get(savedTrip.id)).toMatchObject({ description: null });
     }));
 
-    it('旅行の作成で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す（接続の失敗は cause もたどる）', () => forEachCase(allDatabaseFailureCases('旅行の作成に失敗しました'), async (_case, error, status, code, message) => {
+    it('旅行の作成で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返し、内部の例外の文言は返さない（接続の失敗は cause もたどる）', () => forEachCase(allDatabaseFailureCases('旅行の作成に失敗しました'), async (_case, error, status, code, message) => {
       cosmosBackend.forcedCreateError = error;
       const request = requestWith(jest.fn().mockResolvedValue({ name: '北海道' }));
 
@@ -253,6 +253,8 @@ describe('旅行API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
+      // 500・503 は内部の例外の文言を返さない（05 §9.2。原因はログで追う）
+      expect(body.error.details).toBeUndefined();
     }));
 
     it('旅行の作成で、原因（cause）が循環したエラーのときも、止まらずに内部エラー（500）を返す', async () => {

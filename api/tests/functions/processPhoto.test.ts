@@ -575,7 +575,7 @@ describe('写真の解析のワーカー', () => {
     it('種類ごとの項目は写真の種類の定義から作り、文字列の配列の項目は配列（null 可）で受ける', async () => {
       // 食べ物は料理のジャンル（文字列）と主な食材（文字列の配列）
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: 'food' }));
-      aiReturns({ ...plantAnswer, name: '札幌味噌ラーメン', attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] } });
+      aiReturns({ ...plantAnswer, name: '味噌ラーメン', attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] } });
 
       await runWorker();
 
@@ -588,9 +588,24 @@ describe('写真の解析のワーカー', () => {
       expect(attributes.properties.mainIngredients.items).toEqual({ type: 'string' });
       expect(storedPhoto().identification).toMatchObject({
         kind: 'food',
-        name: '札幌味噌ラーメン',
+        name: '味噌ラーメン',
         attributes: { genre: 'ラーメン', mainIngredients: ['中華麺', '味噌'] }
       });
+    });
+
+    it.each([
+      ['食べ物', 'food', 'plant'],
+      ['植物', 'plant', 'food'],
+      ['風景', 'landscape', 'food']
+    ] as const)('%sの識別では、一言についてその種類の決まりを頼み、ほかの種類の決まりは頼まない', async (_label, kind, other) => {
+      // 決まりの文言は契約外（06 §3.1）。種類ごとの決まりが渡ることだけを見る。食べ物は「〇〇の可能性もある」の補足を頼まない（02 §5 #60）。
+      // 決まりの中身が推測寄りに書き換わることは単体テストでは確かめられないので、デプロイ後に手で確かめる（08 §5.4）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ category: kind }));
+
+      await runWorker();
+
+      expect(promptText()).toContain(CATALOG_KINDS[kind].commentRule);
+      expect(promptText()).not.toContain(CATALOG_KINDS[other].commentRule);
     });
 
     it('プロンプトには、種類の命名規則と、ある手がかり（やり直しの手がかり・撮影地・撮影日時）を含める', async () => {

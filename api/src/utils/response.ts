@@ -6,7 +6,7 @@ import { UNREACHABLE_ERRNOS, UpstreamError, UpstreamService, hasCauseCode, isCon
 /**
  * 上流のサービスごとの、接続できない（到達していない）とみなす errno と応答
  *
- * ストレージだけ ETIMEDOUT を含む（AI の失敗は今は応答にならない。下の ai の行）
+ * どれも UNREACHABLE_ERRNOS を使う（AI の失敗は今は応答にならない。下の ai の行）
  */
 const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
   code: ErrorCode;
@@ -24,7 +24,7 @@ const UPSTREAM_ERROR_RESPONSES: Record<UpstreamService, {
   },
   storage: {
     code: ErrorCode.STORAGE_ERROR,
-    unreachableCodes: [...UNREACHABLE_ERRNOS, 'ETIMEDOUT'],
+    unreachableCodes: UNREACHABLE_ERRNOS,
     unreachableMessage: 'ストレージサービスに接続できません',
     failedMessage: 'ストレージサービスでエラーが発生しました'
   }
@@ -134,13 +134,14 @@ export function createNoDatedPhotosError(): HttpResponseInit {
 
 /**
  * 内部サーバーエラーレスポンス
+ *
+ * details は付けない（500 で内部の例外の文言を外に出さない。原因はログで追う。05 §9.2）
  */
-export function createInternalError(message: string = 'サーバー内部エラーが発生しました', details?: string): HttpResponseInit {
+export function createInternalError(message: string = 'サーバー内部エラーが発生しました'): HttpResponseInit {
   return createErrorResponse(
     ErrorCode.INTERNAL_ERROR,
     message,
-    HttpStatusCode.INTERNAL_SERVER_ERROR,
-    details
+    HttpStatusCode.INTERNAL_SERVER_ERROR
   );
 }
 
@@ -164,11 +165,10 @@ export function createUpstreamErrorResponse(error: UpstreamError): HttpResponseI
     return createErrorResponse(
       mapping.code,
       mapping.unreachableMessage,
-      HttpStatusCode.SERVICE_UNAVAILABLE,
-      error.message
+      HttpStatusCode.SERVICE_UNAVAILABLE
     );
   }
-  return createErrorResponse(mapping.code, mapping.failedMessage, HttpStatusCode.BAD_GATEWAY, error.message);
+  return createErrorResponse(mapping.code, mapping.failedMessage, HttpStatusCode.BAD_GATEWAY);
 }
 
 /**
@@ -193,11 +193,10 @@ export function createDatabaseErrorResponse(error: any, internalMessage: string)
     return createErrorResponse(
       ErrorCode.DATABASE_ERROR,
       'データベースに接続できません',
-      HttpStatusCode.SERVICE_UNAVAILABLE,
-      error.message
+      HttpStatusCode.SERVICE_UNAVAILABLE
     );
   }
-  return createInternalError(internalMessage, error.message);
+  return createInternalError(internalMessage);
 }
 
 /**

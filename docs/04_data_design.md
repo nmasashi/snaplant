@@ -431,6 +431,7 @@ export const CATALOG_KINDS = {
     label: '植物',
     inCatalog: true,      // 図鑑に載せる（02 #51。植物だけ）
     autoIdentify: true,   // 分類の後に自動で詳しく識別する（02 #51。植物だけ）
+    commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
     // 種の和名に揃える（品種名にすると、同じ種が品種ごとに別の項目に分かれる。02 #56）
     namingRule: '種の和名（例: ハナトリカブト）。種まで特定できなければ「〇〇属の一種」（例: トリカブト属の一種）とし、信頼度を低くする',
     fields: [
@@ -445,7 +446,10 @@ export const CATALOG_KINDS = {
     label: '食べ物',
     inCatalog: false,     // 識別はできるが図鑑には載せない
     autoIdentify: false,  // 利用者がやり直しで頼んだときだけ識別する
-    namingRule: '固有の料理名（名物名・店の看板料理）→ 一般的な料理名 → 料理の種類の順に、分かる最も細かい粒度（例: 札幌味噌ラーメン → 味噌ラーメン → ラーメン）',
+    // 補足させると名物名を一言で推し量り、タイムラインの AI がそれを事実として読む（02 #60）
+    commentRule: '名物名や店の料理名は、名前の決まりで使ってよいときのほかは、comment でも推し量って書かないでください。',
+    // 一般的な料理名を基本にし、固有の名前は根拠のあるときだけ（細かい料理名が外れることが多かった。02 #60）
+    namingRule: '一般的な料理名（例: 味噌ラーメン・海鮮丼）か、分からなければ料理の種類（例: ラーメン）。名物名や店の看板料理などの固有の名前は、利用者の手がかりや写真の中の文字（メニュー・看板など）で分かるときだけにし、見た目や撮影地だけで推し量らない',
     fields: [
       { key: 'genre',           label: '料理のジャンル', type: 'string',   prompt: '和食・中華・洋食など' },
       { key: 'mainIngredients', label: '主な食材',       type: 'string[]', prompt: '主な食材を日本語で' },
@@ -455,6 +459,7 @@ export const CATALOG_KINDS = {
     label: '風景',
     inCatalog: false,
     autoIdentify: false,
+    commentRule: '確証が無いときは、comment で「〇〇の可能性もある」のように補足してください。',
     namingRule: '固有名（函館山・金閣寺）→ 一般名 + 地域（〇〇の海岸）→ 場所の種類（海岸）の順に、分かる最も細かい粒度',
     fields: [
       { key: 'placeType', label: '場所の種類', type: 'string', prompt: '山・海・寺社・街並みなど' },
@@ -468,7 +473,9 @@ export const CATALOG_KINDS = {
 **実装済み**（P-1。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #56）: 植物の `namingRule`（種の和名。種まで分からなければ「〇〇属の一種」で信頼度を低く。それまでは品種名が分かれば品種名）と、`fields` の属（`genusName`）・属の学名（`genus`）。植物の欄の順は学名・属・属の学名・科名。
 アプリの項目詳細は `fields` を順に回すので、アプリを変えなくても「属」「属の学名」の行が科名の前に出る（P-1 の前に識別した写真が見出しなら「—」）。
 
-`prompt`・`namingRule` の文言は AI への指示で契約外（[06 §3.1](./06_processing_design.md#31-契約)。上のコードはその時点の写しで、正はコード）。契約は `key`・`label`・`type` と、名前の決まりが何を指示するか（06 §3.1）まで。
+**実装済み**（2026-11-01。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #60）: 食べ物の `namingRule`（一般的な料理名か、分からなければ料理の種類。名物名・店の看板料理などの固有の名前は、利用者の手がかりや写真の中の文字で分かるときだけ。それまでは固有の料理名 → 一般的な料理名 → 料理の種類の順に、分かる最も細かい名前）。指示する要素は [06 §3.1](./06_processing_design.md#31-契約)。
+
+`prompt`・`namingRule`・`commentRule` の文言は AI への指示で契約外（[06 §3.1](./06_processing_design.md#31-契約)。上のコードはその時点の写しで、正はコード）。契約は `key`・`label`・`type` と、名前の決まりと一言の頼み方が何を指示するか（06 §3.1）まで。一言の頼み方（`commentRule`）は 2026-11-01 に足した（02 #60。食べ物だけ補足を頼まないため）。
 
 `type` は `'string' | 'string[]'` の2つから始める。数値が要る項目（標高など）が出たら `'number'` を足す。
 
@@ -478,9 +485,9 @@ export const CATALOG_KINDS = {
 |---|---|---|
 | 分類 AI の選択肢 | `Object.keys(CATALOG_KINDS)` + `'other'` を Structured Outputs の `enum` にする | 3 |
 | 分類の後の自動の識別 | `autoIdentify` が true の種類（`identifiesAutomatically()`）だけ、分類の後に識別の待ちにする（[06 §2.3](./06_processing_design.md#23-書き込み)。B-1 で実装済み） | 分析の見直し |
-| 識別 AI のスキーマ | 共通項目（`matchesKind`・`name`・`description`・`characteristics`・`comment`・`confidence`）+ `attributes` を `fields` から組み立てる。strict の制約により全部 `required`、任意は `["string","null"]`（`string[]` は `["array","null"]`）。`prompt` は `description` に、`namingRule` はプロンプト本文に | 4 |
+| 識別 AI のスキーマ | 共通項目（`matchesKind`・`name`・`description`・`characteristics`・`comment`・`confidence`）+ `attributes` を `fields` から組み立てる。strict の制約により全部 `required`、任意は `["string","null"]`（`string[]` は `["array","null"]`）。`prompt` は `description` に、`namingRule`・`commentRule` はプロンプト本文に | 4 |
 | 識別結果の検証 | `confidence` の 0〜100、`attributes` の値が `fields` の `type` に合うか（合わなければ AI の失敗）。`fields` に無いキーは捨てる（[06 §3.1](./06_processing_design.md#31-契約)。4-1a で実装済み） | 4 |
-| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`inCatalog` が true の種類だけを返す（B-2 で実装済み）。`prompt`・`namingRule`・`inCatalog`・`autoIdentify` は返さない | 4・分析の見直し |
+| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。`inCatalog` が true の種類だけを返す（B-2 で実装済み）。`prompt`・`namingRule`・`commentRule`・`inCatalog`・`autoIdentify` は返さない | 4・分析の見直し |
 | 図鑑の API | `kind` が表に無いか、`inCatalog` が false（`isListedInCatalog()` が false）なら 400（図鑑に載せない種類を断るのは B-2 で実装済み）。API の形は [05 §5.14](./05_api_design.md#514-図鑑段階4) | 4・分析の見直し |
 | 図鑑の一覧の並び | 一覧は `fields` の `genus`（属の学名）と `genusName`（属）の値でまとめて並べ、項目に付ける（§3.1 の「属でまとめる」。P-1 で実装済み）。この2つのキーは集計のクエリ（§5.6）と組み立て（`catalogEntries.ts`）に書いてあり、表には追従しない（キーを変えると、まとめと項目の欄が `null` になる） | P-1 |
 | Flutter | 図鑑の画面が取得して保持する。図鑑は起動時のタブなので、アプリの起動時に取得する（4-5 から。それまでは3つ目のタブ「図鑑（新）」を初めて開いたときに取得していた。[03 §6.1](./03_screen_design.md#61-図鑑タブ種類タブ--項目一覧)。4-3a で実装済み）。種類タブは `kinds` から作る（4-3a で実装済み。種類が1つならタブを出さずにその種類の項目を並べる。B-2 で実装済み）。項目詳細は `fields` を順に回して `attributes[key]` を出す（無ければ「—」。4-3b）。写真のカテゴリの表示名（写真ビューア・旅行詳細のチップ）はアプリの表で、この表には追従しない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #33） | 4 |

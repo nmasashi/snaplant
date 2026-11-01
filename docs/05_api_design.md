@@ -17,10 +17,10 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 
 - 全エンドポイントは `authLevel: 'function'`。関数キーが要る（ヘッダ `x-functions-key`。§9.1）。`routePrefix` は `api`
 - 応答は封筒 `{ success: true, data }` / `{ success: false, error: { code, message, details? } }`。`utils/response.ts` のヘルパー経由で作る
-- **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
+- **契約はステータス・`code`・`message` まで。`details` の文言は契約外**（CLAUDE.md「レスポンス規約」）。ただし 500・502・503 で `details` を返さないことは契約（§9.2）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
-- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
-  errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有する。`ETIMEDOUT` は含めないので 500 になる）。
+- Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。Cosmos DB の判定はこれだけで、ハンドラごとに複製しない）で、
+  errno が `ENOTFOUND`・`ECONNREFUSED`・`ETIMEDOUT` のもの、または Cosmos SDK が自分の待ち時間で打ち切ったエラー（`code` が `TimeoutError`）を `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` はストレージ・AI 側の判定と共有する。`ETIMEDOUT` は 2026-11-01 に足した。それまでは 500）。
   応答は `createDatabaseErrorResponse(error, message)`（`utils/response.ts`）が作り、接続できない以外の失敗は下の 500 にする（実装済み。旅行の API が使う）。
   `cause` をたどるのは10段までで、循環していても止まる（見つからなければ接続できない以外の失敗として下の 500）
 - Blob Storage の失敗 → `UpstreamError('storage')` → 502 / 503 `STORAGE_ERROR`（既存の `message`）。AI の失敗は段階3以降で `'ai'`。
@@ -676,7 +676,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 | エンドポイント | 内容 | エラー |
 |---|---|---|
-| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。定義表（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）のうち図鑑に載せる種類（`inCatalog` が true。今は植物だけ）と項目を表の順に返す。識別はできても図鑑に載せない種類（食べ物・風景。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #51）は返さない。AI に渡す指示（`prompt`・`namingRule`）と `inCatalog`・`autoIdentify` は返さない。DB にも Blob にも触らない。**実装済み（4-2a。図鑑に載せる種類だけにしたのは B-2）** | なし（定義表を返すだけで、失敗する経路が無い。例外を捕まえて封筒の 500 にする処理も置いていない） |
+| `GET /api/catalog/kinds` | `{ kinds: [{ kind, label, fields: [{ key, label, type }] }] }`。定義表（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)）のうち図鑑に載せる種類（`inCatalog` が true。今は植物だけ）と項目を表の順に返す。識別はできても図鑑に載せない種類（食べ物・風景。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #51）は返さない。AI に渡す指示（`prompt`・`namingRule`・`commentRule`）と `inCatalog`・`autoIdentify` は返さない。DB にも Blob にも触らない。**実装済み（4-2a。図鑑に載せる種類だけにしたのは B-2）** | なし（定義表を返すだけで、失敗する経路が無い。例外を捕まえて封筒の 500 にする処理も置いていない） |
 | `GET /api/catalog/entries?kind=&offset=&limit=` | `{ entries: CatalogEntry[], total }`（§3.3.1）。`kind` 必須、図鑑に載せる種類でなければ（定義表に無い、または食べ物・風景）400 `図鑑の種類が無効です`。属の学名（`genus`）の文字列順に並べ（同じ属は `name` の文字列順、属が分からない項目は最後。下の「並び順」。P-1 から。それまでは `name` の文字列順）、`offset`（既定 0）から `limit`（既定 50、上限 100。`CATALOG_PAGE_SIZE` / `CATALOG_MAX_PAGE_SIZE`）件。`total` は項目の総数（ページに依らない）。0 件なら `[]`・`0`。`offset` が項目の数以上なら `[]` で `total` はそのまま。検証は下の表。**実装済み（4-2a。食べ物・風景を断るのは B-2）** | 503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の一覧の取得に失敗しました`（それ以外。表紙の URL を作れない（写真の保存先の設定が足りない）ときも） |
 | `GET /api/catalog/entry?kind=&name=&limit=&continuationToken=` | `{ entry: CatalogEntry \| null, photos, continuationToken, urlExpiresAt }`。`photos` はその名前の写真の1ページ（`sortAt` 順。`limit` / `continuationToken` は §5.2 と同じ）。`entry.photoCount` は `COUNT` で数えた総数。該当する写真が無ければ **200** で `entry: null`・`photos: []`・`continuationToken: null`。検証は下の表。**実装済み（4-2b。食べ物・風景を断るのは B-2）** | 400（下の表）、503 `DATABASE_ERROR`（接続できない。§1）、500 `図鑑の項目の取得に失敗しました`（それ以外。写真の保存先の設定が足りないときも） |
 
@@ -968,7 +968,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 1〜7 のどれかで返すときは何も書かない
 - 8 で、直しても完成版の文が変わらなければ（AI の文のままの欄に `null` を送ったなど）書かずに 200 を返す（`updatedAt` も変えない。書くと `_etag` が変わり、同じときに読んだ他の操作が 409 になるため）
 - 下書きがあっても直せる（下書きは変えない）。区切りを直している途中（`recut`）なら、直した文は当てるときに残る（同じ場面なら）。作り直しの途中（`rebuild`。5-6b まで）なら、書き終えたときに新しい完成版に置き換わって消える（5-5b で実装済み。5-6 のアプリは作り直しの間に完成版を出さないので、アプリからは直せない。5-6b からは作り直しを始めると完成版が消えるので、直す文が無い）
-- 応答は書いた後に読み直した `GET …/timeline` と同じ形（`{ timeline, pendingPhotoCount, urlExpiresAt }`。画面は直した後の完成版を描き直す）。読み直したときに旅行が消えていれば 404 `TRIP_NOT_FOUND`
+- 応答は書いた後に読み直した `GET …/timeline` と同じ形（`{ timeline, pendingPhotoCount, urlExpiresAt }`。画面は直した後の完成版を描き直す）。読み直したときに旅行が消えていれば 404 `TRIP_NOT_FOUND`。写真の保存先の設定（`STORAGE_CONNECTION_STRING` のアカウント名・鍵、`PHOTO_STORAGE_CONTAINER_NAME`）は書く前に確かめ、足りなければ書かずに 500（`POST …/excluded-photos` と同じ。書いた後だと、直したのに失敗と返す。**実装済み**（文の PATCH の保存先の確かめ。2026-11-01））
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの更新に失敗しました`（§7.2）
 
@@ -1130,13 +1130,13 @@ API 全体に共通する、認証・応答の封筒・エラー・AI 識別サ�
   "error": {
     "code": "ERROR_CODE",
     "message": "エラーの説明（日本語）",
-    "details": "string | null"
+    "details": "string（省略されることがある）"
   }
 }
 ```
 
-- `details` は省略されることがある（`createErrorResponse()` に渡されなかった場合、JSON にキー自体が現れない）
-- 500 `INTERNAL_ERROR`・502・503 では、`details` にサーバ内部で起きた例外のメッセージ（`error.message`）がそのまま入る。SDK 由来の英語のこともあり内容は安定しないので、クライアントは表示や分岐に使わない
+- `details` は省略されることがある（キー自体が現れない）
+- 500 `INTERNAL_ERROR`・502・503 では `details` を返さない（サーバ内部で起きた例外のメッセージを外に出さない。原因はログ（Application Insights）で追う。2026-11-01 に人間が決定。**実装済み**（500 系の details を出さない）。それまでは `error.message` がそのまま入っていた）。`details` が付くのは 4xx の一部だけで、固定の文言（本文を JSON として読めない 400 `リクエストボディの形式が無効です` と、§5.1 の入力検証の一部）
 - **契約の範囲**: HTTP ステータス・`code`・`message` は契約で、エンドポイントの仕様に文言まで書く。`message` はアプリが画面にそのまま出すので、変えるときは仕様も変える。`details` は契約外で、文言を保証しない（2026-10-11 に人間が決定）
 
 ### 9.3 エラーコード
@@ -1173,15 +1173,14 @@ API 全体に共通する、認証・応答の封筒・エラー・AI 識別サ�
 |---|---|---|---|
 | Blob Storage の操作 | 接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | 503 `STORAGE_ERROR` | `ストレージサービスに接続できません` |
 | Blob Storage の操作 | 上記以外（接続できたうえでの失敗） | 502 `STORAGE_ERROR` | `ストレージサービスでエラーが発生しました` |
-| AI 識別の呼び出し | 接続できない（`ENOTFOUND` / `ECONNREFUSED`） | 503 `AI_SERVICE_ERROR` | `AIサービスに接続できません` |
+| AI 識別の呼び出し | 接続できない（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`） | 503 `AI_SERVICE_ERROR` | `AIサービスに接続できません` |
 | AI 識別の呼び出し | 上記以外 | 502 `AI_SERVICE_ERROR` | `AIサービスでエラーが発生しました` |
 
 AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`UpstreamError` の種類ごとに持つ表なので、コードに残っている。
 
 - **接続できない**の判定は、SDK が包んだエラーの奥にある原因までたどって行う（OpenAI SDK の接続エラーは errno を直接持たず、2段奥の原因に持つため）。
   たどるのは10段までで、原因が循環していても止まる（見つからなければ接続できない以外の失敗として扱う）
-- `ETIMEDOUT` を 503 にするのは Blob Storage の操作だけ（Cosmos DB の `ETIMEDOUT` は 500 `INTERNAL_ERROR`。`docs/09_backlog.md` の「`ETIMEDOUT` を 503 に分類するのは Blob Storage の操作だけ」）
-- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）
+- Cosmos DB へ接続できない場合（`ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT`、と Cosmos SDK が応答を待ちきれずに打ち切った `TimeoutError`。同じく原因までたどる）は 503 `DATABASE_ERROR`（`createDatabaseErrorResponse()`）。SDK の打ち切りは要求を送った後なので書けていることもある。旅行などの作成はアプリが自動で送り直さず、500 でも利用者は押し直すので変わらない。写真の送信は 503 を自動で送り直すが、同じ写真は id で1枚にまとまる（最初の書き込みが通っていたときは、解析は再投入のタイマーが拾うまで遅れる。[06 §1](./06_processing_design.md#1-キューとワーカー段階3)）（2026-11-01 に人間が決定）。errno の一覧（`UNREACHABLE_ERRNOS`）は Cosmos DB・ストレージ・AI で同じで、Cosmos DB だけ SDK の打ち切りを足す（`ETIMEDOUT` は以前 Blob Storage の操作だけで、Cosmos DB では 500 `INTERNAL_ERROR` だった。2026-11-01 に揃えた。**実装済み**（Cosmos の時間切れの 503））
 
 ### 9.5 AI 識別サービスへの接続
 
