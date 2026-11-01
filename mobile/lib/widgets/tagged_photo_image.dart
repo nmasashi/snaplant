@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
 
+/// 写真の上のタグの点の直径
+const _dotSize = 12.0;
+
+/// 写真の上のタグ（点と名前）の高さ。点の中心がタグの位置に来るよう、この高さの中で縦の中央にそろえる
+const _markerHeight = 24.0;
+
 /// 写真の画像と、その上のタグ（docs/03_screen_design.md §5.7。C-3）
 ///
 /// タグの位置は画像の中の割合なので、画像の大きさを読んで、枠の中に縦横の比を保って中央に収めた範囲（[BoxFit.contain]）に置く。
@@ -31,12 +37,6 @@ class TaggedPhotoImage extends StatefulWidget {
 }
 
 class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
-  /// 点の直径
-  static const _dotSize = 12.0;
-
-  /// タグ（点と名前）の高さ。点の中心がタグの位置に来るよう、この高さの中で縦の中央にそろえる
-  static const _markerHeight = 24.0;
-
   ImageStream? _stream;
   late final _listener = ImageStreamListener((info, _) {
     final size =
@@ -132,13 +132,13 @@ class _TagMarker extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: SizedBox(
-        height: _TaggedPhotoImageState._markerHeight,
+        height: _markerHeight,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: _TaggedPhotoImageState._dotSize,
-              height: _TaggedPhotoImageState._dotSize,
+              width: _dotSize,
+              height: _dotSize,
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
