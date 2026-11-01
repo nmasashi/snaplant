@@ -42,6 +42,13 @@ Future<void> _openViewer(WidgetTester tester, FakeTripBackend backend, String la
 Map<String, Object?> _storedPhoto(FakeTripBackend backend) =>
     backend.photosByTripId[hokkaidoTripId]!.firstWhere((photo) => photo['id'] == _undatedNumber.toRadixString(16).padLeft(64, '0'));
 
+/// 保存先の撮影日時を消しておく（シートを開いた後に呼び、送ったことを保存先の値で確かめるため。同じ値のままだと、送らなくても通る）
+void _forgetStoredTakenAt(FakeTripBackend backend) {
+  _storedPhoto(backend)
+    ..['takenAt'] = null
+    ..['takenAtSource'] = 'none';
+}
+
 void main() {
   setUp(() {
     // 送った日時の手がかりを日本時間の文字列で見る
@@ -156,8 +163,7 @@ void main() {
     await letFramesRun(tester);
     // まだ旅行を読んでいる（期間の手がかりが出ていない）
     expect(find.textContaining('の期間は'), findsNothing);
-    // 送ったことを保存先の値で確かめるため、保存先の撮影日時を開いた後に消しておく（同じ値のままだと、送らなくても通る）
-    _storedPhoto(backend)['takenAt'] = null;
+    _forgetStoredTakenAt(backend);
 
     await tester.tap(find.text('保存'));
     await letFramesRun(tester);
@@ -175,8 +181,7 @@ void main() {
     await _openViewer(tester, backend, '0850年5月1日 10:00');
     await tester.tap(find.text('変更'));
     await letFramesRun(tester);
-    // 送ったことを保存先の値で確かめるため、保存先の撮影日時を開いた後に消しておく（同じ値のままだと、送らなくても通る）
-    _storedPhoto(backend)['takenAt'] = null;
+    _forgetStoredTakenAt(backend);
 
     await tester.tap(find.text('保存'));
     await letFramesRun(tester);
