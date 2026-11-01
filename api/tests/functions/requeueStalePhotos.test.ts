@@ -73,11 +73,12 @@ describe('再投入のタイマー', () => {
   });
 
   it('10分以上止まっている解析待ち・処理中の写真を、解析待ちに戻して（処理と回数はそのまま）キューに積む', async () => {
-    // 投入に失敗した写真（pending）、処理中に落ちた写真（classifying / identifying）。
+    // 投入に失敗した写真（pending）、処理中に落ちた写真（classifying / identifying / tagging。tagging は C-4）。
     // ワーカーは解析待ち（pending）の写真しか担当しないので、処理中の写真は解析待ちに戻してから積む（06 §1.1）
     cosmosBackend.documents.set(photoId('a'), photoWith(photoId('a'), { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: STALE }));
     cosmosBackend.documents.set(photoId('b'), photoWith(photoId('b'), { state: 'classifying', step: 'classify', attempts: 1, lastError: null, updatedAt: STALE }));
     cosmosBackend.documents.set(photoId('c'), photoWith(photoId('c'), { state: 'identifying', step: 'identify', attempts: 2, lastError: 'ai', updatedAt: STALE }));
+    cosmosBackend.documents.set(photoId('d'), photoWith(photoId('d'), { state: 'tagging', step: 'tag', attempts: 1, lastError: null, updatedAt: STALE }));
     // 旅行のドキュメントは写真ではないので拾わない
     cosmosBackend.documents.set('123e4567-e89b-42d3-a456-426614174000', tripDocument('123e4567-e89b-42d3-a456-426614174000', '北海道'));
 
@@ -86,7 +87,8 @@ describe('再投入のタイマー', () => {
     expect(stored(photoId('a')).processing).toEqual({ state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: NOW });
     expect(stored(photoId('b')).processing).toEqual({ state: 'pending', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
     expect(stored(photoId('c')).processing).toEqual({ state: 'pending', step: 'identify', attempts: 2, lastError: 'ai', updatedAt: NOW });
-    expect(queuedPhotoIds()).toEqual([photoId('a'), photoId('b'), photoId('c')]);
+    expect(stored(photoId('d')).processing).toEqual({ state: 'pending', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW });
+    expect(queuedPhotoIds()).toEqual([photoId('a'), photoId('b'), photoId('c'), photoId('d')]);
   });
 
   it('回数が上限（3回）に達した写真は、積まずに失敗（failed）にする', async () => {
