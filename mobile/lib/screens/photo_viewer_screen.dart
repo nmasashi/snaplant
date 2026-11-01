@@ -135,7 +135,11 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         .showSnackBar(const SnackBar(content: Text('写真を削除しました')));
     widget.onDeleted(photo.id);
     // 消した写真の拡大は次の写真に持ち越さない（ページは写真の id で作り直すので、スワイプの停止だけを解く）
-    setState(() => _zoomed = false);
+    // タグを付ける間も、次の写真には持ち越さない
+    setState(() {
+      _zoomed = false;
+      _addingTag = false;
+    });
     // 後ろの写真が今の位置に詰まったら、それが次の写真。それが読み込み済みの末尾なら続きを読ませる
     // （ページの位置が変わらないので onPageChanged は呼ばれない）
     final remaining = widget.photos.value.length;
@@ -313,92 +317,102 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: _showChrome
-          ? AppBar(
-              backgroundColor: Colors.black54,
-              foregroundColor: Colors.white,
-              actions: [
-                // タグが上限まである写真と、タグを消している間は押せない（03 §5.7）
-                if (_shownPhoto case final photo?)
-                  IconButton(
-                    onPressed: _sendingTag || photo.tags.length >= _maxTags
-                        ? null
-                        : () => setState(() => _addingTag = true),
-                    color: Colors.white,
-                    tooltip: 'タグを付ける',
-                    icon: const Icon(Icons.sell_outlined),
+    // タグを付ける間の端末の戻る操作は、ビューアを閉じずに付ける間を終える（03 §5.7）
+    return PopScope(
+      canPop: !_addingTag,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _addingTag = false);
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: _showChrome
+            ? AppBar(
+                backgroundColor: Colors.black54,
+                foregroundColor: Colors.white,
+                actions: [
+                  // タグが上限まである写真と、タグを消している間は押せない（03 §5.7）
+                  if (_shownPhoto case final photo?)
+                    IconButton(
+                      onPressed: _sendingTag || photo.tags.length >= _maxTags
+                          ? null
+                          : () => setState(() => _addingTag = true),
+                      color: Colors.white,
+                      tooltip: 'タグを付ける',
+                      icon: const Icon(Icons.sell_outlined),
+                    ),
+                  // 頼む写真が無い間（続きを待っている）と、その他の写真（調べるものが無い。03 §5.6）には出さない
+                  if (_shownPhoto case final photo?
+                      when photo.category != otherCategory)
+                    _analysisButton(photo),
+                  TextButton(
+                    onPressed: _deleteCurrent,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    child: const Text('削除'),
                   ),
-                // 頼む写真が無い間（続きを待っている）と、その他の写真（調べるものが無い。03 §5.6）には出さない
-                if (_shownPhoto case final photo?
-                    when photo.category != otherCategory)
-                  _analysisButton(photo),
-                TextButton(
-                  onPressed: _deleteCurrent,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  child: const Text('削除'),
-                ),
-              ],
-              // タグを付ける間の案内（03 §5.7）
-              bottom: _addingTag
-                  ? PreferredSize(
-                      preferredSize: const Size.fromHeight(48),
-                      child: Container(
-                        color: Colors.black87,
-                        padding: const EdgeInsets.only(left: 16),
-                        child: Row(children: [
-                          const Expanded(
-                            child: Text('タグを付ける場所をタップしてください',
-                                style: TextStyle(color: Colors.white)),
-                          ),
-                          TextButton(
-                            onPressed: () => setState(() => _addingTag = false),
-                            style: TextButton.styleFrom(
-                                foregroundColor: Colors.white),
-                            child: const Text('やめる'),
-                          ),
-                        ]),
-                      ),
-                    )
-                  : null,
-            )
-          : null,
-      body: GestureDetector(
-        // タグを付ける間は、写真のタップで上のバーを出し入れしない（タップはタグを付ける場所に使う）
-        onTap: _addingTag
-            ? null
-            : () => setState(() => _showChrome = !_showChrome),
-        child: ValueListenableBuilder<List<Photo>>(
-          valueListenable: widget.photos,
-          builder: (context, photos, _) => PageView.builder(
-            controller: _pageController,
-            // 拡大中とタグを付ける間は、前後の写真へ移らない
-            physics: _zoomed || _addingTag
-                ? const NeverScrollableScrollPhysics()
-                : null,
-            itemCount: photos.length,
-            onPageChanged: (index) {
-              setState(() => _index = index);
-              if (index == photos.length - 1) widget.onReachEnd();
-            },
-            itemBuilder: (context, index) => _PhotoPage(
-                // 削除で後ろの写真が詰まったときに、前の写真の拡大の状態を引き継がない
-                key: ValueKey(photos[index].id),
-                photo: photos[index],
-                showInfo: _showChrome,
-                onRetry: () => _retry(photos[index]),
-                onEditComment: () => _editComment(photos[index]),
-                onEditCategory: () => _editCategory(photos[index]),
-                onTapImageAt: _addingTag
-                    ? (position) => _addTag(photos[index], position)
+                ],
+                // タグを付ける間の案内（03 §5.7）
+                bottom: _addingTag
+                    ? PreferredSize(
+                        preferredSize: const Size.fromHeight(48),
+                        child: Container(
+                          color: Colors.black87,
+                          padding: const EdgeInsets.only(left: 16),
+                          child: Row(children: [
+                            const Expanded(
+                              child: Text('タグを付ける場所をタップしてください',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _addingTag = false),
+                              style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white),
+                              child: const Text('やめる'),
+                            ),
+                          ]),
+                        ),
+                      )
                     : null,
-                onDeleteTag: (tagIndex) => _deleteTag(photos[index], tagIndex),
-                addingTag: _addingTag,
-                onOpenEntry: _openEntry,
-                onZoomChanged: (zoomed) {
-                  if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
-                }),
+              )
+            : null,
+        body: GestureDetector(
+          // タグを付ける間は、写真のタップで上のバーを出し入れしない（タップはタグを付ける場所に使う）
+          onTap: _addingTag
+              ? null
+              : () => setState(() => _showChrome = !_showChrome),
+          child: ValueListenableBuilder<List<Photo>>(
+            valueListenable: widget.photos,
+            builder: (context, photos, _) => PageView.builder(
+              controller: _pageController,
+              // 拡大中とタグを付ける間は、前後の写真へ移らない
+              physics: _zoomed || _addingTag
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
+              itemCount: photos.length,
+              onPageChanged: (index) {
+                setState(() => _index = index);
+                if (index == photos.length - 1) widget.onReachEnd();
+              },
+              itemBuilder: (context, index) => _PhotoPage(
+                  // 削除で後ろの写真が詰まったときに、前の写真の拡大の状態を引き継がない
+                  key: ValueKey(photos[index].id),
+                  photo: photos[index],
+                  showInfo: _showChrome,
+                  onRetry: () => _retry(photos[index]),
+                  onEditComment: () => _editComment(photos[index]),
+                  onEditCategory: () => _editCategory(photos[index]),
+                  // タグを消している間は付けない（消す前のタグで保存して、消したタグを戻さない）
+                  onTapImageAt: _addingTag && !_sendingTag
+                      ? (position) => _addTag(photos[index], position)
+                      : null,
+                  onDeleteTag: (tagIndex) =>
+                      _deleteTag(photos[index], tagIndex),
+                  addingTag: _addingTag,
+                  onOpenEntry: _openEntry,
+                  onZoomChanged: (zoomed) {
+                    if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+                  }),
+            ),
           ),
         ),
       ),
