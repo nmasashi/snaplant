@@ -306,6 +306,35 @@ void main() {
       await finishImageLoading(tester);
     });
 
+    testWidgets('付ける間に端末の戻る操作をすると、付ける間を終え、ビューアは閉じない', (tester) async {
+      await _openViewer(tester, _photo(tags: [_tag('海鮮丼')]), loadImage: false);
+      await tester.tap(find.byTooltip('タグを付ける'));
+      await letFramesRun(tester);
+
+      await tester.binding.handlePopRoute();
+      await letFramesRun(tester);
+
+      expect(find.text('タグを付ける場所をタップしてください'), findsNothing);
+      expect(find.text(_takenAt), findsOneWidget);
+    });
+
+    testWidgets('付ける間に写真を削除したら、次の写真では付ける間を終える', (tester) async {
+      await _openViewer(tester, _photo(tags: [_tag('海鮮丼')]),
+          more: [_photo(number: 2)], loadImage: false);
+      await tester.tap(find.byTooltip('タグを付ける'));
+      await letFramesRun(tester);
+
+      await tester.tap(find.descendant(
+          of: find.byType(AppBar), matching: find.text('削除')));
+      await letFramesRun(tester);
+      await tester.tap(find.descendant(
+          of: find.byType(AlertDialog), matching: find.text('削除')));
+      await letFramesRun(tester);
+
+      expect(find.text('2026年10月7日 10:15'), findsOneWidget);
+      expect(find.text('タグを付ける場所をタップしてください'), findsNothing);
+    });
+
     testWidgets('タグが 20 個ある写真では「タグを付ける」を押せない', (tester) async {
       await _openViewer(
           tester, _photo(tags: [for (var i = 0; i < 20; i++) _tag('タグ$i')]),
@@ -377,6 +406,29 @@ void main() {
       expect(find.text(serverErrorMessage), findsOneWidget);
       expect(_chip('味噌汁'), findsOneWidget);
       expect(_storedTags(backend), hasLength(2));
+    });
+
+    testWidgets('付ける間に札の「✕」で消している間は、写真の上をタップしてもシートを開かない（消す前のタグで保存して、消したタグを戻さない）',
+        (tester) async {
+      final backend = await _openViewer(
+          tester, _photo(tags: [_tag('海鮮丼', x: 0.3), _tag('味噌汁', x: 0.7)]),
+          waitFor: _onPhoto('味噌汁'));
+      await tester.tap(find.byTooltip('タグを付ける'));
+      await letFramesRun(tester);
+      final reply = backend.holdNextReply(TripRoute.updatePhoto);
+
+      await tester.tap(find.byTooltip('味噌汁のタグを消す'));
+      await letFramesRun(tester);
+      await tester.tap(find.text('消す'));
+      await tester.pump();
+      await tester.tapAt(_at(tester, 0.5, 0.9));
+      await tester.pump();
+      expect(find.byType(BottomSheet), findsNothing);
+
+      reply.complete();
+      await letFramesRun(tester);
+      expect(_storedTags(backend), [_tag('海鮮丼', x: 0.3)]);
+      await finishImageLoading(tester);
     });
 
     testWidgets('消している間は、ほかのタグの「✕」・写真の上の名前・「タグを付ける」を押せない', (tester) async {
