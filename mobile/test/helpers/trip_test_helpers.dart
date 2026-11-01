@@ -260,6 +260,10 @@ class FakeTripBackend {
   /// トークンを渡して読み進めると、この数だけ空のページを返したあと、写真の先頭から返す
   final int leadingEmptyPages;
 
+  /// `GET /api/photos` が、これから届く続きのページ（トークンを渡した読み込み）に返す「写真が0枚で、同じトークンが付いた」ページの数。
+  /// 1回返すたびに1減る。途中のページで空のページが返る形（[leadingEmptyPages] の途中版）を作る
+  int emptyContinuationPages = 0;
+
   /// 図鑑の種類（`GET /api/catalog/kinds` の `kinds`）。本物は図鑑に載せる種類（植物）だけを返す（02 §5 #51）。
   /// 既定は、種類が複数あるときの画面（種類のタブ。03 §6.1）を確かめるために3つにしている
   List<Map<String, Object?>> catalogKinds = [
@@ -1064,6 +1068,15 @@ class FakeTripBackend {
       return _ok(200, {
         'photos': <Map<String, Object?>>[],
         'continuationToken': '$emptyTokenPrefix${emptyPagesRead + 1}',
+        'urlExpiresAt': '2026-10-10T04:12:45.000Z',
+      });
+    }
+    // 途中のページでも空のページが返る（本物と同じ）。同じトークンを付けて返すので、読み進めると同じ続きから読む
+    if (token != null && !token.startsWith(emptyTokenPrefix) && emptyContinuationPages > 0) {
+      emptyContinuationPages--;
+      return _ok(200, {
+        'photos': <Map<String, Object?>>[],
+        'continuationToken': token,
         'urlExpiresAt': '2026-10-10T04:12:45.000Z',
       });
     }

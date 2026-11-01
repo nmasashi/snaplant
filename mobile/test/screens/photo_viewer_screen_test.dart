@@ -47,6 +47,25 @@ FakeTripBackend _thirtyThreePhotosBackend() => FakeTripBackend(
       },
     );
 
+/// [_thirtyThreePhotosBackend] の旅行詳細を開き、グリッドを送らずに 10:15 のビューアを開く（2ページ目はまだ要求されていない）。
+/// グリッドが続きを読むのは末尾の6枚以内（10:25〜）を組み立てたときだけなので、10:15 を画面の下端に合わせるところまでだけ送る
+Future<void> _openViewerAt1015BeforeSecondPage(WidgetTester tester, FakeTripBackend backend) async {
+  await openTripsTab(tester, backend);
+  // 1ページ目を止めている間に旅行詳細を開き、組み立ての途中で2ページ目を読ませない
+  final releaseFirstPage = Completer<void>();
+  backend.holds[TripRoute.photos] = releaseFirstPage.future;
+  await tester.tap(find.text('北海道 2026秋'));
+  await letFramesRun(tester);
+  backend.holds.remove(TripRoute.photos);
+  releaseFirstPage.complete();
+  await letFramesRun(tester);
+  await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
+  await tester.pump();
+  await tester.tap(photoThumbnail('2026年10月5日 10:15'));
+  await letFramesRun(tester);
+  expect(backend.photoPagesReceived, 1, reason: '2ページ目はまだ要求されていない');
+}
+
 /// 旅行詳細を開き、[label] の写真のサムネイルをタップしてビューアを開く
 Future<void> _openViewerOn(WidgetTester tester,
     List<Map<String, Object?>> photos, String label) async {
@@ -366,6 +385,43 @@ void main() {
     expect(backend.photoPagesReceived, 3, reason: '「再試行」で2ページ目を要求し直した');
     expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget, reason: '読み直しにまた失敗した');
     expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('写真ビューアで末尾まで来て続きのページが写真の無いページ（続きのトークンあり）で返ったら、末尾のまま続けて次のページを読ませ、届いたら先へスワイプできる',
+      (tester) async {
+    // サーバは途中のページでも、写真の無いページをトークン付きで返すことがある。ビューアは写真の数が変わらなくても、続きがあれば読ませ続ける
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await _openViewerAt1015BeforeSecondPage(tester, backend);
+    backend.emptyContinuationPages = 1;
+
+    for (var i = 0; i < 15; i++) {
+      await _swipe(tester, toNext: true);
+    }
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    await _swipe(tester, toNext: true);
+
+    expect(find.text('2026年10月5日 10:31').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('写真ビューアで末尾まで来て写真の無い続きのページが3回続いたら、読ませるのをやめて「続きを読み込めませんでした」「再試行」を出す',
+      (tester) async {
+    // 一覧と同じく、空のページが続く上限（3回）で止める。偽のサーバは空のページを5回返すので、3回で止めていれば「再試行」が要る
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await _openViewerAt1015BeforeSecondPage(tester, backend);
+    backend.emptyContinuationPages = 5;
+
+    for (var i = 0; i < 15; i++) {
+      await _swipe(tester, toNext: true);
+    }
+
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(backend.photoPagesReceived, 4, reason: '1ページ目と、空の続きのページ3回');
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
     semantics.dispose();
   });
 
