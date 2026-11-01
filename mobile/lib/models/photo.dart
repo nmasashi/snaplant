@@ -13,6 +13,12 @@ class Photo {
   /// 撮影日時（タイムゾーン無しの `YYYY-MM-DDTHH:mm:ss`）。無ければ null
   final String? takenAt;
 
+  /// 撮影日時の出どころ（`exif` / `user`（手で付けた。02 §5 #59）/ `none`）。返さない古い API なら null
+  final String? takenAtSource;
+
+  /// 送った日時（UTC の ISO 8601）。撮影日時を付けるシートの手がかりに出す（03 §5.8）
+  final String? uploadedAt;
+
   /// 緯度・経度（`location`）。位置情報が無ければどちらも null
   final double? latitude;
   final double? longitude;
@@ -53,6 +59,8 @@ class Photo {
     required this.imageUrl,
     this.thumbnailUrl,
     this.takenAt,
+    this.takenAtSource,
+    this.uploadedAt,
     this.latitude,
     this.longitude,
     this.placeName,
@@ -77,6 +85,8 @@ class Photo {
       imageUrl: json['imageUrl'] as String,
       thumbnailUrl: json['thumbnailUrl'] as String?,
       takenAt: json['takenAt'] as String?,
+      takenAtSource: json['takenAtSource'] as String?,
+      uploadedAt: json['uploadedAt'] as String?,
       latitude: (location?['latitude'] as num?)?.toDouble(),
       longitude: (location?['longitude'] as num?)?.toDouble(),
       placeName: location?['placeName'] as String?,
