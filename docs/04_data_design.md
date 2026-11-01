@@ -300,7 +300,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | 欄 | 形 | 付ける主体 | 例 |
 |---|---|---|---|
 | `category`（写真だけ） | `CATALOG_KINDS` のキー（§3）または `other`（`OTHER_KIND`。`api/src/catalog/kinds.ts`）。分類前は `null` | 分類 AI（段階3）。利用者が手で直せる（`PATCH /api/photos/{photoId}`。手で決めたら `categorySource: "user"`。C-1 で実装済み）。**写真にちょうど1つ** | `"food"`、`"other"` |
-| `tags`（写真） | 写真の中の場所に付けるタグの配列（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57）。各要素は `{ name, kind, x, y }`: `name` は前後の空白を除いた 1〜30 文字（`TAG_MAX_LENGTH`）、`kind` は `plant` / `food` / `landscape` / `other`（カテゴリと同じ）、`x`・`y` は向きを直した後の画像の中の位置の割合（左上が 0、右下が 1）。C-4 から `source` は `ai`（AI が提案した）か `user`（利用者が付けた、または直した）。`source` の無いタグ（C-4 より前）は `user` として扱う。1枚に 20 個まで（`TAG_MAX_COUNT`）。同じ名前を何個付けてもよい（重複を除かない）。並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は [03 §5.7](./03_screen_design.md#57-写真のタグ)） | `{ "name": "海鮮丼", "kind": "food", "x": 0.42, "y": 0.61 }` |
+| `tags`（写真） | 写真の中の場所に付けるタグの配列（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57）。各要素は `{ name, kind, x, y }`: `name` は前後の空白を除いた 1〜30 文字（`TAG_MAX_LENGTH`）、`kind` は `plant` / `food` / `landscape` / `other`（カテゴリと同じ）、`x`・`y` は向きを直した後の画像の中の位置の割合（左上が 0、右下が 1）。C-4 から `source` は `ai`（AI が提案した）か `user`（利用者が付けた、または直した）。`source` の無いタグ（C-4 より前）は `user` として扱う。1枚に 20 個まで（`TAG_MAX_COUNT`）。同じ名前を何個付けてもよい（重複を除かない）。並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は [03 §5.7](./03_screen_design.md#57-写真のタグ)・§5.9）。C-4 から AI も（タグが1つも無い食べ物の写真だけ。[06 §9](./06_processing_design.md#9-タグの提案c-4)） | `{ "name": "海鮮丼", "kind": "food", "x": 0.42, "y": 0.61 }` |
 | `tags`（旅行） | 1〜30 文字の文字列の配列（使う画面は無い。C-3 で変えていない） | — | `[]` |
 
 - 分類の確信度やモデル名は `classification` に別に持つ。`category` は「横断して見るための索引」、`classification` は「根拠」
