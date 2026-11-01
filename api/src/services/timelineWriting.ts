@@ -126,7 +126,7 @@ export function assembleCurrent(draft: TimelineDraft, plan: DayPlan[], texts: Ti
     for (const scene of day.scenes) {
       const { label } = written(texts.scenes.get(scene.start), `場面 ${scene.start}`);
       // 場面の一言は AI に書かせない（U-3。02 §5 #55）
-      sceneTexts[scene.start] = { label, labelSource: 'ai', aiLabel: label, note: null, noteSource: null, aiNote: null };
+      sceneTexts[scene.start] = { ...emptySceneText(), label, labelSource: 'ai', aiLabel: label };
     }
     const { title, summary } = written(texts.days.get(day.date), `日 ${day.date}`);
     dayTexts[day.date] = { title, titleSource: 'ai', aiTitle: title, summary, summarySource: 'ai', aiSummary: summary };
@@ -192,7 +192,7 @@ export function mergedExcludedPhotoIds(current: string[] | undefined, draft: str
   return current || draft ? [...new Set([...(current ?? []), ...(draft ?? [])])] : undefined;
 }
 
-/** 区切りを直して足した場面の文（AI が書いていない）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */
+/** 空の場面の文（区切りを直して足した場面。AI が書いた場面も、これに見出しだけを足す。U-3）。場面ごとに別の値にする（同じ値を指すと、片方を変えたときに両方が変わる） */
 function emptySceneText(): TimelineSceneText {
   return { label: null, labelSource: null, aiLabel: null, note: null, noteSource: null, aiNote: null };
 }
