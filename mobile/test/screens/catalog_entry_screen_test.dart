@@ -603,6 +603,30 @@ void main() {
       expect(find.text('戻る'), findsOneWidget);
       expect(find.text('3枚'), findsNothing);
     });
+
+    testWidgets('写真を選んでいる間に、読み直して写真が無くなっていたと分かったら、選択も解いて「この項目には写真がありません」を出す',
+        (tester) async {
+      // 選択モードのままだと、見えない写真の「0枚を選択中」が残り、戻る操作の1回目が選択を解くだけになる
+      final backend = _backend();
+      await _openEntry(tester, backend);
+      await tester.longPress(photoThumbnail(_label('10:00')));
+      await letFramesRun(tester);
+      expect(find.text('1枚を選択中'), findsOneWidget);
+      backend.photosByTripId[hokkaidoTripId]!.clear();
+      backend.photosByTripId[kyotoTripId]!.clear();
+
+      await tester.drag(photoGridScroll(), const Offset(0, 300));
+      await letFramesRun(tester);
+
+      expect(find.text('この項目には写真がありません'), findsOneWidget);
+      expect(find.textContaining('枚を選択中'), findsNothing);
+      expect(find.text('削除'), findsNothing);
+
+      // 端末の戻る操作1回で、項目の画面を閉じられる
+      await tester.binding.handlePopRoute();
+      await letFramesRun(tester);
+      expect(find.text('この項目には写真がありません'), findsNothing);
+    });
   });
 
   testWidgets('長押しで写真を選ぶと、操作は「削除」だけ（旅行へ入れる操作は無い）', (tester) async {

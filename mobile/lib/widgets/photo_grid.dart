@@ -232,6 +232,8 @@ class _PhotoGridState extends State<PhotoGrid> {
       _loadMoreFailed = false;
       _consecutiveEmptyPages = page.photos.isEmpty ? 1 : 0;
     });
+    // 選択を読み直した一覧にある写真に絞る（消された写真や捨てた続きのページの写真を、見えないまま数えて送らない。docs/03_screen_design.md §4.8）
+    widget.selection.retainOnly(page.photos.map((p) => p.id));
     widget.onFirstPageApplied?.call(page);
   }
 
