@@ -309,6 +309,45 @@ void main() {
     await finishImageLoading(tester);
   });
 
+  testWidgets('動かす間に一覧の続きのページが届いても、動かす間を終えない（動かしている写真は置き換わっていない）', (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は1枚（10:31）。グリッドを末尾まで払って2ページ目を要求させ、その返事を止めておく。
+    // 読み込み済みの末尾の 10:30 を開いて動かす間に入ってから、2ページ目を届ける
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 31)],
+      functionKey: 'test-key',
+      pageSize: 30,
+      photosByTripId: {
+        hokkaidoTripId: [
+          for (var n = 1; n <= 31; n++)
+            photoJson(
+                number: n,
+                tripId: hokkaidoTripId,
+                takenAt: '2026-10-05T10:${n.toString().padLeft(2, '0')}:00',
+                tags: n == 30 ? [_tag('ご飯')] : const []),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final reply = backend.holdNextReply(TripRoute.photos);
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+
+    // 札の名前から開けば、画像を読み込まなくても動かす間に入れる
+    await tester.tap(_chipLabel('ご飯'));
+    await letFramesRun(tester);
+    await tester.tap(_inSheet(find.text('位置を動かす')));
+    await letFramesRun(tester);
+    expect(backend.photoPagesReceived, 2, reason: '2ページ目を要求している');
+    reply.complete();
+    await letFramesRun(tester);
+
+    expect(find.text('新しい位置をタップしてください'), findsOneWidget);
+  });
+
   testWidgets('動かす間に写真を削除したら、次の写真では動かす間を終える', (tester) async {
     // 札の名前から開けば、画像を読み込まなくても動かす間に入れる
     await _openViewer(tester, _photo(tags: [_tag('ご飯')]), more: [_photo(number: 2, tags: [_tag('夕食')])]);
