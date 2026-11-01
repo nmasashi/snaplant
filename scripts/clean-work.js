@@ -37,7 +37,8 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--apply') {
       options.apply = true;
-    } else if (arg === '--keep' && i + 1 < argv.length) {
+    } else if (arg === '--keep') {
+      if (i + 1 >= argv.length) throw new Error('--keep の後に、残す .work/ の直下の名前を書いてください');
       const name = argv[++i];
       // 直下の名前だけを受ける（区切りや .. で .work/ の外や奥を指させない）
       if (name === '' || name === '.' || name === '..' || /[\\/]/.test(name)) {
@@ -54,19 +55,35 @@ function parseArgs(argv) {
 /** [target] が .work/ の中（.work/ そのものは除く）にあるか */
 function isInsideRoot(target) {
   const relative = path.relative(root, target);
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+  // 「..」で始まるだけの名前（..cache など）は中にあるので、区切りまで見る
+  const outside = relative === '..' || relative.startsWith('..' + path.sep);
+  return relative !== '' && !outside && !path.isAbsolute(relative);
 }
 
 /**
  * .work/ の直下のうち [keep] に無いものから、リンクの中には入らずに歩く。
- * リンク・ファイル・ディレクトリ（深い順）を分けて返す
+ * リンク・ファイル・ディレクトリ（深い順）と、読めなかったものを分けて返す
  */
 function walk(keep) {
-  const found = { links: [], files: [], dirs: [] };
+  const found = { links: [], files: [], dirs: [], unreadable: [] };
   const visit = (dir) => {
-    for (const name of fs.readdirSync(dir)) {
+    let names;
+    try {
+      names = fs.readdirSync(dir);
+    } catch (error) {
+      found.unreadable.push(`${dir}: ${error.code ?? error.message}`);
+      return;
+    }
+    for (const name of names) {
+      if (dir === root && keep.has(name)) continue;
       const target = path.join(dir, name);
-      const stat = fs.lstatSync(target);
+      let stat;
+      try {
+        stat = fs.lstatSync(target);
+      } catch (error) {
+        found.unreadable.push(`${target}: ${error.code ?? error.message}`);
+        continue;
+      }
       if (stat.isSymbolicLink()) {
         // Node は Windows のジャンクションも isSymbolicLink() で返す
         found.links.push(target);
@@ -78,19 +95,7 @@ function walk(keep) {
       }
     }
   };
-  for (const name of fs.readdirSync(root)) {
-    if (keep.has(name)) continue;
-    const target = path.join(root, name);
-    const stat = fs.lstatSync(target);
-    if (stat.isSymbolicLink()) {
-      found.links.push(target);
-    } else if (stat.isDirectory()) {
-      visit(target);
-      found.dirs.push(target);
-    } else {
-      found.files.push(target);
-    }
-  }
+  visit(root);
   return found;
 }
 
@@ -112,14 +117,14 @@ function removeLink(link) {
   }
 }
 
-/** ファイルを消す。読み取り専用（Git のオブジェクトなど）なら書き込めるようにしてからもう一度 */
-function removeFile(file) {
+/** [remove] で消す。読み取り専用（Git のオブジェクト、展開したアーカイブなど）なら書き込めるようにしてからもう一度 */
+function removeWritable(target, remove) {
   try {
-    fs.unlinkSync(file);
+    remove(target);
   } catch (error) {
     if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error;
-    fs.chmodSync(file, 0o666);
-    fs.unlinkSync(file);
+    fs.chmodSync(target, 0o666);
+    remove(target);
   }
 }
 
@@ -163,6 +168,14 @@ function main() {
     return 1;
   }
 
+  // 打ち間違いや大文字・小文字の違いで、残すつもりのものを消さない（直下の名前と完全に一致するものだけを受ける）
+  const names = new Set(fs.readdirSync(root));
+  const missing = [...options.keep].filter((name) => !names.has(name));
+  if (missing.length > 0) {
+    console.error(`--keep の名前が .work/ の直下にありません: ${missing.join(', ')}`);
+    return 2;
+  }
+
   const found = walk(options.keep);
   console.log(`対象: ${root}`);
   if (options.keep.size > 0) console.log(`残す: ${[...options.keep].join(', ')}`);
@@ -170,9 +183,15 @@ function main() {
   for (const link of found.links) {
     console.log(`  リンク: ${path.relative(root, link)} -> ${linkTarget(link)}`);
   }
+  for (const entry of found.unreadable) console.log(`  読めない: ${entry}`);
   if (!options.apply) {
     console.log('数えただけです（消すには --apply）');
-    return 0;
+    return found.unreadable.length > 0 ? 1 : 0;
+  }
+  // 読めないところの中にリンクがあるかもしれないので、何も消さずに止める
+  if (found.unreadable.length > 0) {
+    console.error('読めないものがあるので、何も消さずに止めます');
+    return 1;
   }
 
   const failures = [];
@@ -185,13 +204,14 @@ function main() {
 
   // リンクを外した後の姿で歩き直し、リンクが残っていないことを確かめる（中をたどって消さないため）
   const rest = walk(options.keep);
+  failures.push(...rest.unreadable);
   if (rest.links.length > 0) {
     console.error('リンクが残っているので止めます:');
     for (const link of rest.links) console.error(`  ${link}`);
     return 1;
   }
-  const files = removeEach(rest.files, removeFile, failures);
-  const dirs = removeEach(rest.dirs, (dir) => fs.rmdirSync(dir), failures);
+  const files = removeEach(rest.files, (file) => removeWritable(file, fs.unlinkSync), failures);
+  const dirs = removeEach(rest.dirs, (dir) => removeWritable(dir, fs.rmdirSync), failures);
 
   console.log(`外したリンク ${links} 個・消したファイル ${files} 個・消したディレクトリ ${dirs} 個`);
   if (failures.length > 0) {
