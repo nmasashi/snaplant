@@ -628,7 +628,8 @@ describe('タイムラインを読むAPI（GET）', () => {
   /** 完成版の控えを置き、removed 以外の控えの写真を旅行の写真として置く */
   const placeCurrentSnapshot = (removed: string[] = []) => {
     cosmosBackend.documents.set(CURRENT_SNAPSHOT_ID, timelinePhotosDocument(CURRENT_SNAPSHOT_ID, TRIP_ID, PHOTOS));
-    PHOTOS.filter((photo) => !removed.includes(photo.id)).forEach((photo) => placePhoto(photo.id));
+    // 今の写真にも控えと同じ撮影日時を置く（控えには日時があるのに今は無い、というずれを作らない）
+    PHOTOS.filter((photo) => !removed.includes(photo.id)).forEach((photo) => placePhoto(photo.id, 'done', TRIP_ID, photo.takenAt));
   };
 
   const getRequest = (tripId: string) => createRequest(tripId, 'GET');
@@ -761,6 +762,16 @@ describe('タイムラインを読むAPI（GET）', () => {
     const data = await read();
 
     expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
+  });
+
+  it('作った後に手で付けた撮影日時を消した写真は、消えた写真に数えない（完成版には控えの日時のまま出す）', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(C.id, photoDocument(C.id, { tripId: TRIP_ID, takenAt: null }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.changes).toEqual({ added: 0, removed: 0 });
   });
 
   it('完成版から外した写真は、作った後に撮影日時を手で付けても増えた写真に数えない（日時のある写真を外したときと同じ）', async () => {
