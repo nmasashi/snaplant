@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/catalog.dart';
 import '../models/photo.dart';
 import '../services/api_service.dart';
@@ -88,13 +89,41 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   // タグを消しているところ（送っている間は、ほかのタグを消す操作と「タグを付ける」を受けない）
   bool _sendingTag = false;
 
+  // 写真の上のタグ（吹き出し）を出すか。アプリ全体で端末に覚える（03 §5.9）
+  bool _tagsVisible = true;
+  // 覚えている値を読み終える前に切り替えを押した（読んだ古い値で押した結果を上書きしない）
+  bool _tagsVisibleToggled = false;
+
   /// 1枚の写真に付けられるタグの数（サーバの TAG_MAX_COUNT の既定値。05 §5.6）
   static const _maxTags = 20;
+
+  /// タグの表示の切り替えを覚えるキー
+  static const _tagsVisibleKey = 'photo_viewer_tags_visible';
 
   @override
   void initState() {
     super.initState();
     widget.photos.addListener(_onPhotosChanged);
+    _loadTagsVisible();
+  }
+
+  /// 覚えているタグの表示の切り替えを読む。
+  /// SettingsService は最初に取った SharedPreferences を持ち越すので、ここでは毎回取り直す
+  Future<void> _loadTagsVisible() async {
+    final prefs = await SharedPreferences.getInstance();
+    final visible = prefs.getBool(_tagsVisibleKey) ?? true;
+    if (mounted && !_tagsVisibleToggled && visible != _tagsVisible) {
+      setState(() => _tagsVisible = visible);
+    }
+  }
+
+  /// 写真の上のタグを出す・隠すを切り替えて覚える
+  Future<void> _toggleTagsVisible() async {
+    final visible = !_tagsVisible;
+    _tagsVisibleToggled = true;
+    setState(() => _tagsVisible = visible);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_tagsVisibleKey, visible);
   }
 
   @override
@@ -393,6 +422,22 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                 backgroundColor: Colors.black54,
                 foregroundColor: Colors.white,
                 actions: [
+                  // 写真の上のタグの表示の切り替え（03 §5.9）
+                  // 読み上げは見た目の文字ではなく、押すとどうなるか（「タグを隠す」／「タグを出す」）だけにする
+                  Tooltip(
+                    message: _tagsVisible ? 'タグを隠す' : 'タグを出す',
+                    excludeFromSemantics: true,
+                    child: TextButton.icon(
+                      onPressed: _toggleTagsVisible,
+                      style:
+                          TextButton.styleFrom(foregroundColor: Colors.white),
+                      icon: Icon(_tagsVisible
+                          ? Icons.label_outline
+                          : Icons.label_off_outlined),
+                      label: Text(_tagsVisible ? 'タグ 表示中' : 'タグ 非表示',
+                          semanticsLabel: _tagsVisible ? 'タグを隠す' : 'タグを出す'),
+                    ),
+                  ),
                   // タグが上限まである写真と、タグを消している間は押せない（03 §5.7）
                   if (_shownPhoto case final photo?)
                     IconButton(
@@ -461,6 +506,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                   key: ValueKey(photos[index].id),
                   photo: photos[index],
                   showInfo: _showChrome,
+                  showTags: _showChrome && _tagsVisible,
                   onRetry: () => _retry(photos[index]),
                   onEditComment: () => _editComment(photos[index]),
                   onEditCategory: () => _editCategory(photos[index]),
@@ -509,6 +555,7 @@ class _PhotoPage extends StatefulWidget {
       {super.key,
       required this.photo,
       required this.showInfo,
+      required this.showTags,
       required this.onRetry,
       required this.onEditComment,
       required this.onEditCategory,
@@ -523,6 +570,9 @@ class _PhotoPage extends StatefulWidget {
 
   /// 下の情報を出すか
   final bool showInfo;
+
+  /// 写真の上のタグ（吹き出し）を出すか（下の情報を出していて、タグの表示が「表示中」のとき。03 §5.9）
+  final bool showTags;
 
   /// 下の情報の「やり直す」（解析に失敗したときに出す）
   final VoidCallback onRetry;
@@ -667,7 +717,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                 imageBuilder: (context, image) => TaggedPhotoImage(
                   image: image,
                   tags: photo.tags,
-                  showTags: widget.showInfo,
+                  showTags: widget.showTags,
                   onTapAt: widget.onTapImageAt,
                   onTapTag: widget.addingTag ? null : widget.onDeleteTag,
                 ),
@@ -716,7 +766,8 @@ class _PhotoPageState extends State<_PhotoPage> {
                                   .copyWith(color: Colors.white)),
                           // カテゴリは押して手で直せる（03 §5.6）。分類を待っている・しているカテゴリの無い写真には出さない
                           if (photo.category != null ||
-                              !isProcessingInProgress(photo.processingState))
+                              !isProcessingInProgress(
+                                  photo.processingStep, photo.processingState))
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
                               child: OutlinedButton(
@@ -736,7 +787,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                                 ),
                               ),
                             ),
-                          // タグの一覧。写真の上の点は読み上げで探せないので、ここでも知らせ、消せるようにする（03 §5.7）
+                          // タグの一覧。写真の上のタグ（吹き出し）は読み上げで探せないので、ここでも知らせ、消せるようにする（03 §5.7）
                           if (photo.tags.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -760,8 +811,15 @@ class _PhotoPageState extends State<_PhotoPage> {
                                 ],
                               ),
                             ),
-                          if (isProcessingInProgress(photo.processingState))
+                          if (isProcessingInProgress(
+                              photo.processingStep, photo.processingState))
                             Text(identifying ? '識別中...' : '分類中...',
+                                style: AppTextStyles.body1
+                                    .copyWith(color: Colors.white70)),
+                          // AI がタグを考えている間（03 §5.9）
+                          if (isSuggestingTags(
+                              photo.processingStep, photo.processingState))
+                            Text('AI がタグを考えています…（写真を閉じても続きます）',
                                 style: AppTextStyles.body1
                                     .copyWith(color: Colors.white70)),
                           if (isProcessingFailed(photo.processingState))

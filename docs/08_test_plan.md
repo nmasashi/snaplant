@@ -374,11 +374,12 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 ### 3.11 タグの提案（C-4）で足すシナリオ（骨格）
 
 **実装済み**（C-4b。`tests/functions/processPhoto.test.ts` の「タグの提案」、`tests/functions/requeueStalePhotos.test.ts`、`tests/scripts/enqueueUntagged.test.ts`）: 下の1〜4番目の行と、スクリプトの行。再投入のタイマーが止まった提案（`tagging`）を拾うこと。
+**実装済み**（C-4c。`mobile/test/screens/photo_viewer_tag_bubbles_test.dart`、サムネイルの印は `photo_classification_test.dart`）: 「写真ビューア」の行のうち、吹き出しで出す・表示の切り替えを覚える・提案を待つ間の文言（待っている・している間は「分類中...」もサムネイルの印も出さない）と、付ける・消すときに残したタグの出どころを受け取ったまま送ること。タグを押して直す・動かす・消すは C-4d。
 
 - 分類の結果が食べ物で、タグが無い写真は、タグの提案の待ち（`pending`・`step: "tag"`）になってキューに積まれる。タグがある・食べ物でない写真は `done`
 - 提案のワーカー: AI に `detail: "high"` の画像と食べ物の名前の決まりを送り、答えの皿ごとに `{ name, kind: "food", x, y, source: "ai" }` のタグを書いて `done`。名前の切り詰め・位置を 0〜1 に収める・21 個目から捨てる。答えが空ならタグは書かずに `done`
 - 提案を待つ間に利用者がタグを付けていたら、タグは書かずに `done`（利用者のタグが残る）
-- AI の失敗・検証違反は `lastError: "ai"` で再投入、上限で `failed`
+- AI の失敗・検証違反は `lastError: "ai"` で再投入、上限でも `failed` にせず、タグ無しのまま `done`（`lastError: "ai"`。[06 §9](./06_processing_design.md#9-タグの提案c-4)）
 - `PATCH /api/photos/{photoId}` の `tags[].source`（**実装済み**（C-4a）。`photoUpdate.test.ts`）: 省くと `user`、`ai`・`user` 以外（`AI`・`null`）は 400 `タグの形式が無効です`（同じ要素の名前も無効なら、名前より先に見てこの文言）。応答の各タグに `source`（無いタグは `user`）
 - 写真ビューア（03 §5.9）: 吹き出しで出す、表示の切り替えを覚える、タグを押して直す・動かす・消す（直したタグは `user` で送る）、提案を待つ間の文言
 - 既にある食べ物の写真のスクリプト: 数えるだけ／`--apply` で待ちにする

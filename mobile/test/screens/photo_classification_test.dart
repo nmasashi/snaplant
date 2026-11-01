@@ -476,11 +476,12 @@ void main() {
     });
   });
 
-  testWidgets('サムネイルは、分類を待っている・している・識別している写真に砂時計の印と読み上げの「、分類中」を、上限まで失敗した写真に「!」の印と「、分類に失敗しました」を足し、分類が済んだ写真には印を付けない', (tester) async {
-    // 5枚を1つの旅行に置く。識別中（段階4）も、分類が済んでいない写真として印を付ける（§5.5）
+  testWidgets('サムネイルは、分類を待っている・している・識別している写真に砂時計の印と読み上げの「、分類中」を、上限まで失敗した写真に「!」の印と「、分類に失敗しました」を足し、分類が済んだ写真と、タグの提案を待っている写真（分類は済んでいる）には印を付けない', (tester) async {
+    // 6枚を1つの旅行に置く。識別中（段階4）も、分類が済んでいない写真として印を付ける（§5.5）。
+    // タグの提案の段（step が tag。C-4c）は、待っている間（pending）も分類が済んでいるので印を付けない
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
-      trips: [hokkaidoTrip(photoCount: 5)],
+      trips: [hokkaidoTrip(photoCount: 6)],
       functionKey: 'test-key',
       photosByTripId: {
         hokkaidoTripId: [
@@ -489,6 +490,7 @@ void main() {
           _photoAt(3, state: 'identifying'),
           _photoAt(4, state: 'failed'),
           _photoAt(5, category: 'food'),
+          _photoAt(6, category: 'food', state: 'pending', step: 'tag'),
         ]
       },
     );
@@ -501,6 +503,7 @@ void main() {
     expect(find.bySemanticsLabel('${_takenAtOf(3)}、分類中'), findsOneWidget);
     expect(find.bySemanticsLabel('${_takenAtOf(4)}、分類に失敗しました'), findsOneWidget);
     expect(find.bySemanticsLabel(_takenAtOf(5)), findsOneWidget);
+    expect(find.bySemanticsLabel(_takenAtOf(6)), findsOneWidget);
     expect(find.byIcon(Icons.hourglass_empty), findsNWidgets(3));
     expect(find.text('!'), findsOneWidget);
     semantics.dispose();

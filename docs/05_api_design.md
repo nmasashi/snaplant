@@ -147,13 +147,13 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`takenAtSource` は撮影日時の出どころで、`"exif"`（送信のときにカメラの記録から読んだ）・`"user"`（利用者が手で付けた。§5.6。**実装済み**（D-1））・`"none"`（撮影日時が無い）のどれか（[04 §1.3](./04_data_design.md#13-写真type-photo)）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
 `category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は写真の中の場所に付けたタグ（[04 §2](./04_data_design.md#2-カテゴリとタグ)。C-3a から各要素は `{ name, kind, x, y }`、C-4a から出どころ `source` も持ち、AI が提案したタグ（`source: "ai"`）も入る。AI がタグを書くのは C-4b から）。
 **実装済み**（C-4a。`services/photoView.ts`）: 各タグに出どころ `source`（`"ai"` / `"user"`）を必ず付けて返す。`source` の無いタグ（C-4a より前に保存したもの）は `"user"` で返す。写真を返すすべての応答（`categorySource` と同じ）に付く。
-**実装済み**（C-3b。`models/photo.dart` の `PhotoTag`）: クライアントは `tags` を読み（無い・`null` なら空）、各要素の `name`・`kind`（文字列）と `x`・`y`（数）を必須として読む。写真ビューアの写真の上と下の情報にタグを出す（[03 §5.7](./03_screen_design.md#57-写真のタグ)）。`source` は読まない（読むのは C-4c から）。
+**実装済み**（C-3b。`models/photo.dart` の `PhotoTag`）: クライアントは `tags` を読み（無い・`null` なら空）、各要素の `name`・`kind`（文字列）と `x`・`y`（数）を必須として読む。写真ビューアの写真の上と下の情報にタグを出す（[03 §5.7](./03_screen_design.md#57-写真のタグ)）。C-4c から `source` も読む（無ければ `user`）。
 `categorySource`（**実装済み**（C-1））は、利用者がカテゴリを手で決めた（§5.6）なら `"user"`、それ以外は `null`。ドキュメントに項目が無い写真（C-1 より前の写真と、手で決めたことも分類からやり直したことも無い写真。[04 §1.3](./04_data_design.md#13-写真type-photo)）も `null` で返す。写真を返すすべての応答（`POST /api/photos`・`GET /api/photos`・`GET` / `PATCH /api/photos/{photoId}`・`process`・`GET /api/catalog/entry` の `photos`）に付く。
 クライアントは C-1 から `categorySource` も読み、写真ビューアのカテゴリのボタンに「（変更済み）」を付ける（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）。
 `commentSource` はカテゴリのシートでも読み、AI のコメント（`"ai"`）なら、保存すると消えることを知らせる（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)。カテゴリの変更で AI のコメントを消す、で実装済み）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
 `processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
-**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。今のアプリ（C-4c の前）はこの2つの値を知らない（表示は [03 §5.1・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。
+**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
@@ -452,7 +452,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2（実装済み）の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 
 **リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number, "source"?: "ai" | "user" }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列。`source` は C-4 から（**実装済み**（C-4a）。`utils/photoInput.ts` の `readPhotoTag`、応答は `services/photoView.ts`）: 省くと `user`、`ai`・`user` のどちらでもなければ（`null` を含む）400 `INVALID_REQUEST`「タグの形式が無効です」（下の表の 8.5。9 の前に見る）。応答の各タグにも `source` を出す（無いタグは `user`。§3.3）。
-アプリは、直さなかったタグは受け取った `source` のまま送り、直したタグと新しく付けたタグは `user` で送る（C-4c。未実装。今のアプリ（C-3b）は `source` を送らないので、送ったタグはすべて `user` で保存される。§8 の `updatePhotoTags`））
+アプリは、直さなかったタグは受け取った `source` のまま送り、直したタグと新しく付けたタグは `user` で送る（**実装済み**（C-4c）。C-3b のアプリは `source` を送らないので、送ったタグはすべて `user` で保存される。§8 の `updatePhotoTags`）
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
@@ -1089,7 +1089,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `deletePhoto(photoId)` | `DELETE /api/photos/{photoId}` | 読まない |
 | `movePhotos(photoIds, tripId)` | `POST /api/photos/move` | `data['moved']`・`data['notFound']` |
 | `updatePhotoComment(photoId, comment)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（4-3c。コメントだけ）。ボディは `{ comment }` で、入力をそのまま送る（前後の空白を除くのと、空・空白だけを `null` と同じに扱うのはサーバ。§5.6）。タグは下の `updatePhotoTags`（C-3b） |
-| `updatePhotoTags(photoId, tags)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-3b）。ボディは `{ tags }`（付ける・消すのどちらも、今のタグに足した・除いた配列ごと。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。写真の `tags`（`name`・`kind`・`x`・`y`）は C-3b から読む。各タグは `name`・`kind`・`x`・`y` だけを送り、`source` は読まず送らない（サーバは `user` で保存する。§5.6。`source` を付けて送るのは C-4c） |
+| `updatePhotoTags(photoId, tags)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-3b）。ボディは `{ tags }`（付ける・消すのどちらも、今のタグに足した・除いた配列ごと。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。写真の `tags`（`name`・`kind`・`x`・`y`）は C-3b から、`source` は C-4c から読む。各タグは `name`・`kind`・`x`・`y`・`source` を送る（C-4c から。残したタグは受け取った出どころのまま、新しく付けたタグは `user`。§5.6） |
 | `updatePhotoTakenAt(photoId, takenAt)` | `PATCH /api/photos/{photoId}` | `data['photo']`。送るのは `{ takenAt }`（タイムゾーン無しの日時か null）。**実装済み**（D-2。[03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）。写真の `takenAtSource`・`uploadedAt` を読む（`Photo`。シートの手がかりと「手で付けた日時」に使う） |
 | `updatePhotoCategory(photoId, category)` | `PATCH /api/photos/{photoId}` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（C-1）。ボディは `{ category }`（`plant` / `food` / `landscape` / `other`）だけ。植物に変えたら、応答の写真は識別の待ち（§5.6） |
 | `requestPhotoProcessing(photoId, {hint, step, placeName})` | `POST /api/photos/{photoId}/process` | `data['photo']`（`urlExpiresAt` は読まない）。**実装済み**（3-4a。`step` は 4-3c、`placeName` は C-2）。ボディは `{ step, hint, placeName }` で、`step` は省くと `'classify'`（やり直しダイアログは、写真のカテゴリが識別の対象（植物・食べ物・風景）で分類が済んでいれば `'identify'`、それ以外なら `'classify'` を渡す。C-1。それまではダイアログの「名前だけ」で `'identify'`）。`hint` は前後の空白を除き、空なら `hint` のキーごと省く。`placeName` は渡したとき（null でないとき）だけ、そのまま（前後の空白を除かず、空でも）送る。null なら `placeName` のキーごと省く（撮影地を変えない）。ダイアログは「場所」の欄を利用者が直したときだけ渡す（直していなければ null。C-2。[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)） |
