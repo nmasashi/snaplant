@@ -901,18 +901,46 @@ describe('写真の解析のワーカー', () => {
       expect(storedPhoto().processing).toEqual({ state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW });
     });
 
-    it.each([
-      ['dishes が配列でない', { dishes: 'ご飯' }],
-      ['名前が空白だけ', { dishes: [{ name: '  ', x: 0.5, y: 0.5 }] }],
-      ['位置が数でない', { dishes: [{ name: 'ご飯', x: '0.5', y: 0.5 }] }]
-    ])('AI の答えが検証に通らなければ（%s）、AI の失敗として待ちに戻し、タグは書かない', async (_label, answer) => {
+    it('AI の答えの dishes が配列でなければ、AI の失敗として待ちに戻し、タグは書かない', async () => {
       cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
-      aiReturns(answer);
+      aiReturns({ dishes: 'ご飯' });
 
       await expect(runWorker()).rejects.toThrow();
 
       expect(storedPhoto().tags).toEqual([]);
       expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'tag', attempts: 1, lastError: 'ai', updatedAt: NOW });
+    });
+
+    it('検証に通らない皿（名前が空白だけ・位置が数でない）は捨て、ほかの皿のタグは書く（全部を頼み直さない）', async () => {
+      // 1皿の誤りで、通った皿まで捨てて detail: high の呼び出しをやり直さない（06 §9）
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ dishes: [{ name: '  ', x: 0.5, y: 0.5 }, { name: 'ご飯', x: '0.5', y: 0.5 }, { name: '味噌汁', x: 0.8, y: 0.4 }] });
+
+      await runWorker();
+
+      expect(storedPhoto().tags).toEqual([{ name: '味噌汁', kind: 'food', x: 0.8, y: 0.4, source: 'ai' }]);
+      expect(storedPhoto().processing).toEqual({ state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW });
+    });
+
+    it('名前の前後の空白は、手で付けるタグと同じく U+0085 も除き、切り詰めた後の末尾の空白も除く', async () => {
+      // 手で付けるタグの検証（05 §9.6）が断る名前を保存しない。保存した後にアプリがタグを送り直すと 400 になるため
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto());
+      aiReturns({ dishes: [{ name: ' カレー\u0085', x: 0.5, y: 0.5 }, { name: `${'あ'.repeat(29)} い`, x: 0.5, y: 0.5 }] });
+
+      await runWorker();
+
+      expect((storedPhoto().tags as any[]).map((tag) => tag.name)).toEqual(['カレー', 'あ'.repeat(29)]);
+    });
+
+    it('タグの提案が上限まで失敗したら、失敗にせず済みにする（タグ無しのまま。画面に分類の失敗と出さない。02 §5 #61）', async () => {
+      // 回数の上限は 3（PHOTO_PROCESSING_MAX_ATTEMPTS の既定）。分類は済んでいるので failed にすると、アプリが「分類に失敗しました」と出す
+      cosmosBackend.documents.set(PHOTO_ID, waitingPhoto({ processing: { state: 'pending', step: 'tag', attempts: 2, lastError: 'ai', updatedAt: '2026-10-18T02:59:00.000Z' } }));
+      aiReturns({ dishes: 'ご飯' });
+
+      await runWorker();
+
+      expect(storedPhoto().tags).toEqual([]);
+      expect(storedPhoto().processing).toEqual({ state: 'done', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: NOW });
     });
   });
 

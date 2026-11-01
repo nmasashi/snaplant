@@ -79,6 +79,8 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     ['タグがある', { tags: [{ name: '夕食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] }],
     ['植物', { category: 'plant' }],
     ['風景', { category: 'landscape' }],
+    // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）。スクリプトもそれに合わせる
+    ['手でカテゴリを食べ物にした', { categorySource: 'user' }],
     ['分類の待ち', { processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: CLASSIFIED_AT } }],
     ['上限まで失敗した（failed）', { processing: { state: 'failed', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: CLASSIFIED_AT } }],
     ['解析の対象になっていない（段階2の none）', { category: null, processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null } }]
