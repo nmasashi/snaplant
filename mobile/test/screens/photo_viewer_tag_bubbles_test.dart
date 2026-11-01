@@ -159,6 +159,21 @@ void main() {
     await finishImageLoading(tester);
   });
 
+  testWidgets('表示の切り替えの読み上げは「タグを隠す」／「タグを出す」だけで、見た目の文字は読まない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _openViewer(tester, [_photo(tags: [_tag('ご飯')])], waitFor: _onPhoto('ご飯'));
+
+    expect(find.bySemanticsLabel('タグを隠す'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('タグ 表示中')), findsNothing);
+    await tester.tap(find.text('タグ 表示中'));
+    await letFramesRun(tester);
+    expect(find.bySemanticsLabel('タグを出す'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('タグ 非表示')), findsNothing);
+
+    await finishImageLoading(tester);
+    semantics.dispose();
+  });
+
   testWidgets('表示の切り替えはアプリ全体で覚え、ビューアを開き直しても、アプリを開き直しても隠したまま', (tester) async {
     final backend = await _openViewer(tester, [_photo(tags: [_tag('ご飯')])], waitFor: _onPhoto('ご飯'));
     await tester.tap(find.text('タグ 表示中'));
