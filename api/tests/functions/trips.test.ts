@@ -253,6 +253,8 @@ describe('旅行API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
+      // 500・503 は内部の例外の文言を返さない（05 §9.3。原因はログで追う）
+      expect(body.error.details).toBeUndefined();
     }));
 
     it('旅行の作成で、原因（cause）が循環したエラーのときも、止まらずに内部エラー（500）を返す', async () => {
