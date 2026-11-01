@@ -18,7 +18,7 @@ interface DayPlan {
 
 /** AI が書いた文（場面は最初の写真の id、日は日付ごと） */
 export interface TimelineAiTexts {
-  scenes: Map<string, { label: string; note: string }>;
+  scenes: Map<string, { label: string }>;
   days: Map<string, { title: string; summary: string }>;
 }
 
@@ -124,8 +124,9 @@ export function assembleCurrent(draft: TimelineDraft, plan: DayPlan[], texts: Ti
   const dayTexts: Record<string, TimelineDayText> = {};
   for (const day of plan) {
     for (const scene of day.scenes) {
-      const { label, note } = written(texts.scenes.get(scene.start), `場面 ${scene.start}`);
-      sceneTexts[scene.start] = { label, labelSource: 'ai', aiLabel: label, note, noteSource: 'ai', aiNote: note };
+      const { label } = written(texts.scenes.get(scene.start), `場面 ${scene.start}`);
+      // 場面の一言は AI に書かせない（U-3。02 §5 #55）
+      sceneTexts[scene.start] = { label, labelSource: 'ai', aiLabel: label, note: null, noteSource: null, aiNote: null };
     }
     const { title, summary } = written(texts.days.get(day.date), `日 ${day.date}`);
     dayTexts[day.date] = { title, titleSource: 'ai', aiTitle: title, summary, summarySource: 'ai', aiSummary: summary };
