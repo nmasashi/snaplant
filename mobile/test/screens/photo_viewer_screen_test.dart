@@ -326,6 +326,47 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('写真ビューアで末尾まで来て続きのページの読み込みに失敗したら、読み込んでいる間は出さず、失敗が届いてから「続きを読み込めませんでした」「再試行」を出し、読み直しにまた失敗したら同じ表示に戻る',
+      (tester) async {
+    // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。グリッドは送らずに10:15を開き（2ページ目は要求されていない）、
+    // ビューアで末尾の10:30まで払って2ページ目を読ませる。失敗の応答を遅らせて、ビューアを開いている間に失敗が届く形にする
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await openTripsTab(tester, backend);
+    final releaseFirstPage = Completer<void>();
+    backend.holds[TripRoute.photos] = releaseFirstPage.future;
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.holds.remove(TripRoute.photos);
+    releaseFirstPage.complete();
+    await letFramesRun(tester);
+    await Scrollable.ensureVisible(tester.element(photoThumbnail('2026年10月5日 10:15')), alignment: 1);
+    await tester.pump();
+    await tester.tap(photoThumbnail('2026年10月5日 10:15'));
+    await letFramesRun(tester);
+    expect(backend.photoPagesReceived, 1, reason: '2ページ目はまだ要求されていない');
+    backend.failNext(TripRoute.photos);
+    final reply = backend.holdNextReply(TripRoute.photos);
+
+    for (var i = 0; i < 15; i++) {
+      await _swipe(tester, toNext: true);
+    }
+
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing, reason: '読み込み中で、まだ失敗していない');
+    reply.complete();
+    await letFramesRun(tester);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget, reason: 'ビューアを開いている間に失敗した');
+
+    backend.failNext(TripRoute.photos);
+    await tester.tap(find.text('再試行').hitTestable());
+    await letFramesRun(tester);
+
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget, reason: '読み直しにまた失敗した');
+    expect(find.text('2026年10月5日 10:30').hitTestable(), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('写真ビューアを開いている間に旅行が無いと分かったら、ビューアを閉じて「この旅行は削除されています」を出す',
       (tester) async {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
