@@ -29,6 +29,8 @@ class PhotoViewerScreen extends StatefulWidget {
       required this.initialIndex,
       required this.onReachEnd,
       required this.hasMore,
+      this.loadMoreFailed,
+      this.onRetryLoadMore,
       required this.onDeleted,
       required this.onUpdated});
 
@@ -48,6 +50,13 @@ class PhotoViewerScreen extends StatefulWidget {
 
   /// 一覧にまだ読んでいない続きのページがあるか
   final bool Function() hasMore;
+
+  /// 一覧の続きのページの読み込みに失敗しているか（一覧と共有する）。失敗していたら、読み込み済みの末尾で知らせて
+  /// [onRetryLoadMore] で読み直させる（docs/03_screen_design.md §4.6）。続きの無い一覧（タイムラインの場面）は渡さない
+  final ValueListenable<bool>? loadMoreFailed;
+
+  /// 失敗した続きのページを一覧に読み直させる
+  final VoidCallback? onRetryLoadMore;
 
   /// 写真を削除できたときに呼ぶ（一覧の読み込み済みの写真から除く）
   final void Function(String photoId) onDeleted;
@@ -157,6 +166,40 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     }
     // 次の写真が無い（一覧の末尾の写真だった）なら一覧へ戻る
     Navigator.pop(context);
+  }
+
+  /// 続きのページの読み込みに失敗したときに、読み込み済みの末尾の写真（削除で使い切って続きを待っている間も）の下に出す知らせ
+  Widget? _loadMoreFailedBar() {
+    final failed = widget.loadMoreFailed;
+    final retry = widget.onRetryLoadMore;
+    if (failed == null || retry == null) return null;
+    return ValueListenableBuilder<bool>(
+      valueListenable: failed,
+      builder: (context, isFailed, _) {
+        // 削除で使い切って続きを待っている間は、今の位置が読み込み済みの写真の外にあるので、これで一緒に見る
+        final atEnd = _index >= widget.photos.value.length - 1;
+        if (!isFailed || !atEnd) return const SizedBox.shrink();
+        return SafeArea(
+          child: Container(
+            color: Colors.black87,
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('続きを読み込めませんでした',
+                    style: TextStyle(color: Colors.white)),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: retry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('再試行'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// 今出している写真の位置と写真。削除で読み込み済みの写真を使い切り、続きのページを待っている間は null
@@ -325,6 +368,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
+        bottomNavigationBar: _loadMoreFailedBar(),
         appBar: _showChrome
             ? AppBar(
                 backgroundColor: Colors.black54,
