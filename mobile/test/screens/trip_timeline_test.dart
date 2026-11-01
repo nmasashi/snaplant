@@ -490,30 +490,33 @@ void main() {
       expect(find.text('見出しとまとめを書いています'), findsOneWidget);
     });
 
-    testWidgets(
-        '失敗した下書きの「やめる」は、確認で「キャンセル」なら何もせず、「捨てる」なら下書きを捨てて「タイムラインはまだありません」に戻る',
-        (tester) async {
-      // 撮影日時のある写真を全部消した後などは「もう一度」が通らないので、失敗した下書きから抜けられるようにする（02 §5 #58）
-      final backend = await _openTripDetail(tester,
-          timeline: _timeline(
-              draft: _draft('proposing',
-                  step: 'propose', state: 'failed', lastError: 'ai')));
-      await _showTimeline(tester);
+    // 撮影日時のある写真を全部消した後などは「もう一度」が通らないので、失敗した下書きから抜けられるようにする（02 §5 #58）。
+    // 案の失敗と文の失敗の両方で、同じ規則を通す（行ごとにアプリを開き直すので、状態を持ち越さない）
+    for (final (name, draft, title) in [
+      ('案', _draft('proposing', step: 'propose', state: 'failed', lastError: 'ai'), 'タイムラインの案を作れませんでした'),
+      ('見出しとまとめ', _draft('writing', step: 'write', state: 'failed', lastError: 'ai'), '見出しとまとめを書けませんでした'),
+    ]) {
+      testWidgets(
+          '失敗した下書き（$name）の「やめる」は、確認で「キャンセル」なら何もせず、「捨てる」なら下書きを捨てて「タイムラインはまだありません」に戻る',
+          (tester) async {
+        final backend = await _openTripDetail(tester, timeline: _timeline(draft: draft));
+        await _showTimeline(tester);
 
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      expect(find.text('作りかけのタイムラインを捨てますか？'), findsOneWidget);
-      await tapInDialog(tester, 'キャンセル');
-      expect(_draftOf(backend), isNotNull);
-      expect(find.text('タイムラインの案を作れませんでした'), findsOneWidget);
+        await tester.tap(find.text('やめる'));
+        await letFramesRun(tester);
+        expect(find.text('作りかけのタイムラインを捨てますか？'), findsOneWidget);
+        await tapInDialog(tester, 'キャンセル');
+        expect(_draftOf(backend), isNotNull);
+        expect(find.text(title), findsOneWidget);
 
-      await tester.tap(find.text('やめる'));
-      await letFramesRun(tester);
-      await tapInDialog(tester, '捨てる');
+        await tester.tap(find.text('やめる'));
+        await letFramesRun(tester);
+        await tapInDialog(tester, '捨てる');
 
-      expect(_draftOf(backend), isNull);
-      expect(find.text('タイムラインはまだありません'), findsOneWidget);
-    });
+        expect(_draftOf(backend), isNull);
+        expect(find.text('タイムラインはまだありません'), findsOneWidget);
+      });
+    }
 
     testWidgets('作り直しの下書き（rebuild。完成版が残っている）があれば、完成版があっても作っている間の表示にする',
         (tester) async {
