@@ -459,7 +459,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
 | 8 | `tags` の要素にオブジェクトでないもの（`null`・配列・文字列を含む）がある | 400 `INVALID_REQUEST` | `タグの形式が無効です` |
 | 9 | `tags` の要素の `name` が文字列でないか、前後の空白を除いて空か 30 文字を超える（数え方は §9.6。U+0085 だけの名前も空） | 400 `INVALID_REQUEST` | `タグの名前は1〜30文字で指定してください` |
-| 9.1 | `tags` の要素の `kind` が `plant` / `food` / `landscape` / `other` のどれでもない | 400 `INVALID_REQUEST` | `タグの種類が無効です` |
+| 9.1 | `tags` の要素の `kind` が `plant` / `food` / `landscape` / `other` のどれでもない（大文字小文字の違い（`Food`）を含む） | 400 `INVALID_REQUEST` | `タグの種類が無効です` |
 | 9.2 | `tags` の要素の `x`・`y` が、0 以上 1 以下の数でない（文字列・`null`・無い・範囲の外） | 400 `INVALID_REQUEST` | `タグの位置が無効です` |
 | 9.5 | `tags` が 20 個を超える（`TAG_MAX_COUNT`。同じ名前も数える） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |

@@ -276,7 +276,9 @@ describe('写真更新API', () => {
     const request = createUpdatePhotoRequest(PHOTO_ID, {
       tags: [
         { name: '  夕食 ', kind: 'food', x: 0, y: 1, memo: '保存しない' },
-        { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 }
+        { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 },
+        { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5 },
+        { name: '箸置き', kind: 'other', x: 0.6, y: 0.4 }
       ]
     });
 
@@ -285,7 +287,9 @@ describe('写真更新API', () => {
     expect(response.status).toBe(200);
     const saved = [
       { name: '夕食', kind: 'food', x: 0, y: 1 },
-      { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 }
+      { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 },
+      { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5 },
+      { name: '箸置き', kind: 'other', x: 0.6, y: 0.4 }
     ];
     const body = response.jsonBody as any;
     expect(body.data.photo.tags).toEqual(saved);
@@ -333,6 +337,7 @@ describe('写真更新API', () => {
     ['タグの名前が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag(` ${'あ'.repeat(31)} `)] }), 'タグの名前は1〜30文字で指定してください'],
     ['タグの種類が分類の種類に無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal' })] }), 'タグの種類が無効です'],
     ['タグの種類が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', x: 0.5, y: 0.5 }] }), 'タグの種類が無効です'],
+    ['タグの種類の大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'Food' })] }), 'タグの種類が無効です'],
     ['タグの x が 1 を超える', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { x: 1.01 })] }), 'タグの位置が無効です'],
     ['タグの y が負', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { y: -0.01 })] }), 'タグの位置が無効です'],
     ['タグの x が数の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { x: '0.5' })] }), 'タグの位置が無効です'],
@@ -340,6 +345,10 @@ describe('写真更新API', () => {
     ['タグの y が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', kind: 'food', x: 0.5 }] }), 'タグの位置が無効です'],
     // 上限は同じ名前のタグも数える（同じ名前を除かない。02 §5 #57）
     ['tagsが同じ名前を含めて21個', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), tag('タグ1')] }), 'タグは20個までです'],
+    // タグの中の順（要素ごとに先頭から。1つの要素の中では 8 → 9 → 9.1 → 9.2。05 §5.6）
+    ['1つのタグで名前・種類・位置が全部無効(名前の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '', kind: 'animal', x: 5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
+    ['1つのタグで種類と位置が無効(種類の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal', x: 5 })] }), 'タグの種類が無効です'],
+    ['1つ目のタグの種類が無効で2つ目が文字列(先の要素の理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal' }), '旅館'] }), 'タグの種類が無効です'],
     // 数は要素の中身より先に見る（大きな配列を、全部の要素を確かめてから断らない）
     ['tagsが21個で、中に形式の無効なものがある', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [...tagsOf(20), null] }), 'タグは20個までです'],
     // カテゴリは分類の種類（plant・food・landscape・other）のどれか。大文字小文字も区別する
