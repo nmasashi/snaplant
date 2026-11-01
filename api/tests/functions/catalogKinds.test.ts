@@ -11,7 +11,7 @@ describe('図鑑の種類の一覧API', () => {
   } as any as HttpRequest;
 
   it('図鑑に載せる種類（植物）だけを、種類ごとの項目（キー・表示名・型）と一緒に返す', async () => {
-    // アプリは種類のタブと項目詳細の欄をここから作る（04 §3.2）。AI に渡す指示（prompt・namingRule）は返さない。
+    // アプリは種類のタブと項目詳細の欄をここから作る（04 §3.2）。AI に渡す指示（prompt・namingRule・commentRule）は返さない。
     // 食べ物・風景は識別はできるが図鑑には載せない（02 §5 #51）
     const response = await listCatalogKindsHandler(request, { log: jest.fn() } as any as InvocationContext);
 
