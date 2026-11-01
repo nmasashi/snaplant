@@ -109,7 +109,12 @@ class _TagEditSheetState extends State<TagEditSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final canSave = !_busy && _name.text.trim().isNotEmpty;
+    final name = _name.text.trim();
+    final editing = _editing;
+    // 直すときは、何も変えずに保存して AI のタグの出どころを user に変えない（03 §5.9.3）
+    final changed =
+        editing == null || name != editing.name || _kind != editing.kind;
+    final canSave = !_busy && name.isNotEmpty && changed;
     // 保存を待っている間は閉じない（閉じると、保存されたのに表示が古いまま残る。カテゴリのシートと同じ）
     return PopScope(
       canPop: !_busy,
