@@ -74,10 +74,15 @@ export class PhotoTaggerService {
         throw new Error('dishesが配列ではありません');
       }
       // 通らない皿だけを捨てる（1皿の誤りで、通った皿まで捨てて detail: high の呼び出しをやり直さない）
-      return result.dishes
+      const suggestions = result.dishes
         .map(toSuggestion)
         .filter((dish): dish is DishSuggestion => dish !== null)
         .slice(0, TAG_VALIDATION.MAX_COUNT);
+      // 答えた皿がどれも通らないのは「料理が無い」ではないので、AI の失敗にしてやり直す
+      if (result.dishes.length > 0 && suggestions.length === 0) {
+        throw new Error('答えた料理がどれも検証に通りません');
+      }
+      return suggestions;
     } catch (error: any) {
       throw new UpstreamError(`タグの提案に失敗しました: ${error.message}`, 'ai', error);
     }
