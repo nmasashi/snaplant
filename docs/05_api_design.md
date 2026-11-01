@@ -45,7 +45,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/photos/move` | POST | `{ moved, notFound }` | `{ photoIds, tripId }`。送り方 ③ と「外す」。1回 200 件まで | 2 | `photoMove.ts` |
 | `/api/photos/{photoId}` | GET | `{ photo, urlExpiresAt }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
-| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み）。`tags` の形（`{ name, kind, x, y }`）は C-3a、タグの画面は C-3b（どちらも実装済み） | 2 | `photoDetail.ts` |
+| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, takenAt?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み）。`tags` の形（`{ name, kind, x, y }`）は C-3a、タグの画面は C-3b（どちらも実装済み）。`takenAt`（撮影日時を手で付ける。カメラの撮影日時の写真は 409）は D-1（実装済み）、画面は D-2 | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint?, placeName? }`。写真に `step`・`hint` を書いてキューに投入。`placeName`（撮影地の地名を直す）は C-2（実装済み） | 3（`identify` は4） | `photoProcess.ts` |
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの名前の `DISTINCT` | 未定（C-3 には入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
@@ -144,7 +144,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 クライアントは `latitude`・`longitude`・`placeName` を読み（`latitude`・`longitude` は `null` 可として読む。`location` が `null` のときと地名だけの撮影地のとき）、写真ビューアの下の情報に地名（無ければ緯度・経度、`location` が `null` なら「位置情報なし」）を出す（[03 §4.6](./03_screen_design.md#46-写真ビューア)）。`placeSource` は読まない。
 C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの「場所」の欄の事前入力と、欄の下の案内の出し分けにも使う（[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)）。
 段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。段階4（4-3c）からは `processing.step`（無ければ `null`。状態の表示を「分類中...」「識別中...」に分ける）と `identification` の `kind`・`matchesKind`・`name`（図鑑の項目へのリンクと、分類と合わない写真の案内。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）も読む。`processing` のほかの項目、`classification`、`identification` のほかの項目は読まない。
-`takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
+`takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`takenAtSource` は撮影日時の出どころで、`"exif"`（送信のときにカメラの記録から読んだ）・`"user"`（利用者が手で付けた。§5.6。**実装済み**（D-1））・`"none"`（撮影日時が無い）のどれか（[04 §1.3](./04_data_design.md#13-写真type-photo)）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
 `category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)。C-3a から各要素は `{ name, kind, x, y }`）。
 **実装済み**（C-3b。`models/photo.dart` の `PhotoTag`）: クライアントは `tags` を読み（無い・`null` なら空）、各要素の `name`・`kind`（文字列）と `x`・`y`（数）を必須として読む。写真ビューアの写真の上と下の情報にタグを出す（[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 `categorySource`（**実装済み**（C-1））は、利用者がカテゴリを手で決めた（§5.6）なら `"user"`、それ以外は `null`。ドキュメントに項目が無い写真（C-1 より前の写真と、手で決めたことも分類からやり直したことも無い写真。[04 §1.3](./04_data_design.md#13-写真type-photo)）も `null` で返す。写真を返すすべての応答（`POST /api/photos`・`GET /api/photos`・`GET` / `PATCH /api/photos/{photoId}`・`process`・`GET /api/catalog/entry` の `photos`）に付く。
@@ -296,7 +296,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 | 10 | `thumbnail` が 0 バイト | 400 `INVALID_REQUEST` | `サムネイルが空です` |
 | 11 | `thumbnail` が `THUMBNAIL_MAX_SIZE` を超える | 413 `FILE_TOO_LARGE` | `サムネイルのサイズが大きすぎます` |
 | 12 | `tripId` があり、UUID 形式でない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
-| 13 | `takenAt` があり、`YYYY-MM-DDTHH:mm:ss` でないか実在しない日時 | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
+| 13 | `takenAt` があり、`YYYY-MM-DDTHH:mm:ss` でないか実在しない日時（日付だけ・タイムゾーン付き（`Z`）・日付と時刻の間が `T` でなく空白・2月30日・25時・60分を含む） | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
 | 14 | `latitude` と `longitude` の片方だけがある | 400 `INVALID_REQUEST` | `緯度と経度は両方指定してください` |
 | 15 | `latitude` / `longitude` が数値でない、または範囲外（緯度 -90〜90、経度 -180〜180） | 400 `INVALID_REQUEST` | `位置情報の形式が無効です` |
 | 16 | `placeName` があり、緯度・経度が無い | 400 `INVALID_REQUEST` | `地名は緯度・経度と一緒に指定してください` |
@@ -445,6 +445,8 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 **実装済み**（カテゴリの変更で AI のコメントを消す。`AlbumService.updatePhoto()`）: `category` で AI が書いたコメント（`commentSource: "ai"`）を条件付き patch で消すこと（下の `category` の項目の2つ目の中ほどと、「書き込みは」の項目）。
 
+**実装済み**（D-1。`photoDetail.ts`・`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）: `takenAt`（利用者が撮影日時を手で付ける・直す・消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）。表の 4 の条件と 9.7・11、下の `takenAt` の項目、「書き込みは」の項目の撮影日時の分。
+
 利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2 の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
 
 **リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
@@ -464,13 +466,14 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 9.2 | `tags` の要素の `x`・`y` が、0 以上 1 以下の数でない（文字列・`null`・無い・範囲の外） | 400 `INVALID_REQUEST` | `タグの位置が無効です` |
 | 9.5 | `tags` が 20 個を超える（`TAG_MAX_COUNT`。同じ名前も数える） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
-| 9.7 | `takenAt` があり、`null` でも、実在する日時の `YYYY-MM-DDTHH:mm:ss`（タイムゾーン無し。写真の送信と同じ検証）でもない | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
+| 9.7 | `takenAt` があり、`null` でも、実在する日時の `YYYY-MM-DDTHH:mm:ss`（タイムゾーン無し。写真の送信と同じ検証）の文字列でもない（数値・配列のように文字列でない値は、文字列に直すと正しい日時になる値（`["2026-10-05T12:00:00"]`）でも当たる。2月30日のような実在しない日時も当たる） | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 | 11 | `takenAt` があり、写真の撮影日時がカメラの記録（EXIF）から読んだもの（`takenAtSource` が `"exif"`） | 409 `TAKEN_AT_FROM_CAMERA` | `カメラが記録した撮影日時は変えられません` |
 
 検証は `photoId`（1）→ ボディ（2〜9.7。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 → `takenAt` の 9.7 の順）→ 写真があるか（10）→ カメラが記録した撮影日時か（11。`takenAt` を送ったときだけ。写真を読んで分かる）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
 タグの要素の 8〜9.2 は要素ごとに先頭から見て、1つの要素の中では 8 → 9 → 9.1 → 9.2 の順に確かめ、最初に当たった条件の `message` を返す（例: 1つ目の要素の種類が無効で2つ目が文字列なら、9.1 の `タグの種類が無効です`）。ただし数の上限（9.5）は要素の中身より先に見る（20 個を超える配列は、要素を確かめずに 9.5 で断る。大きな配列を全部確かめてから断らないため。/code-review の指摘）（**実装済み**（C-3a））。
-ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`tags`・`category` のどれも無いものとして扱い、4 になる。`comment`・`tags`・`category` 以外のキー（`hint` など）は無視し、それだけなら 4。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`takenAt`・`tags`・`category` のどれも無いものとして扱い、4 になる。`comment`・`takenAt`・`tags`・`category` 以外のキー（`hint` など）は無視し、それだけなら 4。
+11 で断るときは何も書かない（`comment`・`tags`・`category` を一緒に送っても、どれも書かない）。
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
@@ -491,7 +494,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
     **投入に失敗してもログだけ出して 200 を返す**（`PHOTO_QUEUE_NAME` が無いときも同じ。写真は識別の待ちのまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）
   - `classification`（AI の分類の根拠）は書き換えない（手で直した後は `category` と食い違いうる）
   - 走っている分類・識別の結果は、`processing` を書き換えたので担当の条件（[06 §1.3](./06_processing_design.md#13-状態と失敗)）に合わず捨てられ、手で決めたカテゴリを上書きしない。ワーカーは `categorySource` を見ない
-- 書き込みは1回の patch（`category` を送ったときは、その前に写真を1回読む。カテゴリが変わるか分類を止めるときは、コメントの出どころを条件にし、合わなければ読むところからやり直す）。`comment`・`tags` だけなら `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
+- 書き込みは1回の patch（`category` か `takenAt` を送ったときは、その前に写真を1回読む（両方送っても1回）。`takenAt` の分は条件を付けない。カテゴリが変わるか分類を止めるときは、コメントの出どころを条件にし、合わなければ読むところからやり直す）。`comment`・`tags` だけなら `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
   **解析中（`processing.state` が `pending` / `classifying` / `identifying`）でも受け付ける**（ロックは無い）
 - 応答は 200 `{ photo, urlExpiresAt }`（§5.3 と同じ形。更新後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
 - Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真の更新に失敗しました`。
@@ -1017,6 +1020,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 400 / 413 / 415 / 500 / 502 / 503 | 既存のコード | 既存と同じ意味 | |
 
 段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）と `POST …/recut`・`PATCH` の2つ（5-2b。`タイムラインが見つかりません`、`PATCH` はほかに `その日はタイムラインにありません`・`その場面はタイムラインにありません`）、`POST …/draft/excluded-photos`（T-1。`タイムラインの下書きが見つかりません`）・`POST …/excluded-photos`（T-1。`タイムラインが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`・`POST …/recut`・`PATCH` の2つ・`POST …/draft/excluded-photos`・`POST …/excluded-photos`（T-1）（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING` が `POST …/timeline`、`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`・`POST …/draft/write`・`POST …/excluded-photos`・`POST …/draft/excluded-photos`（後の3つは出す写真が無くなるとき。T-2・T-2c。文言は `utils/response.ts` の `createNoDatedPhotosError()` で共有）。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。§5.15 のタイムラインのエンドポイントは全部実装済み（5-2b。写真を外す2つは T-1）。
+`TAKEN_AT_FROM_CAMERA` は D-1 で `types/api.ts` に足し、`PATCH /api/photos/{photoId}` だけが返す（`カメラが記録した撮影日時は変えられません`。§5.6 の 11。**実装済み**（D-1））。
 
 図鑑の項目は文書ではないので `ENTRY_NOT_FOUND` は置かない（該当する写真が無ければ 200 で `entry: null`。§5.14）。
 
@@ -1150,7 +1154,7 @@ API 全体に共通する、認証・応答の封筒・エラー・AI 識別サ�
 | `DATABASE_ERROR` | 503 | Cosmos DB へ接続できない（`データベースに接続できません`） |
 | `AI_SERVICE_ERROR` | 502 / 503 | AI 識別サービスの呼び出しの失敗。今は返すエンドポイントが無い（AI を呼ぶのは裏のワーカーだけで、ワーカーは応答を返さない） |
 
-段階5のタイムラインのコード（`TIMELINE_NOT_FOUND` 404・`TIMELINE_STATE_CONFLICT`・`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` 409。5-1a で `ErrorCode` に足した）は §7.1。
+段階5のタイムラインのコード（`TIMELINE_NOT_FOUND` 404・`TIMELINE_STATE_CONFLICT`・`TIMELINE_PHOTOS_PROCESSING`・`TIMELINE_NO_DATED_PHOTOS` 409。5-1a で `ErrorCode` に足した）と、撮影日時を手で付けるときのコード（`TAKEN_AT_FROM_CAMERA` 409。D-1 で足した。**実装済み**）は §7.1。
 
 **401 はこの表に載せていない。** Function Key が未指定・無効な場合は Azure Functions のランタイムが 401 を返し、アプリケーションのコードに届かない。
 そのため応答は封筒にならず、`ErrorCode` にも対応する定義を持たない（以前は `UNAUTHORIZED` / `INVALID_API_KEY` が定義されていたが、生成箇所が構造的に無いため削除した）。
