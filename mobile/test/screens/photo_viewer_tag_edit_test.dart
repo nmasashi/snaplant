@@ -99,10 +99,13 @@ Future<void> _startMoving(WidgetTester tester, String name) async {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('写真の上の吹き出しを押すと「タグを直す」シートを開き、今の名前と種類が入っている。「キャンセル」では何も送らない', (tester) async {
+  testWidgets(
+      '写真の上の吹き出しか下の情報の札の名前を押すと「タグを直す」シートを開き、今の名前と種類が入っている。名前が前後の空白を除いて空なら「保存」を押せず、「キャンセル」では何も送らない',
+      (tester) async {
     final tags = [_tag('ご飯', source: 'ai', x: 0.2), _tag('羊蹄山', kind: 'landscape', x: 0.7)];
     final backend = await _openViewer(tester, _photo(tags: tags), waitFor: _onPhoto('羊蹄山'));
 
+    // 写真の上の吹き出しから
     await _openEditSheet(tester, '羊蹄山');
 
     expect(_inSheet(find.text('タグを直す')), findsOneWidget);
@@ -114,17 +117,21 @@ void main() {
     await letFramesRun(tester);
     expect(find.byType(BottomSheet), findsNothing);
     expect(_storedTags(backend), tags);
-    await finishImageLoading(tester);
-  });
 
-  testWidgets('下の情報の札の名前を押しても「タグを直す」シートを開く', (tester) async {
-    await _openViewer(tester, _photo(tags: [_tag('ご飯')]), waitFor: _onPhoto('ご飯'));
-
+    // 下の情報の札の名前から。名前を空白だけにすると「保存」を押せない（付けるシートと同じ。§5.7）
     await tester.tap(_chipLabel('ご飯'));
     await letFramesRun(tester);
 
     expect(_inSheet(find.text('タグを直す')), findsOneWidget);
     expect(tester.widget<TextField>(_inSheet(find.byType(TextField))).controller!.text, 'ご飯');
+    await tester.enterText(_inSheet(find.byType(TextField)), '   ');
+    await tester.pump();
+    expect(_saveButton(tester).onPressed, isNull);
+
+    await tester.tap(_inSheet(find.text('キャンセル')));
+    await letFramesRun(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(_storedTags(backend), tags);
     await finishImageLoading(tester);
   });
 
@@ -148,17 +155,6 @@ void main() {
     expect(find.byType(BottomSheet), findsNothing);
     expect(_onPhoto('白ご飯'), findsOneWidget);
     expect(_chipLabel('白ご飯'), findsOneWidget);
-    await finishImageLoading(tester);
-  });
-
-  testWidgets('名前が前後の空白を除いて空なら「保存」を押せない', (tester) async {
-    await _openViewer(tester, _photo(tags: [_tag('ご飯')]), waitFor: _onPhoto('ご飯'));
-
-    await _openEditSheet(tester, 'ご飯');
-    await tester.enterText(_inSheet(find.byType(TextField)), '   ');
-    await tester.pump();
-
-    expect(_saveButton(tester).onPressed, isNull);
     await finishImageLoading(tester);
   });
 
@@ -265,20 +261,5 @@ void main() {
     await finishImageLoading(tester);
   });
 
-  testWidgets('「このタグを消す」で確認を出し、「消す」でそのタグを除いて送る', (tester) async {
-    final backend = await _openViewer(
-        tester, _photo(tags: [_tag('ご飯', source: 'ai', x: 0.2), _tag('夕食', x: 0.7)]),
-        waitFor: _onPhoto('夕食'));
-
-    await _openEditSheet(tester, '夕食');
-    await tester.tap(_inSheet(find.text('このタグを消す')));
-    await letFramesRun(tester);
-    expect(find.byType(BottomSheet), findsNothing);
-    expect(find.text('「夕食」のタグを消しますか？'), findsOneWidget);
-    await tester.tap(find.text('消す'));
-    await letFramesRun(tester);
-
-    expect(_storedTags(backend), [_tag('ご飯', source: 'ai', x: 0.2)]);
-    await finishImageLoading(tester);
-  });
+  // 「このタグを消す」で確認を出して消すことは、§5.7 の「消す」と同じ確認・送り方なので photo_viewer_tags_test.dart の「タグを消す」で見る
 }

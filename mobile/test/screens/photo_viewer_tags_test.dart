@@ -415,6 +415,8 @@ void main() {
       await letFramesRun(tester);
       await tester.tap(_inSheet(find.text('このタグを消す')));
       await letFramesRun(tester);
+      // 直すシートを閉じてから確認を出す（§5.9.3）
+      expect(find.byType(BottomSheet), findsNothing);
       expect(find.text('「海鮮丼」のタグを消しますか？'), findsOneWidget);
       await tester.tap(find.text('キャンセル'));
       await letFramesRun(tester);
