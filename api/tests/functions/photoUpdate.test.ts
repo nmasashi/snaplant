@@ -36,8 +36,8 @@ const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=tests
 // 写真の id(画像のバイト列の SHA-256。小文字16進 64 文字)。このファイルでは画像のバイト列は使わない
 const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1';
 
-// タグ（名前・種類・位置。04 §2）。種類と位置は既定の値にし、見たい項目だけを変える
-const tag = (name: string, overrides: Record<string, unknown> = {}): PhotoTag => ({ name, kind: 'food', x: 0.5, y: 0.5, ...overrides });
+// タグ（名前・種類・位置・出どころ。04 §2）。種類・位置・出どころは既定の値にし、見たい項目だけを変える
+const tag = (name: string, overrides: Record<string, unknown> = {}): PhotoTag => ({ name, kind: 'food', x: 0.5, y: 0.5, source: 'user', ...overrides });
 // 個数 count のタグ(タグ1、タグ2、…)。個数の上限を境界で見るために使う
 const tagsOf = (count: number) => Array.from({ length: count }, (_, i) => tag(`タグ${i + 1}`));
 
@@ -268,7 +268,7 @@ describe('写真更新API', () => {
     expect((cosmosBackend.documents.get(PHOTO_ID) as any).comment).toBe(saved);
   }));
 
-  it('タグ（名前・種類・位置）を送ると、元のタグは消えて送ったタグに置き換わる。名前の前後の空白を除き、ほかのキーは保存せず、カテゴリは変わらない', async () => {
+  it('タグ（名前・種類・位置・出どころ）を送ると、元のタグは消えて送ったタグに置き換わる。名前の前後の空白を除き、出どころを省いたタグは利用者のものにし、ほかのキーは保存せず、カテゴリは変わらない', async () => {
     freezeNow();
     const photo = storedPhoto({ tags: [tag('朝食'), tag('旅館')], category: 'food' });
     cosmosBackend.documents.set(PHOTO_ID, photo);
@@ -276,8 +276,8 @@ describe('写真更新API', () => {
     const request = createUpdatePhotoRequest(PHOTO_ID, {
       tags: [
         { name: '  夕食 ', kind: 'food', x: 0, y: 1, memo: '保存しない' },
-        { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 },
-        { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5 },
+        { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75, source: 'ai' },
+        { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5, source: 'user' },
         { name: '箸置き', kind: 'other', x: 0.6, y: 0.4 }
       ]
     });
@@ -286,10 +286,10 @@ describe('写真更新API', () => {
 
     expect(response.status).toBe(200);
     const saved = [
-      { name: '夕食', kind: 'food', x: 0, y: 1 },
-      { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75 },
-      { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5 },
-      { name: '箸置き', kind: 'other', x: 0.6, y: 0.4 }
+      { name: '夕食', kind: 'food', x: 0, y: 1, source: 'user' },
+      { name: '温泉', kind: 'landscape', x: 0.25, y: 0.75, source: 'ai' },
+      { name: '紅葉', kind: 'plant', x: 0.5, y: 0.5, source: 'user' },
+      { name: '箸置き', kind: 'other', x: 0.6, y: 0.4, source: 'user' }
     ];
     const body = response.jsonBody as any;
     expect(body.data.photo.tags).toEqual(saved);
@@ -300,6 +300,16 @@ describe('写真更新API', () => {
       tags: saved,
       updatedAt: UPDATED_AT
     });
+  });
+
+  it('C-4 より前に保存した、出どころの無いタグは、利用者のタグとして返す（04 §2）', async () => {
+    freezeNow();
+    cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }] as PhotoTag[] }));
+
+    const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { comment: '旅館' }), mockContext);
+
+    expect(response.status).toBe(200);
+    expect((response.jsonBody as any).data.photo.tags).toEqual([{ name: '朝食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }]);
   });
 
   it('同じ名前のタグは1つにまとめず、送った順に全部残す（皿が2つなど。02 §5 #57）', async () => {
@@ -335,6 +345,10 @@ describe('写真更新API', () => {
     ['タグの名前が空の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉'), tag('')] }), 'タグの名前は1〜30文字で指定してください'],
     ['タグの名前が空白だけ', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('   ')] }), 'タグの名前は1〜30文字で指定してください'],
     ['タグの名前が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag(` ${'あ'.repeat(31)} `)] }), 'タグの名前は1〜30文字で指定してください'],
+    // 出どころ（C-4）は名前より先に見る（05 §5.6）
+    ['タグの出どころが ai・user のどちらでもない', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { source: 'AI' })] }), 'タグの形式が無効です'],
+    ['タグの出どころが null', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { source: null })] }), 'タグの形式が無効です'],
+    ['1つのタグで出どころと名前が無効(出どころの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('', { source: 'robot' })] }), 'タグの形式が無効です'],
     ['タグの種類が分類の種類に無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'animal' })] }), 'タグの種類が無効です'],
     ['タグの種類が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: '温泉', x: 0.5, y: 0.5 }] }), 'タグの種類が無効です'],
     ['タグの種類の大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉', { kind: 'Food' })] }), 'タグの種類が無効です'],
