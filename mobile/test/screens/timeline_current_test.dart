@@ -374,7 +374,7 @@ void main() {
   });
 
   group('完成版の上の下書きの案内', () {
-    /// 完成版の上の下書き（区切りの直し。作る・作り直しの下書きは作っている間の表示になる。trip_timeline_test.dart）
+    /// 完成版の上の下書き（区切りの直し。作る・作り直しの下書きは作っている間の表示になる。timeline_draft_test.dart）
     Map<String, Object?> draftOf(String reason, String phase,
             {String? step, String state = 'pending'}) =>
         {
@@ -550,7 +550,7 @@ void main() {
 
     testWidgets('「タイムラインを編集」を送っている間は、メニューの「タイムラインを編集」「タイムラインを作り直す」を押せない',
         (tester) async {
-      // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
+      // 送っている間の扱いは §8.1 と同じ。全ケースは timeline_switch_test.dart の「操作を送っている間は…」で通している
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
 
@@ -961,7 +961,7 @@ void main() {
     });
 
     testWidgets('操作を送っている間は、日の編集のボタンも押せない', (tester) async {
-      // 送っている間の扱いは §8.1 と同じ。全ケースは trip_timeline_test.dart の「操作を送っている間は…」で通している
+      // 送っている間の扱いは §8.1 と同じ。全ケースは timeline_switch_test.dart の「操作を送っている間は…」で通している
       final semantics = tester.ensureSemantics();
       final backend = await _openTimeline(tester);
       final reply = backend.holdNextReply(TripRoute.timelineRecut);
