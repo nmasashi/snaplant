@@ -1,7 +1,8 @@
 import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
-import { InvalidContinuationTokenError } from '../utils/errors';
+import { InvalidContinuationTokenError, TakenAtFromCameraError } from '../utils/errors';
+import { computeSortAt } from '../utils/sortAt';
 import { v4 as uuidv4 } from 'uuid';
 import { CATALOG_KINDS, identifiesAutomatically } from '../catalog/kinds';
 import { CatalogEntriesQuery, CatalogEntry, CatalogEntryQuery, PhotoDocument, PhotoLocation, PhotoProcessing, PhotoTag, Trip, TripDocument, TripInput, TripSummary } from '../types/album';
@@ -330,20 +331,22 @@ export class AlbumService {
   }
 
   /**
-   * 写真の利用者のコメント・タグ・カテゴリを直す
+   * 写真の利用者のコメント・タグ・カテゴリ・撮影日時を直す
    *
    * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
    * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別と AI が書いたコメントを消して解析の状態を書き換える（02 §5 #53）。
    * 解析の状態を書き換えるので、走っている分類・識別の結果は担当の条件（processingCondition）で捨てられ、手で決めたカテゴリを上書きしない。
    * カテゴリを書き換える patch は、読んだときのコメントの出どころを条件にする。読んだ後に他がコメントを書いていたら（412）読み直して書き直す
    * （読んだ後に利用者が書いたコメントを消さず、AI が書いたコメントを残さない。1回の patch なので、途中まで書いた状態も残らない）
+   * 撮影日時は手で付けた印（takenAtSource: "user"）と並びの日時（sortAt）も書き、null なら消して送った日時の並びに戻す。
+   * カメラが記録した撮影日時（exif）の写真は TakenAtFromCameraError を投げる（02 §5 #59）。
    * @param id 写真 ID
-   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか）
+   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
   ): Promise<PhotoDocument | null> {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -358,22 +361,33 @@ export class AlbumService {
   }
 
   /**
-   * updatePhoto の1回分。写真を読んで（カテゴリを送ったときだけ）、直す項目を1回の patch で書く
+   * updatePhoto の1回分。写真を読んで（カテゴリか撮影日時を送ったときだけ）、直す項目を1回の patch で書く
    * @param id 写真 ID
    * @param changes 直す項目
    * @returns 更新後の写真のドキュメント。無ければ null。読んだ後にコメントが書かれていたら 412 を投げる
    */
   private async patchPhotoChanges(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
     let condition: string | undefined;
-    if (changes.category !== undefined) {
-      const current = await this.getPhoto(id);
-      if (!current) {
-        return null;
+    // カテゴリと撮影日時は、今の写真を見て書くものを決める（どちらも送られなければ読まない）
+    const needsCurrent = changes.category !== undefined || changes.takenAt !== undefined;
+    const current = needsCurrent ? await this.getPhoto(id) : null;
+    if (needsCurrent && !current) {
+      return null;
+    }
+    if (current && changes.takenAt !== undefined) {
+      // カメラが記録した撮影日時は変えさせない（02 §5 #59）
+      if (current.takenAtSource === 'exif') {
+        throw new TakenAtFromCameraError();
       }
+      operations.push({ op: 'set', path: '/takenAt', value: changes.takenAt });
+      operations.push({ op: 'set', path: '/takenAtSource', value: changes.takenAt === null ? 'none' : 'user' });
+      operations.push({ op: 'set', path: '/sortAt', value: computeSortAt(changes.takenAt, current.uploadedAt) });
+    }
+    if (current && changes.category !== undefined) {
       operations.push({ op: 'set', path: '/categorySource', value: 'user' });
       // 分類が済んでいない（待っている・している・失敗した）写真は、同じカテゴリでも解析の状態を書き換える
       // （分類を止めないと AI がカテゴリを書き換える。失敗した写真は、手で決めたら失敗から出す）

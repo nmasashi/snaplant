@@ -356,6 +356,12 @@ describe('写真更新API', () => {
     ['categoryの大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'Plant' }), 'カテゴリが無効です'],
     ['categoryがnull', PHOTO_ID, jest.fn().mockResolvedValue({ category: null }), 'カテゴリが無効です'],
     ['categoryが数値', PHOTO_ID, jest.fn().mockResolvedValue({ category: 1 }), 'カテゴリが無効です'],
+    // 撮影日時は写真の送信と同じく、タイムゾーン無しの実在する日時（02 §5 #59。05 §5.6 の 9.7「写真の送信と同じ検証」）。
+    // 形式と実在の全ケースは写真の送信の入口（photos.test.ts の「13: takenAt の形式と実在」）で通し、ここでは確かめを通ることだけを見る
+    ['takenAtが実在しない日付', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: '2026-02-30T12:00:00' }), '撮影日時の形式が無効です'],
+    ['takenAtが数値', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: 20261005 }), '撮影日時の形式が無効です'],
+    // 文字列に直すと正しい日時になる値も、文字列でなければ断る（照合は値を文字列に直すので、文字列かは別に確かめる）
+    ['takenAtが配列（文字列に直すと正しい日時）', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: ['2026-10-05T12:00:00'] }), '撮影日時の形式が無効です'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
   ], async (_case, photoId, json, message) => {
@@ -710,6 +716,59 @@ describe('写真更新API', () => {
     expect(body.error.code).toBe('PHOTO_NOT_FOUND');
     expect(body.error.message).toBe('指定された写真が見つかりません');
     expect(cosmosBackend.documents).toEqual(before);
+  });
+
+  describe('撮影日時を手で付ける（02 §5 #59）', () => {
+    // 行ごとに写真を置き直す（前の行の書き込みを持ち越さない）
+    it('撮影日時を付ける・直すと、撮影日時と手で付けた印と並びの日時を書いて返し、ほかの項目には触らない', () => forEachCase<[string, Partial<PhotoDocument>, string]>([
+      ['撮影日時の無い写真に付ける', { takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00' }, '2026-10-05T12:00:00'],
+      ['手で付けた撮影日時を直す', { takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }, '2026-10-06T08:30:00']
+    ], async (_case, current, takenAt) => {
+      freezeNow();
+      const photo = storedPhoto(current);
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt }), mockContext);
+
+      expect(response.status).toBe(200);
+      const returned = (response.jsonBody as any).data.photo;
+      expect([returned.takenAt, returned.takenAtSource]).toEqual([takenAt, 'user']);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, takenAt, takenAtSource: 'user', sortAt: takenAt, updatedAt: UPDATED_AT });
+    }));
+
+    it('takenAt に null を送ると、撮影日時なしにして、並びの日時を送った日時（日本時間）に戻す', () => forEachCase<[string, Partial<PhotoDocument>]>([
+      ['手で付けた撮影日時を消す', { takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }],
+      // 書く値は今と同じでも断らない（05 §5.6 の takenAt の項目）
+      ['撮影日時の無い写真に null を送る', { takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00' }]
+    ], async (_case, current) => {
+      // 送った日時 2026-09-21T01:00:00Z は、日本時間で 2026-09-21T10:00:00
+      freezeNow();
+      const photo = storedPhoto(current);
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt: null }), mockContext);
+
+      expect(response.status).toBe(200);
+      const returned = (response.jsonBody as any).data.photo;
+      expect([returned.takenAt, returned.takenAtSource]).toEqual([null, 'none']);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00', updatedAt: UPDATED_AT });
+    }));
+
+    it('カメラが記録した撮影日時の写真には、409 で断って何も変えない', () => forEachCase<[string, string | null]>([
+      ['日時を変える', '2026-10-06T08:30:00'],
+      ['日時を消す', null]
+    ], async (_case, takenAt) => {
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ takenAt: '2026-10-05T07:58:00', takenAtSource: 'exif', sortAt: '2026-10-05T07:58:00' }));
+      const before = structuredClone(cosmosBackend.documents);
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt }), mockContext);
+
+      expect(response.status).toBe(409);
+      const body = response.jsonBody as any;
+      expect(body.error.code).toBe('TAKEN_AT_FROM_CAMERA');
+      expect(body.error.message).toBe('カメラが記録した撮影日時は変えられません');
+      expect(cosmosBackend.documents).toEqual(before);
+    }));
   });
 
   // データベースの失敗の分類(接続できない障害は503、それ以外は500で message は固定)を、写真の更新(patch)で確かめる

@@ -184,6 +184,9 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
   今と同じカテゴリ（識別済みの植物に `plant`）なら `categorySource: "user"`・`updatedAt` だけが変わり、識別と `processing`・AI が書いたコメントは残り、積まない。
   分類を待っている・している・失敗した（`pending` / `classifying` / `failed`・`classify`）写真に今と同じカテゴリを送ると、識別と AI が書いたコメントを消して植物なら識別の待ちにし、積む（分類を止める）。
   （テストが無いもの: 投入の失敗でも 200 のまま、分類・識別の間に重なったときに結果が捨てられること（ワーカーの担当の条件による。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)））
+- `PATCH` の撮影日時（D-1。`photoUpdate.test.ts`。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid) の 9.7・11）: `takenAt` が実在しない日付（2月30日）・数値・配列（文字列に直すと正しい日時になる値）で 400 `撮影日時の形式が無効です`（形式と実在の全ケースは写真の送信の 13 で通す。§3.5）。
+  撮影日時の無い写真に付ける・手で付けた撮影日時を直すと 200 で、応答と文書が `takenAt`（送った値）・`takenAtSource: "user"`、文書の `sortAt` が送った値になり、`updatedAt` を書いて、ほかの項目は変わらない（文書全体を比べる）。
+  `null` を送ると `takenAt: null`・`takenAtSource: "none"`、`sortAt` が `uploadedAt` を日本時間に直した値に戻る（撮影日時の無い写真に送っても受け付ける）。カメラが記録した撮影日時（`exif`）の写真には、変える・消すのどちらも 409 `TAKEN_AT_FROM_CAMERA`（`カメラが記録した撮影日時は変えられません`）で、文書は何も変わらない
 - 写真の応答の `categorySource`（C-1）: 取得・一覧・保存（新規と既存）・更新・やり直しの応答の写真に、項目の無い文書でも `categorySource: null` が付く（応答を完全一致で見ているテストに足した）
 
 ### 3.7 `functions/photoMove.ts`

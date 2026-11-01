@@ -352,6 +352,8 @@ export interface PhotoUpdateInput {
   tags?: PhotoTag[];
   /** 利用者が手で決めたカテゴリ（分類の種類のどれか。02 §5 #53） */
   category?: string;
+  /** 利用者が手で付ける撮影日時（タイムゾーン無し）。消すなら null（02 §5 #59） */
+  takenAt?: string | null;
 }
 
 /**
@@ -373,8 +375,8 @@ export async function readPhotoUpdateInput(
   if (body === null || body === undefined) {
     return { error: createValidationError('リクエストボディが指定されていません') };
   }
-  const { comment, tags, category } = body as { comment?: unknown; tags?: unknown; category?: unknown };
-  if (comment === undefined && tags === undefined && category === undefined) {
+  const { comment, tags, category, takenAt } = body as { comment?: unknown; tags?: unknown; category?: unknown; takenAt?: unknown };
+  if (comment === undefined && tags === undefined && category === undefined && takenAt === undefined) {
     return { error: createValidationError('更新する項目が指定されていません') };
   }
   const input: PhotoUpdateInput = {};
@@ -411,6 +413,13 @@ export async function readPhotoUpdateInput(
       return { error: createValidationError('カテゴリが無効です') };
     }
     input.category = category;
+  }
+  if (takenAt !== undefined) {
+    // 写真の送信と同じく、タイムゾーン無しの実在する日時
+    if (takenAt !== null && (typeof takenAt !== 'string' || !isExistingDateTime(takenAt))) {
+      return { error: createValidationError('撮影日時の形式が無効です') };
+    }
+    input.takenAt = takenAt;
   }
   return { input };
 }
