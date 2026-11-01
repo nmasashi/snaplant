@@ -57,7 +57,8 @@ async function requeuePhotos(now: Date, before: string, maxAttempts: number, con
       continue;
     }
     if (giveUp) {
-      failed += 1;
+      // タグの提案は上限でも done にする（givenUpState）ので、失敗には数えない
+      if (givenUpState(read.step) === 'failed') failed += 1;
     } else if (await enqueuePhotoOrLog(photo.id, (...args) => context.log(...args))) {
       requeued += 1;
     }
