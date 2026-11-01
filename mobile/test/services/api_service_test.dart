@@ -324,7 +324,7 @@ void main() {
   // 写真の送信を除く呼び出しは 30 秒で打ち切り、通信の失敗にする（docs/03_screen_design.md §9.2）。
   // 時間はフェイクの時間（testWidgets の pump）で進める。写真の送信を 30 秒で切らないことは upload_send_test.dart の 60 秒の時間切れのテストが守る。
   // 呼び出しは旅行の作成を代表にしている（ほかのメソッドが同じ時間切れを通ることは、テストでは守らない）
-  testWidgets('応答が 30 秒返らなければ通信の失敗（ステータス 0）にして「ネットワークに接続できません。…」と案内し、30 秒の手前ではまだ待つ', (tester) async {
+  testWidgets('応答が 30 秒返らなければ通信の失敗（ステータス 0）にして「サーバーから応答がありませんでした。…」と案内し、30 秒の手前ではまだ待つ', (tester) async {
     final reply = Completer<http.Response>();
     addTearDown(() {
       if (!reply.isCompleted) reply.complete(http.Response('', 500));
@@ -343,7 +343,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
 
     expect(error?.statusCode, 0);
-    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+    expect(error?.userMessage, 'サーバーから応答がありませんでした。しばらく待ってから再試行してください。');
   });
 
   // 応答の頭だけが届いて本文が止まったときも、処理中のダイアログから出られなくなる。本文を読み終えるまでを 30 秒で打ち切る（docs/03_screen_design.md §9.2）
@@ -363,12 +363,12 @@ void main() {
     await tester.pump(const Duration(seconds: 30));
 
     expect(error?.statusCode, 0);
-    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+    expect(error?.userMessage, 'サーバーから応答がありませんでした。しばらく待ってから再試行してください。');
   });
 
   // 旅行の削除は、サーバが中の写真を1枚ずつ消す（外す）ので、写真の多い旅行では 30 秒を超えうる。
   // 旅行の削除だけは、Azure の前段が HTTP の要求を打ち切る 230 秒より長い 4 分で打ち切る（docs/03_screen_design.md §9.2）
-  testWidgets('旅行の削除は 30 秒では打ち切らず、応答が 4 分返らなければ、ステータス 0 の「ネットワークに接続できません」にする', (tester) async {
+  testWidgets('旅行の削除は 30 秒では打ち切らず、応答が 4 分返らなければ、ステータス 0 の「サーバーから応答がありませんでした。…」にする', (tester) async {
     final reply = Completer<http.Response>();
     addTearDown(() {
       if (!reply.isCompleted) reply.complete(http.Response('', 500));
@@ -389,7 +389,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
 
     expect(error?.statusCode, 0);
-    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+    expect(error?.userMessage, 'サーバーから応答がありませんでした。しばらく待ってから再試行してください。');
   });
 }
 
