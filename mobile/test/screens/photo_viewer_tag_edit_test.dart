@@ -240,6 +240,24 @@ void main() {
     await finishImageLoading(tester);
   });
 
+  testWidgets('動かす間に札の「✕」でほかのタグを消したら、動かす間を終え、写真の上をタップしても何も送らない', (tester) async {
+    final backend = await _openViewer(
+        tester, _photo(tags: [_tag('ご飯', x: 0.2, y: 0.3), _tag('夕食', x: 0.6, y: 0.6)]),
+        waitFor: _onPhoto('夕食'));
+
+    await _startMoving(tester, '夕食');
+    await tester.tap(find.byTooltip('ご飯のタグを消す'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('消す'));
+    await letFramesRun(tester);
+
+    expect(find.text('新しい位置をタップしてください'), findsNothing);
+    await tester.tapAt(_at(tester, 0.8, 0.75));
+    await letFramesRun(tester);
+    expect(_storedTags(backend), [_tag('夕食', x: 0.6, y: 0.6)]);
+    await finishImageLoading(tester);
+  });
+
   testWidgets('動かした位置を送れなかったら、理由をスナックバーに出し、タグはそのまま', (tester) async {
     final tags = [_tag('ご飯', x: 0.2, y: 0.3)];
     final backend = await _openViewer(tester, _photo(tags: tags), waitFor: _onPhoto('ご飯'));
