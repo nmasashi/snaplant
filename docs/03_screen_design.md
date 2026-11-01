@@ -361,7 +361,7 @@ flowchart TD
 ### 4.6 写真ビューア
 
 **実装済み**（PR 7d。`screens/photo_viewer_screen.dart`。送信中・送信失敗の写真の扱いは PR 7e）。
-**実装済み**（ビューアの続きの読み込みの失敗。`screens/photo_viewer_screen.dart` の `_loadMoreFailedBar()`、失敗の状態は `widgets/photo_grid.dart` と共有）: 続きの読み込みに失敗したときに、読み込み済みの末尾で「続きを読み込めませんでした」「再試行」を出すこと（2つ目の項目）。
+**実装済み**（ビューアの続きの読み込みの失敗。`screens/photo_viewer_screen.dart` の `_loadMoreFailedBar()`、失敗の状態は `widgets/photo_grid.dart` と共有）: 続きの読み込みに失敗したときに、読み込み済みの末尾で「続きを読み込めませんでした」「再試行」を出すこと（左右のスワイプの項目の「一覧の続きの読み込みに失敗したら」から後）。
 
 ```
 ┌─────────────────────────────────────────┐
