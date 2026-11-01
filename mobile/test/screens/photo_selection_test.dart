@@ -36,8 +36,9 @@ void main() {
     await tester.tap(photoThumbnail('2026年10月5日 10:02'));
     await letFramesRun(tester);
     expect(find.text('2枚を選択中'), findsOneWidget);
-    // 別の端末で、選んでいた 10:02 の写真が消された
+    // 別の端末で、選んでいた 10:02 の写真が消された（偽のサーバの旅行の枚数も1枚減らす）
     backend.photosByTripId[hokkaidoTripId]!.removeAt(1);
+    backend.trips.single['photoCount'] = (backend.trips.single['photoCount'] as int) - 1;
 
     await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
@@ -107,7 +108,7 @@ void main() {
     expect(find.text('1枚を選択中'), findsOneWidget);
     // 別の端末で、選んでいた 9月2日 の写真が消された（偽のサーバの未所属の枚数も揃える。この画面の読み直しでは読まれない）
     backend.photosByTripId['none']!.removeAt(1);
-    backend.unassignedPhotoCount = 1;
+    backend.unassignedPhotoCount -= 1;
 
     await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
@@ -163,9 +164,9 @@ void main() {
       await tester.tap(photoThumbnail('2026年10月5日 10:02'));
       await letFramesRun(tester);
       expect(find.text('2枚を選択中'), findsOneWidget);
-      // 別の端末で、選んでいた 10:02 の写真が消された（偽のサーバの旅行の枚数も揃える）
+      // 別の端末で、選んでいた 10:02 の写真が消された（偽のサーバの旅行の枚数も1枚減らす。送った写真は届いた時点で数えられている）
       backend.photosByTripId[hokkaidoTripId]!.removeAt(1);
-      backend.trips.single['photoCount'] = 1;
+      backend.trips.single['photoCount'] = (backend.trips.single['photoCount'] as int) - 1;
 
       release.complete();
       // 送った写真（撮影日時なし）が一覧に出たら、読み直しが済んでいる
