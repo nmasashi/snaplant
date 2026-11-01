@@ -621,6 +621,11 @@ void main() {
       expect(find.text('この項目には写真がありません'), findsOneWidget);
       expect(find.textContaining('枚を選択中'), findsNothing);
       expect(find.text('削除'), findsNothing);
+
+      // 端末の戻る操作1回で、項目の画面を閉じられる
+      await tester.binding.handlePopRoute();
+      await letFramesRun(tester);
+      expect(find.text('この項目には写真がありません'), findsNothing);
     });
   });
 
