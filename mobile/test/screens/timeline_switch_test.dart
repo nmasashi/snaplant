@@ -519,31 +519,90 @@ void main() {
       expect(backend.timelineDraftReadsReceived, 1);
     });
 
-    testWidgets('アプリが裏に回っている間は下書きの読み直しを止め、前に戻ったらすぐ読み直して、また 5 秒ごとに読み直す', (tester) async {
-      // 裏に回ると OS は inactive → hidden → paused の順に知らせ、戻ると逆の順に知らせる
+    // 裏に回ると OS は inactive → hidden → paused の順に知らせ、戻ると逆の順に知らせる。
+    // 読み直したかは、裏にある間にワーカーが進めた状態（偽のサーバの書き換え）が画面に出るかで見る
+    testWidgets('アプリが裏に回っている間は下書きの読み直しを止め、前に戻ったらすぐ読み直す', (tester) async {
       addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('proposing', step: 'propose')));
       await _showTimeline(tester);
-      await _waitForPoll(tester);
-      expect(backend.timelineDraftReadsReceived, 1);
 
       for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
         tester.binding.handleAppLifecycleStateChanged(state);
       }
+      // 裏にある間にワーカーが案を出した
+      backend.timelinesByTripId[hokkaidoTripId] = _timeline(draft: _draft('reviewing'));
       await letFramesRun(tester);
       await _waitForPoll(tester);
       await _waitForPoll(tester);
-      expect(backend.timelineDraftReadsReceived, 1, reason: '裏にある間は読み直さない');
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget, reason: '裏にある間は読み直さない');
 
-      final timelineReads = backend.timelineReadsReceived;
       for (final state in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
         tester.binding.handleAppLifecycleStateChanged(state);
       }
       await letFramesRun(tester);
-      expect(backend.timelineReadsReceived, timelineReads + 1, reason: '前に戻ったらすぐタイムラインを読み直す');
+      expect(find.text('タイムラインの案ができました'), findsOneWidget, reason: '前に戻ったらすぐ読み直す（時間は進めていない）');
+    });
+
+    testWidgets('裏から前に戻った後も、作っている途中なら 5 秒ごとに読み直す', (tester) async {
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await letFramesRun(tester);
+      for (final state in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await letFramesRun(tester);
+      expect(find.text('タイムラインの案を作っています'), findsOneWidget);
+
+      backend.timelinesByTripId[hokkaidoTripId] = _timeline(draft: _draft('reviewing'));
       await _waitForPoll(tester);
-      expect(backend.timelineDraftReadsReceived, 2, reason: 'また 5 秒ごとに下書きを読み直す');
+
+      expect(find.text('タイムラインの案ができました'), findsOneWidget);
+    });
+
+    testWidgets('下書きの読み直しの応答を待っている間に裏に回っても、裏にある間は次の読み直しをしない', (tester) async {
+      // 応答が裏で届いたときに、次の読み直しを予約しないこと（予約の取り消しだけでは足りない）
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+      final backend = await _openTripDetail(tester,
+          timeline: _timeline(draft: _draft('proposing', step: 'propose')));
+      await _showTimeline(tester);
+      final reply = backend.holdNextReply(TripRoute.timelineDraft);
+      await tester.pump(const Duration(seconds: 5));
+      for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+
+      reply.complete();
+      await letFramesRun(tester);
+      await _waitForPoll(tester);
+      await _waitForPoll(tester);
+
+      expect(backend.timelineDraftReadsReceived, 1);
+    });
+
+    testWidgets('作っている途中の下書きが無ければ、裏から前に戻っても読み直さない', (tester) async {
+      // 解析中の枚数は、開いている間は自動では読み直さない（下に引っ張ると読み直す。§8.1）
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+      final backend = await _openTripDetail(tester, pendingPhotoCount: 3);
+      await _showTimeline(tester);
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
+      for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      backend.pendingPhotoCountByTripId[hokkaidoTripId] = 0;
+      await letFramesRun(tester);
+
+      for (final state in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await letFramesRun(tester);
+
+      expect(find.text('解析中の写真があと 3 枚あります。終わると作れます。'), findsOneWidget);
     });
 
     testWidgets('旅行詳細を閉じると、下書きの読み直しを止める', (tester) async {
