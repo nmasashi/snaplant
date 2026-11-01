@@ -334,6 +334,24 @@ describe('タイムラインを作るAPI', () => {
     }
   );
 
+  it('段の無い、解析が済んでいない写真があっても、409（TIMELINE_PHOTOS_PROCESSING）で待たせる（待たせない側に倒さない）', async () => {
+    // 解析の待ち・処理中の写真には段が付くので本来は無いが、あればタグの提案（待たせない段）と取り違えずに待たせる（blocksTimeline）
+    cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
+    cosmosBackend.documents.set(
+      photoId('b'),
+      analyzedPhoto(photoId('b'), {
+        takenAt: '2026-10-05T08:00:00',
+        takenAtSource: 'exif',
+        processing: { state: 'pending', step: null, attempts: 0, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' }
+      })
+    );
+
+    const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(409);
+    expect(storedTimeline()).toBeUndefined();
+  });
+
   it.each<[string, PhotoProcessing]>([
     ['none', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
     ['failed', { state: 'failed', step: 'identify', attempts: 3, lastError: 'ai', updatedAt: null }]
