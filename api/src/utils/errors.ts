@@ -56,22 +56,28 @@ export class UpstreamError extends Error {
 export const UNREACHABLE_ERRNOS: readonly string[] = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'];
 
 /**
+ * Cosmos DB に接続できないとみなす code（errno と、SDK の打ち切りの TimeoutError の code）
+ *
+ * TimeoutError の code は @azure/cosmos 4.10.1 の TimeoutErrorCode（'TimeoutError'）。SDK はクラスを公開しているが code の定数は公開しておらず、
+ * クラスから取ると、SDK を jest.mock で自動のモックにしたテストでは code が undefined になるので、文字列で持つ
+ */
+const COSMOS_UNREACHABLE_CODES: readonly string[] = [...UNREACHABLE_ERRNOS, 'TimeoutError'];
+
+/**
  * Cosmos DB に接続できない障害（503 にするもの）かを判定する
  *
  * すべてのハンドラが使う（createDatabaseErrorResponse）。Cosmos SDK 4.x は接続の失敗を RestError に包み、errno を
  * トップレベルの `code` に載せる（@typespec/ts-http-runtime の nodeHttpClient）。それでも
  * `hasCauseCode()` で `cause` までたどるのは、HTTP クライアントが fetch 系に変わると OpenAI SDK と
- * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージ・AI の判定と共有）。
- * Cosmos SDK が自分の待ち時間（requestTimeout）で打ち切ったとき（code が 'TimeoutError'）も、時間を置けば回復しうるので含める
- * （要求を送った後の打ち切りなので書けていることもあるが、500 でも利用者は押し直すので変わらない。アプリは書き込みを自動で送り直さない。2026-11-01）
+ * 同じく errno が `cause` の奥に移るため。errno の集合は UNREACHABLE_ERRNOS（ストレージ・AI の判定と共有）に、
+ * Cosmos SDK が自分の待ち時間（requestTimeout）で打ち切ったときの TimeoutError を足したもの（時間を置けば回復しうるので。2026-11-01）。
+ * 打ち切りは要求を送った後なので書けていることもある。旅行などの作成はアプリが自動で送り直さず、500 でも利用者は押し直すので変わらない。
+ * 写真の送信は 503 を自動で送り直すが、同じ写真は id（画像の SHA-256）で1枚にまとまる
  * @param error 判定するエラー
  */
 export function isConnectivityError(error: unknown): boolean {
-  return hasCauseCode(error, [...UNREACHABLE_ERRNOS, COSMOS_TIMEOUT_CODE]);
+  return hasCauseCode(error, COSMOS_UNREACHABLE_CODES);
 }
-
-/** Cosmos SDK が自分の待ち時間で打ち切ったときのエラーの code（@azure/cosmos の TimeoutErrorCode。SDK は公開していない） */
-const COSMOS_TIMEOUT_CODE = 'TimeoutError';
 
 /**
  * JSON としては読めるが、Cosmos が受け付けない継続トークン（別の絞り込みのものなど。Cosmos は 400 で拒む。推測）
