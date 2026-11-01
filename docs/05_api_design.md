@@ -218,7 +218,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 | `CONTEXT_INFO_VALIDATION.MAX_LENGTH`（既存） | `CONTEXT_INFO_MAX_LENGTH` | 500 | `process` の `hint` |
 | `photoUrlExpiresOn()`（`services/photoStorageService.ts`。定数ではなく、応答を作るたびに環境変数を読む） | `PHOTO_SAS_EXPIRY_MINUTES` | 60 | §6 |
 | `GENERAL_VALIDATION.UUID_REGEX`（既存） | — | | 旅行 id |
-| `TIMELINE_VALIDATION.MAX_LENGTH.TITLE` / `SUMMARY` / `LABEL` / `NOTE` | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | 40 / 400 / 30 / 200 | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（段階5）。AI が書いた文は上限で切り詰める（[06 §8](./06_processing_design.md#8-タイムライン段階5)） |
+| `TIMELINE_VALIDATION.MAX_LENGTH.TITLE` / `SUMMARY` / `LABEL` / `NOTE` | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | 40 / 400 / 30 / 200 | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（段階5）。AI が書いた文は上限で切り詰める（[06 §8](./06_processing_design.md#8-タイムライン段階5)。U-3 から AI は一言を書かないので、`NOTE` は `PATCH` だけが使う） |
 | `TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT` | `TIMELINE_SCENE_COMMENT_MAX_LENGTH` | 100 | `PUT /api/trips/{tripId}/timeline/draft/scenes` の `sceneComments`（場面のコメント。前後の空白を除いて数える（§9.6）。5-7 で実装済み） |
 | `TIMELINE_VALIDATION.DATE_REGEX` | — | `/^\d{4}-\d{2}-\d{2}$/`（加えて実在する日付であること） | 同上の `date` |
 
@@ -731,6 +731,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **実装済み**（5-5d。`services/timelineRead.ts` の `readTimelineBody()`・`timeline.ts` の `createTimeline`・`services/timelineService.ts`）: 応答に `droppedEdits`（文を書き直したときに残せなかった利用者の文）を返さないこと。以前は応答の `timeline.droppedEdits` と、それを閉じる `DELETE …/timeline/dropped-edits` があったが、作り直しが前の文を使わなくなり（5-5b）残せなかった文が無くなったので、5-5d で消した（2026-10-27 に人間が決定。それを読まない 5-5c のアプリを入れた後に消した）。5-5d より前に書いた文書に `droppedEdits` が残っていても返さない（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
 **実装済み**（T-1。受付は `timelineDraft.ts` の `postTimelineDraftExcludedPhotos`・`timelineCurrent.ts` の `postTimelineExcludedPhotos`、ボディは `utils/timelineInput.ts`、表示は `services/timelineView.ts` の `visiblePhotoIdsOf()`・`withExcludedPhotos()`）: 写真をタイムラインから外すこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52。下の「外した写真」の段落と、各エンドポイントの外した写真の行、`POST …/draft/excluded-photos`・`POST …/excluded-photos`）。
 **実装済み**（T-2b。`services/timelineView.ts` の `layoutTimeline()`）: 応答に撮影日時の無い写真を入れないこと（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #54。以前は完成版と確かめ中の下書きの `undatedPhotos` に、撮影日時の無い写真を日と場面と同じ形で返していた。それを読まない T-2 のアプリを入れた後に外した）。
+**実装済み**（U-3。文を書くワーカーの `services/timelineWriting.ts` の `assembleCurrent()`）: AI が書いた場面の `note`・`noteSource` が `null` になること（「応答の形」の `current` の行と、`PATCH` の表の 8。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55）。応答の `note` と `PATCH` の `note` は変えていない（前に書いた一言をどうするかは判断待ち。[09](./09_backlog.md)）。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)、文書は [04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)）。
 完成版（`current`）と下書き（`draft`）を分けて持つ。区切りを直している（`recut`）間は、当てるまで完成版は変わらない（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #48）。
@@ -770,7 +771,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
           "scenes": [
             {
               "startPhotoId": "9f86d0…", "startedBy": "ai", "hasFood": true,
-              "label": "朝ごはん", "labelSource": "ai", "note": "…", "noteSource": "ai",
+              "label": "朝ごはん", "labelSource": "ai", "note": null, "noteSource": null,
               "firstTakenAt": "2026-10-05T07:50:12", "lastTakenAt": "2026-10-05T07:58:40",
               "placeNames": ["北海道千歳市"], "names": ["海鮮丼"],
               "photos": [{ "id": "9f86d0…", "takenAt": "2026-10-05T07:50:12", "category": "food", "name": "海鮮丼", "placeName": "北海道千歳市", "thumbnailUrl": "…?sig=…" }]
@@ -789,7 +790,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 - `timeline` は完成版も下書きも無ければ `null`（そのときも `pendingPhotoCount` と `urlExpiresAt` は返す）
 - `current`（完成版）: 完成版が無ければ `null`（下書きだけのとき）。`days`・`scenes` は撮影の順。日の分け方・場面の組み方は `GET …/timeline/draft` と同じ（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり。日の切り替えは完成版の `dayStartHour`。`startPhotoId` は場面の最初の写真が消えていても控えの最初の写真の id のまま）。
-  日の `title`・`titleSource`・`summary`・`summarySource` と、場面の `label`・`labelSource`・`note`・`noteSource` は完成版の文（日は日付、場面は `startPhotoId` で引く）で、その日・場面の文が完成版に無ければ4つとも `null`。区切りを直して新しくできた場面は文が空で、`label`・`labelSource`・`note`・`noteSource` が `null`（5-5a で実装済み。編集で片方だけ書くと、書いた欄だけ埋まる）。`startedBy` は区切りを入れた主（`day`: その日の最初の写真、`ai`: AI の案、`user`: 利用者）。`hasFood` は場面に食べ物（`category: "food"`）の写真が1枚でもあるか（画面の印の色）。
+  日の `title`・`titleSource`・`summary`・`summarySource` と、場面の `label`・`labelSource`・`note`・`noteSource` は完成版の文（日は日付、場面は `startPhotoId` で引く）で、その日・場面の文が完成版に無ければ4つとも `null`。区切りを直して新しくできた場面は文が空で、`label`・`labelSource`・`note`・`noteSource` が `null`（5-5a で実装済み。編集で片方だけ書くと、書いた欄だけ埋まる）。
+  AI が書いた場面は、U-3 から一言を書かないので `note`・`noteSource` が `null`（`PATCH` で利用者が書けば埋まる。U-3 より前に AI か利用者が書いた一言は残っていて、そのまま返す。返し続けるかは判断待ち。[09](./09_backlog.md)。U-3 で実装済み。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。`startedBy` は区切りを入れた主（`day`: その日の最初の写真、`ai`: AI の案、`user`: 利用者）。`hasFood` は場面に食べ物（`category: "food"`）の写真が1枚でもあるか（画面の印の色）。
   `names` は場面の写真の識別の名前、`placeNames` は地名（どちらも重なりを除いて撮影の順）。`photos` は控えから作り、**その後に消えた写真と、外した写真（完成版の `excludedPhotoIds`）は出さない**（写真が全部消えた・外した場面と日も出さない。上の「外した写真」）。
   `thumbnailUrl` はサムネイル（無ければ原寸）の読み取りの SAS（§6）。撮影日時の無い写真は出さない（タイムラインに入れない。02 §5 #54。T-2b で実装済み）
 - `draft`（下書き）は状態だけ（`id`・`reason`・`phase`・`job`（`step`・`state`・`lastError`）・`startedAt`）。区切りの中身は `GET …/timeline/draft` で読む
@@ -947,7 +949,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 5 | 前後の空白を除いて上限を超える（上限は §4、数え方と前後の空白は §9.6） | 400 `INVALID_REQUEST` `タイトルは40文字以内で指定してください`（上限値を埋め込む。`まとめ` 400・`見出し` 30・`一言` 200） |
 | 6 | 完成版が無い（タイムラインが無いときも、下書きだけのときも） | 404 `TIMELINE_NOT_FOUND` `タイムラインが見つかりません` |
 | 7 | その日・その場面が完成版に無い（日は完成版の `dayTexts` の日付、場面は `sceneTexts` の鍵、つまり場面の最初の写真の id で引く。場面の途中の写真の id はこの行） | 404 `TIMELINE_NOT_FOUND` `その日はタイムラインにありません` ／ `その場面はタイムラインにありません`（`date` が `YYYY-MM-DD` の形でないとき（`TIMELINE_VALIDATION.DATE_REGEX`）と、暦に無い日付（`2026-02-30` など）も `その日はタイムラインにありません`） |
-| 8 | それ以外 | 200。前後の空白を除いて保存し、書いた主を `user` にする。**空（除いて空。U+0085 だけも）か `null` なら AI が書いた文（`aiTitle` などの欄）に戻し、書いた主を `ai` にする**（区切りを直して新しくできた場面は AI の文が無いので、空（`null`）に戻り、書いた主も `null` になる。5-5a で実装済み）。送らなかった欄はそのまま。タイムラインの `updatedAt` を今にする |
+| 8 | それ以外 | 200。前後の空白を除いて保存し、書いた主を `user` にする。**空（除いて空。U+0085 だけも）か `null` なら AI が書いた文（`aiTitle` などの欄）に戻し、書いた主を `ai` にする**（区切りを直して新しくできた場面は AI の文が無いので、空（`null`）に戻り、書いた主も `null` になる。5-5a で実装済み。U-3 から AI が書いた場面の一言も AI の文が無いので、`note` は同じく `null` に戻る）。送らなかった欄はそのまま。タイムラインの `updatedAt` を今にする |
 
 - 4・5 は欄ごとに見る（日は `title` → `summary`、場面は `label` → `note` の順に、その欄の 4 → 5）。最初に当たった1件を返す
 - 1〜7 のどれかで返すときは何も書かない
@@ -1055,9 +1057,10 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | `getPhotos({tripId, category, continuationToken})` | `GET /api/photos` | `data['photos']`・`data['continuationToken']`（null 可）。`urlExpiresAt` は読まない。`continuationToken` は省略でき、`tripId` は必須（`required`。省くとコンパイルできない）。渡したものだけをクエリに載せる（`Uri(queryParameters:)` で組み立てるので URL エンコードされる）。`tripId` は旅行の id か `none`。`category` は旅行の中の絞り込み（API は `tripId` を省いて `category` だけでも取れるが、アプリはその形で呼ばない。カテゴリ横断画面は 2026-10-24 に消した。[03 §5.2](./03_screen_design.md#52-カテゴリ横断画面削除した)）。`limit` は送らない（サーバの既定 100）。**`category` は実装済み**（3-4b）。呼び出し側の `PhotoGrid` は、読む先（`loadPage`）が無ければ `tripId` を渡す（`tripId` も読む先も無い `PhotoGrid` は、デバッグ版では `assert` が組み立てたところで止め、リリース版では読み込みの失敗になる） |
 | `getPhoto(photoId)` | `GET /api/photos/{photoId}` | `data['photo']`。**実装済み**（5-4a。タイムラインのサムネイルから写真ビューアを開くとき。`urlExpiresAt` は読まない） |
 | `getTimeline(tripId)` | `GET /api/trips/{tripId}/timeline` | `data['timeline']`（null 可）・`data['pendingPhotoCount']`（段階5）。**実装済み**（5-3a。`models/timeline.dart` の `TimelineOverview`）: `draft` は状態（下の `getTimelineDraft` と同じ）。`urlExpiresAt` は読まない。**`changes` は実装済み**（5-4b。`TimelineChanges`）: `changes` は null 可で、あれば `added`・`removed` を必須として読む。`droppedEdits` は読まない（5-5c から。5-4b〜5-5b のアプリは必須の配列として読んでいた。API は 5-5d で返さなくなった。§5.15）。**`current` の中身は実装済み**（5-4a。`TimelineCurrent`。5-3a では有る・無いだけを読んでいた）: `writtenAt`・`days` を必須として読む（`undatedPhotos` は T-2 から読まない。撮影日時の無い写真はタイムラインに出さない。02 §5 #54。T-2 より前のアプリは必須として読むので、API は T-2 のアプリを入れた後の T-2b で返さなくなった）。日は `getTimelineDraft` の `days` と同じ欄に加えて `title`・`titleSource`・`summary`・`summarySource`（null 可）、場面は同じ欄に加えて `label`・`note`（null 可。`labelSource`・`noteSource`・`startedBy`・`firstTakenAt`・`lastTakenAt` は読まない）。写真の `category`・`name`・`placeName` は読まない |
-| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` は読まない。区切りを確かめられる下書きの `days`（`date`・`dayNumber`・`scenes` の `startPhotoId`・`placeNames`・`names`・`hasFood`・`photos`（`id`・`takenAt`・`thumbnailUrl`））は、あれば読む（`undatedPhotos` は T-2 から読まない）（5-3b。案の確認画面。`names`・`hasFood` を必須として読むのは 5-4a から。完成版と同じ `TimelineDay`・`TimelineScene` で読むため、下書きにも要る）。場面の `comment`（null 可）も読む（5-7。完成版の場面には無いので null） |
+| `getTimelineDraft(tripId)` | `GET …/timeline/draft` | `data['draft']`（null 可）。**実装済み**（5-3a。`TimelineDraftStatus`）: 状態の `id`・`reason`・`phase`・`job`（null 可。`step`・`state`）を必須として読む。`startedAt`・`job.lastError` は読まない。区切りを確かめられる下書きの `days`（`date`・`dayNumber`・`scenes` の `startPhotoId`・`placeNames`・`hasFood`・`photos`（`id`・`takenAt`・`thumbnailUrl`））は、あれば読む（`undatedPhotos` は T-2 から読まない）（5-3b。案の確認画面。`hasFood` を必須として読むのは 5-4a から。完成版と同じ `TimelineDay`・`TimelineScene` で読むため、下書きにも要る）。場面の `names` は U-1b から読まない（完成版も下書きも。画面に出さなくなった。[03 §8.3](./03_screen_design.md#83-完成したタイムライン)。5-4a〜U-1a のアプリは必須として読む）。場面の `comment`（null 可）も読む（5-7。完成版の場面には無いので null） |
 | `createTimeline(tripId)` | `POST …/timeline` | `data['draft']`。**実装済み**（5-3a。読み方は `getTimelineDraft` と同じで、null は受け付けない） |
 | `recutTimeline(tripId)` | `POST …/timeline/recut` | `data['draft']`。**実装済み**（5-4a。読み方は `saveTimelineScenes` と同じ。画面は応答の下書きを使わず、案の確認画面が読み直す） |
+| `excludeCurrentTimelinePhotos(tripId, photoIds)` | `POST …/timeline/excluded-photos` | `data`。**実装済み**（U-2。`getTimeline` と同じ形・同じ読み方）。ボディは `{ photoIds }`（場面の写真の一覧は1枚ずつ送る。[03 §8.8](./03_screen_design.md#88-場面の写真の一覧)。U-2） |
 | `excludeTimelinePhotos(tripId, photoIds)` | `POST …/timeline/draft/excluded-photos` | `data['draft']`。**実装済み**（T-2。読み方は `saveTimelineScenes` と同じで、null は受け付けない）。ボディは `{ photoIds }`（案の確認画面は1枚ずつ送る。[03 §8.4](./03_screen_design.md#84-案の確認画面タイムラインを編集)） |
 | `saveTimelineScenes(tripId, sceneStarts, {sceneComments})` | `PUT …/timeline/draft/scenes` | `data['draft']`。**実装済み**（5-3b。読み方は `getTimelineDraft` と同じで、null は受け付けない）。ボディは `{ sceneStarts }`（渡したリストをそのまま。中身の決め方は [03 §8.4](./03_screen_design.md#84-案の確認画面タイムラインを編集)）。**`sceneComments` は実装済み**（5-7）: 渡したときだけ `sceneComments`（場面の最初の写真の id → コメント。入力をそのまま。前後の空白を除くのと空を持たないのはサーバ）をボディに足し、渡さなければキーごと省く（サーバが残る区切りのコメントを残す。どちらで呼ぶかは [03 §8.7](./03_screen_design.md#87-場面のコメント)） |
 | `writeTimeline(tripId)` | `POST …/timeline/draft/write` | `data['draft']`（null 可）。**実装済み**（5-3a。読み方は `getTimelineDraft` と同じ）。null を受け付けるのは 5-5a から（区切りを直している下書きはその場で完成版に当たり、応答の `draft` が `null`。戻り値も null になり、画面は続けて `getTimeline` で読み直す。[03 §8.3](./03_screen_design.md#83-完成したタイムライン)・[§8.4](./03_screen_design.md#84-案の確認画面タイムラインを編集)） |

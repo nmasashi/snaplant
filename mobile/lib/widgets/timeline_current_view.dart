@@ -7,27 +7,25 @@ import 'timeline_thumbnail.dart';
 
 /// 完成したタイムライン（docs/03_screen_design.md §8.3）
 ///
-/// 日ごとの見出し・タイトル・まとめと場面のカード、一番下に作成日時（撮影日時の無い写真は出さない。02 §5 #54）。
+/// 日ごとの見出し・タイトル・まとめと、場面を時刻の順に縦の線でつないだもの、一番下に作成日時（撮影日時の無い写真は出さない。02 §5 #54）。
 /// タイムラインの編集・作り直しは旅行詳細の上のバーのメニューから（§8.1）
 class TimelineCurrentView extends StatelessWidget {
   const TimelineCurrentView({
     super.key,
     required this.current,
-    required this.onOpenPhoto,
+    required this.onOpenScene,
     required this.onEditDay,
-    required this.onEditScene,
     this.banner,
     this.notices = const [],
   });
 
   final TimelineCurrent current;
 
-  /// サムネイルをタップした（写真ビューアで開く。§8.3）。null ならタップを受けない（写真を読んでいる間・操作を送っている間）
-  final void Function(TimelinePhoto photo)? onOpenPhoto;
+  /// 場面をタップした（場面の写真の一覧を開く。§8.3・§8.8）。null ならタップを受けない（操作を送っている間）
+  final void Function(TimelineDay day, TimelineScene scene)? onOpenScene;
 
-  /// 日・場面の編集のボタン（§8.5）。null なら押せない（操作を送っている間）
+  /// 日の編集のボタン（§8.5）。null なら押せない（操作を送っている間）。場面の見出しは場面の写真の一覧から直す（§8.8）
   final void Function(TimelineDay day)? onEditDay;
-  final void Function(TimelineScene scene)? onEditScene;
 
   /// 完成版の上に出す、タイムラインを編集している途中の案内（§8.3）
   final Widget? banner;
@@ -35,8 +33,11 @@ class TimelineCurrentView extends StatelessWidget {
   /// 一番上に出す案内（写真が変わった案内。§8.3）
   final List<Widget> notices;
 
-  /// 場面のカードに並べるサムネイルの枚数（それより多ければ「+N枚」）
-  static const _thumbnailCount = 4;
+  /// 場面の写真を大きく並べる枚数
+  static const _largeCount = 2;
+
+  /// 場面の写真の小さい列のマスの数（3枚目からがそれより多ければ、最後のマスを「+N枚」にする）
+  static const _smallCount = 4;
 
   @override
   Widget build(BuildContext context) {
@@ -57,13 +58,7 @@ class TimelineCurrentView extends StatelessWidget {
     );
   }
 
-  /// [photo] のサムネイルのタップ（受け付けないときは null）
-  VoidCallback? _tapOf(TimelinePhoto photo) {
-    final open = onOpenPhoto;
-    return open == null ? null : () => open(photo);
-  }
-
-  /// 日の見出し（何日目・日付・印）、タイトル、まとめ、場面のカード
+  /// 日の見出し（何日目・日付・印）、タイトル、まとめ、場面
   List<Widget> _buildDay(TimelineDay day, TextStyle secondary) {
     final mark = _dayMark(day);
     return [
@@ -109,88 +104,126 @@ class TimelineCurrentView extends StatelessWidget {
         const SizedBox(height: 4),
         Text(day.summary!, style: secondary),
       ],
-      for (final scene in day.scenes) ...[
-        const SizedBox(height: 12),
-        _buildScene(scene, secondary),
-      ],
+      // 場面の間は空けない（縦の線を次の場面までつなげる）
+      const SizedBox(height: 12),
+      for (final scene in day.scenes) _buildScene(day, scene, secondary),
     ];
   }
 
-  Widget _buildScene(TimelineScene scene, TextStyle secondary) {
-    final details = [
-      timelineTimeRange(scene.photos),
+  /// 場面（縦の時間の線の形。§8.3）。左に始まりの時刻と縦の線、右に見出しと枚数・写真・終わりの時刻と地名。
+  /// 場面の一言と写真の識別の名前は出さない（02 §5 #55）
+  Widget _buildScene(
+      TimelineDay day, TimelineScene scene, TextStyle secondary) {
+    final photos = scene.photos;
+    final end = [
+      if (photos.length > 1) '〜${timelineClock(photos.last.takenAt!)}',
       if (scene.placeNames.isNotEmpty) scene.placeNames.join('、'),
-      if (scene.names.isNotEmpty) scene.names.join('、'),
     ].join(' · ');
-    final shown = scene.photos.take(_thumbnailCount).toList();
-    final rest = scene.photos.length - shown.length;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                // 見出しの印と見出し。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）。
-                // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（編集のボタンで書ける）
-                if (scene.label != null) ...[
-                  Icon(Icons.circle,
-                      size: 10,
-                      color:
-                          scene.hasFood ? AppColors.secondary : AppColors.info),
-                  const SizedBox(width: 6),
-                  Expanded(
-                      child: Text(scene.label!,
-                          style: AppTextStyles.body1
-                              .copyWith(fontWeight: FontWeight.bold))),
-                ] else
-                  Expanded(child: Text('見出しなし', style: secondary)),
-                IconButton(
-                  icon:
-                      const Icon(Icons.edit_outlined, semanticLabel: 'この場面を編集'),
-                  tooltip: 'この場面を編集',
-                  onPressed:
-                      onEditScene == null ? null : () => onEditScene!(scene),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(details, style: secondary),
-            if (scene.note != null) ...[
-              const SizedBox(height: 4),
-              Text(scene.note!, style: AppTextStyles.body2),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                for (var i = 0; i <= _thumbnailCount; i++) ...[
-                  if (i > 0) const SizedBox(width: 2),
-                  Expanded(
-                    child: AspectRatio(
-                      aspectRatio: 1,
-                      child: i < shown.length
-                          ? TimelineThumbnail(
-                              photo: shown[i], onTap: _tapOf(shown[i]))
-                          : i == _thumbnailCount && rest > 0
-                              ? ColoredBox(
-                                  color: AppColors.surfaceVariant,
-                                  child: Center(
-                                      child: Text('+$rest枚',
-                                          style: AppTextStyles.body2)),
-                                )
-                              : const SizedBox.shrink(),
+    final open = onOpenScene;
+    final onTap = open == null ? null : () => open(day, scene);
+    // 場面のどこをタップしても、場面の写真の一覧を開く（§8.3）
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 52,
+            child: Text(timelineClock(photos.first.takenAt!), style: secondary),
+          ),
+          Expanded(
+            // 縦の線は右の欄の左の縁（下の余白まで引いて、次の場面の線とつなげる）
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                border: Border(
+                    left: BorderSide(color: AppColors.borderColor, width: 2)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 12, bottom: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        // 見出しの印と見出し。食べ物の場面は橙、それ以外は青（色だけに頼らず、見出しの文字で分かる。§8.3）。
+                        // 見出しが無い（区切りを直して足した場面）なら、印を出さずに薄い字で「見出しなし」（場面の写真の一覧で書ける）
+                        if (scene.label != null) ...[
+                          Icon(Icons.circle,
+                              size: 10,
+                              color: scene.hasFood
+                                  ? AppColors.secondary
+                                  : AppColors.info),
+                          const SizedBox(width: 6),
+                          Expanded(
+                              child: Text(scene.label!,
+                                  style: AppTextStyles.body1
+                                      .copyWith(fontWeight: FontWeight.bold))),
+                        ] else
+                          Expanded(child: Text('見出しなし', style: secondary)),
+                        const SizedBox(width: 8),
+                        Text('${photos.length}枚', style: secondary),
+                      ],
                     ),
-                  ),
-                ],
-              ],
+                    const SizedBox(height: 8),
+                    _buildPhotos(photos, onTap),
+                    if (end.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(end, style: secondary),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+
+  /// 場面の写真。最初の2枚を大きく、3枚目からを小さく1行に並べ、収まらなければ小さい列の最後を「+{残り}枚」にする（§8.3）
+  Widget _buildPhotos(List<TimelinePhoto> photos, VoidCallback? onTap) {
+    // 写真のタップも場面を開く（読み上げで写真を選んだときも開けるように）
+    Widget thumbnail(TimelinePhoto photo) =>
+        TimelineThumbnail(photo: photo, onTap: onTap);
+    final rest = photos.skip(_largeCount).toList();
+    final overflows = rest.length > _smallCount;
+    final small = overflows ? rest.take(_smallCount - 1).toList() : rest;
+    final hidden = rest.length - small.length;
+    return Column(
+      children: [
+        _photoRow(
+            [for (final photo in photos.take(_largeCount)) thumbnail(photo)],
+            _largeCount),
+        if (rest.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          _photoRow([
+            for (final photo in small) thumbnail(photo),
+            if (overflows)
+              ColoredBox(
+                color: AppColors.surfaceVariant,
+                child: Center(
+                    child: Text('+$hidden枚', style: AppTextStyles.body2)),
+              ),
+          ], _smallCount),
+        ],
+      ],
+    );
+  }
+
+  /// [columns] 列の正方形のマスに [tiles] を左から置く（足りないマスは空ける）
+  Widget _photoRow(List<Widget> tiles, int columns) => Row(
+        children: [
+          for (var i = 0; i < columns; i++) ...[
+            if (i > 0) const SizedBox(width: 2),
+            Expanded(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: i < tiles.length ? tiles[i] : const SizedBox.shrink(),
+              ),
+            ),
+          ],
+        ],
+      );
 }
 
 /// 日の印（どちらかを利用者が直していれば「編集済み」、文があってどちらも AI なら「AI のまとめ」。§8.3）

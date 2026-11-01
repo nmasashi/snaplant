@@ -137,7 +137,7 @@ void main() {
       await tester.pump();
       // 写真のある日は2日、場面は3つ
       expect(find.text('この案で見出しを付ける'), findsOneWidget);
-      expect(find.text('2日で 3 場面 · 見出しと一言は AI が書きます'), findsOneWidget);
+      expect(find.text('2日で 3 場面 · 見出しとまとめは AI が書きます'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -162,7 +162,7 @@ void main() {
           findsOneWidget);
       expect(_title('タイムラインを編集'), findsOneWidget);
       expect(find.text('保存'), findsOneWidget);
-      expect(find.text('2日で 4 場面 · 見出しと一言はそのまま残します'), findsOneWidget);
+      expect(find.text('2日で 4 場面 · 見出しとまとめはそのまま残します'), findsOneWidget);
       expect(find.text('この案で見出しを付ける'), findsNothing);
       await tester.scrollUntilVisible(find.text('12:00 · 1枚'), 200,
           scrollable: find.byType(Scrollable).first);
@@ -378,10 +378,10 @@ void main() {
       expect(find.text('この旅行は削除されています'), findsOneWidget);
     });
 
-    testWidgets('見出しと一言を書けなかった下書きでも「案を確認する」から区切りを直せ、戻ると旅行詳細が今の状態（確かめ待ち）を出す',
+    testWidgets('見出しとまとめを書けなかった下書きでも「案を確認する」から区切りを直せ、戻ると旅行詳細が今の状態（確かめ待ち）を出す',
         (tester) async {
       await _openTimeline(tester, draft: _writeFailedDraft());
-      expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
+      expect(find.text('見出しとまとめを書けませんでした'), findsOneWidget);
 
       await _openReview(tester);
       expect(_title('タイムラインの案'), findsOneWidget);
@@ -514,6 +514,18 @@ void main() {
 
       expect(find.text('タイムラインが変わりました。読み直しました'), findsOneWidget);
       expect(_title('タイムラインの案'), findsNothing);
+      semantics.dispose();
+    });
+
+    testWidgets('写真の長押しのメニューは、読み上げからも開ける', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _openTimeline(tester);
+      await _openReview(tester);
+
+      expect(
+          tester.getSemantics(photoThumbnail('2026年10月5日 07:58')),
+          containsSemantics(
+              label: '2026年10月5日 07:58', hasLongPressAction: true));
       semantics.dispose();
     });
   });
@@ -740,7 +752,7 @@ void main() {
       expect(_button(tester, 'この案で見出しを付ける').onPressed, isNotNull);
     });
 
-    testWidgets('「この案で見出しを付ける」を押すと、見出しと一言を書かせて旅行詳細に戻る', (tester) async {
+    testWidgets('「この案で見出しを付ける」を押すと、見出しとまとめを書かせて旅行詳細に戻る', (tester) async {
       final backend = await _openTimeline(tester);
       await _openReview(tester);
 
@@ -751,7 +763,7 @@ void main() {
           (backend.timelinesByTripId[hokkaidoTripId]!['draft'] as Map)['phase'],
           'writing');
       expect(_title('タイムラインの案'), findsNothing);
-      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+      expect(find.text('見出しとまとめを書いています'), findsOneWidget);
     });
 
     testWidgets('見出しを付けるのを送っている間は、ほかの操作を受け付けない', (tester) async {

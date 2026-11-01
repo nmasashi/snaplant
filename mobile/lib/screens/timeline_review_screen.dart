@@ -294,10 +294,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
 
   /// 確かめてから [photo] をタイムラインから外し、応答で描き直す（02 §5 #52。外した写真は戻せない）。失敗の扱いは区切りの保存と同じ（§8.4）
   Future<void> _exclude(TimelinePhoto photo) async {
-    final confirmed = await confirmTimelineAction(context,
-        title: 'タイムラインから外しますか？',
-        message: '写真は旅行に残ります。外した写真は、タイムラインを作り直すまで戻せません。',
-        confirmLabel: '外す');
+    final confirmed = await confirmExcludePhoto(context);
     if (!confirmed || !mounted) return;
     await _sendAndRedraw(
         () => widget.apiService.excludeTimelinePhotos(widget.tripId, [photo.id]),
@@ -430,7 +427,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             Text(_sceneLabel(scene), style: AppTextStyles.body1),
             const SizedBox(height: 8),
             _buildPhotos(scene),
-            // AI が見出しと一言を書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
+            // AI が見出しを書くときの材料（§8.7）。タイムラインを編集するときは AI を使わないので出さない
             if (_draft!.reason != 'recut') ...[
               const SizedBox(height: 4),
               _buildComment(scene),
@@ -474,11 +471,12 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
       physics: const NeverScrollableScrollPhysics(),
       children: [
         for (final (index, photo) in scene.photos.indexed)
-          GestureDetector(
+          // 長押しはサムネイルの読み上げのラベルの節で受ける（外で包むと、読み上げで写真を選んでも長押しできない）
+          TimelineThumbnail(
+            photo: photo,
             onLongPress: _sending
                 ? null
                 : () => _showPhotoMenu(scene, photo, canSplit: index > 0),
-            child: TimelineThumbnail(photo: photo),
           ),
       ],
     );
@@ -503,7 +501,7 @@ class _TimelineReviewScreenState extends State<TimelineReviewScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しと一言はそのまま残します' : '見出しと一言は AI が書きます'}',
+              '${days.length}日で $sceneCount 場面 · ${recut ? '見出しとまとめはそのまま残します' : '見出しとまとめは AI が書きます'}',
               style: AppTextStyles.caption
                   .copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,

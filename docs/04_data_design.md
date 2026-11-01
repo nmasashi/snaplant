@@ -179,6 +179,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 **実装済み**（5-5d。`functions/timeline.ts`・`services/timelineService.ts`・`services/timelineRead.ts`、型は `types/timeline.ts`）: `droppedEdits`（文を書き直したときに残せなかった利用者の文）を書かず、読まないこと。5-5d より前に書いた文書に残っていても読まない（残っていても害は無いので、消すことは決まりにしない）。
 **実装済み**（5-7。`functions/timelineDraft.ts`・`services/timelineView.ts`・`services/timelineWriting.ts`、型は `types/timeline.ts`）: `draft.sceneComments`（区切りの保存で書き、確かめ中の下書きの場面に返し、文を書く AI に渡す）。
 **実装済み**（T-1。受付は `functions/timelineDraft.ts`・`functions/timelineCurrent.ts`、表示は `services/timelineView.ts`・`services/timelineRead.ts`、AI に渡すのは `services/timelineWriting.ts`）: `current.excludedPhotoIds`・`draft.excludedPhotoIds`（利用者がタイムラインから外した写真。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #52）と、下の決まりの「外した写真」。
+**実装済み**（U-3。`services/timelineWriting.ts` の `assembleCurrent()`）: ワーカーが書く `current.sceneTexts` の一言（`note`・`noteSource`・`aiNote`）を `null` にすること（AI に一言を書かせない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #55。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。
 
 旅行ごとのタイムライン（[02 §4.11](./02_design_overview.md#411-タイムラインは区切りで持ちai-の案を人が確かめてから文を書く要件-531段階5)）。文書は2種類に分ける。
 
@@ -208,7 +209,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
     "proposedStarts": ["9f86d0…", "c4ca42…"],
     "sceneStarts": ["9f86d0…", "c4ca42…", "e4da3b…"],
     "sceneTexts": {
-      "9f86d0…": { "label": "朝ごはん", "labelSource": "ai", "aiLabel": "朝ごはん", "note": "…", "noteSource": "ai", "aiNote": "…" },
+      "9f86d0…": { "label": "朝ごはん", "labelSource": "ai", "aiLabel": "朝ごはん", "note": null, "noteSource": null, "aiNote": null },
       "e4da3b…": { "label": null, "labelSource": null, "aiLabel": null, "note": null, "noteSource": null, "aiNote": null }
     },
     "dayTexts": {
@@ -239,7 +240,7 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | `current.dayStartHour` | number（0〜23） | 日付の切り替えの時刻。控えを取ったときの `TIMELINE_DAY_START_HOUR`。後で設定を変えても、作り直すまでこの値で日を分ける |
 | `current.proposedStarts` | string[] | AI が出した区切り（場面の最初の写真の id）。利用者が直す前の案 |
 | `current.sceneStarts` | string[] | 区切り（場面の最初の写真の id。撮影の順）。各日の最初の写真は必ず入る（場面は日をまたがない） |
-| `current.sceneTexts` | 場面の最初の写真の id → 文 | 見出し・一言、書いた主（`ai` / `user`）、AI が書いた文（`aiLabel`・`aiNote`。利用者が空にしたら戻す先）。区切りを直して新しくできた場面は全部 `null`（5-5a で実装済み）。以前は書いたときの場面の写真（`photoIds`）も持っていた（作り直しで引き継ぐかを決めるため。5-5b で、AI が書く文には持たせなくなった。前に書いた文書の文を区切りの直し・文の編集でそのまま書き戻すときは残るが、読まない） |
+| `current.sceneTexts` | 場面の最初の写真の id → 文 | 見出し・一言、書いた主（`ai` / `user`）、AI が書いた文（`aiLabel`・`aiNote`。利用者が空にしたら戻す先）。区切りを直して新しくできた場面は全部 `null`（5-5a で実装済み）。AI が書いた場面も、一言（`note`・`noteSource`・`aiNote`）は `null`（U-3 で実装済み。AI に一言を書かせない。利用者が直すと `note` と書いた主だけが埋まる）。U-3 より前に書いた文書には AI か利用者が書いた一言が残っていて、そのまま読む（残すかは判断待ち。[09](./09_backlog.md)）。以前は書いたときの場面の写真（`photoIds`）も持っていた（作り直しで引き継ぐかを決めるため。5-5b で、AI が書く文には持たせなくなった。前に書いた文書の文を区切りの直し・文の編集でそのまま書き戻すときは残るが、読まない） |
 | `current.dayTexts` | 日付（`YYYY-MM-DD`）→ 文 | タイトル・まとめ、書いた主、AI が書いた文。以前は書いたときのその日の区切り（`sceneStarts`）も持っていた（5-5b で、AI が書く文には持たせなくなった。前に書いた文書の文を区切りの直し・文の編集でそのまま書き戻すときは残るが、読まない） |
 | `current.excludedPhotoIds` | string[]（省略可） | 利用者がタイムラインから外した写真（控えの写真の id。重なりなし。並びに意味は無い）。無ければ空とみなす。足すだけで戻さない。下書きの文を書き終えたときは下書きのものを写し、区切りの直しを当てるときは下書きのものと合わせる（下の「外した写真」。T-1 で実装済み） |
 | `current.writtenAt` | string | 文を書き終えた時刻（画面の「…に作成」）。区切りを直して当てても変えない（5-5a で実装済み） |
@@ -814,14 +815,14 @@ Cosmos DB は**別パーティションの文書をまとめて原子的に書�
 | 旅行・タイムラインの読み取り | 何も変わらない | 失敗（503 / 500） | 押し直す |
 | 置き換えが 412・404（読んでから書くまでに、ワーカー・別の操作が書いた・消した） | 何も変わらない（他が書いたもののまま。キューにも積まない） | 409 `TIMELINE_STATE_CONFLICT` | 読み直して押し直す |
 | 置き換えがそれ以外で失敗 | 何も変わらない | 失敗（503 / 500） | 押し直す |
-| キューへの投入 | `phase: "writing"`・`draft.job` が `pending` のまま | 受付は成功（202）。「見出しと一言を書いています」のまま | 再投入のタイマー（10 分ごと）が積む |
+| キューへの投入 | `phase: "writing"`・`draft.job` が `pending` のまま | 受付は成功（202）。「見出しとまとめを書いています」のまま | 再投入のタイマー（10 分ごと）が積む |
 
 **タイムラインのワーカーの文**（段階5。[06 §8.1・§8.3](./06_processing_design.md#83-文を書くstep-write)。順: タイムラインを読む → 旅行を読む → `job` を処理中に（条件付き patch）→ 控えを読む → AI（全部の場面と日）→ 完成版と入れ替える（置き換え）→ 前の完成版の控えを消す）。
 **実装済み**（5-2a）。担当の前の読み取り・担当した後に落ちる・下書きをやめた・出し直した・タイマーが待ちに戻したときは、上の区切り案の表と同じ。
 
 | 途中で失敗した所 | 残るもの | 利用者から見えるもの | 直り方 |
 |---|---|---|---|
-| 控えの読み取り・AI・応答の検証・結果の書き込み（重なりが4回続いたときを含む） | `draft.job` が `pending`（上限なら `failed`）、`lastError` が `"ai"` / `"internal"`。完成版は前のまま（分けて呼んだ途中までの文も書かない） | 「見出しと一言を書いています」のまま（上限なら「見出しと一言を書けませんでした」） | 自動（キューの再試行）。上限なら利用者が押し直す（区切りを直してからでもよい） |
+| 控えの読み取り・AI・応答の検証・結果の書き込み（重なりが4回続いたときを含む） | `draft.job` が `pending`（上限なら `failed`）、`lastError` が `"ai"` / `"internal"`。完成版は前のまま（分けて呼んだ途中までの文も書かない） | 「見出しとまとめを書いています」のまま（上限なら「見出しとまとめを書けませんでした」） | 自動（キューの再試行）。上限なら利用者が押し直す（区切りを直してからでもよい） |
 | 文を書いている間に、利用者が前の完成版の文を直した（結果の置き換えが 412。作り直しの下書き（`rebuild`）のとき。5-6b からは作り直しで完成版を消すので、5-6b より前に作った `rebuild` の下書きのときだけ） | AI の文の新しい完成版（直した文は残らない。作り直しは前の完成版の文を使わない。5-5b で実装済み） | 新しい完成版 | 読み直した文書に同じ AI の文を当て直す（3回まで） |
 | 前の完成版の控えの削除 | どこからも指されない控え | 無し（完成版は入れ替わっている。失敗はログだけ） | 旅行の削除で消える |
 

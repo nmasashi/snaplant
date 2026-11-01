@@ -78,7 +78,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `/api/trips/{tripId}/timeline/recut` | POST | タイムラインの完成版の区切りを直し始める（完成版の区切りを写した確かめ中の下書きを作り、その日と場面を返す） |
 | `/api/trips/{tripId}/timeline/excluded-photos` | POST | タイムラインの完成版から写真を外す（戻さない。完成版を読んだ形を返す） |
 | `/api/trips/{tripId}/timeline/days/{date}` | PATCH | タイムラインの完成版の日のタイトル・まとめを直す（空か `null` なら AI の文に戻す） |
-| `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | タイムラインの完成版の場面の見出し・一言を直す（`photoId` は場面の最初の写真。空か `null` なら AI の文に戻す。区切りを直して足した場面は AI の文が無いので空に戻る） |
+| `/api/trips/{tripId}/timeline/scenes/{photoId}` | PATCH | タイムラインの完成版の場面の見出し・一言を直す（`photoId` は場面の最初の写真。空か `null` なら AI の文に戻す。区切りを直して足した場面と、AI が一言を書かなくなった後（U-3）に書いた場面の一言は、AI の文が無いので空に戻る） |
 
 全エンドポイントは Function Key 認証（ヘッダ `x-functions-key: {FUNCTION_KEY}`。`?code={FUNCTION_KEY}` でも通る）が必要です。
 レスポンスは `{ "success": true, "data": {...} }` 形式の共通封筒で返ります。

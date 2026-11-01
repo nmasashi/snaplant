@@ -43,7 +43,8 @@ export interface TimelineDraft {
 /**
  * 場面の文（見出し・一言と、書いた主）
  *
- * 区切りを直して足した場面は、AI が書いていないので全部 null（利用者が書くと、その欄だけ埋まる。06 §8.6）
+ * 区切りを直して足した場面は、AI が書いていないので全部 null（利用者が書くと、その欄だけ埋まる。06 §8.6）。
+ * AI が書いた場面も、U-3 から一言は書かないので一言の欄は null（U-3 より前に書いた一言は残っている。09 の判断待ち）
  */
 export interface TimelineSceneText {
   label: string | null;
