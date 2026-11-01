@@ -356,10 +356,9 @@ describe('写真更新API', () => {
     ['categoryの大文字小文字が違う', PHOTO_ID, jest.fn().mockResolvedValue({ category: 'Plant' }), 'カテゴリが無効です'],
     ['categoryがnull', PHOTO_ID, jest.fn().mockResolvedValue({ category: null }), 'カテゴリが無効です'],
     ['categoryが数値', PHOTO_ID, jest.fn().mockResolvedValue({ category: 1 }), 'カテゴリが無効です'],
-    // 撮影日時は写真の送信と同じく、タイムゾーン無しの実在する日時（02 §5 #59）
+    // 撮影日時は写真の送信と同じく、タイムゾーン無しの実在する日時（02 §5 #59。05 §5.6 の 9.7「写真の送信と同じ検証」）。
+    // 形式と実在の全ケースは写真の送信の入口（photos.test.ts の「13: takenAt の形式と実在」）で通し、ここでは確かめを通ることだけを見る
     ['takenAtが実在しない日付', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: '2026-02-30T12:00:00' }), '撮影日時の形式が無効です'],
-    ['takenAtの日付と時刻の間が空白', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: '2026-10-05 12:00:00' }), '撮影日時の形式が無効です'],
-    ['takenAtにタイムゾーンが付いている', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: '2026-10-05T12:00:00Z' }), '撮影日時の形式が無効です'],
     ['takenAtが数値', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: 20261005 }), '撮影日時の形式が無効です'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
@@ -717,32 +716,23 @@ describe('写真更新API', () => {
     expect(cosmosBackend.documents).toEqual(before);
   });
 
-  // データベースの失敗の分類(接続できない障害は503、それ以外は500で message は固定)を、写真の更新(patch)で確かめる
   describe('撮影日時を手で付ける（02 §5 #59）', () => {
-    it('撮影日時の無い写真に takenAt を送ると、撮影日時と手で付けた印と並びの日時を書いて返す', async () => {
-      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00' }));
+    // 行ごとに写真を置き直す（前の行の書き込みを持ち越さない）
+    it('撮影日時を付ける・直すと、撮影日時と手で付けた印と並びの日時を書いて返し、ほかの項目には触らない', () => forEachCase<[string, Partial<PhotoDocument>, string]>([
+      ['撮影日時の無い写真に付ける', { takenAt: null, takenAtSource: 'none', sortAt: '2026-09-21T10:00:00' }, '2026-10-05T12:00:00'],
+      ['手で付けた撮影日時を直す', { takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }, '2026-10-06T08:30:00']
+    ], async (_case, current, takenAt) => {
+      cosmosBackend.documents.set(PHOTO_ID, storedPhoto(current));
 
-      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt: '2026-10-05T12:00:00' }), mockContext);
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt }), mockContext);
 
       expect(response.status).toBe(200);
       const photo = (response.jsonBody as any).data.photo;
-      expect(photo.takenAt).toBe('2026-10-05T12:00:00');
-      expect(photo.takenAtSource).toBe('user');
+      expect([photo.takenAt, photo.takenAtSource]).toEqual([takenAt, 'user']);
       const stored = cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
-      expect([stored.takenAt, stored.takenAtSource, stored.sortAt]).toEqual(['2026-10-05T12:00:00', 'user', '2026-10-05T12:00:00']);
-      // ほかの項目には触らない
+      expect([stored.takenAt, stored.takenAtSource, stored.sortAt]).toEqual([takenAt, 'user', takenAt]);
       expect([stored.comment, stored.category]).toEqual(['ホテルの朝食', 'food']);
-    });
-
-    it('手で付けた撮影日時は直せる', async () => {
-      cosmosBackend.documents.set(PHOTO_ID, storedPhoto({ takenAt: '2026-10-05T12:00:00', takenAtSource: 'user', sortAt: '2026-10-05T12:00:00' }));
-
-      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { takenAt: '2026-10-06T08:30:00' }), mockContext);
-
-      expect(response.status).toBe(200);
-      const stored = cosmosBackend.documents.get(PHOTO_ID) as PhotoDocument;
-      expect([stored.takenAt, stored.takenAtSource, stored.sortAt]).toEqual(['2026-10-06T08:30:00', 'user', '2026-10-06T08:30:00']);
-    });
+    }));
 
     it('takenAt に null を送ると、手で付けた撮影日時を消し、並びの日時を送った日時（日本時間）に戻す', async () => {
       // 送った日時 2026-09-21T01:00:00Z は、日本時間で 2026-09-21T10:00:00
@@ -774,6 +764,7 @@ describe('写真更新API', () => {
     }));
   });
 
+  // データベースの失敗の分類(接続できない障害は503、それ以外は500で message は固定)を、写真の更新(patch)で確かめる
   it('写真の更新で、データベースに接続できなければ503、それ以外の失敗は500で決まった文言を返す', () => forEachCase(databaseFailureCases('写真の更新に失敗しました'), async (_case, error, status, code, message) => {
     // 形式が正しい要求で、写真もある(検証や404で先に返らず、patch まで進む)
     cosmosBackend.documents.set(PHOTO_ID, storedPhoto());
