@@ -46,4 +46,36 @@ void main() {
     expect(find.text('1枚の写真を削除しますか？\nこの操作は元に戻せません。'), findsOneWidget);
     semantics.dispose();
   });
+
+  // 旅行に属さない写真の画面は、下に引っ張っても見出しのために旅行を取り直さない（画面全体が描き直されない）。
+  // 選択が絞られたことは選択の知らせだけで見出しに届くので、旅行詳細とは別に確かめる
+  testWidgets('旅行に属さない写真の画面でも、選択モード中に下に引っ張って読み直すと、別の端末で消された写真は選択から外れ、見出しの枚数も減る', (tester) async {
+    final backend = FakeTripBackend(
+      trips: [tripJson(id: hokkaidoTripId, name: '北海道 2026秋', photoCount: 0)],
+      unassignedPhotoCount: 2,
+      photosByTripId: {
+        'none': [
+          photoJson(number: 1, takenAt: '2026-09-01T10:15:00'),
+          photoJson(number: 2, takenAt: '2026-09-02T12:30:00'),
+        ],
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    await tester.longPress(photoThumbnail('2026年9月1日 10:15'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年9月2日 12:30'));
+    await letFramesRun(tester);
+    expect(find.text('2枚を選択中'), findsOneWidget);
+    // 別の端末で、選んでいた 9月2日 の写真が消された
+    backend.photosByTripId['none']!.removeAt(1);
+    backend.unassignedPhotoCount = 1;
+
+    await tester.drag(photoGridScroll(), const Offset(0, 600));
+    await letFramesRun(tester);
+
+    expect(photoThumbnail('2026年9月2日 12:30'), findsNothing);
+    expect(find.text('1枚を選択中'), findsOneWidget);
+  });
 }
