@@ -117,11 +117,13 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 前に戻ったら、作っている途中の下書きならすぐ読み直す（その後は 5 秒ごとに戻る）
   void _onShow() {
     _hidden = false;
-    if (_errorMessage == null &&
-        (_overview?.timeline?.draft?.isWorking ?? false)) {
-      _poll();
-    }
+    if (_needsPolling) _poll();
   }
+
+  /// 下書きを読み直し続けるか（作っている途中の下書きを出している間。エラーを出している間は読み直さない）
+  bool get _needsPolling =>
+      _errorMessage == null &&
+      (_overview?.timeline?.draft?.isWorking ?? false);
 
   /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
   /// 失敗したときの扱いは [onFailure]（表示を出していないときは、どれでも「エラーが発生しました」）
@@ -183,9 +185,7 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// エラーを出している間は予約しない（読み直しの結果でエラーの表示が黙って消えないように。「再試行」で読み直す）
   void _schedulePoll() {
     _pollTimer?.cancel();
-    if (!_hidden &&
-        _errorMessage == null &&
-        (_overview?.timeline?.draft?.isWorking ?? false)) {
+    if (!_hidden && _needsPolling) {
       _pollTimer = Timer(_pollInterval, _poll);
     }
   }
