@@ -3,7 +3,7 @@ import { CosmosClient } from '@azure/cosmos';
 import { BlobServiceClient, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { QueueClient } from '@azure/storage-queue';
 import { updatePhotoHandler } from '../../src/functions/photoDetail';
-import { PhotoDocument } from '../../src/types/album';
+import { PhotoDocument, PhotoTag } from '../../src/types/album';
 import { FakeCosmosBackend, FakeCosmosDocument, createFakeContainer } from '../fakes/cosmos';
 import { BlobEntry, FakeBlobBackend, TEST_BLOB_HOST, createFakeBlobServiceClient } from '../fakes/blob';
 import { FakeQueueBackend, createFakeQueueClient, decodeQueueMessage } from '../fakes/queue';
@@ -37,7 +37,7 @@ const TEST_SAS_TOKEN = 'sv=2024-01-01&se=2030-01-01T00%3A00%3A00Z&sp=r&sig=tests
 const PHOTO_ID = '45ae705277879f7f01d778f7c95a065bb0c06ab9936cf24307f375211fee13d1';
 
 // タグ（名前・種類・位置。04 §2）。種類と位置は既定の値にし、見たい項目だけを変える
-const tag = (name: unknown, overrides: Record<string, unknown> = {}) => ({ name, kind: 'food', x: 0.5, y: 0.5, ...overrides });
+const tag = (name: string, overrides: Record<string, unknown> = {}): PhotoTag => ({ name, kind: 'food', x: 0.5, y: 0.5, ...overrides });
 // 個数 count のタグ(タグ1、タグ2、…)。個数の上限を境界で見るために使う
 const tagsOf = (count: number) => Array.from({ length: count }, (_, i) => tag(`タグ${i + 1}`));
 
@@ -327,7 +327,7 @@ describe('写真更新API', () => {
     ['tagsの要素がnull', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉'), null] }), 'タグの形式が無効です'],
     ['tagsの要素が配列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [[tag('温泉')]] }), 'タグの形式が無効です'],
     ['タグの名前が無い', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ kind: 'food', x: 0.5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
-    ['タグの名前が数値', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag(123)] }), 'タグの名前は1〜30文字で指定してください'],
+    ['タグの名前が数値', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [{ name: 123, kind: 'food', x: 0.5, y: 0.5 }] }), 'タグの名前は1〜30文字で指定してください'],
     ['タグの名前が空の文字列', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('温泉'), tag('')] }), 'タグの名前は1〜30文字で指定してください'],
     ['タグの名前が空白だけ', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag('   ')] }), 'タグの名前は1〜30文字で指定してください'],
     ['タグの名前が前後の空白を除いて31文字', PHOTO_ID, jest.fn().mockResolvedValue({ tags: [tag(` ${'あ'.repeat(31)} `)] }), 'タグの名前は1〜30文字で指定してください'],
