@@ -823,7 +823,7 @@ describe('写真API', () => {
         expect(body.success).toBe(false);
         expect(body.error.code).toBe('STORAGE_ERROR');
         expect(body.error.message).toBe(message);
-        // 502・503 は保存先の SDK の文言を返さない（05 §9.3。原因はログで追う）
+        // 502・503 は保存先の SDK の文言を返さない（05 §9.2。原因はログで追う）
         expect(body.error.details).toBeUndefined();
         expect(cosmosBackend.documents).toEqual(new Map());
       }

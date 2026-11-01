@@ -253,7 +253,7 @@ describe('旅行API', () => {
       expect(body.success).toBe(false);
       expect(body.error.code).toBe(code);
       expect(body.error.message).toBe(message);
-      // 500・503 は内部の例外の文言を返さない（05 §9.3。原因はログで追う）
+      // 500・503 は内部の例外の文言を返さない（05 §9.2。原因はログで追う）
       expect(body.error.details).toBeUndefined();
     }));
 
