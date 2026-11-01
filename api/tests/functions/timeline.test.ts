@@ -764,7 +764,7 @@ describe('タイムラインを読むAPI（GET）', () => {
     expect(data.timeline.changes).toEqual({ added: 1, removed: 0 });
   });
 
-  it('作った後に手で付けた撮影日時を消した写真は、消えた写真に数えない（完成版には控えの日時のまま出す）', async () => {
+  it('作った後に手で付けた撮影日時を消した写真は、消えた写真に数えない', async () => {
     placeCurrentSnapshot();
     cosmosBackend.documents.set(C.id, photoDocument(C.id, { tripId: TRIP_ID, takenAt: null }));
     cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
