@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
 
-/// 写真の上のタグの点の直径
-const _dotSize = 12.0;
+/// 吹き出しのしっぽの高さ（しっぽの先がタグの位置）
+const _tailHeight = 8.0;
 
-/// 写真の上のタグ（点と名前）の高さ。点の中心がタグの位置に来るよう、この高さの中で縦の中央にそろえる
-const _markerHeight = 24.0;
+/// 吹き出しのしっぽの幅
+const _tailWidth = 12.0;
 
-/// 写真の画像と、その上のタグ（docs/03_screen_design.md §5.7。C-3）
+/// 吹き出しの枠の太さ
+const _borderWidth = 1.5;
+
+/// 写真の画像と、その上のタグ（docs/03_screen_design.md §5.7・§5.9。C-3・C-4c）
 ///
 /// タグの位置は画像の中の割合なので、画像の大きさを読んで、枠の中に縦横の比を保って中央に収めた範囲（[BoxFit.contain]）に置く。
 /// 画像の大きさが分かるまでは、タグを出さず、タップも受けない
@@ -107,11 +110,15 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
             if (widget.showTags && rect != null)
               for (final (index, tag) in widget.tags.indexed)
                 Positioned(
-                  left: rect.left + rect.width * tag.x - _dotSize / 2,
-                  top: rect.top + rect.height * tag.y - _markerHeight / 2,
-                  child: _TagMarker(
-                      name: tag.name,
-                      onTap: onTapTag == null ? null : () => onTapTag(index)),
+                  left: rect.left + rect.width * tag.x,
+                  top: rect.top + rect.height * tag.y,
+                  // 吹き出しの横の中央と、しっぽの先（下の端）がタグの位置に来るように、自分の幅の半分・高さの分だけずらす
+                  child: FractionalTranslation(
+                    translation: const Offset(-0.5, -1),
+                    child: _TagBubble(
+                        name: tag.name,
+                        onTap: onTapTag == null ? null : () => onTapTag(index)),
+                  ),
                 ),
           ],
         ),
@@ -120,9 +127,9 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
   }
 }
 
-/// 写真の上のタグ（白い点と、その右に名前）
-class _TagMarker extends StatelessWidget {
-  const _TagMarker({required this.name, this.onTap});
+/// 写真の上のタグ（名前を書いた吹き出し。白地に黒い文字、黒い枠。下のしっぽの先がタグの位置。03 §5.9）
+class _TagBubble extends StatelessWidget {
+  const _TagBubble({required this.name, this.onTap});
 
   final String name;
   final VoidCallback? onTap;
@@ -131,34 +138,57 @@ class _TagMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: SizedBox(
-        height: _markerHeight,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: _dotSize,
-              height: _dotSize,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.black45),
-              ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.black87, width: _borderWidth),
+              boxShadow: const [
+                BoxShadow(
+                    color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))
+              ],
             ),
-            const SizedBox(width: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(name,
-                  maxLines: 1,
-                  style: const TextStyle(color: Colors.white, fontSize: 13)),
-            ),
-          ],
-        ),
+            child: Text(name,
+                maxLines: 1,
+                style: const TextStyle(
+                    color: Colors.black87,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+          ),
+          // 枠と同じ色の三角に、地の色の小さな三角を重ねて、しっぽにも枠を付ける
+          const CustomPaint(
+              size: Size(_tailWidth, _tailHeight), painter: _TailPainter()),
+        ],
       ),
     );
   }
+}
+
+/// 吹き出しのしっぽ（下向きの三角。枠付き）
+class _TailPainter extends CustomPainter {
+  const _TailPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outer = Path()
+      ..moveTo(0, -_borderWidth)
+      ..lineTo(size.width, -_borderWidth)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+    canvas.drawPath(outer, Paint()..color = Colors.black87);
+    const inset = _borderWidth * 2;
+    final inner = Path()
+      ..moveTo(inset, -_borderWidth)
+      ..lineTo(size.width - inset, -_borderWidth)
+      ..lineTo(size.width / 2, size.height - inset * 1.5)
+      ..close();
+    canvas.drawPath(inner, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(_TailPainter oldDelegate) => false;
 }

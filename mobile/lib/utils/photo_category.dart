@@ -31,9 +31,15 @@ const _listedInCatalog = {'plant'};
 /// 識別の種類 [kind] が図鑑に載るか（写真ビューアで名前を図鑑へのリンクにするか。03 §6.3）
 bool isListedInCatalog(String kind) => _listedInCatalog.contains(kind);
 
-/// 分類を待っている・している（`pending` / `classifying` / `identifying`）か
-bool isProcessingInProgress(String state) =>
-    state == 'pending' || state == 'classifying' || state == 'identifying';
+/// 分類・識別を待っている・している（`pending` / `classifying` / `identifying`）か。
+/// タグの提案の段（[step] が `tag`）は分類が済んでいるので含めない（[isSuggestingTags]。03 §5.9）
+bool isProcessingInProgress(String? step, String state) =>
+    step != 'tag' &&
+    (state == 'pending' || state == 'classifying' || state == 'identifying');
+
+/// AI がタグの提案を待っている・している（`step` が `tag` で `pending` / `tagging`）か（03 §5.9）
+bool isSuggestingTags(String? step, String state) =>
+    step == 'tag' && (state == 'pending' || state == 'tagging');
 
 /// 分類が済んでいない（分類の段で、待っている・している・失敗した）か。カテゴリがあっても、AI が書き換えうるか失敗のまま。
 /// 手でカテゴリを決めると、同じカテゴリでもサーバが分類を止める（05 §5.6）。やり直しは分類からにする（03 §5.4）
