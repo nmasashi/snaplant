@@ -153,6 +153,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `commentSource` はカテゴリのシートでも読み、AI のコメント（`"ai"`）なら、保存すると消えることを知らせる（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)。カテゴリの変更で AI のコメントを消す、で実装済み）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
 `processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
+**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。今のアプリ（C-4c の前）はこの2つの値を知らない（表示は [03 §5.1・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
@@ -492,13 +493,14 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
     分類を待っている・している写真を同じカテゴリでも書き換えるのは、分類を止めないと後で AI の分類がカテゴリを書き換え、手で決めたカテゴリが消えるため。`failed` の写真もこれで `done`（植物なら識別の待ち）になる
     コメントが AI の書いたもの（`commentSource: "ai"`）なら、同じ書き込みで `comment`・`commentSource` も `null` にする（前のカテゴリで書いたもので、新しいカテゴリの写真には合わない。植物に変えれば識別が書き直す。利用者のコメントは残す）。
     この書き込みは読んだときのコメントの出どころを条件にし、読んだ後に他がコメントを書いていたら読み直して書き直す（3回まで。続けて合わなければ 500。読んだ後に利用者が書いたコメントは残り、読んだ後に AI が書いたコメントも消える）。
-  - 今と同じカテゴリで、分類が済んでいれば（待っても・しても・失敗してもいなければ）、`categorySource` だけを書く（`identification`・`processing`・コメントは残る。識別を待っている・している植物の写真なら、識別はそのまま続く）
+  - 今と同じカテゴリで、分類が済んでいれば（待っても・しても・失敗してもいなければ）、`categorySource` だけを書く（`identification`・`processing`・コメントは残る。識別を待っている・している植物の写真なら、識別はそのまま続く。タグの提案を待っている・している食べ物の写真なら、提案もそのまま続く（C-4b））
   - 書いた後の写真が識別の待ち（`processing` が `pending`・`step: "identify"`）なら、キューに `{ photoId }` を投入する（植物に変えたとき。今と同じカテゴリで既に識別を待っていた写真にも積み直すが、重複したメッセージは担当の条件で何もせずに終わる。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。
     **投入に失敗してもログだけ出して 200 を返す**（`PHOTO_QUEUE_NAME` が無いときも同じ。写真は識別の待ちのまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）
   - `classification`（AI の分類の根拠）は書き換えない（手で直した後は `category` と食い違いうる）
-  - 走っている分類・識別の結果は、`processing` を書き換えたので担当の条件（[06 §1.3](./06_processing_design.md#13-状態と失敗)）に合わず捨てられ、手で決めたカテゴリを上書きしない。ワーカーは `categorySource` を見ない
+  - 走っている分類・識別（とタグの提案。C-4b）の結果は、`processing` を書き換えたので担当の条件（[06 §1.3](./06_processing_design.md#13-状態と失敗)）に合わず捨てられ、手で決めたカテゴリを上書きしない。ワーカーは `categorySource` を見ない
 - 書き込みは1回の patch（`category` か `takenAt` を送ったときは、その前に写真を1回読む（両方送っても1回）。`takenAt` の分は条件を付けない。カテゴリが変わるか分類を止めるときは、コメントの出どころを条件にし、合わなければ読むところからやり直す）。`comment`・`tags` だけなら `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
-  **解析中（`processing.state` が `pending` / `classifying` / `identifying`）でも受け付ける**（ロックは無い）
+  **解析中（`processing.state` が `pending` / `classifying` / `identifying` / `tagging`（C-4b））でも受け付ける**（ロックは無い）。
+  タグの提案を待っている・している（`step: "tag"`）写真に `tags` を送ると、利用者のタグが残り、AI の提案は書かれない（タグが1つも無いことを条件に書くため。[06 §9](./06_processing_design.md#9-タグの提案c-4)。C-4b で実装済み）
 - 応答は 200 `{ photo, urlExpiresAt }`（§5.3 と同じ形。更新後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
 - Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真の更新に失敗しました`。
   写真の保存先の設定（`STORAGE_CONNECTION_STRING` のアカウント名・鍵、`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ、写真を書き換える前に同じ 500
@@ -552,7 +554,7 @@ C-2 からアプリは、ダイアログの「場所」の欄を利用者が直�
 
    `location` の書き込みに条件は付けない（読んでから書くまでの間に `location` を書きうるのは同じ写真への別の受付だけで、後から書いた方が残る。送信は既存の写真を書き換えず、ワーカー・`PATCH`・move は `location` に触らない）。
    それ以外の項目（`category`・`classification`・`identification`・`tags`・`tripId`）は変えない（前回の結果はやり直しの結果が出るまで残る）。
-   解析中（`pending` / `classifying` / `identifying`）の写真にも受け付ける（最新の依頼で上書きされる。走っている分類・識別の結果と失敗は、担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch で書かれずに捨てられる。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
+   解析中（`pending` / `classifying` / `identifying` / `tagging`（C-4b））の写真にも受け付ける（最新の依頼で上書きされる。走っている分類・識別・タグの提案の結果と失敗は、担当したときの `processing`（`state`・`step`・`attempts`・`updatedAt`）の条件付き patch で書かれずに捨てられる。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
    やり直しの回数に上限は置かない（費用は AI のデプロイの容量で抑える。[06 §6](./06_processing_design.md#6-費用の抑え方)）
 2. キューに `{ photoId }` を投入する（`step`・`hint` はワーカーが写真から読む）
 3. **202** `{ photo, urlExpiresAt }`（§5.3 と同じ形。受け付けた後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
@@ -818,7 +820,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`）。
 
-- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
+- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。タグの提案（`step: "tag"`。C-4b）の写真は数えない（タイムラインの AI はタグを読まないので、待たせない。2026-11-02 に人間が決定。`constants/album.ts` の `blocksTimeline()`）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
 - 読むのは、タイムラインの文書と旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と解析の状態）を並べて、完成版があればその控え。増えた・消えた枚数と `pendingPhotoCount` は同じ 5.13 の結果から数える。下書きの控えは読まない（`draft` は状態だけ）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
@@ -839,7 +841,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | # | 条件 | 応答 |
 |---|---|---|
 | 1 | 作っている途中 | 409 `TIMELINE_STATE_CONFLICT` |
-| 2 | 解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`）がある。`none`・`done`・`failed` は済んだものとして扱う | 409 `TIMELINE_PHOTOS_PROCESSING` `解析中の写真があります。終わってから作ってください` |
+| 2 | 解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）がある。`none`・`done`・`failed` は済んだものとして扱う。タグの提案（`step: "tag"`。C-4b）の写真は済んだものとして扱う（上の `pendingPhotoCount` と同じ） | 409 `TIMELINE_PHOTOS_PROCESSING` `解析中の写真があります。終わってから作ってください` |
 | 3 | 撮影日時のある写真が1枚も無い（写真が無い旅行も） | 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません` |
 | 4 | それ以外 | 202。写真の控えを取り（`TIMELINE_DAY_START_HOUR` もこのときに読む）、新しい下書き（`reason: "create"`・`phase: "proposing"`・`job: { step: "propose", state: "pending", attempts: 0, lastError: null }`・`proposedStarts` と `sceneStarts` は空）を書いてキューへ投入。**完成版があれば消す**（`current: null`。作り直しは今のタイムラインを消して一から作る。5-6b から。それより前は下の「5-6b まで」の行）。前の下書き（確かめ途中・失敗。区切りを直している途中の `recut` も）は置き換える。投入に失敗しても 202（再投入のタイマーが拾う。写真の `process` と同じ） |
 
@@ -1189,20 +1191,21 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 
 写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）と、タイムラインの区切り案（段階5。5-1b）と文（5-2a。[06 §8](./06_processing_design.md#8-タイムライン段階5)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
 AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案・文はそれぞれ1回の作成につき1回。写真の多い旅行は分けて複数回。文は作り直しでも全部の場面と日を書かせる（5-5b。それまでは書かせるものが無ければ呼ばなかった）。[06 §8.3・§8.4](./06_processing_design.md#84-ai-に渡すもの)）。
+**実装済み**（C-4b。`services/photoTaggerService.ts`）: 食べ物の写真のタグの提案（裏のワーカー。[06 §9](./06_processing_design.md#9-タグの提案c-4)）も同じサービスを通し、1枚の提案につき1回の要求を送る（下の表の「タグの提案」の分）。
 管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは共通の要素で、
-送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4](./06_processing_design.md#21-モデルとサービス) にある。
+送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4・§9](./06_processing_design.md#21-モデルとサービス) にある。
 
 **プロンプトの文言は契約外。** ここにも 06 にも写さず、テストでも完全一致で固定しない。
 
 | 要素 | 内容 |
 |---|---|
 | 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき送り先のデプロイ名は必須で、決まらない（空文字列・空白だけを含む）なら要求を送らずに失敗する（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`（デプロイ名は前後の空白を取り除いたもの）、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
-| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、タイムラインは `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` を渡し、識別は何も渡さない（06 §2.1・§3.1・§8.1） |
+| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、タイムラインは `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` を渡し、識別とタグの提案は何も渡さない（06 §2.1・§3.1・§8.1・§9） |
 | モデル | デプロイ名。Azure OpenAI Service では `baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、デプロイ名が決まらなければ `gpt-5.6-luna` を使う |
-| メッセージ | `user` ロールの1件。分類・識別はテキスト（プロンプト）と画像の2パート、タイムラインはテキストの1パートだけ（画像を渡さない。06 §8.4） |
-| 画像 | 分類・識別だけ。`image_url` パート。`detail: "low"`（トークン節約）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
-| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タイムラインの区切り案は `timeline_proposal`、文は `timeline_texts`） |
-| トークン上限 | `max_completion_tokens`（`max_tokens` は送らない）。分類・識別は 4000、タイムラインの区切り案は `TIMELINE_PROPOSE_MAX_TOKENS`（4000）、文は `TIMELINE_WRITE_MAX_TOKENS`（16000。06 §8.4） |
+| メッセージ | `user` ロールの1件。分類・識別・タグの提案はテキスト（プロンプト）と画像の2パート、タイムラインはテキストの1パートだけ（画像を渡さない。06 §8.4） |
+| 画像 | 分類・識別・タグの提案だけ。`image_url` パート。分類・識別は `detail: "low"`（トークン節約）、タグの提案は `detail: "high"`（皿の位置を答えさせるため。06 §9）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
+| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タグの提案は `dish_tags`、タイムラインの区切り案は `timeline_proposal`、文は `timeline_texts`） |
+| トークン上限 | `max_completion_tokens`（`max_tokens` は送らない）。分類・識別・タグの提案は 4000、タイムラインの区切り案は `TIMELINE_PROPOSE_MAX_TOKENS`（4000）、文は `TIMELINE_WRITE_MAX_TOKENS`（16000。06 §8.4） |
 | 送らないパラメータ | `temperature` |
 
 応答が空・JSON として読めない場合は、AI の失敗として扱う。応答の中身の検証は呼び出し側が行う（06 §2.1・§3.1）。
@@ -1219,7 +1222,7 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT
 - **strict モードの制約**: Structured Outputs の `strict: true` は、全プロパティを `required` に列挙し `additionalProperties: false` にすることを求める。
   そのため任意項目（識別の `name` / `description` / `characteristics` や、定義表の各項目）は `["string", "null"]` のように null 許容で表す。
   `minimum` / `maximum` / `maxItems` は使えないため、信頼度の範囲はサーバ側で検証する（範囲外は AI の失敗。06 §2.1・§3.1）
-- **トークン節約**: 画像は `detail: "low"` で渡す
+- **トークン節約**: 画像は `detail: "low"` で渡す（タグの提案だけは `high`。試作で `low` は皿の位置と名前を外した。06 §9）
 - モデル名は `AZURE_OPENAI_DEPLOYMENT_NAME` から取り、Terraform の `azurerm_cognitive_deployment.gpt6_luna`（`gpt-6-luna` / GlobalStandard SKU。2026-10-17 に `gpt-5.6-luna` から切り替え）と一致させる。
   `AZURE_OPENAI_ENDPOINT` も `AZURE_OPENAI_DEPLOYMENT_NAME` も無いときの既定値（OpenAI 公式 API へのフォールバック）は、コードの中で `gpt-5.6-luna` のまま
 

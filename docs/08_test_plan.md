@@ -373,6 +373,8 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 
 ### 3.11 タグの提案（C-4）で足すシナリオ（骨格）
 
+**実装済み**（C-4b。`tests/functions/processPhoto.test.ts` の「タグの提案」、`tests/functions/requeueStalePhotos.test.ts`、`tests/scripts/enqueueUntagged.test.ts`）: 下の1〜4番目の行と、スクリプトの行。再投入のタイマーが止まった提案（`tagging`）を拾うこと。
+
 - 分類の結果が食べ物で、タグが無い写真は、タグの提案の待ち（`pending`・`step: "tag"`）になってキューに積まれる。タグがある・食べ物でない写真は `done`
 - 提案のワーカー: AI に `detail: "high"` の画像と食べ物の名前の決まりを送り、答えの皿ごとに `{ name, kind: "food", x, y, source: "ai" }` のタグを書いて `done`。名前の切り詰め・位置を 0〜1 に収める・21 個目から捨てる。答えが空ならタグは書かずに `done`
 - 提案を待つ間に利用者がタグを付けていたら、タグは書かずに `done`（利用者のタグが残る）
@@ -381,7 +383,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - 写真ビューア（03 §5.9）: 吹き出しで出す、表示の切り替えを覚える、タグを押して直す・動かす・消す（直したタグは `user` で送る）、提案を待つ間の文言
 - 既にある食べ物の写真のスクリプト: 数えるだけ／`--apply` で待ちにする
 
-手で確かめること（デプロイ後）: 食べ物の写真を送り、10〜30 秒ほどで写真を開き直すと、皿ごとに吹き出しが出て、位置が皿の上に乗り、名前が一般的な料理名になっているか。
+手で確かめること（デプロイ後）: 食べ物の写真を送り、10〜30 秒ほどで写真を開き直すと、皿ごとに吹き出しが出て、位置が皿の上に乗り、名前が一般的な料理名になっているか。Cosmos の patch の条件と、スクリプト `enqueueUntagged` のクエリ（04 §5 の 5.11.1）は §5.3 の「タグの提案」
 
 ## 5. 単体テストで確かめられず手で確かめる項目
 
@@ -418,11 +420,14 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 
 - カテゴリの絞り込み（3-3b。[04 §5](./04_data_design.md#5-クエリ) の 5.4）: `GET /api/photos?category=food` が旅行をまたいで（旅行に属さない写真も）食べ物の写真だけを `sortAt` 順で返す。`tripId=<uuid>&category=food`・`tripId=none&category=food` がその旅行（未所属）の食べ物だけを返す。
   `continuationToken` でめくって重複・欠落が無い（`c.category = @category` と `c.tripId = @tripId` の AND・`ORDER BY c.sortAt`）
-- 再投入のクエリ（3-3b。5.8）: `pending` / `classifying` / `identifying` で `processing.updatedAt` が 10 分より前の写真だけが拾われる（`IN` と、ISO 文字列の `<` の比較）。**`failed`・`none`・`done` の写真が拾われない**こと（コードでも同じ条件を見直すので、SQL が崩れても写真は変わらないが、ログの「止まっていた写真」の枚数で SQL の結果が分かる）
+- 再投入のクエリ（3-3b。5.8。`tagging` は C-4b で足した）: `pending` / `classifying` / `identifying` / `tagging` で `processing.updatedAt` が 10 分より前の写真だけが拾われる（`IN` と、ISO 文字列の `<` の比較）。**`failed`・`none`・`done` の写真が拾われない**こと（コードでも同じ条件を見直すので、SQL が崩れても写真は変わらないが、ログの「止まっていた写真」の枚数で SQL の結果が分かる）
 - 掃除の射影のクエリ（3-3b。5.9）: `SELECT c.id, c.tripId, c.blobName`（写真）と `SELECT c.id`（旅行）が全件を返す。文書のある写真の Blob が消されず、消えた旅行を指す写真だけが未所属に戻ることで確かめる（射影が欠けると、文書のある写真の Blob を孤児として消す）
 - タイマーの登録とスケジュール（3-3b）: ポータルの「関数」に `requeueStalePhotos`・`sweepAlbum`（`app.timer` の第1引数）がある。`requeueStalePhotos` が 10 分ごとに、`sweepAlbum` が日本時間の午前3時（UTC 18 時）に走ったことを実行の履歴（ログの件数の行）で確かめる
 - やり直しの受付のルート（3-3b）: ポータルの「関数」に `requestPhotoProcessing` があり、`POST /api/photos/{photoId}/process` が 202 を返し、写真の `processing.state` が `pending` → `done` に進む
 - 識別に回すスクリプトのクエリ（4-1b。[04 §5](./04_data_design.md#5-クエリ) の 5.11）: デプロイ後、`--apply` を付けずに回し（`api/README.md`「手で回すスクリプト」）、出た対象の枚数が、ポータルのデータエクスプローラーで数えた「`done`・`category` が `plant`・`identification` が `null`」の写真の枚数と合う（クエリは `IS_NULL(c.identification)` と `ARRAY_CONTAINS(@kinds, c.category)` で3種類を読み、出す枚数はコードで植物に絞った後のもの。B-1。コードでも同じ条件を見直すので、SQL が崩れても書き換える写真は変わらないが、多く拾えば読む RU が、少なく拾えば識別の漏れが出る）。`--apply` の後 10〜20 分で、待ちにした写真が `identifying` → `done`（`step: "identify"`）に進む
+- タグの提案（C-4b。[06 §9](./06_processing_design.md#9-タグの提案c-4)）。偽物は patch の条件を自前で評価し、クエリの絞り込みは解釈しないので、次はデプロイ後にしか確かめられない
+  - タグの書き込みの `condition`（担当の条件と `(NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)` の `AND`。偽物は条件を自前で評価している）: タグの無い食べ物の写真を送り、10〜30 秒ほどでタグが書かれる（`tags` が空の配列の文書で条件が真になる）。通らないと、タグが書かれずに `done` になり、ログに「タグは書かずに済みにしました」が出る。提案を待つ間（送った直後）に手でタグを付けた写真では、AI のタグが書かれずに利用者のタグが残る
+  - スクリプト `enqueueUntagged` のクエリ（[04 §5](./04_data_design.md#5-クエリ) の 5.11.1）: デプロイ後、`--apply` を付けずに回し、出た対象の枚数が、データエクスプローラーで数えた「`done`・`category` が `food`・`tags` が無いか空」の写真の枚数と合う（`NOT IS_DEFINED` と `ARRAY_LENGTH` の組み合わせ。コードでも同じ条件を見直すので、SQL が崩れても書き換える写真は変わらないが、多く拾えば読む RU が、少なく拾えば提案の漏れが出る）。`--apply` の後 10〜20 分で、待ちにした写真が `tagging` → `done`（`step: "tag"`）に進む
 - 図鑑の項目一覧のつなぎ目（4-2a。[04 §5](./04_data_design.md#5-クエリ) の 5.6・[05 §5.14](./05_api_design.md#514-図鑑段階4)）。偽物は SQL の絞り込み・集計・並びを解釈せず、純粋な関数のテストには行を直接渡しているので、次はデプロイ後にしか確かめられない
   - 関数の登録: ポータルの「関数」に `listCatalogKinds`・`listCatalogEntries`（`app.http` の第1引数）があり、`GET /api/catalog/kinds` が図鑑に載せる種類（B-2 から植物だけ。それまでは定義表の3種類）を返す
   - 種類での絞り込み（`c.identification.kind = @kind`・`matchesKind = true`）: `GET /api/catalog/entries?kind=plant` に食べ物・風景の写真の名前が混ざらない（B-2 から `kind=food`・`kind=landscape` は Cosmos に触る前に 400 になるので、確かめるのは `plant` だけ）。
@@ -451,7 +456,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 - キューの直列化（`batchSize: 1`）と poison の挙動（AI が 3 回失敗した写真は、3 回目でワーカーが `failed` にして例外を投げないので poison には落ちず、アプリに「やり直す」が出る。担当の前に 3 回失敗したメッセージ（写真の読み取りの失敗など）だけが `photo-processing-poison` に落ちる。poison の中身には触らない。[06 §5](./06_processing_design.md#5-失敗と再試行のまとめ)）
 - 関数の登録とキューのつながり（3-3a）: ポータルの「関数」に `processPhoto`（`app.storageQueue` の第1引数）がある。写真を1枚送り、`GET /api/photos/{photoId}` の `processing.state` が `done`・`category` が入る（投入の本文の base64・キューの名前・接続（`AzureWebJobsStorage`）は偽物では確かめられない。本文が読めなければ `photo-processing-poison` に落ち、写真は `pending` のまま）
 - 担当の `condition`（`FROM c WHERE c.processing.state = "pending" AND c.processing.step = "<読んだ step>" AND c.processing.attempts = <読んだ回数> AND c.processing.updatedAt = "<同じときの processing.updatedAt>"`）が、実環境で `pending` でない写真と回数の違う写真に 412 を返す（偽物は条件を自前で評価している）。
-  結果・失敗の `condition`（`state = "classifying"`（識別は `"identifying"`）`AND step = <step> AND attempts = <担当した回数> AND updatedAt = <担当したときの時刻>`）と再投入のタイマー・識別に回すスクリプトの `condition`（`state = "<読んだ state>" AND step = <読んだ step> AND attempts = <読んだ回数> AND updatedAt = <読んだ時刻>`）も同じ形なので、担当の確認で併せて確かめたことにしてよい。
+  結果・失敗の `condition`（`state = "classifying"`（識別は `"identifying"`、タグの提案は `"tagging"`）`AND step = <step> AND attempts = <担当した回数> AND updatedAt = <担当したときの時刻>`）と再投入のタイマー・識別に回すスクリプト・タグの提案に回すスクリプトの `condition`（`state = "<読んだ state>" AND step = <読んだ step> AND attempts = <読んだ回数> AND updatedAt = <読んだ時刻>`）も同じ形なので、担当の確認で併せて確かめたことにしてよい。
   分類の間にやり直しを頼んだ写真が、やり直しの手がかり付きの結果になる（古い結果で上書きされない）
 - 10 枚のトークン使用量の実測（[06 §6](./06_processing_design.md#6-費用の抑え方)）。容量は今のまま（150）でよく、下げるかの判断材料にする
 - 図鑑の1種類の1ページを開く RU と時間の実測（4-2a のデプロイ後。識別済みの枚数・項目の数と一緒に `docs/09_backlog.md` へ。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の見積もりと比べる）。
@@ -469,6 +474,7 @@ PR 4b では、旅行の削除・move・PATCH をサービスではなくハン�
 
 - クエリ（[04 §5](./04_data_design.md#5-クエリ) の 5.12〜5.15）: 旅行1つ分の写真の射影が控えになり、撮影日時の無い写真はタイムラインに出ない。写真の id と解析の状態のクエリ（5.13。5-1c で `{ "state": c.processing.state } AS processing` のオブジェクトの射影を足した）で、増えた・消えた枚数が合い、解析中の写真の数が `pendingPhotoCount` に出る（`none`・`failed` は数えない。オブジェクトの射影が実環境で `{ processing: { state } }` の形で返らないと、解析中の枚数が 0 になる。偽物は SELECT を解釈しないので、ここだけは手で確かめる）。止まった下書きを再投入のタイマーが積み直す
 - 写真を外す（T-1・T-2）と撮影日時の無い写真（02 §5 #54）: 旅行の写真のクエリ（5.13）の射影に足した `c.takenAt` が実環境で読める。作った後に撮影日時の無い写真（スクリーンショットなど）を足しても「写真が増えました」が出ず、撮影日時のある写真を足すと出る。案の確認画面で撮影日時のある写真の最後の1枚を外すと「撮影日時のある写真がありません」と出て、外れない（T-2c。それより前は全部外せて、「この案で見出しを付ける」でこの文言が出た）
+- タグの提案とタイムライン（C-4b。02 §5 #61）: 旅行の写真のクエリ（5.13）の射影に足した `c.processing.step` が実環境で読め、タグの提案を待っている・している写真があってもタイムラインを作れ、「解析中の写真があと N 枚」に数えないこと
 - 区切り案と文の質（デプロイ後に、実際の旅行1つで）: 食事・食べ歩き・店内の写真がそれらしく区切られるか。見出しが手がかりや判断の過程に触れていないか（U-3 から AI は一言を書かない）。渡していないことを作っていないか。書けることの少ない場面（カテゴリと撮影時刻のほかに、名前・地名・コメントの無い写真だけ）にも控えめな見出しが付き、見出しが前後の場面の写真の内容になっていないか。区切り案が写真1枚ずれていないか。分類の一言や、食べ物の識別の名前と一言で、料理が見た目で分かる以上に細かく（名物名を推し量って）書かれていないか（この3つは 2026-11-01 の調整。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #60）。気になった例は `docs/09_backlog.md` に記録して、プロンプトの要素を見直す
 - トークン使用量と時間の実測（[06 §8.5](./06_processing_design.md#85-費用)）: 写真の多い旅行で、区切り案・文それぞれの入力・出力のトークンと、押してから表示まで
 - 日の区切り: 深夜（0〜4時）に撮った写真が前の日に入る。`TIMELINE_DAY_START_HOUR` を `0` にして作り直すと、日付どおりに分かれる

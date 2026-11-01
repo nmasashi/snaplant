@@ -286,6 +286,28 @@ describe('タイムラインを作るAPI', () => {
     expect(queuedMessages()).toEqual([]);
   });
 
+  it.each([
+    ['タグの提案（C-4）を待っている', 'pending'],
+    ['タグを提案している', 'tagging']
+  ] as const)('%s写真があっても、作る受付をする（タイムラインの AI はタグを読まない。02 §5 #61）', async (_label, state) => {
+    cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
+    cosmosBackend.documents.set(
+      photoId('b'),
+      analyzedPhoto(photoId('b'), {
+        takenAt: '2026-10-05T08:00:00',
+        takenAtSource: 'exif',
+        processing: { state, step: 'tag', attempts: 0, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' }
+      })
+    );
+
+    const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(202);
+    // 提案の写真も控えに入り、下書きを作って積む
+    expect(storedSnapshots()[0].photos.map((photo: { id: string }) => photo.id)).toEqual([photoId('a'), photoId('b')]);
+    expect(queuedMessages()).toEqual([['timeline-processing', [{ tripId: TRIP_ID, draftId: storedTimeline()!.draft!.id }]]]);
+  });
+
   it.each(['pending', 'classifying', 'identifying'] as const)(
     '解析が済んでいない写真（%s）があれば、409（TIMELINE_PHOTOS_PROCESSING）で、何も作らない',
     async (state) => {
@@ -311,6 +333,24 @@ describe('タイムラインを作るAPI', () => {
       expect(queuedMessages()).toEqual([]);
     }
   );
+
+  it('段の無い、解析が済んでいない写真があっても、409（TIMELINE_PHOTOS_PROCESSING）で待たせる（待たせない側に倒さない）', async () => {
+    // 解析の待ち・処理中の写真には段が付くので本来は無いが、あればタグの提案（待たせない段）と取り違えずに待たせる（blocksTimeline）
+    cosmosBackend.documents.set(photoId('a'), analyzedPhoto(photoId('a'), { takenAt: '2026-10-05T07:50:12', takenAtSource: 'exif' }));
+    cosmosBackend.documents.set(
+      photoId('b'),
+      analyzedPhoto(photoId('b'), {
+        takenAt: '2026-10-05T08:00:00',
+        takenAtSource: 'exif',
+        processing: { state: 'pending', step: null, attempts: 0, lastError: null, updatedAt: '2026-10-25T08:59:00.000Z' }
+      })
+    );
+
+    const response = await createTimelineHandler(createRequest(TRIP_ID), mockContext);
+
+    expect(response.status).toBe(409);
+    expect(storedTimeline()).toBeUndefined();
+  });
 
   it.each<[string, PhotoProcessing]>([
     ['none', { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null }],
@@ -619,10 +659,16 @@ describe('タイムラインを読むAPI（GET）', () => {
   const DROPPED = [{ kind: 'scene' as const, key: photoId('z'), field: 'label' as const, text: '小樽運河さんぽ' }];
 
   /** 旅行の写真の文書（解析の状態と、撮影日時（既定は無し）を指定する） */
-  const placePhoto = (id: string, state: PhotoProcessing['state'] = 'done', tripId: string = TRIP_ID, takenAt: string | null = null) =>
+  const placePhoto = (
+    id: string,
+    state: PhotoProcessing['state'] = 'done',
+    tripId: string = TRIP_ID,
+    takenAt: string | null = null,
+    step: PhotoProcessing['step'] = 'identify'
+  ) =>
     cosmosBackend.documents.set(
       id,
-      photoDocument(id, { tripId, takenAt, processing: { state, step: 'identify', attempts: 1, lastError: null, updatedAt: '2026-10-08T00:00:00.000Z' } })
+      photoDocument(id, { tripId, takenAt, processing: { state, step, attempts: 1, lastError: null, updatedAt: '2026-10-08T00:00:00.000Z' } })
     );
 
   /** 完成版の控えを置き、removed 以外の控えの写真を旅行の写真として置く */
@@ -640,7 +686,7 @@ describe('タイムラインを読むAPI（GET）', () => {
     return (response.jsonBody as any).data;
   };
 
-  it('タイムラインが無ければ null で、解析が済んでいない写真の枚数を返す（別の旅行の写真は数えない）', async () => {
+  it('タイムラインが無ければ null で、解析が済んでいない写真の枚数を返す（別の旅行の写真と、タグの提案（C-4）の写真は数えない）', async () => {
     placePhoto(photoId('1'), 'pending');
     placePhoto(photoId('2'), 'classifying');
     placePhoto(photoId('3'), 'identifying');
@@ -648,6 +694,8 @@ describe('タイムラインを読むAPI（GET）', () => {
     placePhoto(photoId('5'), 'done');
     placePhoto(photoId('6'), 'failed');
     placePhoto(photoId('7'), 'pending', OTHER_TRIP_ID);
+    placePhoto(photoId('8'), 'pending', TRIP_ID, null, 'tag');
+    placePhoto(photoId('9'), 'tagging', TRIP_ID, null, 'tag');
 
     expect(await read()).toEqual({ timeline: null, pendingPhotoCount: 3, urlExpiresAt: '2026-10-25T10:00:00.000Z' });
   });

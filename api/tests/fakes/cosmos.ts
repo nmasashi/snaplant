@@ -207,7 +207,8 @@ export function cosmosPreconditionFailedError(): any {
  *
  * 解釈できるのは `FROM c WHERE c.<path> = "<文字列>"` と `c.<path> = <整数>` を `AND` でつないだ形
  * （ワーカーの担当の条件 `c.processing.state = "pending" AND c.processing.attempts = <読んだ回数>`）と、
- * その `AND` の項に `(IS_NULL(c.<path>) OR c.<path> = "<文字列>")` を置いた形（識別のコメントの条件）だけ
+ * その `AND` の項に `(IS_NULL(c.<path>) OR c.<path> = "<文字列>")` を置いた形（識別のコメントの条件）と、
+ * `(NOT IS_DEFINED(c.<path>) OR ARRAY_LENGTH(c.<path>) = 0)` を置いた形（タグの提案の条件）だけ
  * @returns 条件を満たすか
  */
 function satisfiesCondition(doc: unknown, condition: string): boolean {
@@ -226,6 +227,16 @@ function satisfiesCondition(doc: unknown, condition: string): boolean {
     return match[2] !== undefined ? value === match[2] : value === Number(match[3]);
   };
   return where[1].split(' AND ').every((term) => {
+    // 配列が無いか空（タグの提案を書くときの条件。06 §9）。Cosmos の ARRAY_LENGTH は項目が無いと未定義（比べると偽）なので、IS_DEFINED でつなぐ
+    const emptyArray = /^\(NOT IS_DEFINED\(c\.([A-Za-z_][\w.]*)\) OR ARRAY_LENGTH\(c\.([A-Za-z_][\w.]*)\) = 0\)$/.exec(term.trim());
+    if (emptyArray) {
+      // 本物は2つの path を別々に評価する。書き違えた条件を偽物が通さないよう、同じ path のときだけ解釈する
+      if (emptyArray[1] !== emptyArray[2]) {
+        throw new Error(`偽物の patch が解釈できない condition です: ${condition}`);
+      }
+      const value = valueAt(emptyArray[1]);
+      return value === undefined || (Array.isArray(value) && value.length === 0);
+    }
     const either = /^\(IS_NULL\(c\.([A-Za-z_][\w.]*)\) OR (c\.[A-Za-z_][\w.]* = "[^"]*")\)$/.exec(term.trim());
     if (either) {
       // Cosmos の IS_NULL は項目が無いと偽（null のときだけ真）

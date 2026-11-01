@@ -90,12 +90,38 @@ export function timelineDayStartHour(): number {
 export const TIMELINE_SNAPSHOT_COMMENT_LENGTH = 100;
 
 /**
- * 解析（分類・識別）が済んでいない写真の状態
+ * 試行の上限に達した写真の状態。タグの提案（C-4）だけは failed にせず done にする
  *
- * 再投入のタイマーが拾う状態で、タイムラインを作れない状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。
- * SQL の IN の並び（albumService.listStalePhotos）も同じ3つにする
+ * タグの提案は分類が済んだ後の段で、failed にするとアプリが「分類に失敗しました」と出す。AI が失敗したら何も出さずにタグ無しのまま（06 §9、02 §5 #61）。
+ * ワーカーの失敗の記録と再投入のタイマーの両方が使う
  */
-export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying'];
+export function givenUpState(step: PhotoProcessing['step']): PhotoProcessing['state'] {
+  return step === 'tag' ? 'done' : 'failed';
+}
+
+/**
+ * 解析（分類・識別・タグの提案）が済んでいない写真の状態
+ *
+ * 再投入のタイマーが拾う状態（none・done・failed は済んだものとして扱う。01 §5.3.1）。タイムラインを待たせるかは、この状態に段も合わせて見る blocksTimeline() で決める。
+ * SQL の IN の並び（albumService.listStalePhotos）も同じものにする
+ */
+export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying', 'tagging'];
+
+/**
+ * タイムラインを作るのを待たせる、解析の済んでいない写真か（作る受付の 409 と、完成版の解析が済んでいない枚数）
+ *
+ * タグの提案（step: tag）は数えない。タイムラインの AI はタグを読まないので、待たせる理由が無い（02 §5 #61）。
+ * 再投入のタイマーは、タグの提案も含めて UNFINISHED_PROCESSING_STATES で拾う
+ */
+export function blocksTimeline(processing: { state: PhotoProcessing['state']; step: PhotoProcessing['step'] }): boolean {
+  return UNFINISHED_PROCESSING_STATES.includes(processing.state) && TIMELINE_BLOCKING_STEPS.includes(processing.step);
+}
+
+/**
+ * タイムラインを待たせる解析の段（タイムラインの AI が読む分類と識別。段を足しても、ここに足さなければ待たせない）。
+ * 段の無い済んでいない写真は無いはずだが、あれば待たせる側に倒す（null）
+ */
+const TIMELINE_BLOCKING_STEPS: readonly PhotoProcessing['step'][] = ['classify', 'identify', null];
 
 /**
  * タイムラインの区切り案の max_completion_tokens（推論のトークンも含む）
