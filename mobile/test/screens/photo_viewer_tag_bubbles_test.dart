@@ -132,6 +132,19 @@ void main() {
     await finishImageLoading(tester);
   });
 
+  testWidgets('上の端の近くのどの位置のタグも、吹き出しが写真の枠の上で切れない', (tester) async {
+    // 上の端から枠の高さの 0.5% ずつ下げた 20 個のタグ（上に出すか下に出すかの境目をまたぐ）
+    final tags = [for (var i = 1; i <= 20; i++) _tag('タグ$i', x: 0.5, y: i * 0.005)];
+    await _openViewer(tester, [_photo(tags: tags)], waitFor: _onPhoto('タグ20'), image: _tallImage);
+
+    for (final tag in tags) {
+      // 名前だけでなく、吹き出しの枠（地と線）まで収まっているかを見る
+      final box = tester.getRect(find.ancestor(of: _onPhoto(tag['name'] as String), matching: find.byType(DecoratedBox)).first);
+      expect(_inside(box, _frame(tester)), isTrue, reason: '$tag $box ${_frame(tester)}');
+    }
+    await finishImageLoading(tester);
+  });
+
   testWidgets('名前が写真の枠の幅に入りきらなければ、吹き出しを枠の中に収める（末尾を切る）', (tester) async {
     const name = 'いか刺しとうに丼といくら丼とほたての浜焼きと焼きとうもろこし';
     await _openViewer(tester, [_photo(tags: [_tag(name)])], waitFor: _onPhoto(name));
