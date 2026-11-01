@@ -848,6 +848,8 @@ C-3（C-3b）で作った。決定は [02 §5](./02_design_overview.md#5-人間�
 
 ### 5.8 撮影日時を手で付ける
 
+**実装済み**（D-2。`screens/photo_viewer_screen.dart` の `_takenAtRow()`・`_editTakenAt()`、シートは `widgets/taken_at_sheet.dart`）。
+
 撮影日時の無い写真（スクリーンショット、受け取って撮影日時が消えた画像など）に、写真ビューアから撮影日時を手で付ける（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59。モックは 2026-11-01 に人間と確かめた）。
 API は `PATCH /api/photos/{photoId}` の `takenAt`（[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）。
 
