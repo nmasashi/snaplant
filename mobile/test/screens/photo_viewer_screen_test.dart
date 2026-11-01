@@ -241,6 +241,54 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('続きのページの読み込みに失敗していても、読み込んだ末尾でない写真では「続きを読み込めませんでした」を出さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.photos);
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
+
+    await _swipe(tester, toNext: false);
+
+    expect(find.text('2026年10月5日 10:29').hitTestable(), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('続きのページの読み込みに失敗していて、写真ビューアで読み込んだ末尾の写真を削除したら、続きを待つ間も「再試行」を出し、「再試行」で届いた次の写真へ移る',
+      (tester) async {
+    // 10:30 は読み込み済みの末尾だが、本当の末尾ではない（続きがある）。削除すると読み込み済みの写真を使い切り、続きを待つ（§4.6）
+    final semantics = tester.ensureSemantics();
+    final backend = _thirtyThreePhotosBackend();
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    backend.failNext(TripRoute.photos);
+    await tester.drag(photoGridScroll(), const Offset(0, -5000));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月5日 10:30'));
+    await letFramesRun(tester);
+    await tester.tap(
+        find.descendant(of: find.byType(AppBar), matching: find.text('削除')));
+    await letFramesRun(tester);
+    await tapInDialog(tester, '削除');
+
+    expect(find.byType(PageView), findsOneWidget);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('再試行').hitTestable());
+    await letFramesRun(tester);
+
+    expect(_isOnScreen(tester, '2026年10月5日 10:31'), isTrue);
+    expect(find.text('続きを読み込めませんでした').hitTestable(), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('グリッドを下端まで送っていなくても、写真ビューアで読み込んだ末尾の写真まで来ると、一覧が次のページを読み、続けてスワイプできる',
       (tester) async {
     // 1ページ目は30枚（10:01〜10:30）、2ページ目は3枚（10:31〜10:33）。
