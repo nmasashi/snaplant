@@ -474,7 +474,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
-- `takenAt`（D-1。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）: 利用者が撮影日時を手で付ける・直す・消す。写真を読んでから書く（11 の確かめのため）。
+- `takenAt`（**実装済み**（D-1。`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`、409 は `TakenAtFromCameraError`）。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）: 利用者が撮影日時を手で付ける・直す・消す。写真を読んでから書く（11 の確かめのため）。
   文字列なら `takenAt`（送った値）・`takenAtSource: "user"`・`sortAt`（`takenAt` と同じ値。[04 §1.3](./04_data_design.md#13-写真type-photo)）を書く。`null` なら `takenAt: null`・`takenAtSource: "none"`・`sortAt`（`uploadedAt` から作る。写真の送信と同じ決め方）を書く。
   撮影日時の無い写真に `null` を送っても受け付ける（書く値は今と同じ）。送らなければ `takenAt`・`takenAtSource`・`sortAt` に触らない
 - `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は `{ name, kind, x, y }` だけを保存し（ほかのキーは捨てる）、`name` は前後の空白を除く。
@@ -1013,6 +1013,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | 409 | `TIMELINE_STATE_CONFLICT` | 作っている途中、状態が合わない、または読んでから書くまでに他が書いた（読み直してもらう） | 同上 |
 | 409 | `TIMELINE_PHOTOS_PROCESSING` | 解析が済んでいない写真がある | `POST /api/trips/{tripId}/timeline` |
 | 409 | `TIMELINE_NO_DATED_PHOTOS` | 撮影日時のある写真が無い（写真を外すと出す写真が無くなるときも） | `POST /api/trips/{tripId}/timeline`、`POST …/timeline/draft/write`・`POST …/timeline/excluded-photos`・`POST …/timeline/draft/excluded-photos`（出す写真が無くなるとき。§5.15） |
+| 409 | `TAKEN_AT_FROM_CAMERA` | カメラが記録した撮影日時（`takenAtSource: "exif"`）の写真に、撮影日時を手で付けようとした（D-1） | `PATCH /api/photos/{photoId}`（§5.6） |
 | 400 / 413 / 415 / 500 / 502 / 503 | 既存のコード | 既存と同じ意味 | |
 
 段階5の4つのコードと 409（`HttpStatusCode.CONFLICT`）は 5-1a で `types/api.ts` に足した（実装済み）。今返すのは、`TIMELINE_NOT_FOUND` が `DELETE …/timeline/draft`・`PUT …/draft/scenes`（5-1c）・`POST …/draft/write`（5-2a。どれも `タイムラインの下書きが見つかりません`）と `POST …/recut`・`PATCH` の2つ（5-2b。`タイムラインが見つかりません`、`PATCH` はほかに `その日はタイムラインにありません`・`その場面はタイムラインにありません`）、`POST …/draft/excluded-photos`（T-1。`タイムラインの下書きが見つかりません`）・`POST …/excluded-photos`（T-1。`タイムラインが見つかりません`）、`TIMELINE_STATE_CONFLICT` が `POST …/timeline`・`DELETE …/timeline/draft`・`PUT …/draft/scenes`・`POST …/draft/write`・`POST …/recut`・`PATCH` の2つ・`POST …/draft/excluded-photos`・`POST …/excluded-photos`（T-1）（文言は `utils/response.ts` の `createTimelineStateConflict()` で共有）、`TIMELINE_PHOTOS_PROCESSING` が `POST …/timeline`、`TIMELINE_NO_DATED_PHOTOS` が `POST …/timeline`・`POST …/draft/write`・`POST …/excluded-photos`・`POST …/draft/excluded-photos`（後の3つは出す写真が無くなるとき。T-2・T-2c。文言は `utils/response.ts` の `createNoDatedPhotosError()` で共有）。`GET …/timeline`・`GET …/timeline/draft` はタイムラインのコードを返さない（無ければ `null`）。§5.15 のタイムラインのエンドポイントは全部実装済み（5-2b。写真を外す2つは T-1）。
