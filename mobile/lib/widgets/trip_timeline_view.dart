@@ -90,17 +90,37 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   // 表示の元になる応答の世代。タイムラインの読み込みと操作を始めるたびに進め、始めたときの世代のままの応答だけを使う
   // （前に始めた読み直し・読み込みの応答で、後の表示を上書きしない。§8.1）。下書きの読み直しは進めない（読み直しの間に始めたものを優先する）
   int _generation = 0;
+  // アプリが裏に回っている（前に出ていない）間は、下書きの読み直しを止める（§8.1）
+  late final AppLifecycleListener _lifecycle;
+  bool _hidden = false;
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(onHide: _onHide, onShow: _onShow);
     _load();
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _pollTimer?.cancel();
     super.dispose();
+  }
+
+  /// 裏に回ったら、下書きの次の読み直しを取り消す
+  void _onHide() {
+    _hidden = true;
+    _pollTimer?.cancel();
+  }
+
+  /// 前に戻ったら、作っている途中の下書きならすぐ読み直す（その後は 5 秒ごとに戻る）
+  void _onShow() {
+    _hidden = false;
+    if (_errorMessage == null &&
+        (_overview?.timeline?.draft?.isWorking ?? false)) {
+      _poll();
+    }
   }
 
   /// タイムラインを読む。[showLoading] が false なら、読み終えるまで今の表示のままにする（読み直しのとき）。
@@ -163,7 +183,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// エラーを出している間は予約しない（読み直しの結果でエラーの表示が黙って消えないように。「再試行」で読み直す）
   void _schedulePoll() {
     _pollTimer?.cancel();
-    if (_errorMessage == null &&
+    if (!_hidden &&
+        _errorMessage == null &&
         (_overview?.timeline?.draft?.isWorking ?? false)) {
       _pollTimer = Timer(_pollInterval, _poll);
     }
