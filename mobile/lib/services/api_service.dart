@@ -16,6 +16,14 @@ class ApiService {
   final String baseUrl;
   final String? functionKey;
   final http.Client _client;
+  /// 写真の送信を除く呼び出しに使う、応答を 30 秒で打ち切るクライアント（docs/03_screen_design.md §9.2）。
+  /// 処理中のダイアログは処理中は閉じないので、応答が返らないまま止まると出られなくなる。
+  /// 写真の送信は大きな画像を送るので、これを通さず、送信の列の 60 秒の時間切れだけで打ち切る
+  late final http.Client _timedClient = _TimeoutClient(_client, requestTimeout);
+
+  /// 写真の送信を除く呼び出しの時間切れ
+  static const requestTimeout = Duration(seconds: 30);
+
   // 自分で作った client だけを閉じる。渡された client は渡した側のもので、閉じると渡した側が使い回せなくなる
   final bool _ownsClient;
 
@@ -130,7 +138,7 @@ class ApiService {
   Future<TripList> getTrips() async {
     try {
       final url = _buildUrl('/api/trips');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripList(
@@ -150,7 +158,7 @@ class ApiService {
   Future<TripSummary> getTrip(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripSummary.fromJson(data['trip'] as Map<String, dynamic>);
@@ -165,7 +173,7 @@ class ApiService {
   Future<Trip> createTrip(String name, String? description) async {
     try {
       final url = _buildUrl('/api/trips');
-      final response = await _client.post(
+      final response = await _timedClient.post(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'name': name, 'description': description}),
@@ -185,7 +193,7 @@ class ApiService {
       String tripId, String name, String? description) async {
     try {
       final url = _buildUrl('/api/trips/$tripId');
-      final response = await _client.put(
+      final response = await _timedClient.put(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'name': name, 'description': description}),
@@ -207,7 +215,7 @@ class ApiService {
       {required bool deletePhotos}) async {
     try {
       final url = _buildUrl('/api/trips/$tripId?deletePhotos=$deletePhotos');
-      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.delete(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripDeleteResult(
@@ -239,7 +247,7 @@ class ApiService {
         if (continuationToken != null) 'continuationToken': continuationToken,
       };
       final url = _buildUrl('/api/photos?${Uri(queryParameters: query).query}');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return PhotoPage(
@@ -258,7 +266,7 @@ class ApiService {
   /// GET /api/catalog/kinds
   Future<List<CatalogKind>> getCatalogKinds() async {
     try {
-      final response = await _client.get(Uri.parse(_buildUrl('/api/catalog/kinds')), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(_buildUrl('/api/catalog/kinds')), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return (data['kinds'] as List<dynamic>)
@@ -279,7 +287,7 @@ class ApiService {
     try {
       final query = {'kind': kind, 'offset': '$offset', 'limit': '$limit'};
       final url = _buildUrl('/api/catalog/entries?${Uri(queryParameters: query).query}');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return CatalogEntryPage(
@@ -307,7 +315,7 @@ class ApiService {
         if (continuationToken != null) 'continuationToken': continuationToken,
       };
       final url = _buildUrl('/api/catalog/entry?${Uri(queryParameters: query).query}');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         final entry = data['entry'] as Map<String, dynamic>?;
@@ -331,7 +339,7 @@ class ApiService {
   Future<Photo> getPhoto(String photoId) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return Photo.fromJson(data['photo'] as Map<String, dynamic>);
@@ -346,7 +354,7 @@ class ApiService {
   Future<TimelineOverview> getTimeline(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response,
           _overviewOf);
     } catch (error) {
@@ -359,7 +367,7 @@ class ApiService {
   Future<TimelineDraftStatus?> getTimelineDraft(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/draft');
-      final response = await _client.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) => _draftOf(json));
     } catch (error) {
       throw _handleError(error);
@@ -384,7 +392,7 @@ class ApiService {
       {Map<String, String>? sceneComments}) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/draft/scenes');
-      final response = await _client.put(Uri.parse(url),
+      final response = await _timedClient.put(Uri.parse(url),
           headers: _headers,
           body: jsonEncode({
             'sceneStarts': sceneStarts,
@@ -403,7 +411,7 @@ class ApiService {
     try {
       final url =
           _buildUrl('/api/trips/$tripId/timeline/draft/excluded-photos');
-      final response = await _client.post(Uri.parse(url),
+      final response = await _timedClient.post(Uri.parse(url),
           headers: _headers, body: jsonEncode({'photoIds': photoIds}));
       return _parseResponse(response, (json) => _draftOf(json)!);
     } catch (error) {
@@ -417,7 +425,7 @@ class ApiService {
       String tripId, List<String> photoIds) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/excluded-photos');
-      final response = await _client.post(Uri.parse(url),
+      final response = await _timedClient.post(Uri.parse(url),
           headers: _headers, body: jsonEncode({'photoIds': photoIds}));
       return _parseResponse(response, _overviewOf);
     } catch (error) {
@@ -436,7 +444,7 @@ class ApiService {
   Future<void> discardTimelineDraft(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/draft');
-      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.delete(Uri.parse(url), headers: _headers);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException.fromResponse(response);
       }
@@ -458,7 +466,7 @@ class ApiService {
   Future<TimelineDraftStatus?> _postForDraft(String path) async {
     try {
       final url = _buildUrl(path);
-      final response = await _client.post(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.post(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) => _draftOf(json));
     } catch (error) {
       throw _handleError(error);
@@ -483,7 +491,7 @@ class ApiService {
       String path, Map<String, String?> changes) async {
     try {
       final url = _buildUrl(path);
-      final response = await _client.patch(Uri.parse(url),
+      final response = await _timedClient.patch(Uri.parse(url),
           headers: _headers, body: jsonEncode(changes));
       return _parseResponse(response,
           _overviewOf);
@@ -582,7 +590,7 @@ class ApiService {
   Future<void> deletePhoto(String photoId) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response = await _client.delete(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.delete(Uri.parse(url), headers: _headers);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException.fromResponse(response);
       }
@@ -603,7 +611,7 @@ class ApiService {
     try {
       final url = _buildUrl('/api/photos/$photoId/process');
       final trimmed = hint?.trim() ?? '';
-      final response = await _client.post(
+      final response = await _timedClient.post(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({
@@ -629,7 +637,7 @@ class ApiService {
   Future<Photo> updatePhotoComment(String photoId, String comment) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response = await _client.patch(
+      final response = await _timedClient.patch(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'comment': comment}),
@@ -650,7 +658,7 @@ class ApiService {
   Future<Photo> updatePhotoTags(String photoId, List<PhotoTag> tags) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response = await _client.patch(
+      final response = await _timedClient.patch(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({
@@ -674,7 +682,7 @@ class ApiService {
   Future<Photo> updatePhotoCategory(String photoId, String category) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response = await _client.patch(
+      final response = await _timedClient.patch(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'category': category}),
@@ -696,7 +704,7 @@ class ApiService {
       List<String> photoIds, String? tripId) async {
     try {
       final url = _buildUrl('/api/photos/move');
-      final response = await _client.post(
+      final response = await _timedClient.post(
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'photoIds': photoIds, 'tripId': tripId}),
@@ -722,7 +730,7 @@ class ApiService {
       // - 旅行の一覧は全部の旅行と写真を集計して重い
       // 旅行をまたぐ写真の一覧を1件だけ読む（クエリなので、コンテナが無ければ失敗する。写真があれば URL に署名するのでストレージの設定も通る）
       final url = _buildUrl('/api/photos?${Uri(queryParameters: {'category': 'plant', 'limit': '1'}).query}');
-      final response = await _client.get(
+      final response = await _timedClient.get(
         Uri.parse(url),
         headers: _headers,
       );
@@ -737,6 +745,37 @@ class ApiService {
     if (_ownsClient) {
       _client.close();
     }
+  }
+}
+
+/// 要求を送ってから応答の本文を読み終えるまでを [_timeout] で打ち切り、ステータス 0（通信の失敗）の [ApiException] にするクライアント。
+/// 本文の読み込みも含めるのは、応答の頭だけが届いて本文が止まったときも出られなくなるため
+class _TimeoutClient extends http.BaseClient {
+  final http.Client _inner;
+  final Duration _timeout;
+
+  _TimeoutClient(this._inner, this._timeout);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    return _sendAndRead(request).timeout(_timeout,
+        onTimeout: () => throw const ApiException(
+            statusCode: 0, message: '応答がありませんでした'));
+  }
+
+  Future<http.StreamedResponse> _sendAndRead(http.BaseRequest request) async {
+    final response = await _inner.send(request);
+    final bytes = await response.stream.toBytes();
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(bytes),
+      response.statusCode,
+      contentLength: bytes.length,
+      request: response.request,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+    );
   }
 }
 
