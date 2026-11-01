@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../models/photo.dart';
 
@@ -9,6 +11,13 @@ const _tailWidth = 12.0;
 
 /// 吹き出しの枠の太さ
 const _borderWidth = 1.5;
+
+/// 吹き出しの中の余白
+const _labelPadding = EdgeInsets.symmetric(horizontal: 10, vertical: 4);
+
+/// 吹き出しの名前の文字
+const _labelStyle =
+    TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w600);
 
 /// 写真の画像と、その上のタグ（docs/03_screen_design.md §5.7・§5.9。C-3・C-4c）
 ///
@@ -81,6 +90,44 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
     return Alignment.center.inscribe(fitted, Offset.zero & box);
   }
 
+  /// 吹き出しの箱の高さ（1行の名前と余白と枠）。上の端に入りきるかを、箱を置く前に決めるのに使う
+  static double _labelHeight(BuildContext context) {
+    final painter = TextPainter(
+        text: const TextSpan(text: 'あ', style: _labelStyle),
+        textScaler: MediaQuery.textScalerOf(context),
+        textDirection: TextDirection.ltr,
+        maxLines: 1)
+      ..layout();
+    final height = painter.height + _labelPadding.vertical + _borderWidth * 2;
+    painter.dispose();
+    return height;
+  }
+
+  /// 位置 [point]（枠の中の座標）のタグの吹き出し（箱としっぽ）。
+  /// しっぽの先は位置に置き、箱は位置の上に出す。上の端に入りきらなければ位置の下に出し、左右は枠の中に収まるまでずらす（03 §5.9）
+  static List<Widget> _bubble(
+      Offset point, String name, double labelHeight, VoidCallback? onTap) {
+    final below = point.dy < labelHeight + _tailHeight;
+    return [
+      Positioned.fill(
+        child: CustomSingleChildLayout(
+          delegate: _LabelLayout(point: point, below: below),
+          child: GestureDetector(onTap: onTap, child: _TagLabel(name: name)),
+        ),
+      ),
+      Positioned(
+        left: point.dx - _tailWidth / 2,
+        top: below ? point.dy : point.dy - _tailHeight,
+        child: GestureDetector(
+          onTap: onTap,
+          child: CustomPaint(
+              size: const Size(_tailWidth, _tailHeight),
+              painter: _TailPainter(up: below)),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final onTapAt = widget.onTapAt;
@@ -109,17 +156,12 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
             Image(image: widget.image, fit: BoxFit.contain),
             if (widget.showTags && rect != null)
               for (final (index, tag) in widget.tags.indexed)
-                Positioned(
-                  left: rect.left + rect.width * tag.x,
-                  top: rect.top + rect.height * tag.y,
-                  // 吹き出しの横の中央と、しっぽの先（下の端）がタグの位置に来るように、自分の幅の半分・高さの分だけずらす
-                  child: FractionalTranslation(
-                    translation: const Offset(-0.5, -1),
-                    child: _TagBubble(
-                        name: tag.name,
-                        onTap: onTapTag == null ? null : () => onTapTag(index)),
-                  ),
-                ),
+                ..._bubble(
+                    Offset(rect.left + rect.width * tag.x,
+                        rect.top + rect.height * tag.y),
+                    tag.name,
+                    _labelHeight(context),
+                    onTapTag == null ? null : () => onTapTag(index)),
           ],
         ),
       );
@@ -127,53 +169,73 @@ class _TaggedPhotoImageState extends State<TaggedPhotoImage> {
   }
 }
 
-/// 写真の上のタグ（名前を書いた吹き出し。白地に黒い文字、黒い枠。下のしっぽの先がタグの位置。03 §5.9）
-class _TagBubble extends StatelessWidget {
-  const _TagBubble({required this.name, this.onTap});
+/// 吹き出しの箱を、位置 [point] の上（[below] なら下）に、横の中央をそろえて置く。枠の左右からはみ出すなら、収まるまでずらす（03 §5.9）
+class _LabelLayout extends SingleChildLayoutDelegate {
+  const _LabelLayout({required this.point, required this.below});
+
+  final Offset point;
+  final bool below;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final left = (point.dx - childSize.width / 2)
+        .clamp(0.0, math.max(0.0, size.width - childSize.width))
+        .toDouble();
+    final top = below
+        ? point.dy + _tailHeight
+        : point.dy - _tailHeight - childSize.height;
+    return Offset(left, top);
+  }
+
+  @override
+  bool shouldRelayout(_LabelLayout oldDelegate) =>
+      point != oldDelegate.point || below != oldDelegate.below;
+}
+
+/// 吹き出しの箱（名前。白地に黒い文字、黒い枠。枠の幅に入りきらなければ末尾を「…」で切る。03 §5.9）
+class _TagLabel extends StatelessWidget {
+  const _TagLabel({required this.name});
 
   final String name;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.black87, width: _borderWidth),
-              boxShadow: const [
-                BoxShadow(
-                    color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))
-              ],
-            ),
-            child: Text(name,
-                maxLines: 1,
-                style: const TextStyle(
-                    color: Colors.black87,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600)),
-          ),
-          // 枠と同じ色の三角に、地の色の小さな三角を重ねて、しっぽにも枠を付ける
-          const CustomPaint(
-              size: Size(_tailWidth, _tailHeight), painter: _TailPainter()),
+    return Container(
+      padding: _labelPadding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black87, width: _borderWidth),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))
         ],
       ),
+      child: Text(name,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+          style: _labelStyle),
     );
   }
 }
 
-/// 吹き出しのしっぽ（下向きの三角。枠付き）
+/// 吹き出しのしっぽ（三角。先がタグの位置。[up] なら上向き）。
+/// 枠と同じ色の三角に、地の色の小さな三角を重ねて、しっぽにも枠を付ける。付け根は箱の枠に重ねて、枠の線を消す
 class _TailPainter extends CustomPainter {
-  const _TailPainter();
+  const _TailPainter({required this.up});
+
+  final bool up;
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (up) {
+      canvas.translate(0, size.height);
+      canvas.scale(1, -1);
+    }
     final outer = Path()
       ..moveTo(0, -_borderWidth)
       ..lineTo(size.width, -_borderWidth)
@@ -190,5 +252,5 @@ class _TailPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TailPainter oldDelegate) => false;
+  bool shouldRepaint(_TailPainter oldDelegate) => up != oldDelegate.up;
 }
