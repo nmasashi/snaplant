@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -288,6 +289,31 @@ void main() {
     expect(error.statusCode, 0);
     expect(error.message, 'ネットワークに接続できません');
     expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
+
+  // 処理中のダイアログ（削除の確認・旅行の作成など）は処理中は閉じないので、応答が返らないまま止まると出られなくなる。
+  // 写真の送信を除く呼び出しは 30 秒で打ち切り、通信の失敗にする（docs/03_screen_design.md §9.2）。
+  // 時間はフェイクの時間（testWidgets の pump）で進める。写真の送信を 30 秒で切らないことは upload_send_test.dart の 60 秒の時間切れのテストが守る
+  testWidgets('応答が 30 秒返らなければ、ステータス 0 の「ネットワークに接続できません」にし、30 秒の手前ではまだ待つ', (tester) async {
+    final reply = Completer<http.Response>();
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete(http.Response('', 500));
+    });
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) => reply.future),
+    );
+    ApiException? error;
+    unawaited(service.createTrip('北海道', null).then<void>((_) {}, onError: (Object e) {
+      error = e as ApiException;
+    }));
+
+    await tester.pump(const Duration(milliseconds: 29999));
+    expect(error, isNull);
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(error?.statusCode, 0);
+    expect(error?.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
   });
 }
 
