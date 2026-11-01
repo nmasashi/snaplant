@@ -63,8 +63,7 @@ export function createErrorResponse(
   const errorResponse: ErrorResponse = {
     code,
     message,
-    // 500 系では details を付けない（内部の例外の文言を外に出さない。原因はログで追う。05 §9.2）
-    details: statusCode >= HttpStatusCode.INTERNAL_SERVER_ERROR ? undefined : details
+    details
   };
 
   const response: ApiResponse = {
