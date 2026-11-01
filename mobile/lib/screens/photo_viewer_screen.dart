@@ -238,7 +238,6 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     widget.onUpdated(updated);
   }
 
-  /// [photo] のカテゴリを、シートで選び直す（03 §5.6）
   /// 撮影日時を手で付ける・変えるシートを開く（03 §5.8）。保存できたら写真を置き換えて知らせる
   Future<void> _editTakenAt(Photo photo) async {
     final result = await showModalBottomSheet<(Photo, String)>(
@@ -256,6 +255,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// [photo] のカテゴリを、シートで選び直す（03 §5.6）
   Future<void> _editCategory(Photo photo) async {
     final updated = await showModalBottomSheet<Photo>(
       context: context,
