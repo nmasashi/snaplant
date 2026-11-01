@@ -643,6 +643,29 @@ class ApiService {
     }
   }
 
+  /// 写真のタグを [tags] に置き換える（03 §5.7。付ける・消すのどちらも、配列ごと送る）
+  /// PATCH /api/photos/{photoId}
+  ///
+  /// 直した写真を返す
+  Future<Photo> updatePhotoTags(String photoId, List<PhotoTag> tags) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _client.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({
+          'tags': [for (final tag in tags) tag.toJson()]
+        }),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
   /// 写真のカテゴリを手で決める（02 §5 #53）
   /// PATCH /api/photos/{photoId}
   ///

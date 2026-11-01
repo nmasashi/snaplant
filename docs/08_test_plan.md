@@ -66,6 +66,7 @@ API の契約は [05_api_design.md](./05_api_design.md)、画面の振る舞い�
 | `image_picker_platform_interface` の偽物 | `pickMultiImage()` の差し替え（`test/helpers/gallery_test_helpers.dart` の `FakeMultiGallery`。元にした `camera_screen_test.dart` は 4-5 で画面と一緒に消した） |
 | 小さな JPEG の資産 | EXIF（撮影日時・GPS あり/なし）を持つ数 KB の JPEG を `test/assets/` に置き、EXIF の読み取りとハッシュの固定値に使う |
 | `Geocoder` | `geocoding_platform_interface` の `GeocodingPlatformFactory.instance` を偽物に差し替える（`test/helpers/geocoding_test_helpers.dart`。知っている場所の近くには結果を返し、知らない場所には空のリスト。失敗・応答しないも作れる。引いた座標を残す） |
+| 写真の画像（`cached_network_image`） | 既定では読み込めない（テストの環境の HTTP は失敗し、置き場の `path_provider` も無い）。画像の大きさが要るテスト（写真の上のタグ。C-3b）は、`utils/photo_cache_manager.dart` の `PhotoCacheManager.testOverride` を、偽のサーバ（`FakeTripBackend` の `imageBytes`）から取り、置き場をメモリにしたキャッシュに替える（`test/helpers/trip_test_helpers.dart` の `useImageCacheOf`） |
 | 画像の圧縮（サムネイル） | `flutter_image_compress` の `FlutterImageCompressPlatform.instance` を偽物に差し替える（`test/helpers/image_compress_test_helpers.dart`。Android の実装と同じ規則で、渡された最小の幅・高さから作る寸法を決め、寸法・画質・形式を結果として残す。EXIF の回転は再現しない） |
 
 ## 3. 段階2のシナリオ一覧（api）
