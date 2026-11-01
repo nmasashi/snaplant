@@ -17,7 +17,7 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 
 - 全エンドポイントは `authLevel: 'function'`。関数キーが要る（ヘッダ `x-functions-key`。§9.1）。`routePrefix` は `api`
 - 応答は封筒 `{ success: true, data }` / `{ success: false, error: { code, message, details? } }`。`utils/response.ts` のヘルパー経由で作る
-- **契約はステータス・`code`・`message` まで。`details` は契約外**（CLAUDE.md「レスポンス規約」）
+- **契約はステータス・`code`・`message` まで。`details` の文言は契約外**（CLAUDE.md「レスポンス規約」）。ただし 500・502・503 で `details` を返さないことは契約（§9.2）
 - 入力検証は上から順に行い、最初に失敗した1件だけを返す。**Cosmos DB・Blob に触る前に全部弾く**
 - Cosmos DB へ接続できない → 503 `DATABASE_ERROR`（`データベースに接続できません`）。判定は `isConnectivityError()`（`utils/errors.ts`。`hasCauseCode()` を使う述語。既存6箇所の複製を増やさない）で、
   errno が `ENOTFOUND`・`ECONNREFUSED` のものを `cause` の奥までたどって探す（一覧 `UNREACHABLE_ERRNOS` は AI 側の判定と共有する。`ETIMEDOUT` は含めないので 500 になる）。
@@ -1135,8 +1135,8 @@ API 全体に共通する、認証・応答の封筒・エラー・AI 識別サ�
 }
 ```
 
-- `details` は省略されることがある（`createErrorResponse()` に渡されなかった場合、JSON にキー自体が現れない）
-- 500 `INTERNAL_ERROR`・502・503 では `details` を返さない（サーバ内部で起きた例外のメッセージを外に出さない。原因はログ（Application Insights）で追う。2026-11-01 に人間が決定。**実装済み**（500 系の details を出さない）。それまでは `error.message` がそのまま入っていた）。`details` が付くのは入力検証の一部の 400（JSON の本文を受けるエンドポイントで本文を JSON として読めない `リクエストボディの形式が無効です`、§5.1 の入力検証の 1・1.5・4）と 415（§5.1 の 5・9）だけで、固定の文言
+- `details` は省略されることがある（キー自体が現れない）
+- 500 `INTERNAL_ERROR`・502・503 では `details` を返さない（サーバ内部で起きた例外のメッセージを外に出さない。原因はログ（Application Insights）で追う。2026-11-01 に人間が決定。**実装済み**（500 系の details を出さない）。それまでは `error.message` がそのまま入っていた）。`details` が付くのは 4xx の一部だけで、固定の文言（どこで付くかは各節。例 §5.1）
 - **契約の範囲**: HTTP ステータス・`code`・`message` は契約で、エンドポイントの仕様に文言まで書く。`message` はアプリが画面にそのまま出すので、変えるときは仕様も変える。`details` は契約外で、文言を保証しない（2026-10-11 に人間が決定）
 
 ### 9.3 エラーコード
