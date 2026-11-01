@@ -3,7 +3,7 @@ import { AlbumService } from '../services/albumService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { TimelineService } from '../services/timelineService';
 import { enqueueTimelineOrLog } from '../services/timelineQueueService';
-import { PHOTO_REQUEUE_AFTER_MINUTES, UNFINISHED_PROCESSING_STATES, photoProcessingMaxAttempts } from '../constants/album';
+import { PHOTO_REQUEUE_AFTER_MINUTES, UNFINISHED_PROCESSING_STATES, givenUpState, photoProcessingMaxAttempts } from '../constants/album';
 
 /**
  * 再投入のタイマー（10 分ごと）
@@ -39,6 +39,8 @@ async function requeuePhotos(now: Date, before: string, maxAttempts: number, con
 
   let requeued = 0;
   let failed = 0;
+  // タグの提案は上限でも failed にせず done にする（givenUpState）。失敗とは分けて数える
+  let gaveUp = 0;
   for (const photo of photos) {
     const read = photo.processing;
     // SQL と同じ条件をコードでも見る。SQL の絞り込みはテストで確かめられない（手で確かめる項目）ので、
@@ -47,22 +49,25 @@ async function requeuePhotos(now: Date, before: string, maxAttempts: number, con
       continue;
     }
     const giveUp = read.attempts >= maxAttempts;
+    const nextState = giveUp ? givenUpState(read.step) : 'pending';
     // ワーカーは解析待ち（pending）の写真しか担当しないので、処理中の写真は解析待ちに戻してから積む
     const written = await album.writeProcessing(photo.id, read, {
       ...read,
-      state: giveUp ? 'failed' : 'pending',
+      state: nextState,
       updatedAt: now.toISOString(),
     });
     if (!written) {
       continue;
     }
-    if (giveUp) {
+    if (nextState === 'failed') {
       failed += 1;
+    } else if (giveUp) {
+      gaveUp += 1;
     } else if (await enqueuePhotoOrLog(photo.id, (...args) => context.log(...args))) {
       requeued += 1;
     }
   }
-  context.log(`再投入のタイマー: 止まっていた写真 ${photos.length} 枚、積んだ ${requeued} 枚、失敗にした ${failed} 枚`);
+  context.log(`再投入のタイマー: 止まっていた写真 ${photos.length} 枚、積んだ ${requeued} 枚、失敗にした ${failed} 枚、タグの提案をやめた ${gaveUp} 枚`);
 }
 
 /** 止まったタイムラインの下書き（段階5）を、写真と同じく待ちに戻して積む。上限なら失敗にする（06 §8.1） */

@@ -1350,13 +1350,16 @@ class FakeTripBackend {
       photo['commentSource'] = trimmed.isEmpty ? null : 'user';
     }
     if (body.containsKey('tags')) {
-      // 実際のサーバと同じ（05 §5.6。C-3a）: 配列ごと置き換え、名前の前後の空白を除き、同じ名前も残す。数を先に見る
+      // 実際のサーバと同じ（05 §5.6。C-3a・C-4a）: 配列ごと置き換え、名前の前後の空白を除き、同じ名前も残す。数を先に見る。出どころは省けば user
       final tags = body['tags'];
       if (tags is! List) return _error(400, 'INVALID_REQUEST', 'タグは配列で指定してください');
       if (tags.length > 20) return _error(400, 'INVALID_REQUEST', 'タグは20個までです');
       final saved = <Map<String, Object?>>[];
       for (final tag in tags) {
         if (tag is! Map<String, dynamic>) return _error(400, 'INVALID_REQUEST', 'タグの形式が無効です');
+        if (tag.containsKey('source') && !const {'ai', 'user'}.contains(tag['source'])) {
+          return _error(400, 'INVALID_REQUEST', 'タグの形式が無効です');
+        }
         final name = tag['name'] is String ? (tag['name'] as String).trim() : '';
         if (name.isEmpty || name.characters.length > 30) {
           return _error(400, 'INVALID_REQUEST', 'タグの名前は1〜30文字で指定してください');
@@ -1366,7 +1369,7 @@ class FakeTripBackend {
         }
         bool ratio(Object? value) => value is num && value >= 0 && value <= 1;
         if (!ratio(tag['x']) || !ratio(tag['y'])) return _error(400, 'INVALID_REQUEST', 'タグの位置が無効です');
-        saved.add({'name': name, 'kind': tag['kind'], 'x': tag['x'], 'y': tag['y']});
+        saved.add({'name': name, 'kind': tag['kind'], 'x': tag['x'], 'y': tag['y'], 'source': tag['source'] ?? 'user'});
       }
       if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
       photo['tags'] = saved;

@@ -120,21 +120,29 @@ class PhotoTag {
   final double x;
   final double y;
 
+  /// 出どころ（`ai` は AI が提案した、`user` は利用者が付けた・直した。C-4。04 §2）。
+  /// 直さなかったタグは受け取ったまま送り、AI のタグを利用者のものにしない（付け直しで AI のタグだけを置き換えるため。02 §5 #61）
+  final String source;
+
   const PhotoTag(
       {required this.name,
       required this.kind,
       required this.x,
-      required this.y});
+      required this.y,
+      this.source = 'user'});
 
   factory PhotoTag.fromJson(Map<String, dynamic> json) => PhotoTag(
         name: json['name'] as String,
         kind: json['kind'] as String,
         x: (json['x'] as num).toDouble(),
         y: (json['y'] as num).toDouble(),
+        // C-4a より前のサーバは出どころを返さない（利用者が付けたタグ）
+        source: json['source'] as String? ?? 'user',
       );
 
   /// `PATCH /api/photos/{photoId}` の `tags` の要素
-  Map<String, Object> toJson() => {'name': name, 'kind': kind, 'x': x, 'y': y};
+  Map<String, Object> toJson() =>
+      {'name': name, 'kind': kind, 'x': x, 'y': y, 'source': source};
 }
 
 /// AI の識別の結果（写真の `identification`。docs/04_data_design.md §2.1）のうち、画面が使う項目

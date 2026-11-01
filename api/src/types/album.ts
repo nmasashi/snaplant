@@ -56,10 +56,10 @@ export interface PhotoLocation {
   placeSource: 'device' | 'server' | 'user' | null;
 }
 
-/** 写真の解析（分類・識別）の進み具合。段階2の写真は state: none、段階3から送った写真は pending から始まる */
+/** 写真の解析（分類・識別・タグの提案）の進み具合。段階2の写真は state: none、段階3から送った写真は pending から始まる。tagging と tag は C-4 */
 export interface PhotoProcessing {
-  state: 'none' | 'pending' | 'classifying' | 'identifying' | 'done' | 'failed';
-  step: 'classify' | 'identify' | null;
+  state: 'none' | 'pending' | 'classifying' | 'identifying' | 'tagging' | 'done' | 'failed';
+  step: 'classify' | 'identify' | 'tag' | null;
   attempts: number;
   lastError: string | null;
   updatedAt: string | null;
@@ -101,9 +101,9 @@ export interface PhotoDocument extends PhotoFields {
   type: 'photo';
   /**
    * 利用者が写真の中の場所に付けたタグ（04 §2）。C-3a より前は文字列の配列で、その頃に付けた文字列が残りうる
-   * （画面が無かったので本番は空のはず）。欄の無い文書もありうる。読むときは応答の形（photoView.ts）で揃える
+   * （画面が無かったので本番は空のはず）。欄の無い文書もありうる。C-4 より前のタグには出どころが無い。読むときは応答の形（photoView.ts）で揃える
    */
-  tags?: (PhotoTag | string)[];
+  tags?: (StoredPhotoTag | string)[];
   /** photos コンテナの Blob 名 */
   blobName: string;
   /** サムネイルの Blob 名。無ければ null */
@@ -170,4 +170,12 @@ export interface PhotoTag {
   /** 向きを直した後の画像の中の位置の割合（左上が 0、右下が 1） */
   x: number;
   y: number;
+  /** 出どころ（AI が提案したか、利用者が付けた・直したか。C-4。02 §5 #61）。C-4 より前のタグには無い（user として扱う） */
+  source: TagSource;
 }
+
+/** 保存してあるタグ（C-4 より前のタグには出どころが無い） */
+export type StoredPhotoTag = Omit<PhotoTag, 'source'> & { source?: TagSource };
+
+/** タグの出どころ（04 §2） */
+export type TagSource = 'ai' | 'user';

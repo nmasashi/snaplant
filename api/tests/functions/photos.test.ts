@@ -600,7 +600,7 @@ describe('写真API', () => {
         sortAt: '2026-09-20T08:15:30',
         location: { latitude: 35.6586, longitude: 139.7454, placeName: '東京都港区', placeSource: 'device' },
         category: 'food',
-        tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5 }],
+        tags: [{ name: '朝食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }],
         comment: 'ホテルの朝食',
         commentSource: 'user',
         hint: null,

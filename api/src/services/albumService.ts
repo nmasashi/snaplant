@@ -15,6 +15,9 @@ import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES, UNFINISHED
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
+/** タグの提案に回すスクリプトが読む写真の項目（listUntaggedFoodPhotos の射影。tags は項目の無い文書もある） */
+export type UntaggedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'categorySource' | 'tags' | 'processing'>;
+
 /** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
 export interface PhotoBlobNames {
   id: string;
@@ -537,6 +540,23 @@ export class AlbumService {
   }
 
   /**
+   * 解析が済んでタグの無い、AI が食べ物と分類した写真を読む（C-4 より前の写真をタグの提案に回すスクリプト用。手で食べ物にした写真は除く。06 §9）
+   *
+   * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
+   * @returns 写真ごとの id・category・tags・processing
+   */
+  async listUntaggedFoodPhotos(): Promise<UntaggedPhotoRow[]> {
+    const { resources } = await this.container.items
+      .query<UntaggedPhotoRow>({
+        query:
+          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND c.category = 'food' AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
+        parameters: [{ name: '@type', value: 'photo' }],
+      })
+      .fetchAll();
+    return resources;
+  }
+
+  /**
    * 写真の解析のやり直しを受け付ける（分類の待ちにし、回数を 0 に戻し、手がかりを書き、コメントを消す）
    *
    * コメントは、やり直しの結果で置き換えるために消す（利用者の文は、アプリが手がかりに事前入力してから頼む。
@@ -646,6 +666,34 @@ export class AlbumService {
       { op: 'set', path: '/processing', value: result.processing },
       { op: 'set', path: '/updatedAt', value: result.updatedAt },
     ]);
+  }
+
+  /**
+   * AI が提案したタグを写真に書く（06 §9）。担当したときのままで、タグが1つも無いときだけ書く
+   *
+   * 提案を待つ間に利用者がタグを付けていたら書かない（利用者のタグを上書きしない。02 §5 #61）。
+   * 条件を Cosmos が原子的に評価するので、読んでから書くまでの間に付いたタグも消さない
+   * @param id 写真 ID
+   * @param claimed 担当したときに書いた processing（claimPhotoProcessing に渡したもの）
+   * @param result 書く値
+   * @returns 書けたら true。タグがある・担当したときと変わっていた（412）か、写真が消えていた（404）なら false
+   */
+  async writeSuggestedTags(
+    id: string,
+    claimed: PhotoProcessing,
+    result: { tags: PhotoTag[]; processing: PhotoProcessing; updatedAt: string }
+  ): Promise<boolean> {
+    return this.patchIfStillClaimed(
+      id,
+      claimed,
+      [
+        { op: 'set', path: '/tags', value: result.tags },
+        { op: 'set', path: '/processing', value: result.processing },
+        { op: 'set', path: '/updatedAt', value: result.updatedAt },
+      ],
+      // 項目の無い文書もありうる（04 §2）。ARRAY_LENGTH は項目が無いと未定義（比べると偽）なので、IS_DEFINED でつなぐ
+      'NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0'
+    );
   }
 
   /**

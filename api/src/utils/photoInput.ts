@@ -425,14 +425,18 @@ export async function readPhotoUpdateInput(
 }
 
 /**
- * タグ1つを読んで検証する（05 §5.6 の 8〜9.2）。名前・種類・位置だけを取り出し、ほかのキーは捨てる
+ * タグ1つを読んで検証する（05 §5.6 の 8〜9.2。出どころ（C-4）は名前より先に見る）。名前・種類・位置・出どころだけを取り出し、ほかのキーは捨てる
  * @returns 検証を通ったタグ、または 400 の理由の文言
  */
 function readPhotoTag(tag: unknown): PhotoTag | string {
   if (typeof tag !== 'object' || tag === null || Array.isArray(tag)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
   }
-  const { name, kind, x, y } = tag as { name?: unknown; kind?: unknown; x?: unknown; y?: unknown };
+  const { name, kind, x, y, source } = tag as { name?: unknown; kind?: unknown; x?: unknown; y?: unknown; source?: unknown };
+  // 出どころは省けば利用者のもの（アプリの送り方は 05 §5.6）
+  if (source !== undefined && source !== 'ai' && source !== 'user') {
+    return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
+  }
   const trimmed = typeof name === 'string' ? trimUserText(name) : '';
   if (trimmed === '' || exceedsLength(trimmed, TAG_VALIDATION.MAX_LENGTH)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH;
@@ -443,7 +447,7 @@ function readPhotoTag(tag: unknown): PhotoTag | string {
   if (!isRatio(x) || !isRatio(y)) {
     return TAG_VALIDATION.ERROR_MESSAGES.INVALID_POSITION;
   }
-  return { name: trimmed, kind, x, y };
+  return { name: trimmed, kind, x, y, source: source ?? 'user' };
 }
 
 /** 画像の中の位置の割合（0 以上 1 以下の数）か */

@@ -1,4 +1,4 @@
-import { UNFINISHED_PROCESSING_STATES } from '../constants/album';
+import { blocksTimeline } from '../constants/album';
 import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
 import { HttpResponseInit } from '@azure/functions';
@@ -57,7 +57,7 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
   const timelines = new TimelineService();
   const [read, photos] = await Promise.all([timelines.readTimeline(tripId), timelines.readTripPhotoStates(tripId)]);
   const expiresOn = photoUrlExpiresOn();
-  const pendingPhotoCount = photos.filter((photo) => UNFINISHED_PROCESSING_STATES.includes(photo.state)).length;
+  const pendingPhotoCount = photos.filter((photo) => blocksTimeline(photo)).length;
   if (!read) {
     return { timeline: null, pendingPhotoCount, urlExpiresAt: expiresOn.toISOString() };
   }

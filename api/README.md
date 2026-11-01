@@ -64,6 +64,7 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 | スクリプト | 内容 | 設計 |
 |---|---|---|
 | `src/scripts/enqueueUnidentified.ts` | 段階3で分類まで済んだ写真（`done`・自動で識別する種類（植物）・識別なし）を識別の待ちにする（食べ物・風景は対象にしない）。キューには積まず、再投入のタイマーが 10〜20 分後に積む | `docs/06_processing_design.md` §1 |
+| `src/scripts/enqueueUntagged.ts` | C-4 より前に解析が済んだ食べ物の写真（`done`・`food`・タグなし）をタグの提案の待ちにする。キューには積まず、再投入のタイマーが 10〜20 分後に積む。スクリプトは AI を呼ばないが、待ちにした写真1枚ごとにワーカーが AI（`detail: "high"`）を呼ぶ（1枚 約 $0.001） | `docs/06_processing_design.md` §9 |
 
 設定の読み込みと宛先の表示は `src/scripts/scriptSettings.ts` にある（スクリプトを足すときはこれを使う）。
 植物図鑑の記録を写真へ移すスクリプト（`migratePlants`）は、旧図鑑の植物を移さないと決めたので、4-6 で植物図鑑の API と一緒に削除した。
@@ -80,6 +81,18 @@ node dist/src/scripts/enqueueUnidentified.js --apply  # 識別の待ちにする
 要る設定は `COSMOS_DB_ENDPOINT`・`COSMOS_DB_KEY`・`COSMOS_DB_DATABASE`・`COSMOS_DB_ALBUM_CONTAINER`（キューの設定は要らない）。
 どれかが無い・空白だけなら、何も読まずに `Cosmos の設定がありません: <足りない設定の名前>` を出して止まる（終了コード 1）。
 最初に宛先（Cosmos のホスト・データベース・コンテナ）を出すので、`--apply` の前に本番を指しているかを確かめる。`--apply` の後、20 分ほどで識別が進む。進み具合は写真の `processing`（`pending` → `identifying` → `done`）で見る。
+
+### 食べ物の写真をタグの提案の待ちにする（`enqueueUntagged`）
+
+```bash
+cd api
+npm run build
+node dist/src/scripts/enqueueUntagged.js          # 対象の枚数を数えるだけ（何も書かない）
+node dist/src/scripts/enqueueUntagged.js --apply  # タグの提案の待ちにする
+```
+
+要る設定と止まり方は `enqueueUnidentified` と同じ。`--apply` の後、20 分ほどで提案が進む。進み具合は写真の `processing`（`pending` → `tagging` → `done`、`step: "tag"`）で見る。
+**C-4c のアプリを入れてから回す**（古いアプリで AI のタグがある写真のタグを付ける・消すと、AI のタグも `user` で保存し直される。docs/11_implementation_plan.md §9.1）
 
 ## テスト
 

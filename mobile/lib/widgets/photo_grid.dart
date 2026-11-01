@@ -678,7 +678,8 @@ class _PhotoTile extends StatelessWidget {
 
   /// [selected] は選択モードでなければ null
   Widget _buildImage({required bool? selected}) {
-    final inProgress = isProcessingInProgress(photo.processingState);
+    final inProgress =
+        isProcessingInProgress(photo.processingStep, photo.processingState);
     final failed = isProcessingFailed(photo.processingState);
     return Semantics(
       // 分類の印は読み上げにも足す（docs/03_screen_design.md §5.5）

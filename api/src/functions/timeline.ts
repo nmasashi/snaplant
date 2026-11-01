@@ -19,7 +19,7 @@ import {
 } from '../utils/response';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { TimelineDocument, TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
-import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, UNFINISHED_PROCESSING_STATES, timelineDayStartHour } from '../constants/album';
+import { TIMELINE_SNAPSHOT_COMMENT_LENGTH, blocksTimeline, timelineDayStartHour } from '../constants/album';
 import { GRAPHEMES } from '../utils/graphemes';
 
 /**
@@ -44,7 +44,7 @@ export async function createTimelineHandler(request: HttpRequest, context: Invoc
       return createTimelineStateConflict();
     }
     const rows = await timelines.readTripPhotosForSnapshot(tripId);
-    if (rows.some((row) => UNFINISHED_PROCESSING_STATES.includes(row.processing.state))) {
+    if (rows.some((row) => blocksTimeline(row.processing))) {
       return createErrorResponse(
         ErrorCode.TIMELINE_PHOTOS_PROCESSING,
         '解析中の写真があります。終わってから作ってください',
