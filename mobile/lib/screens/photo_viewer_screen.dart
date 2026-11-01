@@ -468,7 +468,7 @@ class _PhotoPage extends StatefulWidget {
   /// カテゴリのボタン（カテゴリを選ぶシートを開く）
   final VoidCallback onEditCategory;
 
-  /// タグを付ける間に、画像の中をタップした（画像の中の割合）。タグを付ける間でなければ null
+  /// タグを付ける間に、画像の中をタップした（画像の中の割合）。タグを付ける間でないときと、タグを消している間は null
   final ValueChanged<Offset>? onTapImageAt;
 
   /// タグ（写真の上の名前・下の情報の札の「✕」）を消す（タグの番号）

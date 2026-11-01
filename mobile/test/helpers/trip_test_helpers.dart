@@ -202,7 +202,7 @@ enum TripRoute {
 ///   `step` は `processing.step` に書く（`classify` なら `categorySource` を null にする）。`step` が `classify` / `identify` でなければ 400「やり直す処理の種類が無効です」、`identify` でカテゴリが図鑑の種類でなければ 400「この写真は識別の対象ではありません」、手がかりが文字列でない・500 文字を超えるなら 400。無い写真は 404 `PHOTO_NOT_FOUND`
 /// - `PATCH /api/photos/{photoId}` はコメント・タグ・カテゴリを書き換える。タグは配列ごと置き換え、検証は本物と同じ（形式・名前・種類・位置・20 個まで。C-3a）。コメントは前後の空白を除き、空なら `comment`・`commentSource` を null、それ以外は `commentSource: "user"`。
 ///   カテゴリは本物と同じ決まり（手で決めた印を付け、変わったか分類中なら識別と AI が書いたコメントを消し、植物なら識別の待ち、ほかは済み。05 §5.6）。
-///   200 で `{ photo, urlExpiresAt }`。`comment`・`category` のキーがどちらも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
+///   200 で `{ photo, urlExpiresAt }`。`comment`・`tags`・`category` のキーがどれも無い・コメントが文字列でも null でもない・500 文字を超える・カテゴリが分類の種類に無いなら 400、無い写真は 404 `PHOTO_NOT_FOUND`（本物と同じ文言）。
 ///   本物は全部の検証の後に 404 を返すが、偽物はコメント・タグ・カテゴリのそれぞれの検証の直後に返す（アプリはこれらを一緒に送らない）
 /// - `DELETE /api/photos/{photoId}` は、写真を [photosByTripId] から取り除き、その旅行の `photoCount`（と [unassignedPhotoCount]）を減らす。
 ///   応答は `{ message }`。どの旅行にも無い id は 404 `PHOTO_NOT_FOUND`。
@@ -413,10 +413,9 @@ class FakeTripBackend {
     // 写真の画像は Blob から SAS 付きの URL で読む（関数キーは要らない）
     if (request.url.host == testBlobHost) {
       // サムネイル（`<id>.thumb.jpg`）には原寸と縦横の比の違う画像を返す（ビューアが読む画像を取り違えると、写真の上のタグの位置がずれる）
-      final bytes = request.url.path.endsWith('.thumb.jpg') ? _thumbnailImage : imageBytes;
-      return bytes == null || imageBytes == null
-          ? http.Response('', 404)
-          : http.Response.bytes(bytes, 200, headers: {'content-type': 'image/png'});
+      if (imageBytes == null) return http.Response('', 404);
+      final bytes = request.url.path.endsWith('.thumb.jpg') ? _thumbnailImage : imageBytes!;
+      return http.Response.bytes(bytes, 200, headers: {'content-type': 'image/png'});
     }
     if (request.url.host != testApiHost || request.headers['x-functions-key'] != functionKey) {
       return http.Response('', 404);
