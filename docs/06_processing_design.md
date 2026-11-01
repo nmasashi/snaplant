@@ -535,7 +535,7 @@ azurerm v5 で `images` の公開設定が落ちる懸念は、6 で `images` �
 
 ## 9. タグの提案（C-4）
 
-C-4 で作る（未実装）。決定は [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #61。
+**実装済み**（C-4b。`functions/processPhoto.ts` の `classifyPhoto`・`tagPhoto`、`services/photoTaggerService.ts`、書き込みは `AlbumService.writeSuggestedTags()`、スクリプトは `scripts/enqueueUntagged.ts`）。決定は [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #61。
 
 - **きっかけ**: 分類（§2）の結果が食べ物（`food`）で、その写真にタグが1つも無いとき、分類の結果と一緒に `processing` を `{ state: "pending", step: "tag", attempts: 0 }` にしてキューに `{ photoId }` を積む（植物の識別の待ちと同じ形。§1.2）。
   タグがあれば積まずに `done`。手でカテゴリを食べ物に直したとき（C-1）と、`step: "identify"` のやり直し（コメントを書いてもらう）では積まない
@@ -545,7 +545,9 @@ C-4 で作る（未実装）。決定は [02 §5](./02_design_overview.md#5-人�
   - 応答（Structured Outputs）: `{ dishes: [{ name, x, y }] }`
   - 検証: `dishes` が配列で、各要素の `name` が前後の空白を除いて空でなく、`x`・`y` が数。違反は AI の失敗（§5）。名前は 30 文字（`TAG_MAX_LENGTH`）で切り詰め、`x`・`y` は 0〜1 に収め、21 個目からは捨てる（`TAG_MAX_COUNT`）
 - **書き込み**: タグ（各要素 `{ name, kind: "food", x, y, source: "ai" }`）と `processing` の `done` を、担当したときの `processing` の条件（§1.3）に加えて「タグが1つも無い」の条件で1回の patch で書く。
-  提案を待つ間に利用者がタグを付けていたら（条件に合わずに書けなければ）、タグは書かずに `done` にする（利用者のタグを上書きしない）。`dishes` が空ならタグは書かずに `done`
+  提案を待つ間に利用者がタグを付けていたら（条件に合わずに書けなければ）、タグは書かずに `done` にする（利用者のタグを上書きしない）。`dishes` が空ならタグは書かずに `done`。
+  「タグが1つも無い」の条件は `NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0`（項目の無い文書もありうる。Cosmos の patch の条件で通るかは、デプロイ後に手で確かめる。08 §5.3）
+- **処理中の状態**: 提案している間は `tagging`。分類・識別と同じく「済んでいない状態」（`UNFINISHED_PROCESSING_STATES`）に数えるので、再投入のタイマーが止まった提案を拾い、提案の間はタイムラインを作れない（作る受付の 409。01 §5.3.1）
 - **失敗**: AI の失敗と応答の検証違反は、ほかの段と同じく `lastError: "ai"` で試行の上限まで再投入し、上限で `failed`（§5）。画面には出さない（[03 §5.9](./03_screen_design.md#59-タグの見せ方と直し方c-4)）
 - **既にある食べ物の写真**: 手で回すスクリプト（`api/src/scripts/enqueueUntagged.ts`。人間が実行する。§1.2 の `enqueueUnidentified.ts` と同じ形）で、「`state: "done"`・`category: "food"`・タグが1つも無い」写真を `step: "tag"` の待ちにする。既定は数えるだけで、`--apply` のときだけ書く。キューには積まない（再投入のタイマーが拾う）
 - **費用**（試作の実測。`gpt-6-luna`、入力 $0.1・出力 $0.5／100 万トークン）: 1枚あたり入力 約 3,200 トークン（`high`）、出力 250〜1,700 トークン（皿が多いほど増える）。約 $0.0005〜0.0012、1,000 枚で 1 ドル前後。時間は1枚 8〜21 秒
