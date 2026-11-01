@@ -122,6 +122,28 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('旅行を読んでいる間は「保存」を押せず、読めたら期間の初日を初期値にして押せる', (tester) async {
+    // 読む前に保存すると、期間の初日ではなく送った日で付いてしまう
+    final semantics = tester.ensureSemantics();
+    final backend = _backend();
+    await _openViewer(tester, backend, '撮影日時なし');
+    final reply = backend.holdNextReply(TripRoute.detail);
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete();
+    });
+    await tester.tap(find.text('日時を付ける'));
+    await letFramesRun(tester);
+
+    FilledButton save() => tester.widget<FilledButton>(find.ancestor(of: find.text('保存'), matching: find.byType(FilledButton)));
+    expect(save().onPressed, isNull);
+
+    reply.complete();
+    await letFramesRun(tester);
+    expect(save().onPressed, isNotNull);
+    expect(find.text('2026年10月3日'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('保存を待っている間は「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
