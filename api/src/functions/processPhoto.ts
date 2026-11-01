@@ -64,7 +64,7 @@ export async function processPhotoHandler(message: unknown, context: InvocationC
     // 上限で止める。同じ画像で AI が毎回失敗しても、再試行を占有し続けない（06 §1.3）
     const failed = attempts >= photoProcessingMaxAttempts();
     // 失敗の記録より先にログを出す。記録も失敗したとき（Cosmos の障害など）に、元の原因が残らなくなるため
-    context.log(`写真の${label}に失敗しました: ID=${photo.id}, 回数=${attempts}, 失敗した所=${lastError}${failed ? `（上限のため ${givenUpState(step)} にします）` : ''}`, error);
+    context.log(`写真の${label}に失敗しました: ID=${photo.id}, 回数=${attempts}, 失敗した所=${lastError}${failed ? (givenUpState(step) === 'failed' ? '（上限のため失敗にします）' : '（上限のため、タグの提案をやめて済みにします）') : ''}`, error);
     const written = await album.writeProcessing(photo.id, claimedProcessing, {
       state: failed ? givenUpState(step) : 'pending',
       step,

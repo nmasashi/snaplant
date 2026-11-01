@@ -49,7 +49,7 @@ export class PhotoTaggerService {
   /**
    * @param imageUrl 原寸の Blob の読み取り SAS 付き URL
    * @returns 皿ごとの提案（TAG_VALIDATION.MAX_COUNT 個まで）。料理が無ければ空
-   * @throws UpstreamError（ai） AI の失敗と、応答の検証違反
+   * @throws UpstreamError（ai） AI の失敗と、応答の検証違反（dishes が配列でない、答えた皿がどれも通らない）
    */
   async suggest(imageUrl: string): Promise<DishSuggestion[]> {
     const prompt = `
