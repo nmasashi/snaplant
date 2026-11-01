@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -288,6 +289,22 @@ void main() {
 
     expect(error.statusCode, 0);
     expect(error.message, 'ネットワークに接続できません');
+    expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
+  });
+
+  // TLS の失敗（公衆 Wi-Fi のログイン画面が通信を横取りしたときなど）は、IOClient が ClientException に包まずにそのまま投げる。
+  // 通信の失敗として扱う（写真の送信は送り直す。docs/03_screen_design.md §9.2）
+  test('TLS の失敗（HandshakeException）もステータス 0 の「ネットワークに接続できません」にする', () async {
+    final service = ApiService(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) async {
+        throw const HandshakeException('Connection terminated during handshake');
+      }),
+    );
+
+    final error = await _captureApiException(() => service.getTrips());
+
+    expect(error.statusCode, 0);
     expect(error.userMessage, 'ネットワークに接続できません。インターネット接続を確認してください。');
   });
 
