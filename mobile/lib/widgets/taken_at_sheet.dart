@@ -79,12 +79,14 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
     if (mounted) setState(() => _tripLoading = false);
   }
 
+  /// 日付の選択で選べる範囲。初期値がこの外（壊れた撮影日時など）だと選択が開けないので、範囲に収めて渡す
+  static final _firstDate = DateTime(1900);
+  static final _lastDate = DateTime(2100, 12, 31);
+
   Future<void> _pickDate() async {
+    final initial = _date.isBefore(_firstDate) ? _firstDate : (_date.isAfter(_lastDate) ? _lastDate : _date);
     final picked = await showDatePicker(
-        context: context,
-        initialDate: _date,
-        firstDate: DateTime(1900),
-        lastDate: DateTime(2100));
+        context: context, initialDate: initial, firstDate: _firstDate, lastDate: _lastDate);
     if (picked == null || !mounted) return;
     setState(() {
       _date = picked;
@@ -150,7 +152,8 @@ class _TakenAtSheetState extends State<TakenAtSheet> {
     return PopScope(
       canPop: !_busy,
       child: SafeArea(
-        child: Padding(
+        // 小さな画面や大きな文字でもボタンまで届くように、シートの中をスクロールできるようにする
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
