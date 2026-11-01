@@ -144,7 +144,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('保存を待っている間は「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
+  testWidgets('保存を待っている間は、下に払っても端末の戻る操作でもシートの外のタップでも閉じず、日付・時刻・「キャンセル」「保存」を押せず、保存が済むとシートを閉じる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
     await _openViewer(tester, backend, '撮影日時なし');
@@ -157,9 +157,15 @@ void main() {
 
     await tester.tap(find.text('保存'));
     await tester.pump();
+    await tester.drag(find.text('撮影日時を付ける'), const Offset(0, 500));
+    await letFramesRun(tester);
+    await tester.binding.handlePopRoute();
+    await letFramesRun(tester);
+    await tester.tapAt(const Offset(10, 10));
+    await letFramesRun(tester);
 
     expect(find.byType(BottomSheet), findsOneWidget);
-    for (final label in ['キャンセル', '保存']) {
+    for (final label in ['キャンセル', '保存', '2026年10月3日', '12:00']) {
       final button = tester.widget<ButtonStyleButton>(find.ancestor(
           of: find.descendant(of: find.byType(BottomSheet), matching: find.text(label)),
           matching: find.bySubtype<ButtonStyleButton>()));
@@ -171,7 +177,79 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('保存に失敗したらシートに留まって理由を出し、カメラが記録した撮影日時の 409 ならその文言を出す', (tester) async {
+  testWidgets('「日時を消す」を送っている間は、「日時を消す」も「保存」も押せない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend(takenAt: '2026-10-05T08:30:00', takenAtSource: 'user');
+    await _openViewer(tester, backend, '2026年10月5日 08:30');
+    await tester.tap(find.text('変更'));
+    await letFramesRun(tester);
+    final reply = backend.holdNextReply(TripRoute.updatePhoto);
+    addTearDown(() {
+      if (!reply.isCompleted) reply.complete();
+    });
+
+    await tester.tap(find.text('日時を消す（撮影日時なしに戻す）'));
+    await tester.pump();
+
+    for (final label in ['日時を消す（撮影日時なしに戻す）', '保存']) {
+      final button = tester.widget<ButtonStyleButton>(find.ancestor(
+          of: find.descendant(of: find.byType(BottomSheet), matching: find.text(label)),
+          matching: find.bySubtype<ButtonStyleButton>()));
+      expect(button.onPressed, isNull, reason: label);
+    }
+    reply.complete();
+    await letFramesRun(tester);
+    semantics.dispose();
+  });
+
+  testWidgets('「変更」のシートで時刻を選び直して保存すると、その日時に直して「撮影日時を変えました」と知らせる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend(takenAt: '2026-10-05T08:30:00', takenAtSource: 'user');
+    await _openViewer(tester, backend, '2026年10月5日 08:30');
+    await tester.tap(find.text('変更'));
+    await letFramesRun(tester);
+
+    // OS の時刻の選択を、文字で入れる形に切り替えて 9:45 にする（テスト環境の時刻は 12 時間表記）
+    await tester.tap(find.text('08:30'));
+    await letFramesRun(tester);
+    await tester.tap(find.byIcon(Icons.keyboard_outlined));
+    await letFramesRun(tester);
+    await tester.tap(find.byType(TextField).at(0));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), '9');
+    await tester.pump();
+    await tester.tap(find.byType(TextField).at(1));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(1), '45');
+    await tester.pump();
+    await tester.tap(find.text('OK'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('保存'));
+    await letFramesRun(tester);
+
+    expect(_storedPhoto(backend)['takenAt'], '2026-10-05T09:45:00');
+    expect(find.text('撮影日時を変えました'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('旅行を読めなければ、期間の手がかりを出さず、送った日の 12:00 を初期値にして保存できる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = _backend();
+    await _openViewer(tester, backend, '撮影日時なし');
+    backend.failNext(TripRoute.detail);
+
+    await tester.tap(find.text('日時を付ける'));
+    await letFramesRun(tester);
+
+    expect(find.text('2026年10月10日'), findsOneWidget);
+    expect(find.textContaining('の期間は'), findsNothing);
+    await tester.tap(find.text('保存'));
+    await letFramesRun(tester);
+    expect(_storedPhoto(backend)['takenAt'], '2026-10-10T12:00:00');
+    semantics.dispose();
+  });
+
+  testWidgets('保存に失敗したらシートに留まって理由を出し（カメラが記録した撮影日時の 409 ならその文言）、そのまま押し直せる', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = _backend();
     await _openViewer(tester, backend, '撮影日時なし');
@@ -185,7 +263,12 @@ void main() {
 
     expect(find.byType(BottomSheet), findsOneWidget);
     expect(find.text('カメラが記録した撮影日時は変えられません'), findsOneWidget);
-    expect(_storedPhoto(backend)['takenAt'], isNull);
+
+    // 失敗した後は、そのまま押し直せる
+    await tester.tap(find.text('保存'));
+    await letFramesRun(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(_storedPhoto(backend)['takenAt'], '2026-10-03T12:00:00');
     semantics.dispose();
   });
 }
