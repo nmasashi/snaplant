@@ -108,6 +108,16 @@ export function givenUpState(step: PhotoProcessing['step']): PhotoProcessing['st
 export const UNFINISHED_PROCESSING_STATES: readonly PhotoProcessing['state'][] = ['pending', 'classifying', 'identifying', 'tagging'];
 
 /**
+ * タイムラインを作るのを待たせる、解析の済んでいない写真か（作る受付の 409 と、完成版の解析が済んでいない枚数）
+ *
+ * タグの提案（step: tag）は数えない。タイムラインの AI はタグを読まないので、待たせる理由が無い（02 §5 #61）。
+ * 再投入のタイマーは、タグの提案も含めて UNFINISHED_PROCESSING_STATES で拾う
+ */
+export function blocksTimeline(processing: { state: PhotoProcessing['state']; step: PhotoProcessing['step'] }): boolean {
+  return UNFINISHED_PROCESSING_STATES.includes(processing.state) && processing.step !== 'tag';
+}
+
+/**
  * タイムラインの区切り案の max_completion_tokens（推論のトークンも含む）
  *
  * 出力は番号の配列で数百トークンの見込みだが、推論のトークンも同じ枠から使うので、分類・識別と同じだけ取る（06 §8.4）
