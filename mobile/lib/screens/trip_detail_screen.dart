@@ -275,7 +275,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       includes: (tripId) => tripId == widget.tripId);
 
   /// 「写真」「タイムライン」の切り替え（§8.1）。
-  /// 選択モードの間は出さない（選択モードは「写真」の中だけ。切り替えるとグリッドが外れ、選んだ写真が見えなくなるため）
+  /// 選択モードの間は出さない（選択モードは「写真」の中だけ。切り替えるとグリッドが隠れ、選んだ写真が見えなくなるため）
   Widget _buildViewSwitch() {
     return ListenableBuilder(
       listenable: _selection,
