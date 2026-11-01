@@ -335,7 +335,7 @@ void main() {
           _timeline(draft: _draft('reviewing'));
       await _waitForPoll(tester);
       expect(find.text('タイムラインの案ができました'), findsOneWidget);
-      expect(find.text('場面の分け方を確かめてから、AI が見出しと一言を書きます。'), findsOneWidget);
+      expect(find.text('場面の分け方を確かめてから、AI が見出しとまとめを書きます。'), findsOneWidget);
       expect(find.text('案を確認する'), findsOneWidget);
       expect(find.text('やめる'), findsNothing);
       expect(find.text('タイムラインの案を作っています'), findsNothing);
@@ -430,14 +430,14 @@ void main() {
       expect(backend.timelineDraftReadsReceived, 1);
     });
 
-    testWidgets('文を書いている間は、3つの段と「見出しと一言を書いています」・待ち時間の見込みを出し、書き終えたら読み直して完成版を出す',
+    testWidgets('文を書いている間は、3つの段と「見出しとまとめを書いています」・待ち時間の見込みを出し、書き終えたら読み直して完成版を出す',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(draft: _draft('writing', step: 'write')));
       await _showTimeline(tester);
-      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+      expect(find.text('見出しとまとめを書いています'), findsOneWidget);
       expect(find.text('ふつうは1分ほどで終わります。この画面を閉じても続きます。'), findsOneWidget);
-      for (final step in ['タイムラインの案', '案の確認', '見出しと一言']) {
+      for (final step in ['タイムラインの案', '案の確認', '見出しとまとめ']) {
         expect(find.text(step), findsOneWidget);
       }
       // 済んだ2つ（タイムラインの案・案の確認）に印
@@ -446,7 +446,7 @@ void main() {
       // 書き終えると、下書きが完成版に入れ替わる（06 §8.3）
       backend.timelinesByTripId[hokkaidoTripId] = _timeline(current: _current);
       await _waitForPoll(tester);
-      expect(find.text('見出しと一言を書いています'), findsNothing);
+      expect(find.text('見出しとまとめを書いています'), findsNothing);
       expect(find.textContaining('に作成'), findsOneWidget);
     });
 
@@ -472,14 +472,14 @@ void main() {
     });
 
     testWidgets(
-        '見出しと一言を書けなかったら「見出しと一言を書けませんでした」と「もう一度」「案を確認する」を出し（「やめる」は出さない）、「もう一度」で書き直す',
+        '見出しとまとめを書けなかったら「見出しとまとめを書けませんでした」と「もう一度」「案を確認する」を出し（「やめる」は出さない）、「もう一度」で書き直す',
         (tester) async {
       final backend = await _openTripDetail(tester,
           timeline: _timeline(
               draft: _draft('writing',
                   step: 'write', state: 'failed', lastError: 'ai')));
       await _showTimeline(tester);
-      expect(find.text('見出しと一言を書けませんでした'), findsOneWidget);
+      expect(find.text('見出しとまとめを書けませんでした'), findsOneWidget);
       expect(find.text('案を確認する'), findsOneWidget);
       expect(find.text('やめる'), findsNothing);
 
@@ -487,7 +487,7 @@ void main() {
       await letFramesRun(tester);
       expect(_draftOf(backend)?['job'],
           {'step': 'write', 'state': 'pending', 'lastError': null});
-      expect(find.text('見出しと一言を書いています'), findsOneWidget);
+      expect(find.text('見出しとまとめを書いています'), findsOneWidget);
     });
 
     testWidgets('作り直しの下書き（rebuild。完成版が残っている）があれば、完成版があっても作っている間の表示にする',
