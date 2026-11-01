@@ -86,7 +86,8 @@ interface PhotoFields {
   sortAt: string;
   location: PhotoLocation | null;
   category: string | null;
-  tags: string[];
+  /** 利用者が写真の中の場所に付けたタグ（04 §2。C-3a より前は文字列の配列だった） */
+  tags: PhotoTag[];
   comment: string | null;
   commentSource: 'ai' | 'user' | null;
   hint: string | null;
@@ -153,4 +154,15 @@ export interface CatalogEntryQuery {
   limit: number;
   /** 前のページの継続トークン。先頭からなら undefined */
   continuationToken: string | undefined;
+}
+
+/** 写真の中の場所に付けるタグ（04 §2。02 §5 #57。C-3） */
+export interface PhotoTag {
+  /** 名前（前後の空白を除いた 1〜30 文字。同じ名前のタグが写真に何個あってもよい） */
+  name: string;
+  /** 種類（カテゴリと同じ plant・food・landscape・other） */
+  kind: string;
+  /** 向きを直した後の画像の中の位置の割合（左上が 0、右下が 1） */
+  x: number;
+  y: number;
 }

@@ -5,6 +5,7 @@ import { readJsonBody } from './tripInput';
 import { ErrorCode, HttpStatusCode } from '../types/api';
 import { CONTEXT_INFO_VALIDATION, FILE_UPLOAD, MOVE_VALIDATION, PHOTO_VALIDATION, TAG_VALIDATION } from '../constants/validation';
 import { PHOTO_KINDS } from '../catalog/kinds';
+import { PhotoTag } from '../types/album';
 import { readPageLimit } from './pageLimit';
 import { exceedsLength, trimUserText } from './userText';
 
@@ -347,8 +348,8 @@ export async function readMoveInput(request: HttpRequest): Promise<{ input: Move
 export interface PhotoUpdateInput {
   /** 前後の空白を除いたコメント。消すなら null */
   comment?: string | null;
-  /** 前後の空白を除き、重複を除いたタグ（置き換え） */
-  tags?: string[];
+  /** 名前の前後の空白を除いたタグ（置き換え。同じ名前も残す） */
+  tags?: PhotoTag[];
   /** 利用者が手で決めたカテゴリ（分類の種類のどれか。02 §5 #53） */
   category?: string;
 }
@@ -356,8 +357,8 @@ export interface PhotoUpdateInput {
 /**
  * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9）
  *
- * コメントは前後の空白を除いてから数え、空なら null（消す）と同じ。タグは前後の空白を除いてから数え、
- * 重複は除いた後の値で、先に出たものを残す
+ * コメントは前後の空白を除いてから数え、空なら null（消す）と同じ。タグは名前の前後の空白を除いてから数え、
+ * 同じ名前のタグも除かない（皿が2つなど。02 §5 #57）
  * @param request リクエスト
  * @returns 検証を通った入力、または 400 の応答
  */
@@ -391,18 +392,18 @@ export async function readPhotoUpdateInput(
     if (!Array.isArray(tags)) {
       return { error: createValidationError('タグは配列で指定してください') };
     }
-    if (!tags.every((tag) => typeof tag === 'string')) {
-      return { error: createValidationError('タグは文字列で指定してください') };
+    const read: PhotoTag[] = [];
+    for (const tag of tags) {
+      const result = readPhotoTag(tag);
+      if (typeof result === 'string') {
+        return { error: createValidationError(result) };
+      }
+      read.push(result);
     }
-    const trimmed = (tags as string[]).map((tag) => trimUserText(tag));
-    if (trimmed.some((tag) => tag === '' || exceedsLength(tag, TAG_VALIDATION.MAX_LENGTH))) {
-      return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH) };
-    }
-    const unique = [...new Set(trimmed)];
-    if (unique.length > TAG_VALIDATION.MAX_COUNT) {
+    if (read.length > TAG_VALIDATION.MAX_COUNT) {
       return { error: createValidationError(TAG_VALIDATION.ERROR_MESSAGES.TOO_MANY) };
     }
-    input.tags = unique;
+    input.tags = read;
   }
   if (category !== undefined) {
     if (typeof category !== 'string' || !PHOTO_KINDS.includes(category)) {
@@ -411,6 +412,33 @@ export async function readPhotoUpdateInput(
     input.category = category;
   }
   return { input };
+}
+
+/**
+ * タグ1つを読んで検証する（05 §5.6 の 8〜9.2）。名前・種類・位置だけを取り出し、ほかのキーは捨てる
+ * @returns 検証を通ったタグ、または 400 の理由の文言
+ */
+function readPhotoTag(tag: unknown): PhotoTag | string {
+  if (typeof tag !== 'object' || tag === null || Array.isArray(tag)) {
+    return TAG_VALIDATION.ERROR_MESSAGES.INVALID_SHAPE;
+  }
+  const { name, kind, x, y } = tag as { name?: unknown; kind?: unknown; x?: unknown; y?: unknown };
+  const trimmed = typeof name === 'string' ? trimUserText(name) : '';
+  if (trimmed === '' || exceedsLength(trimmed, TAG_VALIDATION.MAX_LENGTH)) {
+    return TAG_VALIDATION.ERROR_MESSAGES.INVALID_LENGTH;
+  }
+  if (typeof kind !== 'string' || !PHOTO_KINDS.includes(kind)) {
+    return TAG_VALIDATION.ERROR_MESSAGES.INVALID_KIND;
+  }
+  if (!isRatio(x) || !isRatio(y)) {
+    return TAG_VALIDATION.ERROR_MESSAGES.INVALID_POSITION;
+  }
+  return { name: trimmed, kind, x, y };
+}
+
+/** 画像の中の位置の割合（0 以上 1 以下の数）か */
+function isRatio(value: unknown): value is number {
+  return typeof value === 'number' && value >= 0 && value <= 1;
 }
 
 /** 検証を通った解析のやり直しの入力 */
