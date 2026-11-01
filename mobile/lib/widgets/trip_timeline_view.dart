@@ -219,21 +219,10 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         _show(_overview!.withDraft(draft));
       });
 
-  /// 確かめてからタイムラインの編集（区切りの直し）をやめ、タイムラインを読み直す（§8.3）
-  Future<void> _discard() async {
-    if (!await confirmDiscardEdit(context) || !mounted) {
-      return;
-    }
-    await _send(() async {
-      await widget.apiService.discardTimelineDraft(widget.tripId);
-      if (!mounted) return;
-      await _load(showLoading: false);
-    });
-  }
-
-  /// 確かめてから失敗した下書きを捨て、タイムラインを読み直す（§8.2。「もう一度」が通らないときに抜けられるように）
-  Future<void> _discardFailed() async {
-    if (!await confirmDiscardFailedDraft(context) || !mounted) {
+  /// [confirm] で確かめてから下書きを捨て、タイムラインを読み直す。
+  /// タイムラインの編集（区切りの直し）をやめるとき（§8.3）と、失敗した下書きをやめるとき（§8.2。「もう一度」が通らないときに抜けられるように）
+  Future<void> _discard(Future<bool> Function(BuildContext) confirm) async {
+    if (!await confirm(context) || !mounted) {
       return;
     }
     await _send(() async {
@@ -482,7 +471,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
   /// 完成版の上の、タイムラインを編集している（区切りの直し。recut）下書きの案内（§8.3）
   Widget _buildEditBanner(TimelineDraftStatus draft) {
     final discard = OutlinedButton(
-        onPressed: _sending ? null : _discard, child: const Text('やめる'));
+        onPressed: _sending ? null : () => _discard(confirmDiscardEdit),
+        child: const Text('やめる'));
     Widget review(String label) => OutlinedButton(
         onPressed: _sending ? null : () => _review(editing: true),
         child: Text(label));
@@ -517,7 +507,8 @@ class _TripTimelineViewState extends State<TripTimelineView> {
         onPressed: _sending ? null : send, child: const Text('もう一度'));
     // 失敗した下書きを捨てる
     final discard = TextButton(
-        onPressed: _sending ? null : _discardFailed, child: const Text('やめる'));
+        onPressed: _sending ? null : () => _discard(confirmDiscardFailedDraft),
+        child: const Text('やめる'));
     if (draft.phase == 'writing') {
       if (draft.isFailed) {
         return _StatusView(title: '見出しとまとめを書けませんでした', actions: [
