@@ -338,9 +338,9 @@ export class AlbumService {
    * 解析の状態を書き換えるので、走っている分類・識別の結果は担当の条件（processingCondition）で捨てられ、手で決めたカテゴリを上書きしない。
    * カテゴリを書き換える patch は、読んだときのコメントの出どころを条件にする。読んだ後に他がコメントを書いていたら（412）読み直して書き直す
    * （読んだ後に利用者が書いたコメントを消さず、AI が書いたコメントを残さない。1回の patch なので、途中まで書いた状態も残らない）
-   * @param id 写真 ID
    * 撮影日時は手で付けた印（takenAtSource: "user"）と並びの日時（sortAt）も書き、null なら消して送った日時の並びに戻す。
    * カメラが記録した撮影日時（exif）の写真は TakenAtFromCameraError を投げる（02 §5 #59）。
+   * @param id 写真 ID
    * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
@@ -372,12 +372,13 @@ export class AlbumService {
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
     let condition: string | undefined;
-    // カテゴリと撮影日時は、今の写真を見て書くものを決める
-    const current = changes.category !== undefined || changes.takenAt !== undefined ? await this.getPhoto(id) : undefined;
-    if (current === null) {
+    // カテゴリと撮影日時は、今の写真を見て書くものを決める（どちらも送られなければ読まない）
+    const needsCurrent = changes.category !== undefined || changes.takenAt !== undefined;
+    const current = needsCurrent ? await this.getPhoto(id) : null;
+    if (needsCurrent && !current) {
       return null;
     }
-    if (changes.takenAt !== undefined && current) {
+    if (current && changes.takenAt !== undefined) {
       // カメラが記録した撮影日時は変えさせない（02 §5 #59）
       if (current.takenAtSource === 'exif') {
         throw new TakenAtFromCameraError();
@@ -386,7 +387,7 @@ export class AlbumService {
       operations.push({ op: 'set', path: '/takenAtSource', value: changes.takenAt === null ? 'none' : 'user' });
       operations.push({ op: 'set', path: '/sortAt', value: computeSortAt(changes.takenAt, current.uploadedAt) });
     }
-    if (changes.category !== undefined && current) {
+    if (current && changes.category !== undefined) {
       operations.push({ op: 'set', path: '/categorySource', value: 'user' });
       // 分類が済んでいない（待っている・している・失敗した）写真は、同じカテゴリでも解析の状態を書き換える
       // （分類を止めないと AI がカテゴリを書き換える。失敗した写真は、手で決めたら失敗から出す）
