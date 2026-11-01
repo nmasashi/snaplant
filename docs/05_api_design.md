@@ -145,7 +145,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
 C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの「場所」の欄の事前入力と、欄の下の案内の出し分けにも使う（[03 §5.4](./03_screen_design.md#54-やり直しダイアログ)）。
 段階3からは `category`・`processing.state`（`processing` が無ければ `none` とみなす）・`comment`・`commentSource`・`hint` も読み、写真ビューアのカテゴリと分類の状態、サムネイルの印、やり直しダイアログの事前入力に使う（[03 §5.1・§5.4・§5.5](./03_screen_design.md#5-段階3の画面骨格)）。段階4（4-3c）からは `processing.step`（無ければ `null`。状態の表示を「分類中...」「識別中...」に分ける）と `identification` の `kind`・`matchesKind`・`name`（図鑑の項目へのリンクと、分類と合わない写真の案内。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）も読む。`processing` のほかの項目、`classification`、`identification` のほかの項目は読まない。
 `takenAt` は**タイムゾーン無し**の文字列のまま返す（クライアントは変換しない）。`sortAt`（並べ替え用。[04 §1.3](./04_data_design.md#13-写真type-photo)）もそのまま返す（クライアントは表示に使わない）。
-`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)）。
+`category` は AI の大分類（`plant` / `food` / `landscape` / `other`、分類前は `null`。利用者が手で直せる。§5.6）、`tags` は利用者のタグだけ（[04 §2](./04_data_design.md#2-カテゴリとタグ)。C-3a から各要素は `{ name, kind, x, y }`。クライアントは C-3b から読む）。
 `categorySource`（**実装済み**（C-1））は、利用者がカテゴリを手で決めた（§5.6）なら `"user"`、それ以外は `null`。ドキュメントに項目が無い写真（C-1 より前の写真と、手で決めたことも分類からやり直したことも無い写真。[04 §1.3](./04_data_design.md#13-写真type-photo)）も `null` で返す。写真を返すすべての応答（`POST /api/photos`・`GET /api/photos`・`GET` / `PATCH /api/photos/{photoId}`・`process`・`GET /api/catalog/entry` の `photos`）に付く。
 クライアントは C-1 から `categorySource` も読み、写真ビューアのカテゴリのボタンに「（変更済み）」を付ける（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）。
 `commentSource` はカテゴリのシートでも読み、AI のコメント（`"ai"`）なら、保存すると消えることを知らせる（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)。カテゴリの変更で AI のコメントを消す、で実装済み）。
@@ -445,7 +445,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 利用者のコメント・タグ・カテゴリを直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・未定（タグ）。
 
-**リクエスト:** `{ "comment"?: string | null, "tags"?: string[], "category"?: "plant" | "food" | "landscape" | "other" }`
+**リクエスト:** `{ "comment"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列）
 
 | 順 | 条件 | ステータス・コード | `message` |
 |----|------|-------------------|-----------|
@@ -456,9 +456,11 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
 | 6 | `comment` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
-| 8 | `tags` の要素に文字列でないものがある | 400 `INVALID_REQUEST` | `タグは文字列で指定してください` |
-| 9 | `tags` の要素に、前後の空白を除いて空か 30 文字を超えるものがある（数え方は §9.6。U+0085 だけのタグも空） | 400 `INVALID_REQUEST` | `タグは1〜30文字で指定してください` |
-| 9.5 | `tags` が重複を除いて 20 個を超える（`TAG_MAX_COUNT`） | 400 `INVALID_REQUEST` | `タグは20個までです` |
+| 8 | `tags` の要素にオブジェクトでないもの（`null`・配列・文字列を含む）がある | 400 `INVALID_REQUEST` | `タグの形式が無効です` |
+| 9 | `tags` の要素の `name` が文字列でないか、前後の空白を除いて空か 30 文字を超える（数え方は §9.6。U+0085 だけの名前も空） | 400 `INVALID_REQUEST` | `タグの名前は1〜30文字で指定してください` |
+| 9.1 | `tags` の要素の `kind` が `plant` / `food` / `landscape` / `other` のどれでもない | 400 `INVALID_REQUEST` | `タグの種類が無効です` |
+| 9.2 | `tags` の要素の `x`・`y` が、0 以上 1 以下の数でない（文字列・`null`・無い・範囲の外） | 400 `INVALID_REQUEST` | `タグの位置が無効です` |
+| 9.5 | `tags` が 20 個を超える（`TAG_MAX_COUNT`。同じ名前も数える） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 
@@ -467,8 +469,8 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
-- `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は前後の空白を除いて保存し、除いた後の値で重複を除く（先に出たものを残し、並びは送った順）。
-  タグの数に上限は無い。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
+- `tags`: 利用者のタグを指定したものに**置き換える**（空の配列なら全部消える）。各要素は `{ name, kind, x, y }` だけを保存し（ほかのキーは捨てる）、`name` は前後の空白を除く。
+  同じ名前のタグも除かずに残し、並びは送った順（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57。C-3a より前は文字列の配列で、重複を除いていた）。送らなければ `tags` に触らない。`category` は別の欄なので `tags` には混ざらず、サーバが選り分けて結合する処理は無い
 - `category`（C-1）: 利用者が手で決めたカテゴリにする（AI を通さない）。写真を読んでから、次のように書く。送らなければ `category`・`categorySource`・`identification`・`processing`・コメントに触らない
   - いつも `categorySource: "user"` を書く（今と同じカテゴリでも）
   - 今のカテゴリと違うか、写真の分類が済んでいない（`processing.step` が `classify` で `state` が `pending`・`classifying`・`failed`）ときは、さらに `category`（送った値）・`identification: null`（前の識別を消す。植物から変えれば図鑑から外れる）・`processing` を書く。
@@ -1216,7 +1218,7 @@ Terraform は `AZURE_OPENAI_DEPLOYMENT_NAME` を必ず設定する（`DEPLOYMENT
 | 旅行名 `name` | `POST /api/trips`・`PUT /api/trips/{tripId}`（§5.8・§5.11） | 100 | 除いて数え、除いて保存する |
 | 説明 `description` | 同上 | 1000 | 除かない（そのまま数え、そのまま保存する） |
 | 写真のコメント `comment` | `PATCH /api/photos/{photoId}`（§5.6） | 500 | 除く |
-| タグ `tags` の各要素 | 同上 | 30 | 除く |
+| タグの名前 `tags[].name` | 同上 | 30 | 除く |
 | 手がかり `hint` | `POST /api/photos/{photoId}/process`（§5.7） | 500 | 除く |
 | 場所 `placeName`（C-2。実装済み） | 同上 | 100 | 除く |
 | 完成版の文 `title`・`summary`・`label`・`note` | `PATCH /api/trips/{tripId}/timeline/days/{date}`・`scenes/{photoId}`（§5.15） | 40・400・30・200 | 除く |

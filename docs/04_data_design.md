@@ -124,7 +124,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `location.placeSource` | `"device"` \| `"server"` \| `"user"` \| null | ○（null 可） | 2（`"user"` は C-2） | 地名の出どころ。段階2は、`placeName` を送られたら `"device"`（端末の Geocoder）、無ければ `null`。段階3で Azure Maps が埋めたら `"server"`。利用者が解析を頼むときに地名を直したら `"user"`。緯度・経度のある写真で地名を消したときも `"user"`（`placeName: null`・`placeSource: "user"` は「利用者が地名を消した」印。`null` にすると「まだ地名を引いていない」と区別できず、後で地名を引き直すと消した地名が戻るため）。今と同じ地名なら変えない（C-2） |
 | `category` | string \| null | ○（null 可） | 2（値は3） | AI が付けた大分類（要件 5.4）。`CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`。分類前は `null`。**専用の欄にする**（2026-10-12 に人間が決定。タグに `category:` 接頭辞で混ぜない）。分類のワーカーと、利用者のカテゴリの更新（`PATCH /api/photos/{photoId}` の `category`。C-1。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)）が書く。横断は `c.category = @category`（§5 の 5.4） |
 | `categorySource` | `"user"` \| null | ×（無いのは `null` と同じ） | C-1 | カテゴリの出どころ。利用者がカテゴリを手で決めたら `"user"`（`PATCH` の `category`。今と同じカテゴリを送っても付く）。分類からのやり直しの受付（`process` の `step: "classify"`）が `null` に戻す。**写真の作成（`POST /api/photos`）では書かない**ので、C-1 より前の写真と、どちらの操作も受けていない写真には項目が無い（クエリで使わないので、無いのと `null` の2通りを扱う所は無い。API の応答では `null` で返す。[05 §3.3](./05_api_design.md#33-photo)）。ワーカーは読まない（手で決めたカテゴリを AI が上書きしないのは、`PATCH` が `processing` を書き換えるから。§7.4） |
-| `tags` | string[] | ○ | 2 | 利用者が付けるタグだけ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる（段階2はタグを付ける画面が無い）。AI は書かない |
+| `tags` | object[] | ○ | 2（形は C-3） | 利用者が付けるタグだけ（§2）。作成時は `[]`。`PATCH /api/photos/{photoId}` で置き換わる。AI は書かない。C-3 から各要素は `{ name, kind, x, y }`（§2） |
 | `comment` | string \| null | ○（null 可） | 2（値は4） | 一言コメント。前後の空白を除いて 500 文字まで（`PHOTO_COMMENT_MAX_LENGTH`）。除いた値を保存する |
 | `commentSource` | `"ai"` \| `"user"` \| null | ○（null 可） | 2（値は4） | コメントの出どころ。`"ai"` は分類・識別のワーカーが書いたコメント、`"user"` は利用者が `PATCH` の `comment` で書いたコメント。やり直しの受付（`process`）はどちらでも `comment` と一緒に `null` に戻す。カテゴリを手で変えたとき（`PATCH` の `category`。カテゴリが変わるか分類が済んでいない写真）は、`"ai"` のときだけ `comment` と一緒に `null` に戻す（利用者のコメントは残す。[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)） |
 | `hint` | string \| null | ○（null 可） | 2（値は3） | 最後のやり直しで利用者が渡した手がかり。前後の空白を除いて保存し、500 文字まで（`CONTEXT_INFO_VALIDATION`）。やり直しで渡さなければ（空白だけも）`null` に戻る。分類と識別の AI に手がかりとして渡す（[06 §2.2](./06_processing_design.md#22-契約structured-outputs)・[§3.1](./06_processing_design.md#31-契約)） |
@@ -298,11 +298,13 @@ Azure Maps を入れる場合だけ。`{ "id": "geo-43.771_142.365", "type": "ge
 | 欄 | 形 | 付ける主体 | 例 |
 |---|---|---|---|
 | `category`（写真だけ） | `CATALOG_KINDS` のキー（§3）または `other`（`OTHER_KIND`。`api/src/catalog/kinds.ts`）。分類前は `null` | 分類 AI（段階3）。利用者が手で直せる（`PATCH /api/photos/{photoId}`。手で決めたら `categorySource: "user"`。C-1 で実装済み）。**写真にちょうど1つ** | `"food"`、`"other"` |
-| `tags`（旅行・写真） | 1〜30 文字（`TAG_MAX_LENGTH`）の文字列の配列。前後の空白を除く。重複は保存前に除き、並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は後の段階） | `favorite`、`お気に入り` |
+| `tags`（写真） | 写真の中の場所に付けるタグの配列（C-3。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57）。各要素は `{ name, kind, x, y }`: `name` は前後の空白を除いた 1〜30 文字（`TAG_MAX_LENGTH`）、`kind` は `plant` / `food` / `landscape` / `other`（カテゴリと同じ）、`x`・`y` は向きを直した後の画像の中の位置の割合（左上が 0、右下が 1）。1枚に 20 個まで（`TAG_MAX_COUNT`）。同じ名前を何個付けてもよい（重複を除かない）。並びは保存順 | 利用者（`PATCH /api/photos/{photoId}`。画面は [03 §5.7](./03_screen_design.md#57-写真のタグ)） | `{ "name": "海鮮丼", "kind": "food", "x": 0.42, "y": 0.61 }` |
+| `tags`（旅行） | 1〜30 文字の文字列の配列（使う画面は無い。C-3 で変えていない） | — | `[]` |
 
 - 分類の確信度やモデル名は `classification` に別に持つ。`category` は「横断して見るための索引」、`classification` は「根拠」
 - 再分類は `category` を書き換えるだけで、`tags` には触らない
-- 横断は `WHERE c.category = @category`（§5 の 5.4）。利用者のタグでの横断（`ARRAY_CONTAINS(c.tags, @tag)`）は、タグを付ける画面を入れる段階で足す
+- 横断は `WHERE c.category = @category`（§5 の 5.4）。利用者のタグでの横断（`ARRAY_CONTAINS(c.tags, { name: @name }, true)`）は、タグで絞り込む画面を入れる段階で足す（C-3 では入れない）
+- C-3 より前の写真の `tags` は文字列の配列だった（画面が無く、本番は空のはず）。応答に出すときは、オブジェクトでない要素を出さない（**実装済み**（C-3a）。`services/photoView.ts`）
 
 ## 3. 図鑑の項目と定義表（段階4）
 
