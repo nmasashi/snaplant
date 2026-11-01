@@ -105,8 +105,9 @@ void main() {
     await tester.longPress(photoThumbnail('2026年9月2日 12:30'));
     await letFramesRun(tester);
     expect(find.text('1枚を選択中'), findsOneWidget);
-    // 別の端末で、選んでいた 9月2日 の写真が消された
+    // 別の端末で、選んでいた 9月2日 の写真が消された（偽のサーバの未所属の枚数も揃える。この画面の読み直しでは読まれない）
     backend.photosByTripId['none']!.removeAt(1);
+    backend.unassignedPhotoCount = 1;
 
     await tester.drag(photoGridScroll(), const Offset(0, 600));
     await letFramesRun(tester);
@@ -136,7 +137,8 @@ void main() {
       }
     });
 
-    testWidgets('選択モード中に送信が一区切りついて一覧を読み直すと、別の端末で消された写真は選択から外れる', (tester) async {
+    testWidgets('選択モード中に送信が一区切りついて一覧を読み直すと、別の端末で消された写真は選択から外れ、残りの写真は選んだままになる', (tester) async {
+      final semantics = tester.ensureSemantics();
       useFakeImageCompress();
       useGalleryReturning([writeTestImage('one.png', bytes: [...tinyPngBytes, 1])]);
       final backend = FakeTripBackend(
@@ -161,8 +163,9 @@ void main() {
       await tester.tap(photoThumbnail('2026年10月5日 10:02'));
       await letFramesRun(tester);
       expect(find.text('2枚を選択中'), findsOneWidget);
-      // 別の端末で、選んでいた 10:02 の写真が消された
+      // 別の端末で、選んでいた 10:02 の写真が消された（偽のサーバの旅行の枚数も揃える）
       backend.photosByTripId[hokkaidoTripId]!.removeAt(1);
+      backend.trips.single['photoCount'] = 1;
 
       release.complete();
       // 送った写真（撮影日時なし）が一覧に出たら、読み直しが済んでいる
@@ -171,8 +174,10 @@ void main() {
 
       expect(photoThumbnail('2026年10月5日 10:02'), findsNothing);
       expect(find.text('1枚を選択中'), findsOneWidget);
+      expect(tester.getSemantics(photoThumbnail('2026年10月5日 10:01')).hasFlag(SemanticsFlag.isSelected), isTrue);
       // キャッシュの掃除のタイマーを済ませる
       await tester.pump(const Duration(seconds: 20));
+      semantics.dispose();
     });
   });
 }
