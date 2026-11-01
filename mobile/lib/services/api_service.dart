@@ -88,7 +88,7 @@ class ApiService {
       );
     } else if (error is FormatException) {
       return ApiException(
-        statusCode: 0,
+        statusCode: ApiException.unclassifiedStatus,
         message: 'レスポンスの形式が無効です',
         body: error.message,
       );
@@ -112,13 +112,13 @@ class ApiService {
       // Web環境では多くのエラーが一般的な例外として扱われる
       if (kIsWeb) {
         return ApiException(
-          statusCode: 0,
+          statusCode: ApiException.unclassifiedStatus,
           message: 'API通信でエラーが発生しました',
           body: text,
         );
       }
       return ApiException(
-        statusCode: 0,
+        statusCode: ApiException.unclassifiedStatus,
         message: 'エラー詳細: ${error.runtimeType} - $text',
         body: text,
       );
@@ -749,6 +749,10 @@ class ApiException implements Exception {
   final String message;
   final String? body;
 
+  /// 通信の失敗でない、分類できない失敗（2xx の本文を読めないなど）のステータス。送り直しても直らないので、ステータス 0（通信の失敗）と分ける
+  /// （docs/03_screen_design.md §9.2）
+  static const unclassifiedStatus = -1;
+
   const ApiException({
     required this.statusCode,
     this.code,
@@ -810,6 +814,8 @@ class ApiException implements Exception {
   /// ユーザー向けのエラーメッセージを取得
   String get userMessage {
     switch (statusCode) {
+      case unclassifiedStatus:
+        return '予期しないエラーが発生しました。繰り返し発生する場合は、設定のエンドポイントを確認してください。';
       case 0:
         return 'ネットワークに接続できません。インターネット接続を確認してください。';
       case 401:
