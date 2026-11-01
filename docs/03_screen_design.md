@@ -1259,7 +1259,7 @@ AI は写真の名前と地名しか知らないので、「何をしていた�
 
 ### 9.2 エラー表示（`ApiException.userMessage`）
 
-**実装済み**（2026-10-25 に実装の写し（以前の `docs/07_api_workflow.md` §2）から移した。分類できない失敗の -1・時間切れ・3xx は通信の失敗の扱い）。
+**実装済み**（通信の失敗の扱い ほか。分類できない失敗の -1・時間切れ・3xx 以外は、2026-10-25 に以前の実装の写し `docs/07_api_workflow.md` §2 から移した）。
 
 非 2xx の応答は `ApiException.fromResponse()` が例外にする。ボディをサーバの封筒
 （`{ success: false, error: { code, message } }`。[05 §9](./05_api_design.md#9-共通の決まり)）として読めれば、`error.code` / `error.message` を
