@@ -47,7 +47,7 @@ export class TimelineProposerService {
     const lines = photos.map(({ photo, dayNumber }, index) => photoLineOf(photo, dayNumber, index));
     const prompt = `
 旅行の写真を撮影の順に並べました。続けて撮った一まとまりの出来事（食事1回・1か所の観光・食べ歩き・移動など）を1つの場面として、
-場面の最初の写真の番号を答えてください。
+場面の最初の写真の番号を答えてください。番号は写真の行の先頭の [ ] の中の数字です。数え直さずに、その数字をそのまま答えてください。
 
 - 時間のすき間と地名の変化を目安にしてください
 - 食事の写真と同じ時間に撮った店内や外観の写真は、同じ場面にしてください
