@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/app_test_helpers.dart';
+import '../helpers/gallery_test_helpers.dart';
+import '../helpers/image_compress_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 旅行詳細のお気に入りの絞り込み（docs/03_screen_design.md §5.10.2。F-3。02 §5 #63）。
@@ -92,6 +94,45 @@ void main() {
 
     expect(_shown([_label('10:00', favorite: true), _label('10:00'), _label('11:00', favorite: true)]), [false, false, true]);
     expect(tester.widget<ChoiceChip>(_chip('お気に入り')).selected, isTrue);
+    semantics.dispose();
+  });
+
+  testWidgets('お気に入りで絞り込んでいる間は、送れなかった写真の端末の画像のマスを並べず、「すべて」に戻すと並べる', (tester) async {
+    // 送った写真はまだお気に入りではないので、「すべて」のときだけ並べる（§5.3 のカテゴリと同じ。§5.10.2）
+    useFakeImageCompress();
+    final semantics = tester.ensureSemantics();
+    final image = writeTestImage('hokkaido-favorite.png');
+    useGalleryReturning([image]);
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [_photo(1, 'food', '10:00', favorite: true)]
+      },
+    );
+    backend.failNext(TripRoute.upload, status: 500, code: 'INTERNAL_ERROR', message: '写真の保存に失敗しました');
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    final markInGrid = find.descendant(of: photoGridScroll(), matching: find.text('!'));
+    await tester.tap(find.text('写真を追加'));
+    await waitUntilUploadsReceived(tester, backend, 1);
+    await waitUntilFound(tester, find.textContaining('1枚を送信できませんでした'));
+    await letFramesRun(tester);
+    expect(markInGrid, findsOneWidget);
+
+    await tester.tap(_chip('お気に入り'));
+    await letFramesRun(tester);
+
+    expect(find.bySemanticsLabel(_label('10:00', favorite: true)), findsOneWidget);
+    expect(markInGrid, findsNothing);
+    await tester.tap(_chip('すべて'));
+    await letFramesRun(tester);
+    expect(markInGrid, findsOneWidget);
+    // 後始末: 失敗の行を「閉じる」で消して列を空にし、画像のキャッシュの掃除のタイマーが過ぎるまで進める
+    await tester.tap(find.text('閉じる'));
+    await letFramesRun(tester);
+    await tester.pump(const Duration(seconds: 20));
     semantics.dispose();
   });
 }
