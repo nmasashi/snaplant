@@ -54,6 +54,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   bool _photosStale = false;
   // チップで選んだカテゴリ。「すべて」なら null。画面を開き直すと「すべて」に戻る（§5.3）
   String? _category;
+  // お気に入りだけに絞っているか（カテゴリとは重ねない。03 §5.10.2）
+  bool _favorite = false;
   // 「タイムライン」を出しているか（切り替え。§8.1）。画面を開き直すと「写真」に戻る
   bool _showsTimeline = false;
   // 「タイムライン」が上のバーのメニューに足す項目（§8.3）。タイムラインの表示が描くたびに入れ、メニューを開くときに読む
@@ -318,17 +320,34 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              for (final category in [null, ...photoCategories])
+              // 「すべて」「お気に入り」（§5.10.2）、カテゴリ（§5.3）。どれか1つだけ選ぶ
+              for (final chip in [
+                (label: 'すべて', category: null, favorite: false),
+                (label: 'お気に入り', category: null, favorite: true),
+                for (final category in photoCategories)
+                  (
+                    label: categoryLabel(category),
+                    category: category,
+                    favorite: false
+                  ),
+              ])
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
-                    label: Text(
-                        category == null ? 'すべて' : categoryLabel(category)),
-                    selected: _category == category,
+                    avatar: chip.favorite
+                        ? const Icon(Icons.favorite, size: 16)
+                        : null,
+                    label: Text(chip.label),
+                    selected: _category == chip.category &&
+                        _favorite == chip.favorite,
                     onSelected: (_) {
-                      if (_category == category) return;
+                      if (_category == chip.category &&
+                          _favorite == chip.favorite) {
+                        return;
+                      }
                       setState(() {
-                        _category = category;
+                        _category = chip.category;
+                        _favorite = chip.favorite;
                         _gridVersion++;
                       });
                     },
@@ -396,15 +415,20 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                     uploadQueue: widget.uploadQueue,
                     tripId: trip.id,
                     category: _category,
+                    favorite: _favorite,
+                    favorites: true,
                     dayOneTakenAt: trip.firstTakenAt,
                     // 見出しを取り直せなくても前の値のまま、写真の一覧は読み直す
                     onRefresh: () => _loadTrip(keepOnFailure: true),
                     selection: _selection,
-                    emptyTitle: _category == null
-                        ? 'まだ写真がありません'
-                        : 'この旅行に${categoryLabel(_category!)}の写真はありません',
-                    emptyMessage:
-                        _category == null ? '「写真を追加」からギャラリーの写真を送りましょう' : null,
+                    emptyTitle: _favorite
+                        ? 'この旅行にお気に入りの写真はありません'
+                        : _category == null
+                            ? 'まだ写真がありません'
+                            : 'この旅行に${categoryLabel(_category!)}の写真はありません',
+                    emptyMessage: _category == null && !_favorite
+                        ? '「写真を追加」からギャラリーの写真を送りましょう'
+                        : null,
                     onTripNotFound: _markTripDeleted,
                     onViewerClosed: _reloadPhotos,
                   ),

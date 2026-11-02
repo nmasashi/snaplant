@@ -32,6 +32,9 @@ class Photo {
   /// 利用者がカテゴリを手で決めたら `user`（02 §5 #53）。AI のカテゴリ・分類の前は null
   final String? categorySource;
 
+  /// お気に入りか（02 §5 #63。F より前の応答には無く、false として扱う）
+  final bool favorite;
+
   /// 解析の進み具合（`processing.state`。`none` / `pending` / `classifying` / `identifying` / `done` / `failed`）
   final String processingState;
 
@@ -66,6 +69,7 @@ class Photo {
     this.placeName,
     this.category,
     this.categorySource,
+    this.favorite = false,
     this.processingState = 'none',
     this.processingStep,
     this.identification,
@@ -92,6 +96,7 @@ class Photo {
       placeName: location?['placeName'] as String?,
       category: json['category'] as String?,
       categorySource: json['categorySource'] as String?,
+      favorite: json['favorite'] as bool? ?? false,
       processingState: processing?['state'] as String? ?? 'none',
       processingStep: processing?['step'] as String?,
       identification: identification == null
