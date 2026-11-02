@@ -285,7 +285,7 @@ describe('タイムラインの完成版の操作API', () => {
     // お気に入りの全ケース（印の無い写真は false など）は下書きの読み取り（GET …/timeline/draft）で通す。ここは応答に今の写真の印が乗ることだけを見る
     it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
-      cosmosBackend.documents.set(photoId('a'), { ...cosmosBackend.documents.get(photoId('a'))!, favorite: true });
+      cosmosBackend.documents.set(photoId('a'), photoDocument(photoId('a'), { tripId: TRIP_ID, takenAt: PHOTOS[0].takenAt, favorite: true }));
 
       const response = await recut();
 

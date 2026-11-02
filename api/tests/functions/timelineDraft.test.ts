@@ -636,7 +636,7 @@ describe('タイムラインの下書きAPI', () => {
     // お気に入りの全ケース（印の無い写真は false など）は下書きの読み取り（GET …/timeline/draft）で通す。ここは応答に今の写真の印が乗ることだけを見る
     it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
-      cosmosBackend.documents.set(photoId('b'), { ...cosmosBackend.documents.get(photoId('b'))!, favorite: true });
+      cosmosBackend.documents.set(photoId('b'), photoDocument(photoId('b'), { tripId: TRIP_ID, takenAt: PHOTOS[1].takenAt, favorite: true }));
 
       const response = await put({ sceneStarts: proposed });
 
@@ -1129,7 +1129,7 @@ describe('タイムラインの下書きAPI', () => {
     // お気に入りの全ケース（印の無い写真は false など）は下書きの読み取り（GET …/timeline/draft）で通す。ここは応答に今の写真の印が乗ることだけを見る
     it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
-      cosmosBackend.documents.set(photoId('c'), { ...cosmosBackend.documents.get(photoId('c'))!, favorite: true });
+      cosmosBackend.documents.set(photoId('c'), photoDocument(photoId('c'), { tripId: TRIP_ID, takenAt: PHOTOS[2].takenAt, favorite: true }));
 
       const response = await exclude({ photoIds: [photoId('b')] });
 
