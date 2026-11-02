@@ -337,7 +337,7 @@ export class AlbumService {
   }
 
   /**
-   * 写真の利用者のコメント・タグ・カテゴリ・撮影日時を直す
+   * 写真の利用者のコメント・タグ・カテゴリ・撮影日時・お気に入りを直す
    *
    * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
    * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別と AI が書いたコメントを消して解析の状態を書き換える（02 §5 #53）。
@@ -346,8 +346,9 @@ export class AlbumService {
    * （読んだ後に利用者が書いたコメントを消さず、AI が書いたコメントを残さない。1回の patch なので、途中まで書いた状態も残らない）
    * 撮影日時は手で付けた印（takenAtSource: "user"）と並びの日時（sortAt）も書き、null なら消して送った日時の並びに戻す。
    * カメラが記録した撮影日時（exif）の写真は TakenAtFromCameraError を投げる（02 §5 #59）。
+   * お気に入りは印（favorite）だけを書く（読まずに書くので、解析の状態にもほかの欄にも触らない。02 §5 #63）。
    * @param id 写真 ID
-   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す）
+   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す。favorite は true・false）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
   async updatePhoto(
