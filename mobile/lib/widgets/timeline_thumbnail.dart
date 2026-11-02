@@ -4,8 +4,11 @@ import '../models/timeline.dart';
 import '../theme/app_colors.dart';
 import '../utils/photo_cache_manager.dart';
 import '../utils/taken_at.dart';
+import 'favorite_mark.dart';
 
-/// タイムラインの写真のサムネイル（区切りの確認画面・完成版・場面の写真の一覧。読み上げのラベルは撮影日時。docs/03_screen_design.md §8.3・§8.4・§8.8）
+/// タイムラインの写真のサムネイル（区切りの確認画面・完成版・場面の写真の一覧。docs/03_screen_design.md §8.3・§8.4・§8.8）
+///
+/// 読み上げのラベルは撮影日時。[showsFavorite] のときは、お気に入りの写真に印を出し、ラベルに「、お気に入り」を足す（§5.10.3）
 class TimelineThumbnail extends StatelessWidget {
   const TimelineThumbnail(
       {super.key,
@@ -31,22 +34,15 @@ class TimelineThumbnail extends StatelessWidget {
     // 受けないときも GestureDetector で包む（包み方が変わると、下の画像の部品を組み立て直して読み込み直すため）
     final marked = showsFavorite && photo.favorite;
     return Semantics(
-      label: formatTakenAt(photo.takenAt) + (marked ? '、お気に入り' : ''),
+      label: formatTakenAt(photo.takenAt) + (marked ? favoriteMarkLabel : ''),
       container: true,
       child: GestureDetector(
         onTap: onTap,
         onLongPress: onLongPress,
         child: Stack(fit: StackFit.expand, children: [
           _image(),
-          // 読み上げはラベルの「、お気に入り」で伝える（写真の一覧の印と同じ。03 §5.10.3）
-          if (marked)
-            const Positioned(
-              right: 4,
-              top: 4,
-              child: ExcludeSemantics(
-                child: Icon(Icons.favorite, size: 16, color: Colors.white),
-              ),
-            ),
+          // 写真の一覧の印と同じ（03 §5.10.3）
+          if (marked) const FavoriteMark(),
         ]),
       ),
     );
