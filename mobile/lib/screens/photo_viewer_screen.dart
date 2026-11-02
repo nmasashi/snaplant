@@ -34,7 +34,8 @@ class PhotoViewerScreen extends StatefulWidget {
       this.loadMoreFailed,
       this.onRetryLoadMore,
       required this.onDeleted,
-      required this.onUpdated});
+      required this.onUpdated,
+      this.favorites = false});
 
   final ApiService apiService;
 
@@ -68,6 +69,10 @@ class PhotoViewerScreen extends StatefulWidget {
   /// （一覧の読み込み済みの写真を置き換える。ビューアの表示もそれで変わる）
   final void Function(Photo photo) onUpdated;
 
+  /// お気に入りの付け外し（上のバーのハート）を出すか。旅行に属する写真の一覧（旅行詳細・タイムラインの場面）から開いたときだけ
+  /// （旅行に属さない写真・図鑑の項目詳細から開いたときは出さない。03 §5.10.1）
+  final bool favorites;
+
   @override
   State<PhotoViewerScreen> createState() => _PhotoViewerScreenState();
 }
@@ -93,6 +98,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
 
   // 写真の上のタグ（吹き出し）を出すか。アプリ全体で端末に覚える（03 §5.9）
   bool _tagsVisible = true;
+  // お気に入りを送っている写真の id と、その間に出す印（押したらすぐ替え、失敗したら戻す。03 §5.10.1）
+  String? _favoriteSendingId;
+  bool _favoriteShown = false;
   // 覚えている値を読み終える前に切り替えを押した（読んだ古い値で押した結果を上書きしない）
   bool _tagsVisibleToggled = false;
 
@@ -465,9 +473,48 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     return IconButton(
       // 印と説明を決めた写真に頼む（ページの位置から引き直すと、送っている途中で別の写真になりうる）
       onPressed: () => _retry(photo),
+      visualDensity: VisualDensity.compact,
       color: Colors.white,
       tooltip: request.title,
       icon: Icon(request.icon),
+    );
+  }
+
+  /// [photo] のお気に入りを付ける・外す。押したらすぐ印を替えて送り、届いたら応答の写真で置き換える。失敗したら印を戻す（03 §5.10.1）
+  Future<void> _toggleFavorite(Photo photo) async {
+    if (_favoriteSendingId != null) return;
+    final favorite = !photo.favorite;
+    setState(() {
+      _favoriteSendingId = photo.id;
+      _favoriteShown = favorite;
+    });
+    try {
+      final updated =
+          await widget.apiService.updatePhotoFavorite(photo.id, favorite);
+      if (mounted) widget.onUpdated(updated);
+    } catch (e) {
+      debugPrint('PhotoViewerScreen: お気に入りの保存エラー: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(e is ApiException ? e.userMessage : 'お気に入りの保存に失敗しました')));
+      }
+    } finally {
+      if (mounted) setState(() => _favoriteSendingId = null);
+    }
+  }
+
+  /// 上のバーのハート（お気に入りの付け外し。03 §5.10.1）
+  Widget _favoriteButton(Photo photo) {
+    final favorite =
+        _favoriteSendingId == photo.id ? _favoriteShown : photo.favorite;
+    return IconButton(
+      onPressed:
+          _favoriteSendingId != null ? null : () => _toggleFavorite(photo),
+      visualDensity: VisualDensity.compact,
+      color: Colors.white,
+      tooltip: favorite ? 'お気に入りから外す' : 'お気に入りにする',
+      icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
     );
   }
 
@@ -492,7 +539,11 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
             ? AppBar(
                 backgroundColor: Colors.black54,
                 foregroundColor: Colors.white,
+                // ボタンが5つ並ぶので、余白を詰めて狭い端末（360dp）でも収める（03 §4.6）
                 actions: [
+                  // お気に入り（03 §5.10.1）。頼む写真が無い間（続きを待っている）は出さない
+                  if (_shownPhoto case final photo? when widget.favorites)
+                    _favoriteButton(photo),
                   // 写真の上のタグの表示の切り替え（03 §5.9）
                   // 読み上げは見た目の文字ではなく、押すとどうなるか（「タグを隠す」／「タグを出す」）だけにする
                   Tooltip(
@@ -500,8 +551,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                     excludeFromSemantics: true,
                     child: TextButton.icon(
                       onPressed: _toggleTagsVisible,
-                      style:
-                          TextButton.styleFrom(foregroundColor: Colors.white),
+                      style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          visualDensity: VisualDensity.compact),
                       icon: Icon(_tagsVisible
                           ? Icons.label_outline
                           : Icons.label_off_outlined),
@@ -517,6 +570,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                               photo.tags.length >= _maxTags
                           ? null
                           : () => setState(() => _addingTag = true),
+                      visualDensity: VisualDensity.compact,
                       color: Colors.white,
                       tooltip: 'タグを付ける',
                       icon: const Icon(Icons.sell_outlined),
@@ -527,7 +581,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                     _analysisButton(photo),
                   TextButton(
                     onPressed: _deleteCurrent,
-                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact),
                     child: const Text('削除'),
                   ),
                 ],

@@ -245,6 +245,7 @@ class ApiService {
   Future<PhotoPage> getPhotos(
       {required String tripId,
       String? category,
+      bool favorite = false,
       String? continuationToken}) async {
     // アプリが読むのは旅行（旅行に属さない写真は none）の一覧と、その中のカテゴリの絞り込みだけなので、tripId は必須にしている。
     // 旅行をまたいでカテゴリだけで読む画面は消した（docs/03_screen_design.md §5.2。旅行をまたいで見るのは図鑑。
@@ -254,6 +255,8 @@ class ApiService {
       final query = {
         'tripId': tripId,
         if (category != null) 'category': category,
+        // お気に入りだけに絞る指定は true だけ（05 §5.2。F-1）
+        if (favorite) 'favorite': 'true',
         if (continuationToken != null) 'continuationToken': continuationToken,
       };
       final url = _buildUrl('/api/photos?${Uri(queryParameters: query).query}');
@@ -717,6 +720,25 @@ class ApiService {
         Uri.parse(url),
         headers: _headers,
         body: json.encode({'category': category}),
+      );
+      return _parseResponse(response, (json) {
+        final data = json['data'] as Map<String, dynamic>;
+        return Photo.fromJson(data['photo'] as Map<String, dynamic>);
+      });
+    } catch (error) {
+      throw _handleError(error);
+    }
+  }
+
+  /// 写真のお気に入りを付ける・外す（docs/03_screen_design.md §5.10.1。F-3）
+  /// PATCH /api/photos/{photoId} { favorite }
+  Future<Photo> updatePhotoFavorite(String photoId, bool favorite) async {
+    try {
+      final url = _buildUrl('/api/photos/$photoId');
+      final response = await _timedClient.patch(
+        Uri.parse(url),
+        headers: _headers,
+        body: json.encode({'favorite': favorite}),
       );
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
