@@ -222,7 +222,8 @@ export class AlbumService {
    * どの旅行にも属さない写真は tripId に null を渡す（c.tripId = null は値が null のものだけに一致し、
    * 項目が無いドキュメントには一致しない。写真は必ず tripId を書くので漏れない）
    * @param filter 絞り込み。tripId は旅行 ID（どの旅行にも属さない写真なら null、旅行で絞らないなら undefined）、
-   *   category はカテゴリ（絞らないなら undefined）、entry は図鑑の項目（種類と名前。分類どおりの種類が写っている写真だけ）。あれば AND
+   *   category はカテゴリ（絞らないなら undefined）、favorite はお気に入りだけに絞るなら true（印の無い写真と false の写真は外れる）、
+   *   entry は図鑑の項目（種類と名前。分類どおりの種類が写っている写真だけ）。あれば AND
    * @param limit 1ページの最大枚数
    * @param continuationToken 前のページの継続トークン。先頭からなら undefined
    * @returns 写真と、次のページの継続トークン（最後のページなら null）
