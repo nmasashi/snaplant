@@ -13,6 +13,7 @@ import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
 import '../utils/timeline_format.dart';
+import 'favorite_mark.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
 
@@ -25,6 +26,8 @@ class PhotoGrid extends StatefulWidget {
       required this.apiService,
       required this.tripId,
       this.category,
+      this.favorite = false,
+      this.favorites = false,
       required this.emptyTitle,
       this.emptyMessage,
       required this.selection,
@@ -50,6 +53,13 @@ class PhotoGrid extends StatefulWidget {
 
   /// 旅行の中をカテゴリ（`plant` / `food` / `landscape` / `other`）で絞るならそのキー。絞らないなら null
   final String? category;
+
+  /// 旅行の中をお気に入りだけに絞るか（03 §5.10.2）
+  final bool favorite;
+
+  /// お気に入りを扱う一覧か（旅行詳細。サムネイルに印を出し、ビューアでハートを出す。
+  /// 旅行に属さない写真と図鑑の項目詳細では扱わない。03 §5.10.1・§5.10.3）
+  final bool favorites;
 
   /// 写真が0枚のときの案内（画面ごとに文言が違う）。[emptyMessage] は無ければ出さない
   final String emptyTitle;
@@ -132,8 +142,8 @@ class _PhotoGridState extends State<PhotoGrid> {
 
   /// 送信の列の項目のうち、この一覧の宛先のもの（旅行に属さない写真の一覧なら、旅行を指定せずに送ったもの）
   List<UploadItem> get _pendingItems {
-    // 送信中の写真はまだ分類されていないので、カテゴリで絞っているときは並べない（§5.3）
-    if (widget.category != null) return const [];
+    // 送信中の写真は、届いて一覧を読み直すまでカテゴリもお気に入りの印も分からないので、カテゴリやお気に入りで絞っているときは並べない（§5.3・§5.10.2）
+    if (widget.category != null || widget.favorite) return const [];
     // 一覧を読み直して既にサーバの写真として並んでいるもの（送れた写真）は、端末の画像では並べない（二重にしない）
     final loadedIds = {
       for (final photo in _photos ?? const <Photo>[]) photo.id
@@ -199,6 +209,7 @@ class _PhotoGridState extends State<PhotoGrid> {
     return widget.apiService.getPhotos(
         tripId: widget.tripId!,
         category: widget.category,
+        favorite: widget.favorite,
         continuationToken: continuationToken);
   }
 
@@ -344,6 +355,7 @@ class _PhotoGridState extends State<PhotoGrid> {
                 uploadQueue: widget.uploadQueue,
                 photos: _loaded,
                 initialIndex: index,
+                favorites: widget.favorites,
                 onReachEnd: _loadMore,
                 hasMore: () => _continuationToken != null,
                 loadMoreFailed: _loadMoreFailed,
@@ -461,6 +473,7 @@ class _PhotoGridState extends State<PhotoGrid> {
         });
       }
       return _PhotoTile(
+          favorites: widget.favorites,
           photo: photos[index],
           selection: widget.selection,
           onOpen: () => _openViewer(index));
@@ -651,9 +664,15 @@ class _DayHeader extends StatelessWidget {
 /// サムネイル1枚。撮影日時を読み上げのラベルにする（画像だけでは写真を区別できないため）
 class _PhotoTile extends StatelessWidget {
   const _PhotoTile(
-      {required this.photo, required this.selection, required this.onOpen});
+      {required this.photo,
+      required this.selection,
+      required this.onOpen,
+      this.favorites = false});
 
   final Photo photo;
+
+  /// お気に入りの印を出すか（一覧がお気に入りを扱うとき。03 §5.10.3）
+  final bool favorites;
   final PhotoSelection selection;
 
   /// タップで写真ビューアを開く（選択モードの間は選択を切り替える）
@@ -682,8 +701,9 @@ class _PhotoTile extends StatelessWidget {
         isProcessingInProgress(photo.processingStep, photo.processingState);
     final failed = isProcessingFailed(photo.processingState);
     return Semantics(
-      // 分類の印は読み上げにも足す（docs/03_screen_design.md §5.5）
+      // お気に入りと分類の印は読み上げにも足す（docs/03_screen_design.md §5.10.3・§5.5）
       label: formatTakenAt(photo.takenAt) +
+          (favorites && photo.favorite ? favoriteMarkLabel : '') +
           (inProgress
               ? '、分類中'
               : failed
@@ -720,6 +740,8 @@ class _PhotoTile extends StatelessWidget {
             ),
           ),
         ),
+        // お気に入りの印は右上（分類の印は右下。03 §5.10.3）
+        if (favorites && photo.favorite) const FavoriteMark(),
         if (inProgress)
           const Positioned(
             right: 4,

@@ -246,6 +246,8 @@ describe('写真API', () => {
           photo: {
             ...commonFields,
             categorySource: null,
+            // お気に入りの印の無い写真（F より前）は false で返す（02 §5 #63）
+            favorite: false,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
           },
@@ -636,6 +638,8 @@ describe('写真API', () => {
           photo: {
             ...savedFields,
             categorySource: null,
+            // お気に入りの印の無い写真（F より前）は false で返す（02 §5 #63）
+            favorite: false,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: null
           },
@@ -716,6 +720,8 @@ describe('写真API', () => {
           photo: {
             ...firstFields,
             categorySource: null,
+            // お気に入りの印の無い写真（F より前）は false で返す（02 §5 #63）
+            favorite: false,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: null
           },

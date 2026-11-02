@@ -59,8 +59,8 @@ const storedPhoto = (id: string, tripId: string | null, overrides: Partial<Photo
 /** 写真のドキュメントから、応答の写真と共通の項目だけを取り出す（type と Blob 名は応答に出ない） */
 const responseFieldsOf = (doc: PhotoDocument): PhotoFields => {
   const { type: _type, blobName: _blobName, thumbnailBlobName: _thumbnailBlobName, ...fields } = doc;
-  // カテゴリを手で決めた印は、項目の無い写真でも null で返る（02 §5 #53）
-  return { ...fields, categorySource: null };
+  // カテゴリを手で決めた印は、項目の無い写真でも null で返る（02 §5 #53）。お気に入りの印の無い写真は false（02 §5 #63）
+  return { ...fields, categorySource: null, favorite: fields.favorite ?? false };
 };
 
 /**
@@ -401,7 +401,14 @@ describe('写真一覧API', () => {
         { tripId: TRIP_A_ID, continuationToken: 'not-a-real-token' },
         '継続トークンの形式が無効です'
       ],
+      // お気に入りは true だけを受け付ける（05 §5.2 の 3.5）。お気に入りだけでは絞り込み条件にならない
+      ['favoriteがfalse', { tripId: TRIP_A_ID, favorite: 'false' }, 'お気に入りの指定が無効です'],
+      ['favoriteの大文字小文字が違う', { tripId: TRIP_A_ID, favorite: 'TRUE' }, 'お気に入りの指定が無効です'],
+      ['favoriteが空', { tripId: TRIP_A_ID, favorite: '' }, 'お気に入りの指定が無効です'],
+      ['favoriteだけ（旅行もカテゴリも無い）', { favorite: 'true' }, '絞り込み条件を指定してください'],
       // 検証の順序: 複数の指定が不正なら、表の上の行の指摘を返す。各行は、隣り合う2つの指定を不正にする
+      ['categoryもfavoriteも不正（categoryの指摘が先）', { tripId: TRIP_A_ID, category: 'animal', favorite: 'yes' }, 'カテゴリが無効です'],
+      ['favoriteもlimitも不正（favoriteの指摘が先）', { tripId: TRIP_A_ID, favorite: 'yes', limit: '0' }, 'お気に入りの指定が無効です'],
       ['tripIdが無く、continuationTokenが空（tripIdの指摘が先）', { continuationToken: '' }, '絞り込み条件を指定してください'],
       ['tripIdもlimitも不正（tripIdの指摘が先）', { tripId: 'abc', limit: '0' }, '旅行IDの形式が無効です'],
       [
@@ -497,6 +504,24 @@ describe('写真一覧API', () => {
       ]);
     });
 
+    it('カテゴリとお気に入りを指定すると、旅行をまたいで、そのカテゴリのお気に入りの写真だけが返る', async () => {
+      cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
+      cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { category: 'food', favorite: true }));
+      cosmosBackend.documents.set(PHOTO_A2_ID, storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { category: 'landscape', favorite: true }));
+      cosmosBackend.documents.set(PHOTO_B1_ID, storedPhoto(PHOTO_B1_ID, TRIP_B_ID, { category: 'food', favorite: true }));
+      cosmosBackend.documents.set(PHOTO_A3_ID, storedPhoto(PHOTO_A3_ID, TRIP_A_ID, { category: 'food', favorite: false }));
+      cosmosBackend.documents.set(PHOTO_UNASSIGNED_ID, storedPhoto(PHOTO_UNASSIGNED_ID, null, { category: 'food', favorite: true }));
+      // 印の無い（付け外しをしたことの無い）食べ物の写真は、旅行を指定しなくても外れる
+      // （偽物は値の厳密な一致で外す。実際の SQL が印の無い文書を外すことは 08 §5.3 の手での確認で見る）
+      cosmosBackend.documents.set(PHOTO_UNASSIGNED_2_ID, storedPhoto(PHOTO_UNASSIGNED_2_ID, null, { category: 'food' }));
+
+      const response = await listPhotosHandler(createListPhotosRequest({ category: 'food', favorite: 'true' }), mockContext);
+
+      expect(response.status).toBe(200);
+      // 並びは偽物が入れた順に返すもので、sortAt の並びは見ていない（写真の sortAt はどれも既定の同じ値。08 §5.3 の手での確認で見る）
+      expect((response.jsonBody as any).data.photos.map((photo: any) => photo.id)).toEqual([PHOTO_A1_ID, PHOTO_B1_ID, PHOTO_UNASSIGNED_ID]);
+    });
+
     it('旅行とカテゴリの両方を指定すると、その旅行のそのカテゴリの写真だけが返る', async () => {
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
       cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { category: 'other' }));
@@ -510,6 +535,22 @@ describe('写真一覧API', () => {
 
       expect(response.status).toBe(200);
       expect((response.jsonBody as any).data.photos.map((photo: any) => photo.id)).toEqual([PHOTO_A1_ID]);
+    });
+
+    it('旅行とお気に入りを指定すると、その旅行のお気に入りの写真だけが、お気に入りの印付きで返る（印の無い写真は含めない）', async () => {
+      cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
+      cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { favorite: true }));
+      cosmosBackend.documents.set(PHOTO_A2_ID, storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { favorite: false }));
+      cosmosBackend.documents.set(PHOTO_A3_ID, storedPhoto(PHOTO_A3_ID, TRIP_A_ID));
+      cosmosBackend.documents.set(PHOTO_B1_ID, storedPhoto(PHOTO_B1_ID, TRIP_B_ID, { favorite: true }));
+
+      const response = await listPhotosHandler(
+        createListPhotosRequest({ tripId: TRIP_A_ID, favorite: 'true' }),
+        mockContext
+      );
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photos.map((photo: any) => [photo.id, photo.favorite])).toEqual([[PHOTO_A1_ID, true]]);
     });
 
     // 旅行があれば、写真が1枚も無くても 200 で空の一覧を返す（404 にしない）。

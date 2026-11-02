@@ -223,10 +223,15 @@ export interface PhotoListQuery {
   tripId: string | null | undefined;
   /** カテゴリ。カテゴリで絞らないなら undefined */
   category: string | undefined;
+  /** お気に入りだけに絞るなら true。絞らないなら undefined */
+  favorite: true | undefined;
   limit: number;
   /** 前のページの継続トークン。先頭からなら undefined */
   continuationToken: string | undefined;
 }
+
+/** お気に入りの指定が無効なときの文言（写真の一覧と更新で同じ。05 §5.2・§5.6） */
+const FAVORITE_INVALID_MESSAGE = 'お気に入りの指定が無効です';
 
 /**
  * 写真一覧（GET /api/photos）のクエリを検証する
@@ -250,6 +255,11 @@ export function readPhotoListQuery(
   if (categoryParam !== null && !PHOTO_KINDS.includes(categoryParam)) {
     return { error: createValidationError('カテゴリが無効です') };
   }
+  // お気に入りは「お気に入りだけ」に絞る指定なので true だけ（false で「お気に入りでないものだけ」は作らない。02 §5 #63）
+  const favoriteParam = query.get('favorite');
+  if (favoriteParam !== null && favoriteParam !== 'true') {
+    return { error: createValidationError(FAVORITE_INVALID_MESSAGE) };
+  }
 
   const page = readPhotoPage(query);
   if ('error' in page) {
@@ -260,6 +270,7 @@ export function readPhotoListQuery(
     query: {
       tripId: tripIdParam === null ? undefined : tripIdParam === 'none' ? null : tripIdParam,
       category: categoryParam ?? undefined,
+      favorite: favoriteParam === null ? undefined : true,
       ...page.page,
     },
   };
@@ -354,10 +365,12 @@ export interface PhotoUpdateInput {
   category?: string;
   /** 利用者が手で付ける撮影日時（タイムゾーン無し）。消すなら null（02 §5 #59） */
   takenAt?: string | null;
+  /** お気に入りの印（02 §5 #63） */
+  favorite?: boolean;
 }
 
 /**
- * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9）
+ * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9.8）
  *
  * コメントは前後の空白を除いてから数え、空なら null（消す）と同じ。タグは名前の前後の空白を除いてから数え、
  * 同じ名前のタグも除かない（皿が2つなど。02 §5 #57）
@@ -375,8 +388,14 @@ export async function readPhotoUpdateInput(
   if (body === null || body === undefined) {
     return { error: createValidationError('リクエストボディが指定されていません') };
   }
-  const { comment, tags, category, takenAt } = body as { comment?: unknown; tags?: unknown; category?: unknown; takenAt?: unknown };
-  if (comment === undefined && tags === undefined && category === undefined && takenAt === undefined) {
+  const { comment, tags, category, takenAt, favorite } = body as {
+    comment?: unknown;
+    tags?: unknown;
+    category?: unknown;
+    takenAt?: unknown;
+    favorite?: unknown;
+  };
+  if (comment === undefined && tags === undefined && category === undefined && takenAt === undefined && favorite === undefined) {
     return { error: createValidationError('更新する項目が指定されていません') };
   }
   const input: PhotoUpdateInput = {};
@@ -420,6 +439,12 @@ export async function readPhotoUpdateInput(
       return { error: createValidationError('撮影日時の形式が無効です') };
     }
     input.takenAt = takenAt;
+  }
+  if (favorite !== undefined) {
+    if (typeof favorite !== 'boolean') {
+      return { error: createValidationError(FAVORITE_INVALID_MESSAGE) };
+    }
+    input.favorite = favorite;
   }
   return { input };
 }

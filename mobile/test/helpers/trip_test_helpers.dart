@@ -1051,13 +1051,20 @@ class FakeTripBackend {
     if (category != null && !const ['plant', 'food', 'landscape', 'other'].contains(category)) {
       return _error(400, 'INVALID_REQUEST', 'カテゴリが無効です');
     }
+    // お気に入りは true だけ（05 §5.2 の 3.5。F-1）
+    final favorite = query['favorite'];
+    if (favorite != null && favorite != 'true') return _error(400, 'INVALID_REQUEST', 'お気に入りの指定が無効です');
     if (tripId != null && tripId != 'none' && _find(tripId) == null) return _notFound();
     // 旅行を指定しなければ旅行をまたぐ（本物と同じく sortAt の昇順に並べる）
     final source = tripId != null
         ? photosByTripId[tripId] ?? const <Map<String, Object?>>[]
         : ([for (final photos in photosByTripId.values) ...photos]
           ..sort((a, b) => (a['sortAt'] as String).compareTo(b['sortAt'] as String)));
-    final photos = category == null ? source : source.where((photo) => photo['category'] == category).toList();
+    final photos = source
+        .where((photo) => category == null || photo['category'] == category)
+        // 印の無い写真は本物と同じく外れる（c.favorite = true に合わない）
+        .where((photo) => favorite == null || photo['favorite'] == true)
+        .toList();
     final limit = int.parse(query['limit'] ?? '$pageSize');
     final token = query['continuationToken'];
     const emptyTokenPrefix = 'empty-';
@@ -1337,8 +1344,12 @@ class FakeTripBackend {
     }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
     if (body is! Map<String, dynamic> ||
-        !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category') || body.containsKey('takenAt'))) {
+        !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category') || body.containsKey('takenAt') || body.containsKey('favorite'))) {
       return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
+    }
+    // お気に入りは true・false だけ（05 §5.6 の 9.8。F-1）。本物と同じく、どの項目も書く前に断る
+    if (body.containsKey('favorite') && body['favorite'] is! bool) {
+      return _error(400, 'INVALID_REQUEST', 'お気に入りの指定が無効です');
     }
     if (body.containsKey('comment')) {
       final comment = body['comment'];
@@ -1419,6 +1430,10 @@ class FakeTripBackend {
       // 消したら、送った日時を日本時間に直した値に戻す（本物の computeSortAt と同じ）
       photo['sortAt'] = takenAt ??
           DateTime.parse(photo['uploadedAt'] as String).toUtc().add(const Duration(hours: 9)).toIso8601String().substring(0, 19);
+    }
+    if (body.containsKey('favorite')) {
+      if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+      photo['favorite'] = body['favorite'];
     }
     photo!['updatedAt'] = processAcceptedAt;
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
@@ -1522,6 +1537,57 @@ Map<String, Object?> timelineSceneJson(List<Map<String, Object?>> photos, {Strin
     'comment': comment,
     'photos': photos,
   };
+}
+
+/// 完成版だけのタイムライン（05 §5.15 の `GET …/timeline` の `timeline`）。2026-10-05 の1日に、見出しが [label] の場面を1つ置く
+Map<String, Object?> timelineWithOneScene(List<Map<String, Object?>> photos, {String label = '朝の散歩'}) => {
+      'current': {
+        'writtenAt': '2026-10-25T09:10:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'title': null,
+            'titleSource': null,
+            'summary': null,
+            'summarySource': null,
+            'scenes': [
+              {...timelineSceneJson(photos), 'label': label, 'labelSource': 'ai', 'note': null, 'noteSource': null}
+            ],
+          },
+        ],
+      },
+      'draft': null,
+      'changes': {'added': 0, 'removed': 0},
+    };
+
+/// 確認待ちの案だけのタイムライン（05 §5.15 の `GET …/timeline` の `timeline`）。2026-10-05 の1日に、日の始まりで区切った場面を1つ置く
+Map<String, Object?> timelineWithOneDraftScene(List<Map<String, Object?>> photos) => {
+      'current': null,
+      'draft': {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'create',
+        'phase': 'reviewing',
+        'job': null,
+        'startedAt': '2026-10-25T09:00:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'scenes': [timelineSceneJson(photos, startedBy: 'day')],
+          },
+        ],
+      },
+      'changes': null,
+    };
+
+/// 旅行一覧から「北海道 2026秋」の旅行詳細を開き、「タイムライン」に切り替える
+Future<void> openHokkaidoTimeline(WidgetTester tester, FakeTripBackend backend) async {
+  await openTripsTab(tester, backend);
+  await tester.tap(find.text('北海道 2026秋'));
+  await letFramesRun(tester);
+  await tester.tap(find.text('タイムライン'));
+  await letFramesRun(tester);
 }
 
 /// 旅行「北海道 2026秋」の id

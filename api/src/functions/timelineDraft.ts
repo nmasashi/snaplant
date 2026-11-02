@@ -15,7 +15,7 @@ import {
 import { readJsonBody } from '../utils/tripInput';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
-import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineDraft, TimelinePhotoSnapshot, TripPhotoMarks } from '../types/timeline';
 import { mergedExcludedPhotoIds, withRecutStarts } from '../services/timelineWriting';
 import { readUnlessOverlapped } from '../services/timelineRead';
 import {
@@ -67,9 +67,9 @@ async function readDraftResponse(tripId: string): Promise<HttpResponseInit> {
     return createSuccessResponse({ draft: draftStatusOf(draft), urlExpiresAt: expiresOn.toISOString() });
   }
   // 互いに頼らない2つの読み取り。区切りの確認の画面が読み直すたびに通るので、続けずに並べて読む
-  const [photos, existing] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)]);
+  const [photos, marks] = await Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoMarks(tripId)]);
   return createSuccessResponse({
-    draft: reviewingDraftOf(draft, photos, existing, urlOfPhotos(new PhotoStorageService(), expiresOn)),
+    draft: reviewingDraftOf(draft, photos, marks, urlOfPhotos(new PhotoStorageService(), expiresOn)),
     urlExpiresAt: expiresOn.toISOString(),
   });
 }
@@ -151,7 +151,7 @@ export async function postTimelineDraftWriteHandler(request: HttpRequest, contex
     }
     const recut = read.reason === 'recut' ? withRecutStarts(timeline.doc.current!, read) : null;
     const excludedPhotoIds = recut ? recut.excludedPhotoIds : read.excludedPhotoIds;
-    if (!hasShownPhotos(draftPhotos.photos, visiblePhotoIdsOf(draftPhotos.existing, excludedPhotoIds))) {
+    if (!hasShownPhotos(draftPhotos.photos, visiblePhotoIdsOf(draftPhotos.marks.existing, excludedPhotoIds))) {
       return createNoDatedPhotosError();
     }
     const now = new Date().toISOString();
@@ -225,7 +225,8 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
     if ('error' in draftPhotos) {
       return draftPhotos.error;
     }
-    const { photos, existing } = draftPhotos;
+    const { photos, marks } = draftPhotos;
+    const { existing } = marks;
     const normalized = normalizedSceneStarts(sceneStarts, photos, draft.dayStartHour, draft.sceneStarts, visiblePhotoIdsOf(existing, draft.excludedPhotoIds));
     if (!normalized) {
       return createValidationError('区切りが無効です');
@@ -247,7 +248,7 @@ export async function putTimelineDraftScenesHandler(request: HttpRequest, contex
       return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, marks, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの区切りの保存エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの区切りの保存に失敗しました');
@@ -288,7 +289,8 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
     if ('error' in draftPhotos) {
       return draftPhotos.error;
     }
-    const { photos, existing } = draftPhotos;
+    const { photos, marks } = draftPhotos;
+    const { existing } = marks;
     const excludedPhotoIds = withExcludedPhotos(draft.excludedPhotoIds, read.photoIds, photos);
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');
@@ -313,7 +315,7 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
       return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({ draft: reviewingDraftOf(saved, photos, marks, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの写真を外すエラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの更新に失敗しました');
@@ -321,21 +323,21 @@ export async function postTimelineDraftExcludedPhotosHandler(request: HttpReques
 }
 
 /**
- * 下書きの控えと、旅行の今の写真の id を読む（区切りの保存と写真を外すで共有する。控えが無いときは readUnlessOverlapped。下書きが同じかは id で見る）
+ * 下書きの控えと、旅行の今の写真の id・お気に入りを読む（区切りの保存と写真を外すで共有する。控えが無いときは readUnlessOverlapped。下書きが同じかは id で見る）
  */
 async function readDraftPhotos(
   timelines: TimelineService,
   tripId: string,
   draft: TimelineDraft
-): Promise<{ photos: TimelinePhotoSnapshot[]; existing: Set<string> } | { error: HttpResponseInit }> {
+): Promise<{ photos: TimelinePhotoSnapshot[]; marks: TripPhotoMarks } | { error: HttpResponseInit }> {
   const read = await readUnlessOverlapped(timelines, tripId, (doc) => doc?.draft?.id === draft.id, () =>
-    Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoIds(tripId)])
+    Promise.all([timelines.readSnapshotPhotos(draft.snapshotId), timelines.readTripPhotoMarks(tripId)])
   );
   if ('error' in read) {
     return read;
   }
-  const [photos, existing] = read.value;
-  return { photos, existing };
+  const [photos, marks] = read.value;
+  return { photos, marks };
 }
 
 /** 写真の id と文字列の組か（配列・null は違う） */
