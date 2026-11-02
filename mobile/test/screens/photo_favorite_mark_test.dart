@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:snaplant_mobile/widgets/photo_grid.dart';
+
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
@@ -16,6 +18,9 @@ Map<String, Object?> _photo(int number, String time, {bool favorite = false, Str
 
 /// サムネイルの読み上げ用ラベル
 String _label(String time) => '2026年10月6日 $time';
+
+/// 写真のグリッドの中の、塗ったハート
+Finder _heartInGrid() => find.descendant(of: find.byType(PhotoGrid), matching: find.byIcon(Icons.favorite));
 
 /// 読み上げ用ラベルが [label] のサムネイルの中の、塗ったハート
 Finder _heartIn(String label) => find.descendant(of: find.bySemanticsLabel(label), matching: find.byIcon(Icons.favorite));
@@ -51,6 +56,49 @@ void main() {
     expect(heart.dx, greaterThan(tile.center.dx));
     expect(heart.dy, lessThan(tile.center.dy));
     expect(hourglass.dy, greaterThan(tile.center.dy));
+    semantics.dispose();
+  });
+
+  // 印と読み上げは、お気に入りを扱う一覧（旅行詳細）だけ。同じ PhotoGrid でも、ほかの一覧には足さない（§5.10.3）
+  testWidgets('旅行に属さない写真の画面の一覧では、お気に入りの写真にも印を出さず、読み上げにも足さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 0)],
+      functionKey: 'test-key',
+      unassignedPhotoCount: 1,
+      photosByTripId: {
+        'none': [photoJson(number: 1, takenAt: '2026-09-01T10:15:00')..['favorite'] = true]
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+
+    expect(find.bySemanticsLabel('2026年9月1日 10:15'), findsOneWidget);
+    expect(_heartInGrid(), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('図鑑の項目詳細の一覧では、お気に入りの写真にも印を出さず、読み上げにも足さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      functionKey: 'test-key',
+      catalogEntriesByKind: {
+        'plant': [catalogEntryJson('plant', 'ソメイヨシノ', photoCount: 1)]
+      },
+      photosByTripId: {
+        hokkaidoTripId: [
+          identifiedPhotoJson(number: 1, kind: 'plant', name: 'ソメイヨシノ', tripId: hokkaidoTripId, takenAt: '2026-10-06T10:00:00')
+            ..['favorite'] = true
+        ]
+      },
+    );
+    await openCatalogTab(tester, backend);
+    await tester.tap(find.text('ソメイヨシノ'));
+    await letFramesRun(tester);
+
+    expect(find.bySemanticsLabel('2026年10月6日 10:00'), findsOneWidget);
+    expect(_heartInGrid(), findsNothing);
     semantics.dispose();
   });
 }

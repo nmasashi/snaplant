@@ -15,19 +15,20 @@ Map<String, Object?> _photo({bool favorite = false}) =>
       ..['category'] = 'food'
       ..['favorite'] = favorite;
 
-/// 旅行詳細を開き、1枚目の写真をタップしてビューアを開く
-Future<FakeTripBackend> _openViewer(WidgetTester tester, Map<String, Object?> photo) async {
+/// 旅行詳細を開き、読み上げ用ラベルが [label] のサムネイル（1枚目）をタップしてビューアを開く（[more] の写真は後ろに並べる）
+Future<FakeTripBackend> _openViewer(WidgetTester tester, Map<String, Object?> photo,
+    {String label = _takenAt, List<Map<String, Object?>> more = const []}) async {
   final backend = FakeTripBackend(
-    trips: [hokkaidoTrip(photoCount: 1)],
+    trips: [hokkaidoTrip(photoCount: 1 + more.length)],
     functionKey: 'test-key',
     photosByTripId: {
-      hokkaidoTripId: [photo]
+      hokkaidoTripId: [photo, ...more]
     },
   );
   await openTripsTab(tester, backend);
   await tester.tap(find.text('北海道 2026秋'));
   await letFramesRun(tester);
-  await tester.tap(find.bySemanticsLabel(photo['favorite'] == true ? '$_takenAt、お気に入り' : _takenAt));
+  await tester.tap(find.bySemanticsLabel(label));
   await letFramesRun(tester);
   return backend;
 }
@@ -61,7 +62,7 @@ void main() {
   });
 
   testWidgets('お気に入りの写真を開くと塗ったハート（読み上げ「お気に入りから外す」）で出て、押すと線のハートに替えてお気に入りから外して送る', (tester) async {
-    final backend = await _openViewer(tester, _photo(favorite: true));
+    final backend = await _openViewer(tester, _photo(favorite: true), label: '$_takenAt、お気に入り');
 
     expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
     expect(_filledHeart(), findsOneWidget);
@@ -83,7 +84,7 @@ void main() {
     expect(find.text(serverErrorMessage), findsOneWidget);
     expect(find.byTooltip('お気に入りにする'), findsOneWidget);
     expect(_filledHeart(), findsNothing);
-    expect(_stored(backend), isNot(true));
+    expect(_stored(backend), isFalse);
   });
 
   testWidgets('送っている間は、印を替えたままハートを押せない。届いたら押せ、もう一度押すと外す', (tester) async {
@@ -106,6 +107,23 @@ void main() {
     expect(_stored(backend), isFalse);
     expect(find.byTooltip('お気に入りにする'), findsOneWidget);
     expect(_filledHeart(), findsNothing);
+  });
+
+  testWidgets('送っている間は、左右に送って別の写真を出してもハートを押せず、届いたら押せる', (tester) async {
+    final backend = await _openViewer(tester, _photo(),
+        more: [photoJson(number: 2, tripId: hokkaidoTripId, takenAt: '2026-10-06T11:00:00')..['favorite'] = false]);
+    final reply = backend.holdNextReply(TripRoute.updatePhoto);
+    await tester.tap(find.byTooltip('お気に入りにする'));
+    await tester.pump();
+
+    await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
+    await letFramesRun(tester);
+
+    expect(find.text('2026年10月6日 11:00').hitTestable(), findsOneWidget, reason: '2枚目を出している');
+    expect(_heart(tester, 'お気に入りにする').onPressed, isNull);
+    reply.complete();
+    await letFramesRun(tester);
+    expect(_heart(tester, 'お気に入りにする').onPressed, isNotNull);
   });
 
   testWidgets('旅行に属さない写真の画面から開いたビューアには、ハートを出さない', (tester) async {
