@@ -473,6 +473,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     return IconButton(
       // 印と説明を決めた写真に頼む（ページの位置から引き直すと、送っている途中で別の写真になりうる）
       onPressed: () => _retry(photo),
+      visualDensity: VisualDensity.compact,
       color: Colors.white,
       tooltip: request.title,
       icon: Icon(request.icon),
@@ -510,6 +511,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     return IconButton(
       onPressed:
           _favoriteSendingId != null ? null : () => _toggleFavorite(photo),
+      visualDensity: VisualDensity.compact,
       color: Colors.white,
       tooltip: favorite ? 'お気に入りから外す' : 'お気に入りにする',
       icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
@@ -537,6 +539,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
             ? AppBar(
                 backgroundColor: Colors.black54,
                 foregroundColor: Colors.white,
+                // ボタンが5つ並ぶので、余白を詰めて狭い端末（360dp）でも収める（03 §4.6）
                 actions: [
                   // お気に入り（03 §5.10.1）。頼む写真が無い間（続きを待っている）は出さない
                   if (_shownPhoto case final photo? when widget.favorites)
@@ -548,8 +551,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                     excludeFromSemantics: true,
                     child: TextButton.icon(
                       onPressed: _toggleTagsVisible,
-                      style:
-                          TextButton.styleFrom(foregroundColor: Colors.white),
+                      style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          visualDensity: VisualDensity.compact),
                       icon: Icon(_tagsVisible
                           ? Icons.label_outline
                           : Icons.label_off_outlined),
@@ -565,6 +570,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                               photo.tags.length >= _maxTags
                           ? null
                           : () => setState(() => _addingTag = true),
+                      visualDensity: VisualDensity.compact,
                       color: Colors.white,
                       tooltip: 'タグを付ける',
                       icon: const Icon(Icons.sell_outlined),
@@ -575,7 +581,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                     _analysisButton(photo),
                   TextButton(
                     onPressed: _deleteCurrent,
-                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact),
                     child: const Text('削除'),
                   ),
                 ],
