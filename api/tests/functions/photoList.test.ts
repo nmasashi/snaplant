@@ -509,6 +509,7 @@ describe('写真一覧API', () => {
       cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { category: 'food', favorite: true }));
       cosmosBackend.documents.set(PHOTO_A2_ID, storedPhoto(PHOTO_A2_ID, TRIP_A_ID, { category: 'landscape', favorite: true }));
       cosmosBackend.documents.set(PHOTO_B1_ID, storedPhoto(PHOTO_B1_ID, TRIP_B_ID, { category: 'food' }));
+      cosmosBackend.documents.set(PHOTO_A3_ID, storedPhoto(PHOTO_A3_ID, TRIP_A_ID, { category: 'food', favorite: false }));
       cosmosBackend.documents.set(PHOTO_UNASSIGNED_ID, storedPhoto(PHOTO_UNASSIGNED_ID, null, { category: 'food', favorite: true }));
 
       const response = await listPhotosHandler(createListPhotosRequest({ category: 'food', favorite: 'true' }), mockContext);
