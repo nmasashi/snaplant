@@ -511,10 +511,13 @@ describe('写真一覧API', () => {
       cosmosBackend.documents.set(PHOTO_B1_ID, storedPhoto(PHOTO_B1_ID, TRIP_B_ID, { category: 'food', favorite: true }));
       cosmosBackend.documents.set(PHOTO_A3_ID, storedPhoto(PHOTO_A3_ID, TRIP_A_ID, { category: 'food', favorite: false }));
       cosmosBackend.documents.set(PHOTO_UNASSIGNED_ID, storedPhoto(PHOTO_UNASSIGNED_ID, null, { category: 'food', favorite: true }));
+      // 印の無い（付け外しをしたことの無い）食べ物の写真は、旅行を指定しなくても外れる
+      cosmosBackend.documents.set(PHOTO_UNASSIGNED_2_ID, storedPhoto(PHOTO_UNASSIGNED_2_ID, null, { category: 'food' }));
 
       const response = await listPhotosHandler(createListPhotosRequest({ category: 'food', favorite: 'true' }), mockContext);
 
       expect(response.status).toBe(200);
+      // 並びは偽物が入れた順に返すもので、sortAt の並びは見ていない（08 §5.3 の手での確認で見る）
       expect((response.jsonBody as any).data.photos.map((photo: any) => photo.id)).toEqual([PHOTO_A1_ID, PHOTO_B1_ID, PHOTO_UNASSIGNED_ID]);
     });
 
