@@ -806,7 +806,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
               "label": "朝ごはん", "labelSource": "ai", "note": null, "noteSource": null,
               "firstTakenAt": "2026-10-05T07:50:12", "lastTakenAt": "2026-10-05T07:58:40",
               "placeNames": ["北海道千歳市"], "names": ["海鮮丼"],
-              "photos": [{ "id": "9f86d0…", "takenAt": "2026-10-05T07:50:12", "category": "food", "name": "海鮮丼", "placeName": "北海道千歳市", "thumbnailUrl": "…?sig=…" }]
+              "photos": [{ "id": "9f86d0…", "takenAt": "2026-10-05T07:50:12", "category": "food", "name": "海鮮丼", "placeName": "北海道千歳市", "thumbnailUrl": "…?sig=…", "favorite": false }]
             }
           ]
         }
@@ -825,7 +825,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
   日の `title`・`titleSource`・`summary`・`summarySource` と、場面の `label`・`labelSource`・`note`・`noteSource` は完成版の文（日は日付、場面は `startPhotoId` で引く）で、その日・場面の文が完成版に無ければ4つとも `null`。区切りを直して新しくできた場面は文が空で、`label`・`labelSource`・`note`・`noteSource` が `null`（5-5a で実装済み。編集で片方だけ書くと、書いた欄だけ埋まる）。
   AI が書いた場面は、U-3 から一言を書かないので `note`・`noteSource` が `null`（`PATCH` で利用者が書けば埋まる。U-3 より前に AI か利用者が書いた一言は残っていて、そのまま返す。返し続けるかは判断待ち。[09](./09_backlog.md)。U-3 で実装済み。[06 §8.3](./06_processing_design.md#83-文を書くstep-write)）。`startedBy` は区切りを入れた主（`day`: その日の最初の写真、`ai`: AI の案、`user`: 利用者）。`hasFood` は場面に食べ物（`category: "food"`）の写真が1枚でもあるか（画面の印の色）。
   `names` は場面の写真の識別の名前、`placeNames` は地名（どちらも重なりを除いて撮影の順）。`photos` は控えから作り、**その後に消えた写真と、外した写真（完成版の `excludedPhotoIds`）は出さない**（写真が全部消えた・外した場面と日も出さない。上の「外した写真」）。
-  `thumbnailUrl` はサムネイル（無ければ原寸）の読み取りの SAS（§6）。撮影日時の無い写真は出さない（タイムラインに入れない。02 §5 #54。T-2b で実装済み）
+  `thumbnailUrl` はサムネイル（無ければ原寸）の読み取りの SAS（§6）。`favorite` は控えではなく読んだ時点の写真のお気に入り（この節の末尾の F-2 の段落）。撮影日時の無い写真は出さない（タイムラインに入れない。02 §5 #54。T-2b で実装済み）
 - `draft`（下書き）は状態だけ（`id`・`reason`・`phase`・`job`（`step`・`state`・`lastError`）・`startedAt`）。区切りの中身は `GET …/timeline/draft` で読む
 - `changes` は、完成版の控えと今の写真の差（`added` は旅行の今の写真のうち控えに無いもの（解析中の写真も数える）、`removed` は控えの写真のうち旅行に今は無いもの（消えた・別の旅行へ移した）の枚数で、外した写真は数えない（T-1）。どちらも撮影日時の無い写真は数えない（タイムラインに入れないので。T-2 で実装済み。02 §5 #54。それまでは数えていた）。控えでは撮影日時が無く、今は撮影日時がある写真（作った後に撮影日時を手で付けた写真）も `added` に数える（完成版から外した写真は除く。日時のある写真を外したときと同じ。作り直すと入るので。D-3 で実装済み。`timelineRead.ts`。02 §5 #59）。手で付けた撮影日時を作った後に消した写真は、完成版には控えの日時のまま出し、`removed` には数えない）。完成版が無ければ `null`
 - `timeline` の欄は `current`・`draft`・`changes` の3つ（`droppedEdits` は 5-5d で外した。上の 5-5d の印）
@@ -835,7 +835,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`）。
 
 - `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。タグの提案（`step: "tag"`。C-4b）の写真は数えない（タイムラインの AI はタグを読まないので、待たせない。2026-11-02 に人間が決定。`constants/album.ts` の `blocksTimeline()`）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
-- 読むのは、タイムラインの文書と旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と解析の状態）を並べて、完成版があればその控え。増えた・消えた枚数と `pendingPhotoCount` は同じ 5.13 の結果から数える。下書きの控えは読まない（`draft` は状態だけ）
+- 読むのは、タイムラインの文書と旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と撮影日時とお気に入りと解析の状態）を並べて、完成版があればその控え。増えた・消えた枚数と `pendingPhotoCount` は同じ 5.13 の結果から数える。下書きの控えは読まない（`draft` は状態だけ）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
 **`GET /api/trips/{tripId}/timeline/draft`** → 200 `{ draft, urlExpiresAt }`
@@ -845,7 +845,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 下書きが無ければ `draft: null`（タイムラインが無いときも、完成版だけのときも）。あれば状態（上と同じ）に加えて、`phase` が `reviewing` のときと、文を書くのに失敗した（`writing` で `job.state: "failed"`）ときだけ `days`（`date`・`dayNumber`・`scenes`。`scenes` は文の無い形で `startPhotoId`・`startedBy`・`hasFood`・`firstTakenAt`・`lastTakenAt`・`placeNames`・`names`・`photos`、それに場面のコメントの `comment`（下書きの `sceneComments` を `startPhotoId` で引いたもの。無ければ `null`。5-7 で実装済み。`services/timelineView.ts` の `reviewingDraftOf()`。同じ形を返す `POST …/recut`・`PUT …/draft/scenes` の応答にも付く））を付ける（案の確認画面が読む。撮影日時の無い写真は出さない。T-2b）。
   日と場面の組み方は完成版と同じ（[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5) の決まり。日の切り替えは下書きの `dayStartHour`）で、控えを取った後に消えた写真と、下書きで外した写真（`excludedPhotoIds`）は出さず、写真が全部消えた・外した場面と日も出さない。
   何日目かと場面の分け方は、消えた写真も含めた控えで決める（写真を消しても日の番号や区切りが動かない）。そのため `startPhotoId` は、場面の最初の写真が消えていても控えの最初の写真の id のまま（`photos` の先頭とは限らない）
-- 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中と文を書くのに失敗したときだけ、控えと、消えた写真を見分けるための旅行の写真（5.13 のクエリ。id だけを使う）を読み、写真の保存先の設定を読む（それ以外では読まない。文を書くのに失敗した下書きも、案の確認画面（[03 §8.4](./03_screen_design.md#84-案の確認画面タイムラインを編集)）で直してから書き直せる。5-3b）
+- 下書きを作っている間に画面が 5 秒ごとに読み直すのはこちら（写真の変化を数えない。[04 §5](./04_data_design.md#5-クエリ) の 5.13）。確かめ中と文を書くのに失敗したときだけ、控えと、消えた写真を見分けるための旅行の写真（5.13 のクエリ。id と、場面の写真に付けるお気に入り（F-2）を使う）を読み、写真の保存先の設定を読む（それ以外では読まない。文を書くのに失敗した下書きも、案の確認画面（[03 §8.4](./03_screen_design.md#84-案の確認画面タイムラインを編集)）で直してから書き直せる。5-3b）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
 **`POST /api/trips/{tripId}/timeline`**（作る・作り直す。区切り案から）→ 202 `{ draft, urlExpiresAt }`
@@ -875,7 +875,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 - 完成版が無ければ（タイムラインが無いときも、下書きだけのときも）404 `TIMELINE_NOT_FOUND` `タイムラインが見つかりません`。下書きがあれば（作り直し・区切りの直しの途中。`phase` によらない）409 `TIMELINE_STATE_CONFLICT`。どちらも何も書かない
 - それ以外は、完成版の控え・区切りを写した下書きを作る: `id` は新しい UUID、`reason: "recut"`・`phase: "reviewing"`・`job: null`、`snapshotId`・`dayStartHour`・`proposedStarts`・`sceneStarts` と外した写真（`excludedPhotoIds`。完成版にあれば。T-1）は完成版のもの（AI の案も写すので、場面の `startedBy` は完成版と同じになる）、`startedAt` は今。タイムラインの `updatedAt` を今にし、完成版（`current`）は変えない。AI は呼ばず、キューにも積まない
-- 書く前に完成版の控えと旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id だけを使う）を読み、写真の保存先の設定も読む（設定が足りなければ下書きを書かずに 500）。控えが読めないとき（旅行の削除と重なった）は共通の行のとおり 404 / 409 / 500 で、下書きを書かない
+- 書く前に完成版の控えと旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と、応答の場面の写真に付けるお気に入り（F-2）を使う）を読み、写真の保存先の設定も読む（設定が足りなければ下書きを書かずに 500）。控えが読めないとき（旅行の削除と重なった）は共通の行のとおり 404 / 409 / 500 で、下書きを書かない
 - 応答の `draft` は `GET …/timeline/draft` の確かめ中と同じ形（状態に、写した区切りで組んだ `days`。完成版を作った後に消えた写真は出さない）
 - 読んでから書くまでに他が書いていたら（共通の行）409 `TIMELINE_STATE_CONFLICT` で、書かない
 - 500 の `message` は `タイムラインの作成の受付に失敗しました`（§7.2）
@@ -1006,7 +1006,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 旅行を消すとタイムラインと控えも消す（5-1a で実装済み。§5.12。[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）。写真の削除・move・やり直しではタイムラインは変えない（`changes` で知らせ、作り直してもらう）。
 
-**実装済み**（F-2。`timelineView.ts` の `TimelinePhotoView`、`TimelineService.readTripPhotoStates()`）: 完成版・下書きの場面の写真（`photos[]`）に `favorite`（boolean）。控え（`timelinePhotos`）ではなく、読んだ時点の写真の文書から取る（写真の有無を確かめるクエリ（04 §5 の 5.13）で一緒に読む）。並びは今までどおり撮影の順で、お気に入りを先に並べるのはアプリ（[03 §5.10.4](./03_screen_design.md#5104-タイムラインの並び)）。タイムラインの AI には渡さない。
+**実装済み**（F-2。`timelineView.ts` の `TimelinePhotoView`、`TimelineService.readTripPhotoStates()`）: 完成版・下書きの場面の写真（`photos[]`）に `favorite`（boolean）。場面の写真を返すすべての応答に出す（完成版は `GET …/timeline` と、同じ形を返す `PATCH` の2つ・`POST …/excluded-photos`。下書きは確かめ中の `days` を返す `GET …/timeline/draft`・`POST …/recut`・`PUT …/draft/scenes`・`POST …/draft/excluded-photos`）。控え（`timelinePhotos`）ではなく、読んだ時点の写真の文書から取る（写真の有無を確かめるクエリ（04 §5 の 5.13）で一緒に読む）ので、控えを取った後に付け外しした印もそのまま出る。文書に `favorite` の無い写真は `false`。並びは今までどおり撮影の順で、お気に入りを先に並べるのはアプリ（[03 §5.10.4](./03_screen_design.md#5104-タイムラインの並び)）。タイムラインの AI には渡さない。
 
 ## 6. SAS 付き URL
 
