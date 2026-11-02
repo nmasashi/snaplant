@@ -3,8 +3,8 @@ import { AlbumService } from './albumService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from './photoStorageService';
 import { HttpResponseInit } from '@azure/functions';
 import { TimelineService, TimelineSnapshotMissingError, rereadIfSnapshotMissing } from './timelineService';
-import { currentTimelineOf, draftStatusOf, tripPhotoMarksOf } from './timelineView';
-import { TimelineDocument } from '../types/timeline';
+import { currentTimelineOf, draftStatusOf } from './timelineView';
+import { TimelineDocument, tripPhotoMarksOf } from '../types/timeline';
 import { ErrorCode } from '../types/api';
 import { createNotFoundError, createTimelineStateConflict } from '../utils/response';
 
@@ -73,7 +73,7 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
     // 効くのは控えでは日時が無かった写真。日時のある写真を外したときと同じく、外したものを増えたとは知らせない）
     const datedInSnapshot = new Set(snapshot.filter((photo) => photo.takenAt !== null).map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
-    // 外した写真は消えた写真と同じく出さない（currentTimelineOf が visiblePhotoIdsOf で除く）
+    // 外した写真は消えた写真と同じく出さない（日と場面を組むとき（timelineView の daysOf）に visiblePhotoIdsOf で除く）
     current = currentTimelineOf(doc.current, snapshot, marks, urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
     // 日時の無い写真はタイムラインに入れない（作り直しても入らない）ので数えない（02 §5 #54）。
     // 外した写真は画面に出していないので、その後に消えても知らせない

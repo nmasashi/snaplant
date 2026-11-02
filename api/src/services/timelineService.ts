@@ -2,8 +2,7 @@ import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { PhotoDocument, PhotoProcessing } from '../types/album';
-import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument, TripPhotoMarks, TripPhotoState } from '../types/timeline';
-import { tripPhotoMarksOf } from './timelineView';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument, TripPhotoMarks, TripPhotoState, tripPhotoMarksOf } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<

@@ -124,6 +124,17 @@ export interface TripPhotoMarks {
   favorites: Set<string>;
 }
 
+/** 今の写真の状態から、id の集合とお気に入りの集合を作る（1回の走査で両方を埋める） */
+export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
+  const existing = new Set<string>();
+  const favorites = new Set<string>();
+  for (const photo of photos) {
+    existing.add(photo.id);
+    if (photo.favorite) favorites.add(photo.id);
+  }
+  return { existing, favorites };
+}
+
 /** 写真の控えの Cosmos DB の文書（id は "timeline-photos-" + 旅行の id + "-" + UUID） */
 export interface TimelinePhotosDocument {
   id: string;

@@ -1,4 +1,4 @@
-import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot, TripPhotoMarks, TripPhotoState } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot, TripPhotoMarks } from '../types/timeline';
 
 /** 応答に出す写真（控えから作る。05 §5.15） */
 export interface TimelinePhotoView {
@@ -115,6 +115,8 @@ type TimelineLayoutSpec = Pick<TimelineCurrent, 'sceneStarts' | 'proposedStarts'
  * 完成版・下書きの日と場面を組む（出す写真と印の決め方は両方で同じ）
  *
  * 出すのは、旅行に今もあり、外していない写真（控えを取った後に消えた写真と、外した写真は出さない）。お気に入りの印は読んだ時点の写真から
+ * @param spec 区切り・AI の案・日付の切り替え・外した写真（完成版か下書き。下書きは同じ項目を持つので型の上でも渡せる）
+ * @param photos 写真の控え
  * @param marks 旅行の今の写真の id と、お気に入りの写真の id
  * @param urlOf Blob 名から読み取りの SAS 付き URL
  */
@@ -238,14 +240,6 @@ export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnap
  * @param existing 旅行の今の写真の id
  * @param excludedPhotoIds 利用者がタイムラインから外した写真
  */
-/** 今の写真の状態から、id の集合とお気に入りの集合を作る（場面の写真を出す・印を付けるのに使う） */
-export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
-  return {
-    existing: new Set(photos.map((photo) => photo.id)),
-    favorites: new Set(photos.filter((photo) => photo.favorite).map((photo) => photo.id)),
-  };
-}
-
 export function visiblePhotoIdsOf(existing: Set<string>, excludedPhotoIds: string[] | undefined): Set<string> {
   const excluded = new Set(excludedPhotoIds ?? []);
   return new Set([...existing].filter((id) => !excluded.has(id)));
