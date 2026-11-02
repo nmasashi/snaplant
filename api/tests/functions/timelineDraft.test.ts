@@ -1135,7 +1135,10 @@ describe('タイムラインの下書きAPI', () => {
 
       expect(response.status).toBe(200);
       const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
-      expect(scenes[1].photos.map((photo: any) => [photo.id, photo.favorite])).toEqual([[photoId('c'), true]]);
+      expect(scenes.map((scene: any) => scene.photos.map((photo: any) => [photo.id, photo.favorite]))).toEqual([
+        [[photoId('a'), false]],
+        [[photoId('c'), true]]
+      ]);
     });
 
     it('外した写真が変わらなければ（もう外してある）書き込まずに、確かめ中の日と場面を返す（ほかの操作を 409 にしない）', async () => {
