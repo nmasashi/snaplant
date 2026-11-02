@@ -15,23 +15,19 @@ import '../utils/image_mime_type.dart';
 class ApiService {
   final String baseUrl;
   final String? functionKey;
-
   /// 時間切れを付けないクライアント。直接使うのは写真の送信だけ（送信の列の 60 秒で打ち切る）。
   /// ほかの呼び出しは [_timedClient] を通す（docs/03_screen_design.md §9.2）
   final http.Client _rawClient;
-
   /// 写真の送信を除く呼び出しに使う、応答を 30 秒で打ち切るクライアント（docs/03_screen_design.md §9.2）。
   /// 処理中のダイアログは処理中は閉じないので、応答が返らないまま止まると出られなくなる。
   /// 写真の送信は大きな画像を送るので、これを通さず、送信の列の 60 秒の時間切れだけで打ち切る
-  late final http.Client _timedClient =
-      _TimeoutClient(_rawClient, requestTimeout);
+  late final http.Client _timedClient = _TimeoutClient(_rawClient, requestTimeout);
 
   /// 写真の送信を除く呼び出しの時間切れ
   static const requestTimeout = Duration(seconds: 30);
 
   /// 旅行の削除に使う、応答を [deleteTripTimeout] で打ち切るクライアント
-  late final http.Client _tripDeleteClient =
-      _TimeoutClient(_rawClient, deleteTripTimeout);
+  late final http.Client _tripDeleteClient = _TimeoutClient(_rawClient, deleteTripTimeout);
 
   /// 旅行の削除の時間切れ。サーバは中の写真を1枚ずつ消す（外す）ので、写真の多い旅行では 30 秒を超えうる。
   /// Azure の前段が HTTP の要求を打ち切る 230 秒より長くして、サーバが返せる応答は待つ（docs/03_screen_design.md §9.2）
@@ -72,8 +68,7 @@ class ApiService {
   }
 
   /// 要求の URL を組み立てる
-  String _buildUrl(String endpoint) =>
-      Uri.parse('$baseUrl$endpoint').toString();
+  String _buildUrl(String endpoint) => Uri.parse('$baseUrl$endpoint').toString();
 
   /// HTTP レスポンスをパース
   T _parseResponse<T>(
@@ -153,8 +148,7 @@ class ApiService {
   Future<TripList> getTrips() async {
     try {
       final url = _buildUrl('/api/trips');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripList(
@@ -174,8 +168,7 @@ class ApiService {
   Future<TripSummary> getTrip(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripSummary.fromJson(data['trip'] as Map<String, dynamic>);
@@ -232,8 +225,7 @@ class ApiService {
       {required bool deletePhotos}) async {
     try {
       final url = _buildUrl('/api/trips/$tripId?deletePhotos=$deletePhotos');
-      final response =
-          await _tripDeleteClient.delete(Uri.parse(url), headers: _headers);
+      final response = await _tripDeleteClient.delete(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return TripDeleteResult(
@@ -268,8 +260,7 @@ class ApiService {
         if (continuationToken != null) 'continuationToken': continuationToken,
       };
       final url = _buildUrl('/api/photos?${Uri(queryParameters: query).query}');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return PhotoPage(
@@ -288,8 +279,7 @@ class ApiService {
   /// GET /api/catalog/kinds
   Future<List<CatalogKind>> getCatalogKinds() async {
     try {
-      final response = await _timedClient
-          .get(Uri.parse(_buildUrl('/api/catalog/kinds')), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(_buildUrl('/api/catalog/kinds')), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return (data['kinds'] as List<dynamic>)
@@ -306,14 +296,11 @@ class ApiService {
   ///
   /// サーバは数えてから見出しを読むまでに写真が無くなった項目をページから外すので、件数が [limit] より少なくても続きがあることがある。
   /// 次のページは [offset] を [limit] だけ進めて読み、[CatalogEntryPage.total] 以上になったら読み切り（docs/03_screen_design.md §6.1）
-  Future<CatalogEntryPage> getCatalogEntries(String kind,
-      {required int offset, required int limit}) async {
+  Future<CatalogEntryPage> getCatalogEntries(String kind, {required int offset, required int limit}) async {
     try {
       final query = {'kind': kind, 'offset': '$offset', 'limit': '$limit'};
-      final url = _buildUrl(
-          '/api/catalog/entries?${Uri(queryParameters: query).query}');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final url = _buildUrl('/api/catalog/entries?${Uri(queryParameters: query).query}');
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return CatalogEntryPage(
@@ -332,8 +319,7 @@ class ApiService {
   /// GET /api/catalog/entry
   ///
   /// その種類と名前の写真が無ければ `entry` は null（写真も空）。続きのページは [continuationToken] で読む
-  Future<CatalogEntryDetail> getCatalogEntry(String kind, String name,
-      {String? continuationToken}) async {
+  Future<CatalogEntryDetail> getCatalogEntry(String kind, String name, {String? continuationToken}) async {
     try {
       // 名前は利用者が付けたものではなく AI が返したもので、記号や空白も入りうる。クエリの値としてエンコードする
       final query = {
@@ -341,10 +327,8 @@ class ApiService {
         'name': name,
         if (continuationToken != null) 'continuationToken': continuationToken,
       };
-      final url =
-          _buildUrl('/api/catalog/entry?${Uri(queryParameters: query).query}');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final url = _buildUrl('/api/catalog/entry?${Uri(queryParameters: query).query}');
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         final entry = data['entry'] as Map<String, dynamic>?;
@@ -368,8 +352,7 @@ class ApiService {
   Future<Photo> getPhoto(String photoId) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) {
         final data = json['data'] as Map<String, dynamic>;
         return Photo.fromJson(data['photo'] as Map<String, dynamic>);
@@ -384,9 +367,9 @@ class ApiService {
   Future<TimelineOverview> getTimeline(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
-      return _parseResponse(response, _overviewOf);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
+      return _parseResponse(response,
+          _overviewOf);
     } catch (error) {
       throw _handleError(error);
     }
@@ -397,8 +380,7 @@ class ApiService {
   Future<TimelineDraftStatus?> getTimelineDraft(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/draft');
-      final response =
-          await _timedClient.get(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.get(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) => _draftOf(json));
     } catch (error) {
       throw _handleError(error);
@@ -475,8 +457,7 @@ class ApiService {
   Future<void> discardTimelineDraft(String tripId) async {
     try {
       final url = _buildUrl('/api/trips/$tripId/timeline/draft');
-      final response =
-          await _timedClient.delete(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.delete(Uri.parse(url), headers: _headers);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException.fromResponse(response);
       }
@@ -498,8 +479,7 @@ class ApiService {
   Future<TimelineDraftStatus?> _postForDraft(String path) async {
     try {
       final url = _buildUrl(path);
-      final response =
-          await _timedClient.post(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.post(Uri.parse(url), headers: _headers);
       return _parseResponse(response, (json) => _draftOf(json));
     } catch (error) {
       throw _handleError(error);
@@ -526,7 +506,8 @@ class ApiService {
       final url = _buildUrl(path);
       final response = await _timedClient.patch(Uri.parse(url),
           headers: _headers, body: jsonEncode(changes));
-      return _parseResponse(response, _overviewOf);
+      return _parseResponse(response,
+          _overviewOf);
     } catch (error) {
       throw _handleError(error);
     }
@@ -622,8 +603,7 @@ class ApiService {
   Future<void> deletePhoto(String photoId) async {
     try {
       final url = _buildUrl('/api/photos/$photoId');
-      final response =
-          await _timedClient.delete(Uri.parse(url), headers: _headers);
+      final response = await _timedClient.delete(Uri.parse(url), headers: _headers);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException.fromResponse(response);
       }
@@ -802,10 +782,7 @@ class ApiService {
       // - 1件の読み取り（旅行の詳細など）は、Cosmos の SDK がコンテナ・データベースが無いときの 404 も「見つからない」にまとめるので、設定の誤りが成功に見える
       // - 旅行の一覧は全部の旅行と写真を集計して重い
       // 旅行をまたぐ写真の一覧を1件だけ読む（クエリなので、コンテナが無ければ失敗する。写真があれば URL に署名するのでストレージの設定も通る）
-      final url = _buildUrl('/api/photos?${Uri(queryParameters: {
-            'category': 'plant',
-            'limit': '1'
-          }).query}');
+      final url = _buildUrl('/api/photos?${Uri(queryParameters: {'category': 'plant', 'limit': '1'}).query}');
       final response = await _timedClient.get(
         Uri.parse(url),
         headers: _headers,
@@ -834,8 +811,8 @@ class _TimeoutClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
-    return _sendAndRead(request)
-        .timeout(_timeout, onTimeout: () => throw ApiException.timedOut);
+    return _sendAndRead(request).timeout(_timeout,
+        onTimeout: () => throw ApiException.timedOut);
   }
 
   Future<http.StreamedResponse> _sendAndRead(http.BaseRequest request) async {
