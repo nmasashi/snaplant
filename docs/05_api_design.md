@@ -157,6 +157,8 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
+F で（未実装）、写真の応答に `favorite`（boolean。お気に入り。文書に無ければ `false`。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #63）を足す。一覧・詳細・送信・更新の応答のどれにも出す。
+
 ### 3.3.1 CatalogEntry（段階4）
 
 写真をまとめて導く項目（[04 §3.1](./04_data_design.md#31-項目は写真からまとめる) の表）。
@@ -345,6 +347,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 | `limit` | × | 1ページの枚数。既定 100、上限 200（`PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE`） | 2 |
 | `continuationToken` | × | 前の応答の `continuationToken` をそのまま返す。無ければ先頭から | 2 |
 | `category` | △（同上） | カテゴリ（定義表 `CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`）。`tripId` と両方あれば AND（`tripId=none` とも組み合わせられる）。`tripId` 無しなら旅行をまたぎ、旅行に属さない写真も含む | 3 |
+| `favorite` | × | `true` だけを受け付け、お気に入りの写真だけを返す（F。未実装。`tripId`・`category` と AND。これだけでは絞り込み条件にならない（`tripId`・`category` のどちらかは要る）） | F |
 
 `tripId=none` は「`tripId` が `null` の写真」を返す（同じ SQL に `@tripId = null`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 旅行の削除と送信・移動が重なって残った「存在しない旅行を指す写真」は含めない（段階3の掃除のタイマーが `null` に戻してから出る。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）。
@@ -356,6 +359,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 | 1 | `tripId`・`category` のどちらも無い | 400 `INVALID_REQUEST` | `絞り込み条件を指定してください` |
 | 2 | `tripId` が `none` でも UUID でもない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
 | 3 | `category` があり、定義表のキーでも `other` でもない | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
+| 3.5 | `favorite` があり、`true` でない（`false`・`TRUE`・空を含む。F。未実装） | 400 `INVALID_REQUEST` | `お気に入りの指定が無効です` |
 | 4 | `limit` があり、1〜200 の整数でない | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |
 | 5 | `continuationToken` があり、空か JSON として読めない（Cosmos の継続トークンは JSON。読めないものを SDK に渡すと `code` の無い Error になり 500 と区別できないので、渡す前に弾く） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 | 6 | `tripId`（UUID）の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
@@ -459,7 +463,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 1 | `photoId` の形式が無効 | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 2 | ボディが JSON としてパースできない | 400 `INVALID_REQUEST` | `リクエストボディの形式が無効です` |
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
-| 4 | `comment`・`takenAt`・`tags`・`category` のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
+| 4 | `comment`・`takenAt`・`tags`・`category`（F から `favorite` も）のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
 | 6 | `comment` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
@@ -471,6 +475,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 9.5 | `tags` が 20 個を超える（`TAG_MAX_COUNT`。同じ名前も数える） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
 | 9.7 | `takenAt` があり、`null` でも、実在する日時の `YYYY-MM-DDTHH:mm:ss`（タイムゾーン無し。写真の送信と同じ検証）の文字列でもない（数値・配列のように文字列でない値は、文字列に直すと正しい日時になる値（`["2026-10-05T12:00:00"]`）でも当たる。2月30日のような実在しない日時も当たる） | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
+| 9.8 | `favorite` があり、`true`・`false` のどちらでもない（文字列・`null` を含む。F。未実装） | 400 `INVALID_REQUEST` | `お気に入りの指定が無効です` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 | 11 | `takenAt` があり、写真の撮影日時がカメラの記録（EXIF）から読んだもの（`takenAtSource` が `"exif"`） | 409 `TAKEN_AT_FROM_CAMERA` | `カメラが記録した撮影日時は変えられません` |
 
@@ -991,6 +996,8 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 - 500 の `message` は `タイムラインの更新に失敗しました`（§7.2）
 
 旅行を消すとタイムラインと控えも消す（5-1a で実装済み。§5.12。[04 §5.7](./04_data_design.md#57-その他の単一ドキュメント操作)）。写真の削除・move・やり直しではタイムラインは変えない（`changes` で知らせ、作り直してもらう）。
+
+F で（未実装）、完成版・下書きの場面の写真（`photos[]`）に `favorite`（boolean）を足す。控え（`timelinePhotos`）ではなく、読んだ時点の写真の文書から取る（写真の有無を確かめるクエリ（04 §5 の 5.13）で一緒に読む）。並びは今までどおり撮影の順で、お気に入りを先に並べるのはアプリ（[03 §5.10.4](./03_screen_design.md#5104-タイムラインの並び)）。タイムラインの AI には渡さない。
 
 ## 6. SAS 付き URL
 

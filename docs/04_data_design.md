@@ -117,6 +117,7 @@ API から見た形（応答に出す項目・SAS 付き URL）は [05_api_desig
 | `fileSize` | number | ○ | 2 | 原寸のバイト数 |
 | `takenAt` | string \| null | ○（null 可） | 2 | 撮影日時。**タイムゾーン無し**の `YYYY-MM-DDTHH:mm:ss`。EXIF に無ければ `null`。`Z` を付けない（付けると Flutter の `toLocal()` で9時間ずれる。#23 と同型） |
 | `takenAtSource` | `"exif"` \| `"user"` \| `"none"` | ○ | 2 | 撮影日時の出どころ。段階2はサーバが `takenAt` の有無から入れる。D-1 から（**実装済み**（D-1））、利用者が撮影日時を手で付けたら `"user"`（直せて、消すと `"none"` に戻る。`"exif"` の写真は手で変えられない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59・[05 §5.6](./05_api_design.md#56-patch-apiphotosphotoid)） |
+| `favorite` | boolean | × | F | お気に入り（[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #63）。利用者が `PATCH /api/photos/{photoId}` で付け外す。無い文書（F より前）は `false` として扱い、移し替えない。旅行から外しても残す。`GET /api/photos` の `favorite=true` は SQL に `AND c.favorite = true` を足す（§5.3。未実装） |
 | `sortAt` | string | ○ | 2 | **並べ替え用の日時。** `takenAt` と同じ TZ 無しの `YYYY-MM-DDTHH:mm:ss`。`takenAt` があればその値、無ければ `uploadedAt` を日本時間（UTC+9）に直して TZ を外した文字列（下の説明）。サーバが作成時に必ず入れ、`null` にはならない（撮影日時を手で付ける・消すと書き直す。下の説明。D-1 で実装済み）。一覧は `ORDER BY c.sortAt` で並べる（§5.3） |
 | `location` | object \| null | ○（null 可） | 2 | 位置情報。無ければ `null`（要件 5.2「位置情報は必須にしない」） |
 | `location.latitude` / `longitude` | number \| null | ○（null 可。C-2） | 2 | 緯度（-90〜90）・経度（-180〜180）。送信（`POST /api/photos`）で作った `location` では必ず数値。利用者が位置情報の無い写真に地名を書いたとき（C-2）だけ両方 `null`（地名だけの撮影地。このとき `placeName` は必ずある。地名を消すと `location` ごと `null` に戻る） |
