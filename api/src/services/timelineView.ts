@@ -1,4 +1,4 @@
-import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot, TripPhotoMarks } from '../types/timeline';
 
 /** 応答に出す写真（控えから作る。05 §5.15） */
 export interface TimelinePhotoView {
@@ -9,6 +9,8 @@ export interface TimelinePhotoView {
   placeName: string | null;
   /** サムネイル（無ければ原寸）の読み取りの SAS 付き URL */
   thumbnailUrl: string;
+  /** お気に入りか（控えではなく、読んだ時点の写真から。02 §5 #63） */
+  favorite: boolean;
 }
 
 /** 応答に出す場面（文の無い形。完成版は文を足す） */
@@ -49,6 +51,8 @@ export interface TimelineLayoutInput {
   exists: (photoId: string) => boolean;
   /** Blob 名から読み取りの SAS 付き URL を作る */
   urlOf: (blobName: string) => string;
+  /** その写真が今お気に入りか */
+  isFavorite: (photoId: string) => boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,6 +80,7 @@ export function layoutTimeline(input: TimelineLayoutInput): TimelineDayLayout[] 
     name: photo.name,
     placeName: photo.placeName,
     thumbnailUrl: input.urlOf(photo.thumbnailBlobName ?? photo.blobName),
+    favorite: input.isFavorite(photo.id),
   });
 
   return days
@@ -103,21 +108,38 @@ export function layoutTimeline(input: TimelineLayoutInput): TimelineDayLayout[] 
     .filter((day) => day.scenes.length > 0);
 }
 
-/** 完成版の応答（日と場面に文を当てた形。05 §5.15） */
-export function currentTimelineOf(
-  current: TimelineCurrent,
-  photos: TimelinePhotoSnapshot[],
-  exists: (photoId: string) => boolean,
-  urlOf: (blobName: string) => string
-) {
-  const days = layoutTimeline({
+/** 完成版と下書きに共通の、日と場面の並べ方の指定 */
+type TimelineLayoutSpec = Pick<TimelineCurrent, 'sceneStarts' | 'proposedStarts' | 'dayStartHour' | 'excludedPhotoIds'>;
+
+/**
+ * 完成版・下書きの日と場面を組む（出す写真と印の決め方は両方で同じ）
+ *
+ * 出すのは、旅行に今もあり、外していない写真（控えを取った後に消えた写真と、外した写真は出さない）。お気に入りの印は読んだ時点の写真から
+ * @param spec 区切り・AI の案・日付の切り替え・外した写真（完成版か下書き。下書きは同じ項目を持つので型の上でも渡せる）
+ * @param photos 写真の控え
+ * @param marks 旅行の今の写真の id と、お気に入りの写真の id
+ * @param urlOf Blob 名から読み取りの SAS 付き URL
+ */
+function daysOf(spec: TimelineLayoutSpec, photos: TimelinePhotoSnapshot[], marks: TripPhotoMarks, urlOf: (blobName: string) => string) {
+  const visible = visiblePhotoIdsOf(marks.existing, spec.excludedPhotoIds);
+  return layoutTimeline({
     photos,
-    sceneStarts: current.sceneStarts,
-    proposedStarts: current.proposedStarts,
-    dayStartHour: current.dayStartHour,
-    exists,
+    sceneStarts: spec.sceneStarts,
+    proposedStarts: spec.proposedStarts,
+    dayStartHour: spec.dayStartHour,
+    exists: (photoId) => visible.has(photoId),
     urlOf,
+    isFavorite: (photoId) => marks.favorites.has(photoId),
   });
+}
+
+/**
+ * 完成版の応答（日と場面に文を当てた形。05 §5.15）
+ * @param marks 旅行の今の写真の id と、お気に入りの写真の id（出す写真と印の決め方は daysOf）
+ * @param urlOf Blob 名から読み取りの SAS 付き URL
+ */
+export function currentTimelineOf(current: TimelineCurrent, photos: TimelinePhotoSnapshot[], marks: TripPhotoMarks, urlOf: (blobName: string) => string) {
+  const days = daysOf(current, photos, marks, urlOf);
   return {
     writtenAt: current.writtenAt,
     days: days.map((day) => {
@@ -201,20 +223,12 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
  * 区切りを確かめられる下書き（確かめ中か、文を書くのに失敗した）の応答（状態に、日ごと・場面ごとの写真を足す。05 §5.15）
  *
  * 下書きの読み取り・区切りの保存・区切りの直しの受付が同じ形で返す
- * @param existing 旅行の今の写真の id（控えを取った後に消えた写真は出さない）
+ * @param marks 旅行の今の写真の id と、お気に入りの写真の id（出す写真と印の決め方は daysOf）
  * @param urlOf Blob 名から読み取りの SAS 付き URL
  */
-export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
-  const visible = visiblePhotoIdsOf(existing, draft.excludedPhotoIds);
+export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], marks: TripPhotoMarks, urlOf: (blobName: string) => string) {
   const comments = draft.sceneComments ?? {};
-  const days = layoutTimeline({
-    photos,
-    sceneStarts: draft.sceneStarts,
-    proposedStarts: draft.proposedStarts,
-    dayStartHour: draft.dayStartHour,
-    exists: (photoId) => visible.has(photoId),
-    urlOf,
-  }).map((day) => ({
+  const days = daysOf(draft, photos, marks, urlOf).map((day) => ({
     ...day,
     scenes: day.scenes.map((scene) => ({ ...scene, comment: comments[scene.startPhotoId] ?? null })),
   }));

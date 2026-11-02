@@ -64,11 +64,11 @@ const snap = (head: string, takenAt: string | null, overrides: Partial<TimelineP
   ...overrides
 });
 
-/** 控えの1枚の、応答での形 */
-const shown = (head: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}) => {
+/** 控えの1枚の、応答での形（お気に入りは控えではなく今の写真から。F-2） */
+const shown = (head: string, takenAt: string | null, overrides: Partial<TimelinePhotoSnapshot> = {}, favorite = false) => {
   const { comment: _comment, blobName: _blobName, thumbnailBlobName, ...fields } = snap(head, takenAt, overrides);
   const thumbnail = thumbnailBlobName ?? `${photoId(head)}.jpg`;
-  return { ...fields, thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${thumbnail}?${SAS}` };
+  return { ...fields, thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${thumbnail}?${SAS}`, favorite };
 };
 
 /** 下書き（既定は確かめ中で、区切りは無い） */
@@ -245,6 +245,20 @@ describe('タイムラインの下書きAPI', () => {
           }
         ]
       });
+    });
+
+    it('下書きの場面の写真には、今の写真のお気に入りの印を付けて返す（控えには無い。印の無い写真は false。02 §5 #63）', async () => {
+      placeSnapshot([snap('a', '2026-10-05T07:50:00'), snap('b', '2026-10-05T07:58:00')]);
+      cosmosBackend.documents.set(photoId('b'), photoDocument(photoId('b'), { tripId: TRIP_ID, takenAt: '2026-10-05T07:58:00', favorite: true }));
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(draftOf({ proposedStarts: [photoId('a')], sceneStarts: [photoId('a')] })));
+
+      const response = await getTimelineDraftHandler(createRequest(TRIP_ID), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.draft.days[0].scenes[0].photos).toEqual([
+        shown('a', '2026-10-05T07:50:00'),
+        shown('b', '2026-10-05T07:58:00', {}, true)
+      ]);
     });
 
     it('確かめ中の下書きは、日ごと・場面ごとに写真と場面のコメント（無ければ null）を並べて返す（日付の切り替えは朝4時、撮影日時の無い写真は出さない）', async () => {
@@ -617,6 +631,18 @@ describe('タイムラインの下書きAPI', () => {
         ],
         [[photoId('d'), 'day', 2]]
       ]);
+    });
+
+    // お気に入りの全ケース（印の無い写真は false など）は下書きの読み取り（GET …/timeline/draft）で通す。ここは応答に今の写真の印が乗ることだけを見る
+    it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      cosmosBackend.documents.set(photoId('b'), photoDocument(photoId('b'), { tripId: TRIP_ID, takenAt: PHOTOS[1].takenAt, favorite: true }));
+
+      const response = await put({ sceneStarts: proposed });
+
+      expect(response.status).toBe(200);
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes[0].photos.map((photo: any) => [photo.id, photo.favorite])).toEqual([[photoId('a'), false], [photoId('b'), true]]);
     });
 
     it('場面のコメントを送ると、前後の空白を除いて区切りと一緒に保存し、応答の場面に返す（空白だけのものは持たず、無い場面は null）', async () => {
@@ -1097,6 +1123,21 @@ describe('タイムラインの下書きAPI', () => {
           [photoId('a'), null, [photoId('a')]],
           [photoId('b'), '朝市', [photoId('c')]]
         ]
+      ]);
+    });
+
+    // お気に入りの全ケース（印の無い写真は false など）は下書きの読み取り（GET …/timeline/draft）で通す。ここは応答に今の写真の印が乗ることだけを見る
+    it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineWith(reviewing()));
+      cosmosBackend.documents.set(photoId('c'), photoDocument(photoId('c'), { tripId: TRIP_ID, takenAt: PHOTOS[2].takenAt, favorite: true }));
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes.map((scene: any) => scene.photos.map((photo: any) => [photo.id, photo.favorite]))).toEqual([
+        [[photoId('a'), false]],
+        [[photoId('c'), true]]
       ]);
     });
 

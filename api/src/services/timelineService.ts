@@ -2,7 +2,7 @@ import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { PhotoDocument, PhotoProcessing } from '../types/album';
-import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument } from '../types/timeline';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument, TripPhotoMarks, TripPhotoState, tripPhotoMarksOf } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<
@@ -120,11 +120,11 @@ export class TimelineService {
   }
 
   /**
-   * 旅行の今の写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分ける）
+   * 旅行の今の写真の id と、お気に入りの写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分け、場面の写真にお気に入りの印を付ける）
    * @param tripId 旅行の ID
    */
-  async readTripPhotoIds(tripId: string): Promise<Set<string>> {
-    return new Set((await this.readTripPhotoStates(tripId)).map((photo) => photo.id));
+  async readTripPhotoMarks(tripId: string): Promise<TripPhotoMarks> {
+    return tripPhotoMarksOf(await this.readTripPhotoStates(tripId));
   }
 
   /**
@@ -134,21 +134,32 @@ export class TimelineService {
    * 同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）。射影は id と撮影日時と解析の状態だけなので軽い
    * （撮影日時は、日時の無い写真を増えた枚数に数えないため。日時の無い写真はタイムラインに入れない。02 §5 #54）
    * （processing の中の state と step だけをオブジェクトの射影で読む。step はタグの提案を待たせないため（blocksTimeline）。processing の無い文書は none（解析の対象でない）として扱う）
+   * お気に入り（favorite）も読む。控えには無いので、場面の写真に付けるときは読んだ時点の写真から取る（02 §5 #63）。項目の無い文書は false
    * @param tripId 旅行の ID
    */
-  async readTripPhotoStates(
-    tripId: string
-  ): Promise<{ id: string; takenAt: string | null; state: PhotoProcessing['state']; step: PhotoProcessing['step'] }[]> {
+  async readTripPhotoStates(tripId: string): Promise<TripPhotoState[]> {
     const { resources } = await this.container.items
-      .query<{ id: string; takenAt?: string | null; processing?: { state?: PhotoProcessing['state']; step?: PhotoProcessing['step'] } }>({
-        query: 'SELECT c.id, c.takenAt, { "state": c.processing.state, "step": c.processing.step } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
+      .query<{
+        id: string;
+        takenAt?: string | null;
+        favorite?: boolean;
+        processing?: { state?: PhotoProcessing['state']; step?: PhotoProcessing['step'] };
+      }>({
+        query:
+          'SELECT c.id, c.takenAt, c.favorite, { "state": c.processing.state, "step": c.processing.step } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@tripId', value: tripId },
         ],
       })
       .fetchAll();
-    return resources.map((row) => ({ id: row.id, takenAt: row.takenAt ?? null, state: row.processing?.state ?? 'none', step: row.processing?.step ?? null }));
+    return resources.map((row) => ({
+      id: row.id,
+      takenAt: row.takenAt ?? null,
+      favorite: row.favorite ?? false,
+      state: row.processing?.state ?? 'none',
+      step: row.processing?.step ?? null,
+    }));
   }
 
   /**

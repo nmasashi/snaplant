@@ -65,17 +65,17 @@ export async function postTimelineRecutHandler(request: HttpRequest, context: In
     // 保存先の設定が足りなければ、下書きを書く前に失敗させる（区切りの保存と同じ）
     const storage = new PhotoStorageService();
     const read = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () =>
-      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)])
+      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoMarks(tripId)])
     );
     if ('error' in read) {
       return read.error;
     }
-    const [photos, existing] = read.value;
+    const [photos, marks] = read.value;
     if (!(await timelines.replaceTimelineIfUnchanged({ ...timeline.doc, draft, updatedAt: now }, timeline.etag))) {
       return createTimelineStateConflict();
     }
     const expiresOn = photoUrlExpiresOn();
-    return createSuccessResponse({ draft: reviewingDraftOf(draft, photos, existing, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
+    return createSuccessResponse({ draft: reviewingDraftOf(draft, photos, marks, urlOfPhotos(storage, expiresOn)), urlExpiresAt: expiresOn.toISOString() });
   } catch (error: any) {
     context.log('タイムラインの区切りの直しの受付エラー:', error);
     return createDatabaseErrorResponse(error, 'タイムラインの作成の受付に失敗しました');
@@ -110,12 +110,12 @@ export async function postTimelineExcludedPhotosHandler(request: HttpRequest, co
       return createNotFoundError('タイムラインが見つかりません', ErrorCode.TIMELINE_NOT_FOUND);
     }
     const snapshot = await readUnlessOverlapped(timelines, tripId, sameCurrent(current), () =>
-      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoIds(tripId)])
+      Promise.all([timelines.readSnapshotPhotos(current.snapshotId), timelines.readTripPhotoMarks(tripId)])
     );
     if ('error' in snapshot) {
       return snapshot.error;
     }
-    const [photos, existing] = snapshot.value;
+    const [photos, { existing }] = snapshot.value;
     const excludedPhotoIds = withExcludedPhotos(current.excludedPhotoIds, read.photoIds, photos);
     if (!excludedPhotoIds) {
       return createValidationError('外す写真が無効です');

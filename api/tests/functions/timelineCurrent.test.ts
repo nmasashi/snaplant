@@ -282,6 +282,18 @@ describe('タイムラインの完成版の操作API', () => {
       expect(storedTimeline()).toEqual(timeline);
     });
 
+    // お気に入りの全ケース（印の無い写真は false など）は下書きの読み取り（GET …/timeline/draft）で通す。ここは応答に今の写真の印が乗ることだけを見る
+    it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+      cosmosBackend.documents.set(photoId('a'), photoDocument(photoId('a'), { tripId: TRIP_ID, takenAt: PHOTOS[0].takenAt, favorite: true }));
+
+      const response = await recut();
+
+      expect(response.status).toBe(200);
+      const scenes = (response.jsonBody as any).data.draft.days[0].scenes;
+      expect(scenes[0].photos.map((photo: any) => [photo.id, photo.favorite])).toEqual([[photoId('a'), true], [photoId('b'), false]]);
+    });
+
     it('応答の日と場面には、完成版を作った後に消えた写真を出さない（確かめ中の下書きの読み取りと同じ形）', async () => {
       cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
       // 完成版を作った後に b を消した
@@ -383,6 +395,21 @@ describe('タイムラインの完成版の操作API', () => {
       ]);
       expect(data.timeline.changes).toEqual({ added: 0, removed: 0 });
       expect(data.pendingPhotoCount).toBe(0);
+    });
+
+    // お気に入りの全ケース（印の無い写真は false など）は完成版の読み取り（GET …/timeline）で通す。ここは応答に今の写真の印が乗ることだけを見る
+    it('応答の場面の写真には、今の写真のお気に入りの印を付けて返す', async () => {
+      cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+      cosmosBackend.documents.set(photoId('a'), photoDocument(photoId('a'), { tripId: TRIP_ID, takenAt: PHOTOS[0].takenAt, favorite: true }));
+
+      const response = await exclude({ photoIds: [photoId('b')] });
+
+      expect(response.status).toBe(200);
+      const days = (response.jsonBody as any).data.timeline.current.days;
+      expect(days.map((day: any) => day.scenes.map((scene: any) => scene.photos.map((p: any) => [p.id, p.favorite])))).toEqual([
+        [[[photoId('a'), true]], [[photoId('c'), false]]],
+        [[[photoId('d'), false]]]
+      ]);
     });
 
     it('タイムラインを編集している途中でも外せ、編集中の下書きにも足す', async () => {
@@ -550,6 +577,7 @@ describe('タイムラインの完成版の操作API', () => {
     });
   });
 
+  // 応答は書いた後に読み直した GET …/timeline と同じ形（readTimelineBody）なので、場面の写真のお気に入りは timeline.test.ts と「写真を外す」の行で見る
   describe('完成版の文を直す（PATCH …/days/{date}・PATCH …/scenes/{photoId}）', () => {
     const patchDay = (date: string, body: unknown) => patchTimelineDayHandler(patchRequest(`days/${date}`, { date }, body), mockContext);
     const patchScene = (photo: string, body: unknown) => patchTimelineSceneHandler(patchRequest(`scenes/${photo}`, { photoId: photo }, body), mockContext);

@@ -602,14 +602,15 @@ describe('タイムラインを読むAPI（GET）', () => {
     ...overrides
   });
 
-  /** 控えの1枚の、応答での形 */
-  const shown = (photo: TimelinePhotoSnapshot) => ({
+  /** 控えの1枚の、応答での形（お気に入りは控えではなく今の写真から。F-2） */
+  const shown = (photo: TimelinePhotoSnapshot, favorite = false) => ({
     id: photo.id,
     takenAt: photo.takenAt,
     category: photo.category,
     name: photo.name,
     placeName: photo.placeName,
-    thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${photo.thumbnailBlobName ?? photo.blobName}?${SAS}`
+    thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${photo.thumbnailBlobName ?? photo.blobName}?${SAS}`,
+    favorite
   });
 
   // 1日目（10/05）: a・b・c、2日目（10/06）: d・e、撮影日時の無い写真: u（控えにはあるが、タイムラインには出ない）
@@ -762,6 +763,16 @@ describe('タイムラインを読むAPI（GET）', () => {
       pendingPhotoCount: 0,
       urlExpiresAt: '2026-10-25T10:00:00.000Z'
     });
+  });
+
+  it('完成版の場面の写真には、今の写真のお気に入りの印を付けて返す（控えには無い。印の無い写真は false。02 §5 #63）', async () => {
+    placeCurrentSnapshot();
+    cosmosBackend.documents.set(B.id, analyzedPhoto(B.id, { takenAt: B.takenAt, favorite: true }));
+    cosmosBackend.documents.set(TIMELINE_ID, timelineDocument(TRIP_ID, { current }));
+
+    const data = await read();
+
+    expect(data.timeline.current.days[0].scenes[0].photos).toEqual([shown(A), shown(B, true)]);
   });
 
   it('控えを取った後に消えた写真は出さない（写真が全部消えた場面と日も出さない）', async () => {

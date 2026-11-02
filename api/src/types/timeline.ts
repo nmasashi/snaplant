@@ -5,6 +5,7 @@
  * 完成版（current）と下書き（draft）を分けて持ち、下書きの文を書き終えるまで完成版は変えない
  * （docs/04_data_design.md §1.6、02 §5 #48）
  */
+import { PhotoProcessing } from './album';
 
 /** 下書きの裏の処理（区切り案・文）の状態。写真の processing と同じ考え方（06 §8.1） */
 export interface TimelineJob {
@@ -104,6 +105,34 @@ export interface TimelinePhotoSnapshot {
   comment: string | null;
   blobName: string;
   thumbnailBlobName: string | null;
+}
+
+/** 旅行の今の写真1枚の、タイムラインが見る状態（04 §5 の 5.13。控えとは別に、読んだ時点の写真から取る） */
+export interface TripPhotoState {
+  id: string;
+  /** 撮影日時（タイムゾーン無し）。無ければ null */
+  takenAt: string | null;
+  /** お気に入りか（項目の無い写真は false。02 §5 #63） */
+  favorite: boolean;
+  state: PhotoProcessing['state'];
+  step: PhotoProcessing['step'];
+}
+
+/** 旅行の今の写真の id の集合と、そのうちお気に入りの写真の id の集合（場面の写真を出す・印を付けるのに使う） */
+export interface TripPhotoMarks {
+  existing: Set<string>;
+  favorites: Set<string>;
+}
+
+/** 今の写真の状態から、id の集合とお気に入りの集合を作る（1回の走査で両方を埋める） */
+export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
+  const existing = new Set<string>();
+  const favorites = new Set<string>();
+  for (const photo of photos) {
+    existing.add(photo.id);
+    if (photo.favorite) favorites.add(photo.id);
+  }
+  return { existing, favorites };
 }
 
 /** 写真の控えの Cosmos DB の文書（id は "timeline-photos-" + 旅行の id + "-" + UUID） */
