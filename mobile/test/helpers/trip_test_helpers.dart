@@ -1051,13 +1051,20 @@ class FakeTripBackend {
     if (category != null && !const ['plant', 'food', 'landscape', 'other'].contains(category)) {
       return _error(400, 'INVALID_REQUEST', 'カテゴリが無効です');
     }
+    // お気に入りは true だけ（05 §5.2 の 3.5。F-1）
+    final favorite = query['favorite'];
+    if (favorite != null && favorite != 'true') return _error(400, 'INVALID_REQUEST', 'お気に入りの指定が無効です');
     if (tripId != null && tripId != 'none' && _find(tripId) == null) return _notFound();
     // 旅行を指定しなければ旅行をまたぐ（本物と同じく sortAt の昇順に並べる）
     final source = tripId != null
         ? photosByTripId[tripId] ?? const <Map<String, Object?>>[]
         : ([for (final photos in photosByTripId.values) ...photos]
           ..sort((a, b) => (a['sortAt'] as String).compareTo(b['sortAt'] as String)));
-    final photos = category == null ? source : source.where((photo) => photo['category'] == category).toList();
+    final photos = source
+        .where((photo) => category == null || photo['category'] == category)
+        // 印の無い写真は本物と同じく外れる（c.favorite = true に合わない）
+        .where((photo) => favorite == null || photo['favorite'] == true)
+        .toList();
     final limit = int.parse(query['limit'] ?? '$pageSize');
     final token = query['continuationToken'];
     const emptyTokenPrefix = 'empty-';
@@ -1337,7 +1344,7 @@ class FakeTripBackend {
     }
     if (body == null) return _error(400, 'INVALID_REQUEST', 'リクエストボディが指定されていません');
     if (body is! Map<String, dynamic> ||
-        !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category') || body.containsKey('takenAt'))) {
+        !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category') || body.containsKey('takenAt') || body.containsKey('favorite'))) {
       return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
     }
     if (body.containsKey('comment')) {
@@ -1419,6 +1426,13 @@ class FakeTripBackend {
       // 消したら、送った日時を日本時間に直した値に戻す（本物の computeSortAt と同じ）
       photo['sortAt'] = takenAt ??
           DateTime.parse(photo['uploadedAt'] as String).toUtc().add(const Duration(hours: 9)).toIso8601String().substring(0, 19);
+    }
+    if (body.containsKey('favorite')) {
+      // true・false だけ（05 §5.6 の 9.8。F-1）
+      final favorite = body['favorite'];
+      if (favorite is! bool) return _error(400, 'INVALID_REQUEST', 'お気に入りの指定が無効です');
+      if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
+      photo['favorite'] = favorite;
     }
     photo!['updatedAt'] = processAcceptedAt;
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
