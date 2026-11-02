@@ -108,4 +108,48 @@ void main() {
 
     expect(find.bySemanticsLabel('$_takenAt、お気に入り'), findsOneWidget);
   });
+
+  testWidgets('旅行に属さない写真の画面から開いたビューアには、ハートを出さない', (tester) async {
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 0)],
+      functionKey: 'test-key',
+      unassignedPhotoCount: 1,
+      photosByTripId: {
+        'none': [photoJson(number: 1, takenAt: '2026-09-01T10:15:00')]
+      },
+    );
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('旅行に属さない写真'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年9月1日 10:15'));
+    await letFramesRun(tester);
+
+    expect(find.byTooltip('タグを付ける'), findsOneWidget, reason: 'ビューアは開いている');
+    expect(find.byTooltip('お気に入りにする'), findsNothing);
+    expect(find.byTooltip('お気に入りから外す'), findsNothing);
+  });
+
+  testWidgets('図鑑の項目詳細から開いたビューアには、旅行の写真でもハートを出さない', (tester) async {
+    final backend = FakeTripBackend(
+      functionKey: 'test-key',
+      catalogEntriesByKind: {
+        'plant': [catalogEntryJson('plant', 'ソメイヨシノ', photoCount: 1)]
+      },
+      photosByTripId: {
+        hokkaidoTripId: [
+          identifiedPhotoJson(number: 1, kind: 'plant', name: 'ソメイヨシノ', tripId: hokkaidoTripId, takenAt: '2026-10-06T10:00:00')
+            ..['favorite'] = true
+        ]
+      },
+    );
+    await openCatalogTab(tester, backend);
+    await tester.tap(find.text('ソメイヨシノ'));
+    await letFramesRun(tester);
+    await tester.tap(photoThumbnail('2026年10月6日 10:00'));
+    await letFramesRun(tester);
+
+    expect(find.byTooltip('タグを付ける'), findsOneWidget, reason: 'ビューアは開いている');
+    expect(find.byTooltip('お気に入りにする'), findsNothing);
+    expect(find.byTooltip('お気に入りから外す'), findsNothing);
+  });
 }
