@@ -230,6 +230,9 @@ export interface PhotoListQuery {
   continuationToken: string | undefined;
 }
 
+/** お気に入りの指定が無効なときの文言（写真の一覧と更新で同じ。05 §5.2・§5.6） */
+const FAVORITE_INVALID_MESSAGE = 'お気に入りの指定が無効です';
+
 /**
  * 写真一覧（GET /api/photos）のクエリを検証する
  *
@@ -365,9 +368,6 @@ export interface PhotoUpdateInput {
   /** お気に入りの印（02 §5 #63） */
   favorite?: boolean;
 }
-
-/** お気に入りの指定が無効なときの文言（写真の一覧と更新で同じ。05 §5.2・§5.6） */
-const FAVORITE_INVALID_MESSAGE = 'お気に入りの指定が無効です';
 
 /**
  * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9）
