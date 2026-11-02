@@ -176,4 +176,47 @@ void main() {
     expect(find.byTooltip('お気に入りにする'), findsNothing);
     expect(find.byTooltip('お気に入りから外す'), findsNothing);
   });
+
+  testWidgets('タイムラインの場面の写真の一覧から開いたビューアにも、ハートを出して付け外しできる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T07:50:00')..['favorite'] = false]
+      },
+    );
+    final photos = [timelinePhotoJson(1, '2026-10-05T07:50:00')..['favorite'] = false];
+    backend.timelinesByTripId[hokkaidoTripId] = {
+      'current': {
+        'writtenAt': '2026-10-25T09:10:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05', 'dayNumber': 1, 'title': null, 'titleSource': null, 'summary': null, 'summarySource': null,
+            'scenes': [
+              {...timelineSceneJson(photos), 'label': '朝の散歩', 'labelSource': 'ai', 'note': null, 'noteSource': null}
+            ],
+          },
+        ],
+      },
+      'draft': null,
+      'changes': {'added': 0, 'removed': 0},
+    };
+    await openTripsTab(tester, backend);
+    await tester.tap(find.text('北海道 2026秋'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('タイムライン'));
+    await letFramesRun(tester);
+    await tester.tap(find.text('朝の散歩'));
+    await letFramesRun(tester);
+    await tester.tap(find.bySemanticsLabel('2026年10月5日 07:50'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.byTooltip('お気に入りにする'));
+    await letFramesRun(tester);
+
+    expect(_stored(backend), isTrue);
+    expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
+    semantics.dispose();
+  });
 }
