@@ -11,34 +11,12 @@ Map<String, Object?> _photo(int number, String takenAt, {bool favorite = false})
     timelinePhotoJson(number, takenAt)..['favorite'] = favorite;
 
 /// 1枚目〜4枚目（07:50・08:00・08:10・08:20）のうち、3枚目と4枚目がお気に入りの場面「朝の散歩」だけの完成版
-Map<String, Object?> _timeline() {
-  final photos = [
-    _photo(1, '2026-10-05T07:50:00'),
-    _photo(2, '2026-10-05T08:00:00'),
-    _photo(3, '2026-10-05T08:10:00', favorite: true),
-    _photo(4, '2026-10-05T08:20:00', favorite: true),
-  ];
-  return {
-    'current': {
-      'writtenAt': '2026-10-25T09:10:00.000Z',
-      'days': [
-        {
-          'date': '2026-10-05',
-          'dayNumber': 1,
-          'title': null,
-          'titleSource': null,
-          'summary': null,
-          'summarySource': null,
-          'scenes': [
-            {...timelineSceneJson(photos), 'label': '朝の散歩', 'labelSource': 'ai', 'note': null, 'noteSource': null}
-          ],
-        },
-      ],
-    },
-    'draft': null,
-    'changes': {'added': 0, 'removed': 0},
-  };
-}
+Map<String, Object?> _timeline() => timelineWithOneScene([
+      _photo(1, '2026-10-05T07:50:00'),
+      _photo(2, '2026-10-05T08:00:00'),
+      _photo(3, '2026-10-05T08:10:00', favorite: true),
+      _photo(4, '2026-10-05T08:20:00', favorite: true),
+    ]);
 
 /// 旅行詳細の「タイムライン」を開く
 Future<void> _openTimeline(WidgetTester tester) async {
@@ -48,11 +26,7 @@ Future<void> _openTimeline(WidgetTester tester) async {
     photosByTripId: {hokkaidoTripId: []},
   );
   backend.timelinesByTripId[hokkaidoTripId] = _timeline();
-  await openTripsTab(tester, backend);
-  await tester.tap(find.text('北海道 2026秋'));
-  await letFramesRun(tester);
-  await tester.tap(find.text('タイムライン'));
-  await letFramesRun(tester);
+  await openHokkaidoTimeline(tester, backend);
 }
 
 /// 撮影日時の読み上げ用ラベル（お気に入りなら「、お気に入り」が付く）

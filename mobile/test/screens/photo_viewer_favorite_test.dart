@@ -187,26 +187,8 @@ void main() {
       },
     );
     final photos = [timelinePhotoJson(1, '2026-10-05T07:50:00')..['favorite'] = false];
-    backend.timelinesByTripId[hokkaidoTripId] = {
-      'current': {
-        'writtenAt': '2026-10-25T09:10:00.000Z',
-        'days': [
-          {
-            'date': '2026-10-05', 'dayNumber': 1, 'title': null, 'titleSource': null, 'summary': null, 'summarySource': null,
-            'scenes': [
-              {...timelineSceneJson(photos), 'label': '朝の散歩', 'labelSource': 'ai', 'note': null, 'noteSource': null}
-            ],
-          },
-        ],
-      },
-      'draft': null,
-      'changes': {'added': 0, 'removed': 0},
-    };
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('タイムライン'));
-    await letFramesRun(tester);
+    backend.timelinesByTripId[hokkaidoTripId] = timelineWithOneScene(photos);
+    await openHokkaidoTimeline(tester, backend);
     await tester.tap(find.text('朝の散歩'));
     await letFramesRun(tester);
     await tester.tap(find.bySemanticsLabel('2026年10月5日 07:50'));
