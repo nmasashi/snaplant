@@ -139,15 +139,26 @@ async function nearby(center, landmarkRadius) {
   nwr["man_made"~"^(tower|lighthouse|bridge)$"]["name"]${L};
 );
 out center tags;`;
-  // 公開の Overpass は混むと 429・502・504 を返すので、間を空けて何度か送り直す
+  // 公開の Overpass は混むと 429・502・504 を返すので、別の公開のサーバにも順に聞き、間を空けて何度か送り直す
+  const servers = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  ];
   let response;
-  for (const wait of [0, 10000, 30000, 60000]) {
+  for (const [i, wait] of [0, 0, 0, 20000, 20000, 20000].entries()) {
     await sleep(wait);
-    response = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(query)}`,
-    });
+    try {
+      response = await fetch(servers[i % servers.length], {
+        method: 'POST',
+        headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(query)}`,
+      });
+    } catch (error) {
+      // つながらないサーバもあるので、次のサーバへ
+      console.log(`  Overpass につながらない（${error.cause?.code ?? error.message}）。次へ`);
+      continue;
+    }
     if (![429, 502, 503, 504].includes(response.status)) break;
     console.log(`  Overpass ${response.status}。送り直す`);
   }
