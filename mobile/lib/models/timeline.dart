@@ -233,12 +233,19 @@ class TimelinePhoto {
   /// サムネイル（無ければ原寸）の SAS 付きの URL
   final String thumbnailUrl;
 
+  /// お気に入りか（API が読んだ時点の写真から付ける。F-2 より前の応答には無く、false として扱う。05 §5.15）
+  final bool favorite;
+
   const TimelinePhoto(
-      {required this.id, required this.takenAt, required this.thumbnailUrl});
+      {required this.id,
+      required this.takenAt,
+      required this.thumbnailUrl,
+      this.favorite = false});
 
   factory TimelinePhoto.fromJson(Map<String, dynamic> json) => TimelinePhoto(
         id: json['id'] as String,
         takenAt: json['takenAt'] as String?,
         thumbnailUrl: json['thumbnailUrl'] as String,
+        favorite: json['favorite'] as bool? ?? false,
       );
 }
