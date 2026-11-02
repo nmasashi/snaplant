@@ -370,7 +370,7 @@ export interface PhotoUpdateInput {
 }
 
 /**
- * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9）
+ * 写真の更新（PATCH /api/photos/{photoId}）のボディを読んで検証する（docs/05_api_design.md §5.6 の 2〜9.8）
  *
  * コメントは前後の空白を除いてから数え、空なら null（消す）と同じ。タグは名前の前後の空白を除いてから数え、
  * 同じ名前のタグも除かない（皿が2つなど。02 §5 #57）

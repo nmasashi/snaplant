@@ -241,7 +241,7 @@ export class AlbumService {
           'SELECT * FROM c WHERE c.type = @type' +
           (filter.tripId !== undefined ? ' AND c.tripId = @tripId' : '') +
           (filter.category !== undefined ? ' AND c.category = @category' : '') +
-          // 印の無い文書（F より前）は c.favorite が未定義で、= true に合わない（04 §1.3）
+          // 印の無い文書（付け外しをしたことの無い写真）は c.favorite が未定義で、= true に合わない（04 §1.3）
           (filter.favorite !== undefined ? ' AND c.favorite = @favorite' : '') +
           (filter.entry !== undefined
             ? ' AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName'
