@@ -13,9 +13,9 @@ import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
 import '../utils/timeline_format.dart';
+import 'favorite_mark.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
-import 'favorite_mark.dart';
 
 /// 写真のサムネイルのグリッド（docs/03_screen_design.md §3・§4.4）
 ///
