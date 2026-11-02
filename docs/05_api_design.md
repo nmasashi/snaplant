@@ -41,11 +41,11 @@ SnapPlant の REST API を書く。エラーの契約（ステータス・`code`
 | `/api/trips/{tripId}` | PUT | `{ trip }` | `{ name, description? }` | 2 | `tripDetail.ts` |
 | `/api/trips/{tripId}` | DELETE | `{ message, deletedPhotoCount, detachedPhotoCount }` | `deletePhotos=true|false`（必須）。`true` なら中の写真と Blob も消す、`false` なら写真を未所属に移す | 2 | `tripDetail.ts` |
 | `/api/photos` | POST | `{ photo, urlExpiresAt }` 201（新規）/ 200（既存） | multipart。`tripId` は任意（送り方 ①②） | 2 | `photos.ts` |
-| `/api/photos` | GET | `{ photos, continuationToken, urlExpiresAt }` | `tripId=<uuid>` か `tripId=none`、または `category=`（段階3。どちらか1つは要る。両方なら AND）。`sortAt` 昇順（撮影日時順、無い写真はアップロード日時）。`limit` と `continuationToken` でページ | 2 | `photos.ts` |
+| `/api/photos` | GET | `{ photos, continuationToken, urlExpiresAt }` | `tripId=<uuid>` か `tripId=none`、または `category=`（段階3。どちらか1つは要る。両方なら AND）。`favorite=true` でお気に入りだけに絞る（F-1。実装済み。`tripId`・`category` と AND）。`sortAt` 昇順（撮影日時順、無い写真はアップロード日時）。`limit` と `continuationToken` でページ | 2 | `photos.ts` |
 | `/api/photos/move` | POST | `{ moved, notFound }` | `{ photoIds, tripId }`。送り方 ③ と「外す」。1回 200 件まで | 2 | `photoMove.ts` |
 | `/api/photos/{photoId}` | GET | `{ photo, urlExpiresAt }` | | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}` | DELETE | `{ message }` | | 2 | `photoDetail.ts` |
-| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, takenAt?, tags?, category? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み）。`tags` の形（`{ name, kind, x, y }`）は C-3a、タグの画面は C-3b、タグの出どころ（`source`）は C-4a（どれも実装済み）。`takenAt`（撮影日時を手で付ける。カメラの撮影日時の写真は 409）は D-1（実装済み）、画面は D-2（実装済み） | 2 | `photoDetail.ts` |
+| `/api/photos/{photoId}` | PATCH | `{ photo, urlExpiresAt }` | `{ comment?, takenAt?, tags?, category?, favorite? }`。構造は2、画面は4。`category`（手で決めるカテゴリ）は C-1（実装済み）。`tags` の形（`{ name, kind, x, y }`）は C-3a、タグの画面は C-3b、タグの出どころ（`source`）は C-4a（どれも実装済み）。`takenAt`（撮影日時を手で付ける。カメラの撮影日時の写真は 409）は D-1（実装済み）、画面は D-2（実装済み）。`favorite`（お気に入りの付け外し）は F-1（実装済み）、画面は F-3（未実装） | 2 | `photoDetail.ts` |
 | `/api/photos/{photoId}/process` | POST | `{ photo, urlExpiresAt }` 202 | `{ step, hint?, placeName? }`。写真に `step`・`hint` を書いてキューに投入。`placeName`（撮影地の地名を直す）は C-2（実装済み） | 3（`identify` は4） | `photoProcess.ts` |
 | `/api/tags` | GET | `{ tags }` | 利用者のタグの名前の `DISTINCT` | 未定（C-3 には入れない。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #57） | `tags.ts` |
 | `/api/catalog/kinds` | GET | `{ kinds }` | 定義表のうち図鑑に載せる種類（`inCatalog`。今は植物だけ）を表の順に | 4（4-2a。図鑑に載せる種類だけにしたのは B-2。実装済み） | `catalogKinds.ts` |
@@ -125,6 +125,7 @@ Cosmos のシステム項目（`_rid` / `_self` / `_etag` / `_attachments` / `_t
   "location": { "latitude": 43.7706, "longitude": 142.365, "placeName": "北海道旭川市", "placeSource": "device" },
   "category": null,
   "categorySource": null,
+  "favorite": false,
   "tags": [],
   "comment": null,
   "commentSource": null,
@@ -157,7 +158,9 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
-F で（未実装）、写真の応答に `favorite`（boolean。お気に入り。文書に無ければ `false`。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #63）を足す。一覧・詳細・送信・更新の応答のどれにも出す。
+**実装済み**（F-1。`photoView.ts` の `toPhoto`）: 写真の応答に `favorite`（boolean。お気に入り。文書に無ければ `false`。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #63）を足す。写真を返すすべての応答（`POST /api/photos`・`GET /api/photos`・`GET` / `PATCH /api/photos/{photoId}`・`process`・`GET /api/catalog/entry` の `photos`。`categorySource` と同じ）に出す。
+文書に項目が無いのは、F より前の写真と、付け外しをしたことの無い写真（写真の作成では書かない。[04 §1.3](./04_data_design.md#13-写真type-photo)）。
+クライアントはまだ読まない（F-3 で読む。未実装）。
 
 ### 3.3.1 CatalogEntry（段階4）
 
@@ -335,9 +338,10 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 
 ### 5.2 `GET /api/photos`
 
-**実装済み**（PR 4a-2。`photos.ts`、クエリの検証は `utils/photoInput.ts` の `readPhotoListQuery`。`category` は 3-3b）。
+**実装済み**（PR 4a-2。`photos.ts`、クエリの検証は `utils/photoInput.ts` の `readPhotoListQuery`。`category` は 3-3b、`favorite` は F-1）。
 `limit` は先頭がゼロでない10進の整数だけを受け付け、空（`limit=`）・先頭のゼロ（`01`）・符号・小数・指数表記・16進・前後の空白は 4 の 400。`tripId=` （空）は 2 の 400、`category=`（空）は 3 の 400。
-`category` は大文字小文字を区別する（`FOOD` は 3 の 400）。
+`category` は大文字小文字を区別する（`FOOD` は 3 の 400）。`favorite` も同じ（`TRUE`・`favorite=`（空）は 3.5 の 400）。`favorite=true` だけで旅行・カテゴリが無ければ 1 の 400。
+`favorite=true` の絞り込みは、文書に `favorite: true` がある写真だけを返す（項目の無い写真と `false` の写真は含めない。[04 §5](./04_data_design.md#5-クエリ) の 5.4.1）。
 `tripId=none` のときと、`tripId` を付けずに `category` だけで絞るときは、旅行の確認（6）をしない。継続トークンの大きさは 2KB に抑える（`PHOTO_CONTINUATION_TOKEN_LIMIT_KB`）。
 トークンを渡していない要求で Cosmos が 400 を返したら 500。トークンを渡していても、Cosmos へ接続できない障害は 7 にせず 503 `DATABASE_ERROR`（`データベースに接続できません`）。
 
@@ -347,7 +351,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 | `limit` | × | 1ページの枚数。既定 100、上限 200（`PHOTO_PAGE_SIZE` / `PHOTO_MAX_PAGE_SIZE`） | 2 |
 | `continuationToken` | × | 前の応答の `continuationToken` をそのまま返す。無ければ先頭から | 2 |
 | `category` | △（同上） | カテゴリ（定義表 `CATALOG_KINDS` のキー（`plant` / `food` / `landscape`）か `other`）。`tripId` と両方あれば AND（`tripId=none` とも組み合わせられる）。`tripId` 無しなら旅行をまたぎ、旅行に属さない写真も含む | 3 |
-| `favorite` | × | `true` だけを受け付け、お気に入りの写真だけを返す（F。未実装。`tripId`・`category` と AND。これだけでは絞り込み条件にならない（`tripId`・`category` のどちらかは要る）） | F |
+| `favorite` | × | `true` だけを受け付け、お気に入りの写真だけを返す（**実装済み**（F-1）。`tripId`・`category` と AND。これだけでは絞り込み条件にならない（`tripId`・`category` のどちらかは要る）） | F |
 
 `tripId=none` は「`tripId` が `null` の写真」を返す（同じ SQL に `@tripId = null`。[04 §5.3](./04_data_design.md#53-旅行の写真一覧)）。
 旅行の削除と送信・移動が重なって残った「存在しない旅行を指す写真」は含めない（段階3の掃除のタイマーが `null` に戻してから出る。[04 §7.3](./04_data_design.md#73-旅行の削除と重なった送信move)）。
@@ -359,7 +363,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 | 1 | `tripId`・`category` のどちらも無い | 400 `INVALID_REQUEST` | `絞り込み条件を指定してください` |
 | 2 | `tripId` が `none` でも UUID でもない | 400 `INVALID_REQUEST` | `旅行IDの形式が無効です` |
 | 3 | `category` があり、定義表のキーでも `other` でもない | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
-| 3.5 | `favorite` があり、`true` でない（`false`・`TRUE`・空を含む。F。未実装） | 400 `INVALID_REQUEST` | `お気に入りの指定が無効です` |
+| 3.5 | `favorite` があり、`true` でない（`false`・`TRUE`・空を含む。**実装済み**（F-1）） | 400 `INVALID_REQUEST` | `お気に入りの指定が無効です` |
 | 4 | `limit` があり、1〜200 の整数でない | 400 `INVALID_REQUEST` | `1ページの枚数は1〜200で指定してください` |
 | 5 | `continuationToken` があり、空か JSON として読めない（Cosmos の継続トークンは JSON。読めないものを SDK に渡すと `code` の無い Error になり 500 と区別できないので、渡す前に弾く） | 400 `INVALID_REQUEST` | `継続トークンの形式が無効です` |
 | 6 | `tripId`（UUID）の旅行が無い | 404 `TRIP_NOT_FOUND` | `指定された旅行が見つかりません` |
@@ -377,7 +381,7 @@ Blob の失敗はどれも、写真のドキュメントを作る前に止まる
 - `continuationToken` は Cosmos が作る不透明な文字列で、クライアントは中身を見ず、次の要求の同じ名前のクエリに URL エンコードして載せる。`null` なら最後のページ
 - `limit` は1ページの上限（SDK の `maxItemCount`）で、Cosmos はそれより少なく返すことがある（継続トークンの大きさを抑えると減る。`constants/album.ts` の説明）。続きがあるかは枚数ではなく `continuationToken` が `null` かどうかで判断する
 - 旅行があって写真が1枚も無ければ 200 で `photos: []`・`continuationToken: null`（404 にしない）。旅行が無ければ、その旅行を指す写真が残っていても 404
-- トークンは同じ絞り込み（`tripId`・`category`）にだけ有効。絞り込みを変えるときは先頭から取り直す
+- トークンは同じ絞り込み（`tripId`・`category`・`favorite`）にだけ有効。絞り込みを変えるときは先頭から取り直す
 - 各ページの `urlExpiresAt` は、そのページの URL の期限（ページごとに SAS を発行する）
 - 500 の `message`: `写真一覧の取得に失敗しました`
 
@@ -453,9 +457,11 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 
 **実装済み**（D-1。`photoDetail.ts`・`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）: `takenAt`（利用者が撮影日時を手で付ける・直す・消す。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #59）。表の 4 の条件と 9.7・11、下の `takenAt` の項目、「書き込みは」の項目の撮影日時の分。
 
-利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2（実装済み）の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
+**実装済み**（F-1。`photoDetail.ts`・`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）: `favorite`（お気に入りの付け外し。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #63）。表の 4 の条件と 9.8、下の `favorite` の項目、「書き込みは」の項目のお気に入りの分。画面は F-3（[03 §5.10.1](./03_screen_design.md#5101-写真ビューアで付け外す)。未実装）。
 
-**リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number, "source"?: "ai" | "user" }[], "category"?: "plant" | "food" | "landscape" | "other" }`（タグの形は C-3a から。それまでは文字列の配列。`source` は C-4 から（**実装済み**（C-4a）。`utils/photoInput.ts` の `readPhotoTag`、応答は `services/photoView.ts`）: 省くと `user`、`ai`・`user` のどちらでもなければ（`null` を含む）400 `INVALID_REQUEST`「タグの形式が無効です」（下の表の 8.5。9 の前に見る）。応答の各タグにも `source` を出す（無いタグは `user`。§3.3）。
+利用者のコメント・タグ・カテゴリ・撮影日時（D-1。画面は D-2（実装済み）の [03 §5.8](./03_screen_design.md#58-撮影日時を手で付ける)）・お気に入り（F-1）を直す。構造は段階2で作り、画面は段階4（コメント。4-3c で実装済み。[03 §6.3](./03_screen_design.md#63-写真ビューアへの追加)）・C-1（カテゴリ。[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)）・C-3b（タグ。[03 §5.7](./03_screen_design.md#57-写真のタグ)）。
+
+**リクエスト:** `{ "comment"?: string | null, "takenAt"?: string | null, "tags"?: { "name": string, "kind": "plant" | "food" | "landscape" | "other", "x": number, "y": number, "source"?: "ai" | "user" }[], "category"?: "plant" | "food" | "landscape" | "other", "favorite"?: boolean }`（`favorite` は F-1 から。タグの形は C-3a から。それまでは文字列の配列。`source` は C-4 から（**実装済み**（C-4a）。`utils/photoInput.ts` の `readPhotoTag`、応答は `services/photoView.ts`）: 省くと `user`、`ai`・`user` のどちらでもなければ（`null` を含む）400 `INVALID_REQUEST`「タグの形式が無効です」（下の表の 8.5。9 の前に見る）。応答の各タグにも `source` を出す（無いタグは `user`。§3.3）。
 アプリは、直さなかったタグは受け取った `source` のまま送り、直したタグと新しく付けたタグは `user` で送る（**実装済み**（C-4c）。C-3b のアプリは `source` を送らないので、送ったタグはすべて `user` で保存される。§8 の `updatePhotoTags`）
 
 | 順 | 条件 | ステータス・コード | `message` |
@@ -463,7 +469,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 1 | `photoId` の形式が無効 | 400 `INVALID_REQUEST` | `写真IDの形式が無効です` |
 | 2 | ボディが JSON としてパースできない | 400 `INVALID_REQUEST` | `リクエストボディの形式が無効です` |
 | 3 | ボディが `null` | 400 `INVALID_REQUEST` | `リクエストボディが指定されていません` |
-| 4 | `comment`・`takenAt`・`tags`・`category`（F から `favorite` も）のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
+| 4 | `comment`・`takenAt`・`tags`・`category`・`favorite`（F-1 から）のどれも無い | 400 `INVALID_REQUEST` | `更新する項目が指定されていません` |
 | 5 | `comment` が文字列でも `null` でもない | 400 `INVALID_REQUEST` | `コメントは文字列で指定してください` |
 | 6 | `comment` が前後の空白を除いて 500 文字を超える（数え方は §9.6） | 400 `INVALID_REQUEST` | `コメントは500文字以内で指定してください` |
 | 7 | `tags` が配列でない | 400 `INVALID_REQUEST` | `タグは配列で指定してください` |
@@ -475,14 +481,14 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
 | 9.5 | `tags` が 20 個を超える（`TAG_MAX_COUNT`。同じ名前も数える） | 400 `INVALID_REQUEST` | `タグは20個までです` |
 | 9.6 | `category` があり、`plant` / `food` / `landscape` / `other`（定義表 `CATALOG_KINDS` のキーと `other`。`PHOTO_KINDS`）のどれでもない（文字列でない・`null`・大文字小文字の違い（`Plant`）を含む） | 400 `INVALID_REQUEST` | `カテゴリが無効です` |
 | 9.7 | `takenAt` があり、`null` でも、実在する日時の `YYYY-MM-DDTHH:mm:ss`（タイムゾーン無し。写真の送信と同じ検証）の文字列でもない（数値・配列のように文字列でない値は、文字列に直すと正しい日時になる値（`["2026-10-05T12:00:00"]`）でも当たる。2月30日のような実在しない日時も当たる） | 400 `INVALID_REQUEST` | `撮影日時の形式が無効です` |
-| 9.8 | `favorite` があり、`true`・`false` のどちらでもない（文字列・`null` を含む。F。未実装） | 400 `INVALID_REQUEST` | `お気に入りの指定が無効です` |
+| 9.8 | `favorite` があり、`true`・`false` のどちらでもない（文字列・`null` を含む。**実装済み**（F-1）） | 400 `INVALID_REQUEST` | `お気に入りの指定が無効です` |
 | 10 | 写真が無い | 404 `PHOTO_NOT_FOUND` | `指定された写真が見つかりません` |
 | 11 | `takenAt` があり、写真の撮影日時がカメラの記録（EXIF）から読んだもの（`takenAtSource` が `"exif"`） | 409 `TAKEN_AT_FROM_CAMERA` | `カメラが記録した撮影日時は変えられません` |
 
-検証は `photoId`（1）→ ボディ（2〜9.7。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 → `takenAt` の 9.7 の順）→ 写真があるか（10）→ カメラが記録した撮影日時か（11。`takenAt` を送ったときだけ。写真を読んで分かる）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
+検証は `photoId`（1）→ ボディ（2〜9.8。`comment` の 5・6 → `tags` の 7〜9.5 → `category` の 9.6 → `takenAt` の 9.7 → `favorite` の 9.8 の順）→ 写真があるか（10）→ カメラが記録した撮影日時か（11。`takenAt` を送ったときだけ。写真を読んで分かる）の順。写真があるかはボディの検証の後に見るので、無い写真に不正なボディを送ると 400。
 タグの要素の 8〜9.2 は要素ごとに先頭から見て、1つの要素の中では 8 → 8.5 → 9 → 9.1 → 9.2 の順に確かめ、最初に当たった条件の `message` を返す（例: 1つ目の要素の種類が無効で2つ目が文字列なら、9.1 の `タグの種類が無効です`。1つの要素で `source` と名前の両方が無効なら、8.5 の `タグの形式が無効です`）。ただし数の上限（9.5）は要素の中身より先に見る（20 個を超える配列は、要素を確かめずに 9.5 で断る。大きな配列を全部確かめてから断らないため。/code-review の指摘）（**実装済み**（C-3a。8.5 は C-4a））。
-ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`takenAt`・`tags`・`category` のどれも無いものとして扱い、4 になる。`comment`・`takenAt`・`tags`・`category` 以外のキー（`hint` など）は無視し、それだけなら 4。
-11 で断るときは何も書かない（`comment`・`tags`・`category` を一緒に送っても、どれも書かない）。
+ボディがオブジェクトでない JSON（配列・数値・文字列・真偽値）は `comment`・`takenAt`・`tags`・`category`・`favorite` のどれも無いものとして扱い、4 になる。`comment`・`takenAt`・`tags`・`category`・`favorite` 以外のキー（`hint` など）は無視し、それだけなら 4。
+11 で断るときは何も書かない（`comment`・`tags`・`category`・`favorite` を一緒に送っても、どれも書かない）。
 `category` は `null` で消せない（分類の前に戻す操作は無い。9.6 になる）。
 
 - `comment`: 文字列なら前後の空白を除いて保存して `commentSource: "user"`。`null` なら消して `commentSource: null`。除いて空なら `null` と同じ（消して `commentSource: null`）。送らなければ `comment`・`commentSource` に触らない
@@ -503,7 +509,10 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
     **投入に失敗してもログだけ出して 200 を返す**（`PHOTO_QUEUE_NAME` が無いときも同じ。写真は識別の待ちのまま残り、再投入のタイマーが拾う。[04 §7.1](./04_data_design.md#71-操作ごとの表)）
   - `classification`（AI の分類の根拠）は書き換えない（手で直した後は `category` と食い違いうる）
   - 走っている分類・識別（とタグの提案。C-4b）の結果は、`processing` を書き換えたので担当の条件（[06 §1.3](./06_processing_design.md#13-状態と失敗)）に合わず捨てられ、手で決めたカテゴリを上書きしない。ワーカーは `categorySource` を見ない
-- 書き込みは1回の patch（`category` か `takenAt` を送ったときは、その前に写真を1回読む（両方送っても1回）。`takenAt` の分は条件を付けない。カテゴリが変わるか分類を止めるときは、コメントの出どころを条件にし、合わなければ読むところからやり直す）。`comment`・`tags` だけなら `comment`・`commentSource`・`tags`・`updatedAt` だけの patch（AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
+- `favorite`（**実装済み**（F-1。`AlbumService.updatePhoto()`、検証は `readPhotoUpdateInput`）。[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #63）: `true` なら印を付け、`false` なら外す（送った値をそのまま `favorite` に書く。項目の無い写真に `false` を送ると `favorite: false` が書かれる）。
+  写真を読まずに書く（`favorite` だけのボディも受け付ける）。今と同じ値でも書き、`updatedAt` も更新する。送らなければ `favorite` に触らない。ほかの項目（`processing`・コメント・カテゴリなど）には触らない。
+  API は写真の旅行を見ない（旅行に属さない写真にも付けられる。ハートを旅行に属する写真にだけ出すのは画面の決まり。[03 §5.10.1](./03_screen_design.md#5101-写真ビューアで付け外す)）
+- 書き込みは1回の patch（`category` か `takenAt` を送ったときは、その前に写真を1回読む（両方送っても1回）。`takenAt` の分は条件を付けない。カテゴリが変わるか分類を止めるときは、コメントの出どころを条件にし、合わなければ読むところからやり直す）。`comment`・`tags`・`favorite` だけなら `comment`・`commentSource`・`tags`・`favorite`・`updatedAt` だけの patch（読まずに書く。AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
   **解析中（`processing.state` が `pending` / `classifying` / `identifying` / `tagging`（C-4b））でも受け付ける**（ロックは無い）。
   タグの提案を待っている・している（`step: "tag"`）写真に `tags` を送ると、利用者のタグが残り、AI の提案は書かれない（タグが1つも無いことを条件に書くため。[06 §9](./06_processing_design.md#9-タグの提案c-4)。C-4b で実装済み）
 - 応答は 200 `{ photo, urlExpiresAt }`（§5.3 と同じ形。更新後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）

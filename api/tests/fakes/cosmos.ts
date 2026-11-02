@@ -78,7 +78,7 @@ import { PhotoDocument, TripDocument } from '../../src/types/album';
  * ## 偽物では検証できないこと
  *
  * `items.query` は Cosmos SQL を解釈せず、渡されたパラメータ
- * （`@type` / `@tripId` / `@category`、図鑑の `@kind` / `@entryName`（写真の `identification.kind` / `.name`））の値で絞り込むだけに留める。クエリ文字列自体への
+ * （`@type` / `@tripId` / `@category` / `@favorite`、図鑑の `@kind` / `@entryName`（写真の `identification.kind` / `.name`））の値で絞り込むだけに留める。クエリ文字列自体への
  * 依存はリファクタリング耐性を失うため見ない。この簡略化の結果、
  * 次の点はこの層のテストでは検証できない（SQL 自体を解釈する実エミュレータ、
  * もしくは E2E テストに委ねる）:
@@ -125,6 +125,8 @@ export interface FakeCosmosDocument {
   tripId?: string | null;
   /** 写真のカテゴリ（分類前は null） */
   category?: string | null;
+  /** 写真のお気に入り（F より前の写真には無い） */
+  favorite?: boolean;
   /** 写真の識別の結果（図鑑の種類と名前で絞るのに使う） */
   identification?: unknown;
 }
@@ -402,6 +404,7 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         // @tripId は null を値として渡せる（旅行に属さない写真）ので、値ではなくパラメータがあるかで判断する
         const tripIdParam = parameters.find((p: any) => p.name === '@tripId');
         const categoryParam = parameters.find((p: any) => p.name === '@category')?.value;
+        const favoriteParam = parameters.find((p: any) => p.name === '@favorite')?.value;
         // 図鑑の項目（識別の種類と名前）。名前は @entryName で受ける。
         // @kind・@entryName は図鑑の識別の絞り込み専用（別の意味で同じ名前のパラメータを使うと、偽物が識別で絞ってしまう）
         const kindParam = parameters.find((p: any) => p.name === '@kind')?.value;
@@ -416,6 +419,10 @@ export function createFakeContainer<TDoc extends FakeCosmosDocument>(
         }
         if (categoryParam !== undefined) {
           docs = docs.filter((d) => d.category === categoryParam);
+        }
+        if (favoriteParam !== undefined) {
+          // 厳密な一致。項目の無い文書は、実際の Cosmos と同じく合わない
+          docs = docs.filter((d) => d.favorite === favoriteParam);
         }
         if (kindParam !== undefined) {
           docs = docs.filter((d) => (d.identification as { kind?: unknown } | null | undefined)?.kind === kindParam);

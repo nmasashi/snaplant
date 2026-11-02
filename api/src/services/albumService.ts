@@ -222,13 +222,14 @@ export class AlbumService {
    * どの旅行にも属さない写真は tripId に null を渡す（c.tripId = null は値が null のものだけに一致し、
    * 項目が無いドキュメントには一致しない。写真は必ず tripId を書くので漏れない）
    * @param filter 絞り込み。tripId は旅行 ID（どの旅行にも属さない写真なら null、旅行で絞らないなら undefined）、
-   *   category はカテゴリ（絞らないなら undefined）、entry は図鑑の項目（種類と名前。分類どおりの種類が写っている写真だけ）。あれば AND
+   *   category はカテゴリ（絞らないなら undefined）、favorite はお気に入りだけに絞るなら true（印の無い写真と false の写真は外れる）、
+   *   entry は図鑑の項目（種類と名前。分類どおりの種類が写っている写真だけ）。あれば AND
    * @param limit 1ページの最大枚数
    * @param continuationToken 前のページの継続トークン。先頭からなら undefined
    * @returns 写真と、次のページの継続トークン（最後のページなら null）
    */
   async listPhotos(
-    filter: { tripId: string | null | undefined; category: string | undefined; entry?: { kind: string; name: string } },
+    filter: { tripId: string | null | undefined; category: string | undefined; favorite?: true; entry?: { kind: string; name: string } },
     limit: number,
     continuationToken: string | undefined
   ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
@@ -241,6 +242,8 @@ export class AlbumService {
           'SELECT * FROM c WHERE c.type = @type' +
           (filter.tripId !== undefined ? ' AND c.tripId = @tripId' : '') +
           (filter.category !== undefined ? ' AND c.category = @category' : '') +
+          // 印の無い文書（付け外しをしたことの無い写真）は c.favorite が未定義で、= true に合わない（04 §1.3）
+          (filter.favorite !== undefined ? ' AND c.favorite = @favorite' : '') +
           (filter.entry !== undefined
             ? ' AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName'
             : '') +
@@ -249,6 +252,7 @@ export class AlbumService {
           { name: '@type', value: 'photo' },
           ...(filter.tripId !== undefined ? [{ name: '@tripId', value: filter.tripId }] : []),
           ...(filter.category !== undefined ? [{ name: '@category', value: filter.category }] : []),
+          ...(filter.favorite !== undefined ? [{ name: '@favorite', value: filter.favorite }] : []),
           ...(filter.entry !== undefined
             ? [
                 { name: '@kind', value: filter.entry.kind },
@@ -334,7 +338,7 @@ export class AlbumService {
   }
 
   /**
-   * 写真の利用者のコメント・タグ・カテゴリ・撮影日時を直す
+   * 写真の利用者のコメント・タグ・カテゴリ・撮影日時・お気に入りを直す
    *
    * コメントとタグは利用者の欄だけを書く（AI が書く欄には触らない）。解析中でも受け付ける。
    * カテゴリは手で決めた印（categorySource）を付け、今と違えば識別と AI が書いたコメントを消して解析の状態を書き換える（02 §5 #53）。
@@ -343,13 +347,14 @@ export class AlbumService {
    * （読んだ後に利用者が書いたコメントを消さず、AI が書いたコメントを残さない。1回の patch なので、途中まで書いた状態も残らない）
    * 撮影日時は手で付けた印（takenAtSource: "user"）と並びの日時（sortAt）も書き、null なら消して送った日時の並びに戻す。
    * カメラが記録した撮影日時（exif）の写真は TakenAtFromCameraError を投げる（02 §5 #59）。
+   * お気に入りは印（favorite）だけを書く（読まずに書くので、解析の状態にもほかの欄にも触らない。02 §5 #63）。
    * @param id 写真 ID
-   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す）
+   * @param changes 直す項目（comment は null で消す。tags は置き換え。category は分類の種類のどれか。takenAt は null で消す。favorite は true・false）
    * @returns 更新後の写真のドキュメント。無ければ null
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null; favorite?: boolean }
   ): Promise<PhotoDocument | null> {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -371,7 +376,7 @@ export class AlbumService {
    */
   private async patchPhotoChanges(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null; favorite?: boolean }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
     let condition: string | undefined;
@@ -427,6 +432,9 @@ export class AlbumService {
     }
     if (changes.tags !== undefined) {
       operations.push({ op: 'set', path: '/tags', value: changes.tags });
+    }
+    if (changes.favorite !== undefined) {
+      operations.push({ op: 'set', path: '/favorite', value: changes.favorite });
     }
     operations.push({ op: 'set', path: '/updatedAt', value: new Date().toISOString() });
     try {

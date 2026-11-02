@@ -196,6 +196,8 @@ describe('写真更新API', () => {
           ...photoFields,
           // カテゴリを手で決めた印。項目の無い（C-1 より前の）写真は null で返す
           categorySource: null,
+          // お気に入りの印の無い写真（F より前）は false で返す（02 §5 #63）
+          favorite: false,
           comment: '夕食の懐石',
           commentSource: 'user',
           updatedAt: UPDATED_AT,
@@ -376,6 +378,11 @@ describe('写真更新API', () => {
     ['takenAtが数値', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: 20261005 }), '撮影日時の形式が無効です'],
     // 文字列に直すと正しい日時になる値も、文字列でなければ断る（照合は値を文字列に直すので、文字列かは別に確かめる）
     ['takenAtが配列（文字列に直すと正しい日時）', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: ['2026-10-05T12:00:00'] }), '撮影日時の形式が無効です'],
+    // お気に入りは true・false だけ（05 §5.6 の 9.8）
+    ['favoriteが文字列', PHOTO_ID, jest.fn().mockResolvedValue({ favorite: 'true' }), 'お気に入りの指定が無効です'],
+    ['favoriteがnull', PHOTO_ID, jest.fn().mockResolvedValue({ favorite: null }), 'お気に入りの指定が無効です'],
+    ['favoriteが数値', PHOTO_ID, jest.fn().mockResolvedValue({ favorite: 1 }), 'お気に入りの指定が無効です'],
+    ['takenAtもfavoriteも無効(takenAtの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ takenAt: 1, favorite: 1 }), '撮影日時の形式が無効です'],
     ['写真IDもボディも無効(写真IDの理由を返す)', 'abc', jest.fn().mockRejectedValue(new SyntaxError('Unexpected token')), '写真IDの形式が無効です'],
     ['commentもtagsも無効(commentの理由を返す)', PHOTO_ID, jest.fn().mockResolvedValue({ comment: 123, tags: '温泉' }), 'コメントは文字列で指定してください']
   ], async (_case, photoId, json, message) => {
@@ -730,6 +737,25 @@ describe('写真更新API', () => {
     expect(body.error.code).toBe('PHOTO_NOT_FOUND');
     expect(body.error.message).toBe('指定された写真が見つかりません');
     expect(cosmosBackend.documents).toEqual(before);
+  });
+
+  describe('お気に入り（02 §5 #63）', () => {
+    // 行ごとに写真を置き直す（前の行の書き込みを持ち越さない）
+    it('お気に入りを付ける・外すと、印を書いて返し、ほかの項目には触らない', () => forEachCase<[string, Partial<PhotoDocument>, boolean]>([
+      ['印の無い写真（F より前）に付ける', {}, true],
+      ['付いている印を外す', { favorite: true }, false]
+    ], async (_case, current, favorite) => {
+      freezeNow();
+      const photo = storedPhoto(current);
+      cosmosBackend.documents.set(PHOTO_ID, photo);
+
+      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { favorite }), mockContext);
+
+      expect(response.status).toBe(200);
+      expect((response.jsonBody as any).data.photo.favorite).toBe(favorite);
+      expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, favorite, updatedAt: UPDATED_AT });
+    }));
+    // 写真が無いときの 404 は、お気に入りもコメントと同じ patch の経路なので、上の「更新する写真が無いと、404で理由を返し、何も変えない」で見る
   });
 
   describe('撮影日時を手で付ける（02 §5 #59）', () => {

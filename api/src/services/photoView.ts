@@ -24,6 +24,8 @@ export function toPhoto(doc: PhotoDocument, storage: PhotoStorageService, expire
     location: doc.location,
     category: doc.category,
     categorySource: doc.categorySource ?? null,
+    // 付け外しをしたことの無い写真（F より前の写真を含む）には項目が無い。付けていないのと同じ
+    favorite: doc.favorite ?? false,
     // C-3a より前は文字列の配列だった（画面が無く、本番は空のはず）。オブジェクトの形のタグだけを返す（04 §2）。欄の無い文書はタグ無し
     // C-4 より前のタグには出どころが無い。利用者が付けたものなので user として返す
     tags: (doc.tags ?? [])

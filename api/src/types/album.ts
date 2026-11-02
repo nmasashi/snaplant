@@ -110,6 +110,8 @@ export interface PhotoDocument extends PhotoFields {
   thumbnailBlobName: string | null;
   /** 利用者がカテゴリを手で決めたら user（02 §5 #53）。C-1 より前の写真には項目が無い（無いのは null と同じ） */
   categorySource?: 'user' | null;
+  /** お気に入り（02 §5 #63）。作成では書かないので、付け外しをしたことの無い写真（F より前の写真を含む）には項目が無い（無いのは false と同じ） */
+  favorite?: boolean;
 }
 
 /** 写真（API の応答の形）。Blob 名の代わりに SAS 付きの URL を持つ */
@@ -118,6 +120,8 @@ export interface Photo extends PhotoFields {
   tags: PhotoTag[];
   /** 利用者がカテゴリを手で決めたら user。無ければ null */
   categorySource: 'user' | null;
+  /** お気に入りか */
+  favorite: boolean;
   imageUrl: string;
   thumbnailUrl: string | null;
 }
