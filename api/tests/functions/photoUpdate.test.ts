@@ -755,13 +755,7 @@ describe('写真更新API', () => {
       expect((response.jsonBody as any).data.photo.favorite).toBe(favorite);
       expect(cosmosBackend.documents.get(PHOTO_ID)).toEqual({ ...photo, favorite, updatedAt: UPDATED_AT });
     }));
-
-    it('お気に入りを付ける写真が無ければ、404で理由を返す', async () => {
-      const response = await updatePhotoHandler(createUpdatePhotoRequest(PHOTO_ID, { favorite: true }), mockContext);
-
-      expect(response.status).toBe(404);
-      expect((response.jsonBody as any).error.code).toBe('PHOTO_NOT_FOUND');
-    });
+    // 写真が無いときの 404 は、お気に入りもコメントと同じ patch の経路なので、上の「更新する写真が無いと、404で理由を返し、何も変えない」で見る
   });
 
   describe('撮影日時を手で付ける（02 §5 #59）', () => {
