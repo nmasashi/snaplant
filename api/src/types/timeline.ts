@@ -1,3 +1,4 @@
+import { PhotoProcessing } from './album';
 /**
  * タイムライン（段階5）の型定義
  *
@@ -104,6 +105,23 @@ export interface TimelinePhotoSnapshot {
   comment: string | null;
   blobName: string;
   thumbnailBlobName: string | null;
+}
+
+/** 旅行の今の写真1枚の、タイムラインが見る状態（04 §5 の 5.13。控えとは別に、読んだ時点の写真から取る） */
+export interface TripPhotoState {
+  id: string;
+  /** 撮影日時（タイムゾーン無し）。無ければ null */
+  takenAt: string | null;
+  /** お気に入りか（項目の無い写真は false。02 §5 #63） */
+  favorite: boolean;
+  state: PhotoProcessing['state'];
+  step: PhotoProcessing['step'];
+}
+
+/** 旅行の今の写真の id の集合と、そのうちお気に入りの写真の id の集合（場面の写真を出す・印を付けるのに使う） */
+export interface TripPhotoMarks {
+  existing: Set<string>;
+  favorites: Set<string>;
 }
 
 /** 写真の控えの Cosmos DB の文書（id は "timeline-photos-" + 旅行の id + "-" + UUID） */

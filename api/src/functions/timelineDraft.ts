@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { AlbumService } from '../services/albumService';
-import { TimelineService, TripPhotoMarks, rereadIfSnapshotMissing } from '../services/timelineService';
+import { TimelineService, rereadIfSnapshotMissing } from '../services/timelineService';
 import { PhotoStorageService, photoUrlExpiresOn, urlOfPhotos } from '../services/photoStorageService';
 import {
   addsExcludedPhotos,
@@ -15,7 +15,7 @@ import {
 import { readJsonBody } from '../utils/tripInput';
 import { readPhotoIdsToExclude } from '../utils/timelineInput';
 import { exceedsLength, trimUserText } from '../utils/userText';
-import { TimelineDraft, TimelinePhotoSnapshot } from '../types/timeline';
+import { TimelineDraft, TimelinePhotoSnapshot, TripPhotoMarks } from '../types/timeline';
 import { mergedExcludedPhotoIds, withRecutStarts } from '../services/timelineWriting';
 import { readUnlessOverlapped } from '../services/timelineRead';
 import {

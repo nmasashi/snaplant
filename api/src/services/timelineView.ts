@@ -1,5 +1,4 @@
-import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
-import { TripPhotoMarks } from './timelineService';
+import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot, TripPhotoMarks } from '../types/timeline';
 
 /** 応答に出す写真（控えから作る。05 §5.15） */
 export interface TimelinePhotoView {
@@ -109,22 +108,21 @@ export function layoutTimeline(input: TimelineLayoutInput): TimelineDayLayout[] 
     .filter((day) => day.scenes.length > 0);
 }
 
-/** 完成版の応答（日と場面に文を当てた形。05 §5.15） */
-export function currentTimelineOf(
-  current: TimelineCurrent,
-  photos: TimelinePhotoSnapshot[],
-  exists: (photoId: string) => boolean,
-  urlOf: (blobName: string) => string,
-  isFavorite: (photoId: string) => boolean
-) {
+/**
+ * 完成版の応答（日と場面に文を当てた形。05 §5.15）
+ * @param marks 旅行の今の写真の id（控えを取った後に消えた写真は出さない。外した写真も出さない）と、お気に入りの写真の id
+ * @param urlOf Blob 名から読み取りの SAS 付き URL
+ */
+export function currentTimelineOf(current: TimelineCurrent, photos: TimelinePhotoSnapshot[], marks: TripPhotoMarks, urlOf: (blobName: string) => string) {
+  const visible = visiblePhotoIdsOf(marks.existing, current.excludedPhotoIds);
   const days = layoutTimeline({
     photos,
     sceneStarts: current.sceneStarts,
     proposedStarts: current.proposedStarts,
     dayStartHour: current.dayStartHour,
-    exists,
+    exists: (photoId) => visible.has(photoId),
     urlOf,
-    isFavorite,
+    isFavorite: (photoId) => marks.favorites.has(photoId),
   });
   return {
     writtenAt: current.writtenAt,

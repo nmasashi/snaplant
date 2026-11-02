@@ -66,17 +66,15 @@ async function readTimelineBodyOnce(tripId: string, storage: PhotoStorageService
   let changes = null;
   if (doc.current) {
     const snapshot = await timelines.readSnapshotPhotos(doc.current.snapshotId);
-    const { existing, favorites } = tripPhotoMarksOf(photos);
+    const marks = tripPhotoMarksOf(photos);
+    const { existing } = marks;
     // 控えで撮影日時があった写真。控えに無い写真と、控えでは撮影日時が無く作った後に手で付けた写真は、
     // 作り直すと入るので増えた写真に数える（02 §5 #59）。ただし外した写真は数えない（控えの写真しか外せないので、
     // 効くのは控えでは日時が無かった写真。日時のある写真を外したときと同じく、外したものを増えたとは知らせない）
     const datedInSnapshot = new Set(snapshot.filter((photo) => photo.takenAt !== null).map((photo) => photo.id));
     const excluded = new Set(doc.current.excludedPhotoIds ?? []);
-    // 外した写真は消えた写真と同じく出さない（visiblePhotoIdsOf と同じ決まり。集合を作り直さないように述語で渡す）
-    const shown = (photoId: string) => existing.has(photoId) && !excluded.has(photoId);
-    current = currentTimelineOf(doc.current, snapshot, shown, urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn), (photoId) =>
-      favorites.has(photoId)
-    );
+    // 外した写真は消えた写真と同じく出さない（currentTimelineOf が visiblePhotoIdsOf で除く）
+    current = currentTimelineOf(doc.current, snapshot, marks, urlOfPhotos(storage ?? new PhotoStorageService(), expiresOn));
     // 日時の無い写真はタイムラインに入れない（作り直しても入らない）ので数えない（02 §5 #54）。
     // 外した写真は画面に出していないので、その後に消えても知らせない
     changes = {

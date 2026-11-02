@@ -2,7 +2,7 @@ import { Container } from '@azure/cosmos';
 import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { PhotoDocument, PhotoProcessing } from '../types/album';
-import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument } from '../types/timeline';
+import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument, TripPhotoMarks, TripPhotoState } from '../types/timeline';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<
@@ -59,29 +59,7 @@ export async function rereadIfSnapshotMissing<T>(read: () => Promise<T>): Promis
 /** 控えが無いときに読み直す回数 */
 const SNAPSHOT_REREADS = 3;
 
-/**
- * タイムライン（段階5）の Cosmos DB の操作（docs/04_data_design.md §1.6・§5.7）
- *
- * タイムラインの文書は、利用者の操作とワーカーが同じ欄（下書き・完成版）を書くので、読んだ _etag 付きの置き換えで書く
- */
-/** 旅行の今の写真1枚の、タイムラインが見る状態（04 §5 の 5.13） */
-export interface TripPhotoState {
-  id: string;
-  /** 撮影日時（タイムゾーン無し）。無ければ null */
-  takenAt: string | null;
-  /** お気に入りか（項目の無い写真は false） */
-  favorite: boolean;
-  state: PhotoProcessing['state'];
-  step: PhotoProcessing['step'];
-}
-
-/** 旅行の今の写真の id の集合と、そのうちお気に入りの写真の id の集合 */
-export interface TripPhotoMarks {
-  existing: Set<string>;
-  favorites: Set<string>;
-}
-
-/** 今の写真の状態から、id の集合とお気に入りの集合を作る */
+/** 今の写真の状態から、id の集合とお気に入りの集合を作る（場面の写真を出す・印を付けるのに使う） */
 export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
   return {
     existing: new Set(photos.map((photo) => photo.id)),
@@ -89,6 +67,11 @@ export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
   };
 }
 
+/**
+ * タイムライン（段階5）の Cosmos DB の操作（docs/04_data_design.md §1.6・§5.7）
+ *
+ * タイムラインの文書は、利用者の操作とワーカーが同じ欄（下書き・完成版）を書くので、読んだ _etag 付きの置き換えで書く
+ */
 export class TimelineService {
   private readonly container: Container;
 
