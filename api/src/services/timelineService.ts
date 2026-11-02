@@ -3,6 +3,7 @@ import { openAlbumContainer } from './albumContainer';
 import { sqlString } from '../utils/sqlString';
 import { PhotoDocument, PhotoProcessing } from '../types/album';
 import { TimelineDocument, TimelineDraft, TimelineJob, TimelinePhotoSnapshot, TimelinePhotosDocument, TripPhotoMarks, TripPhotoState } from '../types/timeline';
+import { tripPhotoMarksOf } from './timelineView';
 
 /** 控えを取るときに読む写真の項目（04 §5 の 5.12） */
 export type TimelinePhotoRow = Pick<
@@ -58,14 +59,6 @@ export async function rereadIfSnapshotMissing<T>(read: () => Promise<T>): Promis
 
 /** 控えが無いときに読み直す回数 */
 const SNAPSHOT_REREADS = 3;
-
-/** 今の写真の状態から、id の集合とお気に入りの集合を作る（場面の写真を出す・印を付けるのに使う） */
-export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
-  return {
-    existing: new Set(photos.map((photo) => photo.id)),
-    favorites: new Set(photos.filter((photo) => photo.favorite).map((photo) => photo.id)),
-  };
-}
 
 /**
  * タイムライン（段階5）の Cosmos DB の操作（docs/04_data_design.md §1.6・§5.7）

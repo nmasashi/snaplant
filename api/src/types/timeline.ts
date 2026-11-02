@@ -1,4 +1,3 @@
-import { PhotoProcessing } from './album';
 /**
  * タイムライン（段階5）の型定義
  *
@@ -6,6 +5,7 @@ import { PhotoProcessing } from './album';
  * 完成版（current）と下書き（draft）を分けて持ち、下書きの文を書き終えるまで完成版は変えない
  * （docs/04_data_design.md §1.6、02 §5 #48）
  */
+import { PhotoProcessing } from './album';
 
 /** 下書きの裏の処理（区切り案・文）の状態。写真の processing と同じ考え方（06 §8.1） */
 export interface TimelineJob {
