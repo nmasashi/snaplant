@@ -337,7 +337,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                     // ハートは文字の側に置く（avatar に置くと、選んだときのチェックの印に隠れる。§5.10.2）
                     label: chip.favorite
                         ? Row(mainAxisSize: MainAxisSize.min, children: [
-                            const Icon(Icons.favorite, size: 16),
+                            // 文字の側に置いた印は、チップの文字の色に揃える（選んだとき・暗い色の設定で文字の色が変わる）
+                            Builder(
+                                builder: (context) => Icon(Icons.favorite,
+                                    size: 16,
+                                    color: DefaultTextStyle.of(context)
+                                        .style
+                                        .color)),
                             const SizedBox(width: 4),
                             Text(chip.label),
                           ])
