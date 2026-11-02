@@ -5,7 +5,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 写真ビューアでお気に入りを付け外す（docs/03_screen_design.md §5.10.1。F-3。02 §5 #63）。
-// 入口は旅行詳細の写真のグリッドから開く写真ビューア
+// 入口は旅行詳細の写真のグリッドから開く写真ビューア（F-3）と、タイムラインの場面の写真の一覧から開く写真ビューア（F-4）
 
 const _takenAt = '2026年10月6日 10:15';
 
@@ -175,5 +175,30 @@ void main() {
     expect(find.byTooltip('タグを付ける'), findsOneWidget, reason: 'ビューアは開いている');
     expect(find.byTooltip('お気に入りにする'), findsNothing);
     expect(find.byTooltip('お気に入りから外す'), findsNothing);
+  });
+
+  testWidgets('タイムラインの場面の写真の一覧から開いたビューアにも、ハートを出し、押すとお気に入りとして送る', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final backend = FakeTripBackend(
+      trips: [hokkaidoTrip(photoCount: 1)],
+      functionKey: 'test-key',
+      photosByTripId: {
+        hokkaidoTripId: [photoJson(number: 1, tripId: hokkaidoTripId, takenAt: '2026-10-05T07:50:00')..['favorite'] = false]
+      },
+    );
+    final photos = [timelinePhotoJson(1, '2026-10-05T07:50:00')..['favorite'] = false];
+    backend.timelinesByTripId[hokkaidoTripId] = timelineWithOneScene(photos);
+    await openHokkaidoTimeline(tester, backend);
+    await tester.tap(find.text('朝の散歩'));
+    await letFramesRun(tester);
+    await tester.tap(find.bySemanticsLabel('2026年10月5日 07:50'));
+    await letFramesRun(tester);
+
+    await tester.tap(find.byTooltip('お気に入りにする'));
+    await letFramesRun(tester);
+
+    expect(_stored(backend), isTrue);
+    expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
+    semantics.dispose();
   });
 }

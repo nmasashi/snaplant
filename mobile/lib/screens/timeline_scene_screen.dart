@@ -84,6 +84,8 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
           hasMore: () => false,
           onDeleted: (_) => photos.value = const [],
           onUpdated: (updated) => photos.value = [updated],
+          // 旅行の写真の一覧なので、お気に入りの付け外しを出す（03 §5.10.1）
+          favorites: true,
         ),
       ),
     );
@@ -246,6 +248,7 @@ class _TimelineSceneScreenState extends State<TimelineSceneScreen> {
                 for (final photo in scene.photos)
                   TimelineThumbnail(
                       photo: photo,
+                      showsFavorite: true,
                       onTap: _busy ? null : () => _openPhoto(photo),
                       onLongPress: _busy ? null : () => _showPhotoMenu(photo)),
               ],

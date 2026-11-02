@@ -1539,6 +1539,57 @@ Map<String, Object?> timelineSceneJson(List<Map<String, Object?>> photos, {Strin
   };
 }
 
+/// 完成版だけのタイムライン（05 §5.15 の `GET …/timeline` の `timeline`）。2026-10-05 の1日に、見出しが [label] の場面を1つ置く
+Map<String, Object?> timelineWithOneScene(List<Map<String, Object?>> photos, {String label = '朝の散歩'}) => {
+      'current': {
+        'writtenAt': '2026-10-25T09:10:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'title': null,
+            'titleSource': null,
+            'summary': null,
+            'summarySource': null,
+            'scenes': [
+              {...timelineSceneJson(photos), 'label': label, 'labelSource': 'ai', 'note': null, 'noteSource': null}
+            ],
+          },
+        ],
+      },
+      'draft': null,
+      'changes': {'added': 0, 'removed': 0},
+    };
+
+/// 確認待ちの案だけのタイムライン（05 §5.15 の `GET …/timeline` の `timeline`）。2026-10-05 の1日に、日の始まりで区切った場面を1つ置く
+Map<String, Object?> timelineWithOneDraftScene(List<Map<String, Object?>> photos) => {
+      'current': null,
+      'draft': {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'create',
+        'phase': 'reviewing',
+        'job': null,
+        'startedAt': '2026-10-25T09:00:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'scenes': [timelineSceneJson(photos, startedBy: 'day')],
+          },
+        ],
+      },
+      'changes': null,
+    };
+
+/// 旅行一覧から「北海道 2026秋」の旅行詳細を開き、「タイムライン」に切り替える
+Future<void> openHokkaidoTimeline(WidgetTester tester, FakeTripBackend backend) async {
+  await openTripsTab(tester, backend);
+  await tester.tap(find.text('北海道 2026秋'));
+  await letFramesRun(tester);
+  await tester.tap(find.text('タイムライン'));
+  await letFramesRun(tester);
+}
+
 /// 旅行「北海道 2026秋」の id
 const hokkaidoTripId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 

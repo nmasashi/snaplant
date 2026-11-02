@@ -114,6 +114,7 @@ class TimelineCurrentView extends StatelessWidget {
   /// 場面の一言と写真の識別の名前は出さない（02 §5 #55）
   Widget _buildScene(
       TimelineDay day, TimelineScene scene, TextStyle secondary) {
+    // 時刻は撮影の順の写真で決め、並べるのはお気に入りを先にした順（03 §5.10.4）
     final photos = scene.photos;
     final end = [
       if (photos.length > 1) '〜${timelineClock(photos.last.takenAt!)}',
@@ -165,7 +166,7 @@ class TimelineCurrentView extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _buildPhotos(photos, onTap),
+                    _buildPhotos(_favoritesFirst(photos), onTap),
                     if (end.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(end, style: secondary),
@@ -184,7 +185,7 @@ class TimelineCurrentView extends StatelessWidget {
   Widget _buildPhotos(List<TimelinePhoto> photos, VoidCallback? onTap) {
     // 写真のタップも場面を開く（読み上げで写真を選んだときも開けるように）
     Widget thumbnail(TimelinePhoto photo) =>
-        TimelineThumbnail(photo: photo, onTap: onTap);
+        TimelineThumbnail(photo: photo, onTap: onTap, showsFavorite: true);
     final rest = photos.skip(_largeCount).toList();
     final overflows = rest.length > _smallCount;
     final small = overflows ? rest.take(_smallCount - 1).toList() : rest;
@@ -209,6 +210,12 @@ class TimelineCurrentView extends StatelessWidget {
       ],
     );
   }
+
+  /// お気に入りの写真を先にした並び（お気に入りどうし・それ以外どうしは撮影の順のまま。03 §5.10.4）
+  static List<TimelinePhoto> _favoritesFirst(List<TimelinePhoto> photos) => [
+        ...photos.where((photo) => photo.favorite),
+        ...photos.where((photo) => !photo.favorite),
+      ];
 
   /// [columns] 列の正方形のマスに [tiles] を左から置く（足りないマスは空ける）
   Widget _photoRow(List<Widget> tiles, int columns) => Row(

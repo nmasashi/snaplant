@@ -5,7 +5,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // サムネイルのお気に入りの印（docs/03_screen_design.md §5.10.3。F-3。02 §5 #63）。
-// 入口は旅行詳細の写真のグリッド（タイムラインの場面・場面の写真の一覧の印は F-4）
+// 入口は旅行詳細の写真のグリッド（F-3）と、旅行詳細の「タイムライン」の完成版の場面・場面の写真の一覧・案の確認画面（F-4）
 
 /// [time] に撮った旅行「北海道」の写真
 Map<String, Object?> _photo(int number, String time, {bool favorite = false, String state = 'done'}) =>
@@ -97,6 +97,44 @@ void main() {
     expect(find.bySemanticsLabel('2026年10月6日 10:00'), findsOneWidget);
     // サムネイルにも、画面のどこにもハートは出ない
     expect(_heartIn('2026年10月6日 10:00'), findsNothing);
+    expect(find.byIcon(Icons.favorite), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('タイムラインの完成版の場面と、場面の写真の一覧のサムネイルにも、お気に入りの印と読み上げの「、お気に入り」を出す', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final photos = [
+      timelinePhotoJson(1, '2026-10-05T07:50:00')..['favorite'] = true,
+      timelinePhotoJson(2, '2026-10-05T08:00:00')..['favorite'] = false,
+    ];
+    final backend = FakeTripBackend(trips: [hokkaidoTrip(photoCount: 2)], functionKey: 'test-key', photosByTripId: {hokkaidoTripId: []});
+    backend.timelinesByTripId[hokkaidoTripId] = timelineWithOneScene(photos);
+    await openHokkaidoTimeline(tester, backend);
+
+    // 完成版の場面
+    expect(_heartIn('2026年10月5日 07:50、お気に入り'), findsOneWidget);
+    expect(find.bySemanticsLabel('2026年10月5日 08:00'), findsOneWidget);
+    expect(_heartIn('2026年10月5日 08:00'), findsNothing);
+
+    // 場面の写真の一覧
+    await tester.tap(find.text('朝の散歩'));
+    await letFramesRun(tester);
+    expect(_heartIn('2026年10月5日 07:50、お気に入り'), findsOneWidget);
+    expect(find.bySemanticsLabel('2026年10月5日 08:00'), findsOneWidget);
+    expect(_heartIn('2026年10月5日 08:00'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('タイムラインの案の確認画面のサムネイルには、お気に入りの写真にも印を出さず、読み上げにも足さない', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final photo = timelinePhotoJson(1, '2026-10-05T07:50:00')..['favorite'] = true;
+    final backend = FakeTripBackend(trips: [hokkaidoTrip(photoCount: 1)], functionKey: 'test-key', photosByTripId: {hokkaidoTripId: []});
+    backend.timelinesByTripId[hokkaidoTripId] = timelineWithOneDraftScene([photo]);
+    await openHokkaidoTimeline(tester, backend);
+    await tester.tap(find.text('案を確認する'));
+    await letFramesRun(tester);
+
+    expect(find.bySemanticsLabel('2026年10月5日 07:50'), findsOneWidget);
     expect(find.byIcon(Icons.favorite), findsNothing);
     semantics.dispose();
   });

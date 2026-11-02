@@ -13,6 +13,7 @@ import '../utils/photo_cache_manager.dart';
 import '../utils/photo_category.dart';
 import '../utils/taken_at.dart';
 import '../utils/timeline_format.dart';
+import 'favorite_mark.dart';
 import 'message_view.dart';
 import 'photo_selection.dart';
 
@@ -702,7 +703,7 @@ class _PhotoTile extends StatelessWidget {
     return Semantics(
       // お気に入りと分類の印は読み上げにも足す（docs/03_screen_design.md §5.10.3・§5.5）
       label: formatTakenAt(photo.takenAt) +
-          (favorites && photo.favorite ? '、お気に入り' : '') +
+          (favorites && photo.favorite ? favoriteMarkLabel : '') +
           (inProgress
               ? '、分類中'
               : failed
@@ -739,15 +740,8 @@ class _PhotoTile extends StatelessWidget {
             ),
           ),
         ),
-        // お気に入りの印は右上（分類の印は右下。03 §5.10.3）。読み上げはラベルの「、お気に入り」で伝える
-        if (favorites && photo.favorite)
-          const Positioned(
-            right: 4,
-            top: 4,
-            child: ExcludeSemantics(
-              child: Icon(Icons.favorite, size: 16, color: Colors.white),
-            ),
-          ),
+        // お気に入りの印は右上（分類の印は右下。03 §5.10.3）
+        if (favorites && photo.favorite) const FavoriteMark(),
         if (inProgress)
           const Positioned(
             right: 4,
