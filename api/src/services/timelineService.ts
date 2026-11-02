@@ -64,6 +64,31 @@ const SNAPSHOT_REREADS = 3;
  *
  * タイムラインの文書は、利用者の操作とワーカーが同じ欄（下書き・完成版）を書くので、読んだ _etag 付きの置き換えで書く
  */
+/** 旅行の今の写真1枚の、タイムラインが見る状態（04 §5 の 5.13） */
+export interface TripPhotoState {
+  id: string;
+  /** 撮影日時（タイムゾーン無し）。無ければ null */
+  takenAt: string | null;
+  /** お気に入りか（項目の無い写真は false） */
+  favorite: boolean;
+  state: PhotoProcessing['state'];
+  step: PhotoProcessing['step'];
+}
+
+/** 旅行の今の写真の id の集合と、そのうちお気に入りの写真の id の集合 */
+export interface TripPhotoMarks {
+  existing: Set<string>;
+  favorites: Set<string>;
+}
+
+/** 今の写真の状態から、id の集合とお気に入りの集合を作る */
+export function tripPhotoMarksOf(photos: TripPhotoState[]): TripPhotoMarks {
+  return {
+    existing: new Set(photos.map((photo) => photo.id)),
+    favorites: new Set(photos.filter((photo) => photo.favorite).map((photo) => photo.id)),
+  };
+}
+
 export class TimelineService {
   private readonly container: Container;
 
@@ -120,11 +145,11 @@ export class TimelineService {
   }
 
   /**
-   * 旅行の今の写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分ける）
+   * 旅行の今の写真の id と、お気に入りの写真の id を読む（04 §5 の 5.13。控えを取った後に消えた写真を見分け、場面の写真にお気に入りの印を付ける）
    * @param tripId 旅行の ID
    */
-  async readTripPhotoIds(tripId: string): Promise<Set<string>> {
-    return new Set((await this.readTripPhotoStates(tripId)).map((photo) => photo.id));
+  async readTripPhotoMarks(tripId: string): Promise<TripPhotoMarks> {
+    return tripPhotoMarksOf(await this.readTripPhotoStates(tripId));
   }
 
   /**
@@ -134,21 +159,32 @@ export class TimelineService {
    * 同じ結果から解析が済んでいない写真の枚数も数える（旅行の写真を読むのは1回）。射影は id と撮影日時と解析の状態だけなので軽い
    * （撮影日時は、日時の無い写真を増えた枚数に数えないため。日時の無い写真はタイムラインに入れない。02 §5 #54）
    * （processing の中の state と step だけをオブジェクトの射影で読む。step はタグの提案を待たせないため（blocksTimeline）。processing の無い文書は none（解析の対象でない）として扱う）
+   * お気に入り（favorite）も読む。控えには無いので、場面の写真に付けるときは読んだ時点の写真から取る（02 §5 #63）。項目の無い文書は false
    * @param tripId 旅行の ID
    */
-  async readTripPhotoStates(
-    tripId: string
-  ): Promise<{ id: string; takenAt: string | null; state: PhotoProcessing['state']; step: PhotoProcessing['step'] }[]> {
+  async readTripPhotoStates(tripId: string): Promise<TripPhotoState[]> {
     const { resources } = await this.container.items
-      .query<{ id: string; takenAt?: string | null; processing?: { state?: PhotoProcessing['state']; step?: PhotoProcessing['step'] } }>({
-        query: 'SELECT c.id, c.takenAt, { "state": c.processing.state, "step": c.processing.step } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
+      .query<{
+        id: string;
+        takenAt?: string | null;
+        favorite?: boolean;
+        processing?: { state?: PhotoProcessing['state']; step?: PhotoProcessing['step'] };
+      }>({
+        query:
+          'SELECT c.id, c.takenAt, c.favorite, { "state": c.processing.state, "step": c.processing.step } AS processing FROM c WHERE c.type = @type AND c.tripId = @tripId',
         parameters: [
           { name: '@type', value: 'photo' },
           { name: '@tripId', value: tripId },
         ],
       })
       .fetchAll();
-    return resources.map((row) => ({ id: row.id, takenAt: row.takenAt ?? null, state: row.processing?.state ?? 'none', step: row.processing?.step ?? null }));
+    return resources.map((row) => ({
+      id: row.id,
+      takenAt: row.takenAt ?? null,
+      favorite: row.favorite ?? false,
+      state: row.processing?.state ?? 'none',
+      step: row.processing?.step ?? null,
+    }));
   }
 
   /**

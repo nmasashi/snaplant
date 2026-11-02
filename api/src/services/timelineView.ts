@@ -1,4 +1,5 @@
 import { TimelineCurrent, TimelineDraft, TimelineDraftStatus, TimelinePhotoSnapshot } from '../types/timeline';
+import { TripPhotoMarks } from './timelineService';
 
 /** 応答に出す写真（控えから作る。05 §5.15） */
 export interface TimelinePhotoView {
@@ -9,6 +10,8 @@ export interface TimelinePhotoView {
   placeName: string | null;
   /** サムネイル（無ければ原寸）の読み取りの SAS 付き URL */
   thumbnailUrl: string;
+  /** お気に入りか（控えではなく、読んだ時点の写真から。02 §5 #63） */
+  favorite: boolean;
 }
 
 /** 応答に出す場面（文の無い形。完成版は文を足す） */
@@ -49,6 +52,8 @@ export interface TimelineLayoutInput {
   exists: (photoId: string) => boolean;
   /** Blob 名から読み取りの SAS 付き URL を作る */
   urlOf: (blobName: string) => string;
+  /** その写真が今お気に入りか */
+  isFavorite: (photoId: string) => boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,6 +81,7 @@ export function layoutTimeline(input: TimelineLayoutInput): TimelineDayLayout[] 
     name: photo.name,
     placeName: photo.placeName,
     thumbnailUrl: input.urlOf(photo.thumbnailBlobName ?? photo.blobName),
+    favorite: input.isFavorite(photo.id),
   });
 
   return days
@@ -108,7 +114,8 @@ export function currentTimelineOf(
   current: TimelineCurrent,
   photos: TimelinePhotoSnapshot[],
   exists: (photoId: string) => boolean,
-  urlOf: (blobName: string) => string
+  urlOf: (blobName: string) => string,
+  isFavorite: (photoId: string) => boolean
 ) {
   const days = layoutTimeline({
     photos,
@@ -117,6 +124,7 @@ export function currentTimelineOf(
     dayStartHour: current.dayStartHour,
     exists,
     urlOf,
+    isFavorite,
   });
   return {
     writtenAt: current.writtenAt,
@@ -201,11 +209,11 @@ export function datedDaysOf(photos: TimelinePhotoSnapshot[], dayStartHour: numbe
  * 区切りを確かめられる下書き（確かめ中か、文を書くのに失敗した）の応答（状態に、日ごと・場面ごとの写真を足す。05 §5.15）
  *
  * 下書きの読み取り・区切りの保存・区切りの直しの受付が同じ形で返す
- * @param existing 旅行の今の写真の id（控えを取った後に消えた写真は出さない）
+ * @param marks 旅行の今の写真の id（控えを取った後に消えた写真は出さない）と、お気に入りの写真の id
  * @param urlOf Blob 名から読み取りの SAS 付き URL
  */
-export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], existing: Set<string>, urlOf: (blobName: string) => string) {
-  const visible = visiblePhotoIdsOf(existing, draft.excludedPhotoIds);
+export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnapshot[], marks: TripPhotoMarks, urlOf: (blobName: string) => string) {
+  const visible = visiblePhotoIdsOf(marks.existing, draft.excludedPhotoIds);
   const comments = draft.sceneComments ?? {};
   const days = layoutTimeline({
     photos,
@@ -214,6 +222,7 @@ export function reviewingDraftOf(draft: TimelineDraft, photos: TimelinePhotoSnap
     dayStartHour: draft.dayStartHour,
     exists: (photoId) => visible.has(photoId),
     urlOf,
+    isFavorite: (photoId) => marks.favorites.has(photoId),
   }).map((day) => ({
     ...day,
     scenes: day.scenes.map((scene) => ({ ...scene, comment: comments[scene.startPhotoId] ?? null })),
