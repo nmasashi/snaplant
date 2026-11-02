@@ -334,10 +334,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
-                    avatar: chip.favorite
-                        ? const Icon(Icons.favorite, size: 16)
-                        : null,
-                    label: Text(chip.label),
+                    // ハートは文字の側に置く（avatar に置くと、選んだときのチェックの印に隠れる。§5.10.2）
+                    label: chip.favorite
+                        ? Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.favorite, size: 16),
+                            const SizedBox(width: 4),
+                            Text(chip.label),
+                          ])
+                        : Text(chip.label),
                     selected: _category == chip.category &&
                         _favorite == chip.favorite,
                     onSelected: (_) {
