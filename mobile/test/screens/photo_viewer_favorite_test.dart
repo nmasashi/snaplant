@@ -5,7 +5,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // 写真ビューアでお気に入りを付け外す（docs/03_screen_design.md §5.10.1。F-3。02 §5 #63）。
-// 入口は旅行詳細の写真のグリッドから開く写真ビューア
+// 入口は旅行詳細の写真のグリッドから開く写真ビューア（F-3）と、タイムラインの場面の写真の一覧から開く写真ビューア（F-4）
 
 const _takenAt = '2026年10月6日 10:15';
 
@@ -177,7 +177,7 @@ void main() {
     expect(find.byTooltip('お気に入りから外す'), findsNothing);
   });
 
-  testWidgets('タイムラインの場面の写真の一覧から開いたビューアにも、ハートを出して付け外しできる', (tester) async {
+  testWidgets('タイムラインの場面の写真の一覧から開いたビューアにも、ハートを出し、押すとお気に入りとして送る', (tester) async {
     final semantics = tester.ensureSemantics();
     final backend = FakeTripBackend(
       trips: [hokkaidoTrip(photoCount: 1)],

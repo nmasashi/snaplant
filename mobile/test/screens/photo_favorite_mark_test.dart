@@ -5,7 +5,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // サムネイルのお気に入りの印（docs/03_screen_design.md §5.10.3。F-3。02 §5 #63）。
-// 入口は旅行詳細の写真のグリッド（タイムラインの場面・場面の写真の一覧の印は F-4）
+// 入口は旅行詳細の写真のグリッド（F-3）と、旅行詳細の「タイムライン」の完成版の場面・場面の写真の一覧・案の確認画面（F-4）
 
 /// [time] に撮った旅行「北海道」の写真
 Map<String, Object?> _photo(int number, String time, {bool favorite = false, String state = 'done'}) =>
@@ -113,12 +113,14 @@ void main() {
 
     // 完成版の場面
     expect(_heartIn('2026年10月5日 07:50、お気に入り'), findsOneWidget);
+    expect(find.bySemanticsLabel('2026年10月5日 08:00'), findsOneWidget);
     expect(_heartIn('2026年10月5日 08:00'), findsNothing);
 
     // 場面の写真の一覧
     await tester.tap(find.text('朝の散歩'));
     await letFramesRun(tester);
     expect(_heartIn('2026年10月5日 07:50、お気に入り'), findsOneWidget);
+    expect(find.bySemanticsLabel('2026年10月5日 08:00'), findsOneWidget);
     expect(_heartIn('2026年10月5日 08:00'), findsNothing);
     semantics.dispose();
   });

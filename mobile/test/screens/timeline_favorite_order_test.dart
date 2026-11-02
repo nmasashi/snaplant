@@ -10,11 +10,11 @@ import '../helpers/trip_test_helpers.dart';
 Map<String, Object?> _photo(int number, String takenAt, {bool favorite = false}) =>
     timelinePhotoJson(number, takenAt)..['favorite'] = favorite;
 
-/// 1枚目〜4枚目（07:50・08:00・08:10・08:20）のうち、3枚目と4枚目がお気に入りの場面「朝の散歩」だけの完成版
+/// 1枚目〜4枚目（07:50・08:00・08:10・08:20）のうち、2枚目と4枚目がお気に入りの場面「朝の散歩」だけの完成版
 Map<String, Object?> _timeline() => timelineWithOneScene([
       _photo(1, '2026-10-05T07:50:00'),
-      _photo(2, '2026-10-05T08:00:00'),
-      _photo(3, '2026-10-05T08:10:00', favorite: true),
+      _photo(2, '2026-10-05T08:00:00', favorite: true),
+      _photo(3, '2026-10-05T08:10:00'),
       _photo(4, '2026-10-05T08:20:00', favorite: true),
     ]);
 
@@ -47,10 +47,10 @@ void main() {
     final semantics = tester.ensureSemantics();
     await _openTimeline(tester);
 
-    final labels = [_label('07:50'), _label('08:00'), _label('08:10', favorite: true), _label('08:20', favorite: true)];
-    expect(_orderOf(tester, labels), [_label('08:10', favorite: true), _label('08:20', favorite: true), _label('07:50'), _label('08:00')]);
+    final labels = [_label('07:50'), _label('08:00', favorite: true), _label('08:10'), _label('08:20', favorite: true)];
+    expect(_orderOf(tester, labels), [_label('08:00', favorite: true), _label('08:20', favorite: true), _label('07:50'), _label('08:10')]);
     // 大きい枠（最初の2枚）はお気に入り
-    expect(tester.getSize(find.bySemanticsLabel(_label('08:10', favorite: true))).width,
+    expect(tester.getSize(find.bySemanticsLabel(_label('08:00', favorite: true))).width,
         greaterThan(tester.getSize(find.bySemanticsLabel(_label('07:50'))).width));
     // 始まりの時刻と終わりの時刻は、撮影の順で決めたまま
     expect(find.text('7:50'), findsOneWidget);
@@ -64,7 +64,42 @@ void main() {
     await tester.tap(find.text('朝の散歩'));
     await letFramesRun(tester);
 
-    final labels = [_label('07:50'), _label('08:00'), _label('08:10', favorite: true), _label('08:20', favorite: true)];
+    final labels = [_label('07:50'), _label('08:00', favorite: true), _label('08:10'), _label('08:20', favorite: true)];
+    expect(_orderOf(tester, labels), labels);
+    semantics.dispose();
+  });
+
+  testWidgets('案の確認画面は、お気に入りがあっても撮影の順のまま並べる', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final photos = [
+      _photo(1, '2026-10-05T07:50:00'),
+      _photo(2, '2026-10-05T08:00:00', favorite: true),
+      _photo(3, '2026-10-05T08:10:00'),
+    ];
+    final backend = FakeTripBackend(trips: [hokkaidoTrip(photoCount: 3)], functionKey: 'test-key', photosByTripId: {hokkaidoTripId: []});
+    backend.timelinesByTripId[hokkaidoTripId] = {
+      'current': null,
+      'draft': {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'create',
+        'phase': 'reviewing',
+        'job': null,
+        'startedAt': '2026-10-25T09:00:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'scenes': [timelineSceneJson(photos, startedBy: 'day')],
+          },
+        ],
+      },
+      'changes': null,
+    };
+    await openHokkaidoTimeline(tester, backend);
+    await tester.tap(find.text('案を確認する'));
+    await letFramesRun(tester);
+
+    final labels = [_label('07:50'), _label('08:00'), _label('08:10')];
     expect(_orderOf(tester, labels), labels);
     semantics.dispose();
   });
