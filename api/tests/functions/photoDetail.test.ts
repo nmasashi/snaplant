@@ -169,6 +169,8 @@ describe('写真詳細API', () => {
           photo: {
             ...photoFields,
             categorySource: null,
+            // お気に入りの印の無い写真（F より前）は false で返す（02 §5 #63）
+            favorite: false,
             imageUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.jpg?${TEST_SAS_TOKEN}`,
             thumbnailUrl: `https://${TEST_BLOB_HOST}/photos/${PHOTO_ID}.thumb.jpg?${TEST_SAS_TOKEN}`
           },

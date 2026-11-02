@@ -246,7 +246,7 @@ PR 7 の着手前（PR 6 のブランチでも可）に、**実装の前提**を
 
 | 段 | 中身 | 部品 | 依存 |
 |---|---|---|---|
-| F-1 | api: 写真に `favorite` を持たせる（`PATCH /api/photos/{photoId}` の検証と保存、写真の応答、`GET /api/photos` の `favorite=true`。[05 §5.2・§5.6](./05_api_design.md#56-patch-apiphotosphotoid)） | api | — |
+| F-1 | **実装済み**（F-1）。api: 写真に `favorite` を持たせる（`PATCH /api/photos/{photoId}` の検証と保存、写真の応答、`GET /api/photos` の `favorite=true`。[05 §5.2・§5.6](./05_api_design.md#56-patch-apiphotosphotoid)） | api | — |
 | F-2 | api: タイムラインの場面の写真に `favorite` を足す（読んだ時点の写真から。[05 §5.15](./05_api_design.md#515-タイムライン段階5)） | api | F-1 |
 | F-3 | mobile: 写真ビューアのハート、旅行詳細の「お気に入り」のチップ、写真の一覧のサムネイルの印（[03 §5.10.1〜§5.10.3](./03_screen_design.md#510-お気に入りf)） | mobile | F-1 |
 | F-4 | mobile: タイムラインの完成版の場面でお気に入りを先に並べる、場面・場面の写真の一覧の印（[03 §5.10.3・§5.10.4](./03_screen_design.md#5104-タイムラインの並び)） | mobile | F-2・F-3 |
