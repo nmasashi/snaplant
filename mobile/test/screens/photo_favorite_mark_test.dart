@@ -129,29 +129,8 @@ void main() {
     final semantics = tester.ensureSemantics();
     final photo = timelinePhotoJson(1, '2026-10-05T07:50:00')..['favorite'] = true;
     final backend = FakeTripBackend(trips: [hokkaidoTrip(photoCount: 1)], functionKey: 'test-key', photosByTripId: {hokkaidoTripId: []});
-    backend.timelinesByTripId[hokkaidoTripId] = {
-      'current': null,
-      'draft': {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'create',
-        'phase': 'reviewing',
-        'job': null,
-        'startedAt': '2026-10-25T09:00:00.000Z',
-        'days': [
-          {
-            'date': '2026-10-05',
-            'dayNumber': 1,
-            'scenes': [timelineSceneJson([photo], startedBy: 'day')],
-          },
-        ],
-      },
-      'changes': null,
-    };
-    await openTripsTab(tester, backend);
-    await tester.tap(find.text('北海道 2026秋'));
-    await letFramesRun(tester);
-    await tester.tap(find.text('タイムライン'));
-    await letFramesRun(tester);
+    backend.timelinesByTripId[hokkaidoTripId] = timelineWithOneDraftScene([photo]);
+    await openHokkaidoTimeline(tester, backend);
     await tester.tap(find.text('案を確認する'));
     await letFramesRun(tester);
 

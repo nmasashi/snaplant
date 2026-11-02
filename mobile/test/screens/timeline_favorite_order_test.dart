@@ -4,7 +4,7 @@ import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
 // タイムラインのお気に入りの並び（docs/03_screen_design.md §5.10.4。F-4。02 §5 #63）。
-// 入口は旅行詳細の「タイムライン」の完成版（§8.3）と、場面の写真の一覧（§8.8）
+// 入口は旅行詳細の「タイムライン」の完成版（§8.3）と、場面の写真の一覧（§8.8）と、案の確認画面（§8.4。撮影の順のまま）
 
 /// 場面の写真（[favorite] は API が今の写真から付ける印。05 §5.15）
 Map<String, Object?> _photo(int number, String takenAt, {bool favorite = false}) =>
@@ -77,24 +77,7 @@ void main() {
       _photo(3, '2026-10-05T08:10:00'),
     ];
     final backend = FakeTripBackend(trips: [hokkaidoTrip(photoCount: 3)], functionKey: 'test-key', photosByTripId: {hokkaidoTripId: []});
-    backend.timelinesByTripId[hokkaidoTripId] = {
-      'current': null,
-      'draft': {
-        'id': '0b8e1c5a-0000-4000-8000-000000000099',
-        'reason': 'create',
-        'phase': 'reviewing',
-        'job': null,
-        'startedAt': '2026-10-25T09:00:00.000Z',
-        'days': [
-          {
-            'date': '2026-10-05',
-            'dayNumber': 1,
-            'scenes': [timelineSceneJson(photos, startedBy: 'day')],
-          },
-        ],
-      },
-      'changes': null,
-    };
+    backend.timelinesByTripId[hokkaidoTripId] = timelineWithOneDraftScene(photos);
     await openHokkaidoTimeline(tester, backend);
     await tester.tap(find.text('案を確認する'));
     await letFramesRun(tester);

@@ -1561,6 +1561,26 @@ Map<String, Object?> timelineWithOneScene(List<Map<String, Object?>> photos, {St
       'changes': {'added': 0, 'removed': 0},
     };
 
+/// 確認待ちの案だけのタイムライン（05 §5.15 の `GET …/timeline` の `timeline`）。2026-10-05 の1日に、日の始まりで区切った場面を1つ置く
+Map<String, Object?> timelineWithOneDraftScene(List<Map<String, Object?>> photos) => {
+      'current': null,
+      'draft': {
+        'id': '0b8e1c5a-0000-4000-8000-000000000099',
+        'reason': 'create',
+        'phase': 'reviewing',
+        'job': null,
+        'startedAt': '2026-10-25T09:00:00.000Z',
+        'days': [
+          {
+            'date': '2026-10-05',
+            'dayNumber': 1,
+            'scenes': [timelineSceneJson(photos, startedBy: 'day')],
+          },
+        ],
+      },
+      'changes': null,
+    };
+
 /// 旅行一覧から「北海道 2026秋」の旅行詳細を開き、「タイムライン」に切り替える
 Future<void> openHokkaidoTimeline(WidgetTester tester, FakeTripBackend backend) async {
   await openTripsTab(tester, backend);
