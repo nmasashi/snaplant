@@ -33,8 +33,8 @@ Future<FakeTripBackend> _openViewer(WidgetTester tester, Map<String, Object?> ph
   return backend;
 }
 
-/// 偽のサーバにある写真のお気に入り
-Object? _stored(FakeTripBackend backend) => backend.photosByTripId[hokkaidoTripId]!.first['favorite'];
+/// 偽のサーバにある、[index] 枚目（0 から）の写真のお気に入り
+Object? _stored(FakeTripBackend backend, [int index = 0]) => backend.photosByTripId[hokkaidoTripId]![index]['favorite'];
 
 /// 上のバーのハート（読み上げ [tooltip]）のボタン
 IconButton _heart(WidgetTester tester, String tooltip) =>
@@ -126,9 +126,10 @@ void main() {
     expect(_heart(tester, 'お気に入りにする').onPressed, isNotNull);
     // 届いたのは押した1枚目の分。戻ると塗ったハート
     expect(_stored(backend), isTrue);
-    expect(backend.photosByTripId[hokkaidoTripId]![1]['favorite'], isFalse);
+    expect(_stored(backend, 1), isFalse);
     await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
     await letFramesRun(tester);
+    expect(find.text(_takenAt).hitTestable(), findsOneWidget, reason: '1枚目に戻した');
     expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
   });
 

@@ -70,7 +70,9 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.bySemanticsLabel('2026年9月1日 10:15'), findsOneWidget);
+    // サムネイルにも、画面のどこにもハートは出ない
     expect(_heartIn('2026年9月1日 10:15'), findsNothing);
+    expect(find.byIcon(Icons.favorite), findsNothing);
     semantics.dispose();
   });
 
@@ -93,7 +95,9 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.bySemanticsLabel('2026年10月6日 10:00'), findsOneWidget);
+    // サムネイルにも、画面のどこにもハートは出ない
     expect(_heartIn('2026年10月6日 10:00'), findsNothing);
+    expect(find.byIcon(Icons.favorite), findsNothing);
     semantics.dispose();
   });
 }
