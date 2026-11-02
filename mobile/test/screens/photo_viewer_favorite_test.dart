@@ -43,7 +43,7 @@ IconButton _heart(WidgetTester tester, String tooltip) =>
 Finder _filledHeart() => find.descendant(of: find.byType(AppBar), matching: find.byIcon(Icons.favorite));
 
 void main() {
-  testWidgets('上のバーのハートを押すと、すぐ塗ったハートになり、お気に入りとして送る。もう一度押すと外す', (tester) async {
+  testWidgets('上のバーのハートを押すと、塗ったハート（読み上げ「お気に入りから外す」）になってお気に入りとして送り、旅行詳細へ戻ると一覧のサムネイルにも印が付く', (tester) async {
     final backend = await _openViewer(tester, _photo());
 
     expect(find.byTooltip('お気に入りにする'), findsOneWidget);
@@ -55,18 +55,22 @@ void main() {
     expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
     expect(_filledHeart(), findsOneWidget);
 
-    await tester.tap(find.byTooltip('お気に入りから外す'));
+    await tapBack(tester);
     await letFramesRun(tester);
-    expect(_stored(backend), isFalse);
-    expect(find.byTooltip('お気に入りにする'), findsOneWidget);
-    expect(_filledHeart(), findsNothing);
+    expect(find.bySemanticsLabel('$_takenAt、お気に入り'), findsOneWidget);
   });
 
-  testWidgets('お気に入りの写真を開くと、塗ったハート（読み上げ「お気に入りから外す」）で出る', (tester) async {
-    await _openViewer(tester, _photo(favorite: true));
+  testWidgets('お気に入りの写真を開くと塗ったハート（読み上げ「お気に入りから外す」）で出て、押すと線のハートに替えてお気に入りから外して送る', (tester) async {
+    final backend = await _openViewer(tester, _photo(favorite: true));
 
     expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
     expect(_filledHeart(), findsOneWidget);
+    await tester.tap(find.byTooltip('お気に入りから外す'));
+    await letFramesRun(tester);
+
+    expect(_stored(backend), isFalse);
+    expect(find.byTooltip('お気に入りにする'), findsOneWidget);
+    expect(_filledHeart(), findsNothing);
   });
 
   testWidgets('送れなかったら印を元に戻し、理由をスナックバーに出す', (tester) async {
@@ -82,7 +86,7 @@ void main() {
     expect(_stored(backend), isNot(true));
   });
 
-  testWidgets('送っている間は、印を替えたままハートを押せない。届いたら押せる', (tester) async {
+  testWidgets('送っている間は、印を替えたままハートを押せない。届いたら押せ、もう一度押すと外す', (tester) async {
     final backend = await _openViewer(tester, _photo());
     final reply = backend.holdNextReply(TripRoute.updatePhoto);
 
@@ -96,17 +100,12 @@ void main() {
     await letFramesRun(tester);
     expect(_heart(tester, 'お気に入りから外す').onPressed, isNotNull);
     expect(_stored(backend), isTrue);
-  });
 
-  testWidgets('ビューアで付けて旅行詳細へ戻ると、一覧のサムネイルにお気に入りの印が付く（一覧の写真を置き換える）', (tester) async {
-    await _openViewer(tester, _photo());
-    await tester.tap(find.byTooltip('お気に入りにする'));
+    await tester.tap(find.byTooltip('お気に入りから外す'));
     await letFramesRun(tester);
-
-    await tapBack(tester);
-    await letFramesRun(tester);
-
-    expect(find.bySemanticsLabel('$_takenAt、お気に入り'), findsOneWidget);
+    expect(_stored(backend), isFalse);
+    expect(find.byTooltip('お気に入りにする'), findsOneWidget);
+    expect(_filledHeart(), findsNothing);
   });
 
   testWidgets('旅行に属さない写真の画面から開いたビューアには、ハートを出さない', (tester) async {
