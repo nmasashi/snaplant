@@ -228,7 +228,7 @@ export class AlbumService {
    * @returns 写真と、次のページの継続トークン（最後のページなら null）
    */
   async listPhotos(
-    filter: { tripId: string | null | undefined; category: string | undefined; entry?: { kind: string; name: string } },
+    filter: { tripId: string | null | undefined; category: string | undefined; favorite?: true; entry?: { kind: string; name: string } },
     limit: number,
     continuationToken: string | undefined
   ): Promise<{ photos: PhotoDocument[]; continuationToken: string | null }> {
@@ -241,6 +241,8 @@ export class AlbumService {
           'SELECT * FROM c WHERE c.type = @type' +
           (filter.tripId !== undefined ? ' AND c.tripId = @tripId' : '') +
           (filter.category !== undefined ? ' AND c.category = @category' : '') +
+          // 印の無い文書（F より前）は c.favorite が未定義で、= true に合わない（04 §1.3）
+          (filter.favorite !== undefined ? ' AND c.favorite = @favorite' : '') +
           (filter.entry !== undefined
             ? ' AND c.identification.kind = @kind AND c.identification.matchesKind = true AND c.identification.name = @entryName'
             : '') +
@@ -249,6 +251,7 @@ export class AlbumService {
           { name: '@type', value: 'photo' },
           ...(filter.tripId !== undefined ? [{ name: '@tripId', value: filter.tripId }] : []),
           ...(filter.category !== undefined ? [{ name: '@category', value: filter.category }] : []),
+          ...(filter.favorite !== undefined ? [{ name: '@favorite', value: filter.favorite }] : []),
           ...(filter.entry !== undefined
             ? [
                 { name: '@kind', value: filter.entry.kind },
@@ -349,7 +352,7 @@ export class AlbumService {
    */
   async updatePhoto(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null; favorite?: boolean }
   ): Promise<PhotoDocument | null> {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -371,7 +374,7 @@ export class AlbumService {
    */
   private async patchPhotoChanges(
     id: string,
-    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null }
+    changes: { comment?: string | null; tags?: PhotoTag[]; category?: string; takenAt?: string | null; favorite?: boolean }
   ): Promise<PhotoDocument | null> {
     const operations: { op: 'set'; path: string; value: unknown }[] = [];
     let condition: string | undefined;
@@ -427,6 +430,9 @@ export class AlbumService {
     }
     if (changes.tags !== undefined) {
       operations.push({ op: 'set', path: '/tags', value: changes.tags });
+    }
+    if (changes.favorite !== undefined) {
+      operations.push({ op: 'set', path: '/favorite', value: changes.favorite });
     }
     operations.push({ op: 'set', path: '/updatedAt', value: new Date().toISOString() });
     try {

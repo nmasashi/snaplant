@@ -109,7 +109,7 @@ export async function listPhotosHandler(request: HttpRequest, context: Invocatio
   if ('error' in validated) {
     return validated.error;
   }
-  const { tripId, category, limit, continuationToken } = validated.query;
+  const { tripId, category, favorite, limit, continuationToken } = validated.query;
   try {
     const album = new AlbumService();
     if (typeof tripId === 'string' && !(await album.tripExists(tripId))) {
@@ -117,7 +117,7 @@ export async function listPhotosHandler(request: HttpRequest, context: Invocatio
     }
     let page;
     try {
-      page = await album.listPhotos({ tripId, category }, limit, continuationToken);
+      page = await album.listPhotos({ tripId, category, favorite }, limit, continuationToken);
     } catch (error: any) {
       if (error instanceof InvalidContinuationTokenError) {
         return createValidationError(PHOTO_VALIDATION.ERROR_MESSAGES.CONTINUATION_TOKEN_INVALID);
