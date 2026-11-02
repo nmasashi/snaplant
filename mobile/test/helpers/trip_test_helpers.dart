@@ -1347,6 +1347,10 @@ class FakeTripBackend {
         !(body.containsKey('comment') || body.containsKey('tags') || body.containsKey('category') || body.containsKey('takenAt') || body.containsKey('favorite'))) {
       return _error(400, 'INVALID_REQUEST', '更新する項目が指定されていません');
     }
+    // お気に入りは true・false だけ（05 §5.6 の 9.8。F-1）。本物と同じく、どの項目も書く前に断る
+    if (body.containsKey('favorite') && body['favorite'] is! bool) {
+      return _error(400, 'INVALID_REQUEST', 'お気に入りの指定が無効です');
+    }
     if (body.containsKey('comment')) {
       final comment = body['comment'];
       if (comment != null && comment is! String) return _error(400, 'INVALID_REQUEST', 'コメントは文字列で指定してください');
@@ -1428,11 +1432,8 @@ class FakeTripBackend {
           DateTime.parse(photo['uploadedAt'] as String).toUtc().add(const Duration(hours: 9)).toIso8601String().substring(0, 19);
     }
     if (body.containsKey('favorite')) {
-      // true・false だけ（05 §5.6 の 9.8。F-1）
-      final favorite = body['favorite'];
-      if (favorite is! bool) return _error(400, 'INVALID_REQUEST', 'お気に入りの指定が無効です');
       if (photo == null) return _error(404, 'PHOTO_NOT_FOUND', '指定された写真が見つかりません');
-      photo['favorite'] = favorite;
+      photo['favorite'] = body['favorite'];
     }
     photo!['updatedAt'] = processAcceptedAt;
     return _ok(200, {'photo': photo, 'urlExpiresAt': '2026-10-18T06:30:00.000Z'});
