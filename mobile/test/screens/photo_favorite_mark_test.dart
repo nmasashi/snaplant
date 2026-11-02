@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:snaplant_mobile/widgets/photo_grid.dart';
-
 import '../helpers/app_test_helpers.dart';
 import '../helpers/trip_test_helpers.dart';
 
@@ -18,9 +16,6 @@ Map<String, Object?> _photo(int number, String time, {bool favorite = false, Str
 
 /// サムネイルの読み上げ用ラベル
 String _label(String time) => '2026年10月6日 $time';
-
-/// 写真のグリッドの中の、塗ったハート
-Finder _heartInGrid() => find.descendant(of: find.byType(PhotoGrid), matching: find.byIcon(Icons.favorite));
 
 /// 読み上げ用ラベルが [label] のサムネイルの中の、塗ったハート
 Finder _heartIn(String label) => find.descendant(of: find.bySemanticsLabel(label), matching: find.byIcon(Icons.favorite));
@@ -75,7 +70,7 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.bySemanticsLabel('2026年9月1日 10:15'), findsOneWidget);
-    expect(_heartInGrid(), findsNothing);
+    expect(_heartIn('2026年9月1日 10:15'), findsNothing);
     semantics.dispose();
   });
 
@@ -98,7 +93,7 @@ void main() {
     await letFramesRun(tester);
 
     expect(find.bySemanticsLabel('2026年10月6日 10:00'), findsOneWidget);
-    expect(_heartInGrid(), findsNothing);
+    expect(_heartIn('2026年10月6日 10:00'), findsNothing);
     semantics.dispose();
   });
 }

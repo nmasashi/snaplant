@@ -124,6 +124,12 @@ void main() {
     reply.complete();
     await letFramesRun(tester);
     expect(_heart(tester, 'お気に入りにする').onPressed, isNotNull);
+    // 届いたのは押した1枚目の分。戻ると塗ったハート
+    expect(_stored(backend), isTrue);
+    expect(backend.photosByTripId[hokkaidoTripId]![1]['favorite'], isFalse);
+    await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
+    await letFramesRun(tester);
+    expect(find.byTooltip('お気に入りから外す'), findsOneWidget);
   });
 
   testWidgets('旅行に属さない写真の画面から開いたビューアには、ハートを出さない', (tester) async {
