@@ -125,6 +125,8 @@ export interface FakeCosmosDocument {
   tripId?: string | null;
   /** 写真のカテゴリ（分類前は null） */
   category?: string | null;
+  /** 写真のお気に入り（F より前の写真には無い） */
+  favorite?: boolean;
   /** 写真の識別の結果（図鑑の種類と名前で絞るのに使う） */
   identification?: unknown;
 }
