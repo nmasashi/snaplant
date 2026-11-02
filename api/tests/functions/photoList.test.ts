@@ -519,9 +519,6 @@ describe('写真一覧API', () => {
       expect((response.jsonBody as any).data.photos.map((photo: any) => photo.id)).toEqual([PHOTO_A1_ID]);
     });
 
-    // 旅行があれば、写真が1枚も無くても 200 で空の一覧を返す（404 にしない）。
-    // 別の旅行 B には写真を置き、絞り込みが効かずに他の旅行の写真が混ざる誤りも区別できるようにする。
-    // 空でも URL の期限は返る
     it('旅行とお気に入りを指定すると、その旅行のお気に入りの写真だけが、お気に入りの印付きで返る（印の無い写真は含めない）', async () => {
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
       cosmosBackend.documents.set(PHOTO_A1_ID, storedPhoto(PHOTO_A1_ID, TRIP_A_ID, { favorite: true }));
@@ -538,6 +535,9 @@ describe('写真一覧API', () => {
       expect((response.jsonBody as any).data.photos.map((photo: any) => [photo.id, photo.favorite])).toEqual([[PHOTO_A1_ID, true]]);
     });
 
+    // 旅行があれば、写真が1枚も無くても 200 で空の一覧を返す（404 にしない）。
+    // 別の旅行 B には写真を置き、絞り込みが効かずに他の旅行の写真が混ざる誤りも区別できるようにする。
+    // 空でも URL の期限は返る
     it('旅行はあるが写真が1枚も無ければ、空の一覧が返る', async () => {
       freezeNow('2026-10-10T03:12:45.000Z');
       cosmosBackend.documents.set(TRIP_A_ID, tripDocument(TRIP_A_ID, '北海道 2026秋'));
