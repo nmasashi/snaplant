@@ -125,7 +125,8 @@ async function geocode(place) {
 
 /** 周りの山と名所を引く（Overpass API） */
 async function nearby(center, landmarkRadius) {
-  const key = `${center.lat.toFixed(4)},${center.lon.toFixed(4)},${landmarkRadius}`;
+  // 末尾の v2 は問い合わせの形の版（滝と道路の橋を足した）。形を変えたら上げて、前の結果を使わないようにする
+  const key = `${center.lat.toFixed(4)},${center.lon.toFixed(4)},${landmarkRadius},v2`;
   if (cache.overpass[key]) return cache.overpass[key];
   const at = (r) => `(around:${r},${center.lat},${center.lon})`;
   const L = at(landmarkRadius);
@@ -137,6 +138,10 @@ async function nearby(center, landmarkRadius) {
   nwr["amenity"="place_of_worship"]["name"]${L};
   nwr["tourism"~"^(attraction|museum|viewpoint)$"]["name"]${L};
   nwr["man_made"~"^(tower|lighthouse|bridge)$"]["name"]${L};
+  nwr["natural"="waterfall"]["name"]${L};
+  nwr["waterway"="waterfall"]["name"]${L};
+  way["bridge"]["bridge:name"]${L};
+  way["bridge"]["name"]${L};
 );
 out center tags;`;
   // 公開の Overpass は混むと 429・502・504 を返すので、別の公開のサーバにも順に聞き、間を空けて何度か送り直す
@@ -153,6 +158,8 @@ out center tags;`;
         method: 'POST',
         headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `data=${encodeURIComponent(query)}`,
+        // 混んでいると応答が返らないまま待ち続けるので、2分で打ち切って次のサーバへ
+        signal: AbortSignal.timeout(120000),
       });
     } catch (error) {
       // つながらないサーバもあるので、次のサーバへ
@@ -178,7 +185,8 @@ function kindOf(tags) {
   }
   if (tags.man_made === 'tower') return '塔';
   if (tags.man_made === 'lighthouse') return '灯台';
-  if (tags.man_made === 'bridge') return '橋';
+  if (tags.man_made === 'bridge' || tags.bridge) return '橋';
+  if (tags.natural === 'waterfall' || tags.waterway === 'waterfall') return '滝';
   if (tags.historic === 'ruins' || tags.historic === 'archaeological_site') return '遺跡';
   if (tags.historic === 'monument' || tags.historic === 'memorial') return '記念碑';
   if (tags.tourism === 'museum') return '博物館';
@@ -210,7 +218,8 @@ async function candidatesAt(center, landmarkRadius) {
   const all = [];
   for (const el of await nearby(center, landmarkRadius)) {
     const tags = el.tags || {};
-    const name = tags['name:ja'] || tags.name;
+    // 道路の橋は name が道路の名前のことがあるので、橋の名前（bridge:name）を先に見る
+    const name = tags['bridge:name'] || tags['name:ja'] || tags.name;
     const at = el.lat != null ? { lat: el.lat, lon: el.lon } : el.center ? { lat: el.center.lat, lon: el.center.lon } : null;
     if (!name || !at || seen.has(name)) continue;
     seen.add(name);
@@ -276,7 +285,8 @@ function promptOf(mode, row, candidates) {
   return parts.join('\n');
 }
 
-const normalize = (s) => s.normalize('NFKC').replace(/\s/g, '').toLowerCase();
+// 「華厳の滝」と「華厳滝」、「槍ヶ岳」と「槍ケ岳」を同じに見るため、つなぎの文字を落として比べる
+const normalize = (s) => s.normalize('NFKC').replace(/[\sのノヶケが]/g, '').toLowerCase();
 /** 答えの名前と AI の名前が合うか（どちらかがもう一方を含めば合う。「松本城」と「国宝松本城天守」など） */
 const matches = (answer, name) => {
   const a = normalize(answer);
@@ -298,6 +308,22 @@ async function pool(tasks, limit) {
 }
 
 async function main() {
+  // rescore: AI を呼び直さずに、result.json の答えを今の答え（photos.csv）と比べ直して result.html を書き直す
+  if (process.argv[2] === 'rescore') {
+    const saved = JSON.parse(fs.readFileSync(path.join(WORK, 'result.json'), 'utf8'));
+    const answersOf = new Map(loadRows().map((r) => [r.file, r]));
+    for (const row of saved) {
+      const now = answersOf.get(row.file);
+      if (now) Object.assign(row, { answers: now.answers, kind: now.kind });
+      for (const r of Object.values(row.results || {})) {
+        if (r.items) r.hits = row.answers.map((a) => r.items.some((item) => matches(a, item.name)));
+      }
+    }
+    fs.writeFileSync(path.join(WORK, 'result.json'), JSON.stringify(saved, null, 2));
+    fs.writeFileSync(path.join(WORK, 'result.html'), resultHtml(saved));
+    console.log(`書き直した: ${path.join(WORK, 'result.html')}`);
+    return;
+  }
   const candidatesOnly = process.argv[2] === 'candidates';
   const rows = loadRows();
   if (rows.length === 0) throw new Error('photos.csv に行がありません');
@@ -393,7 +419,7 @@ function rate(rows, mode, kind) {
 }
 
 function resultHtml(rows) {
-  const summary = `<table><tr><th>聞き方</th><th>山</th><th>建物</th></tr>${MODES.map((m) =>
+  const summary = `<table><tr><th>聞き方</th><th>山</th><th>山以外</th></tr>${MODES.map((m) =>
     `<tr><td><span style="color:${COLORS[m]}">●</span> ${m}</td><td>${rate(rows, m, '山')}</td><td>${rate(rows, m, '建物')}</td></tr>`).join('')}</table>`;
   const tokens = rows.flatMap((r) => Object.values(r.results || {})).filter((x) => x.usage);
   const usage = `<p class="small">AI の呼び出し ${tokens.length} 回、入力 平均 ${Math.round(tokens.reduce((s, x) => s + x.usage.prompt_tokens, 0) / Math.max(tokens.length, 1))}・出力 平均 ${Math.round(tokens.reduce((s, x) => s + x.usage.completion_tokens, 0) / Math.max(tokens.length, 1))} トークン、時間 平均 ${Math.round(tokens.reduce((s, x) => s + x.ms, 0) / Math.max(tokens.length, 1))} ms</p>`;
@@ -407,7 +433,7 @@ function resultHtml(rows) {
       return `<div><span style="color:${COLORS[m]}">●</span> ${m}: <span class="${n === r.hits.length ? 'ok' : 'ng'}">${n}/${r.hits.length}</span> `
         + `${r.items.map((it) => `${esc(it.name)}（${it.kind}・${it.confidence}${it.fromCandidates ? '・候補' : ''}）`).join('、') || '（挙げなかった）'}</div>`;
     }).join('');
-    return `<figure><div><b>${esc(row.file)}</b>（${row.kind}） 答え: ${esc(row.answers.join('・'))}</div>
+    return `<figure><div><b>${esc(row.file)}</b>（${row.kind}） 答え: ${esc(row.answers.join('・') || '（未記入。点数に入れない）')}</div>
 <div class="small">撮った場所: ${esc(row.place ?? '-')}${row.coords ? ` / 座標 ${row.coords.lat}, ${row.coords.lon}` : ''}
  / 答えが候補に: 地名 ${JSON.stringify(row.answerInCandidates.place)} 座標 ${JSON.stringify(row.answerInCandidates.coords)}</div>
 <div class="photo"><img src="photos/${encodeURIComponent(row.file)}">${dots}</div>${lines}</figure>`;
@@ -418,7 +444,7 @@ function resultHtml(rows) {
 
 function candidatesHtml(rows) {
   const block = (title, c) => (c ? `<div class="small">${title}（全 ${c.all.length} 件から ${c.list.length} 件）</div><ol>${c.list.map((x) => `<li>${esc(lineOf(x, 0).replace(/^1\. /, ''))}</li>`).join('')}</ol>` : '');
-  const cards = rows.map((row) => `<figure><div><b>${esc(row.file)}</b>（${row.kind}） 答え: ${esc(row.answers.join('・'))}</div>
+  const cards = rows.map((row) => `<figure><div><b>${esc(row.file)}</b>（${row.kind}） 答え: ${esc(row.answers.join('・') || '（未記入。点数に入れない）')}</div>
 <div class="small">撮った場所: ${esc(row.place ?? '-')} → ${esc(row.geocoded?.label ?? '見つからない')}${row.coords ? ` / 座標 ${row.coords.lat}, ${row.coords.lon}` : ''}</div>
 <div class="small">答えが候補に: 地名 ${JSON.stringify(row.answerInCandidates.place)} 座標 ${JSON.stringify(row.answerInCandidates.coords)} / 地図のデータに: 地名 ${JSON.stringify(row.answerInMap.place)} 座標 ${JSON.stringify(row.answerInMap.coords)}</div>
 ${block('地名から', row.placeCandidates)}${block('座標から', row.coordsCandidates)}</figure>`).join('\n');
