@@ -256,4 +256,19 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(result.total).toBe(3);
     expect(result.byKind).toEqual({ castle: 1, peak: 2 });
   });
+
+  it('件数の下限が数として読めない・負・小数なら、確かめが黙って効かなくならないよう失敗する', async () => {
+    const lines = [point(36.1, 137.1, { historic: 'castle', name: '城' })];
+    // 「120,000」などを渡すと NaN になり、件数 < NaN は常に false で、下限が消える
+    await forEachCase(
+      [
+        ['数でない', Number.NaN],
+        ['負', -1],
+        ['小数', 1.5]
+      ] as Array<[string, number]>,
+      async (_name, minCount) => {
+        await expect(buildLandmarkCells(lines, { minCount })).rejects.toThrow('件数の下限が無効です');
+      }
+    );
+  });
 });
