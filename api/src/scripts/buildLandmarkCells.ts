@@ -121,15 +121,17 @@ export async function buildLandmarkCells(
     const kind = kindOf(tags);
     // 道の橋は name に道の名前が入っていることがあるので、橋の名前を先に見る。橋の道でもある観光地などは、その名前を先にし、
     // 名前が橋の名前にしか無ければそれを使う。空の値は無いものとみなす
-    const bridgeName = tags['bridge:name'] || undefined;
+    // 前後の空白（全角を含む）は除き、空白だけの値は無いものとみなす
+    const clean = (value: string | undefined) => value?.trim() || undefined;
+    const bridgeName = clean(tags['bridge:name']);
     const name = kind === 'bridge'
-      ? bridgeName || tags['name:ja'] || tags.name
-      : tags['name:ja'] || tags.name || bridgeName;
+      ? bridgeName ?? clean(tags['name:ja']) ?? clean(tags.name)
+      : clean(tags['name:ja']) ?? clean(tags.name) ?? bridgeName;
     const bounds: Bounds = { south: Infinity, north: -Infinity, west: Infinity, east: -Infinity };
     extendBounds(bounds, feature.geometry?.coordinates);
     if (kind === null || !name || bounds.south === Infinity) continue;
     // 道や線路の橋の name は道や線路の名前（東海道新幹線・国道20号など）のことが多いので、橋の名前か「橋」を含む名前のときだけ使う
-    if (kind === 'bridge' && tags.man_made !== 'bridge' && !tags['bridge:name'] && !name.includes('橋')) continue;
+    if (kind === 'bridge' && tags.man_made !== 'bridge' && !bridgeName && !name.includes('橋')) continue;
 
     const lat = (bounds.south + bounds.north) / 2;
     const lon = (bounds.west + bounds.east) / 2;
