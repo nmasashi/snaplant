@@ -249,12 +249,11 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(result.total).toBe(2);
   });
 
-  it('長い橋が区切られて載っていても、区切りがつながっていれば1件にまとめ、位置は最初の区切りの中心にする', async () => {
+  it('区切られて載っている橋は、最初の区切りとつながる区切りを1件にまとめ、位置は最初の区切りの中心にする', async () => {
     // 1 区切り 0.006 度（約 670 m）。区切りの中心どうしは 500 m より離れるが、区切りの端はつながっている
     const result = await build([
       line([[36.100, 137.10], [36.106, 137.10]], { man_made: 'bridge', name: '長い大橋' }),
-      line([[36.106, 137.10], [36.112, 137.10]], { man_made: 'bridge', name: '長い大橋' }),
-      line([[36.112, 137.10], [36.118, 137.10]], { man_made: 'bridge', name: '長い大橋' })
+      line([[36.106, 137.10], [36.112, 137.10]], { man_made: 'bridge', name: '長い大橋' })
     ]);
 
     const entries = allEntries(result.cells);
@@ -348,5 +347,18 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(entry.name).toBe('大きな城');
     expect(entry.lat).toBeCloseTo(36.105, 6);
     expect(entry.lon).toBeCloseTo(137.1, 6);
+  });
+
+  it('同じ名前の名所が 500 m より短い間隔で並んでいても、最初の1件から 500 m より離れたものは別に残す', async () => {
+    // 展望台・忠魂碑のような名前は、尾根や海沿いに短い間隔で並ぶことがある。鎖のようにつないで1件にしない
+    const result = await build([
+      point(36.100, 137.10, { tourism: 'viewpoint', name: '展望台' }),
+      // 北へ約 400 m
+      point(36.1036, 137.10, { tourism: 'viewpoint', name: '展望台' }),
+      // 北へ約 800 m（2件目からは約 400 m）
+      point(36.1072, 137.10, { tourism: 'viewpoint', name: '展望台' })
+    ]);
+
+    expect(allEntries(result.cells).map((e) => e.lat)).toStrictEqual([36.1, 36.1072]);
   });
 });
