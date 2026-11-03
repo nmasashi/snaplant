@@ -154,7 +154,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `commentSource` はカテゴリのシートでも読み、AI のコメント（`"ai"`）なら、保存すると消えることを知らせる（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)。カテゴリの変更で AI のコメントを消す、で実装済み）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
 `processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
-**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。
+**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。C-5 から、風景の写真の名所のタグの提案も同じ `step: "tag"` で表す（[06 §10](./06_processing_design.md#10-名所の判別c-5)。未実装。応答の形は変わらない）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
