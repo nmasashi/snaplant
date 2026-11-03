@@ -80,11 +80,19 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       ),
       point(35.0124, 135.7826, { tourism: 'museum', name: 'Kyoto City KYOCERA Museum of Art', 'name:ja': '京都市京セラ美術館' }),
       point(36.2378, 137.9712, { amenity: 'place_of_worship', religion: 'shinto', name: '四柱神社' }),
-      point(36.2400, 137.9700, { amenity: 'place_of_worship', religion: 'shinto' })
+      point(36.2400, 137.9700, { amenity: 'place_of_worship', religion: 'shinto' }),
+      // 橋の道でもある観光地は、橋の名前でなく、その観光地の名前を使う（橋の名前は種類が橋のときだけ）
+      line(
+        [
+          [36.30, 137.30],
+          [36.31, 137.31]
+        ],
+        { highway: 'footway', bridge: 'yes', tourism: 'attraction', name: '空中散歩道', 'bridge:name': '第二歩道橋' }
+      )
     ]);
 
     expect(allEntries(result.cells).map((e) => e.name).sort()).toStrictEqual(
-      ['京都市京セラ美術館', '四柱神社', '埋橋'].sort()
+      ['京都市京セラ美術館', '四柱神社', '埋橋', '空中散歩道'].sort()
     );
   });
 
