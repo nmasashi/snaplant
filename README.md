@@ -30,14 +30,14 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 ### バックエンド
 - **Azure Functions**: サーバーレス API ホスティング
 - **Azure Cosmos DB**: 旅行と写真の情報の永続化（無料枠活用）
-- **Azure Blob Storage**: 写真の保存（非公開。SAS URL で渡す）と、解析の待ちのキュー（Storage Queue）
+- **Azure Blob Storage**: 写真の保存（非公開。SAS URL で渡す）と、名所のデータ（`landmarks` コンテナ。C-5a。今は読むコードは無い）と、解析の待ちのキュー（Storage Queue）
 - **Azure OpenAI Service**: `gpt-6-luna` デプロイメントによる写真の分類と識別（画像入力）と、タイムラインの区切り案と文（文字だけ）
 - **Application Insights**: 監視・ログ・分析
 
 ## 🚀 CI/CD
 
 このプロジェクトは GitHub Actions による CI/CD パイプラインを使用しています。
-ワークフローは5本です。
+ワークフローは6本です。
 
 | ワークフロー | 対象 | 内容 |
 |---|---|---|
@@ -46,6 +46,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 | `.github/workflows/terraform.yml` | `infrastructure/` | `terraform fmt -check -recursive` と `terraform validate`（`-backend=false`）。Azure へは通信せず認証情報も不要で、`plan` は回しません |
 | `.github/workflows/deploy-functions.yml` | `api/` | main ブランチへのプッシュで ci.yml を呼び、成功後に本番デプロイ |
 | `.github/workflows/flutter.yml` | `mobile/` | Flutter 3.32.8 で `flutter pub get` → `flutter analyze`（info も含めて指摘があれば失敗します）→ `flutter test`（`TZ=Asia/Tokyo`）。手動実行もあります。デプロイの前提にはしていないため、失敗してもデプロイは止まりません |
+| `.github/workflows/landmarks-extract.yml` | （手動実行だけ） | OpenStreetMap の日本の分から名所と山頂を取り出し、区画のファイルを成果物 `landmarks` に残します（C-5a）。Azure の資格情報は使わず、Blob へは人が上げます（DEPLOYMENT.md「名所のデータの更新」） |
 
 詳細は [DEPLOYMENT.md](./DEPLOYMENT.md) を参照してください。
 

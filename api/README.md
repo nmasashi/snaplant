@@ -59,12 +59,13 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 ## 手で回すスクリプト
 
 `src/scripts/` にあり、`app.ts` からは import しない（関数としては登録されない）。ビルドしてから手元で回す。
-環境変数が無ければ `local.settings.json` の `Values` を読む（中身はログに出さない）。**本番のデータを書くので、回すのは人間。**
+環境変数が無ければ `local.settings.json` の `Values` を読む（中身はログに出さない）。**本番のデータを書くので、回すのは人間。**（`buildLandmarkCells` だけは設定を読まず、本番のデータにも触らない）
 
 | スクリプト | 内容 | 設計 |
 |---|---|---|
 | `src/scripts/enqueueUnidentified.ts` | 段階3で分類まで済んだ写真（`done`・自動で識別する種類（植物）・識別なし）を識別の待ちにする（食べ物・風景は対象にしない）。キューには積まず、再投入のタイマーが 10〜20 分後に積む | `docs/06_processing_design.md` §1 |
 | `src/scripts/enqueueUntagged.ts` | C-4 より前に解析が済んだ食べ物の写真（`done`・`food`・タグなし）をタグの提案の待ちにする。キューには積まず、再投入のタイマーが 10〜20 分後に積む。スクリプトは AI を呼ばないが、待ちにした写真1枚ごとにワーカーが AI（`detail: "high"`）を呼ぶ（1枚 約 $0.001） | `docs/06_processing_design.md` §9 |
+| `src/scripts/buildLandmarkCells.ts` | osmium が書き出した名所と山頂の GeoJSON から、名所のデータの区画のファイル（`cells/<区画>.json`）と件数（`summary.json`）を作る。引数は `--input <geojsonseq> --out <出力先> [--min-count <件数>]`（下限の既定は 120000。下回るか、0 以上の整数でなければ終了コード 1）。本番のデータには触らず、取り出しのワークフロー（`.github/workflows/landmarks-extract.yml`）が回す。Blob へ上げる手順は DEPLOYMENT.md「名所のデータの更新」 | `docs/06_processing_design.md` §10.1 |
 
 設定の読み込みと宛先の表示は `src/scripts/scriptSettings.ts` にある（スクリプトを足すときはこれを使う）。
 植物図鑑の記録を写真へ移すスクリプト（`migratePlants`）は、旧図鑑の植物を移さないと決めたので、4-6 で植物図鑑の API と一緒に削除した。

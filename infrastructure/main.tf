@@ -67,6 +67,15 @@ resource "azurerm_storage_container" "photos" {
   container_access_type = "private"
 }
 
+# 名所のデータ（OpenStreetMap の日本の分から取り出した名所と山頂の、区画ごとの JSON。C-5）。
+# 公開しない。ワーカーが接続文字列で読むだけ。中身は人が取り出しのワークフローの成果物から上げる（DEPLOYMENT.md）。
+# docs/07_infrastructure_design.md §8・06_processing_design.md §10.1
+resource "azurerm_storage_container" "landmarks" {
+  name                  = "landmarks"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
 # 旅行アルバムの写真の処理（段階3の分類・段階4の識別）のキュー。API の写真の送信が { photoId } を入れ、ワーカーが1件ずつ取る。
 # 3回失敗した要求は Functions が自動で作る photo-processing-poison に落ちる（host.json の maxDequeueCount）。
 # docs/07_infrastructure_design.md §2・06_processing_design.md §1
@@ -220,6 +229,9 @@ resource "azurerm_linux_function_app" "main" {
     # 旅行アルバムのタイムライン（段階5）。日付の切り替えの時刻（TIMELINE_DAY_START_HOUR）と
     # タイムライン用のデプロイ名（AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME）は書かない（未設定なら 4 と AZURE_OPENAI_DEPLOYMENT_NAME。07 §7）
     "TIMELINE_QUEUE_NAME" = azurerm_storage_queue.timeline_processing.name
+
+    # 名所の判別（C-5）の候補を引く名所のデータのコンテナ。未設定なら候補なしで聞く（07 §8）
+    "LANDMARK_STORAGE_CONTAINER_NAME" = azurerm_storage_container.landmarks.name
   }
 
   # Azure がポータルの表示のために自動で付けるタグ。定義に無いので apply のたびに消そうとする差分が出る（害は無いが紛らわしい）

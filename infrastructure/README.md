@@ -20,7 +20,7 @@ infrastructure/
 ```
 
 リソースは `main.tf` 1ファイルにまとめている（再利用可能なモジュールには分割していない）。
-定義しているのは、リソースグループ / Storage Account（`photos` コンテナと、旅行アルバムの写真の解析のキュー `photo-processing`）/
+定義しているのは、リソースグループ / Storage Account（`photos` コンテナ、名所のデータの `landmarks` コンテナ（C-5a）、旅行アルバムの写真の解析のキュー `photo-processing`、タイムラインのキュー `timeline-processing`）/
 Cosmos DB（`snaplant-db`・`album`）/ App Service Plan / Linux Function App /
 Application Insights / Azure OpenAI（`gpt-6-luna` デプロイメント）/ リソースグループの月額の予算アラート（`azurerm_consumption_budget_resource_group`）。
 Azure API Management と Key Vault は**定義していない**。

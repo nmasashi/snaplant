@@ -8,7 +8,7 @@ SnapPlant は Azure Functions を使用した旅行アルバム（写真の分�
 
 - **Azure Functions**: サーバーレス API ホスティング（HTTP の関数と、写真の解析・タイムラインのワーカー・タイマー）
 - **Azure Cosmos DB**: 旅行と写真の情報（`album` コンテナ）
-- **Azure Blob Storage**: 写真（`photos` コンテナ）と、解析・タイムラインの待ちのキュー（Storage Queue）
+- **Azure Blob Storage**: 写真（`photos` コンテナ）と、名所のデータ（`landmarks` コンテナ。C-5a。下の「名所のデータの更新」）と、解析・タイムラインの待ちのキュー（Storage Queue）
 - **Application Insights**: 監視・ログ
 - **Azure OpenAI**: 写真の分類と識別（Vision + Structured Outputs）と、タイムラインの区切り案と文（文字だけ + Structured Outputs）の AI
 
@@ -111,6 +111,12 @@ GitHub Actions は以下の条件で自動実行されます：
   - `api/` または `.github/workflows/` 配下のファイル変更時
   - 手動実行（workflow_dispatch）
 
+- **名所のデータの取り出し** (`/.github/workflows/landmarks-extract.yml`。C-5a):
+  - 手動実行（workflow_dispatch）だけ。push・プルリクエスト・定期では回らない
+  - OpenStreetMap の日本の分（Geofabrik の `japan-latest.osm.pbf`）を落とし、osmium で名所と山頂に絞り、区画のファイル（`api/src/scripts/buildLandmarkCells.ts`）にして、成果物 `landmarks` に残す（保持 90 日）
+  - 入力 `min_count`（既定 120000。2026-11-03 に回して 159,520 件だったので、その 75% ほど）: 名所と山頂の件数がこれを下回ったら失敗にする（空に近いデータを上げないため）。0 以上の整数でなければ（`120,000` のようにカンマを入れたものなど）、数える前に失敗する
+  - **Azure の資格情報も GitHub Secrets も使わない。** Blob へは人が上げる（下の「名所のデータの更新」）
+
 - **Flutter 静的解析とテスト** (`/.github/workflows/flutter.yml`):
   - `main`, `develop` ブランチへのプッシュ
   - `main`, `develop` ブランチへのプルリクエスト
@@ -163,6 +169,34 @@ npm run build
 # 2. Azure Functions Core Tools でデプロイ
 func azure functionapp publish <FUNCTION_APP_NAME> --build remote
 ```
+
+## 名所のデータの更新（C-5）
+
+名所のデータ（`landmarks` コンテナの `cells/*.json`）を置き換える。目安は半年に1回と、名所の抜けや名前の誤りに気づいたとき。
+中身と作り方は `docs/06_processing_design.md` §10.1。今はこのデータを読むコードは無い（名所の判別は C-5b。データを上げてから C-5b をデプロイする順は `docs/11_implementation_plan.md` の C-5b の行）。
+
+1. GitHub の **Actions** タブで **名所のデータの取り出し** を選び、**Run workflow** で回す（`min_count` は既定のまま）
+2. 終わったら、ログの最後（`summary.json`）の件数を前回と比べる。大きく減っていたら上げない
+3. 成果物を落とす（リポジトリ直下で）:
+
+   ```bash
+   gh run download <run-id> -n landmarks -D .work/landmarks
+   ```
+
+4. `landmarks` コンテナに上げる（ストレージアカウント名は `terraform output storage_account_name`。`--auth-mode login` には、上げる人に「ストレージ BLOB データ共同作成者」のロールが要る）:
+
+   上書きだけでは、新しいデータに無い区画の古いファイルが残る（線路の名前の橋などを外した後の版を上げても、前の版にしかない区画は前のまま）。
+   なので先に `cells/` を消してから上げる。今はこのデータを読むコードが無いので、消している間に困ることは無い。
+   名所の判別（C-5b）を入れた後は、消してから上げ終わるまでの数分に解析する風景の写真が候補なしで聞かれる（失敗にはならない）。
+   上げる途中で失敗したら、同じ `upload-batch` をもう一度回す（落とした成果物は手元に残っている）:
+
+   ```bash
+   az storage blob delete-batch --account-name <ストレージアカウント名> --source landmarks --pattern 'cells/*' --auth-mode login
+   az storage blob upload-batch --account-name <ストレージアカウント名> --destination landmarks \
+     --source .work/landmarks/cells --destination-path cells --overwrite --auth-mode login
+   ```
+
+5. 成果物は 90 日で消えるので、戻せるように前回の分を手元に残しておく（おかしければ前回の分を同じ手順（消してから上げる）で上げ直す）
 
 ## 監視とログ
 
@@ -233,6 +267,7 @@ Function App に設定される主要な環境変数：
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
+| `LANDMARK_STORAGE_CONTAINER_NAME` | 名所のデータの Blob コンテナ名（`landmarks`。C-5a）。今はこれを読むコードは無い（名所の判別（C-5b）が読む予定。`docs/07_infrastructure_design.md` §8） |
 | `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・`POST …/timeline/draft/write`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |
