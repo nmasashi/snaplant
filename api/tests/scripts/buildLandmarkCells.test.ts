@@ -398,4 +398,22 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
 
     expect(allEntries(result.cells).map((e) => e.lat)).toStrictEqual([36.1, 36.1072]);
   });
+
+  it('名前の前後の空白は除き、空白だけの名前は無いものとみなす（橋の名前の条件も同じ）', async () => {
+    const segment: Array<[number, number]> = [
+      [36.10, 137.10],
+      [36.11, 137.11]
+    ];
+    const result = await build([
+      // 空白だけの橋の名前は無いものとみなすので、道の名前（国道20号）だけの橋として捨てる
+      line(segment, { highway: 'primary', bridge: 'yes', 'bridge:name': ' ', name: '国道20号' }),
+      // 全角の空白だけの日本語の名前は無いものとみなし、name を使う
+      point(36.2, 137.2, { historic: 'castle', 'name:ja': '　', name: '名前のある城' }),
+      // 前後の空白は除くので、同じ名前としてまとまる
+      point(36.3, 137.3, { historic: 'castle', name: '埋城' }),
+      point(36.3001, 137.3001, { historic: 'castle', name: '埋城 ' })
+    ]);
+
+    expect(allEntries(result.cells).map((e) => e.name).sort()).toStrictEqual(['名前のある城', '埋城'].sort());
+  });
 });
