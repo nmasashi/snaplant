@@ -78,7 +78,10 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
   it('写真が対象でない（タグがある・食べ物でない・解析が済んでいない）なら、書き込みを指定しても変えない', () => forEachCase([
     ['タグがある', { tags: [{ name: '夕食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] }],
     ['植物', { category: 'plant' }],
-    ['風景', { category: 'landscape' }],
+    // 撮影地の無い風景の写真は、名所の提案に回さない（06 §10。02 §5 #65）
+    ['風景で撮影地が無い', { category: 'landscape', location: null }],
+    ['風景で座標も地名も空', { category: 'landscape', location: { latitude: null, longitude: null, placeName: null, placeSource: null } }],
+    ['風景で手でカテゴリを風景にした', { category: 'landscape', categorySource: 'user', location: { latitude: 36.2386, longitude: 137.9689, placeName: null, placeSource: 'device' } }],
     // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）。スクリプトもそれに合わせる
     ['手でカテゴリを食べ物にした', { categorySource: 'user' }],
     ['分類の待ち', { processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: CLASSIFIED_AT } }],
@@ -94,6 +97,17 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     expect(result).toEqual({ found: 0, marked: 0 });
     expect(stored(photoId('a'))).toEqual(photo);
   }));
+
+  it('撮影地（座標か地名）のある、解析が済んでタグの無い風景の写真も、タグの提案（名所）の待ちにする（C-5b。06 §10）', async () => {
+    cosmosBackend.documents.set(photoId('a'), foodPhoto(photoId('a'), { category: 'landscape', location: { latitude: 36.2386, longitude: 137.9689, placeName: '長野県松本市', placeSource: 'device' } }));
+    cosmosBackend.documents.set(photoId('b'), foodPhoto(photoId('b'), { category: 'landscape', location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' } }));
+
+    const result = await enqueueUntaggedFoodPhotos({ apply: true, log });
+
+    expect(result).toEqual({ found: 2, marked: 2 });
+    expect(stored(photoId('a')).processing).toEqual(waitingForTags);
+    expect(stored(photoId('b')).processing).toEqual(waitingForTags);
+  });
 
   it('書き込みを指定しなければ、対象の写真を数えるだけで何も変えない', async () => {
     // 本番のデータを書き、AI の費用もかかるので、先に件数を見てから回す（06 §9）
