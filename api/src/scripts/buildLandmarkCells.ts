@@ -110,7 +110,7 @@ export async function buildLandmarkCells(
   }
   const cells: Record<string, LandmarkEntry[]> = {};
   const byKind: Record<string, number> = {};
-  // 種類・名前ごとに、残した名所と、それにまとめた形を囲む四角（区画の境をまたいでまとめられるよう、区画では分けない）
+  // 種類・名前ごとに、残した名所と、その形を囲む四角（区画の境をまたいでまとめられるよう、区画では分けない）
   const keptOf = new Map<string, Array<{ entry: LandmarkEntry; bounds: Bounds }>>();
   let total = 0;
   for await (const raw of lines) {
@@ -150,11 +150,8 @@ export async function buildLandmarkCells(
     if (seen) {
       seen.entry.known ||= entry.known;
       seen.entry.ele ??= entry.ele;
-      // 区切って載っている長い橋のように、まとめるたびに伸びる形もつなげられるよう、四角を広げる
-      seen.bounds.south = Math.min(seen.bounds.south, bounds.south);
-      seen.bounds.north = Math.max(seen.bounds.north, bounds.north);
-      seen.bounds.west = Math.min(seen.bounds.west, bounds.west);
-      seen.bounds.east = Math.max(seen.bounds.east, bounds.east);
+      // 四角は広げない。広げると、展望台・忠魂碑のような名前が短い間隔で並ぶ所で鎖のようにつながり、何 km 分の名所が1件になる。
+      // 長い橋の遠い区切りが別に残っても、候補を選ぶときに名前で除ける（取りこぼすより害が小さい）
       continue;
     }
     sameName.push({ entry, bounds });
