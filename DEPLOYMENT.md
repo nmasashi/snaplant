@@ -183,10 +183,12 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
    gh run download <run-id> -n landmarks -D .work/landmarks
    ```
 
-4. `landmarks` コンテナに上書きで上げる（ストレージアカウント名は `terraform output storage_account_name`。`--auth-mode login` には、上げる人に「ストレージ BLOB データ共同作成者」のロールが要る）:
+4. `landmarks` コンテナに上げる（ストレージアカウント名は `terraform output storage_account_name`。`--auth-mode login` には、上げる人に「ストレージ BLOB データ共同作成者」のロールが要る）:
 
    上書きだけでは、新しいデータに無い区画の古いファイルが残る（線路の名前の橋などを外した後の版を上げても、前の版にしかない区画は前のまま）。
-   なので先に `cells/` を消してから上げる。消してから上げ終わるまでの数分は、その間に解析する風景の写真が候補なしで聞かれる（失敗にはならない）:
+   なので先に `cells/` を消してから上げる。今はこのデータを読むコードが無いので、消している間に困ることは無い。
+   名所の判別（C-5b）を入れた後は、消してから上げ終わるまでの数分に解析する風景の写真が候補なしで聞かれる（失敗にはならない）。
+   上げる途中で失敗したら、同じ `upload-batch` をもう一度回す（落とした成果物は手元に残っている）:
 
    ```bash
    az storage blob delete-batch --account-name <ストレージアカウント名> --source landmarks --pattern 'cells/*' --auth-mode login

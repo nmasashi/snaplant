@@ -342,6 +342,6 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 
 - **取り出しのワークフロー**（`.github/workflows/landmarks-extract.yml`。手で動かす `workflow_dispatch` だけで、push・PR・定期では動かない）: Azure の資格情報も GitHub Secrets も持たない。結果は成果物 `landmarks`（保持 90 日）として残し、Blob へは人が上げる（#65）。
   デプロイを止める検査ではないので ci.yml には足さない
-- **置き換えの手順**（人間。DEPLOYMENT.md に書く）: 成果物を落として展開し、`az storage blob upload-batch` で `landmarks` コンテナに上書きで上げる。最初の1回は C-5 の api をデプロイする前に行い、その後に既にある風景の写真のスクリプト（06 §10）を回す
+- **置き換えの手順**（人間。DEPLOYMENT.md に書く）: 成果物を落として展開し、`az storage blob delete-batch` で `landmarks` コンテナの `cells/` を消してから、`az storage blob upload-batch` で上げる（上書きだけでは、新しいデータに無い区画の古いファイルが残る）。最初の1回は C-5 の api をデプロイする前に行い、その後に既にある風景の写真のスクリプト（06 §10）を回す
 - 費用: 区画のファイルは全部で数十 MB（09 の実測で 19〜41 MB）で、Blob の保管は月 1 セント未満。ワークフローは公開のリポジトリなら無料（private でも月 2,000 分の無料枠に収まる。09 の実測で1回 12〜20 分）
 - `plan` は「1 to add, 1 to change, 0 to destroy」（コンテナの追加と、Function App の `app_settings` に `LANDMARK_STORAGE_CONTAINER_NAME` を足す変更。C-5a で確かめた）。**apply は人間が行う**
