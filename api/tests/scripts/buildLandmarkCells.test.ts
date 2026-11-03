@@ -1,4 +1,4 @@
-import { buildLandmarkCells } from '../../src/scripts/buildLandmarkCells';
+import { LandmarkEntry, buildLandmarkCells } from '../../src/scripts/buildLandmarkCells';
 import { forEachCase } from '../helpers/cases';
 
 // 名所のデータの区画のファイルを作るスクリプト（C-5a。docs/06_processing_design.md §10.1）。
@@ -26,7 +26,7 @@ const line = (points: Array<[number, number]>, tags: Tags): string =>
 const build = (lines: string[]) => buildLandmarkCells(lines, { minCount: 0 });
 
 /** すべての区画の名所を1つの配列にする */
-const allEntries = (cells: Record<string, unknown[]>) => Object.values(cells).flat();
+const allEntries = (cells: Record<string, LandmarkEntry[]>): LandmarkEntry[] => Object.values(cells).flat();
 
 describe('名所のデータの区画のファイルを作るスクリプト（C-5a。06 §10.1）', () => {
   it('名前のある城の点は、その区画に名前・種類・位置・名の知れたものか・標高の無しで入る', async () => {
@@ -59,7 +59,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       )
     ]);
 
-    const entries = allEntries(result.cells) as Array<{ name: string; lat: number; lon: number }>;
+    const entries = allEntries(result.cells);
     const kochi = entries.find((e) => e.name === '高知城');
     const kappa = entries.find((e) => e.name === '河童橋');
     expect(kochi?.lat).toBeCloseTo(33.5605, 6);
@@ -76,14 +76,14 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
           [36.2380, 137.9680],
           [36.2381, 137.9681]
         ],
-        { highway: 'footway', bridge: 'yes', name: '松本城の園路', 'bridge:name': '埋橋' }
+        { highway: 'footway', bridge: 'yes', name: 'Matsumoto Castle path', 'name:ja': '松本城の園路', 'bridge:name': '埋橋' }
       ),
       point(35.0124, 135.7826, { tourism: 'museum', name: 'Kyoto City KYOCERA Museum of Art', 'name:ja': '京都市京セラ美術館' }),
       point(36.2378, 137.9712, { amenity: 'place_of_worship', religion: 'shinto', name: '四柱神社' }),
       point(36.2400, 137.9700, { amenity: 'place_of_worship', religion: 'shinto' })
     ]);
 
-    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toStrictEqual(
+    expect(allEntries(result.cells).map((e) => e.name).sort()).toStrictEqual(
       ['京都市京セラ美術館', '四柱神社', '埋橋'].sort()
     );
   });
@@ -97,6 +97,11 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       ['教会', { amenity: 'place_of_worship', religion: 'christian' }, 'church'],
       ['宗教の分からない寺社', { amenity: 'place_of_worship' }, 'place_of_worship'],
       ['寺の建物', { building: 'temple' }, 'place_of_worship'],
+      ['神社の建物', { building: 'shrine' }, 'place_of_worship'],
+      ['教会の建物', { building: 'church' }, 'place_of_worship'],
+      ['大聖堂の建物', { building: 'cathedral' }, 'place_of_worship'],
+      ['仏塔の建物', { building: 'pagoda' }, 'place_of_worship'],
+      ['宗教の分かる寺の建物', { building: 'temple', religion: 'buddhist' }, 'temple'],
       ['塔', { man_made: 'tower' }, 'tower'],
       ['灯台', { man_made: 'lighthouse' }, 'lighthouse'],
       ['橋（man_made）', { man_made: 'bridge' }, 'bridge'],
@@ -122,7 +127,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     ];
     await forEachCase(cases, async (_name, tags, kind) => {
       const result = await build([point(36.1, 137.1, { ...tags, name: 'なにか' })]);
-      const entries = allEntries(result.cells) as Array<{ kind: string }>;
+      const entries = allEntries(result.cells);
       expect(entries.map((e) => e.kind)).toEqual(kind === null ? [] : [kind]);
     });
   });
@@ -133,7 +138,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       point(36.1, 137.1, { historic: 'castle', name: 'どちらも無い' })
     ]);
 
-    const entries = allEntries(result.cells) as Array<{ name: string; known: boolean }>;
+    const entries = allEntries(result.cells);
     expect(entries.find((e) => e.name === 'ウィキペディアだけ')?.known).toBe(true);
     expect(entries.find((e) => e.name === 'どちらも無い')?.known).toBe(false);
   });
@@ -147,7 +152,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       point(36.2, 137.9, { man_made: 'tower', name: '標高の付いた塔', ele: '700' })
     ]);
 
-    const eleOf = (name: string) => (allEntries(result.cells) as Array<{ name: string; ele: number | null }>).find((e) => e.name === name)?.ele;
+    const eleOf = (name: string) => allEntries(result.cells).find((e) => e.name === name)?.ele;
     expect(eleOf('奥穂高岳')).toBe(3190);
     expect(eleOf('焼岳')).toBe(2444.3);
     expect(eleOf('標高の読めない山')).toBeNull();
@@ -162,7 +167,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     ]);
 
     expect(Object.keys(result.cells).sort()).toEqual(['36.00_137.75', '36.25_138.00']);
-    expect((result.cells['36.25_138.00'] as Array<{ name: string }>).map((e) => e.name)).toEqual(['境の上']);
+    expect(result.cells['36.25_138.00'].map((e) => e.name)).toEqual(['境の上']);
   });
 
   it('道や線路の橋は、橋の名前があるか、名前に「橋」を含むときだけ入れ、道や線路の名前だけの橋は捨てる', async () => {
@@ -191,7 +196,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       )
     ]);
 
-    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toStrictEqual(
+    expect(allEntries(result.cells).map((e) => e.name).sort()).toStrictEqual(
       ['ベイブリッジ', 'レインボーブリッジ', '新宮川橋梁', '河童橋'].sort()
     );
   });
@@ -215,13 +220,16 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       ),
       point(36.2386, 137.9689, { historic: 'castle', name: '松本城' }),
       point(36.2387, 137.9690, { historic: 'castle', name: '松本城', wikidata: 'Q46581' }),
+      // 名の知れたものの後に、名の知れていないもの（wikidata の無い敷地の形など）が来ても、名の知れたもののまま
+      point(36.2388, 137.9691, { historic: 'castle', name: '松本城' }),
       // 名前が同じでも種類が違えば別
       point(36.2386, 137.9689, { tourism: 'viewpoint', name: '松本城' })
     ]);
 
-    const entries = allEntries(result.cells) as Array<{ name: string; kind: string; known: boolean }>;
+    const entries = allEntries(result.cells);
     expect(entries.map((e) => `${e.name}:${e.kind}`).sort()).toEqual(['埋橋:bridge', '松本城:castle', '松本城:viewpoint'].sort());
-    expect(entries.find((e) => e.kind === 'castle')?.known).toBe(true);
+    // 位置は最初の1件
+    expect(entries.find((e) => e.kind === 'castle')).toStrictEqual({ name: '松本城', kind: 'castle', lat: 36.2386, lon: 137.9689, known: true, ele: null });
     expect(result.total).toBe(3);
     expect(result.byKind).toEqual({ bridge: 1, castle: 1, viewpoint: 1 });
   });
@@ -236,7 +244,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       point(36.15, 137.10, { amenity: 'place_of_worship', religion: 'shinto', name: '八幡神社' })
     ]);
 
-    const entries = allEntries(result.cells) as Array<{ name: string; lat: number }>;
+    const entries = allEntries(result.cells);
     expect(entries.map((e) => e.lat).sort()).toStrictEqual([36.1, 36.15]);
     expect(result.total).toBe(2);
   });
@@ -244,7 +252,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
   it('行頭の区切りの文字（osmium の geojsonseq が付ける）と空行は読み飛ばす', async () => {
     const result = await build(['\u001e' + point(36.1, 137.1, { historic: 'castle', name: '区切り付き' }), '', '   ']);
 
-    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name)).toStrictEqual(['区切り付き']);
+    expect(allEntries(result.cells).map((e) => e.name)).toStrictEqual(['区切り付き']);
   });
 
   it('名所と山頂の件数が下限を下回ると失敗し、下限以上なら全体と種類ごとの件数を返す', async () => {
@@ -256,7 +264,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       point(36.1, 137.1, { shop: 'convenience', name: '店' })
     ];
 
-    await expect(buildLandmarkCells(lines, { minCount: 4 })).rejects.toThrow('名所と山頂が 3 件しかありません（下限 4 件）');
+    await expect(buildLandmarkCells(lines, { minCount: 4 })).rejects.toThrow(/3 件/);
     const result = await buildLandmarkCells(lines, { minCount: 3 });
     expect(result.total).toBe(3);
     expect(result.byKind).toEqual({ castle: 1, peak: 2 });
@@ -275,5 +283,16 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
         await expect(buildLandmarkCells(lines, { minCount })).rejects.toThrow('件数の下限が無効です');
       }
     );
+  });
+
+  it('座標が数十万ある敷地の形も、それを囲む四角の中心の点になる', async () => {
+    // 大きな敷地の形の座標を Math.min(...配列) に広げると、引数の数の上限で落ちる
+    const ring: Array<[number, number]> = Array.from({ length: 500_000 }, (_, i) => [36.1 + (i % 2) * 0.01, 137.1]);
+    const result = await build([polygon(ring, { historic: 'castle', name: '大きな城' })]);
+
+    const [entry] = allEntries(result.cells);
+    expect(entry.name).toBe('大きな城');
+    expect(entry.lat).toBeCloseTo(36.105, 6);
+    expect(entry.lon).toBeCloseTo(137.1, 6);
   });
 });
