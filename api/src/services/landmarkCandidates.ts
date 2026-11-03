@@ -90,16 +90,20 @@ export class LandmarkCandidateService {
       .map((entry) => ({ entry, meters: metersBetween(lat, lon, entry.lat, entry.lon) }))
       .filter(({ meters }) => meters <= LANDMARK_CANDIDATE_RADIUS_M)
       .sort((a, b) => a.meters - b.meters);
-    // 区画のファイルには、長い橋の遠い区切りなどで同じ名前・種類が残る（06 §10.1）。近い方の1つにする
-    const seen = new Set<string>();
-    const unique = nearby.filter(({ entry }) => {
+    // 区画のファイルには、長い橋の遠い区切りなどで同じ名前・種類が残る（06 §10.1）。近い方の1つにし、
+    // どれかが名の知れたものなら名の知れたものとして並べる（名の知れた区切りが遠い方にあることもある）
+    const kept = new Map<string, { entry: LandmarkEntry; meters: number; known: boolean }>();
+    for (const { entry, meters } of nearby) {
       const key = `${entry.kind}|${entry.name}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    return unique
-      .sort((a, b) => Number(b.entry.known) - Number(a.entry.known) || a.meters - b.meters)
+      const first = kept.get(key);
+      if (first) {
+        first.known ||= entry.known;
+      } else {
+        kept.set(key, { entry, meters, known: entry.known });
+      }
+    }
+    return [...kept.values()]
+      .sort((a, b) => Number(b.known) - Number(a.known) || a.meters - b.meters)
       .slice(0, LANDMARK_CANDIDATE_MAX)
       .map(({ entry, meters }) => ({
         name: entry.name,
