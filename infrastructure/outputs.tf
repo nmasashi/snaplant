@@ -26,6 +26,11 @@ output "storage_account_connection_string" {
   sensitive   = true
 }
 
+output "landmarks_container_name" {
+  description = "Name of the landmark data blob container (private, C-5)"
+  value       = azurerm_storage_container.landmarks.name
+}
+
 output "photos_container_name" {
   description = "Name of the travel album photos blob container (private)"
   value       = azurerm_storage_container.photos.name
