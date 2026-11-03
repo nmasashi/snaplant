@@ -628,6 +628,7 @@ C-5 で、同じ段を風景の写真の名所にも広げる（§10。未実装
   | 山頂（C-7 で使う） | `natural=peak` / `volcano` |
 
 - **区画のファイル**: 緯度・経度 0.25 度の区画ごとに1つの JSON（`cells/<南端の緯度>_<西端の経度>.json`。小数2桁。例 `cells/36.00_137.75.json`）。
-  各要素は `{ name, kind, lat, lon, known, ele }`。`kind` は `castle`・`temple`・`shrine`・`church`・`place_of_worship`（宗教の分からない寺社）・`tower`・`lighthouse`・`bridge`・`waterfall`・`ruins`（遺跡・史跡）・`monument`（記念碑・慰霊碑）・`museum`・`viewpoint`・`attraction`・`alpine_hut`（山小屋・避難小屋）・`peak`（山頂・火山）。`name` は `bridge:name`（道の名前が `name` に入った橋のため）・`name:ja`・`name` の順に最初にあるもの、`known` は `wikidata` か `wikipedia` があれば true、`ele` は山頂の標高（m。無ければ `null`）。
+  各要素は `{ name, kind, lat, lon, known, ele }`。`kind` は `castle`・`temple`・`shrine`・`church`・`place_of_worship`（宗教の分からない寺社）・`tower`・`lighthouse`・`bridge`・`waterfall`・`ruins`（遺跡・史跡）・`monument`（記念碑・慰霊碑）・`museum`・`viewpoint`・`attraction`・`alpine_hut`（山小屋・避難小屋）・`peak`（山頂・火山）。`name` は `bridge:name`（道の名前が `name` に入った橋のため）・`name:ja`・`name` の順に最初にあるもの（道や線路の橋（`man_made=bridge` でない橋の道）は、`bridge:name` があるか、名前に「橋」を含むときだけ入れる。道の橋の `name` は東海道新幹線・国道20号のような線路や道の名前が多いため。09）、`known` は `wikidata` か `wikipedia` があれば true、`ele` は山頂の標高（m。無ければ `null`）。
+  同じ区画に同じ名前・同じ種類が何件あっても1件にまとめる（道は区切って、城は点と敷地の形の両方で載っていることがある。位置は最初の1件、どれかが名の知れたものなら `known` は true）。
   ワーカーは、撮影地の周り 2 km の四角に掛かる区画（1〜4 個）を読む。ファイルが無い区画は名所が無いものとして扱う
 - **日本だけ**（#65）。日本の外の写真は区画のファイルが無いので、地名と写真だけで聞く。海外の国は、要るときに取り出す国を足す（区画で分けているので仕組みは変わらない）
