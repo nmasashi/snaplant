@@ -249,6 +249,60 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(result.total).toBe(2);
   });
 
+  it('長い橋が区切られて載っていても、区切りがつながっていれば1件にまとめ、位置は最初の区切りの中心にする', async () => {
+    // 1 区切り 0.006 度（約 670 m）。区切りの中心どうしは 500 m より離れるが、区切りの端はつながっている
+    const result = await build([
+      line([[36.100, 137.10], [36.106, 137.10]], { man_made: 'bridge', name: '長い大橋' }),
+      line([[36.106, 137.10], [36.112, 137.10]], { man_made: 'bridge', name: '長い大橋' }),
+      line([[36.112, 137.10], [36.118, 137.10]], { man_made: 'bridge', name: '長い大橋' })
+    ]);
+
+    const entries = allEntries(result.cells);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].lat).toBeCloseTo(36.103, 6);
+  });
+
+  it('大きな敷地の形の中にある点は、敷地の中心から 500 m より遠くても1件にまとめる', async () => {
+    // osmium は点を先に書き出す。城の点の後に、2 km 四方ほどの城の敷地の形が来る
+    const result = await build([
+      point(36.101, 137.101, { historic: 'castle', name: '大きな城', wikidata: 'Q1' }),
+      polygon(
+        [
+          [36.10, 137.10],
+          [36.10, 137.12],
+          [36.12, 137.12],
+          [36.12, 137.10],
+          [36.10, 137.10]
+        ],
+        { historic: 'castle', name: '大きな城' }
+      )
+    ]);
+
+    expect(allEntries(result.cells)).toStrictEqual([
+      { name: '大きな城', kind: 'castle', lat: 36.101, lon: 137.101, known: true, ele: null }
+    ]);
+  });
+
+  it('区画の境をまたいでも、500 m 以内の同じ名前・同じ種類は1件にまとめ、最初の1件の区画に入れる', async () => {
+    const result = await build([
+      point(36.2499, 137.9, { historic: 'castle', name: '境の城' }),
+      point(36.2501, 137.9, { historic: 'castle', name: '境の城' })
+    ]);
+
+    expect(result.cells).toStrictEqual({
+      '36.00_137.75': [{ name: '境の城', kind: 'castle', lat: 36.2499, lon: 137.9, known: false, ele: null }]
+    });
+  });
+
+  it('まとめるとき、先の1件に標高が無く後の1件にあれば、その標高を使う', async () => {
+    const result = await build([
+      point(36.2894, 137.6480, { natural: 'peak', name: '奥穂高岳' }),
+      point(36.2895, 137.6481, { natural: 'peak', name: '奥穂高岳', ele: '3190' })
+    ]);
+
+    expect(allEntries(result.cells).map((e) => e.ele)).toStrictEqual([3190]);
+  });
+
   it('行頭の区切りの文字（osmium の geojsonseq が付ける）と空行は読み飛ばす', async () => {
     const result = await build(['\u001e' + point(36.1, 137.1, { historic: 'castle', name: '区切り付き' }), '', '   ']);
 
