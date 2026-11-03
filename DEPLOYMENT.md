@@ -197,6 +197,22 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
      --source .work/landmarks/cells --destination-path cells --overwrite --auth-mode login
    ```
 
+   ロールが無くて `--auth-mode login` が断られるときは、ストレージのキーで上げる（サブスクリプションの所有者なら `az` がキーを取れる）。
+   この PC では、キーを取る通信（POST の listKeys）が切られることがある（`ConnectionResetError 10054`。2026-11-03 の最初の置き換えで起きた。infrastructure/README.md の「この PC からの実行」と同じ事情）。
+   キーを数回試して取り、環境変数に入れてから上げる（キーは画面に出さない）:
+
+   ```bash
+   for i in 1 2 3 4 5; do
+     AZURE_STORAGE_KEY=$(az storage account keys list --account-name <ストレージアカウント名> --query '[0].value' -o tsv 2>/dev/null) && [ -n "$AZURE_STORAGE_KEY" ] && break
+     sleep 3
+   done
+   export AZURE_STORAGE_KEY
+   az storage blob delete-batch --account-name <ストレージアカウント名> --source landmarks --pattern 'cells/*'
+   az storage blob upload-batch --account-name <ストレージアカウント名> --destination landmarks \
+     --source .work/landmarks/cells --destination-path cells --overwrite
+   unset AZURE_STORAGE_KEY
+   ```
+
 5. 成果物は 90 日で消えるので、戻せるように前回の分を手元に残しておく（おかしければ前回の分を同じ手順（消してから上げる）で上げ直す）
 
 ## 監視とログ
