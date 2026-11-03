@@ -13,8 +13,11 @@ export interface LandmarkCandidate {
   km: number;
 }
 
+/** 地球の半径（m）。距離（大円距離）と、読む区画を選ぶ範囲で同じ値を使う（ずれると、境のすぐ向こうの名所を取りこぼす） */
+const EARTH_RADIUS_M = 6_371_000;
+
 /** 1度の緯度の長さ（m） */
-const METERS_PER_DEGREE = 111_320;
+const METERS_PER_DEGREE = (EARTH_RADIUS_M * Math.PI) / 180;
 
 /** 区画のファイルの種類を、AI に渡す日本語の名前にする */
 const KIND_LABELS: Record<string, string> = {
@@ -42,7 +45,7 @@ const toRad = (degrees: number) => (degrees * Math.PI) / 180;
 /** 2点の距離（m。大円距離） */
 function metersBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const h = Math.sin(toRad(lat2 - lat1) / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(toRad(lon2 - lon1) / 2) ** 2;
-  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
 }
 
 /** 1点目から見た2点目の方角（8方位） */
@@ -73,7 +76,8 @@ export class LandmarkCandidateService {
 
     // 撮影地の周りの四角に掛かる区画（1〜4個）を読む
     const dLat = LANDMARK_CANDIDATE_RADIUS_M / METERS_PER_DEGREE;
-    const dLon = LANDMARK_CANDIDATE_RADIUS_M / (METERS_PER_DEGREE * Math.cos(toRad(lat)));
+    // 経度の範囲は、極に近い方の端の緯度で測る（緯度が高いほど1度の経度が短くなり、範囲が広がる）
+    const dLon = LANDMARK_CANDIDATE_RADIUS_M / (METERS_PER_DEGREE * Math.cos(toRad(Math.abs(lat) + dLat)));
     const cells = new Set<string>();
     for (const cornerLat of [lat - dLat, lat + dLat]) {
       for (const cornerLon of [lon - dLon, lon + dLon]) {
