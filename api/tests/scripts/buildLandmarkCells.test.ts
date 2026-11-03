@@ -111,6 +111,9 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       ['展望地', { tourism: 'viewpoint' }, 'viewpoint'],
       ['観光地', { tourism: 'attraction' }, 'attraction'],
       ['山小屋', { tourism: 'alpine_hut' }, 'alpine_hut'],
+      // 橋の道でもある名所は、橋でなくその種類にする（橋として名前の条件で捨てられないように）
+      ['橋の道でもある観光地', { highway: 'footway', bridge: 'yes', tourism: 'attraction' }, 'attraction'],
+      ['橋の道でもある記念碑', { highway: 'footway', bridge: 'yes', historic: 'monument' }, 'monument'],
       ['避難小屋', { tourism: 'wilderness_hut' }, 'alpine_hut'],
       ['山頂', { natural: 'peak' }, 'peak'],
       ['火山', { natural: 'volcano' }, 'peak'],
@@ -171,6 +174,8 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       line(segment, { railway: 'rail', bridge: 'yes', name: '東海道新幹線' }),
       line(segment, { highway: 'primary', bridge: 'yes', name: '国道20号' }),
       line(segment, { highway: 'footway', bridge: 'yes', name: '河童橋' }),
+      // bridge=no は橋でない（編集の跡で残っていることがある）
+      line(segment, { highway: 'residential', bridge: 'no', name: '日本橋通り' }),
       line(segment, { highway: 'primary', bridge: 'yes', name: '国道20号', 'bridge:name': '新宮川橋梁' }),
       // 橋の名前があれば、「橋」を含まなくても入れる
       line(segment, { highway: 'motorway', bridge: 'yes', name: '首都高速湾岸線', 'bridge:name': 'ベイブリッジ' }),
