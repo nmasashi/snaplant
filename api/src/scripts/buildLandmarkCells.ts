@@ -184,7 +184,12 @@ async function run(): Promise<void> {
   if (!input || !out) {
     throw new Error('使い方: node dist/src/scripts/buildLandmarkCells.js --input <geojsonseq> --out <出力先> [--min-count <件数>]');
   }
-  const minCount = Number(argOf('min-count') ?? '120000');
+  // 空の文字列は Number で 0 になり、下限の確かめが黙って消えるので、数字だけのものに限る
+  const minCountText = argOf('min-count') ?? '120000';
+  if (!/^\d+$/.test(minCountText)) {
+    throw new Error(`件数の下限が無効です（0 以上の整数にしてください）: "${minCountText}"`);
+  }
+  const minCount = Number(minCountText);
   const lines = readline.createInterface({ input: fs.createReadStream(input, 'utf8'), crlfDelay: Infinity });
   const { cells, total, byKind } = await buildLandmarkCells(lines, { minCount });
 
