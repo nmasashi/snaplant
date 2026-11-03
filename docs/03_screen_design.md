@@ -583,8 +583,8 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
 │ │ アプリ名                  SnapPlant │ │
 │ │ バージョン                    1.0.0 │ │
 │ │ 開発者               SnapPlant Team │ │
-│ │ 地図のデータ                        │ │
-│ │        © OpenStreetMap contributors │ │
+│ │ 地図のデータ        © OpenStreetMap │ │
+│ │                        contributors │ │
 │ └─────────────────────────────────────┘ │
 └─────────────────────────────────────────┘
 ```
@@ -599,7 +599,7 @@ PR 7c: 準備のサムネイルと地名、送信の `thumbnail`・`placeName` �
   - 接続テストの結果: 接続テストの後に「接続成功」または「接続失敗」を表示する。APIキーかエンドポイントを編集すると消える
 - アクションボタン: 「接続テスト」「保存」「設定をリセット」
 - アプリ情報: アプリ名「SnapPlant」、バージョン「1.0.0」、開発者「SnapPlant Team」（固定の表示）
-- **実装済み**（C-5c。`screens/settings_screen.dart` の `_buildAppInfoSection`）: アプリ情報の表の最後の行に「地図のデータ」と「© OpenStreetMap contributors」（固定の表示。名所のタグの候補に OpenStreetMap のデータを使うので、ODbL の出典の表示。[06 §10.1](./06_processing_design.md#101-名所のデータ)・[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #65）。リンクにはしない（リンクを開くパッケージを足さないため）。値が長く1行に収まらない端末では、値を右に寄せて折り返す（アプリ情報のほかの行も同じ）
+- **実装済み**（C-5c。`screens/settings_screen.dart` の `_buildAppInfoSection`）: アプリ情報の表の最後の行に「地図のデータ」と「© OpenStreetMap contributors」（固定の表示。名所のタグの候補に OpenStreetMap のデータを使うので、ODbL の出典の表示。[06 §10.1](./06_processing_design.md#101-名所のデータ)・[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #65）。リンクにはしない（リンクを開くパッケージを足さないため）
 
 開くと保存済みの値を入力欄に入れる。APIキーもエンドポイントも、未保存なら空（エンドポイントの既定値は無い）。読み込み中は「設定を読み込み中...」を表示し、
 読み込みに失敗すると「設定の読み込みに失敗しました」を表示する。
