@@ -249,16 +249,19 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(result.total).toBe(2);
   });
 
-  it('区切られて載っている橋は、最初の区切りとつながる区切りを1件にまとめ、位置は最初の区切りの中心にする', async () => {
-    // 1 区切り 0.006 度（約 670 m）。区切りの中心どうしは 500 m より離れるが、区切りの端はつながっている
+  it('区切られて載っている橋は、最初の区切りとつながる区切りを1件にまとめ、最初の区切りから離れた区切りは別に残す', async () => {
+    // 1 区切り 0.006 度（約 670 m）。区切りの中心どうしは 500 m より離れるが、隣り合う区切りの端はつながっている
     const result = await build([
       line([[36.100, 137.10], [36.106, 137.10]], { man_made: 'bridge', name: '長い大橋' }),
-      line([[36.106, 137.10], [36.112, 137.10]], { man_made: 'bridge', name: '長い大橋' })
+      line([[36.106, 137.10], [36.112, 137.10]], { man_made: 'bridge', name: '長い大橋' }),
+      // 最初の区切りから約 670 m 離れる。まとめても四角は広げない（鎖のようにつながないため）ので、別に残る
+      line([[36.112, 137.10], [36.118, 137.10]], { man_made: 'bridge', name: '長い大橋' })
     ]);
 
-    const entries = allEntries(result.cells);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].lat).toBeCloseTo(36.103, 6);
+    const lats = allEntries(result.cells).map((e) => e.lat);
+    expect(lats).toHaveLength(2);
+    expect(lats[0]).toBeCloseTo(36.103, 6);
+    expect(lats[1]).toBeCloseTo(36.115, 6);
   });
 
   it('大きな敷地の形の中にある点は、敷地の中心から 500 m より遠くても1件にまとめる', async () => {
