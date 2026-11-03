@@ -327,11 +327,12 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 
 ## 8. 名所の判別（C-5）
 
+**実装済み**（C-5a。`infrastructure/main.tf` の `azurerm_storage_container.landmarks`、`.github/workflows/landmarks-extract.yml`）。
 [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #65。名所のデータの中身と取り出し方は [06 §10.1](./06_processing_design.md#101-名所のデータ)。
 
 | リソース | 名前 | 設定 | 注意 |
 |---|---|---|---|
-| `azurerm_storage_container.landmarks` | `landmarks` | `container_access_type = "private"` | 名所のデータの区画のファイル。ワーカーが接続文字列で読むだけで、SAS は出さない |
+| `azurerm_storage_container.landmarks` | `landmarks` | `container_access_type = "private"`、`storage_account_id`（`storage_account_name` はプロバイダの 5.0 で消えるので、新しいコンテナは後継で書く） | 名所のデータの区画のファイル。ワーカーが接続文字列で読むだけで、SAS は出さない |
 
 | 設定 | 値 | 使う所 |
 |---|---|---|

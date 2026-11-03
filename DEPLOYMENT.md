@@ -111,6 +111,12 @@ GitHub Actions は以下の条件で自動実行されます：
   - `api/` または `.github/workflows/` 配下のファイル変更時
   - 手動実行（workflow_dispatch）
 
+- **名所のデータの取り出し** (`/.github/workflows/landmarks-extract.yml`。C-5a):
+  - 手動実行（workflow_dispatch）だけ。push・プルリクエスト・定期では回らない
+  - OpenStreetMap の日本の分（Geofabrik の `japan-latest.osm.pbf`）を落とし、osmium で名所と山頂に絞り、区画のファイル（`api/src/scripts/buildLandmarkCells.ts`）にして、成果物 `landmarks` に残す（保持 90 日）
+  - 入力 `min_count`（既定 30000）: 名所と山頂の件数がこれを下回ったら失敗にする（空に近いデータを上げないため）
+  - **Azure の資格情報も GitHub Secrets も使わない。** Blob へは人が上げる（下の「名所のデータの更新」）
+
 - **Flutter 静的解析とテスト** (`/.github/workflows/flutter.yml`):
   - `main`, `develop` ブランチへのプッシュ
   - `main`, `develop` ブランチへのプルリクエスト
@@ -163,6 +169,29 @@ npm run build
 # 2. Azure Functions Core Tools でデプロイ
 func azure functionapp publish <FUNCTION_APP_NAME> --build remote
 ```
+
+## 名所のデータの更新（C-5）
+
+名所の判別の候補に使う名所のデータ（`landmarks` コンテナの `cells/*.json`）を置き換える。目安は半年に1回と、名所の抜けや名前の誤りに気づいたとき。
+中身と作り方は `docs/06_processing_design.md` §10.1。最初の1回は、名所の判別（C-5b）の api をデプロイする前に行う。
+
+1. GitHub の **Actions** タブで **名所のデータの取り出し** を選び、**Run workflow** で回す（`min_count` は既定のまま）
+2. 終わったら、ログの最後（`summary.json`）の件数を前回と比べる。大きく減っていたら上げない
+3. 成果物を落とす（リポジトリ直下で）:
+
+   ```bash
+   gh run download <run-id> -n landmarks -D .work/landmarks
+   ```
+
+4. `landmarks` コンテナに上書きで上げる（ストレージアカウント名は `terraform output storage_account_name`。`--auth-mode login` には、上げる人に「ストレージ BLOB データ共同作成者」のロールが要る）:
+
+   ```bash
+   az storage blob upload-batch --account-name <ストレージアカウント名> --destination landmarks \
+     --source .work/landmarks/cells --destination-path cells --overwrite --auth-mode login
+   ```
+
+5. 成果物は 90 日で消えるので、戻せるように前回の分を手元に残しておく（おかしければ前回の分を同じ手順で上げ直す）
+6. 最初の1回の後に、既にある風景の写真を提案に回すスクリプト（`api/README.md` の `enqueueUntagged`）を回す（C-5b のデプロイの後）
 
 ## 監視とログ
 
@@ -233,6 +262,7 @@ Function App に設定される主要な環境変数：
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
+| `LANDMARK_STORAGE_CONTAINER_NAME` | 名所のデータの Blob コンテナ名（`landmarks`。C-5）。名所の判別（C-5b から）が候補を引くのに読む。未設定なら候補なしで聞く |
 | `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・`POST …/timeline/draft/write`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |

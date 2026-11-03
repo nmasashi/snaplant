@@ -608,7 +608,7 @@ C-5 で、同じ段を風景の写真の名所にも広げる（§10。未実装
 
 - **出どころ**: Geofabrik の日本の抽出（`japan-latest.osm.pbf`。2.4 GB）。ライセンスは ODbL で、アプリに出典「© OpenStreetMap contributors」を出す（[03 §4.9](./03_screen_design.md#49-設定画面)）。
   取り出し方（下のワークフローとスクリプト）はリポジトリに置く（ODbL 4.6 の、派生データベースの作り方の提供に当たる）
-- **取り出し**: GitHub Actions のワークフロー（手で動かす `workflow_dispatch`。目安は半年に1回と、名所の抜けや名前の誤りに気づいたとき）。
+- **取り出し**（**実装済み**（C-5a）。`.github/workflows/landmarks-extract.yml`・`api/src/scripts/buildLandmarkCells.ts`）: GitHub Actions のワークフロー（手で動かす `workflow_dispatch`。目安は半年に1回と、名所の抜けや名前の誤りに気づいたとき）。
   1. pbf を落とし、`osmium tags-filter` で名所と山頂だけに絞る（下の表）
   2. `osmium export` で GeoJSON にし、node のスクリプトで、敷地の形（way・relation）は中心の点にして、区画のファイルにする
   3. 件数が下限を下回ったら失敗にする（Geofabrik の不調や取り出しの誤りで、空に近いデータを置かないため）
@@ -628,6 +628,6 @@ C-5 で、同じ段を風景の写真の名所にも広げる（§10。未実装
   | 山頂（C-7 で使う） | `natural=peak` / `volcano` |
 
 - **区画のファイル**: 緯度・経度 0.25 度の区画ごとに1つの JSON（`cells/<南端の緯度>_<西端の経度>.json`。小数2桁。例 `cells/36.00_137.75.json`）。
-  各要素は `{ name, kind, lat, lon, known, ele }`。`name` は `bridge:name`（道の名前が `name` に入った橋のため）・`name:ja`・`name` の順に最初にあるもの、`known` は `wikidata` か `wikipedia` があれば true、`ele` は山頂の標高（m。無ければ `null`）。
+  各要素は `{ name, kind, lat, lon, known, ele }`。`kind` は `castle`・`temple`・`shrine`・`church`・`place_of_worship`（宗教の分からない寺社）・`tower`・`lighthouse`・`bridge`・`waterfall`・`ruins`（遺跡・史跡）・`monument`（記念碑・慰霊碑）・`museum`・`viewpoint`・`attraction`・`alpine_hut`（山小屋・避難小屋）・`peak`（山頂・火山）。`name` は `bridge:name`（道の名前が `name` に入った橋のため）・`name:ja`・`name` の順に最初にあるもの、`known` は `wikidata` か `wikipedia` があれば true、`ele` は山頂の標高（m。無ければ `null`）。
   ワーカーは、撮影地の周り 2 km の四角に掛かる区画（1〜4 個）を読む。ファイルが無い区画は名所が無いものとして扱う
 - **日本だけ**（#65）。日本の外の写真は区画のファイルが無いので、地名と写真だけで聞く。海外の国は、要るときに取り出す国を足す（区画で分けているので仕組みは変わらない）
