@@ -1162,6 +1162,22 @@ describe('写真の解析のワーカー', () => {
       expect(promptText()).toMatch(/長い大橋（橋）[^\n]*0\.3 km/);
     });
 
+    it('同じ名前・同じ種類の名所を1つにするとき、遠い方だけが名の知れたものでも、名の知れたものとして先に並べる', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      putCell('36.00_137.75', [
+        // 約 300 m 北（名の知れていない区切り）と約 1.2 km 北（名の知れた区切り）
+        landmark('長い大橋', 'bridge', 36.2413, 137.9689),
+        landmark('長い大橋', 'bridge', 36.2494, 137.9689, true),
+        // 約 100 m。名の知れていない、より近い名所
+        landmark('近い寺', 'temple', 36.2395, 137.9689)
+      ]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(promptText().indexOf('長い大橋（')).toBeLessThan(promptText().indexOf('近い寺（'));
+    });
+
     it('座標が無く地名だけの写真では、地名を渡し、名所の候補は渡さない', async () => {
       cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' } }));
       putCell('36.00_137.75', [landmark('埋橋', 'bridge', 36.2380, 137.9680)]);
