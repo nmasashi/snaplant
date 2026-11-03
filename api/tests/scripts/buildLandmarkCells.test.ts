@@ -221,6 +221,21 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(result.byKind).toEqual({ bridge: 1, castle: 1, viewpoint: 1 });
   });
 
+  it('同じ区画の同じ名前・同じ種類でも、離れていれば（500 m より遠ければ）別の名所として残す', async () => {
+    // 八幡神社や丸山のような名前は、同じ区画（25 km 四方ほど）にいくつもある
+    const result = await build([
+      point(36.10, 137.10, { amenity: 'place_of_worship', religion: 'shinto', name: '八幡神社' }),
+      // 北へ 0.004 度（約 440 m）。同じ神社の点と敷地の形とみなす
+      point(36.104, 137.10, { amenity: 'place_of_worship', religion: 'shinto', name: '八幡神社' }),
+      // 北へ 0.05 度（約 5.5 km）。別の神社
+      point(36.15, 137.10, { amenity: 'place_of_worship', religion: 'shinto', name: '八幡神社' })
+    ]);
+
+    const entries = allEntries(result.cells) as Array<{ name: string; lat: number }>;
+    expect(entries.map((e) => e.lat).sort()).toStrictEqual([36.1, 36.15]);
+    expect(result.total).toBe(2);
+  });
+
   it('行頭の区切りの文字（osmium の geojsonseq が付ける）と空行は読み飛ばす', async () => {
     const result = await build(['\u001e' + point(36.1, 137.1, { historic: 'castle', name: '区切り付き' }), '', '   ']);
 
