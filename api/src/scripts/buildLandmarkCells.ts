@@ -71,6 +71,8 @@ export async function buildLandmarkCells(
 ): Promise<{ cells: Record<string, LandmarkEntry[]>; total: number; byKind: Record<string, number> }> {
   const cells: Record<string, LandmarkEntry[]> = {};
   const byKind: Record<string, number> = {};
+  // 区画・種類・名前ごとの最初の1件
+  const firstOf = new Map<string, LandmarkEntry>();
   let total = 0;
   for await (const raw of lines) {
     const text = raw.split(RECORD_SEPARATOR).join('').trim();
@@ -82,6 +84,8 @@ export async function buildLandmarkCells(
     const name = tags['bridge:name'] ?? tags['name:ja'] ?? tags.name;
     const positions = positionsOf(feature.geometry?.coordinates);
     if (kind === null || !name || positions.length === 0) continue;
+    // 道や線路の橋の name は道や線路の名前（東海道新幹線・国道20号など）のことが多いので、橋の名前か「橋」を含む名前のときだけ使う
+    if (kind === 'bridge' && tags.man_made !== 'bridge' && !tags['bridge:name'] && !name.includes('橋')) continue;
 
     // 大きな敷地の形は座標が何万もあり、Math.min(...配列) は引数の数の上限で落ちるので、1つずつ見る
     let [south, north, west, east] = [Infinity, -Infinity, Infinity, -Infinity];
@@ -102,7 +106,16 @@ export async function buildLandmarkCells(
       known: Boolean(tags.wikidata || tags.wikipedia),
       ele: Number.isFinite(ele) ? ele : null
     };
-    (cells[cellOf(lat, lon)] ??= []).push(entry);
+    // 道は区切って、城は点と敷地の形の両方で載っていることがあるので、同じ区画の同じ名前・種類は1件にまとめる
+    const cell = cellOf(lat, lon);
+    const key = `${cell}|${kind}|${name}`;
+    const seen = firstOf.get(key);
+    if (seen) {
+      seen.known ||= entry.known;
+      continue;
+    }
+    firstOf.set(key, entry);
+    (cells[cell] ??= []).push(entry);
     byKind[kind] = (byKind[kind] ?? 0) + 1;
     total += 1;
   }
