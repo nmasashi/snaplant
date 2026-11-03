@@ -1,5 +1,6 @@
 import { BlobServiceClient } from '@azure/storage-blob';
 import { LANDMARK_CANDIDATE_MAX, LANDMARK_CANDIDATE_RADIUS_M } from '../constants/album';
+import { LandmarkEntry, cellOf } from '../utils/landmarkCells';
 
 /** AI に渡す名所の候補1件（撮影地から見た方角と距離を持つ） */
 export interface LandmarkCandidate {
@@ -11,19 +12,6 @@ export interface LandmarkCandidate {
   /** 撮影地からの距離（km） */
   km: number;
 }
-
-/** 区画のファイルの1件（docs/06_processing_design.md §10.1。取り出しのスクリプト buildLandmarkCells.ts が書く） */
-interface LandmarkEntry {
-  name: string;
-  kind: string;
-  lat: number;
-  lon: number;
-  known: boolean;
-  ele: number | null;
-}
-
-/** 区画の大きさ（度）。取り出しのスクリプトと同じ */
-const CELL_DEGREES = 0.25;
 
 /** 1度の緯度の長さ（m） */
 const METERS_PER_DEGREE = 111_320;
@@ -63,12 +51,6 @@ function directionOf(lat1: number, lon1: number, lat2: number, lon2: number): st
   const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
   const degrees = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
   return DIRECTIONS[Math.round(degrees / 45) % 8];
-}
-
-/** 区画の名前（南端の緯度と西端の経度。小数2桁） */
-function cellOf(lat: number, lon: number): string {
-  const floor = (value: number) => (Math.floor(value / CELL_DEGREES) * CELL_DEGREES).toFixed(2);
-  return `${floor(lat)}_${floor(lon)}`;
 }
 
 /**
