@@ -42,6 +42,25 @@ const MAX_MOUNTAINS = 25;
 const MAX_LANDMARKS = 25;
 const CONCURRENCY = 4;
 
+// 山の候補の選び方。撮影の向きが分からないので、上位を取るだけだと別の方角の近い山で埋まり、写っている遠くの山が落ちる
+//   current … 標高÷距離の上位 25（最初の試し）
+//   dir5    … 方角を8つに分け、方角ごとに名の知れた山（Wikidata のある山）を先に、標高÷距離の上位 5（計 40）
+//   known40 … 標高 1500m 以上で、名の知れた山を先に、標高÷距離の上位 40
+const peakScore = (c) => c.ele / Math.max(c.km, 0.5);
+const MOUNTAIN_STRATEGIES = {
+  current: (peaks) => [...peaks].sort((a, b) => peakScore(b) - peakScore(a)).slice(0, MAX_MOUNTAINS),
+  dir5: (peaks) => ['北', '北東', '東', '南東', '南', '南西', '西', '北西'].flatMap((d) =>
+    peaks.filter((c) => c.direction === d).sort((a, b) => Number(b.known) - Number(a.known) || peakScore(b) - peakScore(a)).slice(0, 5)),
+  known40: (peaks) => peaks.filter((c) => c.ele >= 1500)
+    .sort((a, b) => Number(b.known) - Number(a.known) || peakScore(b) - peakScore(a)).slice(0, 40),
+};
+// node run.js [candidates|rescore] [--strategy=dir5] [--only=山] [--modes=place+cand,coords+cand] [--repeat=2]
+const option = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1] ?? fallback;
+const STRATEGY = option('strategy', 'current');
+if (!MOUNTAIN_STRATEGIES[STRATEGY]) throw new Error(`--strategy は ${Object.keys(MOUNTAIN_STRATEGIES).join(' / ')}`);
+// 結果のファイルの名前に付ける印（既定の選び方・聞き方では付けず、最初の試しの result.json を残す）
+const SUFFIX = process.argv.some((a) => a.startsWith('--')) ? `-${STRATEGY}` : '';
+
 const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 
 /** .env を読む（値は表示しない） */
@@ -228,8 +247,7 @@ async function candidatesAt(center, landmarkRadius) {
     const ele = Number.parseFloat(tags.ele);
     all.push({ name, kind, km, direction: directionOf(center, at), ele: Number.isFinite(ele) ? Math.round(ele) : null, known: Boolean(tags.wikidata || tags.wikipedia) });
   }
-  const mountains = all.filter((c) => c.kind === '山' && c.ele != null)
-    .sort((a, b) => b.ele / Math.max(b.km, 0.5) - a.ele / Math.max(a.km, 0.5)).slice(0, MAX_MOUNTAINS);
+  const mountains = MOUNTAIN_STRATEGIES[STRATEGY](all.filter((c) => c.kind === '山' && c.ele != null));
   const landmarks = all.filter((c) => c.kind !== '山')
     .sort((a, b) => Number(b.known) - Number(a.known) || a.km - b.km).slice(0, MAX_LANDMARKS);
   return { all, list: [...landmarks, ...mountains] };
@@ -325,7 +343,8 @@ async function main() {
     return;
   }
   const candidatesOnly = process.argv[2] === 'candidates';
-  const rows = loadRows();
+  const only = option('only', null);
+  const rows = loadRows().filter((r) => !only || r.kind === only);
   if (rows.length === 0) throw new Error('photos.csv に行がありません');
 
   // 候補を引く（地名から・座標から）
@@ -369,7 +388,12 @@ async function main() {
       ...(row.coordsCandidates ? [['coords+cand', row.coordsCandidates.list]] : []),
     ];
     row.results = {};
-    for (const [mode, candidates] of modes) {
+    const wanted = option('modes', null)?.split(',');
+    const repeat = Number(option('repeat', '1'));
+    for (const [baseMode, candidates] of modes.filter(([m]) => !wanted || wanted.includes(m))) {
+      for (let n = 1; n <= repeat; n++) {
+      // 2回目からは「place+cand#2」のように回の番号を付けて別に残す
+      const mode = n === 1 ? baseMode : `${baseMode}#${n}`;
       tasks.push(async () => {
         const started = Date.now();
         try {
@@ -388,13 +412,23 @@ async function main() {
           console.log(`${row.file} ${mode}: 失敗 ${error.status ?? ''} ${error.name ?? ''}`);
         }
       });
+      }
     }
   }
   await pool(tasks, CONCURRENCY);
 
-  fs.writeFileSync(path.join(WORK, 'result.json'), JSON.stringify(rows, null, 2));
-  fs.writeFileSync(path.join(WORK, 'result.html'), resultHtml(rows));
-  console.log(`書き出した: ${path.join(WORK, 'result.html')}`);
+  // 答えの山ごとに、何回のうち何回当たったか・答えに無い名前を何回挙げたか
+  for (const row of rows) {
+    for (const [mode, r] of Object.entries(row.results)) {
+      if (!r.items) continue;
+      const wrong = r.items.filter((it) => !row.answers.some((a) => matches(a, it.name)));
+      console.log(`  ${row.file} ${mode}: 当たり ${row.answers.filter((a, i) => r.hits[i]).join('・') || '-'}`
+        + ` / 答えに無い ${wrong.map((it) => `${it.name}@${it.x.toFixed(2)},${it.y.toFixed(2)}`).join('・') || '-'}`);
+    }
+  }
+  fs.writeFileSync(path.join(WORK, `result${SUFFIX}.json`), JSON.stringify(rows, null, 2));
+  fs.writeFileSync(path.join(WORK, `result${SUFFIX}.html`), resultHtml(rows));
+  console.log(`書き出した: ${path.join(WORK, `result${SUFFIX}.html`)}`);
 }
 
 // ---- 結果のページ ----
