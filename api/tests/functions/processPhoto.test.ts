@@ -1131,6 +1131,17 @@ describe('写真の解析のワーカー', () => {
       expect(offered('境の向こうの城')).toBe(true);
     });
 
+    it('2 km の少し手前で区画の境の向こうにある名所も、候補として渡す（読む区画を選ぶ範囲と、距離の測り方をそろえる）', async () => {
+      // 撮影地から北の区画の境（緯度 36.25）まで約 1,998.7 m、名所はその境のすぐ向こう（約 1,998.8 m）
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { ...MATSUMOTO, latitude: 36.232025 } }));
+      putCell('36.25_137.75', [landmark('境の向こうの寺', 'temple', 36.250001, 137.9689)]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(offered('境の向こうの寺')).toBe(true);
+    });
+
     it('候補は 25 件までにする（名の知れたものを先に、近い順）', async () => {
       cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
       // 約 55 m ずつ北へ並ぶ神社 30 件と、約 1.8 km 北の名の知れた寺
