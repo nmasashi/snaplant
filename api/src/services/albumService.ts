@@ -16,7 +16,7 @@ import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES, UNFINISHED
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
 /** タグの提案に回すスクリプトが読む写真の項目（listUntaggedFoodPhotos の射影。tags は項目の無い文書もある） */
-export type UntaggedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'categorySource' | 'tags' | 'processing'>;
+export type UntaggedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'categorySource' | 'tags' | 'processing' | 'location'>;
 
 /** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
 export interface PhotoBlobNames {
@@ -557,7 +557,7 @@ export class AlbumService {
     const { resources } = await this.container.items
       .query<UntaggedPhotoRow>({
         query:
-          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND c.category = 'food' AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
+          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing, c.location FROM c WHERE c.type = @type AND c.processing.state = 'done' AND (c.category = 'food' OR (c.category = 'landscape' AND (IS_NUMBER(c.location.latitude) OR IS_STRING(c.location.placeName)))) AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
         parameters: [{ name: '@type', value: 'photo' }],
       })
       .fetchAll();
