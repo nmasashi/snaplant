@@ -100,7 +100,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       ['塔', { man_made: 'tower' }, 'tower'],
       ['灯台', { man_made: 'lighthouse' }, 'lighthouse'],
       ['橋（man_made）', { man_made: 'bridge' }, 'bridge'],
-      ['橋（道）', { highway: 'primary', bridge: 'yes' }, 'bridge'],
+      ['橋（道。橋の名前のあるもの）', { highway: 'primary', bridge: 'yes', 'bridge:name': '何々橋' }, 'bridge'],
       ['滝（natural）', { natural: 'waterfall' }, 'waterfall'],
       ['滝（waterway）', { waterway: 'waterfall' }, 'waterfall'],
       ['遺跡', { historic: 'ruins' }, 'ruins'],
@@ -160,6 +160,63 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
 
     expect(Object.keys(result.cells).sort()).toEqual(['36.00_137.75', '36.25_138.00']);
     expect((result.cells['36.25_138.00'] as Array<{ name: string }>).map((e) => e.name)).toEqual(['境の上']);
+  });
+
+  it('道や線路の橋は、橋の名前があるか、名前に「橋」を含むときだけ入れ、道や線路の名前だけの橋は捨てる', async () => {
+    const segment: Array<[number, number]> = [
+      [36.10, 137.10],
+      [36.11, 137.11]
+    ];
+    const result = await build([
+      line(segment, { railway: 'rail', bridge: 'yes', name: '東海道新幹線' }),
+      line(segment, { highway: 'primary', bridge: 'yes', name: '国道20号' }),
+      line(segment, { highway: 'footway', bridge: 'yes', name: '河童橋' }),
+      line(segment, { highway: 'primary', bridge: 'yes', name: '国道20号', 'bridge:name': '新宮川橋梁' }),
+      // man_made=bridge は橋そのものなので、名前に「橋」が無くても入れる
+      polygon(
+        [
+          [36.10, 137.10],
+          [36.10, 137.11],
+          [36.11, 137.11],
+          [36.10, 137.10]
+        ],
+        { man_made: 'bridge', name: 'レインボーブリッジ' }
+      )
+    ]);
+
+    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toEqual(
+      ['レインボーブリッジ', '新宮川橋梁', '河童橋'].sort()
+    );
+  });
+
+  it('同じ区画に同じ名前・同じ種類が何件あっても1件にまとめ、どれかが名の知れたものなら名の知れたものとして残す', async () => {
+    const result = await build([
+      // 道は区切って載っていることが多く、城は点と敷地の形の両方で載っていることがある
+      line(
+        [
+          [36.2380, 137.9680],
+          [36.2381, 137.9681]
+        ],
+        { highway: 'footway', bridge: 'yes', name: '埋橋' }
+      ),
+      line(
+        [
+          [36.2381, 137.9681],
+          [36.2382, 137.9682]
+        ],
+        { highway: 'footway', bridge: 'yes', name: '埋橋' }
+      ),
+      point(36.2386, 137.9689, { historic: 'castle', name: '松本城' }),
+      point(36.2387, 137.9690, { historic: 'castle', name: '松本城', wikidata: 'Q46581' }),
+      // 名前が同じでも種類が違えば別
+      point(36.2386, 137.9689, { tourism: 'viewpoint', name: '松本城' })
+    ]);
+
+    const entries = allEntries(result.cells) as Array<{ name: string; kind: string; known: boolean }>;
+    expect(entries.map((e) => `${e.name}:${e.kind}`).sort()).toEqual(['埋橋:bridge', '松本城:castle', '松本城:viewpoint'].sort());
+    expect(entries.find((e) => e.kind === 'castle')?.known).toBe(true);
+    expect(result.total).toBe(3);
+    expect(result.byKind).toEqual({ bridge: 1, castle: 1, viewpoint: 1 });
   });
 
   it('行頭の区切りの文字（osmium の geojsonseq が付ける）と空行は読み飛ばす', async () => {
