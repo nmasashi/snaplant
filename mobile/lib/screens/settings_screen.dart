@@ -554,6 +554,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'SnapPlant Team',
                   isLargeScreen,
                 ),
+                SizedBox(height: isLargeScreen ? 16 : 12),
+                // 名所のタグの候補に OpenStreetMap のデータを使うので、ODbL の出典を出す（03 §4.9・06 §10.1）
+                _buildInfoRow(
+                  '地図のデータ',
+                  '© OpenStreetMap contributors',
+                  isLargeScreen,
+                ),
               ],
             ),
           ),
@@ -574,11 +581,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        Text(
-          value,
-          style: AppTextStyles.body1.copyWith(
-            fontSize: isLargeScreen ? 20 : 18,
-            color: AppColors.textSecondary,
+        const SizedBox(width: 16),
+        // 値が長い（地図のデータの出典など）と幅の狭い端末で1行に収まらないので、右に寄せて折り返す
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: AppTextStyles.body1.copyWith(
+              fontSize: isLargeScreen ? 20 : 18,
+              color: AppColors.textSecondary,
+            ),
           ),
         ),
       ],
