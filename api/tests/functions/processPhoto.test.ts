@@ -820,7 +820,8 @@ describe('写真の解析のワーカー', () => {
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
     });
 
-    it.each(['other'])('分類の結果が食べ物でも風景でもなければ（%s）、タグが無くてもタグの提案に回さず、分類で済みにする', async (kind) => {
+    it('分類の結果が食べ物でも風景でもなければ（other）、タグが無くてもタグの提案に回さず、分類で済みにする', async () => {
+      const kind = 'other';
       // detail: high の AI の呼び出しに回すのは食べ物と風景だけ（費用。06 §9・§10）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [] }));
       aiReturns({ kind, confidence: 70, reason: 'テスト', comment: 'テスト' });
@@ -1023,8 +1024,12 @@ describe('写真の解析のワーカー', () => {
 
     const promptText = () => sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text as string;
 
-    /** 候補として渡った名所（候補の1行は「名前（種類）」で始まる。06 §10） */
-    const offered = (name: string) => promptText().includes(`${name}（`);
+    /** 名前を含む候補の行（06 §10「1行にして渡す」）。行の書き方は契約外なので、名前を含む行を探すところだけに閉じ込める */
+    const candidateLines = (name: string) => promptText().split('\n').filter((line) => line.includes(name));
+    /** 候補として渡った名所か */
+    const offered = (name: string) => candidateLines(name).length > 0;
+    /** 候補の並び順（プロンプトの何行目か） */
+    const rankOf = (name: string) => promptText().split('\n').findIndex((line) => line.includes(name));
 
     const done = { state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW };
 
@@ -1101,11 +1106,11 @@ describe('写真の解析のワーカー', () => {
         landmark('埋橋', 'bridge', 36.2380, 137.9680),
         // 約 1.1 km 北。名の知れたもの（近い埋橋より先に並ぶ）
         landmark('名の知れた寺', 'temple', 36.2486, 137.9689, true),
-        // 約 2.4 km 北。2 km より遠い
-        landmark('遠い寺', 'temple', 36.2600, 137.9689),
         // 約 45 m。山頂は名所の候補に入れない（山は C-7）
         landmark('近い山頂', 'peak', 36.2390, 137.9689)
       ]);
+      // 約 2.02 km 北。2 km より遠い
+      putCell('36.25_137.75', [landmark('遠い寺', 'temple', 36.2568, 137.9689)]);
       aiReturns({ landmarks: [] });
 
       await runWorker();
@@ -1114,21 +1119,29 @@ describe('写真の解析のワーカー', () => {
       expect(offered('埋橋')).toBe(true);
       expect(offered('遠い寺')).toBe(false);
       expect(offered('近い山頂')).toBe(false);
-      expect(promptText().indexOf('名の知れた寺（')).toBeLessThan(promptText().indexOf('埋橋（'));
-      // 1行に、名前・種類（日本語）・撮影地から見た方角（8方位）・距離（km）を並べる
-      expect(promptText()).toMatch(/埋橋（橋）[^\n]*南西[^\n]*0\.1 km/);
-      expect(promptText()).toMatch(/名の知れた寺（寺）[^\n]*北[^\n]*1\.1 km/);
+      expect(rankOf('名の知れた寺')).toBeLessThan(rankOf('埋橋'));
+      // 1行に、名前・種類（日本語）・撮影地から見た方角（8方位）・距離（km）を並べる（書き方は契約外なので、要素が同じ行にあることだけを見る）
+      const [bridgeLine] = candidateLines('埋橋');
+      expect(bridgeLine.replace('埋橋', '')).toContain('橋');
+      expect(bridgeLine).toContain('南西');
+      expect(bridgeLine).toMatch(/0\.1\s*km/);
+      const [templeLine] = candidateLines('名の知れた寺');
+      expect(templeLine.replace('名の知れた寺', '')).toContain('寺');
+      expect(templeLine).toMatch(/北(?![東西])/);
+      expect(templeLine).toMatch(/1\.1\s*km/);
     });
 
-    it('撮影地の近くの区画の境の向こうにある名所も、候補として渡す', async () => {
-      // 撮影地は区画 36.00_137.75 の北の端。約 110 m 北の名所は区画 36.25_137.75 にある
-      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { ...MATSUMOTO, latitude: 36.2495 } }));
-      putCell('36.25_137.75', [landmark('境の向こうの城', 'castle', 36.2505, 137.9689)]);
+    it('撮影地の近くの区画の境の向こう（北・東・北東の区画）にある名所も、候補として渡す', async () => {
+      // 撮影地は区画 36.00_137.75 の北東の角の近く（北の境まで約 55 m、東の境まで約 90 m）
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { ...MATSUMOTO, latitude: 36.2495, longitude: 137.999 } }));
+      putCell('36.25_137.75', [landmark('北の城', 'castle', 36.2505, 137.999)]);
+      putCell('36.00_138.00', [landmark('東の寺', 'temple', 36.2495, 138.001)]);
+      putCell('36.25_138.00', [landmark('北東の橋', 'bridge', 36.2505, 138.001)]);
       aiReturns({ landmarks: [] });
 
       await runWorker();
 
-      expect(offered('境の向こうの城')).toBe(true);
+      expect(['北の城', '東の寺', '北東の橋'].filter(offered)).toEqual(['北の城', '東の寺', '北東の橋']);
     });
 
     it('2 km の少し手前で区画の境の向こうにある名所も、候補として渡す（読む区画を選ぶ範囲と、距離の測り方をそろえる）', async () => {
@@ -1146,7 +1159,7 @@ describe('写真の解析のワーカー', () => {
       cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
       // 約 55 m ずつ北へ並ぶ神社 30 件と、約 1.8 km 北の名の知れた寺
       putCell('36.00_137.75', [
-        ...Array.from({ length: 30 }, (_, i) => landmark(`神社${i + 1}`, 'shrine', 36.2386 + (i + 1) * 0.0005, 137.9689)),
+        ...Array.from({ length: 30 }, (_, i) => landmark(`神社${String(i + 1).padStart(2, '0')}`, 'shrine', 36.2386 + (i + 1) * 0.0005, 137.9689)),
         landmark('名の知れた寺', 'temple', 36.2546, 137.9689, true)
       ]);
       aiReturns({ landmarks: [] });
@@ -1156,6 +1169,7 @@ describe('写真の解析のワーカー', () => {
       expect(offered('名の知れた寺')).toBe(true);
       expect(offered('神社24')).toBe(true);
       expect(offered('神社25')).toBe(false);
+      expect(rankOf('名の知れた寺')).toBeLessThan(rankOf('神社01'));
     });
 
     it('同じ名前・同じ種類の名所は、近い方の1つだけを候補にする（区画のファイルには長い橋の遠い区切りなどが残る。06 §10.1）', async () => {
@@ -1163,14 +1177,19 @@ describe('写真の解析のワーカー', () => {
       putCell('36.00_137.75', [
         // 約 1.2 km 北と約 300 m 北
         landmark('長い大橋', 'bridge', 36.2494, 137.9689),
-        landmark('長い大橋', 'bridge', 36.2413, 137.9689)
+        landmark('長い大橋', 'bridge', 36.2413, 137.9689),
+        // 同じ名前でも種類が違えば別の名所（約 1.2 km 北の観光地）
+        landmark('長い大橋', 'attraction', 36.2494, 137.9689)
       ]);
       aiReturns({ landmarks: [] });
 
       await runWorker();
 
-      expect(promptText().split('長い大橋（')).toHaveLength(2);
-      expect(promptText()).toMatch(/長い大橋（橋）[^\n]*0\.3 km/);
+      // 橋は近い方（約 300 m）の1行だけ、観光地は別の1行
+      const lines = candidateLines('長い大橋');
+      expect(lines).toHaveLength(2);
+      expect(lines.filter((line) => /0\.3\s*km/.test(line))).toHaveLength(1);
+      expect(lines.filter((line) => line.includes('名所'))).toHaveLength(1);
     });
 
     it('同じ名前・同じ種類の名所を1つにするとき、遠い方だけが名の知れたものでも、名の知れたものとして先に並べる', async () => {
@@ -1186,18 +1205,19 @@ describe('写真の解析のワーカー', () => {
 
       await runWorker();
 
-      expect(promptText().indexOf('長い大橋（')).toBeLessThan(promptText().indexOf('近い寺（'));
+      expect(rankOf('長い大橋')).toBeLessThan(rankOf('近い寺'));
     });
 
     it('座標が無く地名だけの写真では、地名を渡し、名所の候補は渡さない', async () => {
       cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' } }));
-      putCell('36.00_137.75', [landmark('埋橋', 'bridge', 36.2380, 137.9680)]);
+      // 地名から引いた候補は渡さない（地名の座標の周りの候補は外れることがある。06 §10）。地名の場所の区画に名所を置いても渡らない
+      putCell('36.25_137.50', [landmark('河童橋', 'bridge', 36.2517, 137.6378)]);
       aiReturns({ landmarks: [] });
 
       await runWorker();
 
       expect(promptText()).toContain('上高地');
-      expect(offered('埋橋')).toBe(false);
+      expect(offered('河童橋')).toBe(false);
     });
 
     it('座標のある写真でも、地名があれば候補と一緒に渡す', async () => {
@@ -1245,6 +1265,7 @@ describe('写真の解析のワーカー', () => {
       expect(image.url).toContain(`/photos/${PHOTO_ID}.jpg`);
       const format = sent[0].body.response_format;
       expect(format.type).toBe('json_schema');
+      expect(format.json_schema.name).toBe('landmark_tags');
       expect(format.json_schema.strict).toBe(true);
       const item = format.json_schema.schema.properties.landmarks.items;
       expect([...item.required].sort()).toEqual(['name', 'x', 'y']);

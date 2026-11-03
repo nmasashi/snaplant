@@ -27,10 +27,19 @@ const foodPhoto = (id: string, overrides: Partial<PhotoDocument> = {}): PhotoDoc
     ...overrides
   });
 
+/** C-5 より前に分類まで済んだ、撮影地のある風景の写真（タグはまだ無い）。分類の結果（classification）もカテゴリにそろえる */
+const landscapePhoto = (id: string, overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
+  foodPhoto(id, {
+    category: 'landscape',
+    classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT },
+    location: { latitude: 36.2386, longitude: 137.9689, placeName: '長野県松本市', placeSource: 'device' },
+    ...overrides
+  });
+
 /** タグの提案の待ち（スクリプトが書く形。積むのは再投入のタイマー） */
 const waitingForTags: PhotoProcessing = { state: 'pending', step: 'tag', attempts: 0, lastError: null, updatedAt: NOW };
 
-describe('既にある食べ物の写真をタグの提案に回すスクリプト（C-4。06 §9）', () => {
+describe('既にある食べ物と風景の写真をタグの提案に回すスクリプト（C-4・C-5。06 §9・§10）', () => {
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let log: jest.Mock;
 
@@ -75,7 +84,7 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     expect(stored(photoId('b')).processing).toEqual(waitingForTags);
   });
 
-  it('写真が対象でない（タグがある・食べ物でない・解析が済んでいない）なら、書き込みを指定しても変えない', () => forEachCase([
+  it('写真が対象でない（タグがある・食べ物でも撮影地のある風景でもない・手でカテゴリを決めた・解析が済んでいない・提案を済ませた）なら、書き込みを指定しても変えない', () => forEachCase([
     ['タグがある', { tags: [{ name: '夕食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] }],
     ['植物', { category: 'plant' }],
     // 撮影地の無い風景の写真は、名所の提案に回さない（06 §10。02 §5 #65）
@@ -101,10 +110,9 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
   }));
 
   it('撮影地（座標か地名）のある、解析が済んでタグの無い風景の写真も、タグの提案（名所）の待ちにする（C-5b。06 §10）', async () => {
-    cosmosBackend.documents.set(photoId('a'), foodPhoto(photoId('a'), { category: 'landscape', location: { latitude: 36.2386, longitude: 137.9689, placeName: '長野県松本市', placeSource: 'device' } }));
+    cosmosBackend.documents.set(photoId('a'), landscapePhoto(photoId('a')));
     // コメントを書いてもらった（step: identify で済んだ）風景の写真も、タグの提案はまだなので回す
-    cosmosBackend.documents.set(photoId('b'), foodPhoto(photoId('b'), {
-      category: 'landscape',
+    cosmosBackend.documents.set(photoId('b'), landscapePhoto(photoId('b'), {
       location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' },
       processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: CLASSIFIED_AT }
     }));
