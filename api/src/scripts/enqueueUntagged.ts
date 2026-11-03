@@ -1,6 +1,6 @@
 import { AlbumService } from '../services/albumService';
 import { endpointHost, loadLocalSettings } from './scriptSettings';
-import { PhotoLocation } from '../types/album';
+import { hasPlace } from '../utils/photoLocation';
 
 /**
  * C-4 より前に解析が済んだ食べ物の写真（タグの無いもの）を、タグの提案の待ちにする一度だけのスクリプト
@@ -18,7 +18,7 @@ export async function enqueueUntaggedFoodPhotos(options: {
   const album = new AlbumService();
   const now = new Date().toISOString();
   // クエリと同じ条件をコードでも見る（クエリの絞り込みはテストで確かめられない）。崩れても、タグのある写真や解析中の写真を書き換えない
-  const targets = (await album.listUntaggedFoodPhotos()).filter(
+  const targets = (await album.listUntaggedPhotos()).filter(
     // 手でカテゴリを直した写真は、自動ではタグを提案しない（06 §9）ので除く。
     // 風景は撮影地（緯度・経度か地名）のあるものだけ（写真だけでは名所の精度が無い。06 §10）
     (photo) =>
@@ -77,9 +77,4 @@ async function run(): Promise<void> {
       `${process.env.COSMOS_DB_DATABASE?.trim() || '（データベース名が無い）'} / ${process.env.COSMOS_DB_ALBUM_CONTAINER?.trim() || '（コンテナ名が無い）'}`
   );
   await enqueueUntaggedFoodPhotos({ apply: process.argv.includes('--apply'), log: console.log });
-}
-
-/** 撮影地（緯度・経度か地名）があるか（解析のワーカーと同じ条件。06 §10） */
-function hasPlace(location: PhotoLocation | null | undefined): boolean {
-  return (typeof location?.latitude === 'number' && typeof location?.longitude === 'number') || Boolean(location?.placeName);
 }

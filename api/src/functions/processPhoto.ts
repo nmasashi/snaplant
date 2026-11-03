@@ -11,6 +11,7 @@ import { PhotoIdentifierService } from '../services/photoIdentifierService';
 import { PhotoTaggerService } from '../services/photoTaggerService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { LandmarkCandidate, LandmarkCandidateService } from '../services/landmarkCandidates';
+import { hasCoordinates, hasPlace } from '../utils/photoLocation';
 
 /**
  * 写真の解析のワーカー（キュー photo-processing のメッセージ `{ photoId }` で動く）
@@ -126,7 +127,7 @@ async function classifyPhoto(
   // 食べ物と、撮影地のある風景で、タグが1つも無ければ AI にタグを提案させる（C-4・C-5。06 §9・§10）。
   // 撮影地の無い風景は、写真だけでは名所の精度が無いので回さない（02 §5 #65）。
   // 読んだ時点のタグで決め、書くときにもう一度タグが無いことを条件にする
-  const suggests = result.kind === 'food' || (result.kind === 'landscape' && hasPlace(photo));
+  const suggests = result.kind === 'food' || (result.kind === 'landscape' && hasPlace(photo.location));
   const tags = !identifies && suggests && (photo.tags ?? []).length === 0;
   const next: PhotoProcessing['step'] = identifies ? 'identify' : tags ? 'tag' : null;
   const written = await album.writeClassification(photo.id, claimedProcessing, {
@@ -233,16 +234,6 @@ app.storageQueue('processPhoto', {
   handler: processPhotoHandler,
 });
 
-/** 撮影地（緯度・経度か地名）があるか */
-function hasPlace(photo: PhotoDocument): boolean {
-  return hasCoordinates(photo) || Boolean(photo.location?.placeName);
-}
-
-/** 緯度・経度があるか */
-function hasCoordinates(photo: PhotoDocument): boolean {
-  return typeof photo.location?.latitude === 'number' && typeof photo.location?.longitude === 'number';
-}
-
 /**
  * 担当した写真に、AI が提案したタグを書く。食べ物は皿ごと（C-4。06 §9）、撮影地のある風景は名所ごと（C-5。06 §10）
  *
@@ -262,11 +253,11 @@ async function tagPhoto(
   if (photo.category === 'food') {
     kind = 'food';
     suggestions = await new PhotoTaggerService().suggest(imageUrl);
-  } else if (photo.category === 'landscape' && hasPlace(photo)) {
+  } else if (photo.category === 'landscape' && hasPlace(photo.location)) {
     kind = 'landscape';
     suggestions = await new PhotoTaggerService().suggestLandmarks(imageUrl, {
       placeName: photo.location?.placeName ?? null,
-      candidates: hasCoordinates(photo) ? await landmarkCandidatesOrNone(photo, context) : [],
+      candidates: hasCoordinates(photo.location) ? await landmarkCandidatesOrNone(photo, context) : [],
     });
   } else {
     kind = 'other';

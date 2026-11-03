@@ -15,7 +15,7 @@ import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES, UNFINISHED
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
-/** タグの提案に回すスクリプトが読む写真の項目（listUntaggedFoodPhotos の射影。tags は項目の無い文書もある） */
+/** タグの提案に回すスクリプトが読む写真の項目（listUntaggedPhotos の射影。tags は項目の無い文書もある） */
 export type UntaggedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'categorySource' | 'tags' | 'processing' | 'location'>;
 
 /** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
@@ -553,7 +553,7 @@ export class AlbumService {
    * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
    * @returns 写真ごとの id・category・tags・processing
    */
-  async listUntaggedFoodPhotos(): Promise<UntaggedPhotoRow[]> {
+  async listUntaggedPhotos(): Promise<UntaggedPhotoRow[]> {
     const { resources } = await this.container.items
       .query<UntaggedPhotoRow>({
         query:
