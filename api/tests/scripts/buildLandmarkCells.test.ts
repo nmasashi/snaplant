@@ -88,11 +88,27 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
           [36.31, 137.31]
         ],
         { highway: 'footway', bridge: 'yes', tourism: 'attraction', name: '空中散歩道', 'bridge:name': '第二歩道橋' }
+      ),
+      // 橋でない名所でも、名前が橋の名前にしか無ければ、それを使う（捨てない）
+      line(
+        [
+          [36.40, 137.40],
+          [36.41, 137.41]
+        ],
+        { highway: 'footway', bridge: 'yes', tourism: 'attraction', 'bridge:name': '吊り橋' }
+      ),
+      // 空の橋の名前は無いものとみなし、名前を使う
+      line(
+        [
+          [36.50, 137.50],
+          [36.51, 137.51]
+        ],
+        { highway: 'primary', bridge: 'yes', 'bridge:name': '', name: '天竜川橋' }
       )
     ]);
 
     expect(allEntries(result.cells).map((e) => e.name).sort()).toStrictEqual(
-      ['京都市京セラ美術館', '四柱神社', '埋橋', '空中散歩道'].sort()
+      ['京都市京セラ美術館', '四柱神社', '埋橋', '空中散歩道', '吊り橋', '天竜川橋'].sort()
     );
   });
 
