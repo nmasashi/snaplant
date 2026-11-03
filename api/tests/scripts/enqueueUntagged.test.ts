@@ -85,6 +85,8 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）。スクリプトもそれに合わせる
     ['手でカテゴリを食べ物にした', { categorySource: 'user' }],
     ['分類の待ち', { processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: CLASSIFIED_AT } }],
+    // タグの提案を済ませた写真（料理が無かった・利用者が AI のタグを消した・上限まで失敗した）は、もう一度回さない（消したタグを戻さない・費用）
+    ['タグの提案を済ませた', { processing: { state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: CLASSIFIED_AT } }],
     ['上限まで失敗した（failed）', { processing: { state: 'failed', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: CLASSIFIED_AT } }],
     ['解析の対象になっていない（段階2の none）', { category: null, processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null } }]
   ] as const, async (_label, overrides) => {
@@ -100,7 +102,12 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
 
   it('撮影地（座標か地名）のある、解析が済んでタグの無い風景の写真も、タグの提案（名所）の待ちにする（C-5b。06 §10）', async () => {
     cosmosBackend.documents.set(photoId('a'), foodPhoto(photoId('a'), { category: 'landscape', location: { latitude: 36.2386, longitude: 137.9689, placeName: '長野県松本市', placeSource: 'device' } }));
-    cosmosBackend.documents.set(photoId('b'), foodPhoto(photoId('b'), { category: 'landscape', location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' } }));
+    // コメントを書いてもらった（step: identify で済んだ）風景の写真も、タグの提案はまだなので回す
+    cosmosBackend.documents.set(photoId('b'), foodPhoto(photoId('b'), {
+      category: 'landscape',
+      location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' },
+      processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: CLASSIFIED_AT }
+    }));
 
     const result = await enqueueUntaggedFoodPhotos({ apply: true, log });
 
