@@ -15,8 +15,8 @@ import { PHOTO_CONTINUATION_TOKEN_LIMIT_KB, PHOTO_EMPTY_PAGE_RETRIES, UNFINISHED
 /** 識別に回すスクリプトが読む写真の項目（listUnidentifiedPhotos の射影） */
 export type UnidentifiedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'identification' | 'processing'>;
 
-/** タグの提案に回すスクリプトが読む写真の項目（listUntaggedFoodPhotos の射影。tags は項目の無い文書もある） */
-export type UntaggedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'categorySource' | 'tags' | 'processing'>;
+/** タグの提案に回すスクリプトが読む写真の項目（listUntaggedPhotos の射影。tags は項目の無い文書もある） */
+export type UntaggedPhotoRow = Pick<PhotoDocument, 'id' | 'category' | 'categorySource' | 'tags' | 'processing' | 'location'>;
 
 /** 写真の id と Blob 名（写真の Blob を消すのに要るもの） */
 export interface PhotoBlobNames {
@@ -548,16 +548,18 @@ export class AlbumService {
   }
 
   /**
-   * 解析が済んでタグの無い、AI が食べ物と分類した写真を読む（C-4 より前の写真をタグの提案に回すスクリプト用。手で食べ物にした写真は除く。06 §9）
+   * 解析が済んでタグの無い、AI が食べ物か撮影地のある風景と分類した写真を読む（C-4・C-5 より前の写真をタグの提案に回すスクリプト用。
+   * 手でカテゴリを決めた写真と、タグの提案を済ませた写真は除く。06 §9・§10）
    *
-   * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
-   * @returns 写真ごとの id・category・tags・processing
+   * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る。
+   * Cosmos の != は値が無い・null のときに真にならない（undefined になり行が落ちる）ので、step が無い・null の文書も明示して通す
+   * @returns 写真ごとの id・category・categorySource・tags・processing・location
    */
-  async listUntaggedFoodPhotos(): Promise<UntaggedPhotoRow[]> {
+  async listUntaggedPhotos(): Promise<UntaggedPhotoRow[]> {
     const { resources } = await this.container.items
       .query<UntaggedPhotoRow>({
         query:
-          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing FROM c WHERE c.type = @type AND c.processing.state = 'done' AND c.category = 'food' AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
+          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing, c.location FROM c WHERE c.type = @type AND c.processing.state = 'done' AND (NOT IS_DEFINED(c.processing.step) OR IS_NULL(c.processing.step) OR c.processing.step != 'tag') AND (c.category = 'food' OR (c.category = 'landscape' AND (IS_NUMBER(c.location.latitude) OR IS_STRING(c.location.placeName)))) AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
         parameters: [{ name: '@type', value: 'photo' }],
       })
       .fetchAll();

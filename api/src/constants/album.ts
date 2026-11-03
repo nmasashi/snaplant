@@ -57,6 +57,20 @@ export function photoProcessingMaxAttempts(): number {
 export const CLASSIFY_IMAGE_SAS_MINUTES = 15;
 
 /**
+ * 名所のタグの提案（C-5）で、撮影地の周りのこの距離（m）以内の名所を候補にする
+ *
+ * 写っている建物・名所はたいてい撮影地の近くにある。試作で、座標から 2 km の候補で建物の写真がすべて当たった（docs/06_processing_design.md §10、09）
+ */
+export const LANDMARK_CANDIDATE_RADIUS_M = 2000;
+
+/**
+ * 名所のタグの提案で AI に渡す候補の数の上限
+ *
+ * 名の知れたものを先に、近い順に選ぶ。候補1件は数十トークンなので、この数でも費用はほとんど変わらない（06 §10）
+ */
+export const LANDMARK_CANDIDATE_MAX = 25;
+
+/**
  * 解析待ち・処理中のまま止まった写真を、再投入のタイマーが拾うまでの時間（分）
  *
  * キューの可視性タイムアウト（1 分）と再試行（3 回）、ワーカーの 1 回の処理（5 分以内）より長くとる。

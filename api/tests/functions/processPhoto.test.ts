@@ -820,10 +820,10 @@ describe('写真の解析のワーカー', () => {
       expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
     });
 
-    it.each(['landscape', 'other'])('分類の結果が食べ物でなければ（%s）、タグが無くてもタグの提案に回さず、分類で済みにする', async (kind) => {
-      // detail: high の AI の呼び出しに回すのは食べ物だけ（費用。06 §9）
+    it('分類の結果が食べ物でも風景でもなければ（other）、タグが無くてもタグの提案に回さず、分類で済みにする', async () => {
+      // detail: high の AI の呼び出しに回すのは食べ物と風景だけ（費用。06 §9・§10）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [] }));
-      aiReturns({ kind, confidence: 70, reason: 'テスト', comment: 'テスト' });
+      aiReturns({ kind: 'other', confidence: 70, reason: 'テスト', comment: 'テスト' });
 
       await runWorker();
 
@@ -996,6 +996,314 @@ describe('写真の解析のワーカー', () => {
 
       expect(storedPhoto().tags).toEqual([]);
       expect(storedPhoto().processing).toEqual({ state: 'done', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: NOW });
+    });
+  });
+
+  describe('名所のタグの提案（C-5b。06 §10）', () => {
+    /** 松本城の本丸のあたり（区画 36.00_137.75） */
+    const MATSUMOTO = { latitude: 36.2386, longitude: 137.9689, placeName: '長野県松本市', placeSource: 'device' as const };
+
+    /** 名所の提案の待ちの写真（分類が風景と決めた直後の形）。タグはまだ無い */
+    const waitingLandscape = (overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
+      pendingPhoto({
+        category: 'landscape',
+        classification: { kind: 'landscape', confidence: 95, model: 'main-deployment', at: '2026-10-18T02:58:00.000Z' },
+        tags: [],
+        location: MATSUMOTO,
+        processing: { state: 'pending', step: 'tag', attempts: 0, lastError: null, updatedAt: '2026-10-18T02:59:00.000Z' },
+        ...overrides
+      });
+
+    /** 区画のファイルの1件（06 §10.1） */
+    const landmark = (name: string, kind: string, lat: number, lon: number, known = false) => ({ name, kind, lat, lon, known, ele: null });
+
+    /** 名所のデータ（landmarks コンテナ）に区画のファイルを置く */
+    const putCell = (cell: string, entries: unknown[]) =>
+      blobBackend.store.set(`landmarks/cells/${cell}.json`, { content: Buffer.from(JSON.stringify(entries)) });
+
+    const promptText = () => sent[0].body.messages[0].content.find((part: any) => part.type === 'text').text as string;
+
+    /** 名前を含む候補の行（06 §10「1行にして渡す」）。行の書き方は契約外なので、名前を含む行を探すところだけに閉じ込める */
+    const candidateLines = (name: string) => promptText().split('\n').filter((line) => line.includes(name));
+    /** 候補として渡った名所か */
+    const offered = (name: string) => candidateLines(name).length > 0;
+    /** 候補の並び順（プロンプトの何行目か）。渡っていない名所の順を比べて空振りしないよう、無ければ失敗にする */
+    const rankOf = (name: string) => {
+      const rank = promptText().split('\n').findIndex((line) => line.includes(name));
+      if (rank < 0) throw new Error(`候補に ${name} がありません`);
+      return rank;
+    };
+
+    const done = { state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW };
+
+    beforeEach(() => {
+      process.env.LANDMARK_STORAGE_CONTAINER_NAME = 'landmarks';
+    });
+
+    afterEach(() => {
+      delete process.env.LANDMARK_STORAGE_CONTAINER_NAME;
+    });
+
+    it('分類の結果が風景で、タグが無く、座標のある写真は、タグの提案の待ち（回数は0から）にしてキューに積む', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [], location: MATSUMOTO }));
+      aiReturns({ kind: 'landscape', confidence: 95, reason: 'テスト', comment: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().category).toBe('landscape');
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'tag', attempts: 0, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([['photo-processing', [{ photoId: PHOTO_ID }]]]);
+    });
+
+    it('座標が無く、利用者が書いた地名だけがある風景の写真も、タグの提案の待ちにする', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [], location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' } }));
+      aiReturns({ kind: 'landscape', confidence: 95, reason: 'テスト', comment: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'tag', attempts: 0, lastError: null, updatedAt: NOW });
+    });
+
+    it.each([
+      ['撮影地が無い', null],
+      ['座標も地名も空', { latitude: null, longitude: null, placeName: null, placeSource: null }]
+    ])('撮影地の無い風景の写真（%s）は、タグの提案に回さず、分類で済みにする（写真だけでは精度が無い。02 §5 #65）', async (_name, location) => {
+      cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [], location: location as PhotoDocument['location'] }));
+      aiReturns({ kind: 'landscape', confidence: 95, reason: 'テスト', comment: 'テスト' });
+
+      await runWorker();
+
+      expect(storedPhoto().processing).toEqual({ state: 'done', step: 'classify', attempts: 1, lastError: null, updatedAt: NOW });
+      expect(queuedMessages()).toEqual([]);
+    });
+
+    it('名所の提案の待ちの写真は、AI が答えた名所ごとに、風景の AI のタグを書いて済みにする（名前の切り詰めと位置の収め方は食べ物と同じ）', async () => {
+      // 名前の切り詰めと位置の収め方の全ケースは、食べ物の側（タグの提案（C-4））で通す（06 §10「検証は §9 の dishes と同じ」）
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      aiReturns({
+        landmarks: [
+          { name: ' 松本城 ', x: 0.32, y: 0.37 },
+          { name: '埋橋', x: 0.57, y: 0.81 },
+          { name: 'あ'.repeat(31), x: -0.2, y: 1.3 }
+        ]
+      });
+
+      await runWorker();
+
+      expect(storedPhoto()).toEqual({
+        ...waitingLandscape(),
+        tags: [
+          { name: '松本城', kind: 'landscape', x: 0.32, y: 0.37, source: 'ai' },
+          { name: '埋橋', kind: 'landscape', x: 0.57, y: 0.81, source: 'ai' },
+          { name: 'あ'.repeat(30), kind: 'landscape', x: 0, y: 1, source: 'ai' }
+        ],
+        processing: done,
+        updatedAt: NOW
+      });
+    });
+
+    it('座標のある写真では、周り 2 km の名所を、名の知れたものを先に近い順で、名前・種類・方角・距離と一緒に候補として渡す。山頂と 2 km より遠いものは渡さない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      putCell('36.00_137.75', [
+        // 約 105 m 南西。名の知れていないもの
+        landmark('埋橋', 'bridge', 36.2380, 137.9680),
+        // 約 1.1 km 北。名の知れたもの（近い埋橋より先に並ぶ）
+        landmark('名の知れた寺', 'temple', 36.2486, 137.9689, true),
+        // 約 45 m。山頂は名所の候補に入れない（山は C-7）
+        landmark('近い山頂', 'peak', 36.2390, 137.9689)
+      ]);
+      // 約 2.02 km 北。2 km より遠い
+      putCell('36.25_137.75', [landmark('遠い寺', 'temple', 36.2568, 137.9689)]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(offered('名の知れた寺')).toBe(true);
+      expect(offered('埋橋')).toBe(true);
+      expect(offered('遠い寺')).toBe(false);
+      expect(offered('近い山頂')).toBe(false);
+      expect(rankOf('名の知れた寺')).toBeLessThan(rankOf('埋橋'));
+      // 1行に、名前・種類（日本語）・撮影地から見た方角（8方位）・距離（km）を並べる（書き方は契約外なので、要素が同じ行にあることだけを見る）
+      const [bridgeLine] = candidateLines('埋橋');
+      expect(bridgeLine.replace('埋橋', '')).toContain('橋');
+      expect(bridgeLine).toContain('南西');
+      expect(bridgeLine).toMatch(/0\.1\s*km/);
+      const [templeLine] = candidateLines('名の知れた寺');
+      expect(templeLine.replace('名の知れた寺', '')).toContain('寺');
+      expect(templeLine).toMatch(/北(?![東西])/);
+      expect(templeLine).toMatch(/1\.1\s*km/);
+    });
+
+    it('撮影地の近くの区画の境の向こう（北・東・北東の区画）にある名所も、候補として渡す', async () => {
+      // 撮影地は区画 36.00_137.75 の北東の角の近く（北の境まで約 55 m、東の境まで約 90 m）
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { ...MATSUMOTO, latitude: 36.2495, longitude: 137.999 } }));
+      putCell('36.25_137.75', [landmark('北の城', 'castle', 36.2505, 137.999)]);
+      putCell('36.00_138.00', [landmark('東の寺', 'temple', 36.2495, 138.001)]);
+      putCell('36.25_138.00', [landmark('北東の橋', 'bridge', 36.2505, 138.001)]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(['北の城', '東の寺', '北東の橋'].filter(offered)).toEqual(['北の城', '東の寺', '北東の橋']);
+    });
+
+    it('2 km の少し手前で区画の境の向こうにある名所も、候補として渡す（読む区画を選ぶ範囲と、距離の測り方をそろえる）', async () => {
+      // 撮影地から北の区画の境（緯度 36.25）まで約 1,998.7 m、名所はその境のすぐ向こう（約 1,998.8 m）
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { ...MATSUMOTO, latitude: 36.232025 } }));
+      putCell('36.25_137.75', [landmark('境の向こうの寺', 'temple', 36.250001, 137.9689)]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(offered('境の向こうの寺')).toBe(true);
+    });
+
+    it('候補は 25 件までにする（名の知れたものを先に、近い順）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      // 約 55 m ずつ北へ並ぶ神社 30 件と、約 1.8 km 北の名の知れた寺
+      putCell('36.00_137.75', [
+        ...Array.from({ length: 30 }, (_, i) => landmark(`神社${String(i + 1).padStart(2, '0')}`, 'shrine', 36.2386 + (i + 1) * 0.0005, 137.9689)),
+        landmark('名の知れた寺', 'temple', 36.2546, 137.9689, true)
+      ]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(offered('名の知れた寺')).toBe(true);
+      expect(offered('神社24')).toBe(true);
+      expect(offered('神社25')).toBe(false);
+      expect(rankOf('名の知れた寺')).toBeLessThan(rankOf('神社01'));
+    });
+
+    it('同じ名前・同じ種類の名所は、近い方の1つだけを候補にする（区画のファイルには長い橋の遠い区切りなどが残る。06 §10.1）', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      putCell('36.00_137.75', [
+        // 約 1.2 km 北と約 300 m 北
+        landmark('長い大橋', 'bridge', 36.2494, 137.9689),
+        landmark('長い大橋', 'bridge', 36.2413, 137.9689),
+        // 同じ名前でも種類が違えば別の名所（約 1.2 km 北の観光地）
+        landmark('長い大橋', 'attraction', 36.2494, 137.9689)
+      ]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      // 橋は近い方（約 300 m）の1行だけ、観光地は別の1行
+      const lines = candidateLines('長い大橋');
+      expect(lines).toHaveLength(2);
+      expect(lines.filter((line) => /0\.3\s*km/.test(line))).toHaveLength(1);
+      expect(lines.filter((line) => line.includes('名所'))).toHaveLength(1);
+    });
+
+    it('同じ名前・同じ種類の名所を1つにするとき、遠い方だけが名の知れたものでも、名の知れたものとして先に並べる', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      putCell('36.00_137.75', [
+        // 約 300 m 北（名の知れていない区切り）と約 1.2 km 北（名の知れた区切り）
+        landmark('長い大橋', 'bridge', 36.2413, 137.9689),
+        landmark('長い大橋', 'bridge', 36.2494, 137.9689, true),
+        // 約 100 m。名の知れていない、より近い名所
+        landmark('近い寺', 'temple', 36.2395, 137.9689)
+      ]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(rankOf('長い大橋')).toBeLessThan(rankOf('近い寺'));
+    });
+
+    it('座標が無く地名だけの写真では、地名を渡し、名所の候補は渡さない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' } }));
+      // 地名から引いた候補は渡さない（地名の座標の周りの候補は外れることがある。06 §10）。地名の場所の区画に名所を置いても渡らない
+      putCell('36.25_137.50', [landmark('河童橋', 'bridge', 36.2517, 137.6378)]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(promptText()).toContain('上高地');
+      expect(offered('河童橋')).toBe(false);
+    });
+
+    it('座標のある写真でも、地名があれば候補と一緒に渡す', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      putCell('36.00_137.75', [landmark('埋橋', 'bridge', 36.2380, 137.9680)]);
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      expect(promptText()).toContain('長野県松本市');
+      expect(offered('埋橋')).toBe(true);
+    });
+
+    it.each([
+      ['区画のファイルが無い', () => undefined],
+      [
+        '区画のファイルを読めない（Blob の失敗）',
+        () =>
+          blobBackend.store.set('landmarks/cells/36.00_137.75.json', {
+            content: Buffer.from('[]'),
+            failWith: Object.assign(new Error('Server failed to authenticate the request.'), { name: 'RestError', statusCode: 403, code: 'AuthorizationFailure' })
+          })
+      ],
+      ['名所のデータのコンテナの設定が無い', () => delete process.env.LANDMARK_STORAGE_CONTAINER_NAME]
+    ])('名所の候補を引けないとき（%s）も、候補なしで AI に聞いて、名所のタグを書く', async (_name, arrange) => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      arrange();
+      aiReturns({ landmarks: [{ name: '松本城', x: 0.3, y: 0.4 }] });
+
+      await runWorker();
+
+      expect(sent).toHaveLength(1);
+      expect(storedPhoto().tags).toEqual([{ name: '松本城', kind: 'landscape', x: 0.3, y: 0.4, source: 'ai' }]);
+      expect(storedPhoto().processing).toEqual(done);
+    });
+
+    it('AI には原寸の画像を細かく（detail: high）渡し、応答の形は { landmarks: [{ name, x, y }] }', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      aiReturns({ landmarks: [] });
+
+      await runWorker();
+
+      const image = sent[0].body.messages[0].content.find((part: any) => part.type === 'image_url').image_url;
+      expect(image.detail).toBe('high');
+      expect(image.url).toContain(`/photos/${PHOTO_ID}.jpg`);
+      const format = sent[0].body.response_format;
+      expect(format.type).toBe('json_schema');
+      expect(format.json_schema.name).toBe('landmark_tags');
+      expect(format.json_schema.strict).toBe(true);
+      const item = format.json_schema.schema.properties.landmarks.items;
+      expect([...item.required].sort()).toEqual(['name', 'x', 'y']);
+      expect(item.additionalProperties).toBe(false);
+      expect([item.properties.name.type, item.properties.x.type, item.properties.y.type]).toEqual(['string', 'number', 'number']);
+    });
+
+    it('担当の前に、利用者がカテゴリを食べ物でも風景でもないものに直していたら、AI を呼ばずにタグを書かずに済みにする', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ category: 'other', categorySource: 'user' }));
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().tags).toEqual([]);
+      expect(storedPhoto().processing).toEqual(done);
+    });
+
+    it('担当の前に撮影地が無くなっていた風景の写真は、AI を呼ばずにタグを書かずに済みにする', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape({ location: null }));
+
+      await runWorker();
+
+      expect(sent).toHaveLength(0);
+      expect(storedPhoto().tags).toEqual([]);
+      expect(storedPhoto().processing).toEqual(done);
+    });
+
+    it('AI の答えの landmarks が配列でなければ、AI の失敗として待ちに戻し、タグは書かない', async () => {
+      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
+      aiReturns({ landmarks: '松本城' });
+
+      await expect(runWorker()).rejects.toThrow();
+
+      expect(storedPhoto().tags).toEqual([]);
+      expect(storedPhoto().processing).toEqual({ state: 'pending', step: 'tag', attempts: 1, lastError: 'ai', updatedAt: NOW });
     });
   });
 
