@@ -1,0 +1,91 @@
+name: 名所のデータの取り出し
+
+# OpenStreetMap の日本の分から、名所と山頂を取り出して区画のファイルにする（C-5a。docs/06_processing_design.md §10.1・07 §8）。
+# 手で動かすだけで、push・PR・定期では回さない（2026-11-03、人間）。目安は半年に1回と、名所の抜けや名前の誤りに気づいたとき。
+# Azure の資格情報は持たない。区画のファイルは成果物として残し、Blob（landmarks コンテナ）へは人が上げる（DEPLOYMENT.md）。
+# 取り出し方（このワークフローと api/src/scripts/buildLandmarkCells.ts）をリポジトリに置くことが、ODbL 4.6 の派生データベースの作り方の提供に当たる
+on:
+  workflow_dispatch:
+    inputs:
+      min_count:
+        description: '名所と山頂の件数の下限（下回ったら失敗にする）'
+        required: true
+        default: '30000'
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22.x'
+  # 日本の抽出（毎日更新。2.4 GB 前後）
+  PBF_URL: 'https://download.geofabrik.de/asia/japan-latest.osm.pbf'
+
+jobs:
+  extract:
+    name: 取り出す
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: api/package-lock.json
+
+    - name: Build the api scripts
+      run: |
+        cd api
+        npm ci
+        npm run build
+
+    - name: Install osmium
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y osmium-tool
+        osmium --version
+
+    - name: Download the Japan extract
+      run: |
+        curl -fsSL --retry 3 -o japan.osm.pbf "$PBF_URL"
+        ls -l japan.osm.pbf
+
+    # 絞る種類は 06 §10.1 の表と同じ。way・relation の形を作るのに要る点（タグの無いもの）も残す（osmium の既定）
+    - name: Filter landmarks and peaks
+      run: |
+        osmium tags-filter japan.osm.pbf \
+          n/natural=peak,volcano \
+          nwr/historic=castle,monument,memorial,ruins,archaeological_site \
+          nwr/building=castle,temple,shrine,church,cathedral,pagoda \
+          nwr/amenity=place_of_worship \
+          nwr/tourism=attraction,museum,viewpoint,alpine_hut,wilderness_hut \
+          nwr/man_made=tower,lighthouse,bridge \
+          nwr/natural=waterfall \
+          nwr/waterway=waterfall \
+          w/bridge \
+          -o landmarks.osm.pbf
+        ls -l landmarks.osm.pbf
+
+    - name: Export to GeoJSON
+      run: |
+        osmium export landmarks.osm.pbf -f geojsonseq -o landmarks.geojsonseq
+        ls -l landmarks.geojsonseq
+
+    - name: Build the cell files
+      env:
+        MIN_COUNT: ${{ inputs.min_count }}
+      run: |
+        node api/dist/src/scripts/buildLandmarkCells.js --input landmarks.geojsonseq --out landmarks --min-count "$MIN_COUNT"
+        du -sh landmarks/cells
+        cat landmarks/summary.json
+
+    - name: Upload the cell files
+      uses: actions/upload-artifact@v7
+      with:
+        name: landmarks
+        path: landmarks
+        retention-days: 90
