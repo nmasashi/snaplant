@@ -129,9 +129,9 @@ export async function buildLandmarkCells(
 
     const lat = (bounds.south + bounds.north) / 2;
     const lon = (bounds.west + bounds.east) / 2;
-    // 先頭の数だけを読む parseFloat だと、桁区切り（3,776）や複数の値（2999;3000）が桁違いの数になるので、数だけの値に限る
-    const eleText = (tags.ele ?? '').trim();
-    const ele = kind === 'peak' && /^-?\d+(\.\d+)?$/.test(eleText) ? Number(eleText) : Number.NaN;
+    // 先頭の数だけを読む parseFloat だと、桁区切り（3,776）や複数の値（2999;3000）が桁違いの数になるので、数だけの値（単位の m は付いてよい）に限る
+    const eleMatch = /^(-?\d+(\.\d+)?)\s*m?$/.exec((tags.ele ?? '').trim());
+    const ele = kind === 'peak' && eleMatch ? Number(eleMatch[1]) : Number.NaN;
     const entry: LandmarkEntry = {
       name,
       kind,
