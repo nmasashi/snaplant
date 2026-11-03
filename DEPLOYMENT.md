@@ -173,7 +173,9 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
 ## 名所のデータの更新（C-5）
 
 名所のデータ（`landmarks` コンテナの `cells/*.json`）を置き換える。目安は半年に1回と、名所の抜けや名前の誤りに気づいたとき。
-中身と作り方は `docs/06_processing_design.md` §10.1。今はこのデータを読むコードは無い（名所の判別は C-5b。データを上げてから C-5b をデプロイする順は `docs/11_implementation_plan.md` の C-5b の行）。
+中身と作り方は `docs/06_processing_design.md` §10.1。このデータは、名所の判別（C-5b。`docs/06_processing_design.md` §10）の解析のワーカーが、撮影地のある風景の写真の名所の候補を引くのに読む。
+
+**最初の1回**（C-5b を本番に出すとき）は、下の手順でデータを上げてから api をデプロイし、その後に既にある風景の写真をタグの提案の待ちにするスクリプト（`api/README.md` の「`enqueueUntagged`」）を回す（`docs/11_implementation_plan.md` の C-5b の行）。データを上げる前にデプロイしても失敗にはならないが、候補なしの提案になる。
 
 1. GitHub の **Actions** タブで **名所のデータの取り出し** を選び、**Run workflow** で回す（`min_count` は既定のまま）
 2. 終わったら、ログの最後（`summary.json`）の件数を前回と比べる。大きく減っていたら上げない
@@ -186,8 +188,7 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
 4. `landmarks` コンテナに上げる（ストレージアカウント名は `terraform output storage_account_name`。`--auth-mode login` には、上げる人に「ストレージ BLOB データ共同作成者」のロールが要る）:
 
    上書きだけでは、新しいデータに無い区画の古いファイルが残る（線路の名前の橋などを外した後の版を上げても、前の版にしかない区画は前のまま）。
-   なので先に `cells/` を消してから上げる。今はこのデータを読むコードが無いので、消している間に困ることは無い。
-   名所の判別（C-5b）を入れた後は、消してから上げ終わるまでの数分に解析する風景の写真が候補なしで聞かれる（失敗にはならない）。
+   なので先に `cells/` を消してから上げる。消してから上げ終わるまでの数分に解析する風景の写真は、候補なしで聞かれる（失敗にはならない）。
    上げる途中で失敗したら、同じ `upload-batch` をもう一度回す（落とした成果物は手元に残っている）:
 
    ```bash
@@ -266,8 +267,8 @@ Function App に設定される主要な環境変数：
 | `STORAGE_CONNECTION_STRING` | Storage Account 接続文字列（`AccountName` と `AccountKey` が必須。`EndpointSuffix` も必須。下の「`STORAGE_CONNECTION_STRING` の制約」） |
 | `PHOTO_STORAGE_CONTAINER_NAME` | 写真の Blob コンテナ名（`photos`） |
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
-| `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別）のキュー名（`photo-processing`） |
-| `LANDMARK_STORAGE_CONTAINER_NAME` | 名所のデータの Blob コンテナ名（`landmarks`。C-5a）。今はこれを読むコードは無い（名所の判別（C-5b）が読む予定。`docs/07_infrastructure_design.md` §8） |
+| `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別・タグの提案）のキュー名（`photo-processing`） |
+| `LANDMARK_STORAGE_CONTAINER_NAME` | 名所のデータの Blob コンテナ名（`landmarks`。C-5a）。解析のワーカーが名所の候補を引くのに読む（C-5b。`docs/06_processing_design.md` §10）。未設定なら、失敗にせず候補なしで AI に聞く（`docs/07_infrastructure_design.md` §8） |
 | `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・`POST …/timeline/draft/write`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |

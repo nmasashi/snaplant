@@ -30,7 +30,7 @@ SnapPlant は、Flutter で構築された植物図鑑モバイルアプリで�
 ### バックエンド
 - **Azure Functions**: サーバーレス API ホスティング
 - **Azure Cosmos DB**: 旅行と写真の情報の永続化（無料枠活用）
-- **Azure Blob Storage**: 写真の保存（非公開。SAS URL で渡す）と、名所のデータ（`landmarks` コンテナ。C-5a。今は読むコードは無い）と、解析の待ちのキュー（Storage Queue）
+- **Azure Blob Storage**: 写真の保存（非公開。SAS URL で渡す）と、名所のデータ（`landmarks` コンテナ。C-5a。解析のワーカーが名所の候補を引くのに読む。C-5b）と、解析の待ちのキュー（Storage Queue）
 - **Azure OpenAI Service**: `gpt-6-luna` デプロイメントによる写真の分類と識別（画像入力）と、タイムラインの区切り案と文（文字だけ）
 - **Application Insights**: 監視・ログ・分析
 
