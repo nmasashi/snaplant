@@ -80,6 +80,10 @@ export async function buildLandmarkCells(
   lines: AsyncIterable<string> | Iterable<string>,
   options: { minCount: number }
 ): Promise<{ cells: Record<string, LandmarkEntry[]>; total: number; byKind: Record<string, number> }> {
+  // 「120,000」などが NaN になると、件数 < NaN は常に false で、下限の確かめが黙って消える
+  if (!Number.isInteger(options.minCount) || options.minCount < 0) {
+    throw new Error(`件数の下限が無効です（0 以上の整数にしてください）: ${options.minCount}`);
+  }
   const cells: Record<string, LandmarkEntry[]> = {};
   const byKind: Record<string, number> = {};
   // 区画・種類・名前ごとに、残した名所
