@@ -10,6 +10,7 @@ import { identifiesAutomatically, isCatalogKind } from '../catalog/kinds';
 import { PhotoIdentifierService } from '../services/photoIdentifierService';
 import { PhotoTaggerService } from '../services/photoTaggerService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
+import { LandmarkCandidate, LandmarkCandidateService } from '../services/landmarkCandidates';
 
 /**
  * 写真の解析のワーカー（キュー photo-processing のメッセージ `{ photoId }` で動く）
@@ -122,8 +123,11 @@ async function classifyPhoto(
     await album.writeAiComment(photo.id, claimedProcessing, result.comment);
   }
   const identifies = identifiesAutomatically(result.kind);
-  // 食べ物で、タグが1つも無ければ AI にタグを提案させる（C-4。06 §9）。読んだ時点のタグで決め、書くときにもう一度タグが無いことを条件にする
-  const tags = !identifies && result.kind === 'food' && (photo.tags ?? []).length === 0;
+  // 食べ物と、撮影地のある風景で、タグが1つも無ければ AI にタグを提案させる（C-4・C-5。06 §9・§10）。
+  // 撮影地の無い風景は、写真だけでは名所の精度が無いので回さない（02 §5 #65）。
+  // 読んだ時点のタグで決め、書くときにもう一度タグが無いことを条件にする
+  const suggests = result.kind === 'food' || (result.kind === 'landscape' && hasPlace(photo));
+  const tags = !identifies && suggests && (photo.tags ?? []).length === 0;
   const next: PhotoProcessing['step'] = identifies ? 'identify' : tags ? 'tag' : null;
   const written = await album.writeClassification(photo.id, claimedProcessing, {
     category: result.kind,
@@ -229,9 +233,20 @@ app.storageQueue('processPhoto', {
   handler: processPhotoHandler,
 });
 
+/** 撮影地（緯度・経度か地名）があるか */
+function hasPlace(photo: PhotoDocument): boolean {
+  return hasCoordinates(photo) || Boolean(photo.location?.placeName);
+}
+
+/** 緯度・経度があるか */
+function hasCoordinates(photo: PhotoDocument): boolean {
+  return typeof photo.location?.latitude === 'number' && typeof photo.location?.longitude === 'number';
+}
+
 /**
- * 担当した食べ物の写真に、AI が提案した皿ごとのタグを書く（C-4。06 §9）
+ * 担当した写真に、AI が提案したタグを書く。食べ物は皿ごと（C-4。06 §9）、撮影地のある風景は名所ごと（C-5。06 §10）
  *
+ * 担当の前に利用者がカテゴリを直していた（食べ物でも風景でもない）か、撮影地が無くなっていたら、AI を呼ばずに済みにする。
  * 提案を待つ間に利用者がタグを付けていたら、AI のタグは書かずに済みにする（利用者のタグを上書きしない）。
  * 失敗は投げる（呼び出し側が待ちに戻すか failed にする）
  */
@@ -242,10 +257,23 @@ async function tagPhoto(
   imageUrl: string,
   context: InvocationContext
 ): Promise<void> {
-  const dishes = await new PhotoTaggerService().suggest(imageUrl);
+  let kind: PhotoTag['kind'];
+  let suggestions: Array<{ name: string; x: number; y: number }> = [];
+  if (photo.category === 'food') {
+    kind = 'food';
+    suggestions = await new PhotoTaggerService().suggest(imageUrl);
+  } else if (photo.category === 'landscape' && hasPlace(photo)) {
+    kind = 'landscape';
+    suggestions = await new PhotoTaggerService().suggestLandmarks(imageUrl, {
+      placeName: photo.location?.placeName ?? null,
+      candidates: hasCoordinates(photo) ? await landmarkCandidatesOrNone(photo, context) : [],
+    });
+  } else {
+    kind = 'other';
+  }
   const now = new Date().toISOString();
   const done: PhotoProcessing = { state: 'done', step: 'tag', attempts: claimedProcessing.attempts, lastError: null, updatedAt: now };
-  const tags: PhotoTag[] = dishes.map((dish) => ({ name: dish.name, kind: 'food', x: dish.x, y: dish.y, source: 'ai' }));
+  const tags: PhotoTag[] = suggestions.map((item) => ({ name: item.name, kind, x: item.x, y: item.y, source: 'ai' }));
   if (tags.length > 0 && (await album.writeSuggestedTags(photo.id, claimedProcessing, { tags, processing: done, updatedAt: now }))) {
     context.log(`タグを提案しました: ID=${photo.id}, 個数=${tags.length}`);
     return;
@@ -255,5 +283,18 @@ async function tagPhoto(
     context.log(`タグの提案の間にやり直しの受付が入ったか、写真が消されたので、この結果は書きません: ID=${photo.id}`);
     return;
   }
-  context.log(`タグは書かずに済みにしました（料理が無いか、利用者のタグがある）: ID=${photo.id}`);
+  context.log(`タグは書かずに済みにしました（料理・名所が無いか、利用者のタグがあるか、提案する写真でなくなった）: ID=${photo.id}`);
+}
+
+/**
+ * 撮影地の周りの名所の候補を引く。引けなければ（名所のデータの Blob の失敗）、ログだけ出して候補なしにする
+ * （候補は手がかりで、無くても地名と写真で聞ける。地名変換の失敗と同じ扱い。06 §5・§10）
+ */
+async function landmarkCandidatesOrNone(photo: PhotoDocument, context: InvocationContext): Promise<LandmarkCandidate[]> {
+  try {
+    return await new LandmarkCandidateService().near(photo.location!.latitude!, photo.location!.longitude!);
+  } catch (error) {
+    context.log(`名所の候補を引けないので、候補なしで聞きます: ID=${photo.id}`, error);
+    return [];
+  }
 }
