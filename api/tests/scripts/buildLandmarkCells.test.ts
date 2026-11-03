@@ -178,6 +178,9 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       // 単位の m が付いた値は読む
       point(36.3, 137.6, { natural: 'peak', name: '単位付きの山', ele: '3776 m' }),
       point(36.3, 137.6, { natural: 'peak', name: '単位が詰まった山', ele: '2444.3m' }),
+      // 全角の数字や、大文字・全角の m も読む
+      point(36.3, 137.6, { natural: 'peak', name: '全角の数字の山', ele: '３７７６' }),
+      point(36.3, 137.6, { natural: 'peak', name: '大文字の単位の山', ele: '3190 M' }),
       point(36.3, 137.6, { natural: 'peak', name: '標高の無い山' }),
       point(36.2, 137.9, { man_made: 'tower', name: '標高の付いた塔', ele: '700' })
     ]);
@@ -190,6 +193,8 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(eleOf('値が2つある山')).toBeNull();
     expect(eleOf('単位付きの山')).toBe(3776);
     expect(eleOf('単位が詰まった山')).toBe(2444.3);
+    expect(eleOf('全角の数字の山')).toBe(3776);
+    expect(eleOf('大文字の単位の山')).toBe(3190);
     expect(eleOf('標高の無い山')).toBeNull();
     expect(eleOf('標高の付いた塔')).toBeNull();
   });
