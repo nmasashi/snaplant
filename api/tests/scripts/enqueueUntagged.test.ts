@@ -88,9 +88,9 @@ describe('既にある食べ物と風景の写真をタグの提案に回すス�
     ['タグがある', { tags: [{ name: '夕食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] }],
     ['植物', { category: 'plant' }],
     // 撮影地の無い風景の写真は、名所の提案に回さない（06 §10。02 §5 #65）
-    ['風景で撮影地が無い', { category: 'landscape', location: null }],
-    ['風景で座標も地名も空', { category: 'landscape', location: { latitude: null, longitude: null, placeName: null, placeSource: null } }],
-    ['風景で手でカテゴリを風景にした', { category: 'landscape', categorySource: 'user', location: { latitude: 36.2386, longitude: 137.9689, placeName: null, placeSource: 'device' } }],
+    ['風景で撮影地が無い', { category: 'landscape', classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT }, location: null }],
+    ['風景で座標も地名も空', { category: 'landscape', classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT }, location: { latitude: null, longitude: null, placeName: null, placeSource: null } }],
+    ['風景で手でカテゴリを風景にした', { category: 'landscape', classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT }, categorySource: 'user', location: { latitude: 36.2386, longitude: 137.9689, placeName: null, placeSource: 'device' } }],
     // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）。スクリプトもそれに合わせる
     ['手でカテゴリを食べ物にした', { categorySource: 'user' }],
     ['分類の待ち', { processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: CLASSIFIED_AT } }],

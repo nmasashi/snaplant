@@ -821,10 +821,9 @@ describe('写真の解析のワーカー', () => {
     });
 
     it('分類の結果が食べ物でも風景でもなければ（other）、タグが無くてもタグの提案に回さず、分類で済みにする', async () => {
-      const kind = 'other';
       // detail: high の AI の呼び出しに回すのは食べ物と風景だけ（費用。06 §9・§10）
       cosmosBackend.documents.set(PHOTO_ID, pendingPhoto({ tags: [] }));
-      aiReturns({ kind, confidence: 70, reason: 'テスト', comment: 'テスト' });
+      aiReturns({ kind: 'other', confidence: 70, reason: 'テスト', comment: 'テスト' });
 
       await runWorker();
 
@@ -1028,8 +1027,12 @@ describe('写真の解析のワーカー', () => {
     const candidateLines = (name: string) => promptText().split('\n').filter((line) => line.includes(name));
     /** 候補として渡った名所か */
     const offered = (name: string) => candidateLines(name).length > 0;
-    /** 候補の並び順（プロンプトの何行目か） */
-    const rankOf = (name: string) => promptText().split('\n').findIndex((line) => line.includes(name));
+    /** 候補の並び順（プロンプトの何行目か）。渡っていない名所の順を比べて空振りしないよう、無ければ失敗にする */
+    const rankOf = (name: string) => {
+      const rank = promptText().split('\n').findIndex((line) => line.includes(name));
+      if (rank < 0) throw new Error(`候補に ${name} がありません`);
+      return rank;
+    };
 
     const done = { state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: NOW };
 
