@@ -46,12 +46,29 @@ function kindOf(tags: Record<string, string>): string | null {
   return null;
 }
 
-/** GeoJSON の座標（入れ子の配列）から [経度, 緯度] の組を全部取り出す */
-function positionsOf(coordinates: unknown): Array<[number, number]> {
-  if (Array.isArray(coordinates) && typeof coordinates[0] === 'number') {
-    return [[coordinates[0], coordinates[1] as number]];
+/** 囲む四角（南・北・西・東の端） */
+interface Bounds {
+  south: number;
+  north: number;
+  west: number;
+  east: number;
+}
+
+/**
+ * GeoJSON の座標（入れ子の配列）を囲む四角を広げる。座標が無ければ広げない。
+ * 大きな敷地の形は座標が何万もあるので、配列に取り出し直さずにたどる（Math.min(...配列) は引数の数の上限で落ちる）
+ */
+function extendBounds(bounds: Bounds, coordinates: unknown): void {
+  if (!Array.isArray(coordinates)) return;
+  if (typeof coordinates[0] === 'number') {
+    const [lon, lat] = coordinates as [number, number];
+    bounds.south = Math.min(bounds.south, lat);
+    bounds.north = Math.max(bounds.north, lat);
+    bounds.west = Math.min(bounds.west, lon);
+    bounds.east = Math.max(bounds.east, lon);
+    return;
   }
-  return Array.isArray(coordinates) ? coordinates.flatMap(positionsOf) : [];
+  for (const child of coordinates) extendBounds(bounds, child);
 }
 
 /** 同じ名前・種類の名所を1件にまとめる距離（m）。区切って載っている橋の道や、城の点と敷地の形はこの内に収まる */
@@ -100,21 +117,14 @@ export async function buildLandmarkCells(
     const kind = kindOf(tags);
     // 道の橋は name に道の名前が入っていることがあるので、橋の名前を先に見る
     const name = tags['bridge:name'] ?? tags['name:ja'] ?? tags.name;
-    const positions = positionsOf(feature.geometry?.coordinates);
-    if (kind === null || !name || positions.length === 0) continue;
+    const bounds: Bounds = { south: Infinity, north: -Infinity, west: Infinity, east: -Infinity };
+    extendBounds(bounds, feature.geometry?.coordinates);
+    if (kind === null || !name || bounds.south === Infinity) continue;
     // 道や線路の橋の name は道や線路の名前（東海道新幹線・国道20号など）のことが多いので、橋の名前か「橋」を含む名前のときだけ使う
     if (kind === 'bridge' && tags.man_made !== 'bridge' && !tags['bridge:name'] && !name.includes('橋')) continue;
 
-    // 大きな敷地の形は座標が何万もあり、Math.min(...配列) は引数の数の上限で落ちるので、1つずつ見る
-    let [south, north, west, east] = [Infinity, -Infinity, Infinity, -Infinity];
-    for (const [lon, lat] of positions) {
-      south = Math.min(south, lat);
-      north = Math.max(north, lat);
-      west = Math.min(west, lon);
-      east = Math.max(east, lon);
-    }
-    const lat = (south + north) / 2;
-    const lon = (west + east) / 2;
+    const lat = (bounds.south + bounds.north) / 2;
+    const lon = (bounds.west + bounds.east) / 2;
     const ele = kind === 'peak' ? Number.parseFloat(tags.ele) : Number.NaN;
     const entry: LandmarkEntry = {
       name,
