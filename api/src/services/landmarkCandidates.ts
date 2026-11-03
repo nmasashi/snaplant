@@ -75,19 +75,24 @@ export class LandmarkCandidateService {
     const container = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING!).getContainerClient(containerName);
 
     // 撮影地の周りの四角に掛かる区画（1〜4個）を読む
-    const dLat = LANDMARK_CANDIDATE_RADIUS_M / METERS_PER_DEGREE;
+    // 区画の境のすぐ手前で浮動小数の丸めに負けないよう、範囲に 1% のゆとりを持たせる（距離での絞り込みは後でする）
+    const radius = LANDMARK_CANDIDATE_RADIUS_M * 1.01;
+    const dLat = radius / METERS_PER_DEGREE;
     // 経度の範囲は、極に近い方の端の緯度で測る（緯度が高いほど1度の経度が短くなり、範囲が広がる）
-    const dLon = LANDMARK_CANDIDATE_RADIUS_M / (METERS_PER_DEGREE * Math.cos(toRad(Math.abs(lat) + dLat)));
+    const dLon = radius / (METERS_PER_DEGREE * Math.cos(toRad(Math.abs(lat) + dLat)));
     const cells = new Set<string>();
     for (const cornerLat of [lat - dLat, lat + dLat]) {
       for (const cornerLon of [lon - dLon, lon + dLon]) {
         cells.add(cellOf(cornerLat, cornerLon));
       }
     }
+    // 区画のファイル（1〜4個）は順に読む。同時に読むと、1つが失敗したときに残りの読み込みのストリームが読まれずに残る
     const entries: LandmarkEntry[] = [];
-    // 区画のファイルは同時に読む（1〜4個）
-    const read = await Promise.all([...cells].map((cell) => readCell(container.getBlockBlobClient(`cells/${cell}.json`))));
-    entries.push(...read.flat());
+    for (const cell of cells) {
+      for (const entry of await readCell(container.getBlockBlobClient(`cells/${cell}.json`))) {
+        entries.push(entry);
+      }
+    }
 
     const nearby = entries
       .filter((entry) => entry.kind !== 'peak')
