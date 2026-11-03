@@ -32,7 +32,7 @@ function kindOf(tags: Record<string, string>): string | null {
   }
   if (tags.man_made === 'tower') return 'tower';
   if (tags.man_made === 'lighthouse') return 'lighthouse';
-  if (tags.man_made === 'bridge' || tags.bridge !== undefined) return 'bridge';
+  if (tags.man_made === 'bridge') return 'bridge';
   if (tags.natural === 'waterfall' || tags.waterway === 'waterfall') return 'waterfall';
   if (tags.historic === 'ruins' || tags.historic === 'archaeological_site') return 'ruins';
   if (tags.historic === 'monument' || tags.historic === 'memorial') return 'monument';
@@ -40,6 +40,9 @@ function kindOf(tags: Record<string, string>): string | null {
   if (tags.tourism === 'viewpoint') return 'viewpoint';
   if (tags.tourism === 'attraction') return 'attraction';
   if (tags.tourism === 'alpine_hut' || tags.tourism === 'wilderness_hut') return 'alpine_hut';
+  // 道や線路の橋は最後に見る。橋の道でもある観光地などは、その種類で残す（橋にすると、名前の条件で捨てられることがある）。
+  // bridge=no は橋でない（編集の跡で残っていることがある）
+  if (tags.bridge !== undefined && tags.bridge !== 'no') return 'bridge';
   return null;
 }
 
