@@ -71,15 +71,19 @@ function extendBounds(bounds: Bounds, coordinates: unknown): void {
   for (const child of coordinates) extendBounds(bounds, child);
 }
 
-/** 同じ名前・種類の名所を1件にまとめる距離（m）。区切って載っている橋の道や、城の点と敷地の形はこの内に収まる */
+/** 同じ名前・種類の名所を1件にまとめる距離（m）。まとめた名所を囲む四角からこの内にあれば、同じものとみなす */
 const MERGE_DISTANCE_METERS = 500;
 
-/** 2点の距離（m）。まとめるかを決めるだけなので、狭い範囲で十分な平面の近似にする */
-function metersBetween(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+/**
+ * 2つの四角の隙間（m。重なっていれば 0）。まとめるかを決めるだけなので、狭い範囲で十分な平面の近似にする。
+ * 中心どうしでなく隙間で測るのは、区切って載っている長い橋の道や、大きな敷地の形とその中の点を1件にまとめるため
+ */
+function gapMeters(a: Bounds, b: Bounds): number {
   const metersPerDegree = 111_320;
-  const dy = (a.lat - b.lat) * metersPerDegree;
-  const dx = (a.lon - b.lon) * metersPerDegree * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
-  return Math.hypot(dx, dy);
+  const dLat = Math.max(0, b.south - a.north, a.south - b.north);
+  const dLon = Math.max(0, b.west - a.east, a.west - b.east);
+  const midLat = (a.south + a.north + b.south + b.north) / 4;
+  return Math.hypot(dLat * metersPerDegree, dLon * metersPerDegree * Math.cos((midLat * Math.PI) / 180));
 }
 
 /** 区画の名前（南端の緯度と西端の経度。小数2桁） */
@@ -106,8 +110,8 @@ export async function buildLandmarkCells(
   }
   const cells: Record<string, LandmarkEntry[]> = {};
   const byKind: Record<string, number> = {};
-  // 区画・種類・名前ごとに、残した名所
-  const firstOf = new Map<string, LandmarkEntry[]>();
+  // 種類・名前ごとに、残した名所と、それにまとめた形を囲む四角（区画の境をまたいでまとめられるよう、区画では分けない）
+  const keptOf = new Map<string, Array<{ entry: LandmarkEntry; bounds: Bounds }>>();
   let total = 0;
   for await (const raw of lines) {
     const text = raw.split(RECORD_SEPARATOR).join('').trim();
@@ -134,18 +138,27 @@ export async function buildLandmarkCells(
       known: Boolean(tags.wikidata || tags.wikipedia),
       ele: Number.isFinite(ele) ? ele : null
     };
-    // 道は区切って、城は点と敷地の形の両方で載っていることがあるので、同じ区画の同じ名前・種類で近いものは1件にまとめる。
-    // 八幡神社や丸山のように同じ名前の別の名所が同じ区画にいくつもあるので、離れていれば別に残す
-    const cell = cellOf(lat, lon);
-    const key = `${cell}|${kind}|${name}`;
-    const sameName = firstOf.get(key) ?? [];
-    const seen = sameName.find((other) => metersBetween(other, entry) <= MERGE_DISTANCE_METERS);
+    // 道は区切って、城は点と敷地の形の両方で載っていることがあるので、同じ名前・種類で近いものは1件にまとめる（位置と区画は最初の1件）。
+    // 八幡神社や丸山のように同じ名前の別の名所がいくつもあるので、離れていれば別に残す
+    const key = `${kind}|${name}`;
+    let sameName = keptOf.get(key);
+    if (!sameName) {
+      sameName = [];
+      keptOf.set(key, sameName);
+    }
+    const seen = sameName.find((kept) => gapMeters(kept.bounds, bounds) <= MERGE_DISTANCE_METERS);
     if (seen) {
-      seen.known ||= entry.known;
+      seen.entry.known ||= entry.known;
+      seen.entry.ele ??= entry.ele;
+      // 区切って載っている長い橋のように、まとめるたびに伸びる形もつなげられるよう、四角を広げる
+      seen.bounds.south = Math.min(seen.bounds.south, bounds.south);
+      seen.bounds.north = Math.max(seen.bounds.north, bounds.north);
+      seen.bounds.west = Math.min(seen.bounds.west, bounds.west);
+      seen.bounds.east = Math.max(seen.bounds.east, bounds.east);
       continue;
     }
-    firstOf.set(key, [...sameName, entry]);
-    (cells[cell] ??= []).push(entry);
+    sameName.push({ entry, bounds });
+    (cells[cellOf(lat, lon)] ??= []).push(entry);
     byKind[kind] = (byKind[kind] ?? 0) + 1;
     total += 1;
   }
