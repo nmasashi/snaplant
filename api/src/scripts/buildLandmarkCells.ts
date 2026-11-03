@@ -119,8 +119,8 @@ export async function buildLandmarkCells(
     const feature = JSON.parse(text);
     const tags: Record<string, string> = feature.properties ?? {};
     const kind = kindOf(tags);
-    // 道の橋は name に道の名前が入っていることがあるので、橋の名前を先に見る
-    const name = tags['bridge:name'] ?? tags['name:ja'] ?? tags.name;
+    // 道の橋は name に道の名前が入っていることがあるので、橋の名前を先に見る（種類が橋のときだけ。橋の道でもある観光地などは、その名前を使う）
+    const name = (kind === 'bridge' ? tags['bridge:name'] : undefined) ?? tags['name:ja'] ?? tags.name;
     const bounds: Bounds = { south: Infinity, north: -Infinity, west: Infinity, east: -Infinity };
     extendBounds(bounds, feature.geometry?.coordinates);
     if (kind === null || !name || bounds.south === Infinity) continue;
