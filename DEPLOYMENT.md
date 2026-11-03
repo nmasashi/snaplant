@@ -114,7 +114,7 @@ GitHub Actions は以下の条件で自動実行されます：
 - **名所のデータの取り出し** (`/.github/workflows/landmarks-extract.yml`。C-5a):
   - 手動実行（workflow_dispatch）だけ。push・プルリクエスト・定期では回らない
   - OpenStreetMap の日本の分（Geofabrik の `japan-latest.osm.pbf`）を落とし、osmium で名所と山頂に絞り、区画のファイル（`api/src/scripts/buildLandmarkCells.ts`）にして、成果物 `landmarks` に残す（保持 90 日）
-  - 入力 `min_count`（既定 30000）: 名所と山頂の件数がこれを下回ったら失敗にする（空に近いデータを上げないため）
+  - 入力 `min_count`（既定 120000。2026-11-03 に回して 159,520 件だったので、その 75% ほど）: 名所と山頂の件数がこれを下回ったら失敗にする（空に近いデータを上げないため）
   - **Azure の資格情報も GitHub Secrets も使わない。** Blob へは人が上げる（下の「名所のデータの更新」）
 
 - **Flutter 静的解析とテスト** (`/.github/workflows/flutter.yml`):

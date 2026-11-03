@@ -10,7 +10,7 @@ on:
       min_count:
         description: '名所と山頂の件数の下限（下回ったら失敗にする）'
         required: true
-        default: '30000'
+        default: '120000'
 
 permissions:
   contents: read

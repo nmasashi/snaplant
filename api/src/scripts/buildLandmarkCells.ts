@@ -141,7 +141,7 @@ async function run(): Promise<void> {
   if (!input || !out) {
     throw new Error('使い方: node dist/src/scripts/buildLandmarkCells.js --input <geojsonseq> --out <出力先> [--min-count <件数>]');
   }
-  const minCount = Number(argOf('min-count') ?? '30000');
+  const minCount = Number(argOf('min-count') ?? '120000');
   const lines = readline.createInterface({ input: fs.createReadStream(input, 'utf8'), crlfDelay: Infinity });
   const { cells, total, byKind } = await buildLandmarkCells(lines, { minCount });
 
