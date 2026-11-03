@@ -23,6 +23,8 @@ export async function enqueueUntaggedFoodPhotos(options: {
     // 風景は撮影地（緯度・経度か地名）のあるものだけ（写真だけでは名所の精度が無い。06 §10）
     (photo) =>
       photo.processing?.state === 'done' &&
+      // タグの提案を済ませた写真（料理・名所が無かった、利用者が AI のタグを消した、上限まで失敗した）はもう一度回さない
+      photo.processing.step !== 'tag' &&
       (photo.category === 'food' || (photo.category === 'landscape' && hasPlace(photo.location))) &&
       photo.categorySource !== 'user' &&
       (photo.tags ?? []).length === 0

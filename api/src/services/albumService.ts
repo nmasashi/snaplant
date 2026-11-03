@@ -557,7 +557,7 @@ export class AlbumService {
     const { resources } = await this.container.items
       .query<UntaggedPhotoRow>({
         query:
-          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing, c.location FROM c WHERE c.type = @type AND c.processing.state = 'done' AND (c.category = 'food' OR (c.category = 'landscape' AND (IS_NUMBER(c.location.latitude) OR IS_STRING(c.location.placeName)))) AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
+          "SELECT c.id, c.category, c.categorySource, c.tags, c.processing, c.location FROM c WHERE c.type = @type AND c.processing.state = 'done' AND c.processing.step != 'tag' AND (c.category = 'food' OR (c.category = 'landscape' AND (IS_NUMBER(c.location.latitude) OR IS_STRING(c.location.placeName)))) AND (NOT IS_DEFINED(c.categorySource) OR IS_NULL(c.categorySource)) AND (NOT IS_DEFINED(c.tags) OR ARRAY_LENGTH(c.tags) = 0)",
         parameters: [{ name: '@type', value: 'photo' }],
       })
       .fetchAll();
