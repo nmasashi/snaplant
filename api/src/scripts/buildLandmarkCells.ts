@@ -165,10 +165,15 @@ export async function buildLandmarkCells(
   return { cells, total, byKind };
 }
 
-/** 引数の `--名前 値` を読む */
+/** 引数の `--名前 値` を読む。名前だけで値が無ければ失敗にする（黙って既定値に戻さない） */
 function argOf(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`--${name} の値がありません`);
+  }
+  return value;
 }
 
 /**
