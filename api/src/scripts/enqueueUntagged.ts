@@ -1,10 +1,11 @@
 import { AlbumService } from '../services/albumService';
 import { endpointHost, loadLocalSettings } from './scriptSettings';
-import { hasPlace } from '../utils/photoLocation';
+import { suggestsTags } from '../utils/photoLocation';
 
 /**
- * C-4 より前に解析が済んだ食べ物の写真（タグの無いもの）を、タグの提案の待ちにする一度だけのスクリプト
- * （docs/06_processing_design.md §9、02 §5 #61）
+ * C-4・C-5 より前に解析が済んだ、食べ物と撮影地のある風景の写真（タグの無いもの。タグの提案を済ませたものは除く）を、
+ * タグの提案の待ちにする一度だけのスクリプト（docs/06_processing_design.md §9・§10、02 §5 #61・#65）。
+ * 関数の名前は食べ物だけだった C-4 のころのまま
  *
  * キューには積まない。提案の待ちにした写真は、再投入のタイマーが 10〜20 分後に積む（待ちのまま 10 分たった写真を拾う）。
  * 手元から本番のキューにつながなくて済む（enqueueUnidentified.ts と同じ）。1枚ごとに AI（detail: high）を呼ぶので、先に件数を見てから回す
@@ -25,7 +26,7 @@ export async function enqueueUntaggedFoodPhotos(options: {
       photo.processing?.state === 'done' &&
       // タグの提案を済ませた写真（料理・名所が無かった、利用者が AI のタグを消した、上限まで失敗した）はもう一度回さない
       photo.processing.step !== 'tag' &&
-      (photo.category === 'food' || (photo.category === 'landscape' && hasPlace(photo.location))) &&
+      suggestsTags(photo.category, photo.location) &&
       photo.categorySource !== 'user' &&
       (photo.tags ?? []).length === 0
   );

@@ -56,8 +56,8 @@ const LANDMARK_TAGS_SCHEMA = {
   additionalProperties: false,
 };
 
-/** AI が提案した料理1つ（名前は切り詰め、位置は 0〜1 に収めた後） */
-export interface DishSuggestion {
+/** AI が提案したタグ1つ（料理か名所。名前は切り詰め、位置は 0〜1 に収めた後） */
+export interface TagSuggestion {
   name: string;
   x: number;
   y: number;
@@ -76,7 +76,7 @@ export class PhotoTaggerService {
    * @returns 皿ごとの提案（TAG_VALIDATION.MAX_COUNT 個まで）。料理が無ければ空
    * @throws UpstreamError（ai） AI の失敗と、応答の検証違反（dishes が配列でない、答えた皿がどれも通らない）
    */
-  async suggest(imageUrl: string): Promise<DishSuggestion[]> {
+  async suggest(imageUrl: string): Promise<TagSuggestion[]> {
     const prompt = `
 この写真に写っている料理を、皿（器）ごとに挙げてください。
 - name: 名前の決まり: ${CATALOG_KINDS.food.namingRule}
@@ -99,7 +99,7 @@ export class PhotoTaggerService {
   async suggestLandmarks(
     imageUrl: string,
     clues: { placeName: string | null; candidates: LandmarkCandidate[] }
-  ): Promise<DishSuggestion[]> {
+  ): Promise<TagSuggestion[]> {
     const lines = [
       `
 この写真に写っている、固有の名前のある建物・名所（城・寺社・橋・塔・山小屋など）を挙げてください。
@@ -123,7 +123,7 @@ export class PhotoTaggerService {
   /**
    * AI に画像を細かく（detail: high）渡してタグを頼み、答えの配列（listKey の項目）を検証して提案にする
    */
-  private async request(schemaName: string, schema: Record<string, unknown>, listKey: string, prompt: string, imageUrl: string): Promise<DishSuggestion[]> {
+  private async request(schemaName: string, schema: Record<string, unknown>, listKey: string, prompt: string, imageUrl: string): Promise<TagSuggestion[]> {
     try {
       const result = (await this.vision.analyze({
         schemaName,
@@ -141,7 +141,7 @@ export class PhotoTaggerService {
       // 通らないものだけを捨てる（1つの誤りで、通ったものまで捨てて detail: high の呼び出しをやり直さない）
       const suggestions = items
         .map(toSuggestion)
-        .filter((item): item is DishSuggestion => item !== null)
+        .filter((item): item is TagSuggestion => item !== null)
         .slice(0, TAG_VALIDATION.MAX_COUNT);
       // 答えたものがどれも通らないのは「写っていない」ではないので、AI の失敗にしてやり直す
       if (items.length > 0 && suggestions.length === 0) {
@@ -159,7 +159,7 @@ export class PhotoTaggerService {
  *
  * 手で付けるタグの検証が断る名前を保存すると、アプリがタグを送り直したときに 400 になって直せなくなる
  */
-function toSuggestion(dish: any): DishSuggestion | null {
+function toSuggestion(dish: any): TagSuggestion | null {
   if (typeof dish?.name !== 'string' || typeof dish.x !== 'number' || typeof dish.y !== 'number') {
     return null;
   }

@@ -8,10 +8,10 @@ import { PhotoDocument, PhotoProcessing, PhotoTag } from '../types/album';
 import { PHOTO_VALIDATION } from '../constants/validation';
 import { identifiesAutomatically, isCatalogKind } from '../catalog/kinds';
 import { PhotoIdentifierService } from '../services/photoIdentifierService';
-import { PhotoTaggerService } from '../services/photoTaggerService';
+import { PhotoTaggerService, TagSuggestion } from '../services/photoTaggerService';
 import { enqueuePhotoOrLog } from '../services/photoQueueService';
 import { LandmarkCandidate, LandmarkCandidateService } from '../services/landmarkCandidates';
-import { hasCoordinates, hasPlace } from '../utils/photoLocation';
+import { hasCoordinates, suggestsTags } from '../utils/photoLocation';
 
 /**
  * 写真の解析のワーカー（キュー photo-processing のメッセージ `{ photoId }` で動く）
@@ -127,8 +127,7 @@ async function classifyPhoto(
   // 食べ物と、撮影地のある風景で、タグが1つも無ければ AI にタグを提案させる（C-4・C-5。06 §9・§10）。
   // 撮影地の無い風景は、写真だけでは名所の精度が無いので回さない（02 §5 #65）。
   // 読んだ時点のタグで決め、書くときにもう一度タグが無いことを条件にする
-  const suggests = result.kind === 'food' || (result.kind === 'landscape' && hasPlace(photo.location));
-  const tags = !identifies && suggests && (photo.tags ?? []).length === 0;
+  const tags = !identifies && suggestsTags(result.kind, photo.location) && (photo.tags ?? []).length === 0;
   const next: PhotoProcessing['step'] = identifies ? 'identify' : tags ? 'tag' : null;
   const written = await album.writeClassification(photo.id, claimedProcessing, {
     category: result.kind,
@@ -249,18 +248,18 @@ async function tagPhoto(
   context: InvocationContext
 ): Promise<void> {
   let kind: PhotoTag['kind'];
-  let suggestions: Array<{ name: string; x: number; y: number }> = [];
-  if (photo.category === 'food') {
+  let suggestions: TagSuggestion[] = [];
+  if (!suggestsTags(photo.category, photo.location)) {
+    kind = 'other';
+  } else if (photo.category === 'food') {
     kind = 'food';
     suggestions = await new PhotoTaggerService().suggest(imageUrl);
-  } else if (photo.category === 'landscape' && hasPlace(photo.location)) {
+  } else {
     kind = 'landscape';
     suggestions = await new PhotoTaggerService().suggestLandmarks(imageUrl, {
       placeName: photo.location?.placeName ?? null,
       candidates: hasCoordinates(photo.location) ? await landmarkCandidatesOrNone(photo, context) : [],
     });
-  } else {
-    kind = 'other';
   }
   const now = new Date().toISOString();
   const done: PhotoProcessing = { state: 'done', step: 'tag', attempts: claimedProcessing.attempts, lastError: null, updatedAt: now };

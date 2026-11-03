@@ -14,3 +14,11 @@ export function hasCoordinates(location: PhotoLocation | null | undefined): bool
 export function hasPlace(location: PhotoLocation | null | undefined): boolean {
   return hasCoordinates(location) || Boolean(location?.placeName);
 }
+
+/**
+ * AI にタグを提案させる写真か（食べ物か、撮影地のある風景。C-4・C-5。06 §9・§10）。
+ * 分類の後に待ちにするか、提案のワーカーが提案するか、既にある写真を回すかを、この1つの条件で決める
+ */
+export function suggestsTags(category: string | null, location: PhotoLocation | null | undefined): boolean {
+  return category === 'food' || (category === 'landscape' && hasPlace(location));
+}

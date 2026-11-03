@@ -85,9 +85,9 @@ export class LandmarkCandidateService {
       }
     }
     const entries: LandmarkEntry[] = [];
-    for (const cell of cells) {
-      entries.push(...(await readCell(container.getBlockBlobClient(`cells/${cell}.json`))));
-    }
+    // 区画のファイルは同時に読む（1〜4個）
+    const read = await Promise.all([...cells].map((cell) => readCell(container.getBlockBlobClient(`cells/${cell}.json`))));
+    entries.push(...read.flat());
 
     const nearby = entries
       .filter((entry) => entry.kind !== 'peak')
