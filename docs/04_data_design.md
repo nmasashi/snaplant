@@ -522,7 +522,7 @@ export const CATALOG_KINDS = {
 | コンテナ | 公開範囲 | 用途 | 段階 |
 |---|---|---|---|
 | `photos`（新設） | `private` | 写真の原寸とサムネイル。読み取りは Blob 単位の SAS（[05 §6](./05_api_design.md#6-sas-付き-url)） | 2 |
-| `landmarks` | `private` | 名所のデータ（OpenStreetMap の日本の分から取り出した名所と山頂。緯度・経度 0.25 度の区画ごとの JSON `cells/<南端の緯度>_<西端の経度>.json`）。ワーカーが名所の候補を引くのに読むだけ。中身と置き換え方は [06 §10.1](./06_processing_design.md#101-名所のデータ)。コンテナ名は `LANDMARK_STORAGE_CONTAINER_NAME` | C-5 |
+| `landmarks` | `private` | 名所のデータ（OpenStreetMap の日本の分から取り出した名所と山頂。緯度・経度 0.25 度の区画ごとの JSON `cells/<南端の緯度>_<西端の経度>.json`）。ワーカーが名所の候補を引くのに読むだけ。中身と置き換え方は [06 §10.1](./06_processing_design.md#101-名所のデータ)。コンテナ名は `LANDMARK_STORAGE_CONTAINER_NAME`。コンテナと区画のファイルを作るところは C-5a で実装済み、読むワーカーは C-5b（未実装） | C-5 |
 | `images`（既存） | `blob`（公開） | 植物図鑑の画像。4-7 で Terraform の定義から消した（4-7 の apply までは Azure 上に残る。[07 §3.2](./07_infrastructure_design.md#32-植物図鑑の廃止)） | — |
 | `temp-images`（既存） | `private` | `upload` の一時保存。段階2でライフサイクル（1日で削除）を足した。4-7 でライフサイクルごと Terraform の定義から消した（同上） | — |
 
