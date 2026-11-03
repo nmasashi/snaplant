@@ -148,6 +148,9 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       point(36.2894, 137.6480, { natural: 'peak', name: '奥穂高岳', ele: '3190' }),
       point(36.2265, 137.5875, { natural: 'volcano', name: '焼岳', ele: '2444.3' }),
       point(36.3, 137.6, { natural: 'peak', name: '標高の読めない山', ele: 'unknown' }),
+      // 桁区切りや複数の値は、先頭の数だけを読むと桁違いになる（3,776 を 3 と読む）
+      point(36.3, 137.6, { natural: 'peak', name: '桁区切りの標高の山', ele: '3,776' }),
+      point(36.3, 137.6, { natural: 'peak', name: '値が2つある山', ele: '2999;3000' }),
       point(36.3, 137.6, { natural: 'peak', name: '標高の無い山' }),
       point(36.2, 137.9, { man_made: 'tower', name: '標高の付いた塔', ele: '700' })
     ]);
@@ -156,6 +159,8 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
     expect(eleOf('奥穂高岳')).toBe(3190);
     expect(eleOf('焼岳')).toBe(2444.3);
     expect(eleOf('標高の読めない山')).toBeNull();
+    expect(eleOf('桁区切りの標高の山')).toBeNull();
+    expect(eleOf('値が2つある山')).toBeNull();
     expect(eleOf('標高の無い山')).toBeNull();
     expect(eleOf('標高の付いた塔')).toBeNull();
   });
