@@ -268,7 +268,7 @@ async function tagPhoto(
     context.log(`タグを提案しました: ID=${photo.id}, 個数=${tags.length}`);
     return;
   }
-  // 料理が無い、または利用者のタグが先にあった。進み具合だけを済みにする
+  // 料理・名所が無い、利用者のタグが先にあった、または提案する写真でなくなった。進み具合だけを済みにする
   if (!(await album.writeProcessing(photo.id, claimedProcessing, done))) {
     context.log(`タグの提案の間にやり直しの受付が入ったか、写真が消されたので、この結果は書きません: ID=${photo.id}`);
     return;

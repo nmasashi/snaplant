@@ -551,7 +551,7 @@ export class AlbumService {
    * 解析が済んでタグの無い、AI が食べ物と分類した写真を読む（C-4 より前の写真をタグの提案に回すスクリプト用。手で食べ物にした写真は除く。06 §9）
    *
    * 絞り込みはテストで確かめられない（偽物は SQL を解釈しない）ので、呼び出し側も同じ条件をコードで見る
-   * @returns 写真ごとの id・category・tags・processing
+   * @returns 写真ごとの id・category・categorySource・tags・processing・location
    */
   async listUntaggedPhotos(): Promise<UntaggedPhotoRow[]> {
     const { resources } = await this.container.items
