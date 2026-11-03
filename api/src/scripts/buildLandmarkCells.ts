@@ -51,6 +51,17 @@ function positionsOf(coordinates: unknown): Array<[number, number]> {
   return Array.isArray(coordinates) ? coordinates.flatMap(positionsOf) : [];
 }
 
+/** 同じ名前・種類の名所を1件にまとめる距離（m）。区切って載っている橋の道や、城の点と敷地の形はこの内に収まる */
+const MERGE_DISTANCE_METERS = 500;
+
+/** 2点の距離（m）。まとめるかを決めるだけなので、狭い範囲で十分な平面の近似にする */
+function metersBetween(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const metersPerDegree = 111_320;
+  const dy = (a.lat - b.lat) * metersPerDegree;
+  const dx = (a.lon - b.lon) * metersPerDegree * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  return Math.hypot(dx, dy);
+}
+
 /** 区画の名前（南端の緯度と西端の経度。小数2桁） */
 function cellOf(lat: number, lon: number): string {
   const floor = (value: number) => (Math.floor(value / CELL_DEGREES) * CELL_DEGREES).toFixed(2);
@@ -71,8 +82,8 @@ export async function buildLandmarkCells(
 ): Promise<{ cells: Record<string, LandmarkEntry[]>; total: number; byKind: Record<string, number> }> {
   const cells: Record<string, LandmarkEntry[]> = {};
   const byKind: Record<string, number> = {};
-  // 区画・種類・名前ごとの最初の1件
-  const firstOf = new Map<string, LandmarkEntry>();
+  // 区画・種類・名前ごとに、残した名所
+  const firstOf = new Map<string, LandmarkEntry[]>();
   let total = 0;
   for await (const raw of lines) {
     const text = raw.split(RECORD_SEPARATOR).join('').trim();
@@ -106,15 +117,17 @@ export async function buildLandmarkCells(
       known: Boolean(tags.wikidata || tags.wikipedia),
       ele: Number.isFinite(ele) ? ele : null
     };
-    // 道は区切って、城は点と敷地の形の両方で載っていることがあるので、同じ区画の同じ名前・種類は1件にまとめる
+    // 道は区切って、城は点と敷地の形の両方で載っていることがあるので、同じ区画の同じ名前・種類で近いものは1件にまとめる。
+    // 八幡神社や丸山のように同じ名前の別の名所が同じ区画にいくつもあるので、離れていれば別に残す
     const cell = cellOf(lat, lon);
     const key = `${cell}|${kind}|${name}`;
-    const seen = firstOf.get(key);
+    const sameName = firstOf.get(key) ?? [];
+    const seen = sameName.find((other) => metersBetween(other, entry) <= MERGE_DISTANCE_METERS);
     if (seen) {
       seen.known ||= entry.known;
       continue;
     }
-    firstOf.set(key, entry);
+    firstOf.set(key, [...sameName, entry]);
     (cells[cell] ??= []).push(entry);
     byKind[kind] = (byKind[kind] ?? 0) + 1;
     total += 1;
