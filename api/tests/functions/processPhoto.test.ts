@@ -1069,9 +1069,16 @@ describe('写真の解析のワーカー', () => {
       expect(queuedMessages()).toEqual([]);
     });
 
-    it('名所の提案の待ちの写真は、AI が答えた名所ごとに、風景の AI のタグを書いて済みにする', async () => {
+    it('名所の提案の待ちの写真は、AI が答えた名所ごとに、風景の AI のタグを書いて済みにする（名前の切り詰めと位置の収め方は食べ物と同じ）', async () => {
+      // 名前の切り詰めと位置の収め方の全ケースは、食べ物の側（タグの提案（C-4））で通す（06 §10「検証は §9 の dishes と同じ」）
       cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
-      aiReturns({ landmarks: [{ name: ' 松本城 ', x: 0.32, y: 0.37 }, { name: '埋橋', x: 0.57, y: 0.81 }] });
+      aiReturns({
+        landmarks: [
+          { name: ' 松本城 ', x: 0.32, y: 0.37 },
+          { name: '埋橋', x: 0.57, y: 0.81 },
+          { name: 'あ'.repeat(31), x: -0.2, y: 1.3 }
+        ]
+      });
 
       await runWorker();
 
@@ -1079,7 +1086,8 @@ describe('写真の解析のワーカー', () => {
         ...waitingLandscape(),
         tags: [
           { name: '松本城', kind: 'landscape', x: 0.32, y: 0.37, source: 'ai' },
-          { name: '埋橋', kind: 'landscape', x: 0.57, y: 0.81, source: 'ai' }
+          { name: '埋橋', kind: 'landscape', x: 0.57, y: 0.81, source: 'ai' },
+          { name: 'あ'.repeat(30), kind: 'landscape', x: 0, y: 1, source: 'ai' }
         ],
         processing: done,
         updatedAt: NOW
@@ -1235,15 +1243,6 @@ describe('写真の解析のワーカー', () => {
       expect(sent).toHaveLength(0);
       expect(storedPhoto().tags).toEqual([]);
       expect(storedPhoto().processing).toEqual(done);
-    });
-
-    it('名前の切り詰めと位置の収め方は食べ物と同じ（全ケースは食べ物の側で通す）', async () => {
-      cosmosBackend.documents.set(PHOTO_ID, waitingLandscape());
-      aiReturns({ landmarks: [{ name: 'あ'.repeat(31), x: -0.2, y: 1.3 }] });
-
-      await runWorker();
-
-      expect(storedPhoto().tags).toEqual([{ name: 'あ'.repeat(30), kind: 'landscape', x: 0, y: 1, source: 'ai' }]);
     });
 
     it('AI の答えの landmarks が配列でなければ、AI の失敗として待ちに戻し、タグは書かない', async () => {
