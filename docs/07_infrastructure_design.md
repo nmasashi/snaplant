@@ -337,7 +337,7 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 |---|---|---|
 | `LANDMARK_STORAGE_CONTAINER_NAME` | `azurerm_storage_container.landmarks.name` | 名所の候補を引くワーカー（06 §10）。未設定なら候補なしで聞く（設定の誤りにはしない。名所のデータは手がかりで、無くても地名と写真で聞けるため） |
 
-- **取り出しのワークフロー**（`.github/workflows/` に足す。手で動かす `workflow_dispatch` だけで、push・PR では動かない）: Azure の資格情報を持たない。結果は成果物として残し、Blob へは人が上げる（#65）。
+- **取り出しのワークフロー**（`.github/workflows/` に足す。手で動かす `workflow_dispatch` だけで、push・PR では動かない）: 最初は Azure の資格情報を持たない。結果は成果物として残し、Blob へは人が上げる（#65）。
   デプロイを止める検査ではないので ci.yml には足さない
 - **置き換えの手順**（人間。DEPLOYMENT.md に書く）: 成果物を落として展開し、`az storage blob upload-batch` で `landmarks` コンテナに上書きで上げる。最初の1回は C-5 の api をデプロイする前に行い、その後に既にある風景の写真のスクリプト（06 §10）を回す
 - 費用: 区画のファイルは全部で数十 MB の見込みで、Blob の保管は月 1 セント未満。ワークフローは公開のリポジトリなら無料（private でも月 2,000 分の無料枠に収まる。1回 10〜20 分の見込みで、実測は C-5 の作業単位で 09 に記録する）
