@@ -83,7 +83,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       point(36.2400, 137.9700, { amenity: 'place_of_worship', religion: 'shinto' })
     ]);
 
-    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toEqual(
+    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toStrictEqual(
       ['京都市京セラ美術館', '四柱神社', '埋橋'].sort()
     );
   });
@@ -172,6 +172,8 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       line(segment, { highway: 'primary', bridge: 'yes', name: '国道20号' }),
       line(segment, { highway: 'footway', bridge: 'yes', name: '河童橋' }),
       line(segment, { highway: 'primary', bridge: 'yes', name: '国道20号', 'bridge:name': '新宮川橋梁' }),
+      // 橋の名前があれば、「橋」を含まなくても入れる
+      line(segment, { highway: 'motorway', bridge: 'yes', name: '首都高速湾岸線', 'bridge:name': 'ベイブリッジ' }),
       // man_made=bridge は橋そのものなので、名前に「橋」が無くても入れる
       polygon(
         [
@@ -184,8 +186,8 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
       )
     ]);
 
-    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toEqual(
-      ['レインボーブリッジ', '新宮川橋梁', '河童橋'].sort()
+    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name).sort()).toStrictEqual(
+      ['ベイブリッジ', 'レインボーブリッジ', '新宮川橋梁', '河童橋'].sort()
     );
   });
 
@@ -222,7 +224,7 @@ describe('名所のデータの区画のファイルを作るスクリプト（C
   it('行頭の区切りの文字（osmium の geojsonseq が付ける）と空行は読み飛ばす', async () => {
     const result = await build(['\u001e' + point(36.1, 137.1, { historic: 'castle', name: '区切り付き' }), '', '   ']);
 
-    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name)).toEqual(['区切り付き']);
+    expect((allEntries(result.cells) as Array<{ name: string }>).map((e) => e.name)).toStrictEqual(['区切り付き']);
   });
 
   it('名所と山頂の件数が下限を下回ると失敗し、下限以上なら全体と種類ごとの件数を返す', async () => {
