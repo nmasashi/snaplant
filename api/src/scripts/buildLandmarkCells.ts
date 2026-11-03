@@ -86,6 +86,14 @@ function gapMeters(a: Bounds, b: Bounds): number {
   return Math.hypot(dLat * metersPerDegree, dLon * metersPerDegree * Math.cos((midLat * Math.PI) / 180));
 }
 
+/**
+ * 名前のタグの値の前後の空白（全角を含む）を除く。空白だけ・空の値は undefined にする
+ * （呼び出し側は ?? で次のタグに移るので、空文字列を返さないこと）
+ */
+function cleanName(value: string | undefined): string | undefined {
+  return value?.trim() || undefined;
+}
+
 /** 区画の名前（南端の緯度と西端の経度。小数2桁） */
 function cellOf(lat: number, lon: number): string {
   const floor = (value: number) => (Math.floor(value / CELL_DEGREES) * CELL_DEGREES).toFixed(2);
@@ -120,13 +128,11 @@ export async function buildLandmarkCells(
     const tags: Record<string, string> = feature.properties ?? {};
     const kind = kindOf(tags);
     // 道の橋は name に道の名前が入っていることがあるので、橋の名前を先に見る。橋の道でもある観光地などは、その名前を先にし、
-    // 名前が橋の名前にしか無ければそれを使う。空の値は無いものとみなす
-    // 前後の空白（全角を含む）は除き、空白だけの値は無いものとみなす
-    const clean = (value: string | undefined) => value?.trim() || undefined;
-    const bridgeName = clean(tags['bridge:name']);
+    // 名前が橋の名前にしか無ければそれを使う
+    const bridgeName = cleanName(tags['bridge:name']);
     const name = kind === 'bridge'
-      ? bridgeName ?? clean(tags['name:ja']) ?? clean(tags.name)
-      : clean(tags['name:ja']) ?? clean(tags.name) ?? bridgeName;
+      ? bridgeName ?? cleanName(tags['name:ja']) ?? cleanName(tags.name)
+      : cleanName(tags['name:ja']) ?? cleanName(tags.name) ?? bridgeName;
     const bounds: Bounds = { south: Infinity, north: -Infinity, west: Infinity, east: -Infinity };
     extendBounds(bounds, feature.geometry?.coordinates);
     if (kind === null || !name || bounds.south === Infinity) continue;
