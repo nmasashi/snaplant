@@ -27,10 +27,19 @@ const foodPhoto = (id: string, overrides: Partial<PhotoDocument> = {}): PhotoDoc
     ...overrides
   });
 
+/** C-5 より前に分類まで済んだ、撮影地のある風景の写真（タグはまだ無い）。分類の結果（classification）もカテゴリにそろえる */
+const landscapePhoto = (id: string, overrides: Partial<PhotoDocument> = {}): PhotoDocument =>
+  foodPhoto(id, {
+    category: 'landscape',
+    classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT },
+    location: { latitude: 36.2386, longitude: 137.9689, placeName: '長野県松本市', placeSource: 'device' },
+    ...overrides
+  });
+
 /** タグの提案の待ち（スクリプトが書く形。積むのは再投入のタイマー） */
 const waitingForTags: PhotoProcessing = { state: 'pending', step: 'tag', attempts: 0, lastError: null, updatedAt: NOW };
 
-describe('既にある食べ物の写真をタグの提案に回すスクリプト（C-4。06 §9）', () => {
+describe('既にある食べ物と風景の写真をタグの提案に回すスクリプト（C-4・C-5。06 §9・§10）', () => {
   let cosmosBackend: FakeCosmosBackend<FakeCosmosDocument>;
   let log: jest.Mock;
 
@@ -75,13 +84,18 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     expect(stored(photoId('b')).processing).toEqual(waitingForTags);
   });
 
-  it('写真が対象でない（タグがある・食べ物でない・解析が済んでいない）なら、書き込みを指定しても変えない', () => forEachCase([
+  it('写真が対象でない（タグがある・食べ物でも撮影地のある風景でもない・手でカテゴリを決めた・解析が済んでいない・提案を済ませた）なら、書き込みを指定しても変えない', () => forEachCase([
     ['タグがある', { tags: [{ name: '夕食', kind: 'food', x: 0.5, y: 0.5, source: 'user' }] }],
     ['植物', { category: 'plant' }],
-    ['風景', { category: 'landscape' }],
+    // 撮影地の無い風景の写真は、名所の提案に回さない（06 §10。02 §5 #65）
+    ['風景で撮影地が無い', { category: 'landscape', classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT }, location: null }],
+    ['風景で座標も地名も空', { category: 'landscape', classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT }, location: { latitude: null, longitude: null, placeName: null, placeSource: null } }],
+    ['風景で手でカテゴリを風景にした', { category: 'landscape', classification: { kind: 'landscape', confidence: 95, model: 'gpt-6-luna', at: CLASSIFIED_AT }, categorySource: 'user', location: { latitude: 36.2386, longitude: 137.9689, placeName: null, placeSource: 'device' } }],
     // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）。スクリプトもそれに合わせる
     ['手でカテゴリを食べ物にした', { categorySource: 'user' }],
     ['分類の待ち', { processing: { state: 'pending', step: 'classify', attempts: 0, lastError: null, updatedAt: CLASSIFIED_AT } }],
+    // タグの提案を済ませた写真（料理が無かった・利用者が AI のタグを消した・上限まで失敗した）は、もう一度回さない（消したタグを戻さない・費用）
+    ['タグの提案を済ませた', { processing: { state: 'done', step: 'tag', attempts: 1, lastError: null, updatedAt: CLASSIFIED_AT } }],
     ['上限まで失敗した（failed）', { processing: { state: 'failed', step: 'tag', attempts: 3, lastError: 'ai', updatedAt: CLASSIFIED_AT } }],
     ['解析の対象になっていない（段階2の none）', { category: null, processing: { state: 'none', step: null, attempts: 0, lastError: null, updatedAt: null } }]
   ] as const, async (_label, overrides) => {
@@ -94,6 +108,21 @@ describe('既にある食べ物の写真をタグの提案に回すスクリプ�
     expect(result).toEqual({ found: 0, marked: 0 });
     expect(stored(photoId('a'))).toEqual(photo);
   }));
+
+  it('撮影地（座標か地名）のある、解析が済んでタグの無い風景の写真も、タグの提案（名所）の待ちにする（C-5b。06 §10）', async () => {
+    cosmosBackend.documents.set(photoId('a'), landscapePhoto(photoId('a')));
+    // コメントを書いてもらった（step: identify で済んだ）風景の写真も、タグの提案はまだなので回す
+    cosmosBackend.documents.set(photoId('b'), landscapePhoto(photoId('b'), {
+      location: { latitude: null, longitude: null, placeName: '上高地', placeSource: 'user' },
+      processing: { state: 'done', step: 'identify', attempts: 1, lastError: null, updatedAt: CLASSIFIED_AT }
+    }));
+
+    const result = await enqueueUntaggedFoodPhotos({ apply: true, log });
+
+    expect(result).toEqual({ found: 2, marked: 2 });
+    expect(stored(photoId('a')).processing).toEqual(waitingForTags);
+    expect(stored(photoId('b')).processing).toEqual(waitingForTags);
+  });
 
   it('書き込みを指定しなければ、対象の写真を数えるだけで何も変えない', async () => {
     // 本番のデータを書き、AI の費用もかかるので、先に件数を見てから回す（06 §9）

@@ -154,7 +154,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `commentSource` はカテゴリのシートでも読み、AI のコメント（`"ai"`）なら、保存すると消えることを知らせる（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)。カテゴリの変更で AI のコメントを消す、で実装済み）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
 `processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
-**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。C-5 から、風景の写真の名所のタグの提案も同じ `step: "tag"` で表す（[06 §10](./06_processing_design.md#10-名所の判別c-5)。未実装。応答の形は変わらない）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。
+**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。C-5 から、撮影地のある風景の写真の名所のタグの提案も同じ `step: "tag"` で表す（**実装済み**（C-5b）。[06 §10](./06_processing_design.md#10-名所の判別c-5)。応答の形は変わらない。名所のタグは `kind: "landscape"`・`source: "ai"`）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
@@ -1209,19 +1209,20 @@ AI 識別の行は、今は返すエンドポイントが無い（§9.3）。`Up
 写真の分類と識別（裏のワーカー。[06 §2・§3](./06_processing_design.md#2-分類段階3)）と、タイムラインの区切り案（段階5。5-1b）と文（5-2a。[06 §8](./06_processing_design.md#8-タイムライン段階5)）は、同じサービス（`api/src/services/openAIVisionService.ts`）を通して
 AI 識別サービス（Azure OpenAI Service の Chat Completions）へ、1回の分類・識別につき1回の要求を送る（区切り案・文はそれぞれ1回の作成につき1回。写真の多い旅行は分けて複数回。文は作り直しでも全部の場面と日を書かせる（5-5b。それまでは書かせるものが無ければ呼ばなかった）。[06 §8.3・§8.4](./06_processing_design.md#84-ai-に渡すもの)）。
 **実装済み**（C-4b。`services/photoTaggerService.ts`）: 食べ物の写真のタグの提案（裏のワーカー。[06 §9](./06_processing_design.md#9-タグの提案c-4)）も同じサービスを通し、1枚の提案につき1回の要求を送る（下の表の「タグの提案」の分）。
+**実装済み**（C-5b。`PhotoTaggerService.suggestLandmarks()`）: 撮影地のある風景の写真の名所のタグの提案（[06 §10](./06_processing_design.md#10-名所の判別c-5)）も「タグの提案」に含み、要素は食べ物と同じ（違うのはスキーマの名前と、テキストに地名と名所の候補を含めること）。
 管理外の依存へ送るものは外部との契約なので、要素をここに書く。ここに書くのは共通の要素で、
-送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4・§9](./06_processing_design.md#21-モデルとサービス) にある。
+送り先のデプロイの選び方・スキーマ・プロンプトが指示すること・渡す画像（タイムラインは写真ごとの行）は [06 §2.1・§2.2・§3.1・§8.4・§9・§10](./06_processing_design.md#21-モデルとサービス) にある。
 
 **プロンプトの文言は契約外。** ここにも 06 にも写さず、テストでも完全一致で固定しない。
 
 | 要素 | 内容 |
 |---|---|
 | 接続先 | `AZURE_OPENAI_ENDPOINT` があれば Azure OpenAI Service。このとき送り先のデプロイ名は必須で、決まらない（空文字列・空白だけを含む）なら要求を送らずに失敗する（表の下）。`baseURL` は `<AZURE_OPENAI_ENDPOINT>/openai/deployments/<デプロイ名>`（デプロイ名は前後の空白を取り除いたもの）、クエリ `api-version` は `AZURE_OPENAI_API_VERSION`（未設定なら `2024-12-01-preview`）、ヘッダ `api-key` は `AZURE_OPENAI_API_KEY`。無ければ OpenAI API（`OPENAI_API_KEY`。`baseURL`・`api-version`・`api-key` ヘッダは付けない） |
-| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、タイムラインは `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` を渡し、識別とタグの提案は何も渡さない（06 §2.1・§3.1・§8.1・§9） |
+| デプロイ名 | サービスを作るときに渡したもの。省略・空・空白だけなら `AZURE_OPENAI_DEPLOYMENT_NAME`（前後の空白を取り除いたもの）。分類は `AZURE_OPENAI_CLASSIFY_DEPLOYMENT_NAME`、タイムラインは `AZURE_OPENAI_TIMELINE_DEPLOYMENT_NAME` を渡し、識別とタグの提案（名所を含む）は何も渡さない（06 §2.1・§3.1・§8.1・§9・§10） |
 | モデル | デプロイ名。Azure OpenAI Service では `baseURL` のデプロイ名と常に一致する。OpenAI API に直接つなぐとき（`AZURE_OPENAI_ENDPOINT` が無いとき）だけ、デプロイ名が決まらなければ `gpt-5.6-luna` を使う |
 | メッセージ | `user` ロールの1件。分類・識別・タグの提案はテキスト（プロンプト）と画像の2パート、タイムラインはテキストの1パートだけ（画像を渡さない。06 §8.4） |
-| 画像 | 分類・識別・タグの提案だけ。`image_url` パート。分類・識別は `detail: "low"`（トークン節約）、タグの提案は `detail: "high"`（皿の位置を答えさせるため。06 §9）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
-| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タグの提案は `dish_tags`、タイムラインの区切り案は `timeline_proposal`、文は `timeline_texts`） |
+| 画像 | 分類・識別・タグの提案だけ。`image_url` パート。分類・識別は `detail: "low"`（トークン節約）、タグの提案は `detail: "high"`（皿・名所の位置を答えさせるため。06 §9・§10）。URL は写真の原寸の Blob の読み取り SAS（06 §2.1） |
+| 応答の形 | Structured Outputs（`response_format: json_schema`、`strict: true`）。スキーマの名前とスキーマは呼び出し側が渡す（分類は `photo_classification`、識別は `photo_identification`、タグの提案は `dish_tags`（食べ物）・`landmark_tags`（名所。C-5b）、タイムラインの区切り案は `timeline_proposal`、文は `timeline_texts`） |
 | トークン上限 | `max_completion_tokens`（`max_tokens` は送らない）。分類・識別・タグの提案は 4000、タイムラインの区切り案は `TIMELINE_PROPOSE_MAX_TOKENS`（4000）、文は `TIMELINE_WRITE_MAX_TOKENS`（16000。06 §8.4） |
 | 送らないパラメータ | `temperature` |
 

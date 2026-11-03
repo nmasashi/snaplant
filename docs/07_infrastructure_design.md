@@ -260,7 +260,7 @@ resource "azurerm_cosmosdb_sql_container" "album" {
 | `TIMELINE_DAY_START_HOUR` | `4` | 日付の切り替えの時刻（0〜23 時）。4 なら 10月6日 2:30 の写真は 10月5日に入る。**0 を受け付けるので `positiveIntFromEnv()` ではなく、0〜23 の整数として読めなければ既定値に戻す読み方**（5-1a で実装済み。`constants/validation.ts` の `hourFromEnv()` を、`constants/album.ts` の `timelineDayStartHour()` が呼ぶたびに読む。数字1〜2桁で 23 以下のときだけその値（`"05"` は 5）、未設定・空・`24`・`-1`・`abc`・前後の空白付き・`4abc` は 4）。タイムラインを作る・作り直すとき（`POST …/timeline`）に読み、下書きに書く（後で変えても、作り直すまでその値で分ける） | `POST /api/trips/{tripId}/timeline` | 5 |
 | `TIMELINE_TITLE_MAX_LENGTH` / `TIMELINE_SUMMARY_MAX_LENGTH` / `TIMELINE_LABEL_MAX_LENGTH` / `TIMELINE_NOTE_MAX_LENGTH` | `40` / `400` / `30` / `200` | 日のタイトル・まとめ、場面の見出し・一言の上限（文字） | `PATCH …/timeline/days/{date}`・`scenes/{photoId}`（5-2b で実装済み）と、AI の文の切り詰め（タイムラインのワーカー。`TIMELINE_VALIDATION.MAX_LENGTH`。5-2a で実装済み。U-3 から AI は一言を書かないので、`TIMELINE_NOTE_MAX_LENGTH` は `PATCH` だけが使う） | 5 |
 | `TIMELINE_SCENE_COMMENT_MAX_LENGTH` | `100` | 利用者が書く場面のコメントの上限（文字。前後の空白を除いて数える） | `PUT …/timeline/draft/scenes` の `sceneComments`（`TIMELINE_VALIDATION.MAX_LENGTH.SCENE_COMMENT`。5-7 で実装済み。アプリの入力欄も 100 文字で止めるが、`timeline_review_screen.dart` に直接書いた値なので、変えるならそろえる） | 5 |
-| `LANDMARK_STORAGE_CONTAINER_NAME` | （Terraform が `landmarks` を入れる。C-5a で実装済み）。未設定なら候補なしで聞く（§8） | 名所のデータの Blob コンテナ名 | 名所の候補を引くワーカー（[06 §10](./06_processing_design.md#10-名所の判別c-5)。C-5b で読む。未実装） | C-5 |
+| `LANDMARK_STORAGE_CONTAINER_NAME` | （Terraform が `landmarks` を入れる。C-5a で実装済み）。未設定なら候補なしで聞く（§8） | 名所のデータの Blob コンテナ名 | 名所の候補を引くワーカー（[06 §10](./06_processing_design.md#10-名所の判別c-5)。C-5b で実装済み。`services/landmarkCandidates.ts`） | C-5 |
 | `AZURE_MAPS_KEY` | （Azure Maps を入れる場合だけ） | Reverse Geocode のキー | `GeocodingService` | 3・任意 |
 
 AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変換の上限（`GEOCODING_DAILY_LIMIT`）は**置かない**。費用はデプロイの容量と予算アラートで抑える（§2、[06 §6](./06_processing_design.md#6-費用の抑え方)）。
@@ -282,6 +282,7 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 | `TIMELINE_SNAPSHOT_COMMENT_LENGTH`（`constants/album.ts`） | `100` | タイムラインの写真の控えに残すコメントの長さ（先頭から。見た目の1文字（書記素）で数える）。AI に渡す分だけを残し、控えの文書を小さく保つ。環境変数では変えられない。5-1a で実装済み | `POST /api/trips/{tripId}/timeline`（控えを取る。[04 §1.6](./04_data_design.md#16-タイムラインtype-timeline-と-timelinephotos段階5)） | 5 |
 | `TIMELINE_MAX_PHOTOS_PER_CALL`（`constants/album.ts`） | `400` | タイムラインで AI に一度に渡す写真の数の上限。超える旅行は日の境目で分けて呼ぶ（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)）。環境変数では変えられない。5-1b で実装済み（文は 5-2a。1日で超える日は場面の境目で分ける） | タイムラインのワーカーの区切り案（`services/timelineProposal.ts`）と文（`services/timelineWriting.ts`） | 5 |
 | `TIMELINE_PROPOSE_MAX_TOKENS` / `TIMELINE_WRITE_MAX_TOKENS`（`constants/album.ts`） | `4000` / `16000` | タイムラインの区切り案・文の `max_completion_tokens`（推論のトークンも含む）。環境変数では変えられない。`TIMELINE_PROPOSE_MAX_TOKENS` は 5-1b、`TIMELINE_WRITE_MAX_TOKENS` は 5-2a で実装済み | タイムラインのワーカー（[06 §8.4](./06_processing_design.md#84-ai-に渡すもの)） | 5 |
+| `LANDMARK_CANDIDATE_RADIUS_M` / `LANDMARK_CANDIDATE_MAX`（`constants/album.ts`） | `2000` / `25` | 名所のタグの提案で、撮影地の周りのこの距離（m）以内の名所を、この件数まで AI に候補として渡す。環境変数では変えられない（**実装済み**（C-5b）） | 名所の候補（`services/landmarkCandidates.ts`。[06 §10](./06_processing_design.md#10-名所の判別c-5)） | C-5 |
 | `ORPHAN_BLOB_MIN_AGE_HOURS`（`constants/album.ts`） | `24` | 文書の無い Blob を消す前に待つ時間（最終更新から）。環境変数では変えられない | 掃除のタイマー（[04 §7.2](./04_data_design.md#72-掃除のタイマー段階3)） | 3 |
 | `CATALOG_VALIDATION.NAME_MAX_LENGTH`（`constants/validation.ts`） | `100` | 図鑑の項目の名前（`identification.name`）の最大文字数。環境変数では変えられない | 識別の応答の検証（ワーカー。[06 §3.1](./06_processing_design.md#31-契約)。4-1a）と、図鑑の項目を名前で開く API の `name` の検証（[05 §5.14](./05_api_design.md#514-図鑑段階4)。4-2） | 4 |
 | `OTHER_KIND`・`CATALOG_KINDS`・`PHOTO_KINDS`（`catalog/kinds.ts`） | `'other'`・定義表・定義表のキー + `'other'` | カテゴリと図鑑の種類 | 分類の選択肢と `GET /api/photos` の `category` の検証（`PHOTO_KINDS`）・識別のスキーマ・`GET /api/catalog/*`（[04 §3.2](./04_data_design.md#32-定義表-catalog_kindsapisrccatalogkindsts)） | 3・4 |
@@ -329,7 +330,7 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 ## 8. 名所の判別（C-5）
 
 **実装済み**（C-5a。`infrastructure/main.tf` の `azurerm_storage_container.landmarks` と `app_settings` の `LANDMARK_STORAGE_CONTAINER_NAME`、`outputs.tf` の `landmarks_container_name`、`.github/workflows/landmarks-extract.yml`）。
-未実装: 名所のデータを読むワーカー（下の表の「使う所」と、置き換えの手順の「最初の1回」の順。C-5b）。今はこの環境変数を読むコードは無い。
+**実装済み**（C-5b。`api/src/services/landmarkCandidates.ts`）: 名所のデータを読むワーカー（下の表の「使う所」と、置き換えの手順の「最初の1回」の順）。区画のファイルは写真と同じ `STORAGE_CONNECTION_STRING` で読む。
 [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #65。名所のデータの中身と取り出し方は [06 §10.1](./06_processing_design.md#101-名所のデータ)。
 
 | リソース | 名前 | 設定 | 注意 |

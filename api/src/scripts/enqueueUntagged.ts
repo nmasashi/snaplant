@@ -1,9 +1,11 @@
 import { AlbumService } from '../services/albumService';
 import { endpointHost, loadLocalSettings } from './scriptSettings';
+import { suggestsTags } from '../utils/photoLocation';
 
 /**
- * C-4 より前に解析が済んだ食べ物の写真（タグの無いもの）を、タグの提案の待ちにする一度だけのスクリプト
- * （docs/06_processing_design.md §9、02 §5 #61）
+ * C-4・C-5 より前に解析が済んだ、食べ物と撮影地のある風景の写真（タグの無いもの。タグの提案を済ませたものは除く）を、
+ * タグの提案の待ちにする一度だけのスクリプト（docs/06_processing_design.md §9・§10、02 §5 #61・#65）。
+ * 関数の名前は食べ物だけだった C-4 のころのまま
  *
  * キューには積まない。提案の待ちにした写真は、再投入のタイマーが 10〜20 分後に積む（待ちのまま 10 分たった写真を拾う）。
  * 手元から本番のキューにつながなくて済む（enqueueUnidentified.ts と同じ）。1枚ごとに AI（detail: high）を呼ぶので、先に件数を見てから回す
@@ -17,11 +19,18 @@ export async function enqueueUntaggedFoodPhotos(options: {
   const album = new AlbumService();
   const now = new Date().toISOString();
   // クエリと同じ条件をコードでも見る（クエリの絞り込みはテストで確かめられない）。崩れても、タグのある写真や解析中の写真を書き換えない
-  const targets = (await album.listUntaggedFoodPhotos()).filter(
-    // 手でカテゴリを食べ物に直した写真は、自動ではタグを提案しない（06 §9）ので除く
-    (photo) => photo.processing?.state === 'done' && photo.category === 'food' && photo.categorySource !== 'user' && (photo.tags ?? []).length === 0
+  const targets = (await album.listUntaggedPhotos()).filter(
+    // 手でカテゴリを直した写真は、自動ではタグを提案しない（06 §9）ので除く。
+    // 風景は撮影地（緯度・経度か地名）のあるものだけ（写真だけでは名所の精度が無い。06 §10）
+    (photo) =>
+      photo.processing?.state === 'done' &&
+      // タグの提案を済ませた写真（料理・名所が無かった、利用者が AI のタグを消した、上限まで失敗した）はもう一度回さない
+      photo.processing.step !== 'tag' &&
+      suggestsTags(photo.category, photo.location) &&
+      photo.categorySource !== 'user' &&
+      (photo.tags ?? []).length === 0
   );
-  options.log(`タグの提案の対象（解析が済んでタグの無い、AI が食べ物と分類した写真）: ${targets.length} 枚`);
+  options.log(`タグの提案の対象（解析が済んでタグの無い、AI が食べ物か撮影地のある風景と分類した写真）: ${targets.length} 枚`);
   if (!options.apply) {
     options.log('--apply が無いので、何も書きません');
     return { found: targets.length, marked: 0 };

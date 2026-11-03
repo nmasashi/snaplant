@@ -1,21 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
+import { LandmarkEntry, cellOf } from '../utils/landmarkCells';
 
-/** 区画のファイルの1件（docs/06_processing_design.md §10.1） */
-export interface LandmarkEntry {
-  name: string;
-  kind: string;
-  lat: number;
-  lon: number;
-  /** Wikidata か Wikipedia が付いている（名の知れた）もの。候補を並べるときに先にする */
-  known: boolean;
-  /** 山頂の標高（m）。山頂でないもの・読めないものは null */
-  ele: number | null;
-}
-
-/** 区画の大きさ（度）。撮影地の周り 2 km の四角は、多くても 4 つの区画に掛かる */
-const CELL_DEGREES = 0.25;
+// 区画のファイルの1件の型。テストが読むので、ここからも出す
+export type { LandmarkEntry };
 
 /** 行頭の区切りの文字（osmium の geojsonseq は Feature ごとに RS を付ける） */
 const RECORD_SEPARATOR = String.fromCharCode(0x1e);
@@ -94,11 +83,6 @@ function cleanName(value: string | undefined): string | undefined {
   return value?.trim() || undefined;
 }
 
-/** 区画の名前（南端の緯度と西端の経度。小数2桁） */
-function cellOf(lat: number, lon: number): string {
-  const floor = (value: number) => (Math.floor(value / CELL_DEGREES) * CELL_DEGREES).toFixed(2);
-  return `${floor(lat)}_${floor(lon)}`;
-}
 
 /**
  * osmium export の GeoJSON の行から、区画ごとの名所と山頂の一覧を作る（C-5a。06 §10.1）

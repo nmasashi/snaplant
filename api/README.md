@@ -64,7 +64,7 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 | スクリプト | 内容 | 設計 |
 |---|---|---|
 | `src/scripts/enqueueUnidentified.ts` | 段階3で分類まで済んだ写真（`done`・自動で識別する種類（植物）・識別なし）を識別の待ちにする（食べ物・風景は対象にしない）。キューには積まず、再投入のタイマーが 10〜20 分後に積む | `docs/06_processing_design.md` §1 |
-| `src/scripts/enqueueUntagged.ts` | C-4 より前に解析が済んだ食べ物の写真（`done`・`food`・タグなし）をタグの提案の待ちにする。キューには積まず、再投入のタイマーが 10〜20 分後に積む。スクリプトは AI を呼ばないが、待ちにした写真1枚ごとにワーカーが AI（`detail: "high"`）を呼ぶ（1枚 約 $0.001） | `docs/06_processing_design.md` §9 |
+| `src/scripts/enqueueUntagged.ts` | 機能が入る前に解析が済んだ写真のうち、AI が食べ物と分類した写真（C-4）と、撮影地（緯度・経度か地名）のある風景と分類した写真（名所。C-5b）を、タグの提案の待ちにする（`done`・手で決めたカテゴリでない・タグなし・最後の処理がタグの提案でないもの）。キューには積まず、再投入のタイマーが 10〜20 分後に積む。スクリプトは AI を呼ばないが、待ちにした写真1枚ごとにワーカーが AI（`detail: "high"`）を呼ぶ（1枚 約 $0.001） | `docs/06_processing_design.md` §9・§10 |
 | `src/scripts/buildLandmarkCells.ts` | osmium が書き出した名所と山頂の GeoJSON から、名所のデータの区画のファイル（`cells/<区画>.json`）と件数（`summary.json`）を作る。引数は `--input <geojsonseq> --out <出力先> [--min-count <件数>]`（下限の既定は 120000。下回るか、0 以上の整数でなければ終了コード 1）。本番のデータには触らず、取り出しのワークフロー（`.github/workflows/landmarks-extract.yml`）が回す。Blob へ上げる手順は DEPLOYMENT.md「名所のデータの更新」 | `docs/06_processing_design.md` §10.1 |
 
 設定の読み込みと宛先の表示は `src/scripts/scriptSettings.ts` にある（スクリプトを足すときはこれを使う）。
@@ -83,7 +83,7 @@ node dist/src/scripts/enqueueUnidentified.js --apply  # 識別の待ちにする
 どれかが無い・空白だけなら、何も読まずに `Cosmos の設定がありません: <足りない設定の名前>` を出して止まる（終了コード 1）。
 最初に宛先（Cosmos のホスト・データベース・コンテナ）を出すので、`--apply` の前に本番を指しているかを確かめる。`--apply` の後、20 分ほどで識別が進む。進み具合は写真の `processing`（`pending` → `identifying` → `done`）で見る。
 
-### 食べ物の写真をタグの提案の待ちにする（`enqueueUntagged`）
+### 食べ物・風景の写真をタグの提案の待ちにする（`enqueueUntagged`）
 
 ```bash
 cd api
@@ -94,6 +94,7 @@ node dist/src/scripts/enqueueUntagged.js --apply  # タグの提案の待ちに�
 
 要る設定と止まり方は `enqueueUnidentified` と同じ。`--apply` の後、20 分ほどで提案が進む。進み具合は写真の `processing`（`pending` → `tagging` → `done`、`step: "tag"`）で見る。
 **C-4c のアプリを入れてから回す**（古いアプリで AI のタグがある写真のタグを付ける・消すと、AI のタグも `user` で保存し直される。docs/11_implementation_plan.md §9.1）
+風景の写真（C-5b）は、**名所のデータを `landmarks` コンテナに上げ、C-5b の api をデプロイしてから回す**（DEPLOYMENT.md「名所のデータの更新」。上げる前でも失敗はしないが、候補なしの提案になる）
 
 ## テスト
 
