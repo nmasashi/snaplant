@@ -59,7 +59,8 @@ const option = (name, fallback) => process.argv.find((a) => a.startsWith(`--${na
 const STRATEGY = option('strategy', 'current');
 if (!MOUNTAIN_STRATEGIES[STRATEGY]) throw new Error(`--strategy は ${Object.keys(MOUNTAIN_STRATEGIES).join(' / ')}`);
 // 結果のファイルの名前に付ける印（既定の選び方・聞き方では付けず、最初の試しの result.json を残す）
-const SUFFIX = process.argv.some((a) => a.startsWith('--')) ? `-${STRATEGY}` : '';
+// --out=名前 で result-名前.json に書く
+const SUFFIX = option('out', null) ? `-${option('out')}` : process.argv.some((a) => a.startsWith('--')) ? `-${STRATEGY}` : '';
 
 const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 
@@ -145,6 +146,7 @@ async function geocode(place) {
 /** 周りの山と名所を引く（Overpass API） */
 async function nearby(center, landmarkRadius) {
   // 末尾の v2 は問い合わせの形の版（滝と道路の橋を足した）。形を変えたら上げて、前の結果を使わないようにする
+  // （山小屋は v2 のまま足した。足す前に引いた場所の結果には山小屋が入っていない。山の写真を引き直すと公開のサーバで重いため）
   const key = `${center.lat.toFixed(4)},${center.lon.toFixed(4)},${landmarkRadius},v2`;
   if (cache.overpass[key]) return cache.overpass[key];
   const at = (r) => `(around:${r},${center.lat},${center.lon})`;
@@ -159,6 +161,7 @@ async function nearby(center, landmarkRadius) {
   nwr["man_made"~"^(tower|lighthouse|bridge)$"]["name"]${L};
   nwr["natural"="waterfall"]["name"]${L};
   nwr["waterway"="waterfall"]["name"]${L};
+  nwr["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"]${L};
   way["bridge"]["bridge:name"]${L};
   way["bridge"]["name"]${L};
 );
@@ -206,6 +209,7 @@ function kindOf(tags) {
   if (tags.man_made === 'lighthouse') return '灯台';
   if (tags.man_made === 'bridge' || tags.bridge) return '橋';
   if (tags.natural === 'waterfall' || tags.waterway === 'waterfall') return '滝';
+  if (tags.tourism === 'alpine_hut' || tags.tourism === 'wilderness_hut') return '山小屋';
   if (tags.historic === 'ruins' || tags.historic === 'archaeological_site') return '遺跡';
   if (tags.historic === 'monument' || tags.historic === 'memorial') return '記念碑';
   if (tags.tourism === 'museum') return '博物館';
@@ -325,6 +329,61 @@ async function pool(tasks, limit) {
   return results;
 }
 
+/** AI のクライアントを作る（鍵は .env から読むだけ） */
+function clientOf() {
+  const env = loadEnv();
+  const deployment = env.AZURE_OPENAI_DEPLOYMENT_NAME.trim();
+  const client = new OpenAI({
+    apiKey: env.AZURE_OPENAI_API_KEY,
+    baseURL: `${env.AZURE_OPENAI_ENDPOINT.replace(/\/$/, '')}/openai/deployments/${deployment}`,
+    defaultQuery: { 'api-version': env.AZURE_OPENAI_API_VERSION || '2024-12-01-preview' },
+    defaultHeaders: { 'api-key': env.AZURE_OPENAI_API_KEY },
+  });
+  return { client, deployment };
+}
+
+/**
+ * 本番の分類（api の photoClassifierService.ts）と同じ指示・同じ細かさ（detail: low）で、写真がどのカテゴリになるかを見る。
+ * 建物の写真が風景（landscape）になるか（02 §5 #65 の未決 (6)）を確かめるため。指示は api のコードの写し
+ */
+async function classifyRows(rows) {
+  const { client, deployment } = clientOf();
+  const KIND_LABELS = 'plant（植物）・food（食べ物）・landscape（風景）';
+  const schema = {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: ['plant', 'food', 'landscape', 'other'], description: `写真の主題のカテゴリ。${KIND_LABELS} のどれでもなければ other` },
+      confidence: { type: 'number', description: '分類の信頼度（0-100）' },
+      reason: { type: 'string', description: '判定理由（日本語で簡潔に）' },
+      comment: { type: 'string', description: '写っているものについての一言（日本語）' },
+    },
+    required: ['kind', 'confidence', 'reason', 'comment'],
+    additionalProperties: false,
+  };
+  const repeat = Number(option('repeat', '1'));
+  const tasks = rows.flatMap((row) => Array.from({ length: repeat }, () => async () => {
+    const bytes = fs.readFileSync(path.join(PHOTOS, row.file));
+    const url = `data:${MIME[path.extname(row.file).toLowerCase()]};base64,${bytes.toString('base64')}`;
+    const prompt = `
+この写真の主題を、${KIND_LABELS} から1つ選んでください。
+${row.place ? `\n撮影地: ${row.place}（手がかりとして使ってください）\n` : ''}
+人や動物、建物の内装など、当てはまるものが無ければ other を選んでください。
+comment は、後で写真を見返す人に向けた、写っているものについての一言にしてください。
+料理は見た目で分かる一般的な呼び方（ラーメン・海鮮丼など）にし、名物名や店の料理名を、見た目や撮影地から推し量って書かないでください。
+時間がたつと手がかりの内容は分からなくなるので、手がかりや撮影地、判断の過程には触れないでください。
+`;
+    const response = await client.chat.completions.create({
+      model: deployment,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url, detail: 'low' } }] }],
+      max_completion_tokens: 4000,
+      response_format: { type: 'json_schema', json_schema: { name: 'photo_classification', strict: true, schema } },
+    });
+    const r = JSON.parse(response.choices[0].message.content);
+    console.log(`${row.file}（答え ${row.answers.join('・') || '-'}）: ${r.kind} ${r.confidence} / ${r.reason} / ${r.comment}`);
+  }));
+  await pool(tasks, CONCURRENCY);
+}
+
 async function main() {
   // rescore: AI を呼び直さずに、result.json の答えを今の答え（photos.csv）と比べ直して result.html を書き直す
   if (process.argv[2] === 'rescore') {
@@ -344,14 +403,27 @@ async function main() {
   }
   const candidatesOnly = process.argv[2] === 'candidates';
   const only = option('only', null);
-  const rows = loadRows().filter((r) => !only || r.kind === only);
+  // --files=image_ … ファイル名がこれで始まる行だけ
+  const filesPrefix = option('files', null);
+  const rows = loadRows().filter((r) => (!only || r.kind === only) && (!filesPrefix || r.file.startsWith(filesPrefix)));
+  if (process.argv[2] === 'classify') {
+    await classifyRows(rows);
+    return;
+  }
   if (rows.length === 0) throw new Error('photos.csv に行がありません');
 
   // 候補を引く（地名から・座標から）
   for (const row of rows) {
     if (row.place) {
       row.geocoded = await geocode(row.place);
-      if (row.geocoded) row.placeCandidates = await candidatesAt(row.geocoded, RADIUS.landmarkCoarse);
+      // 名所の多い都市（京都など）では、地名から引く広い範囲の問い合わせが重く、公開のサーバが返せないことがある。そのときは地名からの候補なしで続ける
+      if (row.geocoded) {
+        try {
+          row.placeCandidates = await candidatesAt(row.geocoded, RADIUS.landmarkCoarse);
+        } catch (error) {
+          console.log(`  ${row.file}: 地名からの候補を引けない（${error.message}）。地名からの候補なしで続ける`);
+        }
+      }
     }
     if (row.coords) row.coordsCandidates = await candidatesAt(row.coords, RADIUS.landmarkFine);
     const inList = (c) => c && row.answers.map((a) => c.list.some((x) => matches(a, x.name)));
