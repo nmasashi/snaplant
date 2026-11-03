@@ -71,12 +71,12 @@ function extendBounds(bounds: Bounds, coordinates: unknown): void {
   for (const child of coordinates) extendBounds(bounds, child);
 }
 
-/** 同じ名前・種類の名所を1件にまとめる距離（m）。まとめた名所を囲む四角からこの内にあれば、同じものとみなす */
+/** 同じ名前・種類の名所を1件にまとめる距離（m）。先に残した名所の形を囲む四角からこの内にあれば、同じものとみなす */
 const MERGE_DISTANCE_METERS = 500;
 
 /**
  * 2つの四角の隙間（m。重なっていれば 0）。まとめるかを決めるだけなので、狭い範囲で十分な平面の近似にする。
- * 中心どうしでなく隙間で測るのは、区切って載っている長い橋の道や、大きな敷地の形とその中の点を1件にまとめるため
+ * 中心どうしでなく隙間で測るのは、隣り合う橋の区切りや、大きな敷地の形とその中の点を1件にまとめるため
  */
 function gapMeters(a: Bounds, b: Bounds): number {
   const metersPerDegree = 111_320;
