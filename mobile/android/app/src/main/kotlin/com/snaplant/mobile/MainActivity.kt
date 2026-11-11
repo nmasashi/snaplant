@@ -17,16 +17,16 @@ import java.io.File
  */
 class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 同じプロセスで画面が作り直されたとき（最初の画面の前の設定の変更など）は、前回が落ちたのではないので見ない
-        if (!launchChecked) {
-            launchChecked = true
+        // 画面が作り直されたとき（最初の画面の前の設定の変更など）は、前回が落ちたのではなく、エンジンも動いているので見ない
+        if (savedInstanceState == null) {
             // 印の読み書きに失敗しても（空きが無いなど）起動は止めない。回復の仕組みが起動を止めては元も子もない
             runCatching {
                 val marker = launchMarker()
                 if (marker.exists()) {
                     // エンジンが動き出す（super.onCreate）前に、エンジンと同じ関数で引いた場所（今は code_cache）から消す。
                     // 消すのは再現で原因と確かめたファイルだけにする。code_cache は Dart の一時フォルダでもあるので丸ごとは消さない
-                    File(PathUtils.getCacheDirectory(this), PIPELINE_CACHE_FILE).delete()
+                    val cache = File(PathUtils.getCacheDirectory(applicationContext), PIPELINE_CACHE_FILE)
+                    if (cache.exists() && !cache.delete()) Log.w(TAG, "描画のキャッシュを消せませんでした: $cache")
                 }
                 marker.createNewFile()
             }.onFailure { Log.w(TAG, "起動の印を扱えませんでした", it) }
@@ -49,8 +49,5 @@ class MainActivity : FlutterActivity() {
         /** Impeller の Vulkan の描画の下準備のキャッシュ（Flutter 3.32 のエンジンの名前） */
         const val PIPELINE_CACHE_FILE = "flutter.impeller.vkcache"
         const val LAUNCH_MARKER_FILE = "launch_in_progress"
-
-        /** このプロセスで起動の印をもう見たか（プロセスが落ちれば false に戻る） */
-        var launchChecked = false
     }
 }
