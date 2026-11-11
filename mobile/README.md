@@ -39,7 +39,7 @@ flutter build apk --release
   開発版は `run-as com.snaplant.mobile.debug` で `code_cache/flutter.impeller.vkcache` を読み書きできる。
   中身の途中（先頭から 4096 バイトの所に 2048 バイト）を乱数で上書きすると、SC-03K では1回目の起動が `vkCreatePipelineCache` で落ち、2回目で立ち上がる（`no_backup/launch_in_progress` が最初の画面が出ると消える）。
   途中で切っただけ・先頭の近くを壊しただけでは落ちない。画面が消えてロックされていると最初の画面が出ないので、ロックを解いて確かめる。
-  Flutter を上げたら、エンジンがキャッシュを置く場所（今は `code_cache`）が変わっていないかも見る（変わると、回復の仕組みが黙って効かなくなる）
+  Flutter を上げたら、エンジンのキャッシュのファイルの名前（今は `flutter.impeller.vkcache`）が変わっていないかも見る（変わると、回復の仕組みが黙って効かなくなる）
 - 300枚を選ぶと、写真を選ぶ部品が1枚ずつ縮小してから返すので、受け取るまで10分ほど待つ（その間は「写真を読み込み中...」）。実測は `docs/09_backlog.md`「段階2の結果」
 
 ## テスト
