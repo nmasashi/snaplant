@@ -17,8 +17,11 @@ import java.io.File
  */
 class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 画面が作り直されたとき（最初の画面の前の設定の変更など）は、前回が落ちたのではなく、エンジンも動いているので見ない
-        if (savedInstanceState == null) {
+        // 同じプロセスで画面が作り直されたとき（最初の画面の前の設定の変更など）は、前回が落ちたのではなく、エンジンも動いているので見ない。
+        // savedInstanceState だけでは見分けられない（OS が裏で終了させたアプリを開き直すと、新しいプロセスでも渡される）。
+        // プロセスの印だけでも見分けられない（戻るで閉じてプロセスが残ったまま開き直したのは、新しい起動）
+        if (savedInstanceState == null || !checkedInProcess) {
+            checkedInProcess = true
             // 印の読み書きに失敗しても（空きが無いなど）起動は止めない。回復の仕組みが起動を止めては元も子もない
             runCatching {
                 val marker = launchMarker()
@@ -49,5 +52,8 @@ class MainActivity : FlutterActivity() {
         /** Impeller の Vulkan の描画の下準備のキャッシュ（Flutter 3.32 のエンジンの名前） */
         const val PIPELINE_CACHE_FILE = "flutter.impeller.vkcache"
         const val LAUNCH_MARKER_FILE = "launch_in_progress"
+
+        /** このプロセスで起動の印をもう見たか（プロセスが終われば false に戻る） */
+        var checkedInProcess = false
     }
 }
