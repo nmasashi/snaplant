@@ -31,6 +31,11 @@ output "landmarks_container_name" {
   value       = azurerm_storage_container.landmarks.name
 }
 
+output "dem_container_name" {
+  description = "Name of the elevation tile blob container (private, C-7)"
+  value       = azurerm_storage_container.dem.name
+}
+
 output "photos_container_name" {
   description = "Name of the travel album photos blob container (private)"
   value       = azurerm_storage_container.photos.name
