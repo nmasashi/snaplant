@@ -46,6 +46,8 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
 
     // 陸のタイルの祖先だけが取れる
     expect([...found.keys()].sort()).toEqual(['10/885/412', '12/3541/1648', '14/14164/6595', '8/221/103'].sort());
+    // 取ってきたファイルをそのまま置く（変換しない）
+    expect(found.get('14/14164/6595')).toEqual(Buffer.from('png 14/14164/6595'));
     // あるタイルの子（4 × 4 = 16 枚）を頼み、無かった 15 枚は 404 として覚える。無いタイルの子は頼まない
     expect(server.requested).toHaveLength(1 + 16 * 3);
     expect(missing.size).toBe(15 * 3);
@@ -69,6 +71,8 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     expect(server.requested.filter((k) => k.startsWith('10/'))).toHaveLength(15);
     expect(server.requested).not.toEqual(expect.arrayContaining(missingAt12));
     expect(server.requested.filter((k) => k.startsWith('12/'))).toHaveLength(14);
+    // 無かったと覚えているズーム 12 の子は頼まない（続きから回すたびに海のズーム 14 を頼み直さない）。頼むのは、あったズーム 12 の子の 16 枚だけ
+    expect(server.requested.filter((k) => k.startsWith('14/'))).toHaveLength(16);
     expect(found.has('14/14164/6595')).toBe(true);
   });
 
