@@ -218,8 +218,9 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
 ## 標高のデータを置く（C-7）
 
 山の判別（C-7）の照合に使う、国土地理院の標高タイル（ズーム 14・12）を `dem` コンテナに置く。中身と取り出し方は `docs/06_processing_design.md` §11.2。
-一度置けば置き換えない（国土地理院の DEM はめったに変わらない）。C-7 の api をデプロイする前に行う（`docs/11_implementation_plan.md` の C-7c の行）。
-国土地理院の利用の決まりで、アプリに出典を出す（設定画面。C-7d）。
+一度置けば置き換えない（国土地理院の DEM はめったに変わらない）。C-7 の api（C-7c）は、下の 3 で数が合うまでデプロイしない（`docs/11_implementation_plan.md` の C-7c の行）。
+`DEM_STORAGE_CONTAINER_NAME` は Terraform が先に設定するので、空のコンテナのまま C-7c を出すと、どの撮影地もタイルが無い（海）と見なされ、失敗にならずに山の名前が黙って付かない。
+今はまだ読むコードが無い（読む山の段のワーカーは C-7c。国土地理院の利用の決まりでアプリの設定画面に出す出典は C-7d で、どちらも未実装）。
 
 1. 取り出す（リポジトリ直下で。1日ほどかかる。止まっても同じコマンドで続きから取れる）:
 
@@ -231,7 +232,15 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
    国土地理院のサーバに負荷をかけないよう、1秒に 2〜3 枚で取る（速くしない）。取ったタイルは `.work/dem-tiles/<ズーム>/<x>/<y>.png`、
    海で無かったタイルは `.none` の空のファイルで残る。終わりにズームごとの枚数が出るので、`docs/09_backlog.md`「山の撮影の向きの試作」に枚数・大きさ・時間を書く
 2. `dem` コンテナに上げる（ストレージアカウント名は `terraform output storage_account_name`。ロールとキーの扱いは上の「名所のデータの更新」の 4 と同じ）。
-   使うのはズーム 14 と 12 の `.png` だけ（たどるのに取ったズーム 8・10 と、`.none` は上げない）。10 万枚を超えるので数時間かかりうる。途中で失敗したら同じコマンドをもう一度回す:
+   使うのはズーム 14 と 12 の `.png` だけ（たどるのに取ったズーム 8・10 と、`.none` は上げない）。10 万枚を超えるので数時間かかりうる。途中で失敗したら同じコマンドをもう一度回す。
+   先に `--dryrun` を付けて回し、上がる名前が `dem/12/<x>/<y>.png` の形で、数が手順 1 の「あった」枚数と同じかを見る（この PC の az で、`--pattern` が区切りをまたいで当たり、`.none` を含まないことを 2026-11-22 に確かめた）:
+
+   ```bash
+   az storage blob upload-batch --account-name <ストレージアカウント名> --destination dem \
+     --source .work/dem-tiles --pattern '12/*.png' --dryrun --auth-mode login | grep -c '"Blob"'
+   ```
+
+   数が合えば上げる:
 
    ```bash
    az storage blob upload-batch --account-name <ストレージアカウント名> --destination dem \
@@ -247,7 +256,7 @@ func azure functionapp publish <FUNCTION_APP_NAME> --build remote
    az storage blob list --account-name <ストレージアカウント名> --container-name dem --prefix 14/ --num-results '*' --query 'length(@)' --auth-mode login
    ```
 
-4. 上げ終わって数が合えば、`.work/dem-tiles` は消してよい（取り直すと1日かかるので、数を確かめるまでは残す）
+4. 上げ終わって数が合えば、`.work/dem-tiles` は消してよい（取り直すと1日かかるので、数を確かめるまでは残す。それまでに `.work/` を掃除するときは `node scripts/clean-work.js --apply --keep dem-tiles` で残す）
 
 ## 監視とログ
 
@@ -319,7 +328,7 @@ Function App に設定される主要な環境変数：
 | `PHOTO_SAS_EXPIRY_MINUTES` | 写真の表示用 SAS の有効期限（分） |
 | `PHOTO_QUEUE_NAME` | 写真の解析（分類・識別・タグの提案）のキュー名（`photo-processing`） |
 | `LANDMARK_STORAGE_CONTAINER_NAME` | 名所のデータの Blob コンテナ名（`landmarks`。C-5a）。解析のワーカーが名所の候補を引くのに読む（C-5b。`docs/06_processing_design.md` §10）。未設定なら、失敗にせず候補なしで AI に聞く（`docs/07_infrastructure_design.md` §8） |
-| `DEM_STORAGE_CONTAINER_NAME` | 標高のデータの Blob コンテナ名（`dem`。C-7a）。山の段のワーカーが撮影の向きの照合に読む（C-7c。`docs/06_processing_design.md` §11）。未設定なら、失敗にせず山の名前を付けずに済みにする（`docs/07_infrastructure_design.md` §9） |
+| `DEM_STORAGE_CONTAINER_NAME` | 標高のデータの Blob コンテナ名（`dem`。C-7a）。Terraform が設定するが、今は読むコードが無い（山の段のワーカーが撮影の向きの照合に読むのは C-7c。設計は `docs/06_processing_design.md` §11・`docs/07_infrastructure_design.md` §9） |
 | `TIMELINE_QUEUE_NAME` | タイムライン（段階5）のキュー名（`timeline-processing`）。投入する側（`POST …/timeline`・`POST …/timeline/draft/write`・再投入のタイマー）とワーカー `processTimeline` のトリガーが読む |
 | `PHOTO_PROCESSING_MAX_ATTEMPTS` | 写真の解析の自動の再試行の上限（回） |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント |

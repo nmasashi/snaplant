@@ -59,7 +59,7 @@ HTTP の関数はすべて `authLevel: 'function'` なので、呼び出しに�
 ## 手で回すスクリプト
 
 `src/scripts/` にあり、`app.ts` からは import しない（関数としては登録されない）。ビルドしてから手元で回す。
-環境変数が無ければ `local.settings.json` の `Values` を読む（中身はログに出さない）。**本番のデータを書くので、回すのは人間。**（`buildLandmarkCells` だけは設定を読まず、本番のデータにも触らない）
+環境変数が無ければ `local.settings.json` の `Values` を読む（中身はログに出さない）。**本番のデータを書くので、回すのは人間。**（`buildLandmarkCells`・`fetchDemTiles` は設定を読まず、本番のデータにも触らない）
 
 | スクリプト | 内容 | 設計 |
 |---|---|---|
