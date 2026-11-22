@@ -54,7 +54,7 @@ export type DemSummary = Record<number, { found: number; missing: number }>;
 
 /** 取り出しに渡すもの */
 export interface FetchDemTilesOptions {
-  /** 1枚を頼む。404 なら null、それ以外の失敗は投げる */
+  /** 1枚を頼む。404 なら null、それ以外の失敗は投げる。取り直しても変わらない失敗（断られた）には retryable: false を付ける */
   fetchTile: (tile: DemTile) => Promise<Buffer | null>;
   store: TileStore;
   /** 間を置く（テストでは時間を進めずに記録する） */
@@ -112,7 +112,7 @@ export async function fetchDemTiles(options: FetchDemTilesOptions): Promise<DemS
         await wait(intervalMs);
         return body;
       } catch (error) {
-        if (attempt >= retryDelaysMs.length) throw error;
+        if (attempt >= retryDelaysMs.length || (error as { retryable?: boolean }).retryable === false) throw error;
         await wait(retryDelaysMs[attempt]);
       }
     }
