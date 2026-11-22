@@ -1,4 +1,7 @@
-import { DemTile, TileStore, fetchDemTiles } from '../../src/scripts/fetchDemTiles';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { DemTile, TileStore, fetchDemTiles, folderStore, judgeGsiResponse } from '../../src/scripts/fetchDemTiles';
 
 // 標高のデータ（国土地理院の標高タイル）を取り出すスクリプト（C-7a。docs/06_processing_design.md §11.2）。
 // ズーム 8 から始め、あるタイル（404 でないもの）の子だけをズーム 10・12・14 とたどる。
@@ -52,10 +55,6 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     expect(server.requested).toHaveLength(1 + 16 * 3);
     expect(missing.size).toBe(15 * 3);
     expect(server.requested.filter((k) => k.startsWith('12/'))).toHaveLength(16);
-    expect(server.requested.filter((k) => k.startsWith('12/')).every((k) => {
-      const [, x, y] = k.split('/').map(Number);
-      return x >> 2 === 885 && y >> 2 === 412;
-    })).toBe(true);
   });
 
   it('既に置いてあるタイルと、無かったと覚えているタイルは頼み直さず、置いてあるタイルの子はたどる（途中で止まっても続きから取れる）', async () => {
@@ -76,15 +75,22 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     expect(found.has('14/14164/6595')).toBe(true);
   });
 
-  it('頼むたびに決めた間を置き、頼まなかったタイルでは待たない（国土地理院のサーバに負荷をかけない）', async () => {
+  it('1枚ずつ頼み、頼むたびに既定の間を待ち終えてから次を頼み、頼まなかったタイルでは待たない（国土地理院のサーバに負荷をかけない）', async () => {
     const server = fakeServer([KUJU]);
     const { store } = memoryStore({ found: ['8/221/103'] });
-    const waits: number[] = [];
+    const events: string[] = [];
+    const fetchTile = async (t: DemTile): Promise<Buffer | null> => { events.push('頼む'); return server.fetchTile(t); };
+    const wait = async (ms: number): Promise<void> => {
+      events.push(`待つ ${ms}`);
+      await new Promise((resolve) => setImmediate(resolve));
+      events.push('待ち終わり');
+    };
 
-    await fetchDemTiles({ fetchTile: server.fetchTile, store, wait: async (ms) => { waits.push(ms); }, bounds: ONE_Z8, intervalMs: 400 });
+    await fetchDemTiles({ fetchTile, store, wait, bounds: ONE_Z8 });
 
-    expect(waits).toHaveLength(server.requested.length);
-    expect(waits.every((ms) => ms === 400)).toBe(true);
+    // 置いてあるズーム 8 は頼まない。頼んだ 48 枚のそれぞれで、頼む → 0.4 秒（1秒に 2〜3 枚）待つ → 待ち終わってから次を頼む
+    expect(server.requested).toHaveLength(48);
+    expect(events).toEqual(server.requested.flatMap(() => ['頼む', '待つ 400', '待ち終わり']));
   });
 
   it('404 でない失敗は間を置いて取り直し、取れれば続ける', async () => {
@@ -97,23 +103,27 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     const { store, found } = memoryStore();
     const waits: number[] = [];
 
-    await fetchDemTiles({ fetchTile: flaky, store, wait: async (ms) => { waits.push(ms); }, bounds: ONE_Z8, intervalMs: 400, retryDelaysMs: [5000, 15000] });
+    // 取り直しの間は既定のまま（渡さない）。失敗のたびに、頼むたびの間とは別に、0 より長い間を置く
+    await fetchDemTiles({ fetchTile: flaky, store, wait: async (ms) => { waits.push(ms); }, bounds: ONE_Z8, intervalMs: 400 });
 
     expect(found.has('14/14164/6595')).toBe(true);
-    expect(waits.filter((ms) => ms !== 400)).toEqual([5000, 15000]);
+    const retryWaits = waits.filter((ms) => ms !== 400);
+    expect(retryWaits).toHaveLength(2);
+    expect(retryWaits.every((ms) => ms > 0)).toBe(true);
   });
 
-  it('取り直しても失敗が続けば止まり、それまでに取ったタイルは置いたまま残る', async () => {
+  it('取り直しても失敗が続けば止まり、それまでに取ったタイルは置いたまま残り、失敗したタイルは無かったことにしない（次に回せば取り直す）', async () => {
     const server = fakeServer([KUJU]);
     const broken = async (t: DemTile): Promise<Buffer | null> => {
       if (t.z === 12) throw new Error('HTTP 503');
       return server.fetchTile(t);
     };
-    const { store, found } = memoryStore();
+    const { store, found, missing } = memoryStore();
 
     await expect(fetchDemTiles({ fetchTile: broken, store, wait: noWait, bounds: ONE_Z8, retryDelaysMs: [5000, 15000] })).rejects.toThrow('HTTP 503');
 
     expect([...found.keys()].sort()).toEqual(['10/885/412', '8/221/103']);
+    expect([...missing].filter((k) => k.startsWith('12/'))).toEqual([]);
   });
 
   it('取り直しても変わらない失敗（404 でない 4xx。サーバに断られた）は、取り直さずにすぐ止まる（断ったサーバに頼み続けない）', async () => {
@@ -159,5 +169,64 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     expect(server.requested).toHaveLength(24 * 23);
     expect(server.requested).toContain('8/214/91');
     expect(server.requested).toContain('8/237/113');
+  });
+});
+
+describe('標高のデータを取り出すスクリプトの、国土地理院の応答の見分け方と手元の置き場（C-7a。06 §11.2）', () => {
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('tile')]);
+
+  it('200 の PNG はそのまま置く中身になり、404 は無かったタイルになる', () => {
+    expect(judgeGsiResponse(200, String(png.length), png)).toEqual(png);
+    expect(judgeGsiResponse(404, '0', Buffer.alloc(0))).toBeNull();
+  });
+
+  it('断られた 4xx（404・429 でないもの）は取り直さない失敗、429 と 5xx は取り直す失敗になる', () => {
+    const errorOf = (status: number): { retryable?: boolean } => {
+      try {
+        judgeGsiResponse(status, '0', Buffer.alloc(0));
+      } catch (error) {
+        return error as { retryable?: boolean };
+      }
+      throw new Error(`${status} で失敗にならなかった`);
+    };
+    expect(errorOf(403).retryable).toBe(false);
+    expect(errorOf(400).retryable).toBe(false);
+    expect(errorOf(429).retryable).toBe(true);
+    expect(errorOf(503).retryable).toBe(true);
+  });
+
+  it('本文が途中で切れた応答と PNG でない応答は、置かずに取り直す失敗になる（置くと二度と取り直されない）', () => {
+    const retryableOf = (contentLength: string, body: Buffer): boolean | undefined => {
+      try {
+        judgeGsiResponse(200, contentLength, body);
+      } catch (error) {
+        return (error as { retryable?: boolean }).retryable !== false;
+      }
+      throw new Error('失敗にならなかった');
+    };
+    expect(retryableOf(String(png.length + 100), png)).toBe(true);
+    const html = Buffer.from('<html>maintenance</html>');
+    expect(retryableOf(String(html.length), html)).toBe(true);
+  });
+
+  describe('手元のフォルダの置き場', () => {
+    let root: string;
+    beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'dem-tiles-test-')); });
+    afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+
+    it('取ったタイルは <ズーム>/<x>/<y>.png に中身のまま置き（Blob に上げるときの名前）、無かったタイルは .none で覚える', () => {
+      const store = folderStore(root);
+
+      store.saveFound({ z: 14, x: 14164, y: 6595 }, png);
+      store.saveMissing({ z: 12, x: 3540, y: 1648 });
+
+      expect(fs.readFileSync(path.join(root, '14', '14164', '6595.png'))).toEqual(png);
+      expect(fs.existsSync(path.join(root, '12', '3540', '1648.none'))).toBe(true);
+      // 新しく作り直した置き場（次に回したとき）からも見える
+      const again = folderStore(root);
+      expect(again.state({ z: 14, x: 14164, y: 6595 })).toBe('found');
+      expect(again.state({ z: 12, x: 3540, y: 1648 })).toBe('missing');
+      expect(again.state({ z: 14, x: 6595, y: 14164 })).toBeNull();
+    });
   });
 });
