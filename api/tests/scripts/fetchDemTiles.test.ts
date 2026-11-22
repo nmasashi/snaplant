@@ -64,7 +64,9 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     await fetchDemTiles({ fetchTile: server.fetchTile, store, wait: noWait, bounds: ONE_Z8 });
 
     expect(server.requested).not.toContain('8/221/103');
-    expect(server.requested.filter((k) => k.startsWith('10/'))).toHaveLength(0);
+    // ズーム 10 は置いてある 885/412 を頼まず、置き場に無いほかの 15 枚だけを頼む
+    expect(server.requested).not.toContain('10/885/412');
+    expect(server.requested.filter((k) => k.startsWith('10/'))).toHaveLength(15);
     expect(server.requested).not.toEqual(expect.arrayContaining(missingAt12));
     expect(server.requested.filter((k) => k.startsWith('12/'))).toHaveLength(14);
     expect(found.has('14/14164/6595')).toBe(true);
