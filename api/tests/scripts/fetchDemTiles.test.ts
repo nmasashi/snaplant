@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { DemTile, TileStore, fetchDemTiles, folderStore, judgeGsiResponse } from '../../src/scripts/fetchDemTiles';
 
@@ -54,7 +53,9 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     // あるタイルの子（4 × 4 = 16 枚）を頼み、無かった 15 枚は 404 として覚える。無いタイルの子は頼まない
     expect(server.requested).toHaveLength(1 + 16 * 3);
     expect(missing.size).toBe(15 * 3);
-    expect(server.requested.filter((k) => k.startsWith('12/'))).toHaveLength(16);
+    // ズーム 12 は、あったズーム 10 の 885/412 の子（x 3540〜3543・y 1648〜1651）だけを頼む
+    const children12 = [3540, 3541, 3542, 3543].flatMap((x) => [1648, 1649, 1650, 1651].map((y) => `12/${x}/${y}`));
+    expect(server.requested.filter((k) => k.startsWith('12/')).sort()).toEqual(children12.sort());
   });
 
   it('既に置いてあるタイルと、無かったと覚えているタイルは頼み直さず、置いてあるタイルの子はたどる（途中で止まっても続きから取れる）', async () => {
@@ -220,7 +221,12 @@ describe('標高のデータを取り出すスクリプトの、国土地理院�
 
   describe('手元のフォルダの置き場', () => {
     let root: string;
-    beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'dem-tiles-test-')); });
+    // 一時フォルダはリポジトリ直下の .work/ に作る（OS の一時フォルダに書かない。CLAUDE.md）
+    const workDir = path.join(__dirname, '..', '..', '..', '.work');
+    beforeEach(() => {
+      fs.mkdirSync(workDir, { recursive: true });
+      root = fs.mkdtempSync(path.join(workDir, 'dem-tiles-test-'));
+    });
     afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
 
     it('取ったタイルは <ズーム>/<x>/<y>.png に中身のまま置き（Blob に上げるときの名前）、無かったタイルは .none で覚える', () => {
