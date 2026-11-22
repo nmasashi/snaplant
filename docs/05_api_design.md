@@ -154,7 +154,7 @@ C-2 からは `placeName`・`latitude` を、解析を頼むダイアログの�
 `commentSource` はカテゴリのシートでも読み、AI のコメント（`"ai"`）なら、保存すると消えることを知らせる（[03 §5.6](./03_screen_design.md#56-カテゴリを手で直す)。カテゴリの変更で AI のコメントを消す、で実装済み）。
 `classification`（段階3）はドキュメントのまま返す（分類前は `null`、分類の後は `{ kind, confidence, model, at }`。`model` は要求を送ったデプロイ名。[06 §2.3](./06_processing_design.md#23-書き込み)）。
 `processing` もドキュメントのまま返す（`{ state, step, attempts, lastError, updatedAt }`。送った直後は上の例の `pending`・`classify`、段階2に送った写真は `{ state: "none", step: null, attempts: 0, lastError: null, updatedAt: null }`。`lastError` は `null` か、どこで失敗したかの `"ai"` / `"internal"` で、例外の文言は入らない。[06 §1.3](./06_processing_design.md#13-状態と失敗)）。
-**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。C-5 から、撮影地のある風景の写真の名所のタグの提案も同じ `step: "tag"` で表す（**実装済み**（C-5b）。[06 §10](./06_processing_design.md#10-名所の判別c-5)。応答の形は変わらない。名所のタグは `kind: "landscape"`・`source: "ai"`）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。
+**実装済み**（C-4b）: `step` に `"tag"`（食べ物のタグの提案の待ち・している・済んだ）、`state` に `"tagging"`（提案している間）も入る（[06 §9](./06_processing_design.md#9-タグの提案c-4)）。C-5 から、撮影地のある風景の写真の名所のタグの提案も同じ `step: "tag"` で表す（**実装済み**（C-5b）。[06 §10](./06_processing_design.md#10-名所の判別c-5)。応答の形は変わらない。名所のタグは `kind: "landscape"`・`source: "ai"`）。アプリは C-4c からこの2つを見る（表示は [03 §5.1・§5.5・§5.9](./03_screen_design.md#5-段階3の画面骨格)）。C-7 から、`step` に `"mountain"`（名所の提案の後の、山の名前のタグの段。処理中の `state` は `"tagging"`）も入る（[06 §11](./06_processing_design.md#11-山の判別c-7)。応答の形は変わらない。山のタグも `kind: "landscape"`・`source: "ai"`）。アプリは `"tag"` と同じに扱う（[03 §5.9.4](./03_screen_design.md#594-ai-が考えている間)。古いアプリは分類中と見なすので、アプリを先に入れる）。
 `identification`（段階4）はドキュメントのまま返す（`{ kind, matchesKind, name, confidence, description, characteristics, attributes, reason, model, at }`。[04 §3.1](./04_data_design.md#31-項目は写真からまとめる)）。
 クライアントは `identification.kind` と `identification.name` で図鑑の項目（§5.14）へ飛ぶ。
 
@@ -514,7 +514,7 @@ Cosmos へ接続できなければ（旅行の確認・写真の patch のどち
   API は写真の旅行を見ない（旅行に属さない写真にも付けられる。ハートを旅行に属する写真にだけ出すのは画面の決まり。[03 §5.10.1](./03_screen_design.md#5101-写真ビューアで付け外す)）
 - 書き込みは1回の patch（`category` か `takenAt` を送ったときは、その前に写真を1回読む（両方送っても1回）。`takenAt` の分は条件を付けない。カテゴリが変わるか分類を止めるときは、コメントの出どころを条件にし、合わなければ読むところからやり直す）。`comment`・`tags`・`favorite` だけなら `comment`・`commentSource`・`tags`・`favorite`・`updatedAt` だけの patch（読まずに書く。AI が書く欄には触らない。[04 §7.4](./04_data_design.md#74-ワーカーの書き込みの決まり)）。`updatedAt` は毎回更新する。
   **解析中（`processing.state` が `pending` / `classifying` / `identifying` / `tagging`（C-4b））でも受け付ける**（ロックは無い）。
-  タグの提案を待っている・している（`step: "tag"`）写真に `tags` を送ると、利用者のタグが残り、AI の提案は書かれない（タグが1つも無いことを条件に書くため。[06 §9](./06_processing_design.md#9-タグの提案c-4)。C-4b で実装済み）
+  タグの提案を待っている・している（`step: "tag"`）写真に `tags` を送ると、利用者のタグが残り、AI の提案は書かれない（タグが1つも無いことを条件に書くため。[06 §9](./06_processing_design.md#9-タグの提案c-4)。C-4b で実装済み）。山の段（`step: "mountain"`。C-7）では、山の段が担当した後に `tags` を送ると、送ったタグが残り、山の名前のタグは書かれない（担当した後に写真が更新されていないことを条件に書くため）。担当の前（待っている間）に送ったタグに利用者のタグ（`source: "user"`）があれば、山の段は何もせずに済みにする。利用者のタグが無い（AI のタグを消しただけ・全部消した）なら、残ったタグの後ろに山の名前のタグが足される（[06 §11](./06_processing_design.md#11-山の判別c-7)）
 - 応答は 200 `{ photo, urlExpiresAt }`（§5.3 と同じ形。更新後の写真で、URL と `urlExpiresAt` はこの応答で発行したもの）
 - Cosmos へ接続できなければ 503 `DATABASE_ERROR`（`データベースに接続できません`）、それ以外の失敗は 500 で `message` は `写真の更新に失敗しました`。
   写真の保存先の設定（`STORAGE_CONNECTION_STRING` のアカウント名・鍵、`PHOTO_STORAGE_CONTAINER_NAME`）が足りなければ、写真を書き換える前に同じ 500
@@ -834,7 +834,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 
 **実装済み**（5-1c。`timeline.ts` の `getTimeline`）。
 
-- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。タグの提案（`step: "tag"`。C-4b）の写真は数えない（タイムラインの AI はタグを読まないので、待たせない。2026-11-02 に人間が決定。`constants/album.ts` の `blocksTimeline()`）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
+- `pendingPhotoCount` は、旅行の写真のうち解析が済んでいない（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）ものの枚数（`none`・`done`・`failed` は数えない。タイムラインが無くても数える）。タグの提案（`step: "tag"`。C-4b）と山の段（`step: "mountain"`。C-7）の写真は数えない（タイムラインの AI はタグを読まないので、待たせない。2026-11-02 に人間が決定。`constants/album.ts` の `blocksTimeline()`）。0 でなければ作れない（画面は「解析中の写真があと N 枚あります」）
 - 読むのは、タイムラインの文書と旅行の写真（[04 §5](./04_data_design.md#5-クエリ) の 5.13。id と撮影日時とお気に入りと解析の状態）を並べて、完成版があればその控え。増えた・消えた枚数と `pendingPhotoCount` は同じ 5.13 の結果から数える。下書きの控えは読まない（`draft` は状態だけ）
 - 500 の `message` は `タイムラインの取得に失敗しました`（§7.2）
 
@@ -855,7 +855,7 @@ API の形（項目を `kind` と `name` で指定して名前をクエリ文字
 | # | 条件 | 応答 |
 |---|---|---|
 | 1 | 作っている途中 | 409 `TIMELINE_STATE_CONFLICT` |
-| 2 | 解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）がある。`none`・`done`・`failed` は済んだものとして扱う。タグの提案（`step: "tag"`。C-4b）の写真は済んだものとして扱う（上の `pendingPhotoCount` と同じ） | 409 `TIMELINE_PHOTOS_PROCESSING` `解析中の写真があります。終わってから作ってください` |
+| 2 | 解析が済んでいない写真（`processing.state` が `pending`・`classifying`・`identifying`・`tagging`）がある。`none`・`done`・`failed` は済んだものとして扱う。タグの提案（`step: "tag"`。C-4b）と山の段（`step: "mountain"`。C-7）の写真は済んだものとして扱う（上の `pendingPhotoCount` と同じ） | 409 `TIMELINE_PHOTOS_PROCESSING` `解析中の写真があります。終わってから作ってください` |
 | 3 | 撮影日時のある写真が1枚も無い（写真が無い旅行も） | 409 `TIMELINE_NO_DATED_PHOTOS` `撮影日時のある写真がありません` |
 | 4 | それ以外 | 202。写真の控えを取り（`TIMELINE_DAY_START_HOUR` もこのときに読む）、新しい下書き（`reason: "create"`・`phase: "proposing"`・`job: { step: "propose", state: "pending", attempts: 0, lastError: null }`・`proposedStarts` と `sceneStarts` は空）を書いてキューへ投入。**完成版があれば消す**（`current: null`。作り直しは今のタイムラインを消して一から作る。5-6b から。それより前は下の「5-6b まで」の行）。前の下書き（確かめ途中・失敗。区切りを直している途中の `recut` も）は置き換える。投入に失敗しても 202（再投入のタイマーが拾う。写真の `process` と同じ） |
 

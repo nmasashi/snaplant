@@ -346,3 +346,23 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 - **置き換えの手順**（人間。DEPLOYMENT.md に書く）: 成果物を落として展開し、`az storage blob delete-batch` で `landmarks` コンテナの `cells/` を消してから、`az storage blob upload-batch` で上げる（上書きだけでは、新しいデータに無い区画の古いファイルが残る）。最初の1回は C-5 の api をデプロイする前に行い、その後に既にある風景の写真のスクリプト（06 §10）を回す
 - 費用: 区画のファイルは全部で数十 MB（09 の実測で 19〜41 MB）で、Blob の保管は月 1 セント未満。ワークフローは公開のリポジトリなら無料（private でも月 2,000 分の無料枠に収まる。09 の実測で1回 12〜20 分）
 - `plan` は「1 to add, 1 to change, 0 to destroy」（コンテナの追加と、Function App の `app_settings` に `LANDMARK_STORAGE_CONTAINER_NAME` を足す変更。C-5a で確かめた）。**apply は人間が行う**
+
+## 9. 山の判別（C-7）
+
+[02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #65 (10)〜(12)。標高のデータの中身と取り出し方は [06 §11.2](./06_processing_design.md#112-標高のデータ)。
+
+| リソース | 名前 | 設定 | 注意 |
+|---|---|---|---|
+| `azurerm_storage_container.dem` | `dem` | `container_access_type = "private"`、`storage_account_id`（`landmarks` と同じ書き方） | 国土地理院の標高タイル（ズーム 14・12）。ワーカーが接続文字列で読むだけで、SAS は出さない |
+
+| 設定 | 値 | 使う所 |
+|---|---|---|
+| `DEM_STORAGE_CONTAINER_NAME` | `azurerm_storage_container.dem.name` | 山の段のワーカー（06 §11）。未設定なら、山の段は AI を呼ばずにタグを書かずに済みにする（設定の誤りにはしない。名所のデータと同じ） |
+
+- **照合の場所**: 今の Function App（Linux の従量課金プラン）のワーカーで動かす。試作の実測（1枚の照合 6〜10 秒、最大のメモリ 225〜361 MB。塗り分けの AI は 23〜80 秒。09）は、関数の実行時間の上限（`functionTimeout` の 5 分）とインスタンスのメモリ（1.5 GB）に収まる見込みで、別のプランや別の計算の場所は作らない。`functionTimeout` は変えない。
+  本番の時間とメモリは C-7c のデプロイの後に測る。足りなければ、写真を縮めて読む・タイルを読む範囲を狭める、の順で減らす。Flex Consumption に移した後（#176）も、インスタンスのメモリは 2 GB か 4 GB で、収まる見込みは変わらない
+- **パッケージ**: 写真の JPEG を画素にするのと標高タイルの PNG を読むのに、`jpeg-js`・`pngjs` を `dependencies` に足す（試作で使ったもの。ネイティブのモジュールを持たず、ビルドの環境とデプロイ先の違いを気にしなくてよい）。EXIF（向きと 35 mm 換算の焦点距離）は必要な2つのタグだけを自前で読む
+- **取り出し**: 人間が手元の PC で `fetchDemTiles.ts` を回す（1日ほど）。GitHub Actions では回さない（1つのジョブが 6 時間までで終わらない。名所のデータと違い、取り出しは1回だけ）
+- **置く手順**（人間。DEPLOYMENT.md に書く）: スクリプトの出力のフォルダを、`az storage blob upload-batch` で `dem` コンテナに上げる（10 万枚を超えるので数時間かかりうる）。C-7 の api をデプロイする前に行い、その後に既にある風景の写真のスクリプト（06 §11）を回す
+- 費用: 推定で 11〜14 GB、Blob の保管は月 50 円ほど。読み取りは1枚の照合で 350 回ほどで、無視できる
+- `plan` は「1 to add, 1 to change, 0 to destroy」になるはず（コンテナの追加と、Function App の `app_settings` に `DEM_STORAGE_CONTAINER_NAME` を足す変更）。**apply は人間が行う**
