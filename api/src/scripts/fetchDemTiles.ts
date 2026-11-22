@@ -155,7 +155,8 @@ export async function fetchDemTiles(options: FetchDemTilesOptions): Promise<DemS
  * 手元のフォルダの置き場。取ったタイルは <ズーム>/<x>/<y>.png（Blob に上げるときの名前と同じ）、無かったタイルは <ズーム>/<x>/<y>.none（空のファイル）。
  * 書いている途中で止まったファイルを取れたものと見なさないよう、別の名前に書いてから名前を変える。
  * Windows ではウイルス対策や検索の索引が書いたばかりのファイルを一時的につかみ、名前の変更が EPERM・EBUSY で失敗することがあるので、
- * 少し待って数回やり直す（1日かかる取り出しが、たまたまの1回で止まらないように）
+ * 少し待って数回やり直す（1日かかる取り出しが、たまたまの1回で止まらないように）。権限の無い（EACCES）ような変わらない失敗はやり直さない。
+ * やり直しても失敗すれば、書きかけの .part を消してから投げる（止めて回し直すたびに残らないように）
  */
 export function folderStore(root: string): TileStore {
   const file = (tile: DemTile, ext: string): string => path.join(root, String(tile.z), String(tile.x), `${tile.y}.${ext}`);
@@ -169,7 +170,10 @@ export function folderStore(root: string): TileStore {
         return;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (attempt >= 5 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw error;
+        if (attempt >= 5 || (code !== 'EPERM' && code !== 'EBUSY')) {
+          fs.rmSync(`${target}.part`, { force: true });
+          throw error;
+        }
         Atomics.wait(pause, 0, 0, 500 * attempt);
       }
     }
@@ -215,23 +219,31 @@ function fetchFromGsi(tile: DemTile): Promise<Buffer | null> {
   const url = `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${tile.z}/${tile.x}/${tile.y}.png`;
   const failure = (message: string, retryable = true): Error => Object.assign(new Error(`${message}（${url}）`), { retryable });
   return new Promise((resolve, reject) => {
+    // こちらから打ち切ったとき（締め切り・無通信）は、応答の側が先に出す「切れた」でなく、打ち切った理由を出す
+    let cutReason: string | null = null;
+    const fail = (message: string, retryable = true): void => reject(failure(cutReason ?? message, retryable));
     const request = https.get(url, { headers: { 'User-Agent': 'dem-tile-fetch/1.0' }, timeout: 30_000 }, (response) => {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => chunks.push(chunk));
-      response.on('aborted', () => reject(failure('本文の途中で切れました')));
       response.on('end', () => {
+        // 本文の途中で接続が切れても end が来ることがあるので、最後まで届いたか（complete）を見る。Content-Length の無い応答でも効く
+        if (!response.complete) return fail('本文の途中で切れました');
         try {
           resolve(judgeGsiResponse(response.statusCode ?? 0, response.headers['content-length'], Buffer.concat(chunks)));
         } catch (error) {
-          reject(failure((error as Error).message, (error as { retryable?: boolean }).retryable !== false));
+          fail((error as Error).message, (error as { retryable?: boolean }).retryable !== false);
         }
       });
-      response.on('error', (error) => reject(failure(error.message)));
+      response.on('error', (error) => fail(error.message));
     });
-    const deadline = setTimeout(() => request.destroy(new Error(`${REQUEST_DEADLINE_MS / 1000} 秒で終わりませんでした`)), REQUEST_DEADLINE_MS);
+    const cut = (reason: string): void => {
+      cutReason = reason;
+      request.destroy(new Error(reason));
+    };
+    const deadline = setTimeout(() => cut(`${REQUEST_DEADLINE_MS / 1000} 秒で終わりませんでした`), REQUEST_DEADLINE_MS);
     request.on('close', () => clearTimeout(deadline));
-    request.on('timeout', () => request.destroy(new Error('応答がありません')));
-    request.on('error', (error) => reject(failure(error.message)));
+    request.on('timeout', () => cut('応答がありません'));
+    request.on('error', (error) => fail(error.message));
   });
 }
 
