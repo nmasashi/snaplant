@@ -180,7 +180,7 @@ describe('標高のデータを取り出すスクリプトの、国土地理院�
     expect(judgeGsiResponse(404, '0', Buffer.alloc(0))).toBeNull();
   });
 
-  it('断られた 4xx（404・429 でないもの）は取り直さない失敗、429 と 5xx は取り直す失敗になる', () => {
+  it('断られた 4xx（404・408・425・429 でないもの）と 3xx は取り直さない失敗、408・425・429 と 5xx は取り直す失敗になる', () => {
     const errorOf = (status: number): { retryable?: boolean } => {
       try {
         judgeGsiResponse(status, '0', Buffer.alloc(0));
@@ -193,6 +193,15 @@ describe('標高のデータを取り出すスクリプトの、国土地理院�
     expect(errorOf(400).retryable).toBe(false);
     expect(errorOf(429).retryable).toBe(true);
     expect(errorOf(503).retryable).toBe(true);
+    // 408（時間切れ）・425（早すぎる）は一時的な 4xx なので取り直す。3xx（場所が移った）は取り直しても変わらない
+    expect(errorOf(408).retryable).toBe(true);
+    expect(errorOf(425).retryable).toBe(true);
+    expect(errorOf(301).retryable).toBe(false);
+  });
+
+  it('Content-Length が空か数でなければ、長さは比べずに PNG なら置く', () => {
+    expect(judgeGsiResponse(200, '', png)).toEqual(png);
+    expect(judgeGsiResponse(200, undefined, png)).toEqual(png);
   });
 
   it('本文が途中で切れた応答と PNG でない応答は、置かずに取り直す失敗になる（置くと二度と取り直されない）', () => {
