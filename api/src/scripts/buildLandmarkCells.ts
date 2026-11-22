@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { LandmarkEntry, cellOf } from '../utils/landmarkCells';
+import { argOf } from './scriptSettings';
 
 // 区画のファイルの1件の型。テストが読むので、ここからも出す
 export type { LandmarkEntry };
@@ -162,17 +163,6 @@ export async function buildLandmarkCells(
     throw new Error(`名所と山頂が ${total} 件しかありません（下限 ${options.minCount} 件）`);
   }
   return { cells, total, byKind };
-}
-
-/** 引数の `--名前 値` を読む。名前だけで値が無ければ失敗にする（黙って既定値に戻さない） */
-function argOf(name: string): string | undefined {
-  const index = process.argv.indexOf(`--${name}`);
-  if (index < 0) return undefined;
-  const value = process.argv[index + 1];
-  if (value === undefined || value.startsWith('--')) {
-    throw new Error(`--${name} の値がありません`);
-  }
-  return value;
 }
 
 /**

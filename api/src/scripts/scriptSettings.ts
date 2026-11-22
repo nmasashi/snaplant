@@ -47,3 +47,14 @@ export function endpointHost(endpoint: string | undefined): string {
     return '（COSMOS_DB_ENDPOINT が URL として読めない）';
   }
 }
+
+/** 引数の `--名前 値` を読む。名前だけで値が無ければ失敗にする（黙って既定値に戻さない） */
+export function argOf(name: string): string | undefined {
+  const index = process.argv.indexOf(`--${name}`);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`--${name} の値がありません`);
+  }
+  return value;
+}
