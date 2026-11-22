@@ -116,6 +116,25 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     expect([...found.keys()].sort()).toEqual(['10/885/412', '8/221/103']);
   });
 
+  it('取り直しても変わらない失敗（404 でない 4xx。サーバに断られた）は、取り直さずにすぐ止まる（断ったサーバに頼み続けない）', async () => {
+    const server = fakeServer([KUJU]);
+    const refused = async (t: DemTile): Promise<Buffer | null> => {
+      if (t.z === 10) {
+        server.requested.push(key(t));
+        throw Object.assign(new Error('HTTP 403'), { retryable: false });
+      }
+      return server.fetchTile(t);
+    };
+    const { store } = memoryStore();
+    const waits: number[] = [];
+
+    await expect(fetchDemTiles({ fetchTile: refused, store, wait: async (ms) => { waits.push(ms); }, bounds: ONE_Z8, intervalMs: 400, retryDelaysMs: [5000, 15000] }))
+      .rejects.toThrow('HTTP 403');
+
+    expect(server.requested.filter((k) => k.startsWith('10/'))).toHaveLength(1);
+    expect(waits.filter((ms) => ms !== 400)).toEqual([]);
+  });
+
   it('ズームごとに、あったタイルと無かったタイルの数を返す', async () => {
     const server = fakeServer([KUJU, [14165, 6595]]);
     const { store } = memoryStore();
