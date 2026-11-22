@@ -187,17 +187,25 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 /** 1枚を頼んでから、これを過ぎても終わらなければ失敗にする（少しずつ届き続けると、無通信の時間切れが効かないため） */
 const REQUEST_DEADLINE_MS = 60_000;
 
+/** 取り直せば変わりうる 4xx（408 時間切れ・425 早すぎる・429 頼みすぎ） */
+const TRANSIENT_4XX = [408, 425, 429];
+
 /**
  * 国土地理院の応答を、置くタイルの中身にする。404 なら null。
- * 404・429 でない 4xx（断られた）は取り直しても変わらないので retryable: false を付けて投げる（429 は頼みすぎなので、間を置いて取り直す）。
+ * 3xx（場所が移った）と、一時的でない 4xx（断られた）は取り直しても変わらないので retryable: false を付けて投げる（TRANSIENT_4XX は間を置いて取り直す）。
  * ほかのステータス、本文が途中で切れた（Content-Length と長さが違う）、PNG でない応答は、取り直す失敗として投げる
  * （取れたタイルとして置くと二度と取り直されず、そのまま Blob に上がる）
  */
 export function judgeGsiResponse(status: number, contentLength: string | undefined, body: Buffer): Buffer | null {
   if (status === 404) return null;
-  if (status !== 200) throw Object.assign(new Error(`HTTP ${status}`), { retryable: !(status >= 400 && status < 500 && status !== 429) });
-  const expected = Number(contentLength);
-  if (Number.isFinite(expected) && body.length !== expected) throw new Error(`本文が ${expected} バイトのはずが ${body.length} バイトでした`);
+  if (status !== 200) {
+    const refused = (status >= 300 && status < 400) || (status >= 400 && status < 500 && !TRANSIENT_4XX.includes(status));
+    throw Object.assign(new Error(`HTTP ${status}`), { retryable: !refused });
+  }
+  // 空や数でない Content-Length は Number で 0 や NaN になるので、数字だけのときに比べる
+  if (contentLength !== undefined && /^\d+$/.test(contentLength) && body.length !== Number(contentLength)) {
+    throw new Error(`本文が ${contentLength} バイトのはずが ${body.length} バイトでした`);
+  }
   if (!body.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('PNG でない応答でした');
   return body;
 }
