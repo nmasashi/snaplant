@@ -154,28 +154,37 @@ export async function fetchDemTiles(options: FetchDemTilesOptions): Promise<DemS
 /**
  * 手元のフォルダの置き場。取ったタイルは <ズーム>/<x>/<y>.png（Blob に上げるときの名前と同じ）、無かったタイルは <ズーム>/<x>/<y>.none（空のファイル）。
  * 書いている途中で止まったファイルを取れたものと見なさないよう、別の名前に書いてから名前を変える。
- * Windows ではウイルス対策や検索の索引が書いたばかりのファイルを一時的につかみ、名前の変更が EPERM・EBUSY で失敗することがあるので、
- * 少し待って数回やり直す（1日かかる取り出しが、たまたまの1回で止まらないように）。権限の無い（EACCES）ような変わらない失敗はやり直さない。
- * やり直しても失敗すれば、書きかけの .part を消してから投げる（止めて回し直すたびに残らないように）
+ * Windows ではウイルス対策や検索の索引が書いたばかりのファイルを一時的につかみ、名前の変更が EPERM・EBUSY・EACCES で失敗することがあるので、
+ * 少し待って数回やり直す（1日かかる取り出しが、たまたまの1回で止まらないように）。
+ * 書くのか名前の変更が失敗すれば、書きかけの .part を消してみてから元の失敗を投げる（止めて回し直すたびに残らないように。消せなくても元の失敗を出す）
  */
 export function folderStore(root: string): TileStore {
   const file = (tile: DemTile, ext: string): string => path.join(root, String(tile.z), String(tile.x), `${tile.y}.${ext}`);
   const pause = new Int32Array(new SharedArrayBuffer(4));
-  const write = (target: string, body: Buffer): void => {
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(`${target}.part`, body);
+  const renameWithRetry = (from: string, to: string): void => {
     for (let attempt = 1; ; attempt++) {
       try {
-        fs.renameSync(`${target}.part`, target);
+        fs.renameSync(from, to);
         return;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (attempt >= 5 || (code !== 'EPERM' && code !== 'EBUSY')) {
-          fs.rmSync(`${target}.part`, { force: true });
-          throw error;
-        }
+        if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(code ?? '')) throw error;
         Atomics.wait(pause, 0, 0, 500 * attempt);
       }
+    }
+  };
+  const write = (target: string, body: Buffer): void => {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
+      fs.writeFileSync(`${target}.part`, body);
+      renameWithRetry(`${target}.part`, target);
+    } catch (error) {
+      try {
+        fs.rmSync(`${target}.part`, { force: true });
+      } catch {
+        // 消せなくても（つかまれたまま）元の失敗を出す。次に回したときに上書きされる
+      }
+      throw error;
     }
   };
   return {
@@ -235,6 +244,10 @@ function fetchFromGsi(tile: DemTile): Promise<Buffer | null> {
         }
       });
       response.on('error', (error) => fail(error.message));
+      // error も end も来ずに閉じたときに、約束が終わらないまま止まらないように（resolve の後なら何もしない）
+      response.on('close', () => {
+        if (!response.complete) fail('本文の途中で切れました');
+      });
     });
     const cut = (reason: string): void => {
       cutReason = reason;
