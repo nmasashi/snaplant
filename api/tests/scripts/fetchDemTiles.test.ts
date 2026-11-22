@@ -69,7 +69,7 @@ describe('標高のデータを取り出すスクリプト（C-7a。06 §11.2）
     // ズーム 10 は置いてある 885/412 を頼まず、置き場に無いほかの 15 枚だけを頼む
     expect(server.requested).not.toContain('10/885/412');
     expect(server.requested.filter((k) => k.startsWith('10/'))).toHaveLength(15);
-    expect(server.requested).not.toEqual(expect.arrayContaining(missingAt12));
+    for (const k of missingAt12) expect(server.requested).not.toContain(k);
     expect(server.requested.filter((k) => k.startsWith('12/'))).toHaveLength(14);
     // 無かったと覚えているズーム 12 の子は頼まない（続きから回すたびに海のズーム 14 を頼み直さない）。頼むのは、あったズーム 12 の子の 16 枚だけ
     expect(server.requested.filter((k) => k.startsWith('14/'))).toHaveLength(16);
