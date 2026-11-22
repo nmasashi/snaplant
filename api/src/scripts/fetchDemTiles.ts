@@ -157,7 +157,7 @@ export async function fetchDemTiles(options: FetchDemTilesOptions): Promise<DemS
  * Windows ではウイルス対策や検索の索引が書いたばかりのファイルを一時的につかみ、名前の変更が EPERM・EBUSY で失敗することがあるので、
  * 少し待って数回やり直す（1日かかる取り出しが、たまたまの1回で止まらないように）
  */
-function folderStore(root: string): TileStore {
+export function folderStore(root: string): TileStore {
   const file = (tile: DemTile, ext: string): string => path.join(root, String(tile.z), String(tile.x), `${tile.y}.${ext}`);
   const pause = new Int32Array(new SharedArrayBuffer(4));
   const write = (target: string, body: Buffer): void => {
@@ -188,10 +188,21 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const REQUEST_DEADLINE_MS = 60_000;
 
 /**
- * 国土地理院の標高タイルを1枚頼む。404 なら null。User-Agent は使い道の分からない汎用の名前にする。
- * 404・429 でない 4xx（断られた）は取り直しても変わらないので retryable: false を付ける（429 は頼みすぎなので、間を置いて取り直す）。
- * 本文が途中で切れた（Content-Length と長さが違う）・PNG でない応答は、取れたタイルとして置かずに失敗にする（置くと二度と取り直されず、そのまま Blob に上がる）
+ * 国土地理院の応答を、置くタイルの中身にする。404 なら null。
+ * 404・429 でない 4xx（断られた）は取り直しても変わらないので retryable: false を付けて投げる（429 は頼みすぎなので、間を置いて取り直す）。
+ * ほかのステータス、本文が途中で切れた（Content-Length と長さが違う）、PNG でない応答は、取り直す失敗として投げる
+ * （取れたタイルとして置くと二度と取り直されず、そのまま Blob に上がる）
  */
+export function judgeGsiResponse(status: number, contentLength: string | undefined, body: Buffer): Buffer | null {
+  if (status === 404) return null;
+  if (status !== 200) throw Object.assign(new Error(`HTTP ${status}`), { retryable: !(status >= 400 && status < 500 && status !== 429) });
+  const expected = Number(contentLength);
+  if (Number.isFinite(expected) && body.length !== expected) throw new Error(`本文が ${expected} バイトのはずが ${body.length} バイトでした`);
+  if (!body.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('PNG でない応答でした');
+  return body;
+}
+
+/** 国土地理院の標高タイルを1枚頼む。User-Agent は使い道の分からない汎用の名前にする。応答の見分け方は judgeGsiResponse() */
 function fetchFromGsi(tile: DemTile): Promise<Buffer | null> {
   const url = `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${tile.z}/${tile.x}/${tile.y}.png`;
   const failure = (message: string, retryable = true): Error => Object.assign(new Error(`${message}（${url}）`), { retryable });
@@ -201,14 +212,11 @@ function fetchFromGsi(tile: DemTile): Promise<Buffer | null> {
       response.on('data', (chunk: Buffer) => chunks.push(chunk));
       response.on('aborted', () => reject(failure('本文の途中で切れました')));
       response.on('end', () => {
-        const status = response.statusCode ?? 0;
-        if (status === 404) return resolve(null);
-        if (status !== 200) return reject(failure(`HTTP ${status}`, !(status >= 400 && status < 500 && status !== 429)));
-        const body = Buffer.concat(chunks);
-        const expected = Number(response.headers['content-length']);
-        if (Number.isFinite(expected) && body.length !== expected) return reject(failure(`本文が ${expected} バイトのはずが ${body.length} バイトでした`));
-        if (!body.subarray(0, 8).equals(PNG_SIGNATURE)) return reject(failure('PNG でない応答でした'));
-        resolve(body);
+        try {
+          resolve(judgeGsiResponse(response.statusCode ?? 0, response.headers['content-length'], Buffer.concat(chunks)));
+        } catch (error) {
+          reject(failure((error as Error).message, (error as { retryable?: boolean }).retryable !== false));
+        }
       });
       response.on('error', (error) => reject(failure(error.message)));
     });
