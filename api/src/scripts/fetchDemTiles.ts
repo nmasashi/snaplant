@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
+import { argOf } from './scriptSettings';
 
 /**
  * 標高のデータ（国土地理院の標高タイル dem_png）を日本の分だけ取り出し、手元のフォルダに置くスクリプト（C-7a。docs/06_processing_design.md §11.2）。
@@ -152,14 +153,26 @@ export async function fetchDemTiles(options: FetchDemTilesOptions): Promise<DemS
 
 /**
  * 手元のフォルダの置き場。取ったタイルは <ズーム>/<x>/<y>.png（Blob に上げるときの名前と同じ）、無かったタイルは <ズーム>/<x>/<y>.none（空のファイル）。
- * 書いている途中で止まったファイルを取れたものと見なさないよう、別の名前に書いてから名前を変える
+ * 書いている途中で止まったファイルを取れたものと見なさないよう、別の名前に書いてから名前を変える。
+ * Windows ではウイルス対策や検索の索引が書いたばかりのファイルを一時的につかみ、名前の変更が EPERM・EBUSY で失敗することがあるので、
+ * 少し待って数回やり直す（1日かかる取り出しが、たまたまの1回で止まらないように）
  */
 function folderStore(root: string): TileStore {
   const file = (tile: DemTile, ext: string): string => path.join(root, String(tile.z), String(tile.x), `${tile.y}.${ext}`);
+  const pause = new Int32Array(new SharedArrayBuffer(4));
   const write = (target: string, body: Buffer): void => {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(`${target}.part`, body);
-    fs.renameSync(`${target}.part`, target);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        fs.renameSync(`${target}.part`, target);
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (attempt >= 5 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw error;
+        Atomics.wait(pause, 0, 0, 500 * attempt);
+      }
+    }
   };
   return {
     state: (tile) => (fs.existsSync(file(tile, 'png')) ? 'found' : fs.existsSync(file(tile, 'none')) ? 'missing' : null),
@@ -168,34 +181,47 @@ function folderStore(root: string): TileStore {
   };
 }
 
-/** 国土地理院の標高タイルを1枚頼む。404 なら null。User-Agent は使い道の分からない汎用の名前にする */
+/** PNG の先頭の 8 バイト */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** 1枚を頼んでから、これを過ぎても終わらなければ失敗にする（少しずつ届き続けると、無通信の時間切れが効かないため） */
+const REQUEST_DEADLINE_MS = 60_000;
+
+/**
+ * 国土地理院の標高タイルを1枚頼む。404 なら null。User-Agent は使い道の分からない汎用の名前にする。
+ * 404・429 でない 4xx（断られた）は取り直しても変わらないので retryable: false を付ける（429 は頼みすぎなので、間を置いて取り直す）。
+ * 本文が途中で切れた（Content-Length と長さが違う）・PNG でない応答は、取れたタイルとして置かずに失敗にする（置くと二度と取り直されず、そのまま Blob に上がる）
+ */
 function fetchFromGsi(tile: DemTile): Promise<Buffer | null> {
   const url = `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${tile.z}/${tile.x}/${tile.y}.png`;
+  const failure = (message: string, retryable = true): Error => Object.assign(new Error(`${message}（${url}）`), { retryable });
   return new Promise((resolve, reject) => {
     const request = https.get(url, { headers: { 'User-Agent': 'dem-tile-fetch/1.0' }, timeout: 30_000 }, (response) => {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('aborted', () => reject(failure('本文の途中で切れました')));
       response.on('end', () => {
-        if (response.statusCode === 200) resolve(Buffer.concat(chunks));
-        else if (response.statusCode === 404) resolve(null);
-        else reject(new Error(`HTTP ${response.statusCode}（${url}）`));
+        const status = response.statusCode ?? 0;
+        if (status === 404) return resolve(null);
+        if (status !== 200) return reject(failure(`HTTP ${status}`, !(status >= 400 && status < 500 && status !== 429)));
+        const body = Buffer.concat(chunks);
+        const expected = Number(response.headers['content-length']);
+        if (Number.isFinite(expected) && body.length !== expected) return reject(failure(`本文が ${expected} バイトのはずが ${body.length} バイトでした`));
+        if (!body.subarray(0, 8).equals(PNG_SIGNATURE)) return reject(failure('PNG でない応答でした'));
+        resolve(body);
       });
-      response.on('error', reject);
+      response.on('error', (error) => reject(failure(error.message)));
     });
-    request.on('timeout', () => request.destroy(new Error(`応答がありません（${url}）`)));
-    request.on('error', reject);
+    const deadline = setTimeout(() => request.destroy(new Error(`${REQUEST_DEADLINE_MS / 1000} 秒で終わりませんでした`)), REQUEST_DEADLINE_MS);
+    request.on('close', () => clearTimeout(deadline));
+    request.on('timeout', () => request.destroy(new Error('応答がありません')));
+    request.on('error', (error) => reject(failure(error.message)));
   });
-}
-
-/** 引数 --<名前> の次の値 */
-function argument(name: string): string | undefined {
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
 /** 手で回す入口。--out の置き場に取り、1,000 枚ごとと終わりに進み具合を出す */
 async function run(): Promise<void> {
-  const out = argument('out');
+  const out = argOf('out');
   if (!out) throw new Error('--out <フォルダ> を指定してください');
   let requests = 0;
   const started = Date.now();
