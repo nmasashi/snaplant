@@ -349,6 +349,8 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 
 ## 9. 山の判別（C-7）
 
+**実装済み**（C-7a。`infrastructure/main.tf` の `azurerm_storage_container.dem` と `app_settings` の `DEM_STORAGE_CONTAINER_NAME`、`outputs.tf` の `dem_container_name`、`api/src/scripts/fetchDemTiles.ts`）: コンテナ・設定・取り出し・置く手順。照合の場所とパッケージは C-7b・C-7c。
+
 [02 §5](./02_design_overview.md#5-人間に決めてもらう点推奨付き) #65 (10)〜(12)。標高のデータの中身と取り出し方は [06 §11.2](./06_processing_design.md#112-標高のデータ)。
 
 | リソース | 名前 | 設定 | 注意 |
@@ -365,4 +367,4 @@ AI の1日の呼び出し回数の上限（`AI_DAILY_CALL_LIMIT`）と地名変�
 - **取り出し**: 人間が手元の PC で `fetchDemTiles.ts` を回す（1日ほど）。GitHub Actions では回さない（1つのジョブが 6 時間までで終わらない。名所のデータと違い、取り出しは1回だけ）
 - **置く手順**（人間。DEPLOYMENT.md に書く）: スクリプトの出力のフォルダを、`az storage blob upload-batch` で `dem` コンテナに上げる（10 万枚を超えるので数時間かかりうる）。C-7 の api をデプロイする前に行い、その後に既にある風景の写真のスクリプト（06 §11）を回す
 - 費用: 推定で 11〜14 GB、Blob の保管は月 50 円ほど。読み取りは1枚の照合で 350 回ほどで、無視できる
-- `plan` は「1 to add, 1 to change, 0 to destroy」になるはず（コンテナの追加と、Function App の `app_settings` に `DEM_STORAGE_CONTAINER_NAME` を足す変更）。**apply は人間が行う**
+- `plan` は「1 to add, 1 to change, 0 to destroy」（C-7a で確かめた。コンテナの追加と、Function App の `app_settings` に `DEM_STORAGE_CONTAINER_NAME` を足す変更）。**apply は人間が行う**
